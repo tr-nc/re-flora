@@ -1,8 +1,5 @@
 # HRTFs
 
-Resources can be downloaded from [SOFA](https://www.sofaconventions.org/mediawiki/index.php/Files)
-
-## File listings
-
-- hrtf_b_nh172.sofa
-  - NH172: HRTFs, DTFs, raw and reference data of the dummy head Neumann KU 100. Also part of Club Fritz
+`hrtf_b_nh172.petalhrtf` is PetalSonic's native runtime representation of the
+NH172 Neumann KU 100 dummy-head dataset. Re: Flora supplies this file as an
+optional project-specific HRTF override; PetalSonic also embeds a native default.

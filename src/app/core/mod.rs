@@ -630,13 +630,26 @@ impl App {
         self.set_audio_output_muted(!self.mute_audio_output, "M key");
     }
 
-    fn update_audio_ray_tracing(&mut self) {
-        self.spatial_sound_manager.set_audio_ray_tracing_enabled(
+    fn update_environmental_acoustics(&mut self) {
+        let quality = Self::environmental_acoustics_quality(
+            self.debug_settings
+                .adjustables
+                .audio_ray_tracing_quality_percent
+                .value,
+        );
+        if let Err(err) = self.spatial_sound_manager.set_environmental_acoustics(
             self.debug_settings
                 .adjustables
                 .audio_ray_tracing_enabled
                 .value,
-        );
+            quality,
+        ) {
+            log::warn!("Failed to update environmental acoustics: {err}");
+        }
+    }
+
+    fn environmental_acoustics_quality(quality_percent: u32) -> f32 {
+        quality_percent.min(100) as f32 / 100.0
     }
 
     fn tree_audio_wind_response_curve(gui_adjustables: &GuiAdjustables) -> WindResponseCurve {
@@ -777,7 +790,7 @@ impl App {
         // and the app-level tree ambience sources.
         let spatial_sound_manager = SpatialSoundManager::new(
             1024,
-            contree_builder.audio_ray_tracer(),
+            contree_builder.acoustic_scene_snapshot(),
             options.audio_output_device.clone(),
         )?;
 
@@ -857,6 +870,15 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let debug_settings = DebugSettings::load();
+        spatial_sound_manager.set_environmental_acoustics(
+            debug_settings.adjustables.audio_ray_tracing_enabled.value,
+            Self::environmental_acoustics_quality(
+                debug_settings
+                    .adjustables
+                    .audio_ray_tracing_quality_percent
+                    .value,
+            ),
+        )?;
         let mut tree_placement_preview_desc = debug_settings
             .tree
             .desc
@@ -1850,6 +1872,12 @@ impl App {
                         VOXEL_DIM_PER_CHUNK,
                     );
                 });
+                if let Err(err) = self
+                    .spatial_sound_manager
+                    .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
+                {
+                    log::warn!("Failed to publish acoustic terrain snapshot: {err}");
+                }
                 if self.loading_state.is_none() {
                     self.terrain_physics
                         .process_terrain_collider_updates(&self.contree_builder);
@@ -1917,10 +1945,13 @@ impl App {
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self.spatial_sound_manager.publish_spatial_frame() {
+                if let Err(err) = self
+                    .spatial_sound_manager
+                    .publish_spatial_frame(f64::from(time_since_start))
+                {
                     log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
-                self.update_audio_ray_tracing();
+                self.update_environmental_acoustics();
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
@@ -4064,5 +4095,13 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
+    }
+
+    #[test]
+    fn environmental_acoustics_quality_normalizes_and_clamps_gui_percent() {
+        assert_eq!(App::environmental_acoustics_quality(0), 0.0);
+        assert_eq!(App::environmental_acoustics_quality(50), 0.5);
+        assert_eq!(App::environmental_acoustics_quality(100), 1.0);
+        assert_eq!(App::environmental_acoustics_quality(101), 1.0);
     }
 }

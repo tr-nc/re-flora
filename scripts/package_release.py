@@ -10,11 +10,9 @@ import platform
 import re
 import shutil
 import stat
-import struct
 import subprocess
 import sys
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "re-flora"
@@ -26,13 +24,6 @@ PACKAGE_FILES = [
     "docs/playing.md",
     "demo/img/splash.png",
 ]
-
-
-@dataclass(frozen=True)
-class RuntimeLibrarySpec:
-    label: str
-    patterns: tuple[str, ...]
-    required: bool = True
 
 
 def repo_root() -> Path:
@@ -118,130 +109,6 @@ def copy_binary(root: Path, stage_root: Path, target_dir: Path) -> Path:
         dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     return dst
-
-
-def runtime_specs(current_platform: str) -> list[RuntimeLibrarySpec]:
-    if current_platform == "windows":
-        return [RuntimeLibrarySpec("Steam Audio", ("phonon.dll",))]
-    if current_platform == "macos":
-        return [RuntimeLibrarySpec("Steam Audio", ("libphonon.dylib",))]
-    if current_platform == "linux":
-        return [RuntimeLibrarySpec("Steam Audio", ("libphonon.so",))]
-    return []
-
-
-def library_destination(stage_root: Path, current_platform: str) -> Path:
-    # Windows DLL search includes the executable directory by default. Unix-like
-    # packages keep third-party shared objects in lib/ and add an executable rpath.
-    return stage_root if current_platform == "windows" else stage_root / "lib"
-
-
-def candidate_search_roots(target_dir: Path) -> list[Path]:
-    release_dir = target_dir / "release"
-    roots = [
-        release_dir,
-        release_dir / "deps",
-        release_dir / "build",
-        target_dir,
-    ]
-    return [root for root in roots if root.exists()]
-
-
-def find_library_candidates(target_dir: Path, patterns: tuple[str, ...]) -> list[Path]:
-    candidates: dict[Path, Path] = {}
-    for root in candidate_search_roots(target_dir):
-        for pattern in patterns:
-            for path in root.rglob(pattern):
-                if path.is_file():
-                    candidates[path.resolve()] = path
-    return sorted(candidates.values(), key=lambda path: path.stat().st_mtime, reverse=True)
-
-
-def windows_pe_machine(path: Path) -> int:
-    with path.open("rb") as file:
-        dos_header = file.read(64)
-        if len(dos_header) != 64 or dos_header[:2] != b"MZ":
-            raise ValueError(f"not a Windows PE file: {path}")
-
-        pe_offset = struct.unpack_from("<I", dos_header, 0x3C)[0]
-        file.seek(pe_offset)
-        if file.read(4) != b"PE\0\0":
-            raise ValueError(f"invalid Windows PE signature: {path}")
-
-        machine_bytes = file.read(2)
-        if len(machine_bytes) != 2:
-            raise ValueError(f"truncated Windows PE header: {path}")
-        return struct.unpack("<H", machine_bytes)[0]
-
-
-def compatible_runtime_candidates(
-    candidates: list[Path], binary_path: Path, current_platform: str, label: str
-) -> list[Path]:
-    if current_platform != "windows":
-        return candidates
-
-    expected_machine = windows_pe_machine(binary_path)
-    compatible = []
-    rejected = []
-    for candidate in candidates:
-        try:
-            candidate_machine = windows_pe_machine(candidate)
-        except ValueError as error:
-            rejected.append(f"{candidate} ({error})")
-            continue
-        if candidate_machine == expected_machine:
-            compatible.append(candidate)
-        else:
-            rejected.append(f"{candidate} (PE machine 0x{candidate_machine:04x})")
-
-    if compatible:
-        return compatible
-
-    rejected_text = "; ".join(rejected) if rejected else "none"
-    raise FileNotFoundError(
-        f"no Windows runtime library for {label} matches the executable "
-        f"PE machine 0x{expected_machine:04x}; rejected candidates: {rejected_text}"
-    )
-
-
-def copy_runtime_libraries(
-    stage_root: Path, target_dir: Path, current_platform: str, binary_path: Path
-) -> list[Path]:
-    copied: list[Path] = []
-    specs = runtime_specs(current_platform)
-    if not specs:
-        return copied
-
-    dst_dir = library_destination(stage_root, current_platform)
-    dst_dir.mkdir(parents=True, exist_ok=True)
-
-    for spec in specs:
-        candidates = find_library_candidates(target_dir, spec.patterns)
-        if not candidates:
-            message = (
-                f"runtime library for {spec.label} not found; searched for "
-                f"{', '.join(spec.patterns)} under {target_dir}"
-            )
-            if spec.required:
-                raise FileNotFoundError(message)
-            print(f"warning: {message}", file=sys.stderr)
-            continue
-
-        candidates = compatible_runtime_candidates(
-            candidates, binary_path, current_platform, spec.label
-        )
-
-        # Copy the newest matching build output. Build scripts can leave older
-        # artifacts in sibling hash dirs, so mtime is a better signal than name.
-        # On Windows, candidates have already been restricted to the executable's
-        # PE architecture because Steam Audio ships x86 and x64 DLLs together.
-        src = candidates[0]
-        dst = dst_dir / src.name
-        shutil.copy2(src, dst)
-        copied.append(dst)
-        print(f"Bundled {spec.label}: {dst.relative_to(stage_root)}", file=sys.stderr)
-
-    return copied
 
 
 def run_allow_duplicate_rpath(command: list[str]) -> None:
@@ -416,14 +283,11 @@ def package(args: argparse.Namespace) -> Path:
 
     binary_path = copy_binary(root, stage_root, target_dir)
     copy_runtime_tree(root, stage_root)
-    copied_libs = copy_runtime_libraries(
-        stage_root, target_dir, current_platform, binary_path
-    )
     copied_vulkan = copy_macos_vulkan_runtime(stage_root)
     fix_unix_runtime_paths(
         binary_path,
         current_platform,
-        has_lib_dir=(stage_root / "lib").exists() and bool(copied_libs or copied_vulkan),
+        has_lib_dir=(stage_root / "lib").exists() and bool(copied_vulkan),
     )
     write_build_info(stage_root, version=version, channel=channel)
 

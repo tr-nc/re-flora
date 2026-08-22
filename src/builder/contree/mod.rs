@@ -3,6 +3,10 @@
 mod resources;
 pub use resources::*;
 
+use super::plain::{
+    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+    VOXEL_TYPE_STUCCO,
+};
 use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
@@ -12,7 +16,7 @@ use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{
-    AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer, BatchedClosestHitRayTracer,
+    AcousticHit, AcousticMaterial, AcousticRay, AcousticRayQuerySnapshot, AcousticSceneSnapshot,
     Vec3 as PetalVec3,
 };
 use re_flora_terrain_collider::{
@@ -35,10 +39,7 @@ use re_flora_vkn::ShaderModule;
 use re_flora_vkn::TimestampQueryPool;
 use re_flora_vkn::VulkanContext;
 use std::collections::{HashMap, HashSet};
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    mpsc, Arc, RwLock,
-};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -56,8 +57,7 @@ const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
 const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
-const AUDIO_RAY_START_EPSILON: f32 = 0.05;
-const AUDIO_RAY_ENDPOINT_EPSILON: f32 = 0.05;
+const AUDIO_RAY_NUMERIC_EPSILON: f32 = DDA_EPSILON;
 
 pub struct ContreeBuilder {
     vulkan_ctx: VulkanContext,
@@ -103,28 +103,17 @@ pub struct ContreeBuilder {
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
     cpu_chunk_cache_worker: Option<thread::JoinHandle<()>>,
-    shared_ray_query_state: Arc<RwLock<Arc<ContreeRayQueryState>>>,
-    retired_ray_query_states: Vec<Arc<ContreeRayQueryState>>,
-    audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
+    acoustic_scene_version: u64,
+    acoustic_query_snapshot: Arc<ContreeAcousticSnapshot>,
 }
 
-pub struct ContreeAnyHitRayTracer {
-    enabled: Arc<AtomicBool>,
-    shared_state: Arc<RwLock<Arc<ContreeRayQueryState>>>,
-    runtime_stats: Arc<ContreeRayTracingRuntimeStats>,
-}
-
-#[derive(Default)]
-struct ContreeRayTracingRuntimeStats {
-    update_count: AtomicUsize,
-    updated_sources: AtomicUsize,
-    occluded_sources: AtomicUsize,
-    update_failures: AtomicUsize,
-    total_update_time_us: AtomicU64,
+struct ContreeAcousticSnapshot {
+    state: Arc<ContreeRayQueryState>,
 }
 
 struct ContreeRayQueryState {
     chunk_dim: UVec3,
+    voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
 }
@@ -694,13 +683,7 @@ struct CpuChunkCacheWorkerResult {
     readback_buffers: CpuChunkReadbackBuffers,
 }
 
-impl ContreeAnyHitRayTracer {
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
-    }
-}
-
-impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
+impl AcousticRayQuerySnapshot for ContreeAcousticSnapshot {
     fn trace_any_hit_batch(
         &self,
         rays: &[AcousticRay],
@@ -709,18 +692,6 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
         hits: &mut [bool],
     ) {
         hits.fill(false);
-        if !self.enabled.load(Ordering::Relaxed) {
-            return;
-        }
-
-        let trace_start = Instant::now();
-        let Ok(shared_state) = self.shared_state.try_read() else {
-            self.runtime_stats
-                .update_failures
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        };
-        let shared_state = shared_state.clone();
 
         for (((ray, min_distance), max_distance), hit) in rays
             .iter()
@@ -729,35 +700,15 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
             .zip(hits.iter_mut())
         {
             *hit = query_terrain_any_hit(
-                &shared_state,
+                &self.state,
                 Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
                 Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
                 min_distance,
                 max_distance,
             );
         }
-
-        let processed = rays.len().min(hits.len());
-        let occluded_sources = hits[..processed]
-            .iter()
-            .filter(|is_occluded| **is_occluded)
-            .count();
-        self.runtime_stats
-            .update_count
-            .fetch_add(1, Ordering::Relaxed);
-        self.runtime_stats
-            .updated_sources
-            .fetch_add(processed, Ordering::Relaxed);
-        self.runtime_stats
-            .occluded_sources
-            .fetch_add(occluded_sources, Ordering::Relaxed);
-        self.runtime_stats
-            .total_update_time_us
-            .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
     }
-}
 
-impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
     fn trace_closest_hit_batch(
         &self,
         rays: &[AcousticRay],
@@ -766,18 +717,6 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
         hits: &mut [Option<AcousticHit>],
     ) {
         hits.fill(None);
-        if !self.enabled.load(Ordering::Relaxed) {
-            return;
-        }
-
-        let trace_start = Instant::now();
-        let Ok(shared_state) = self.shared_state.try_read() else {
-            self.runtime_stats
-                .update_failures
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        };
-        let shared_state = shared_state.clone();
 
         for (((ray, min_distance), max_distance), hit) in rays
             .iter()
@@ -786,28 +725,13 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
             .zip(hits.iter_mut())
         {
             *hit = query_terrain_closest_hit(
-                &shared_state,
+                &self.state,
                 Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
                 Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
                 min_distance,
                 max_distance,
             );
         }
-
-        let processed = rays.len().min(hits.len());
-        let hit_count = hits[..processed].iter().filter(|hit| hit.is_some()).count();
-        self.runtime_stats
-            .update_count
-            .fetch_add(1, Ordering::Relaxed);
-        self.runtime_stats
-            .updated_sources
-            .fetch_add(processed, Ordering::Relaxed);
-        self.runtime_stats
-            .occluded_sources
-            .fetch_add(hit_count, Ordering::Relaxed);
-        self.runtime_stats
-            .total_update_time_us
-            .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
     }
 }
 
@@ -1008,15 +932,14 @@ impl ContreeBuilder {
             max_node_buffer_size_in_bytes,
         ));
 
-        let shared_ray_query_state = Arc::new(RwLock::new(Arc::new(ContreeRayQueryState {
+        let initial_ray_query_state = Arc::new(ContreeRayQueryState {
             chunk_dim,
+            voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
-        })));
-        let audio_ray_tracer = Arc::new(ContreeAnyHitRayTracer {
-            enabled: Arc::new(AtomicBool::new(true)),
-            shared_state: shared_ray_query_state.clone(),
-            runtime_stats: Arc::new(ContreeRayTracingRuntimeStats::default()),
+        });
+        let acoustic_query_snapshot = Arc::new(ContreeAcousticSnapshot {
+            state: initial_ray_query_state,
         });
 
         Self {
@@ -1052,9 +975,8 @@ impl ContreeBuilder {
             cpu_chunk_cache_job_tx,
             cpu_chunk_cache_result_rx,
             cpu_chunk_cache_worker: Some(cpu_chunk_cache_worker),
-            shared_ray_query_state,
-            retired_ray_query_states: Vec::new(),
-            audio_ray_tracer,
+            acoustic_scene_version: 1,
+            acoustic_query_snapshot,
         }
     }
 
@@ -1221,8 +1143,11 @@ impl ContreeBuilder {
         self.cpu_chunk_caches.len()
     }
 
-    pub fn audio_ray_tracer(&self) -> Arc<ContreeAnyHitRayTracer> {
-        self.audio_ray_tracer.clone()
+    pub fn acoustic_scene_snapshot(&self) -> AcousticSceneSnapshot {
+        AcousticSceneSnapshot::new(
+            self.acoustic_scene_version,
+            self.acoustic_query_snapshot.clone(),
+        )
     }
 
     pub fn poll_cpu_chunk_cache_jobs(&mut self, focus: Vec3, chunk_extent: UVec3) {
@@ -1923,17 +1848,18 @@ impl ContreeBuilder {
     /// Publish an immutable, shallow scene version. Chunk BVHs remain shared by Arc;
     /// only the small scene index and cache map are copied on the builder thread.
     fn publish_ray_query_snapshot(&mut self) {
-        let next = Arc::new(ContreeRayQueryState {
-            chunk_dim: self.chunk_dim,
-            cpu_scene_chunks: self.cpu_scene_chunks.clone(),
-            cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+        self.acoustic_scene_version = self
+            .acoustic_scene_version
+            .checked_add(1)
+            .expect("acoustic scene version overflowed");
+        self.acoustic_query_snapshot = Arc::new(ContreeAcousticSnapshot {
+            state: Arc::new(ContreeRayQueryState {
+                chunk_dim: self.chunk_dim,
+                voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+                cpu_scene_chunks: self.cpu_scene_chunks.clone(),
+                cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+            }),
         });
-        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
-            self.retired_ray_query_states
-                .push(std::mem::replace(&mut *shared_state, next));
-        }
-        self.retired_ray_query_states
-            .retain(|state| Arc::strong_count(state) > 1);
     }
 
     fn record_cpu_chunk_source_update(&mut self, chunk_idx: UVec3, is_present: bool) -> u64 {
@@ -2188,6 +2114,25 @@ mod tests {
         }
     }
 
+    fn acoustic_snapshot(
+        chunk_dim: UVec3,
+        present_chunks: &[UVec3],
+        caches: &[(UVec3, Arc<CpuChunkCache>)],
+    ) -> ContreeAcousticSnapshot {
+        let mut cpu_scene_chunks = vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize];
+        for &chunk_idx in present_chunks {
+            cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)] = Some(chunk_idx);
+        }
+        ContreeAcousticSnapshot {
+            state: Arc::new(ContreeRayQueryState {
+                chunk_dim,
+                voxel_dim_per_chunk: UVec3::splat(4),
+                cpu_scene_chunks,
+                cpu_chunk_caches: caches.iter().cloned().collect(),
+            }),
+        }
+    }
+
     fn ready_block(export: ContreeCpuVoxelBlockExport) -> ContreeCpuVoxelBlock {
         match export {
             ContreeCpuVoxelBlockExport::Ready(block) => block,
@@ -2405,6 +2350,55 @@ mod tests {
             Err(ContreeCpuVoxelBlockExportError::OutOfBounds { .. })
         ));
     }
+
+    #[test]
+    fn acoustic_snapshot_keeps_its_exact_geometry_generation() {
+        let chunk = UVec3::ZERO;
+        let rock_cache = leaf_cache(chunk, &[(UVec3::new(1, 1, 1), VOXEL_TYPE_ROCK)]);
+        let old_snapshot = acoustic_snapshot(UVec3::ONE, &[chunk], &[(chunk, rock_cache)]);
+        let empty_snapshot = acoustic_snapshot(UVec3::ONE, &[], &[]);
+        let rays = [AcousticRay {
+            origin: PetalVec3::new(0.20, 0.375, 0.375),
+            direction: PetalVec3::new(1.0, 0.0, 0.0),
+        }];
+
+        let mut old_any_hits = [false];
+        old_snapshot.trace_any_hit_batch(&rays, &[0.0], &[0.06], &mut old_any_hits);
+        let mut new_any_hits = [false];
+        empty_snapshot.trace_any_hit_batch(&rays, &[0.0], &[0.06], &mut new_any_hits);
+
+        assert_eq!(old_any_hits, [true]);
+        assert_eq!(new_any_hits, [false]);
+
+        let mut old_closest_hits = [None];
+        old_snapshot.trace_closest_hit_batch(&rays, &[0.0], &[0.06], &mut old_closest_hits);
+        let hit = old_closest_hits[0].expect("the old snapshot should retain the rock voxel");
+        assert!((0.04..=0.06).contains(&hit.distance));
+        assert_eq!(hit.material, acoustic_material_for_voxel(VOXEL_TYPE_ROCK));
+
+        let mut old_any_hits_again = [false];
+        old_snapshot.trace_any_hit_batch(&rays, &[0.0], &[0.06], &mut old_any_hits_again);
+        assert_eq!(old_any_hits_again, [true]);
+    }
+
+    #[test]
+    fn acoustic_materials_follow_voxel_categories() {
+        let dirt = acoustic_material_for_voxel(VOXEL_TYPE_DIRT);
+        let sand = acoustic_material_for_voxel(VOXEL_TYPE_SAND);
+        let stucco = acoustic_material_for_voxel(VOXEL_TYPE_STUCCO);
+        let cherry = acoustic_material_for_voxel(VOXEL_TYPE_CHERRY_WOOD);
+        let oak = acoustic_material_for_voxel(VOXEL_TYPE_OAK_WOOD);
+        let rock = acoustic_material_for_voxel(VOXEL_TYPE_ROCK);
+
+        assert!(sand.absorption[2] > dirt.absorption[2]);
+        assert!(dirt.scattering > stucco.scattering);
+        assert!(rock
+            .absorption
+            .iter()
+            .all(|coefficient| *coefficient <= 0.05));
+        assert_eq!(cherry, oak);
+        assert_ne!(stucco, AcousticMaterial::default());
+    }
 }
 
 fn query_terrain_any_hit(
@@ -2414,12 +2408,17 @@ fn query_terrain_any_hit(
     min_distance: f32,
     max_distance: f32,
 ) -> bool {
-    if direction.length_squared() <= f32::EPSILON {
+    if !origin.is_finite()
+        || !direction.is_finite()
+        || !min_distance.is_finite()
+        || !max_distance.is_finite()
+        || direction.length_squared() <= f32::EPSILON
+    {
         return false;
     }
 
-    let start_distance = (min_distance + AUDIO_RAY_START_EPSILON).max(0.0);
-    let end_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(start_distance);
+    let start_distance = (min_distance + AUDIO_RAY_NUMERIC_EPSILON).max(0.0);
+    let end_distance = max_distance - AUDIO_RAY_NUMERIC_EPSILON;
     if end_distance <= start_distance {
         return false;
     }
@@ -2428,8 +2427,14 @@ fn query_terrain_any_hit(
     let segment_origin = origin + normalized_dir * start_distance;
     let segment_length = end_distance - start_distance;
 
-    query_terrain_ray_from_snapshot(state, segment_origin, normalized_dir)
-        .is_some_and(|hit| hit.distance(segment_origin) <= segment_length)
+    query_terrain_ray_against_state(
+        state.chunk_dim,
+        &state.cpu_scene_chunks,
+        &state.cpu_chunk_caches,
+        segment_origin,
+        normalized_dir,
+    )
+    .is_some_and(|hit| hit.position.distance(segment_origin) <= segment_length)
 }
 
 fn query_terrain_closest_hit(
@@ -2439,12 +2444,17 @@ fn query_terrain_closest_hit(
     min_distance: f32,
     max_distance: f32,
 ) -> Option<AcousticHit> {
-    if direction.length_squared() <= f32::EPSILON {
+    if !origin.is_finite()
+        || !direction.is_finite()
+        || !min_distance.is_finite()
+        || !max_distance.is_finite()
+        || direction.length_squared() <= f32::EPSILON
+    {
         return None;
     }
 
-    let start_distance = (min_distance + AUDIO_RAY_START_EPSILON).max(0.0);
-    let end_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(start_distance);
+    let start_distance = (min_distance + AUDIO_RAY_NUMERIC_EPSILON).max(0.0);
+    let end_distance = max_distance - AUDIO_RAY_NUMERIC_EPSILON;
     if end_distance <= start_distance {
         return None;
     }
@@ -2452,18 +2462,58 @@ fn query_terrain_closest_hit(
     let normalized_dir = direction.normalize();
     let segment_origin = origin + normalized_dir * start_distance;
     let segment_length = end_distance - start_distance;
-    let hit = query_terrain_ray_from_snapshot(state, segment_origin, normalized_dir)?;
-    let hit_distance = hit.distance(segment_origin);
+    let hit = query_terrain_ray_against_state(
+        state.chunk_dim,
+        &state.cpu_scene_chunks,
+        &state.cpu_chunk_caches,
+        segment_origin,
+        normalized_dir,
+    )?;
+    let hit_distance = hit.position.distance(segment_origin);
     if hit_distance > segment_length {
         return None;
     }
 
-    let normal = estimate_terrain_hit_normal(state, hit, normalized_dir);
+    let normal = estimate_terrain_hit_normal(state, hit.position, normalized_dir);
     Some(AcousticHit {
         distance: start_distance + hit_distance,
         normal: PetalVec3::new(normal.x, normal.y, normal.z),
-        material: AcousticMaterial::default(),
+        material: acoustic_material_for_voxel(hit.voxel_type),
     })
+}
+
+/// Broad acoustic categories for Re: Flora's editable voxel materials. Values are normalized
+/// low/mid/high coefficients and intentionally live at the game-content boundary; PetalSonic owns
+/// propagation and DSP, while Re: Flora owns the semantic meaning of its material identifiers.
+fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
+    match voxel_type {
+        VOXEL_TYPE_DIRT => AcousticMaterial {
+            absorption: [0.12, 0.32, 0.60],
+            scattering: 0.75,
+            transmission: [0.025, 0.012, 0.006],
+        },
+        VOXEL_TYPE_SAND => AcousticMaterial {
+            absorption: [0.18, 0.45, 0.75],
+            scattering: 0.90,
+            transmission: [0.035, 0.015, 0.005],
+        },
+        VOXEL_TYPE_STUCCO => AcousticMaterial {
+            absorption: [0.04, 0.06, 0.08],
+            scattering: 0.30,
+            transmission: [0.015, 0.008, 0.004],
+        },
+        VOXEL_TYPE_CHERRY_WOOD | VOXEL_TYPE_OAK_WOOD => AcousticMaterial {
+            absorption: [0.10, 0.15, 0.22],
+            scattering: 0.40,
+            transmission: [0.080, 0.035, 0.015],
+        },
+        VOXEL_TYPE_ROCK => AcousticMaterial {
+            absorption: [0.02, 0.03, 0.05],
+            scattering: 0.20,
+            transmission: [0.004, 0.002, 0.001],
+        },
+        _ => AcousticMaterial::default(),
+    }
 }
 
 fn estimate_terrain_hit_normal(
@@ -2471,7 +2521,7 @@ fn estimate_terrain_hit_normal(
     hit: Vec3,
     incoming_direction: Vec3,
 ) -> Vec3 {
-    let sample_delta = 0.025;
+    let sample_delta = Vec3::splat(0.5) / state.voxel_dim_per_chunk.as_vec3();
     let solid = |offset: Vec3| -> f32 {
         if query_terrain_occupancy_against_state(
             state.chunk_dim,
@@ -2486,9 +2536,9 @@ fn estimate_terrain_hit_normal(
     };
 
     let inward_gradient = Vec3::new(
-        solid(Vec3::X * sample_delta) - solid(-Vec3::X * sample_delta),
-        solid(Vec3::Y * sample_delta) - solid(-Vec3::Y * sample_delta),
-        solid(Vec3::Z * sample_delta) - solid(-Vec3::Z * sample_delta),
+        solid(Vec3::X * sample_delta.x) - solid(-Vec3::X * sample_delta.x),
+        solid(Vec3::Y * sample_delta.y) - solid(-Vec3::Y * sample_delta.y),
+        solid(Vec3::Z * sample_delta.z) - solid(-Vec3::Z * sample_delta.z),
     );
     let mut normal = if inward_gradient.length_squared() > f32::EPSILON {
         -inward_gradient.normalize()
@@ -2500,21 +2550,6 @@ fn estimate_terrain_hit_normal(
         normal = -normal;
     }
     normal
-}
-
-fn query_terrain_ray_from_snapshot(
-    state: &ContreeRayQueryState,
-    origin: Vec3,
-    direction: Vec3,
-) -> Option<Vec3> {
-    query_terrain_ray_against_state(
-        state.chunk_dim,
-        &state.cpu_scene_chunks,
-        &state.cpu_chunk_caches,
-        origin,
-        direction,
-    )
-    .map(|hit| hit.position)
 }
 
 fn query_terrain_ray_against_state(

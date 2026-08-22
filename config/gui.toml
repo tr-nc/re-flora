@@ -794,11 +794,26 @@ max = 1
 [[section.param]]
 id = "audio_ray_tracing_enabled"
 kind = "bool"
-label = "Audio Ray Tracing"
+label = "Environmental Acoustics"
 type = "Bool"
 
 [section.param.data]
 value = true
+
+[[section.param]]
+id = "audio_ray_tracing_quality_percent"
+kind = "uint"
+label = "Environmental Acoustics Quality (%)"
+type = "Uint"
+
+[section.param.enabled_if]
+param = "audio_ray_tracing_enabled"
+equals = true
+
+[section.param.data]
+value = 50
+min = 0
+max = 100
 
 [[section]]
 name = "Sky"

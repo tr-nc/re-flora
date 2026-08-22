@@ -56,11 +56,9 @@ LICENSE-ASSETS
 BUILD_INFO.txt
 ```
 
-Release packages also bundle non-system native libraries needed by the binary:
-
-- Windows: `phonon.dll` next to `re-flora.exe`.
-- macOS: `lib/libphonon.dylib`, `lib/libvulkan.1.dylib`, `lib/libMoltenVK.dylib`, and `vulkan/icd.d/MoltenVK_icd.json`.
-- Fedora/Linux: `lib/libphonon.so` with the executable rpath set to `$ORIGIN/lib`.
+macOS release packages also bundle `lib/libvulkan.1.dylib`,
+`lib/libMoltenVK.dylib`, and `vulkan/icd.d/MoltenVK_icd.json`. PetalSonic's
+native spatial audio does not require a separately bundled audio runtime.
 
 GLSL sources and shaderc are build-time inputs. Optimized and reflection SPIR-V artifacts are embedded in the executable, so release packages do not include `shader/` or a shaderc runtime library.
 

@@ -34,7 +34,7 @@ png = "0.18.1"
 arboard = "3.6.1"
 anyhow = "1.0.102"
 bytemuck = "1.25.0"
-petalsonic = "0.6.0"
+petalsonic = { version = "0.7.0", path = "../petalsonic/petalsonic" }
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 tempfile = "3.23.0"

@@ -436,7 +436,13 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Audio",
         id: "audio_ray_tracing_enabled",
         kind: "bool",
-        label: "Audio Ray Tracing",
+        label: "Environmental Acoustics",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
+        id: "audio_ray_tracing_quality_percent",
+        kind: "uint",
+        label: "Environmental Acoustics Quality (%)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
@@ -1519,6 +1525,7 @@ pub struct GuiAdjustables {
     pub tree_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub tree_rustle_brightness: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
+    pub audio_ray_tracing_quality_percent: crate::gui_adjustables::UintParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
@@ -1769,6 +1776,7 @@ impl GuiAdjustables {
         let mut tree_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut audio_ray_tracing_quality_percent_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2396,6 +2404,13 @@ impl GuiAdjustables {
                     "audio_ray_tracing_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             audio_ray_tracing_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "audio_ray_tracing_quality_percent" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            audio_ray_tracing_quality_percent_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "sun_size" => {
@@ -3597,6 +3612,7 @@ impl GuiAdjustables {
             tree_rustle_crackle: tree_rustle_crackle_field.expect("Missing parameter: tree_rustle_crackle"),
             tree_rustle_brightness: tree_rustle_brightness_field.expect("Missing parameter: tree_rustle_brightness"),
             audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
+            audio_ray_tracing_quality_percent: audio_ray_tracing_quality_percent_field.expect("Missing parameter: audio_ray_tracing_quality_percent"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
@@ -3976,6 +3992,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_octaves" => Some(&adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
+        "audio_ray_tracing_quality_percent" => Some(&adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
@@ -4260,6 +4277,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_octaves" => Some(&mut adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&mut adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
+        "audio_ray_tracing_quality_percent" => Some(&mut adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),

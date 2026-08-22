@@ -1352,38 +1352,6 @@ fn generate_sky_environment_data() {
         .unwrap_or_else(|error| panic!("write {}: {error}", output_path.display()));
 }
 
-#[cfg(target_os = "macos")]
-// adds runtime rpath for bundled native libraries when running outside cargo.
-fn add_platform_runtime_rpath() {
-    // Add rpath for libphonon.dylib so the binary works when run directly
-    // (not just via `cargo run` which sets DYLD_LIBRARY_PATH).
-    // audionimbus-sys downloads libphonon into its OUT_DIR/lib during build.
-    let out_dir = env::var("OUT_DIR").unwrap_or_default();
-    if !out_dir.is_empty() {
-        // Walk up from our OUT_DIR to find the audionimbus-sys build output
-        let build_dir = Path::new(&out_dir)
-            .ancestors()
-            .nth(2) // OUT_DIR is target/<profile>/build/<pkg>/out → go up to build/
-            .unwrap_or(Path::new("."));
-        for entry in fs::read_dir(build_dir).into_iter().flatten().flatten() {
-            let name = entry.file_name();
-            if name.to_string_lossy().starts_with("audionimbus-sys-") {
-                let lib_dir = entry.path().join("out").join("lib");
-                if lib_dir.join("libphonon.dylib").exists() {
-                    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-                    break;
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-// adds runtime rpath for bundled native libraries when running outside cargo.
-fn add_platform_runtime_rpath() {
-    // TODO: add platform-specific runtime library search path handling if needed.
-}
-
 fn main() {
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.
@@ -1392,8 +1360,6 @@ fn main() {
     println!("cargo:rerun-if-changed=shader/slang/sky_environment_data.slang");
 
     dump_env();
-
-    add_platform_runtime_rpath();
 
     generate_gui_adjustables();
     generate_ddgi_config();

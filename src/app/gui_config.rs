@@ -97,15 +97,6 @@ impl DebugSettings {
             }
         });
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
-        ui.heading("Audio Ray Tracing");
-        ui.checkbox(
-            &mut adjustables.audio_ray_tracing_enabled.value,
-            "Enable Audio Ray Tracing",
-        );
-
         tree_desc_changed
     }
 }
