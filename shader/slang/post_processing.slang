@@ -1,5 +1,6 @@
 import color;
 import dither;
+import tone_mapping;
 
 struct U_PostProcessingInfo
 {
@@ -38,6 +39,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float2 scalingFactor = float2(inputWidth, inputHeight) / float2(outputWidth, outputHeight);
     int2 mappedUvi = int2(float2(uvi) * scalingFactor);
     float3 finalColor = composited_tex[mappedUvi].rgb;
+    finalColor = toneMapForDisplay(finalColor);
 
     float ditherOffset = getDitherOffset(uvi, post_processing_info.dither_strength_lsb);
     if (post_processing_info.dither_strength_lsb > 0.0)
