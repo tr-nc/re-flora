@@ -15,7 +15,7 @@ pub enum DdgiFieldIdentityError {
     ZeroIdentityComponent,
     InvalidStateEpoch,
     UnexpectedSource,
-    SourceSpacingMismatch,
+    SourceGeometryOrSpacingMismatch,
     SourceEpochMismatch,
     SourceSerialReuse,
 }
@@ -116,9 +116,7 @@ impl DdgiFieldIdentity {
             }
             Some(source) => {
                 validate_source_pair(field, source)?;
-                let same_transport_revision = source.geometry_revision == field.geometry_revision
-                    && source.radiance_revision == field.radiance_revision;
-                let expected_epoch = if same_transport_revision {
+                let expected_epoch = if source.radiance_revision == field.radiance_revision {
                     source.update_epoch.saturating_add(1)
                 } else {
                     0
@@ -151,8 +149,10 @@ fn validate_source_pair(
     if field.serial == source.serial {
         return Err(DdgiFieldIdentityError::SourceSerialReuse);
     }
-    if field.spacing_voxels != source.spacing_voxels {
-        return Err(DdgiFieldIdentityError::SourceSpacingMismatch);
+    if field.geometry_revision != source.geometry_revision
+        || field.spacing_voxels != source.spacing_voxels
+    {
+        return Err(DdgiFieldIdentityError::SourceGeometryOrSpacingMismatch);
     }
     Ok(())
 }
@@ -169,7 +169,6 @@ pub enum DdgiScheduledWorkKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiScheduledWork {
     kind: DdgiScheduledWorkKind,
-    transport_source: Option<DdgiFieldIdentity>,
     destination: DdgiFieldIdentity,
 }
 
@@ -180,10 +179,6 @@ impl DdgiScheduledWork {
 
     pub fn destination(self) -> DdgiFieldIdentity {
         self.destination
-    }
-
-    pub fn transport_source(self) -> Option<DdgiFieldIdentity> {
-        self.transport_source
     }
 }
 
@@ -335,7 +330,12 @@ impl DdgiTransportScheduler {
         };
 
         let next = if let Some(request) = self.pending_geometry.take() {
-            Some(self.make_geometry_update(request, radiance_revision)?)
+            Some(self.make_initial_update(
+                DdgiScheduledWorkKind::GeometryUpdate,
+                request.geometry_revision,
+                radiance_revision,
+                request.spacing_voxels,
+            )?)
         } else if let Some(spacing_voxels) = self.pending_density_spacing_voxels.take() {
             let Some(published) = self.published else {
                 self.pending_density_spacing_voxels = Some(spacing_voxels);
@@ -396,34 +396,7 @@ impl DdgiTransportScheduler {
         )?;
         Ok(DdgiScheduledWork {
             kind,
-            transport_source: None,
             destination: DdgiFieldIdentity::new(destination_key, None)?,
-        })
-    }
-
-    fn make_geometry_update(
-        &mut self,
-        request: GeometryRequest,
-        radiance_revision: u32,
-    ) -> Result<DdgiScheduledWork, DdgiSchedulerError> {
-        let transport_source = self
-            .published
-            .filter(|source| source.field.spacing_voxels == request.spacing_voxels);
-        let destination_key = DdgiFieldKey::new(
-            self.allocate_serial(),
-            request.geometry_revision,
-            radiance_revision,
-            request.spacing_voxels,
-            DdgiFieldState::Converging,
-            0,
-        )?;
-        Ok(DdgiScheduledWork {
-            kind: DdgiScheduledWorkKind::GeometryUpdate,
-            transport_source,
-            destination: DdgiFieldIdentity::new(
-                destination_key,
-                transport_source.map(|source| source.field),
-            )?,
         })
     }
 
@@ -460,7 +433,6 @@ impl DdgiTransportScheduler {
             } else {
                 DdgiScheduledWorkKind::ConvergenceUpdate
             },
-            transport_source: Some(source),
             destination: DdgiFieldIdentity::new(destination_key, Some(source.field))?,
         }))
     }
@@ -626,19 +598,6 @@ mod tests {
         assert_eq!(convergence.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
         assert_eq!(convergence.destination().field().geometry_revision(), 8);
         assert_eq!(convergence.destination().field().update_epoch(), 1);
-    }
-
-    #[test]
-    fn geometry_update_carries_the_exact_published_transport_source() {
-        let mut scheduler = with_active();
-        let resident = scheduler.published().unwrap();
-        scheduler.request_geometry(8, 32);
-        let geometry = scheduler.claim_next().unwrap().unwrap();
-
-        assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryUpdate);
-        assert_eq!(geometry.transport_source(), Some(resident));
-        assert_eq!(geometry.destination().source(), Some(resident.field()));
-        assert_eq!(geometry.destination().field().update_epoch(), 0);
     }
 
     #[test]

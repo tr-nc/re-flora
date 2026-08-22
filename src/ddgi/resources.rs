@@ -7,7 +7,6 @@ use crate::environment_lighting::DdgiRadianceSnapshot;
 use crate::generated::gpu_structs::{
     DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo,
 };
-use crate::geom::UAabb3;
 use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Context, Result};
 use bytemuck::Zeroable;
@@ -98,13 +97,11 @@ struct DdgiResidentIteration {
     logical: DdgiFieldIdentity,
     source: Option<DdgiResidentField>,
     destination: DdgiResidentField,
-    local_refresh_voxel_bound: Option<UAabb3>,
 }
 
 fn resident_iteration_for_work(
     work: DdgiScheduledWork,
     published: Option<DdgiResidentField>,
-    local_refresh_voxel_bound: Option<UAabb3>,
 ) -> Result<DdgiResidentIteration> {
     let destination = work.destination();
     match work.kind() {
@@ -118,31 +115,15 @@ fn resident_iteration_for_work(
                 atlas_slot: DdgiAtlasSlot::Atlas0,
                 sky_slot: DdgiSkySlot::Sky0,
             };
-            let source = work.transport_source().map(|logical| DdgiResidentField {
-                logical,
-                // An inherited field lives in the active Volume. Builder descriptors expose its
-                // exact published textures through the staging source bindings (logical slot 1).
-                atlas_slot: DdgiAtlasSlot::Atlas1,
-                sky_slot: DdgiSkySlot::Sky0,
-            });
-            ensure!(
-                destination.logical.source() == source.map(|source| source.logical.field()),
-                "DDGI initial-update source does not match its transport source"
-            );
             Ok(DdgiResidentIteration {
                 work,
                 logical: destination.logical,
-                source,
+                source: None,
                 destination,
-                local_refresh_voxel_bound,
             })
         }
         DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
             let source = published.context("temporal DDGI update requires a published source")?;
-            ensure!(
-                work.transport_source() == Some(source.logical),
-                "DDGI scheduled transport source does not match resident source"
-            );
             ensure!(
                 destination.source() == Some(source.logical.field()),
                 "DDGI temporal source {:?} does not match resident source {:?}",
@@ -165,7 +146,6 @@ fn resident_iteration_for_work(
                 logical: destination.logical,
                 source: Some(source),
                 destination,
-                local_refresh_voxel_bound,
             })
         }
     }
@@ -266,35 +246,26 @@ impl DdgiRayBatch {
         true
     }
 
-    pub fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
-        self.resident.local_refresh_voxel_bound
-    }
-
     pub fn irradiance_history_is_valid(self) -> bool {
         self.resident.source.is_some_and(|source| {
-            source.logical.field().spacing_voxels() == self.spacing_voxels()
+            source.logical.field().geometry_revision() == self.geometry_revision()
                 && source.logical.field().radiance_revision() == self.radiance_revision()
         })
     }
 
     pub fn visibility_history_is_valid(self) -> bool {
-        self.resident
-            .source
-            .is_some_and(|source| source.logical.field().spacing_voxels() == self.spacing_voxels())
+        self.resident.source.is_some_and(|source| {
+            source.logical.field().geometry_revision() == self.geometry_revision()
+        })
     }
 
     pub fn irradiance_history_retention(self, configured: f32) -> f32 {
         if !self.irradiance_history_is_valid() {
             return 0.0;
         }
-        let configured = configured.clamp(0.0, 0.99);
-        if self.local_refresh_voxel_bound().is_some() {
-            // RTXGI's production default is 0.97. Use that stable cap during a topology recovery
-            // sweep so non-local effects cannot remain trapped indefinitely behind a 0.99 cache.
-            configured.min(0.97)
-        } else {
-            configured
-        }
+        configured
+            .clamp(0.0, 0.99)
+            .min(self.update_epoch() as f32 / (self.update_epoch() as f32 + 1.0))
     }
 
     pub fn visibility_history_retention(self, configured: f32) -> f32 {
@@ -302,8 +273,8 @@ impl DdgiRayBatch {
             return 0.0;
         }
         let configured = configured.clamp(0.0, 0.99);
-        if self.local_refresh_voxel_bound().is_some() {
-            configured.min(0.97)
+        if self.irradiance_history_is_valid() {
+            configured.min(self.update_epoch() as f32 / (self.update_epoch() as f32 + 1.0))
         } else {
             configured
         }
@@ -487,39 +458,21 @@ fn ddgi_probe_batch_range(
     batch_size: u32,
     batch_ordinal: u32,
     order: DdgiBatchOrder,
-    priority_physical_ordinal: Option<u32>,
 ) -> Option<(u32, u32)> {
     debug_assert!(batch_size > 0);
     let batch_count = probe_count.div_ceil(batch_size);
     if batch_ordinal >= batch_count {
         return None;
     }
-    let physical_ordinal = match (order, priority_physical_ordinal) {
-        (DdgiBatchOrder::Forward, Some(priority)) => (priority + batch_ordinal) % batch_count,
-        (DdgiBatchOrder::Reverse, Some(priority)) => {
-            (priority + batch_count - batch_ordinal) % batch_count
-        }
-        (DdgiBatchOrder::Forward, None) => batch_ordinal,
-        (DdgiBatchOrder::Reverse, None) => batch_count - 1 - batch_ordinal,
+    let physical_ordinal = match order {
+        DdgiBatchOrder::Forward => batch_ordinal,
+        DdgiBatchOrder::Reverse => batch_count - 1 - batch_ordinal,
     };
     let first_probe_index = physical_ordinal * batch_size;
     Some((
         first_probe_index,
         (probe_count - first_probe_index).min(batch_size),
     ))
-}
-
-fn priority_probe_batch(
-    grid: DdgiVolumeGrid,
-    edit_voxel_bound: Option<UAabb3>,
-    batch_size: u32,
-) -> Option<u32> {
-    let center = edit_voxel_bound?.center();
-    let coordinate = (center / grid.spacing_voxels() as f32)
-        .round()
-        .as_uvec3()
-        .min(grid.dimensions() - UVec3::ONE);
-    grid.flatten(coordinate).map(|index| index / batch_size)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -724,7 +677,6 @@ pub struct DdgiVolume {
     batch_order: DdgiBatchOrder,
     filtered_probe_count: u32,
     next_batch_ordinal: u32,
-    local_refresh_voxel_bound: Option<UAabb3>,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_trace_stats: Resource<Buffer>,
@@ -1112,7 +1064,6 @@ impl DdgiVolume {
             batch_order,
             filtered_probe_count: 0,
             next_batch_ordinal: 0,
-            local_refresh_voxel_bound: None,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_trace_stats: Resource::new(trace_stats),
@@ -1246,11 +1197,7 @@ impl DdgiVolume {
     }
 
     /// Installs scheduler-authoritative work and derives only its physical residency here.
-    pub fn begin_scheduled_work(
-        &mut self,
-        work: DdgiScheduledWork,
-        local_refresh_voxel_bound: Option<UAabb3>,
-    ) -> Result<()> {
+    pub fn begin_scheduled_work(&mut self, work: DdgiScheduledWork) -> Result<()> {
         ensure!(
             self.scheduled_work.is_none() && self.building_iteration.is_none(),
             "DDGI volume already owns scheduled work {:?}",
@@ -1268,31 +1215,7 @@ impl DdgiVolume {
             destination.field().radiance_revision() != source.logical.field().radiance_revision()
         });
         self.transport_query_snapshot.geometry_revision = destination.field().geometry_revision();
-        match work.kind() {
-            DdgiScheduledWorkKind::GeometryUpdate => {
-                self.local_refresh_voxel_bound = local_refresh_voxel_bound;
-            }
-            DdgiScheduledWorkKind::DensityUpdate => {
-                ensure!(
-                    local_refresh_voxel_bound.is_none(),
-                    "density DDGI work cannot install a local refresh bound"
-                );
-                // This physical volume may have been the previous active geometry volume. Do not
-                // carry its completed or preempted topology-recovery region into a density build.
-                self.local_refresh_voxel_bound = None;
-            }
-            DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
-                ensure!(
-                    local_refresh_voxel_bound.is_none(),
-                    "temporal DDGI work inherits rather than replaces its local refresh bound"
-                );
-            }
-        }
-        let resident = resident_iteration_for_work(
-            work,
-            self.published_field,
-            self.local_refresh_voxel_bound,
-        )?;
+        let resident = resident_iteration_for_work(work, self.published_field)?;
         match work.kind() {
             DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
                 ensure!(
@@ -1339,7 +1262,6 @@ impl DdgiVolume {
         self.published_field = None;
         self.consecutive_below_threshold = 0;
         self.last_atlas_validation = None;
-        self.local_refresh_voxel_bound = None;
         self.stage = DdgiVolumeStage::RelocationPending;
         true
     }
@@ -1373,17 +1295,11 @@ impl DdgiVolume {
             return None;
         }
         let resident = self.building_iteration?;
-        let priority_physical_ordinal = priority_probe_batch(
-            self.grid,
-            resident.local_refresh_voxel_bound,
-            DDGI_PROBE_BATCH_SIZE,
-        );
         let (first_probe_index, probe_count) = ddgi_probe_batch_range(
             self.grid.probe_count(),
             DDGI_PROBE_BATCH_SIZE,
             self.next_batch_ordinal,
             self.batch_order,
-            priority_physical_ordinal,
         )?;
         Some(DdgiRayBatch {
             first_probe_index,
@@ -1551,13 +1467,9 @@ impl DdgiVolume {
             });
         }
 
-        let inherited_geometry_source = iteration.work.kind()
-            == DdgiScheduledWorkKind::GeometryUpdate
-            && previous_complete.is_none()
-            && iteration.source.is_some();
         ensure!(
-            inherited_geometry_source || iteration.source == previous_complete,
-            "DDGI temporal epoch {} did not consume the expected complete field",
+            iteration.source == previous_complete,
+            "DDGI temporal epoch {} did not consume the previous complete field",
             identity.field().update_epoch()
         );
         match classify_temporal_epoch(
@@ -1597,7 +1509,6 @@ impl DdgiVolume {
                 self.building_iteration = None;
                 self.scheduled_work = None;
                 self.consecutive_below_threshold = consecutive_below_threshold;
-                self.local_refresh_voxel_bound = None;
                 self.stage = DdgiVolumeStage::Ready;
                 Ok(DdgiValidatedIterationOutcome::Converged {
                     work: iteration.work,
@@ -2091,7 +2002,7 @@ mod tests {
         let mut scheduler = super::super::DdgiTransportScheduler::new();
         scheduler.install_published(published.logical).unwrap();
         let same_radiance = scheduler.claim_next().unwrap().unwrap();
-        let same = resident_iteration_for_work(same_radiance, Some(published), None).unwrap();
+        let same = resident_iteration_for_work(same_radiance, Some(published)).unwrap();
         assert_eq!(same.source, Some(published));
         assert_eq!(same.destination.atlas_slot, DdgiAtlasSlot::Atlas1);
         assert_eq!(same.destination.sky_slot, DdgiSkySlot::Sky0);
@@ -2100,8 +2011,8 @@ mod tests {
             probe_count: 64,
             resident: same,
         };
-        assert_eq!(same_batch.irradiance_history_retention(0.98), 0.98);
-        assert_eq!(same_batch.visibility_history_retention(0.98), 0.98);
+        assert_eq!(same_batch.irradiance_history_retention(0.98), 0.5);
+        assert_eq!(same_batch.visibility_history_retention(0.98), 0.5);
 
         let published = same.destination;
         scheduler
@@ -2109,7 +2020,7 @@ mod tests {
             .unwrap();
         scheduler.observe_radiance(4);
         let new_radiance = scheduler.claim_next().unwrap().unwrap();
-        let changed = resident_iteration_for_work(new_radiance, Some(published), None).unwrap();
+        let changed = resident_iteration_for_work(new_radiance, Some(published)).unwrap();
         assert_eq!(changed.source, Some(published));
         assert_eq!(changed.destination.atlas_slot, DdgiAtlasSlot::Atlas0);
         assert_eq!(changed.destination.sky_slot, DdgiSkySlot::Sky1);
@@ -2123,32 +2034,9 @@ mod tests {
     }
 
     #[test]
-    fn terrain_staging_reads_resident_history_through_the_external_source_slot() {
-        let initial = initial_work(7, 3, 32).destination();
-        let mut scheduler = super::super::DdgiTransportScheduler::new();
-        scheduler.install_published(initial).unwrap();
-        scheduler.request_geometry(8, 32);
-        let work = scheduler.claim_next().unwrap().unwrap();
-        let local_refresh = UAabb3::new(UVec3::splat(68), UVec3::splat(152));
-        let resident = resident_iteration_for_work(work, None, Some(local_refresh)).unwrap();
-        let batch = DdgiRayBatch {
-            first_probe_index: 0,
-            probe_count: 64,
-            resident,
-        };
-
-        assert_eq!(batch.source(), Some(initial));
-        assert_eq!(batch.source_slot_index(), DdgiAtlasSlot::Atlas1 as u32);
-        assert_eq!(batch.destination_slot_index(), DdgiAtlasSlot::Atlas0 as u32);
-        assert_eq!(batch.local_refresh_voxel_bound(), Some(local_refresh));
-        assert_eq!(batch.irradiance_history_retention(0.99), 0.97);
-        assert_eq!(batch.visibility_history_retention(0.99), 0.97);
-    }
-
-    #[test]
     fn every_epoch_updates_visibility_in_the_matching_ping_pong_slot() {
         let work = initial_work(7, 3, 32);
-        let initial = resident_iteration_for_work(work, None, None).unwrap();
+        let initial = resident_iteration_for_work(work, None).unwrap();
         let initial_batch = DdgiRayBatch {
             first_probe_index: 0,
             probe_count: 64,
@@ -2159,7 +2047,7 @@ mod tests {
         scheduler.install_published(published.logical).unwrap();
         let temporal_work = scheduler.claim_next().unwrap().unwrap();
         let temporal_batch = DdgiRayBatch {
-            resident: resident_iteration_for_work(temporal_work, Some(published), None).unwrap(),
+            resident: resident_iteration_for_work(temporal_work, Some(published)).unwrap(),
             ..initial_batch
         };
         assert!(initial_batch.writes_visibility());
@@ -2203,7 +2091,7 @@ mod tests {
         let mut processed_probe_count = 0;
         let mut ordinal = 0;
         while let Some((first_probe_index, batch_probe_count)) =
-            ddgi_probe_batch_range(probe_count, batch_size, ordinal, order, None)
+            ddgi_probe_batch_range(probe_count, batch_size, ordinal, order)
         {
             assert!(batch_probe_count > 0);
             assert!(first_probe_index + batch_probe_count <= probe_count);
@@ -2258,38 +2146,9 @@ mod tests {
             "reverse traversal must process the short tail as ordinal zero",
         );
         assert_eq!(
-            ddgi_probe_batch_range(0, DDGI_PROBE_BATCH_SIZE, 0, DdgiBatchOrder::Forward, None,),
+            ddgi_probe_batch_range(0, DDGI_PROBE_BATCH_SIZE, 0, DdgiBatchOrder::Forward),
             None,
         );
-    }
-
-    #[test]
-    fn terrain_edit_priority_starts_with_the_batch_nearest_the_edit_then_wraps() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
-        let edit = UAabb3::new(UVec3::splat(240), UVec3::splat(272));
-        let priority = priority_probe_batch(grid, Some(edit), DDGI_PROBE_BATCH_SIZE).unwrap();
-        let center_coordinate = UVec3::splat(8);
-        assert_eq!(
-            priority,
-            grid.flatten(center_coordinate).unwrap() / DDGI_PROBE_BATCH_SIZE
-        );
-
-        let batch_count = grid.probe_count().div_ceil(DDGI_PROBE_BATCH_SIZE);
-        let forward = (0..batch_count)
-            .map(|ordinal| {
-                ddgi_probe_batch_range(
-                    grid.probe_count(),
-                    DDGI_PROBE_BATCH_SIZE,
-                    ordinal,
-                    DdgiBatchOrder::Forward,
-                    Some(priority),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(forward[0].0 / DDGI_PROBE_BATCH_SIZE, priority);
-        let visited: u32 = forward.iter().map(|(_, count)| count).sum();
-        assert_eq!(visited, grid.probe_count());
     }
 
     #[test]
@@ -2386,7 +2245,6 @@ mod tests {
                 logical: initial,
                 source: None,
                 destination: resident,
-                local_refresh_voxel_bound: None,
             },
         };
         assert!(pending_trace_stats_batch_matches(

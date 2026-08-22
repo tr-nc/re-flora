@@ -34,9 +34,6 @@ struct DdgiVisibilityFilterPushConstants
     uint has_history;
     float history_retention;
     float4 epoch_rotation;
-    uint4 local_refresh_enabled;
-    float4 local_refresh_world_min;
-    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -55,14 +52,6 @@ void storeVisibility(uint2 coordinate, float2 value)
         ddgi_visibility_atlas[coordinate] = value;
     else
         ddgi_transport_source_visibility_atlas[coordinate] = value;
-}
-
-bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
-{
-    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
-    return pc.local_refresh_enabled.x != 0u &&
-           all(nominal >= pc.local_refresh_world_min.xyz) &&
-           all(nominal <= pc.local_refresh_world_max.xyz);
 }
 
 [shader("compute")]
@@ -144,15 +133,9 @@ void main(uint3 groupId : SV_GroupID,
     }
     if (pc.has_history != 0u)
     {
-        float historyRetention = saturate(pc.history_retention);
-        // Visibility moments are intentionally more conservative than irradiance. Production
-        // DDGI found per-texel visibility change thresholds unstable; only the edit-local region
-        // receives the documented large-object 50% hysteresis reduction.
-        if (probeNeedsLocalRefresh(metadata))
-            historyRetention = min(historyRetention, 0.5);
         current = lerp(current,
                        loadVisibility(pc.source_slot, atlasCoordinate),
-                       historyRetention);
+                       saturate(pc.history_retention));
     }
     storeVisibility(atlasCoordinate, current);
 }

@@ -130,7 +130,7 @@ check_lifecycle_markers() {
         required=(
             "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=$initial_revision"
             "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=$initial_revision target_revision=$closed_revision"
-            "invalidation_voxel_bound=Some((UVec3("
+            "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
             "target_terrain_revision=$final_revision"
             "[DDGI] staging promoted"
             "terrain_revision=$final_revision"
@@ -165,20 +165,12 @@ check_lifecycle_markers() {
         fi
     done
     if [[ "$state" != "initial-open" ]]; then
-        if grep -Fq "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] full-domain invalidation returned state=$state spacing=$spacing" >&2
-            missing=$((missing + 1))
-        fi
         if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*state=Converging.*update_epoch=0([^0-9]|$)" "$console"; then
             echo "[DDGI_RUNTIME_EDIT] missing shared consumer first-current-geometry epoch-zero publication state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
         if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*published_state=Converging.*published_update_epoch=0([^0-9]|$)" "$console"; then
             echo "[DDGI_RUNTIME_EDIT] missing exact active epoch-zero promotion state=$state spacing=$spacing revision=$final_revision" >&2
-            missing=$((missing + 1))
-        fi
-        if ! grep -Eq "\\[DDGI\\] staging promoted .*geometry_revision=$final_revision([^0-9]|$).*published_source=Some\\(" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] terrain promotion did not retain resident history state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
     fi
@@ -198,7 +190,7 @@ check_inflight_stale_active_markers() {
         "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision="
         "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision="
         "[DDGI] obsolete staging promotion skipped"
-        "invalidation_voxel_bound=Some((UVec3("
+        "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
         "coordinator=BuildingTerrain"
         "invalidation=stale-active"
         "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some("
@@ -216,10 +208,6 @@ check_inflight_stale_active_markers() {
             missing=$((missing + 1))
         fi
     done
-    if grep -Fq "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" "$console"; then
-        echo "[DDGI_RUNTIME_EDIT] transient state unexpectedly invalidated the full DDGI domain spacing=$spacing" >&2
-        missing=$((missing + 1))
-    fi
     if ! grep -Eq '\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] recording .*staging_progress=[0-9]+/[1-9][0-9]* .*coordinator=BuildingTerrain' "$console"; then
         echo "[DDGI_RUNTIME_EDIT] missing GPU-visible staging progress spacing=$spacing" >&2
         missing=$((missing + 1))
@@ -263,9 +251,7 @@ check_captures() {
     local reference="$run_dir/${state}-spacing${spacing}-exact-irradiance.rfirr"
     local thresholds=(--max-reference-error-p99 0.01)
     if [[ "$state" == "closed" ]]; then
-        # Temporal terrain refresh retains stable history; after its bounded recovery sweep the
-        # sealed-room residual remains below a visually black HDR tolerance.
-        thresholds=(--max-luminance 0.00005 --max-reference-error-p99 0.00005)
+        thresholds=(--max-luminance 0.00001 --max-reference-error-p99 0.00001)
     else
         thresholds+=(--min-luminance-p99 0.10)
     fi
@@ -341,11 +327,7 @@ for spacing in "${spacings[@]}"; do
             "exact-irradiance:exact-irradiance"; do
             view="${view_and_label%%:*}"
             label="${view_and_label#*:}"
-            capture_target=""
-            if [[ "$state" == closed ]]; then
-                capture_target="converged"
-            fi
-            if ! run_capture "$spacing" "$state" "$view" "$label" false "$capture_target"; then
+            if ! run_capture "$spacing" "$state" "$view" "$label"; then
                 case_failed=true
             elif ! $dry_run && ! check_lifecycle_markers \
                 "$spacing" "$state" "$run_dir/${state}-spacing${spacing}-${label}.console.log"; then

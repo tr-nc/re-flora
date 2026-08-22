@@ -38,7 +38,6 @@ impl DdgiRuntimeVolumeBuild {
 pub(crate) struct DdgiRuntimeWork {
     scheduled: DdgiScheduledWork,
     authored_lighting: EnvironmentLightingState,
-    local_refresh_voxel_bound: Option<UAabb3>,
 }
 
 /// Logical DDGI work selected for one frame. The runtime owns sequencing decisions; the tracer
@@ -58,10 +57,6 @@ impl DdgiRuntimeWork {
 
     pub(crate) fn authored_lighting(self) -> EnvironmentLightingState {
         self.authored_lighting
-    }
-
-    pub(crate) fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
-        self.local_refresh_voxel_bound
     }
 }
 
@@ -281,13 +276,9 @@ impl DdgiRuntime {
             "DDGI transport work revision does not match live Authored Environment Lighting",
         );
         self.in_flight_authored_lighting = Some(authored_lighting);
-        let local_refresh_voxel_bound = (scheduled.kind() == DdgiScheduledWorkKind::GeometryUpdate)
-            .then(|| self.terrain_refresh.invalidation_voxel_bound())
-            .flatten();
         Some(DdgiRuntimeWork {
             scheduled,
             authored_lighting,
-            local_refresh_voxel_bound,
         })
     }
 
@@ -945,7 +936,7 @@ mod tests {
     }
 
     #[test]
-    fn terrain_observation_drives_initialization_and_local_invalidation() {
+    fn terrain_observation_drives_initialization_and_full_domain_invalidation() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
@@ -960,7 +951,7 @@ mod tests {
         );
         assert_eq!(
             runtime.invalidation_voxel_bound(),
-            Some(UAabb3::new(UVec3::splat(68), UVec3::splat(152)))
+            Some(UAabb3::new(UVec3::ZERO, UVec3::splat(512)))
         );
 
         let build = runtime.claim_volume_build().unwrap();
@@ -1007,20 +998,6 @@ mod tests {
                 .geometry_revision(),
             9
         );
-    }
-
-    #[test]
-    fn terrain_refresh_reuses_the_resident_field_as_temporal_history() {
-        let (mut runtime, _, resident) = initialized_runtime();
-        assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
-        let build = runtime.claim_volume_build().unwrap();
-        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Staging);
-
-        let refresh = runtime.claim_transport_work().unwrap().scheduled();
-        assert_eq!(refresh.kind(), DdgiScheduledWorkKind::GeometryUpdate);
-        assert_eq!(refresh.destination().field().geometry_revision(), 8);
-        assert_eq!(refresh.destination().field().update_epoch(), 0);
-        assert_eq!(refresh.destination().source(), Some(resident.field()));
     }
 
     #[test]

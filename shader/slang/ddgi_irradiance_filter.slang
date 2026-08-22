@@ -6,10 +6,6 @@ import ddgi_types;
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const float DDGI_FOUR = 4.0;
-// RTXGI uses absolute encoded-value thresholds here. Relative RGB ratios turn harmless
-// near-black sampling noise into large history changes.
-static const float DDGI_IRRADIANCE_CHANGE_THRESHOLD = 0.25;
-static const float DDGI_IRRADIANCE_MIN_DARKENING_STEP = 1.0 / 1024.0;
 
 [[vk::binding(24, 0)]]
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
@@ -36,9 +32,6 @@ struct DdgiAtlasFilterPushConstants
     uint has_history;
     float history_retention;
     float4 epoch_rotation;
-    uint4 local_refresh_enabled;
-    float4 local_refresh_world_min;
-    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -57,19 +50,6 @@ float4 loadIrradiance(uint slot, uint2 atlasCoordinate)
     return slot == 0u
         ? ddgi_irradiance_atlas[atlasCoordinate]
         : ddgi_transport_source_irradiance_atlas[atlasCoordinate];
-}
-
-float maxComponent(float3 value)
-{
-    return max(value.x, max(value.y, value.z));
-}
-
-bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
-{
-    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
-    return pc.local_refresh_enabled.x != 0u &&
-           all(nominal >= pc.local_refresh_world_min.xyz) &&
-           all(nominal <= pc.local_refresh_world_max.xyz);
 }
 
 [shader("compute")]
@@ -119,25 +99,8 @@ void main(uint3 groupId : SV_GroupID,
     if (pc.has_history != 0u)
     {
         float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
-        float historyRetention = saturate(pc.history_retention);
-        if (probeNeedsLocalRefresh(metadata))
-            historyRetention = 0.0;
-
-        float3 delta = current.xyz - history.xyz;
-        if (maxComponent(history.xyz - current.xyz) >
-            DDGI_IRRADIANCE_CHANGE_THRESHOLD)
-        {
-            historyRetention = max(0.0, historyRetention - 0.75);
-        }
-
-        float3 lerpDelta = (1.0 - historyRetention) * delta;
-        if (maxComponent(current.xyz) < maxComponent(history.xyz))
-        {
-            lerpDelta = min(
-                max(DDGI_IRRADIANCE_MIN_DARKENING_STEP, abs(lerpDelta)),
-                abs(delta)) * sign(lerpDelta);
-        }
-        current.xyz = history.xyz + lerpDelta;
+        current.xyz = lerp(current.xyz, history.xyz,
+                           saturate(pc.history_retention));
     }
     storeIrradiance(atlasCoordinate, current);
 }
