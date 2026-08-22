@@ -6,6 +6,10 @@ import ddgi_types;
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const float DDGI_FOUR = 4.0;
+// RTXGI uses absolute encoded-value thresholds here. Relative RGB ratios turn harmless
+// near-black sampling noise into large history changes.
+static const float DDGI_IRRADIANCE_CHANGE_THRESHOLD = 0.25;
+static const float DDGI_IRRADIANCE_MIN_DARKENING_STEP = 1.0 / 1024.0;
 
 [[vk::binding(24, 0)]]
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
@@ -116,26 +120,24 @@ void main(uint3 groupId : SV_GroupID,
     {
         float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
         float historyRetention = saturate(pc.history_retention);
-        // Majercik et al. 2021 production DDGI thresholds: retain stable texels, reduce
-        // hysteresis by 0.15 above a 25% change, and drop it at an 80% change. Relative
-        // normalization keeps the percentages meaningful for this linear-HDR atlas.
-        float relativeChange = maxComponent(abs(current.xyz - history.xyz)) /
-            max(maxComponent(max(abs(current.xyz), abs(history.xyz))), 1.0e-4);
-        float relativeDarkening =
-            maxComponent(max(history.xyz - current.xyz, float3(0.0))) /
-            max(maxComponent(abs(history.xyz)), 1.0e-4);
-        if (relativeChange > 0.8)
-            historyRetention = 0.0;
-        // Current RTXGI is deliberately more aggressive when cached irradiance must darken:
-        // subtracting 0.75 avoids long-lived light leaks after an occluder is added.
-        else if (relativeDarkening > 0.25)
-            historyRetention = max(0.0, historyRetention - 0.75);
-        else if (relativeChange > 0.25)
-            historyRetention = max(0.0, historyRetention - 0.15);
         if (probeNeedsLocalRefresh(metadata))
             historyRetention = 0.0;
-        current.xyz = lerp(current.xyz, history.xyz,
-                           historyRetention);
+
+        float3 delta = current.xyz - history.xyz;
+        if (maxComponent(history.xyz - current.xyz) >
+            DDGI_IRRADIANCE_CHANGE_THRESHOLD)
+        {
+            historyRetention = max(0.0, historyRetention - 0.75);
+        }
+
+        float3 lerpDelta = (1.0 - historyRetention) * delta;
+        if (maxComponent(current.xyz) < maxComponent(history.xyz))
+        {
+            lerpDelta = min(
+                max(DDGI_IRRADIANCE_MIN_DARKENING_STEP, abs(lerpDelta)),
+                abs(delta)) * sign(lerpDelta);
+        }
+        current.xyz = history.xyz + lerpDelta;
     }
     storeIrradiance(atlasCoordinate, current);
 }
