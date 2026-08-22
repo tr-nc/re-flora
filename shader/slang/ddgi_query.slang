@@ -10,7 +10,6 @@ static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
-static const float DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE = 0.125;
 
 // Spatial-weight modes shared by the production terrain query and diagnostics.
 // The low bit selects nominal versus relocation-aware position weights; the
@@ -238,21 +237,23 @@ public float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
     float distancePastMean = distanceToSurface - moments.x;
     float probability = variance /
         max(variance + distancePastMean * distancePastMean, 1.0e-8);
-    // A tiny statistical visibility must not survive normalization as a fully
-    // lit probe. Reject low-confidence support instead of adding a positive
-    // visibility floor, which would guarantee light through occluders.
-    float visibility = probability * probability * probability;
-    return visibility >= DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE
-        ? visibility
-        : 0.0;
+    // Keep the statistical tail continuous. Confidence-aware moment
+    // normalization retains its attenuation when visible support is sparse.
+    return probability * probability * probability;
 }
 
 public float ddgiMomentNormalizationWeight(
     float accumulatedBaseWeight, float accumulatedWeight)
 {
-    return max(
-        accumulatedWeight,
-        accumulatedBaseWeight * DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE);
+    // Treat the visible fraction of geometric support as interpolation
+    // confidence. Sparse visibility stays close to base-weight normalization,
+    // so a lone statistical outlier cannot be amplified to full irradiance.
+    // Well-supported queries smoothly recover ordinary visibility-weighted
+    // interpolation instead of darkening partially occluded receivers.
+    float confidence = saturate(
+        accumulatedWeight / max(accumulatedBaseWeight,
+                                DDGI_QUERY_WEIGHT_EPSILON));
+    return lerp(accumulatedBaseWeight, accumulatedWeight, confidence);
 }
 
 float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
@@ -660,10 +661,9 @@ void finalizeDdgiQueryResult(inout DdgiQueryResult result)
 
 void finalizeDdgiMomentQueryResult(inout DdgiQueryResult result)
 {
-    // Per-probe confidence filtering is not sufficient when the only surviving
-    // probe has negligible spatial support: normalizing by that tiny weight
-    // turns a statistical outlier into full irradiance. Cap that amplification
-    // at the same confidence already required of an individual moment sample.
+    // Blend continuously between geometric and visibility-weighted support.
+    // This stays continuous in tight creases without turning a low-confidence
+    // outlier into full irradiance or over-darkening well-supported queries.
     float normalizationWeight = ddgiMomentNormalizationWeight(
         result.accumulated_base_weight, result.accumulated_weight);
     finalizeDdgiQueryResultWithWeight(result, normalizationWeight);

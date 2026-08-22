@@ -20,8 +20,8 @@ export __extern_cpp int main()
 
     bool stableValues = nearlyEqual(unoccluded, 1.0) &&
         nearlyEqual(visible, 0.125);
-    bool lowConfidenceFailsClosed =
-        nearlyEqual(marginalFalsePositive, 0.0) &&
-        nearlyEqual(lowConfidence, 0.0);
-    return stableValues && lowConfidenceFailsClosed ? 0 : 1;
+    bool lowConfidenceDecaysContinuously =
+        nearlyEqual(marginalFalsePositive, 0.107594982) &&
+        nearlyEqual(lowConfidence, 0.092645273);
+    return stableValues && lowConfidenceDecaysContinuously ? 0 : 1;
 }
