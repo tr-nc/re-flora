@@ -12,14 +12,14 @@ fov_deg = 55.0
 fly_mode = true
 
 [[snapshots]]
-name = "seam"
+name = "bright-pix"
 description = ""
 position = [
-    1.0721415,
-    0.5331254,
-    0.6569678,
+    0.38925081,
+    0.53322905,
+    0.8946776,
 ]
-yaw_deg = 168.62154
-pitch_deg = -5.118392
+yaw_deg = 60.50435
+pitch_deg = -6.837243
 fov_deg = 55.0
 fly_mode = false
