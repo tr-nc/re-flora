@@ -358,10 +358,11 @@ impl App {
             "snapshot replacement requires quiesced water simulation"
         );
         self.plain_builder.mark_all_solid_workgroups_dirty();
-        let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunks(
-            terrain_chunk_ids(),
-        )])?
-        .context("snapshot replacement has no visible terrain chunks")?;
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![snapshot_replacement_build_edit(
+                terrain_chunk_ids(),
+            )])?
+            .context("snapshot replacement has no visible terrain chunks")?;
         self.publish_visible_terrain(change)?;
 
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -399,6 +400,10 @@ fn terrain_chunk_ids() -> Vec<UVec3> {
         }
     }
     chunk_ids
+}
+
+fn snapshot_replacement_build_edit(chunk_ids: Vec<UVec3>) -> BuildEdit {
+    BuildEdit::RebuildChunksWithoutFlora(chunk_ids)
 }
 
 #[cfg(test)]
@@ -448,5 +453,14 @@ mod tests {
         assert!(!fatal.allows_world_updates());
         assert!(!fatal.allows_water_simulation());
         assert!(!fatal.can_start_operation());
+    }
+
+    #[test]
+    fn runtime_snapshot_replacement_does_not_regenerate_flora() {
+        let chunk_ids = vec![UVec3::ZERO, UVec3::X];
+        match snapshot_replacement_build_edit(chunk_ids.clone()) {
+            BuildEdit::RebuildChunksWithoutFlora(actual) => assert_eq!(actual, chunk_ids),
+            _ => panic!("runtime snapshot replacement must retain the current flora state"),
+        }
     }
 }
