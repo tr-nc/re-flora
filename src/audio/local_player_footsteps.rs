@@ -14,6 +14,17 @@ const LOCAL_FOOTSTEP_DIRECT_Y: f32 = -0.08;
 const LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB: f32 = -12.0;
 const MAX_ACTIVE_LOCAL_FOOTSTEPS: usize = 6;
 const COMPLETION_DEADLINE_GRACE_SECONDS: f64 = 1.0;
+const LOCAL_FOOTSTEP_CORRELATION_NAMESPACE: u64 = 1 << 63;
+
+fn local_footstep_correlation_id(event_seq: u64) -> u64 {
+    LOCAL_FOOTSTEP_CORRELATION_NAMESPACE
+        .checked_add(event_seq)
+        .expect("local footstep telemetry correlation ID overflowed")
+}
+
+fn local_footstep_event_seq(correlation_id: u64) -> Option<u64> {
+    correlation_id.checked_sub(LOCAL_FOOTSTEP_CORRELATION_NAMESPACE)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LocalPlayerFootstepRoutingMode {
@@ -48,7 +59,7 @@ impl FootstepRouting {
         PetalVec3::new(position.x, position.y, position.z)
     }
 
-    fn play_options(self, event_seq: u64) -> PlayOptions {
+    fn play_options(self, correlation_id: u64) -> PlayOptions {
         PlayOptions::once()
             .with_direct_path(
                 DirectPath::listener_relative(self.direct_pose())
@@ -59,7 +70,7 @@ impl FootstepRouting {
                 EnvironmentSend::from_world_pose(self.environment_pose())
                     .with_gain_db(LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB),
             )
-            .with_play_command_id(PlayCommandId(event_seq))
+            .with_play_command_id(PlayCommandId(correlation_id))
     }
 }
 
@@ -427,17 +438,33 @@ impl LocalPlayerFootstepAudio {
 
     pub(crate) fn play_after_publication(
         &mut self,
-        prepared: PreparedLocalFootsteps,
+        mut prepared: PreparedLocalFootsteps,
         publication: SpatialFramePublication,
     ) {
+        if !prepared.spatial.is_empty() && !publication.published_now() {
+            log::error!(
+                "[AUDIO][LOCAL_FOOTSTEP] reason=structural_spatial_frame_was_coalesced prepared={} spatial_revision={}",
+                prepared.spatial.len(),
+                publication.revision(),
+            );
+            for prepared_voice in prepared.spatial.drain(..) {
+                self.retire_prepared_emitter(
+                    prepared_voice.event.event_seq,
+                    prepared_voice.emitter,
+                    "structural_spatial_frame_was_coalesced",
+                );
+            }
+        }
+
         for prepared_voice in prepared.spatial {
             let event = prepared_voice.event;
-            let options = prepared_voice.routing.play_options(event.event_seq);
+            let correlation_id = local_footstep_correlation_id(event.event_seq);
+            let options = prepared_voice.routing.play_options(correlation_id);
             let acoustics_at_play = self.spatial_sound_manager.acoustic_pipeline_snapshot();
             match self.spatial_sound_manager.play_controlled_transient(
                 prepared_voice.emitter,
                 options,
-                PlaybackTag(event.event_seq),
+                PlaybackTag(correlation_id),
             ) {
                 Ok(control) => {
                     self.active.activate(ManagedFootstepVoice::new(
@@ -610,7 +637,13 @@ impl LocalPlayerFootstepAudio {
                 control,
                 tag,
             } => {
-                let event_seq = tag.0;
+                let Some(event_seq) = local_footstep_event_seq(tag.0) else {
+                    log::debug!(
+                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_completion",
+                        tag.0,
+                    );
+                    return;
+                };
                 let Some(expected) = self.active.get(event_seq) else {
                     log::debug!(
                         "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_completion"
@@ -640,13 +673,25 @@ impl LocalPlayerFootstepAudio {
     fn handle_voice_telemetry(&mut self, event: VoiceTelemetryEvent) {
         match event {
             VoiceTelemetryEvent::FirstRendered(telemetry) => {
-                let event_seq = telemetry.play_command_id.0;
+                let Some(event_seq) = local_footstep_event_seq(telemetry.play_command_id.0) else {
+                    log::debug!(
+                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_first_render",
+                        telemetry.play_command_id.0,
+                    );
+                    return;
+                };
                 let Some(voice) = self.active.get_mut(event_seq) else {
                     log::debug!(
                         "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_first_render"
                     );
                     return;
                 };
+                if !voice.emitter.matches(telemetry.emitter) {
+                    log::error!(
+                        "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=first_render_emitter_mismatch"
+                    );
+                    return;
+                }
                 let contract = FirstRenderContractCheck::for_voice(
                     voice,
                     telemetry.spatial_revision,
@@ -683,7 +728,13 @@ impl LocalPlayerFootstepAudio {
                 play_command_id,
                 response,
             } => {
-                let event_seq = play_command_id.0;
+                let Some(event_seq) = local_footstep_event_seq(play_command_id.0) else {
+                    log::debug!(
+                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_environment_response",
+                        play_command_id.0,
+                    );
+                    return;
+                };
                 let Some(voice) = self.active.get_mut(event_seq) else {
                     log::debug!(
                         "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_environment_response"
@@ -826,9 +877,10 @@ impl LocalPlayerFootstepAudio {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActiveFootstepRegistry, EnvironmentResponseTiming, FirstRenderContractCheck,
-        FootstepClipBank, FootstepRouting, FootstepWetObservation, FootstepWetOutcome,
-        LocalPlayerFootstepRoutingMode, ManagedFootstepVoice, MAX_ACTIVE_LOCAL_FOOTSTEPS,
+        local_footstep_correlation_id, local_footstep_event_seq, ActiveFootstepRegistry,
+        EnvironmentResponseTiming, FirstRenderContractCheck, FootstepClipBank, FootstepRouting,
+        FootstepWetObservation, FootstepWetOutcome, LocalPlayerFootstepRoutingMode,
+        ManagedFootstepVoice, LOCAL_FOOTSTEP_CORRELATION_NAMESPACE, MAX_ACTIVE_LOCAL_FOOTSTEPS,
     };
     use crate::audio::spatial_sound_manager::AcousticPipelineSnapshot;
     use crate::gameplay::camera::{
@@ -943,6 +995,19 @@ mod tests {
         assert_eq!(
             observation.outcome(true, true, 1),
             FootstepWetOutcome::TelemetryIncomplete
+        );
+    }
+
+    #[test]
+    fn footstep_telemetry_correlation_is_namespaced_and_round_trips() {
+        for event_seq in [0, 1, 42, LOCAL_FOOTSTEP_CORRELATION_NAMESPACE - 1] {
+            let correlation_id = local_footstep_correlation_id(event_seq);
+            assert!(correlation_id >= LOCAL_FOOTSTEP_CORRELATION_NAMESPACE);
+            assert_eq!(local_footstep_event_seq(correlation_id), Some(event_seq));
+        }
+        assert_eq!(
+            local_footstep_event_seq(LOCAL_FOOTSTEP_CORRELATION_NAMESPACE - 1),
+            None
         );
     }
 

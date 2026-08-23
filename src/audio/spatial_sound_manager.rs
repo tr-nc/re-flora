@@ -64,11 +64,30 @@ impl TransientSpatialEmitter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SpatialFramePublication {
     revision: u64,
+    published_now: bool,
 }
 
 impl SpatialFramePublication {
+    fn coalesced(revision: u64) -> Self {
+        Self {
+            revision,
+            published_now: false,
+        }
+    }
+
+    fn published(revision: u64) -> Self {
+        Self {
+            revision,
+            published_now: true,
+        }
+    }
+
     pub(crate) fn revision(self) -> u64 {
         self.revision
+    }
+
+    pub(crate) fn published_now(self) -> bool {
+        self.published_now
     }
 }
 
@@ -128,7 +147,7 @@ pub struct SpatialSoundManager {
 #[derive(Debug, Default)]
 struct SpatialFramePublishCadence {
     last_published_sim_time_seconds: Option<f64>,
-    dirty: bool,
+    structural_dirty: bool,
 }
 
 impl SpatialFramePublishCadence {
@@ -136,7 +155,7 @@ impl SpatialFramePublishCadence {
         let Some(last_published) = self.last_published_sim_time_seconds else {
             return true;
         };
-        self.dirty
+        self.structural_dirty
             || !sim_time_seconds.is_finite()
             || sim_time_seconds < last_published
             || sim_time_seconds - last_published >= SPATIAL_FRAME_PUBLISH_INTERVAL_SECONDS
@@ -144,11 +163,11 @@ impl SpatialFramePublishCadence {
 
     fn mark_published(&mut self, sim_time_seconds: f64) {
         self.last_published_sim_time_seconds = Some(sim_time_seconds);
-        self.dirty = false;
+        self.structural_dirty = false;
     }
 
-    fn mark_dirty(&mut self) {
-        self.dirty = true;
+    fn mark_structure_changed(&mut self) {
+        self.structural_dirty = true;
     }
 }
 
@@ -306,7 +325,7 @@ impl SpatialSoundManager {
                 occlusion_profile,
             },
         );
-        self.mark_spatial_frame_dirty();
+        self.mark_spatial_frame_structure_changed();
         Ok(uuid)
     }
 
@@ -394,7 +413,7 @@ impl SpatialSoundManager {
                 position,
             },
         );
-        self.mark_spatial_frame_dirty();
+        self.mark_spatial_frame_structure_changed();
         Ok(TransientSpatialEmitter { emitter })
     }
 
@@ -425,7 +444,7 @@ impl SpatialSoundManager {
             .lock()
             .unwrap()
             .remove(&emitter.emitter);
-        self.mark_spatial_frame_dirty();
+        self.mark_spatial_frame_structure_changed();
         Ok(())
     }
 
@@ -461,9 +480,9 @@ impl SpatialSoundManager {
     ) -> Result<SpatialFramePublication> {
         let mut cadence = self.spatial_frame_publish_cadence.lock().unwrap();
         if !cadence.should_publish(sim_time_seconds) {
-            return Ok(SpatialFramePublication {
-                revision: self.spatial_frame_revision.load(Ordering::Acquire),
-            });
+            return Ok(SpatialFramePublication::coalesced(
+                self.spatial_frame_revision.load(Ordering::Acquire),
+            ));
         }
         let listener = self.listener_state.lock().unwrap().clone();
         let rotation_matrix = glam::Mat3::from_cols(listener.right, listener.up, -listener.front);
@@ -561,7 +580,7 @@ impl SpatialSoundManager {
         previous.acoustic_published_responses = diagnostics.acoustic_published_response_count;
         previous.acoustic_response_geometry_version =
             diagnostics.acoustic_response_geometry_version;
-        Ok(SpatialFramePublication { revision })
+        Ok(SpatialFramePublication::published(revision))
     }
 
     pub fn publish_acoustic_scene(&self, snapshot: AcousticSceneSnapshot) -> Result<()> {
@@ -659,8 +678,8 @@ impl SpatialSoundManager {
             return Ok(());
         };
         source.position = Some(target_pos);
-        drop(sources);
-        self.mark_spatial_frame_dirty();
+        // Dynamic source poses, including the terrain-edit loop, share the 30 Hz frame cadence
+        // with listener motion. The next due complete frame coalesces the latest pose.
         Ok(())
     }
 
@@ -719,7 +738,7 @@ impl SpatialSoundManager {
         }
         source.emitter = new_emitter;
         drop(sources);
-        self.mark_spatial_frame_dirty();
+        self.mark_spatial_frame_structure_changed();
         Ok(())
     }
 
@@ -744,15 +763,15 @@ impl SpatialSoundManager {
         let source = self.uuid_to_source.lock().unwrap().remove(&id);
         if let Some(source) = source {
             let _ = self.world.destroy_emitter(source.emitter);
-            self.mark_spatial_frame_dirty();
+            self.mark_spatial_frame_structure_changed();
         }
     }
 
-    fn mark_spatial_frame_dirty(&self) {
+    fn mark_spatial_frame_structure_changed(&self) {
         self.spatial_frame_publish_cadence
             .lock()
             .unwrap()
-            .mark_dirty();
+            .mark_structure_changed();
     }
 
     pub fn stop(&self) -> Result<()> {
@@ -813,14 +832,15 @@ mod tests {
     }
 
     #[test]
-    fn spatial_frame_cadence_coalesces_camera_frames_but_never_structural_changes() {
+    fn spatial_frame_cadence_coalesces_dynamic_poses_but_never_structural_changes() {
         let mut cadence = SpatialFramePublishCadence::default();
 
         assert!(cadence.should_publish(0.0));
         cadence.mark_published(0.0);
+        // Listener and existing-emitter pose changes are sampled from their latest host state.
         assert!(!cadence.should_publish(0.01));
 
-        cadence.mark_dirty();
+        cadence.mark_structure_changed();
         assert!(cadence.should_publish(0.011));
         cadence.mark_published(0.011);
         assert!(!cadence.should_publish(0.03));
@@ -833,6 +853,16 @@ mod tests {
         cadence.mark_published(10.0);
 
         assert!(cadence.should_publish(1.0));
+    }
+
+    #[test]
+    fn spatial_frame_publication_distinguishes_fresh_and_coalesced_revisions() {
+        let fresh = SpatialFramePublication::published(12);
+        let coalesced = SpatialFramePublication::coalesced(12);
+
+        assert!(fresh.published_now());
+        assert!(!coalesced.published_now());
+        assert_eq!(fresh.revision(), coalesced.revision());
     }
 
     #[test]
