@@ -119,6 +119,10 @@ pub(crate) struct DdgiRuntime {
     live_authored_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
     published_authored_lighting: Option<EnvironmentLightingState>,
+    resident_active_field: Option<DdgiFieldIdentity>,
+    resident_active_authored_lighting: Option<EnvironmentLightingState>,
+    completed_staging_authored_lighting:
+        Option<(DdgiBuildToken, DdgiFieldIdentity, EnvironmentLightingState)>,
     coalesced_radiance_revisions: u64,
     camera_probe_priority: Option<UAabb3>,
     lighting_impact_probe_priority: Option<(u32, UAabb3)>,
@@ -142,6 +146,9 @@ impl DdgiRuntime {
             live_authored_lighting: None,
             in_flight_authored_lighting: None,
             published_authored_lighting: None,
+            resident_active_field: None,
+            resident_active_authored_lighting: None,
+            completed_staging_authored_lighting: None,
             coalesced_radiance_revisions: 0,
             camera_probe_priority: None,
             lighting_impact_probe_priority: None,
@@ -316,14 +323,12 @@ impl DdgiRuntime {
     }
 
     fn request_geometry_transport(&mut self, token: DdgiBuildToken) {
-        let transport_source = match self.volumes.as_ref() {
-            // Installed physical residency is authoritative: the logical scheduler may currently
-            // publish a private staging candidate that active descriptors cannot read.
-            Some(volumes) => volumes.status().active().published_field,
-            // Resource-independent scheduler tests intentionally run without Vulkan volumes.
-            None => self.transport_scheduler.published(),
-        }
-        .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
+        // Physical active residency is authoritative: the logical scheduler may currently publish
+        // a private staging candidate that active descriptors cannot read. Runtime-owned identity
+        // keeps that distinction testable without Vulkan resources.
+        let transport_source = self
+            .resident_active_field
+            .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
         let preempted = self.transport_scheduler.request_geometry_from(
             token.terrain_revision(),
             token.spacing_voxels(),
@@ -375,15 +380,21 @@ impl DdgiRuntime {
             (source.field().radiance_revision()
                 != scheduled.destination().field().radiance_revision())
             .then(|| {
-                let published = self.published_authored_lighting.expect(
-                    "radiance-changing DDGI work must retain its actual published source lighting",
-                );
-                assert_eq!(
-                    published.revision,
-                    source.field().radiance_revision(),
-                    "DDGI published authored lighting diverged from the scheduled source field",
-                );
-                DdgiRadianceHistoryPolicy::between(published, authored_lighting)
+                let source_revision = source.field().radiance_revision();
+                let source_lighting = [
+                    self.resident_active_authored_lighting,
+                    self.published_authored_lighting,
+                ]
+                .into_iter()
+                .flatten()
+                .find(|lighting| lighting.revision == source_revision)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "DDGI has no immutable authored lighting for scheduled source revision {}",
+                        source_revision,
+                    )
+                });
+                DdgiRadianceHistoryPolicy::between(source_lighting, authored_lighting)
             })
         });
         let local_refresh_voxel_bound = (scheduled.kind() == DdgiScheduledWorkKind::GeometryUpdate)
@@ -449,7 +460,11 @@ impl DdgiRuntime {
             .complete_in_flight(work, published)?;
         self.published_authored_lighting = Some(lighting);
         if self.active_build_token == Some(build_token) {
+            self.resident_active_field = Some(published);
+            self.resident_active_authored_lighting = Some(lighting);
             self.active_ready = true;
+        } else {
+            self.completed_staging_authored_lighting = Some((build_token, published, lighting));
         }
         Ok(published)
     }
@@ -459,7 +474,16 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn finish_obsolete_volume_build(&mut self, token: DdgiBuildToken) -> bool {
-        self.terrain_refresh.finish_obsolete_candidate(token)
+        if !self.terrain_refresh.finish_obsolete_candidate(token) {
+            return false;
+        }
+        if self
+            .completed_staging_authored_lighting
+            .is_some_and(|(candidate, _, _)| candidate == token)
+        {
+            self.completed_staging_authored_lighting = None;
+        }
+        true
     }
 
     pub(crate) fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
@@ -473,6 +497,16 @@ impl DdgiRuntime {
         .expect("promoted DDGI token must retain a supported Volume grid");
         self.active_build_token = Some(token);
         self.active_ready = true;
+        let (candidate_token, field, lighting) = self
+            .completed_staging_authored_lighting
+            .take()
+            .expect("promoted DDGI staging token must retain its immutable authored lighting");
+        assert_eq!(
+            candidate_token, token,
+            "promoted DDGI token and completed staging lighting diverged"
+        );
+        self.resident_active_field = Some(field);
+        self.resident_active_authored_lighting = Some(lighting);
         if self
             .capture_checkpoint
             .is_some_and(|checkpoint| checkpoint.build_token == token)
@@ -1187,6 +1221,45 @@ mod tests {
         assert_eq!(refresh.destination().field().geometry_revision(), 8);
         assert_eq!(refresh.destination().field().update_epoch(), 0);
         assert_eq!(refresh.destination().source(), Some(resident.field()));
+    }
+
+    #[test]
+    fn superseded_geometry_keeps_resident_lighting_for_the_replacement_source() {
+        let (mut runtime, _, resident) = initialized_runtime();
+        let r2 = lighting(2, 2.0);
+        runtime.observe_authored_lighting(r2);
+
+        assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
+        let obsolete_token = runtime.claim_volume_build().unwrap().token();
+        let obsolete_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            obsolete_work.scheduled().destination().source(),
+            Some(resident.field())
+        );
+
+        assert!(runtime.observe_visible_terrain(9, edit_bound(200, 220)));
+        runtime
+            .complete_transport_work(
+                obsolete_work.scheduled(),
+                obsolete_work.scheduled().destination(),
+                obsolete_token,
+            )
+            .unwrap();
+        assert!(runtime.finish_obsolete_volume_build(obsolete_token));
+
+        let replacement_token = runtime.claim_volume_build().unwrap().token();
+        assert_eq!(replacement_token.terrain_revision(), 9);
+        let replacement = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            replacement.scheduled().destination().source(),
+            Some(resident.field()),
+            "replacement geometry must inherit the physically resident field, not obsolete staging"
+        );
+        assert_eq!(replacement.authored_lighting().snapshot, r2.snapshot);
+        let history = replacement
+            .radiance_history_policy()
+            .expect("resident r1 to live r2 must retain an explicit radiance history policy");
+        assert_eq!(history.elapsed, std::time::Duration::from_millis(10));
     }
 
     #[test]
