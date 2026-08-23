@@ -577,101 +577,6 @@ impl LocalLightBudgetResult {
     }
 }
 
-#[derive(Debug)]
-struct LocalLightSlot {
-    generation: u32,
-    light: Option<LocalLight>,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct LocalLightDomain {
-    revision: u64,
-    slots: Vec<LocalLightSlot>,
-    snapshot: LocalLightSnapshot,
-}
-
-impl LocalLightDomain {
-    pub(crate) fn add(&mut self, light: LocalLight) -> LightId {
-        let slot = self
-            .slots
-            .iter()
-            .position(|slot| slot.light.is_none())
-            .unwrap_or_else(|| {
-                self.slots.push(LocalLightSlot {
-                    generation: 1,
-                    light: None,
-                });
-                self.slots.len() - 1
-            });
-        let entry = &mut self.slots[slot];
-        let id = LightId {
-            slot: slot as u32,
-            generation: entry.generation,
-        };
-        entry.light = Some(light);
-        self.publish_snapshot();
-        id
-    }
-
-    pub(crate) fn update(
-        &mut self,
-        id: LightId,
-        light: LocalLight,
-    ) -> Result<(), LocalLightMutationError> {
-        let Some(slot) = self.slots.get_mut(id.slot as usize) else {
-            return Err(LocalLightMutationError::StaleId(id));
-        };
-        if slot.generation != id.generation || slot.light.is_none() {
-            return Err(LocalLightMutationError::StaleId(id));
-        }
-        if slot.light == Some(light) {
-            return Ok(());
-        }
-        slot.light = Some(light);
-        self.publish_snapshot();
-        Ok(())
-    }
-
-    pub(crate) fn remove(&mut self, id: LightId) -> Result<(), LocalLightMutationError> {
-        let Some(slot) = self.slots.get_mut(id.slot as usize) else {
-            return Err(LocalLightMutationError::StaleId(id));
-        };
-        if slot.generation != id.generation || slot.light.take().is_none() {
-            return Err(LocalLightMutationError::StaleId(id));
-        }
-        slot.generation = slot.generation.wrapping_add(1).max(1);
-        self.publish_snapshot();
-        Ok(())
-    }
-
-    pub(crate) fn snapshot(&self) -> LocalLightSnapshot {
-        self.snapshot.clone()
-    }
-
-    fn publish_snapshot(&mut self) {
-        self.revision = self.revision.wrapping_add(1).max(1);
-        let lights: Vec<_> = self
-            .slots
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, entry)| {
-                entry.light.map(|light| LocalLightRecord {
-                    id: LightId {
-                        slot: slot as u32,
-                        generation: entry.generation,
-                    },
-                    source: None,
-                    light,
-                })
-            })
-            .collect();
-        self.snapshot = LocalLightSnapshot {
-            revision: self.revision,
-            lights: lights.into(),
-        };
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,7 +591,7 @@ mod tests {
 
     #[test]
     fn removed_light_id_cannot_update_a_reused_slot() {
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let removed = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
         assert_eq!(removed.slot(), 0);
         assert_eq!(removed.generation(), 1);
@@ -705,7 +610,7 @@ mod tests {
 
     #[test]
     fn snapshot_diff_names_only_real_lifecycle_changes_in_id_order() {
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let first = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
         let second = lights.add(point(Vec3::new(0.8, 0.4, 0.6)));
         let before = lights.snapshot();
@@ -740,7 +645,7 @@ mod tests {
 
     #[test]
     fn point_upload_budget_is_explicit_and_deterministic() {
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let first = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
         let second = lights.add(point(Vec3::new(0.8, 0.4, 0.6)));
 
@@ -801,7 +706,7 @@ mod tests {
 
     #[test]
     fn movement_and_removal_dirty_the_old_and_current_point_influence() {
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let empty = lights.snapshot();
         let id = lights.add(point(Vec3::new(2.0, 3.0, 4.0)));
         let added = lights.snapshot();
@@ -852,7 +757,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<LightGpu>(), 80);
         assert_eq!(std::mem::size_of::<LocalLightInfo>(), 32);
 
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let accepted_id = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
         let overflow_id = lights.add(point(Vec3::new(0.8, 0.4, 0.6)));
         let gpu = LocalLightGpuSnapshot::from_authoritative(

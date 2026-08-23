@@ -228,11 +228,11 @@ impl LocalLightVisibilityDiagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lighting::{LocalLight, LocalLightDomain, PointLight};
+    use crate::lighting::{LocalLight, LocalLightRegistry, PointLight};
 
     #[test]
     fn gpu_info_preserves_world_values_and_stable_identity() {
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let light_id = lights.add(LocalLight::Point(
             PointLight::new(Vec3::ZERO, Vec3::ONE, 1.0, 0.01, 1.0).unwrap(),
         ));

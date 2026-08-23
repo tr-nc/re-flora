@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use super::{LightId, LocalLight, LocalLightRecord, LocalLightSnapshot};
+use super::{LightId, LocalLight, LocalLightMutationError, LocalLightRecord, LocalLightSnapshot};
+
+pub(crate) const AUTHORED_LOCAL_LIGHT_PROVIDER_ID: ProviderId = ProviderId::new(1);
 
 /// Stable identity for one authoritative local-light provider. Providers own world-unit
 /// emitters; they do not know registry slots, GPU descriptors, selection, or DDGI transport.
@@ -174,9 +176,50 @@ pub(crate) struct LocalLightRegistry {
     by_source: BTreeMap<LocalLightSourceId, LightId>,
     slots: Vec<RegistrySlot>,
     snapshot: LocalLightSnapshot,
+    authored_next_key: u64,
+    authored_source_revision: u64,
 }
 
 impl LocalLightRegistry {
+    /// Convenience lifecycle for explicitly authored lights. Other producers publish immutable
+    /// provider snapshots through `reconcile`; this adapter is itself just provider 1.
+    pub(crate) fn add(&mut self, light: LocalLight) -> LightId {
+        self.authored_next_key = self.authored_next_key.wrapping_add(1).max(1);
+        let key = SourceLightKey::new(self.authored_next_key, 0);
+        let mut sources = self.authored_sources();
+        sources.push(SourceLight::new(key, light));
+        self.publish_authored(sources);
+        self.light_id(AUTHORED_LOCAL_LIGHT_PROVIDER_ID, key)
+            .expect("authored light reconcile must publish the new source")
+    }
+
+    pub(crate) fn update(
+        &mut self,
+        id: LightId,
+        light: LocalLight,
+    ) -> Result<(), LocalLightMutationError> {
+        let source = self.authored_source_for_id(id)?;
+        let mut sources = self.authored_sources();
+        let entry = sources
+            .iter_mut()
+            .find(|entry| entry.key == source.key)
+            .expect("live authored source must exist in its provider snapshot");
+        if entry.light == light {
+            return Ok(());
+        }
+        entry.light = light;
+        self.publish_authored(sources);
+        Ok(())
+    }
+
+    pub(crate) fn remove(&mut self, id: LightId) -> Result<(), LocalLightMutationError> {
+        let source = self.authored_source_for_id(id)?;
+        let mut sources = self.authored_sources();
+        sources.retain(|entry| entry.key != source.key);
+        self.publish_authored(sources);
+        Ok(())
+    }
+
     pub(crate) fn reconcile(
         &mut self,
         incoming: LocalLightProviderSnapshot,
@@ -318,6 +361,43 @@ impl LocalLightRegistry {
         entry.light = Some(light);
         self.by_source.insert(source, id);
         id
+    }
+
+    fn authored_sources(&self) -> Vec<SourceLight> {
+        self.providers
+            .get(&AUTHORED_LOCAL_LIGHT_PROVIDER_ID)
+            .map_or_else(Vec::new, |state| state.sources.to_vec())
+    }
+
+    fn authored_source_for_id(
+        &self,
+        id: LightId,
+    ) -> Result<LocalLightSourceId, LocalLightMutationError> {
+        let Some(slot) = self.slots.get(id.slot as usize) else {
+            return Err(LocalLightMutationError::StaleId(id));
+        };
+        let Some(source) = slot
+            .source
+            .filter(|_| slot.generation == id.generation && slot.light.is_some())
+        else {
+            return Err(LocalLightMutationError::StaleId(id));
+        };
+        if source.provider != AUTHORED_LOCAL_LIGHT_PROVIDER_ID {
+            return Err(LocalLightMutationError::StaleId(id));
+        }
+        Ok(source)
+    }
+
+    fn publish_authored(&mut self, sources: Vec<SourceLight>) {
+        self.authored_source_revision = self.authored_source_revision.wrapping_add(1).max(1);
+        let snapshot = LocalLightProviderSnapshot::new(
+            AUTHORED_LOCAL_LIGHT_PROVIDER_ID,
+            self.authored_source_revision,
+            sources,
+        )
+        .expect("authored light keys are unique by construction");
+        self.reconcile(snapshot)
+            .expect("authored light source revisions are monotonic");
     }
 
     fn release(&mut self, source: LocalLightSourceId) {

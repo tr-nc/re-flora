@@ -961,8 +961,8 @@ mod tests {
     use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
     use crate::geom::UAabb3;
     use crate::lighting::{
-        LocalLight, LocalLightBudget, LocalLightDomain, LocalLightGpuPayload,
-        LocalLightGpuSnapshot, PointLight,
+        LocalLight, LocalLightBudget, LocalLightGpuPayload, LocalLightGpuSnapshot,
+        LocalLightRegistry, PointLight,
     };
     use glam::{UVec3, Vec3};
 
@@ -1282,7 +1282,7 @@ mod tests {
     #[test]
     fn radiance_observations_coalesce_without_mutating_the_in_flight_snapshot() {
         let (mut runtime, active_token, _) = initialized_runtime();
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let id = lights.add(LocalLight::Point(
             PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
         ));

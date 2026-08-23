@@ -491,7 +491,7 @@ impl EnvironmentLightingCache {
 mod tests {
     use super::*;
     use crate::lighting::{
-        LocalLight, LocalLightBudget, LocalLightDomain, LocalLightGpuSnapshot, PointLight,
+        LocalLight, LocalLightBudget, LocalLightGpuSnapshot, LocalLightRegistry, PointLight,
     };
 
     fn gui_param<'a>(config: &'a toml::Value, id: &str) -> &'a toml::Value {
@@ -523,7 +523,7 @@ mod tests {
         }
     }
 
-    fn point_payload(domain: &LocalLightDomain) -> crate::lighting::LocalLightGpuPayload {
+    fn point_payload(domain: &LocalLightRegistry) -> crate::lighting::LocalLightGpuPayload {
         LocalLightGpuSnapshot::from_authoritative(
             &domain.snapshot(),
             LocalLightBudget::point_lights(1),
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn local_light_transport_is_rate_limited_latest_wins_and_keeps_live_separate() {
         let mut cache = EnvironmentLightingCache::default();
-        let mut lights = LocalLightDomain::default();
+        let mut lights = LocalLightRegistry::default();
         let mut initial = snapshot();
         initial.local_lights = point_payload(&lights);
         let first = cache.update(initial, Duration::ZERO);

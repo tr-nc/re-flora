@@ -652,7 +652,7 @@ fn flora_lighting_cache_dispatch_enabled(
 mod flora_lighting_cache_location_tests {
     use super::*;
     use crate::ddgi::{DdgiFieldKey, DdgiFieldState};
-    use crate::lighting::{LocalLight, LocalLightDomain, PointLight};
+    use crate::lighting::{LocalLight, LocalLightRegistry, PointLight};
 
     #[test]
     fn cache_location_packs_offset_voxel_count_and_lod_without_overlap() {
@@ -682,7 +682,7 @@ mod flora_lighting_cache_location_tests {
 
     #[test]
     fn point_light_gpu_values_stay_in_world_units_and_priority_scales_each_axis_once() {
-        let mut domain = LocalLightDomain::default();
+        let mut domain = LocalLightRegistry::default();
         domain.add(LocalLight::Point(
             PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
         ));
