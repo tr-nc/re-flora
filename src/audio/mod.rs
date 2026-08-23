@@ -6,6 +6,12 @@ pub use canopy_acoustics::{
     CanopyAcousticSampleProvenance,
 };
 
+mod canopy_audio_lifecycle;
+pub use canopy_audio_lifecycle::{
+    ActiveCanopyAcousticSample, CanopyAudioLifecycle, CanopyAudioLifecycleError,
+    CanopyAudioLifecycleSnapshot, CanopyAudioSourceKey, CanopyTreeLifecycleDiagnostics,
+};
+
 mod spatial_sound_manager;
 pub use spatial_sound_manager::SpatialSoundManager;
 
