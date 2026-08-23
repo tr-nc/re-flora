@@ -2799,15 +2799,38 @@ impl Tracer {
         );
         if environment_lighting.transport_published {
             log::info!(
-                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} published_at_ms={} transport_age_ms={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
+                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
                 environment_lighting.live.revision,
                 environment_lighting.transport.revision,
                 environment_lighting.transport.source_live_revision,
                 environment_lighting.revision_lag(),
+                environment_lighting.coalesced_live_revisions,
                 environment_lighting.transport.published_at.as_millis(),
                 environment_lighting
                     .transport_age(time_info.time_since_start_duration())
                     .as_millis(),
+                environment_lighting.transport.change.reason,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_angle_radians
+                    .to_degrees(),
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_color_relative,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_luminance_relative,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .non_solar_changed,
                 environment_lighting.transport.snapshot.sun_direction,
                 environment_lighting.transport.snapshot.sun_color,
                 environment_lighting.transport.snapshot.sun_luminance,

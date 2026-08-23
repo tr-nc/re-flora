@@ -869,6 +869,7 @@ mod tests {
             revision,
             source_live_revision: u64::from(revision),
             published_at: std::time::Duration::from_millis(u64::from(revision) * 10),
+            change: crate::environment_lighting::DdgiRadianceChange::default(),
             snapshot: DdgiRadianceSnapshot {
                 sun_direction: Vec3::Y,
                 sun_color: Vec3::new(1.0, 0.9, 0.8),
