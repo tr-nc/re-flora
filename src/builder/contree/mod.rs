@@ -2398,6 +2398,11 @@ mod tests {
             .all(|coefficient| *coefficient <= 0.05));
         assert_eq!(cherry, oak);
         assert_ne!(stucco, AcousticMaterial::default());
+        assert_eq!(
+            acoustic_material_label_for_transmission(cherry.transmission),
+            Some("wood")
+        );
+        assert_eq!(acoustic_material_label_for_transmission([1.0; 3]), None);
     }
 }
 
@@ -2514,6 +2519,25 @@ fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
         },
         _ => AcousticMaterial::default(),
     }
+}
+
+/// Names a Re: Flora-owned acoustic material from the exact transmission value returned by
+/// PetalSonic sample telemetry. The material catalog remains authoritative at the content seam.
+pub(crate) fn acoustic_material_label_for_transmission(
+    transmission: [f32; 3],
+) -> Option<&'static str> {
+    [
+        ("dirt", VOXEL_TYPE_DIRT),
+        ("sand", VOXEL_TYPE_SAND),
+        ("stucco", VOXEL_TYPE_STUCCO),
+        ("wood", VOXEL_TYPE_CHERRY_WOOD),
+        ("rock", VOXEL_TYPE_ROCK),
+    ]
+    .into_iter()
+    .find_map(|(label, voxel_type)| {
+        (acoustic_material_for_voxel(voxel_type).transmission == transmission).then_some(label)
+    })
+    .or_else(|| (AcousticMaterial::default().transmission == transmission).then_some("default"))
 }
 
 fn estimate_terrain_hit_normal(

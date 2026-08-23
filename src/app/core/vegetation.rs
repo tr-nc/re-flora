@@ -2,12 +2,16 @@ use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::visible_terrain::VisibleTerrainChange;
-use super::App;
+use super::{
+    App, CanopyAudioDiagnosticRuntime, CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
+    CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS, CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
+};
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
+use crate::audio::{CanopyAcousticDescriptor, LegacyBranchEndpointLayout};
 use crate::builder::{
     ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
 };
@@ -381,6 +385,7 @@ struct CompiledTreePlacement {
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
+    canopy_acoustic_descriptor: CanopyAcousticDescriptor,
 }
 
 #[derive(Clone, Debug)]
@@ -548,10 +553,18 @@ impl TreePlacementService {
         tree_pos: Vec3,
         extra_rebuild_bound: UAabb3,
         tree_age: f32,
+        canopy_generation: u64,
     ) -> CompiledTreePlacement {
         let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
         let mature_tree = Tree::new(mature_tree_desc.clone());
+        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build(
+            canopy_generation,
+            tree_pos,
+            tree_desc.branching.seed,
+            tree.relative_leaf_placements(),
+            tree.trunks(),
+        );
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
@@ -567,10 +580,18 @@ impl TreePlacementService {
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
         log::info!(
-            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} canopy_generation={} canopy_samples={} canopy_weight={:.3} canopy_min_clearance_voxels={:.3} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
             round_cones.len(),
             tree.relative_leaf_positions().len(),
             tree.relative_leaf_placements().len(),
+            canopy_acoustic_descriptor.generation(),
+            canopy_acoustic_descriptor.samples().len(),
+            canopy_acoustic_descriptor.total_weight(),
+            canopy_acoustic_descriptor
+                .samples()
+                .iter()
+                .map(|sample| sample.clearance_voxels())
+                .fold(f32::INFINITY, f32::min),
             tree_desc.size,
             tree_desc.trunk_thickness,
             TREE_MIN_TRUNK_THICKNESS,
@@ -655,6 +676,7 @@ impl TreePlacementService {
             leaf_render_local_positions,
             fruit_specs,
             world_leaf_positions,
+            canopy_acoustic_descriptor,
         }
     }
 }
@@ -815,6 +837,7 @@ struct TreeRecord {
 pub(super) struct TreeRuntime {
     records: HashMap<u32, TreeRecord>,
     next_tree_id: u32,
+    next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
@@ -825,6 +848,7 @@ impl TreeRuntime {
         Self {
             records: HashMap::new(),
             next_tree_id: 1,
+            next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
@@ -841,6 +865,15 @@ impl TreeRuntime {
 
     fn tuned_tree_id(&self) -> u32 {
         self.tuned_tree_id
+    }
+
+    fn allocate_canopy_acoustic_generation(&mut self) -> u64 {
+        let generation = self.next_canopy_acoustic_generation;
+        self.next_canopy_acoustic_generation = self
+            .next_canopy_acoustic_generation
+            .checked_add(1)
+            .expect("canopy acoustic generation overflow");
+        generation
     }
 
     fn contains(&self, tree_id: u32) -> bool {
@@ -1019,7 +1052,8 @@ impl App {
         self.terrain_physics
             .unregister_tree_fruits(tree_id, &mut self.tracer)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
-        self.tree_audio_manager.remove_tree(tree_id);
+        self.tree_audio_manager
+            .remove_tree(tree_id, self.time_info.time_since_start())?;
         match self.trees.commit_removal(tree_id) {
             Some(record) => {
                 log::debug!(
@@ -1057,8 +1091,119 @@ impl App {
     pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
+        if self.canopy_audio_diagnostic.is_some() {
+            self.log_canopy_audio_layout_comparison();
+        }
+        if self
+            .canopy_audio_diagnostic
+            .as_ref()
+            .is_some_and(CanopyAudioDiagnosticRuntime::budget_stress)
+        {
+            self.plant_canopy_audio_budget_diagnostic_trees()?;
+        }
         log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
         Ok(())
+    }
+
+    fn plant_canopy_audio_budget_diagnostic_trees(&mut self) -> Result<()> {
+        const OFFSETS: [Vec2; 4] = [
+            Vec2::new(0.48, 0.0),
+            Vec2::new(0.0, 0.48),
+            Vec2::new(-0.48, 0.0),
+            Vec2::new(0.0, -0.48),
+        ];
+
+        for (index, offset) in OFFSETS.into_iter().enumerate() {
+            let horizontal = Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z) + offset;
+            let position = Vec3::new(
+                horizontal.x,
+                self.query_terrain_height_cpu(horizontal),
+                horizontal.y,
+            );
+            let mut tree_desc = self.debug_settings.tree.desc.clone();
+            tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED + index as u64 + 1;
+            self.apply_tree_placement(TreePlacementEdit {
+                tree_desc,
+                placement: TreePlacement::World(position),
+                options: TreeAddOptions::default().with_new_id(),
+            })?;
+        }
+        log::info!(
+            "[AUDIO][CANOPY][BUDGET_DIAGNOSTIC] trees={} max_processed_extents={} max_direct_rays={}",
+            OFFSETS.len() + 1,
+            CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
+            CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
+        );
+        Ok(())
+    }
+
+    fn log_canopy_audio_layout_comparison(&self) {
+        let tree_desc = self
+            .debug_settings
+            .tree
+            .desc
+            .at_age(self.debug_settings.adjustables.tree_age.value);
+        let tree = Tree::new(tree_desc.clone());
+        let generation = self.trees.next_canopy_acoustic_generation.saturating_sub(1);
+        let canopy = CanopyAcousticDescriptor::build(
+            generation,
+            self.debug_tree_pos,
+            tree_desc.branching.seed,
+            tree.relative_leaf_placements(),
+            tree.trunks(),
+        );
+        let legacy =
+            LegacyBranchEndpointLayout::build(tree.relative_leaf_positions(), tree.trunks());
+        let legacy_min_clearance = legacy
+            .samples()
+            .iter()
+            .map(|sample| sample.clearance_voxels)
+            .fold(f32::INFINITY, f32::min);
+        let canopy_min_clearance = canopy
+            .samples()
+            .iter()
+            .map(|sample| sample.clearance_voxels())
+            .fold(f32::INFINITY, f32::min);
+        log::info!(
+            "[AUDIO][CANOPY][LAYOUT_COMPARISON] tree_seed={} generation={} leaf_branch_endpoints={} physical_leaf_placements={} legacy_samples={} legacy_selected_members={} legacy_below_clearance={} legacy_min_clearance_voxels={:.6} canopy_samples={} canopy_weight={:.9} canopy_min_clearance_voxels={:.6}",
+            tree_desc.branching.seed,
+            generation,
+            tree.relative_leaf_positions().len(),
+            tree.relative_leaf_placements().len(),
+            legacy.samples().len(),
+            legacy.selected_member_count(),
+            legacy.below_clearance_count(CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS),
+            legacy_min_clearance,
+            canopy.samples().len(),
+            canopy.total_weight(),
+            canopy_min_clearance,
+        );
+        for (index, sample) in legacy.samples().iter().enumerate() {
+            log::info!(
+                "[AUDIO][CANOPY][LEGACY_SAMPLE] index={} source=branch_endpoint_greedy_first_member position_tree_voxels={:?} position_world={:?} cluster_members={} clearance_voxels={:.6} meets_canopy_clearance={}",
+                index,
+                sample.position_tree_voxels,
+                self.debug_tree_pos + sample.position_tree_voxels / 256.0,
+                sample.cluster_members,
+                sample.clearance_voxels,
+                sample.clearance_voxels
+                    >= CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS,
+            );
+        }
+        for sample in canopy.samples() {
+            log::info!(
+                "[AUDIO][CANOPY][PHYSICAL_SAMPLE] generation={} sample={} source={:?} position_tree_voxels={:?} position_world={:?} clearance_voxels={:.6} weight={:.9} content_seed={} phase={:.9}",
+                canopy.generation(),
+                sample.id().value(),
+                sample.provenance(),
+                sample.position_tree_voxels(),
+                canopy.sample_world_position(sample),
+                sample.clearance_voxels(),
+                sample.weight(),
+                sample.content_seed(),
+                sample.phase(),
+            );
+        }
     }
 
     pub(super) fn update_tuned_tree_from_gui(&mut self) -> Result<()> {
@@ -1082,7 +1227,6 @@ impl App {
         for (tree_id, record) in &records {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
-            self.tree_audio_manager.remove_tree(*tree_id);
             self.plain_builder.chunk_replace_voxel_type_in_round_cones(
                 &record.trunk_geometry.bvh_nodes,
                 &record.trunk_geometry.round_cones,
@@ -1097,11 +1241,13 @@ impl App {
         let mut rebuild_chunk_ids = Vec::new();
         for (tree_id, record) in records {
             let compile_start = Instant::now();
+            let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
             let compiled = TreePlacementService::compile(
                 record.mature_desc.clone(),
                 record.position,
                 UAabb3::default(),
                 tree_age,
+                canopy_generation,
             );
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
@@ -1151,6 +1297,7 @@ impl App {
                 &compiled.leaf_render_local_positions,
                 &compiled.fruit_specs,
                 &compiled.world_leaf_positions,
+                compiled.canopy_acoustic_descriptor.clone(),
                 total_start,
                 compile_elapsed,
                 trunk_elapsed,
@@ -1187,7 +1334,6 @@ impl App {
             let old_remove_start = Instant::now();
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, tuned_tree_id)?;
-            self.tree_audio_manager.remove_tree(tuned_tree_id);
             old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
             record.bound
         } else {
@@ -1196,11 +1342,13 @@ impl App {
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
+        let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
         let compiled = TreePlacementService::compile(
             tree_desc,
             tree_pos,
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
+            canopy_generation,
         );
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
@@ -1255,6 +1403,7 @@ impl App {
             &compiled.leaf_render_local_positions,
             &compiled.fruit_specs,
             &compiled.world_leaf_positions,
+            compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
             trunk_elapsed,
@@ -2012,6 +2161,7 @@ impl App {
         leaf_render_local_positions: &[IVec3],
         fruit_specs: &[TreeFruitSpec],
         world_leaf_positions: &[Vec3],
+        canopy_acoustic_descriptor: CanopyAcousticDescriptor,
         total_start: Instant,
         compile_elapsed: std::time::Duration,
         trunk_elapsed: std::time::Duration,
@@ -2064,13 +2214,14 @@ impl App {
         }
 
         let audio_start = Instant::now();
-        self.tree_audio_manager.add_tree_sources_from_clusters(
-            tree_id,
-            tree_pos,
-            &leaf_clusters,
-            false,
-            true,
-        )?;
+        let canopy_audio_source_count = self
+            .tree_audio_manager
+            .upsert_tree(
+                tree_id,
+                canopy_acoustic_descriptor.clone(),
+                self.time_info.time_since_start(),
+            )?
+            .len();
         let audio_elapsed = audio_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
@@ -2102,7 +2253,7 @@ impl App {
                 .record("tree_gui_leaf_emitter", emitter_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} clusters {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
                 total_start.elapsed().as_secs_f32() * 1000.0,
                 compile_elapsed.as_secs_f32() * 1000.0,
                 trunk_elapsed.as_secs_f32() * 1000.0,
@@ -2116,6 +2267,8 @@ impl App {
                 quantized_leaf_render_positions.len(),
                 fruit_specs.len(),
                 leaf_clusters.len(),
+                canopy_acoustic_descriptor.generation(),
+                canopy_audio_source_count,
                 rebuild_chunk_count,
                 rebuild_bound,
             );
@@ -2144,11 +2297,13 @@ impl App {
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
+        let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
         let compiled = TreePlacementService::compile(
             tree_desc,
             tree_pos,
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
+            canopy_generation,
         );
         let compile_elapsed = compile_start.elapsed();
         if benchmark_gui_tree {
@@ -2201,6 +2356,7 @@ impl App {
             &compiled.leaf_render_local_positions,
             &compiled.fruit_specs,
             &compiled.world_leaf_positions,
+            compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
             trunk_elapsed,
