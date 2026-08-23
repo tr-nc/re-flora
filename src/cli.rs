@@ -13,6 +13,8 @@ const DENOISER_BENCH_USAGE: &str = "Expected `--denoiser-bench <preset> <report.
 
 pub const DEFAULT_DENOISER_BENCH_WARMUP_FRAMES: u32 = 90;
 pub const DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES: u32 = 64;
+pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_WARMUP_FRAMES: u32 = 600;
+pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES: u32 = 180;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
@@ -32,6 +34,37 @@ pub enum WaterProfilePreference {
 pub enum MonitorScorePreference {
     Highest,
     Lowest,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerrainConnectivityBenchMode {
+    Existing,
+    Correct,
+}
+
+impl TerrainConnectivityBenchMode {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "existing" => Some(Self::Existing),
+            "correct" => Some(Self::Correct),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Existing => "existing",
+            Self::Correct => "correct",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainConnectivityBenchOptions {
+    pub mode: TerrainConnectivityBenchMode,
+    pub available_particles: usize,
+    pub warmup_frames: u32,
+    pub observe_frames: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -241,6 +274,8 @@ pub struct AppOptions {
     pub authored_flora_bench: bool,
     /// Number of authored flora benchmark paint samples.
     pub authored_flora_bench_samples: u32,
+    /// Run the deterministic 437,205-voxel detached-terrain release benchmark.
+    pub terrain_connectivity_bench: Option<TerrainConnectivityBenchOptions>,
     /// Print the per-worktree run log directory and exit successfully.
     pub print_log_dir: bool,
     /// Print the latest run log path and exit successfully.
@@ -513,6 +548,46 @@ impl AppOptions {
             .any(|a| a == "--tail-latest-log")
             .then(|| parse_u32_after("--tail-latest-log").unwrap_or(200) as usize);
 
+        let terrain_connectivity_bench_mode =
+            parse_required_string_after("--terrain-connectivity-bench", "existing or correct")?;
+        let terrain_connectivity_bench = terrain_connectivity_bench_mode
+            .map(|value| {
+                TerrainConnectivityBenchMode::from_cli_value(&value).ok_or_else(|| {
+                    format!(
+                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing or correct."
+                    )
+                })
+            })
+            .transpose()?
+            .map(|mode| TerrainConnectivityBenchOptions {
+                mode,
+                available_particles: parse_u32_after(
+                    "--terrain-connectivity-bench-available-particles",
+                )
+                .unwrap_or(16_384)
+                .min(16_384) as usize,
+                warmup_frames: parse_u32_after("--terrain-connectivity-bench-warmup-frames")
+                    .unwrap_or(DEFAULT_TERRAIN_CONNECTIVITY_BENCH_WARMUP_FRAMES),
+                observe_frames: parse_u32_after("--terrain-connectivity-bench-observe-frames")
+                    .unwrap_or(DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES)
+                    .max(1),
+            });
+        if terrain_connectivity_bench.is_none()
+            && args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--terrain-connectivity-bench-available-particles"
+                        | "--terrain-connectivity-bench-warmup-frames"
+                        | "--terrain-connectivity-bench-observe-frames"
+                )
+            })
+        {
+            return Err(
+                "Terrain connectivity benchmark options require --terrain-connectivity-bench"
+                    .to_owned(),
+            );
+        }
+
         Ok(Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
@@ -576,6 +651,7 @@ impl AppOptions {
             authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
             authored_flora_bench_samples: parse_u32_after("--authored-flora-bench-samples")
                 .unwrap_or(25),
+            terrain_connectivity_bench,
             print_log_dir: args.iter().any(|a| a == "--print-log-dir"),
             latest_log: args.iter().any(|a| a == "--latest-log"),
             tail_latest_log,
@@ -870,6 +946,14 @@ Options:
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)
+  --terrain-connectivity-bench <existing|correct>
+                              Run the deterministic 437,205-voxel release benchmark
+  --terrain-connectivity-bench-available-particles <N>
+                              Set actual free particle slots at release (default/max: 16384)
+  --terrain-connectivity-bench-warmup-frames <N>
+                              Settled frames before release (default: 600)
+  --terrain-connectivity-bench-observe-frames <N>
+                              Frames retained after release (default: 180)
   --print-log-dir             Print the per-worktree run log directory and exit
   --latest-log                Print the latest run log path and exit
   --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
@@ -984,7 +1068,33 @@ mod tests {
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 25);
+        assert!(options.terrain_connectivity_bench.is_none());
         assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_terrain_connectivity_bench_options() {
+        let options = parse(&[
+            "re-flora",
+            "--terrain-connectivity-bench",
+            "correct",
+            "--terrain-connectivity-bench-available-particles",
+            "8192",
+            "--terrain-connectivity-bench-warmup-frames",
+            "120",
+            "--terrain-connectivity-bench-observe-frames",
+            "45",
+        ]);
+
+        assert_eq!(
+            options.terrain_connectivity_bench,
+            Some(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Correct,
+                available_particles: 8192,
+                warmup_frames: 120,
+                observe_frames: 45,
+            })
+        );
     }
 
     #[test]

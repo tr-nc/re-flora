@@ -6,6 +6,8 @@ use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+pub(super) mod bench;
+
 // Most releases resolve from one contiguous readback. Components that cross this
 // fast-path halo continue through lazily loaded tiles below.
 const ANALYSIS_HALO_VOXELS: u32 = 24;
