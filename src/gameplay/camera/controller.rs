@@ -1,9 +1,10 @@
-use super::{
-    audio::PlayerAudioController, head_bob::HeadBob, movement::MovementState, stride::StrideCycle,
-    vectors::CameraVectors, CameraDesc,
+use super::footstep::{
+    FootstepEventJournal, RUN_STRIDE_INTERVAL_SECONDS, WALK_STRIDE_INTERVAL_SECONDS,
 };
-use crate::audio::SpatialSoundManager;
-use anyhow::Result;
+use super::{
+    head_bob::HeadBob, movement::MovementState, stride::StrideCycle, vectors::CameraVectors,
+    CameraDesc, FootstepEvent, FootstepKind, Gait,
+};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use re_flora_vkn::Extent2D;
 use winit::event::KeyEvent;
@@ -106,7 +107,7 @@ pub struct Camera {
     /// Vertical velocity used by walk/gravity mode (m/s, +y up).
     vertical_velocity: f32,
 
-    player_audio_controller: PlayerAudioController,
+    footstep_events: FootstepEventJournal,
     was_on_ground: bool,
 
     /// Rigidbody physics state for collision response.
@@ -125,8 +126,7 @@ impl Camera {
         initial_yaw: f32,
         initial_pitch: f32,
         desc: CameraDesc,
-        spatial_sound_manager: SpatialSoundManager,
-    ) -> Result<Self> {
+    ) -> Self {
         let mut camera = Self {
             position: initial_position,
             walk_collision_position: None,
@@ -139,7 +139,7 @@ impl Camera {
             ),
             desc,
             vertical_velocity: 0.0,
-            player_audio_controller: PlayerAudioController::new(spatial_sound_manager)?,
+            footstep_events: FootstepEventJournal::default(),
             was_on_ground: false,
             rigidbody: PlayerRigidBody::new(),
             pre_landing_speed: 0.0,
@@ -149,14 +149,10 @@ impl Camera {
 
         camera.vectors.update(camera.yaw, camera.pitch);
         camera
-            .player_audio_controller
-            .set_footstep_volume_gain(-40.0);
-        Ok(camera)
     }
 
-    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
-        self.player_audio_controller
-            .set_footstep_volume_gain(volume_gain);
+    pub fn take_footstep_events(&mut self) -> Vec<FootstepEvent> {
+        self.footstep_events.drain()
     }
 
     pub fn on_resize(&mut self, screen_extent: Extent2D) {
@@ -332,7 +328,11 @@ impl Camera {
         self.stride_cycle.reset();
     }
 
-    pub fn prepare_walk_movement(&mut self, frame_delta_time: f32) -> PlayerWalkMovementRequest {
+    pub fn prepare_walk_movement(
+        &mut self,
+        frame_delta_time: f32,
+        sim_time_seconds: f64,
+    ) -> PlayerWalkMovementRequest {
         const GRAVITY_G: f32 = 2.0;
         const JUMP_IMPULSE: f32 = 0.5;
         const GROUND_STICK_VELOCITY: f32 = 0.05;
@@ -373,8 +373,12 @@ impl Camera {
                 collision_position.y - self.desc.camera_height,
                 collision_position.z,
             );
-            self.player_audio_controller
-                .play_jumping(current_speed, foot_position);
+            self.footstep_events.record(
+                FootstepKind::Jump,
+                foot_position,
+                current_speed,
+                sim_time_seconds,
+            );
         } else if self.rigidbody.is_grounded {
             // Keep a slight downward component so the KCC can preserve stable ground contact.
             self.vertical_velocity = -GROUND_STICK_VELOCITY;
@@ -399,6 +403,7 @@ impl Camera {
     pub fn apply_walk_movement(
         &mut self,
         frame_delta_time: f32,
+        sim_time_seconds: f64,
         request: PlayerWalkMovementRequest,
         result: PlayerWalkMovementResult,
     ) {
@@ -444,15 +449,20 @@ impl Camera {
         let just_landed = grounded && !self.was_on_ground;
         if just_landed {
             if is_moving {
-                self.player_audio_controller.play_step(
-                    is_running,
-                    self.rigidbody.velocity.length(),
+                self.footstep_events.record(
+                    FootstepKind::Stride(if is_running { Gait::Run } else { Gait::Walk }),
                     foot_position,
+                    self.rigidbody.velocity.length(),
+                    sim_time_seconds,
                 );
                 self.stride_cycle.restart_after_step();
             } else {
-                self.player_audio_controller
-                    .play_landing(self.pre_landing_speed, foot_position);
+                self.footstep_events.record(
+                    FootstepKind::Land,
+                    foot_position,
+                    self.pre_landing_speed,
+                    sim_time_seconds,
+                );
             }
         }
 
@@ -460,14 +470,15 @@ impl Camera {
             frame_delta_time,
             grounded && is_moving,
             is_running,
-            self.player_audio_controller.walk_interval(),
-            self.player_audio_controller.run_interval(),
+            WALK_STRIDE_INTERVAL_SECONDS,
+            RUN_STRIDE_INTERVAL_SECONDS,
         );
         if stride.just_step {
-            self.player_audio_controller.play_step(
-                is_running,
-                self.rigidbody.velocity.length(),
+            self.footstep_events.record(
+                FootstepKind::Stride(if is_running { Gait::Run } else { Gait::Walk }),
                 foot_position,
+                self.rigidbody.velocity.length(),
+                sim_time_seconds,
             );
         }
         self.head_bob.update(

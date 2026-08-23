@@ -886,8 +886,7 @@ impl Tracer {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
             },
-            spatial_sound_manager.clone(),
-        )?;
+        );
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
@@ -5982,10 +5981,6 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
-        self.camera.set_footstep_volume_gain(volume_gain);
-    }
-
     pub fn update_fly_camera(&mut self, frame_delta_time: f32) {
         self.camera.update_transform_fly_mode(frame_delta_time);
         self.spatial_sound_manager
@@ -5996,21 +5991,28 @@ impl Tracer {
     pub fn prepare_walk_camera_movement(
         &mut self,
         frame_delta_time: f32,
+        sim_time_seconds: f64,
     ) -> crate::gameplay::camera::PlayerWalkMovementRequest {
-        self.camera.prepare_walk_movement(frame_delta_time)
+        self.camera
+            .prepare_walk_movement(frame_delta_time, sim_time_seconds)
     }
 
     pub fn apply_walk_camera_movement(
         &mut self,
         frame_delta_time: f32,
+        sim_time_seconds: f64,
         request: crate::gameplay::camera::PlayerWalkMovementRequest,
         result: crate::gameplay::camera::PlayerWalkMovementResult,
     ) {
         self.camera
-            .apply_walk_movement(frame_delta_time, request, result);
+            .apply_walk_movement(frame_delta_time, sim_time_seconds, request, result);
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
+    }
+
+    pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
+        self.camera.take_footstep_events()
     }
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {

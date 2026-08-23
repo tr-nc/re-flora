@@ -1,5 +1,8 @@
 mod audio_clip_cache;
 
+mod local_player_footsteps;
+pub use local_player_footsteps::LocalPlayerFootstepAudio;
+
 mod spatial_sound_manager;
 pub use spatial_sound_manager::SpatialSoundManager;
 

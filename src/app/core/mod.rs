@@ -63,7 +63,9 @@ use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
-use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
+use crate::audio::{
+    LocalPlayerFootstepAudio, SpatialSoundManager, TreeAudioManager, TreeRustleParams,
+};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
     VOXEL_MOISTURE_MAX,
@@ -395,6 +397,7 @@ pub struct App {
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
+    local_player_footstep_audio: LocalPlayerFootstepAudio,
     tree_audio_manager: TreeAudioManager,
 }
 
@@ -916,6 +919,8 @@ impl App {
             debug_settings.adjustables.tree_wind_volume_db.value,
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
+        let local_player_footstep_audio =
+            LocalPlayerFootstepAudio::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1127,6 +1132,7 @@ impl App {
             shutdown_started: false,
 
             spatial_sound_manager,
+            local_player_footstep_audio,
             tree_audio_manager,
         };
 
@@ -3931,10 +3937,10 @@ impl App {
                     benchmark.mark_frame_presented();
                 }
 
-                self.tracer.set_footstep_volume_gain(
+                self.local_player_footstep_audio.set_volume_gain_db(
                     -40.0 + self.debug_settings.adjustables.footstep_volume_db.value,
                 );
-                self.update_camera_for_current_mode(frame_delta_time);
+                self.update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
