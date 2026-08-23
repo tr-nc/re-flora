@@ -166,7 +166,7 @@ impl App {
         &mut self,
         frame_delta_time: f32,
         sim_time_seconds: f64,
-    ) {
+    ) -> Vec<crate::gameplay::camera::FootstepEvent> {
         if self.is_free_fly_camera_mode() {
             self.tracer.update_fly_camera(frame_delta_time);
         } else if self.is_walk_camera_mode() {
@@ -193,15 +193,7 @@ impl App {
             self.update_orbit_camera_motion(frame_delta_time);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
-        for event in self.tracer.take_footstep_events() {
-            if let Err(err) = self.local_player_footstep_audio.play_legacy_2d(&event) {
-                log::error!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=legacy_2d event_seq={} kind={:?} failed: {err:#}",
-                    event.event_seq,
-                    event.kind,
-                );
-            }
-        }
+        self.tracer.take_footstep_events()
     }
 
     fn orbit_camera_spherical(&self) -> (f32, f32, f32) {

@@ -15,6 +15,7 @@ mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
 mod loading;
+mod local_player_footsteps;
 mod moisture;
 mod particles;
 mod physics;
@@ -1950,12 +1951,6 @@ impl App {
                         .value,
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
-                }
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .publish_spatial_frame(f64::from(time_since_start))
-                {
-                    log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
                 self.update_environmental_acoustics();
 
@@ -3940,7 +3935,27 @@ impl App {
                 self.local_player_footstep_audio.set_volume_gain_db(
                     -40.0 + self.debug_settings.adjustables.footstep_volume_db.value,
                 );
-                self.update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
+                let footstep_events = self
+                    .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
+                let footstep_events = self.resolve_local_footstep_events(footstep_events);
+                let spatial_frame_published = match self
+                    .spatial_sound_manager
+                    .publish_spatial_frame(f64::from(time_since_start))
+                {
+                    Ok(()) => true,
+                    Err(err) => {
+                        log::warn!("Failed to publish spatial audio frame: {}", err);
+                        false
+                    }
+                };
+                if spatial_frame_published {
+                    self.play_local_footstep_events_legacy_2d(&footstep_events);
+                } else if !footstep_events.is_empty() {
+                    log::warn!(
+                        "[AUDIO][LOCAL_FOOTSTEP] dropped={} reason=spatial_frame_publish_failed",
+                        footstep_events.len(),
+                    );
+                }
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

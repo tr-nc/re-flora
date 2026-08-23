@@ -34,6 +34,8 @@ impl FootstepClipBank {
     }
 
     fn path_for(&self, event: &FootstepEvent) -> &str {
+        // The installed bank contains only undergrowth/leaves recordings. Surface remains part of
+        // the semantic event, but every surface intentionally falls back to this existing bank.
         match event.kind {
             FootstepKind::Jump => Self::random_path(&self.jump_paths),
             FootstepKind::Land => Self::random_path(&self.land_paths),

@@ -27,6 +27,11 @@ pub enum FootstepSide {
 pub enum FootstepSurface {
     #[default]
     Unknown,
+    Dirt,
+    Sand,
+    Stone,
+    Wood,
+    Stucco,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
