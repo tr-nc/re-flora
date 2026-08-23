@@ -1043,9 +1043,7 @@ impl DdgiVolume {
         }
 
         let device = vulkan_ctx.device().clone();
-        let sampled_storage_usage = vk::ImageUsageFlags::SAMPLED
-            | vk::ImageUsageFlags::STORAGE
-            | vk::ImageUsageFlags::TRANSFER_DST;
+        let sampled_storage_usage = ddgi_atlas_image_usage();
         let sampler_desc = SamplerDesc {
             mag_filter: vk::Filter::LINEAR,
             min_filter: vk::Filter::LINEAR,
@@ -2123,6 +2121,13 @@ fn atlas_image_desc(
     }
 }
 
+fn ddgi_atlas_image_usage() -> vk::ImageUsageFlags {
+    vk::ImageUsageFlags::SAMPLED
+        | vk::ImageUsageFlags::STORAGE
+        | vk::ImageUsageFlags::TRANSFER_SRC
+        | vk::ImageUsageFlags::TRANSFER_DST
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2168,7 +2173,7 @@ mod tests {
     fn texture_descriptors_use_required_oracle_formats() {
         let irradiance = DdgiAtlasLayout::new(1, DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility = DdgiAtlasLayout::new(1, DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let usage = vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::STORAGE;
+        let usage = ddgi_atlas_image_usage();
         let irradiance_desc = atlas_image_desc(irradiance, DDGI_IRRADIANCE_FORMAT, usage);
         let visibility_desc = atlas_image_desc(visibility, DDGI_VISIBILITY_FORMAT, usage);
 
@@ -2178,6 +2183,12 @@ mod tests {
         assert_eq!(visibility_desc.extent, Extent3D::new(18, 18, 1));
         assert!(irradiance_desc.usage.contains(vk::ImageUsageFlags::STORAGE));
         assert!(visibility_desc.usage.contains(vk::ImageUsageFlags::SAMPLED));
+        assert!(visibility_desc
+            .usage
+            .contains(vk::ImageUsageFlags::TRANSFER_SRC));
+        assert!(visibility_desc
+            .usage
+            .contains(vk::ImageUsageFlags::TRANSFER_DST));
     }
 
     #[test]
