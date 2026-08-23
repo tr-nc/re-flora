@@ -242,6 +242,18 @@ impl CanopyAudioDiagnosticRuntime {
         self.budget_stress
     }
 
+    fn telemetry_marker(
+        &self,
+        tree_origin_world: Vec3,
+        time_seconds: f32,
+    ) -> Option<(f32, CanopyAudioTrajectoryPhase)> {
+        self.start_time_seconds.map(|start_time_seconds| {
+            let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
+            let phase = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds).phase;
+            (elapsed_seconds, phase)
+        })
+    }
+
     fn sample(
         &mut self,
         tree_origin_world: Vec3,
@@ -484,6 +496,14 @@ impl App {
             return;
         }
         self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
+        let trajectory_marker = self
+            .canopy_audio_diagnostic
+            .as_ref()
+            .and_then(|diagnostic| diagnostic.telemetry_marker(self.debug_tree_pos, time_seconds));
+        let (trajectory_elapsed_seconds, trajectory_phase) = trajectory_marker
+            .map_or((-1.0, None), |(elapsed_seconds, phase)| {
+                (elapsed_seconds, Some(phase))
+            });
 
         let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
             return;
@@ -501,8 +521,10 @@ impl App {
             .collect::<std::collections::HashSet<_>>()
             .len();
         log::info!(
-            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trees={} emitters={} observed_voices={} samples={} extent_responses={} solve_discards={} last_discard_spatial_revision={} last_discard_geometry_version={} voice_identity_violations={} revision_rollbacks={} sample_contract_violations={} aggregate_mismatches={} petal_superseded_solves={} telemetry_queue_depth={} telemetry_queue_high_water={} telemetry_drops={} direct_rays={} sample_cache_hits={} processed_extents={} lobes={} retained={} deferred={} render_rejected_rollbacks={}",
+            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trajectory_elapsed_seconds={:.6} trajectory_phase={:?} trees={} emitters={} observed_voices={} samples={} extent_responses={} solve_discards={} last_discard_spatial_revision={} last_discard_geometry_version={} voice_identity_violations={} revision_rollbacks={} sample_contract_violations={} aggregate_mismatches={} petal_superseded_solves={} telemetry_queue_depth={} telemetry_queue_high_water={} telemetry_drops={} direct_rays={} sample_cache_hits={} processed_extents={} lobes={} retained={} deferred={} render_rejected_rollbacks={}",
             time_seconds,
+            trajectory_elapsed_seconds,
+            trajectory_phase,
             snapshot.trees.len(),
             emitter_count,
             observed_voice_count,
