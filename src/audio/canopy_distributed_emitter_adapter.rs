@@ -234,6 +234,16 @@ impl CanopyDistributedEmitterAdapter {
                 SpatialAcousticTelemetryEvent::ExtentResponse {
                     source_uuid: None, ..
                 } => {}
+                SpatialAcousticTelemetryEvent::VoiceConclusion {
+                    source_uuid,
+                    conclusion,
+                } => {
+                    // This event reached the canopy-owned inbox, so the local-footstep consumer
+                    // cannot drain or misattribute it. Existing extent telemetry remains the
+                    // canopy diagnostic authority, so no current canopy snapshot field projects
+                    // this QoS record.
+                    let _ = (source_uuid, conclusion);
+                }
                 SpatialAcousticTelemetryEvent::SolveDiscarded {
                     spatial_revision,
                     geometry_version,
