@@ -733,6 +733,24 @@ impl SpatialSoundManager {
         self.world.diagnostics()
     }
 
+    pub(crate) fn acoustic_response_matches_published_scene(&self) -> bool {
+        let diagnostics = self.world.diagnostics();
+        Self::acoustic_response_is_current(
+            self.published_acoustic_scene_version
+                .load(Ordering::Acquire),
+            diagnostics.acoustic_published_response_count,
+            diagnostics.acoustic_response_geometry_version,
+        )
+    }
+
+    fn acoustic_response_is_current(
+        published_scene_version: u64,
+        published_response_count: u64,
+        response_geometry_version: u64,
+    ) -> bool {
+        published_response_count > 0 && response_geometry_version == published_scene_version
+    }
+
     pub(crate) fn acoustic_pipeline_snapshot(&self) -> AcousticPipelineSnapshot {
         let diagnostics = self.world.diagnostics();
         let voice_telemetry = self.world.voice_telemetry_diagnostics();
@@ -990,6 +1008,17 @@ mod tests {
         assert_eq!(activity.published, 0);
         assert_eq!(activity.dropped_voice_telemetry, 3);
         assert_eq!(activity.dropped_acoustic_telemetry, 5);
+    }
+
+    #[test]
+    fn acoustic_response_readiness_requires_a_response_for_the_current_scene() {
+        assert!(!SpatialSoundManager::acoustic_response_is_current(
+            45, 0, 45
+        ));
+        assert!(!SpatialSoundManager::acoustic_response_is_current(
+            45, 1, 44
+        ));
+        assert!(SpatialSoundManager::acoustic_response_is_current(45, 1, 45));
     }
 
     #[test]

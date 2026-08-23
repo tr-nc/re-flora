@@ -65,8 +65,9 @@ use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{
-    canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTrajectoryPhase,
-    LocalPlayerFootstepAudio, SpatialSoundManager, TreeAudioManager, TreeRustleParams,
+    canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTelemetrySnapshot,
+    CanopyAudioTrajectoryPhase, LocalPlayerFootstepAudio, SpatialSoundManager, TreeAudioManager,
+    TreeRustleParams,
 };
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
@@ -146,6 +147,7 @@ const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 const CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED: u64 = 122;
 const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS: usize = 2;
 const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS: usize = 32;
+const CANOPY_AUDIO_DIAGNOSTIC_ACOUSTIC_SETTLE_SECONDS: f32 = 0.1;
 const CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES: [WindSource; 1] =
     [WindSource::new(35.0, 1.0, 1.0, 3, 2.0, 0.5, 0.75)];
 
@@ -224,9 +226,91 @@ impl EguiTextureLifecycleTest {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct CanopyAudioDiagnosticCounters {
+    extent_responses: u64,
+    solve_discards: u64,
+    voice_identity_violations: u64,
+    revision_rollbacks: u64,
+    sample_contract_violations: u64,
+    aggregate_mismatches: u64,
+    petal_superseded_solves: u64,
+    telemetry_drops: u64,
+    direct_rays: u64,
+    sample_cache_hits: u64,
+    processed_extents: u64,
+    lobes: u64,
+    retained: u64,
+    deferred: u64,
+    render_rejected_rollbacks: u64,
+}
+
+impl CanopyAudioDiagnosticCounters {
+    fn from_snapshot(snapshot: &CanopyAudioTelemetrySnapshot) -> Self {
+        Self {
+            extent_responses: snapshot.telemetry.extent_response_count,
+            solve_discards: snapshot.telemetry.solve_discard_count,
+            voice_identity_violations: snapshot.telemetry.voice_identity_violation_count,
+            revision_rollbacks: snapshot.telemetry.revision_rollback_count,
+            sample_contract_violations: snapshot.telemetry.sample_contract_violation_count,
+            aggregate_mismatches: snapshot.telemetry.aggregate_mismatch_count,
+            petal_superseded_solves: snapshot.petal_superseded_solve_count,
+            telemetry_drops: snapshot.petal_telemetry_dropped_events,
+            direct_rays: snapshot.petal_direct_ray_count,
+            sample_cache_hits: snapshot.petal_sample_cache_hit_count,
+            processed_extents: snapshot.petal_processed_extent_count,
+            lobes: snapshot.petal_lobe_count,
+            retained: snapshot.petal_retained_response_count,
+            deferred: snapshot.petal_deferred_response_count,
+            render_rejected_rollbacks: snapshot.petal_render_rejected_response_count,
+        }
+    }
+
+    fn activity_since(self, earlier: Self) -> Self {
+        Self {
+            extent_responses: self
+                .extent_responses
+                .saturating_sub(earlier.extent_responses),
+            solve_discards: self.solve_discards.saturating_sub(earlier.solve_discards),
+            voice_identity_violations: self
+                .voice_identity_violations
+                .saturating_sub(earlier.voice_identity_violations),
+            revision_rollbacks: self
+                .revision_rollbacks
+                .saturating_sub(earlier.revision_rollbacks),
+            sample_contract_violations: self
+                .sample_contract_violations
+                .saturating_sub(earlier.sample_contract_violations),
+            aggregate_mismatches: self
+                .aggregate_mismatches
+                .saturating_sub(earlier.aggregate_mismatches),
+            petal_superseded_solves: self
+                .petal_superseded_solves
+                .saturating_sub(earlier.petal_superseded_solves),
+            telemetry_drops: self.telemetry_drops.saturating_sub(earlier.telemetry_drops),
+            direct_rays: self.direct_rays.saturating_sub(earlier.direct_rays),
+            sample_cache_hits: self
+                .sample_cache_hits
+                .saturating_sub(earlier.sample_cache_hits),
+            processed_extents: self
+                .processed_extents
+                .saturating_sub(earlier.processed_extents),
+            lobes: self.lobes.saturating_sub(earlier.lobes),
+            retained: self.retained.saturating_sub(earlier.retained),
+            deferred: self.deferred.saturating_sub(earlier.deferred),
+            render_rejected_rollbacks: self
+                .render_rejected_rollbacks
+                .saturating_sub(earlier.render_rejected_rollbacks),
+        }
+    }
+}
+
 struct CanopyAudioDiagnosticRuntime {
     start_time_seconds: Option<f32>,
     previous_phase: Option<CanopyAudioTrajectoryPhase>,
+    counter_baseline: Option<CanopyAudioDiagnosticCounters>,
+    acoustic_ready_since_seconds: Option<f32>,
+    last_render_rejected_response_count: Option<u64>,
     budget_stress: bool,
 }
 
@@ -235,12 +319,60 @@ impl CanopyAudioDiagnosticRuntime {
         Self {
             start_time_seconds: None,
             previous_phase: None,
+            counter_baseline: None,
+            acoustic_ready_since_seconds: None,
+            last_render_rejected_response_count: None,
             budget_stress,
         }
     }
 
     fn budget_stress(&self) -> bool {
         self.budget_stress
+    }
+
+    fn started(&self) -> bool {
+        self.start_time_seconds.is_some()
+    }
+
+    fn start(&mut self, time_seconds: f32, snapshot: &CanopyAudioTelemetrySnapshot) {
+        if self.started() {
+            return;
+        }
+        self.start_time_seconds = Some(time_seconds);
+        self.counter_baseline = Some(CanopyAudioDiagnosticCounters::from_snapshot(snapshot));
+    }
+
+    fn observe_acoustic_readiness(
+        &mut self,
+        time_seconds: f32,
+        response_matches_published_scene: bool,
+        render_rejected_response_count: u64,
+    ) -> bool {
+        if !response_matches_published_scene {
+            self.acoustic_ready_since_seconds = None;
+            self.last_render_rejected_response_count = None;
+            return false;
+        }
+        if self.last_render_rejected_response_count != Some(render_rejected_response_count) {
+            self.last_render_rejected_response_count = Some(render_rejected_response_count);
+            self.acoustic_ready_since_seconds = Some(time_seconds);
+            return false;
+        }
+        let Some(ready_since_seconds) = self.acoustic_ready_since_seconds else {
+            self.acoustic_ready_since_seconds = Some(time_seconds);
+            return false;
+        };
+        time_seconds >= ready_since_seconds
+            && time_seconds - ready_since_seconds >= CANOPY_AUDIO_DIAGNOSTIC_ACOUSTIC_SETTLE_SECONDS
+    }
+
+    fn counters(
+        &self,
+        snapshot: &CanopyAudioTelemetrySnapshot,
+    ) -> Option<CanopyAudioDiagnosticCounters> {
+        self.counter_baseline.map(|baseline| {
+            CanopyAudioDiagnosticCounters::from_snapshot(snapshot).activity_since(baseline)
+        })
     }
 
     fn telemetry_marker(
@@ -259,13 +391,13 @@ impl CanopyAudioDiagnosticRuntime {
         &mut self,
         tree_origin_world: Vec3,
         time_seconds: f32,
-    ) -> (CanopyAudioDiagnosticPose, f32, bool) {
-        let start_time_seconds = *self.start_time_seconds.get_or_insert(time_seconds);
+    ) -> Option<(CanopyAudioDiagnosticPose, f32, bool)> {
+        let start_time_seconds = self.start_time_seconds?;
         let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
         let pose = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds);
         let phase_changed = self.previous_phase != Some(pose.phase);
         self.previous_phase = Some(pose.phase);
-        (pose, elapsed_seconds, phase_changed)
+        Some((pose, elapsed_seconds, phase_changed))
     }
 }
 
@@ -475,8 +607,11 @@ impl App {
         let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
             return;
         };
-        let (pose, elapsed_seconds, phase_changed) =
-            diagnostic.sample(self.debug_tree_pos, time_seconds);
+        let Some((pose, elapsed_seconds, phase_changed)) =
+            diagnostic.sample(self.debug_tree_pos, time_seconds)
+        else {
+            return;
+        };
         self.tracer
             .set_camera_pose_looking_at(pose.position_world, pose.target_world);
         if phase_changed {
@@ -490,6 +625,30 @@ impl App {
         }
     }
 
+    fn start_canopy_audio_diagnostic_when_ready(&mut self, time_seconds: f32) {
+        let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
+            return;
+        };
+        if diagnostic.started() {
+            return;
+        }
+        let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
+            return;
+        };
+        if !diagnostic.observe_acoustic_readiness(
+            time_seconds,
+            self.spatial_sound_manager
+                .acoustic_response_matches_published_scene(),
+            snapshot.petal_render_rejected_response_count,
+        ) {
+            return;
+        }
+        diagnostic.start(time_seconds, &snapshot);
+        log::info!(
+            "[AUDIO][CANOPY][DIAGNOSTIC] trajectory counters started after settled current-scene acoustic response"
+        );
+    }
+
     fn log_canopy_audio_telemetry(&mut self, time_seconds: f32) {
         let Some(next_log_seconds) = self.canopy_audio_telemetry_next_log_seconds else {
             return;
@@ -497,11 +656,16 @@ impl App {
         if time_seconds < next_log_seconds {
             return;
         }
-        self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
-        let trajectory_marker = self
-            .canopy_audio_diagnostic
-            .as_ref()
-            .and_then(|diagnostic| diagnostic.telemetry_marker(self.debug_tree_pos, time_seconds));
+        let trajectory_marker = match self.canopy_audio_diagnostic.as_ref() {
+            Some(diagnostic) => {
+                let Some(marker) = diagnostic.telemetry_marker(self.debug_tree_pos, time_seconds)
+                else {
+                    return;
+                };
+                Some(marker)
+            }
+            None => None,
+        };
         let (trajectory_elapsed_seconds, trajectory_phase) = trajectory_marker
             .map_or((-1.0, None), |(elapsed_seconds, phase)| {
                 (elapsed_seconds, Some(phase))
@@ -510,6 +674,12 @@ impl App {
         let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
             return;
         };
+        self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
+        let counters = self
+            .canopy_audio_diagnostic
+            .as_ref()
+            .and_then(|diagnostic| diagnostic.counters(&snapshot))
+            .unwrap_or_else(|| CanopyAudioDiagnosticCounters::from_snapshot(&snapshot));
         let emitter_count = snapshot
             .samples
             .iter()
@@ -533,25 +703,25 @@ impl App {
             snapshot.petal_active_emitters,
             snapshot.petal_active_voices,
             snapshot.samples.len(),
-            snapshot.telemetry.extent_response_count,
-            snapshot.telemetry.solve_discard_count,
+            counters.extent_responses,
+            counters.solve_discards,
             snapshot.telemetry.last_discard_spatial_revision,
             snapshot.telemetry.last_discard_geometry_version,
-            snapshot.telemetry.voice_identity_violation_count,
-            snapshot.telemetry.revision_rollback_count,
-            snapshot.telemetry.sample_contract_violation_count,
-            snapshot.telemetry.aggregate_mismatch_count,
-            snapshot.petal_superseded_solve_count,
+            counters.voice_identity_violations,
+            counters.revision_rollbacks,
+            counters.sample_contract_violations,
+            counters.aggregate_mismatches,
+            counters.petal_superseded_solves,
             snapshot.petal_telemetry_queue_depth,
             snapshot.petal_telemetry_queue_high_water,
-            snapshot.petal_telemetry_dropped_events,
-            snapshot.petal_direct_ray_count,
-            snapshot.petal_sample_cache_hit_count,
-            snapshot.petal_processed_extent_count,
-            snapshot.petal_lobe_count,
-            snapshot.petal_retained_response_count,
-            snapshot.petal_deferred_response_count,
-            snapshot.petal_render_rejected_response_count,
+            counters.telemetry_drops,
+            counters.direct_rays,
+            counters.sample_cache_hits,
+            counters.processed_extents,
+            counters.lobes,
+            counters.retained,
+            counters.deferred,
+            counters.render_rejected_rollbacks,
         );
         for tree in snapshot.trees {
             log::info!(
@@ -2183,6 +2353,7 @@ impl App {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
                 self.tree_audio_manager.collect_canopy_acoustic_telemetry();
+                self.start_canopy_audio_diagnostic_when_ready(time_since_start);
                 self.update_environmental_acoustics();
                 self.log_canopy_audio_telemetry(time_since_start);
 
@@ -4311,7 +4482,11 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, GlobalKeyboardCommand};
+    use super::{
+        App, CanopyAudioDiagnosticCounters, CanopyAudioDiagnosticRuntime, GlobalKeyboardCommand,
+    };
+    use crate::audio::CanopyAudioTelemetrySnapshot;
+    use glam::Vec3;
     use winit::{
         event::ElementState,
         keyboard::{KeyCode, PhysicalKey},
@@ -4356,5 +4531,41 @@ mod tests {
         assert_eq!(App::environmental_acoustics_quality(50), 0.5);
         assert_eq!(App::environmental_acoustics_quality(100), 1.0);
         assert_eq!(App::environmental_acoustics_quality(101), 1.0);
+    }
+
+    #[test]
+    fn canopy_diagnostic_waits_for_explicit_start_and_scopes_monotonic_counters() {
+        let mut diagnostic = CanopyAudioDiagnosticRuntime::new(true);
+        assert!(diagnostic.sample(Vec3::ZERO, 1.0).is_none());
+
+        assert!(!diagnostic.observe_acoustic_readiness(1.0, true, 0));
+        assert!(!diagnostic.observe_acoustic_readiness(1.05, true, 0));
+        assert!(!diagnostic.observe_acoustic_readiness(1.11, true, 1));
+        assert!(!diagnostic.observe_acoustic_readiness(1.15, true, 1));
+        assert!(diagnostic.observe_acoustic_readiness(1.22, true, 1));
+
+        let mut baseline = CanopyAudioTelemetrySnapshot::default();
+        baseline.telemetry.extent_response_count = 10;
+        baseline.petal_direct_ray_count = 100;
+        baseline.petal_render_rejected_response_count = 1;
+        diagnostic.start(2.0, &baseline);
+
+        let mut current = baseline.clone();
+        current.telemetry.extent_response_count = 14;
+        current.petal_direct_ray_count = 164;
+        current.petal_render_rejected_response_count = 1;
+        let counters = diagnostic.counters(&current).unwrap();
+        assert_eq!(
+            counters,
+            CanopyAudioDiagnosticCounters {
+                extent_responses: 4,
+                direct_rays: 64,
+                ..CanopyAudioDiagnosticCounters::default()
+            }
+        );
+
+        let (_, elapsed_seconds, phase_changed) = diagnostic.sample(Vec3::ZERO, 2.25).unwrap();
+        assert_eq!(elapsed_seconds, 0.25);
+        assert!(phase_changed);
     }
 }
