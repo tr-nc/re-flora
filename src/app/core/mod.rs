@@ -15,6 +15,7 @@ mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
 mod loading;
+mod local_player_footsteps;
 mod moisture;
 mod particles;
 mod physics;
@@ -65,7 +66,7 @@ use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{
     canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTrajectoryPhase,
-    SpatialSoundManager, TreeAudioManager, TreeRustleParams,
+    LocalPlayerFootstepAudio, SpatialSoundManager, TreeAudioManager, TreeRustleParams,
 };
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
@@ -451,6 +452,7 @@ pub struct App {
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
+    local_player_footstep_audio: LocalPlayerFootstepAudio,
     tree_audio_manager: TreeAudioManager,
 }
 
@@ -1136,6 +1138,8 @@ impl App {
         tree_audio_manager.set_canopy_telemetry_enabled(
             options.canopy_audio_telemetry || options.canopy_audio_diagnostic,
         );
+        let local_player_footstep_audio =
+            LocalPlayerFootstepAudio::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1353,6 +1357,7 @@ impl App {
             shutdown_started: false,
 
             spatial_sound_manager,
+            local_player_footstep_audio,
             tree_audio_manager,
         };
 
@@ -2176,12 +2181,6 @@ impl App {
                         .value,
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
-                }
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .publish_spatial_frame(f64::from(time_since_start))
-                {
-                    log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
                 self.tree_audio_manager.collect_canopy_acoustic_telemetry();
                 self.update_environmental_acoustics();
@@ -4165,10 +4164,30 @@ impl App {
                     benchmark.mark_frame_presented();
                 }
 
-                self.tracer.set_footstep_volume_gain(
+                self.local_player_footstep_audio.set_volume_gain_db(
                     -40.0 + self.debug_settings.adjustables.footstep_volume_db.value,
                 );
-                self.update_camera_for_current_mode(frame_delta_time);
+                let footstep_events = self
+                    .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
+                let footstep_events = self.resolve_local_footstep_events(footstep_events);
+                self.local_player_footstep_audio
+                    .maintain(f64::from(time_since_start));
+                let prepared_footsteps = self
+                    .local_player_footstep_audio
+                    .prepare(&footstep_events, f64::from(time_since_start));
+                match self
+                    .spatial_sound_manager
+                    .publish_spatial_frame(f64::from(time_since_start))
+                {
+                    Ok(publication) => self
+                        .local_player_footstep_audio
+                        .play_after_publication(prepared_footsteps, publication),
+                    Err(err) => {
+                        log::warn!("Failed to publish spatial audio frame: {}", err);
+                        self.local_player_footstep_audio
+                            .abort_prepared(prepared_footsteps, "spatial_frame_publish_failed");
+                    }
+                }
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

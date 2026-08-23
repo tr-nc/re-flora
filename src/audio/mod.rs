@@ -28,6 +28,9 @@ pub use canopy_audio_telemetry::{
     CanopySampleAcousticObservation,
 };
 
+mod local_player_footsteps;
+pub use local_player_footsteps::LocalPlayerFootstepAudio;
+
 mod spatial_sound_manager;
 pub use spatial_sound_manager::{SpatialAcousticTelemetryEvent, SpatialSoundManager};
 

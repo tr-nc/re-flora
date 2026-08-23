@@ -162,12 +162,18 @@ impl App {
         self.tracer.set_camera_pose_looking_at(position, focus);
     }
 
-    pub(super) fn update_camera_for_current_mode(&mut self, frame_delta_time: f32) {
+    pub(super) fn update_camera_for_current_mode(
+        &mut self,
+        frame_delta_time: f32,
+        sim_time_seconds: f64,
+    ) -> Vec<crate::gameplay::camera::FootstepEvent> {
         if self.is_free_fly_camera_mode() {
             self.tracer.update_fly_camera(frame_delta_time);
         } else if self.is_walk_camera_mode() {
             if frame_delta_time > f32::EPSILON && frame_delta_time.is_finite() {
-                let request = self.tracer.prepare_walk_camera_movement(frame_delta_time);
+                let request = self
+                    .tracer
+                    .prepare_walk_camera_movement(frame_delta_time, sim_time_seconds);
                 let result = self
                     .terrain_physics
                     .move_player_capsule(request, frame_delta_time)
@@ -175,14 +181,19 @@ impl App {
                         log::error!("Failed to move player capsule: {err:#}");
                         crate::gameplay::camera::PlayerWalkMovementResult::BLOCKED
                     });
-                self.tracer
-                    .apply_walk_camera_movement(frame_delta_time, request, result);
+                self.tracer.apply_walk_camera_movement(
+                    frame_delta_time,
+                    sim_time_seconds,
+                    request,
+                    result,
+                );
             }
         } else {
             self.queue_orbit_keyboard_camera_pan(frame_delta_time);
             self.update_orbit_camera_motion(frame_delta_time);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
+        self.tracer.take_footstep_events()
     }
 
     fn orbit_camera_spherical(&self) -> (f32, f32, f32) {
