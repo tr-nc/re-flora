@@ -4,6 +4,9 @@ use std::sync::Arc;
 
 use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
+mod registry;
+pub(crate) use registry::*;
+
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 1;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
 pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 1;
@@ -274,6 +277,7 @@ pub(crate) enum LocalLightMutationError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LocalLightRecord {
     id: LightId,
+    source: Option<LocalLightSourceId>,
     light: LocalLight,
 }
 
@@ -284,6 +288,10 @@ impl LocalLightRecord {
 
     pub(crate) fn light(self) -> LocalLight {
         self.light
+    }
+
+    pub(crate) fn source(self) -> Option<LocalLightSourceId> {
+        self.source
     }
 }
 
@@ -652,6 +660,7 @@ impl LocalLightDomain {
                         slot: slot as u32,
                         generation: entry.generation,
                     },
+                    source: None,
                     light,
                 })
             })
@@ -886,5 +895,176 @@ mod tests {
         assert!(evaluator.contains("for (uint lightIndex = 0u;"));
         assert!(evaluator.contains("marchScene("));
         assert!(evaluator.contains("shadowHit.distance"));
+    }
+
+    #[test]
+    fn provider_rebuild_and_reorder_preserve_unchanged_light_ids() {
+        let provider = ProviderId::new(7);
+        let first_key = SourceLightKey::new(11, 0);
+        let second_key = SourceLightKey::new(22, 0);
+        let mut registry = LocalLightRegistry::default();
+
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    1,
+                    [
+                        SourceLight::new(first_key, point(Vec3::new(0.2, 0.4, 0.6))),
+                        SourceLight::new(second_key, point(Vec3::new(0.8, 0.4, 0.6))),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let first_id = registry.light_id(provider, first_key).unwrap();
+        let second_id = registry.light_id(provider, second_key).unwrap();
+        let registry_revision = registry.registry_revision();
+
+        let outcome = registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    2,
+                    [
+                        SourceLight::new(second_key, point(Vec3::new(0.8, 0.4, 0.6))),
+                        SourceLight::new(first_key, point(Vec3::new(0.2, 0.4, 0.6))),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(registry.light_id(provider, first_key), Some(first_id));
+        assert_eq!(registry.light_id(provider, second_key), Some(second_id));
+        assert_eq!(registry.registry_revision(), registry_revision);
+        assert_eq!(outcome.source_revision, 2);
+        assert_eq!(outcome.registry_revision, registry_revision);
+        assert_eq!(outcome.added, 0);
+        assert_eq!(outcome.updated, 0);
+        assert_eq!(outcome.removed, 0);
+    }
+
+    #[test]
+    fn provider_lifecycle_reuses_slots_only_with_a_new_generation() {
+        let provider = ProviderId::new(8);
+        let removed_key = SourceLightKey::new(1, 0);
+        let retained_key = SourceLightKey::new(2, 0);
+        let added_key = SourceLightKey::new(3, 0);
+        let mut registry = LocalLightRegistry::default();
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    1,
+                    [
+                        SourceLight::new(removed_key, point(Vec3::X)),
+                        SourceLight::new(retained_key, point(Vec3::Y)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let removed_id = registry.light_id(provider, removed_key).unwrap();
+        let retained_id = registry.light_id(provider, retained_key).unwrap();
+
+        let outcome = registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    2,
+                    [
+                        SourceLight::new(retained_key, point(Vec3::new(0.0, 2.0, 0.0))),
+                        SourceLight::new(added_key, point(Vec3::Z)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let added_id = registry.light_id(provider, added_key).unwrap();
+
+        assert_eq!((outcome.added, outcome.updated, outcome.removed), (1, 1, 1));
+        assert_eq!(registry.light_id(provider, retained_key), Some(retained_id));
+        assert_eq!(added_id.slot(), removed_id.slot());
+        assert_eq!(added_id.generation(), removed_id.generation() + 1);
+        assert_eq!(registry.snapshot().lights().len(), 2);
+
+        let disappearance = registry.remove_provider(provider);
+        assert_eq!(disappearance.removed, 2);
+        assert!(registry.snapshot().lights().is_empty());
+        assert_eq!(registry.light_id(provider, retained_key), None);
+        assert_eq!(registry.light_id(provider, added_key), None);
+
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    1,
+                    [SourceLight::new(removed_key, point(Vec3::X))],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let rebuilt_id = registry.light_id(provider, removed_key).unwrap();
+        assert_ne!(rebuilt_id, removed_id);
+        assert!(rebuilt_id.generation() > removed_id.generation());
+    }
+
+    #[test]
+    fn provider_snapshot_rejects_duplicate_and_conflicting_source_revisions() {
+        let provider = ProviderId::new(9);
+        let key = SourceLightKey::new(4, 5);
+        assert_eq!(
+            LocalLightProviderSnapshot::new(
+                provider,
+                1,
+                [
+                    SourceLight::new(key, point(Vec3::X)),
+                    SourceLight::new(key, point(Vec3::Y)),
+                ],
+            ),
+            Err(LocalLightProviderSnapshotError::DuplicateSourceKey { provider, key })
+        );
+
+        let mut registry = LocalLightRegistry::default();
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    2,
+                    [SourceLight::new(key, point(Vec3::X))],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            registry.reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    2,
+                    [SourceLight::new(key, point(Vec3::Y))],
+                )
+                .unwrap(),
+            ),
+            Err(LocalLightReconcileError::SourceRevisionCollision {
+                provider,
+                revision: 2,
+            })
+        );
+        assert_eq!(
+            registry.reconcile(
+                LocalLightProviderSnapshot::new(
+                    provider,
+                    1,
+                    [SourceLight::new(key, point(Vec3::X))],
+                )
+                .unwrap(),
+            ),
+            Err(LocalLightReconcileError::StaleSourceRevision {
+                provider,
+                current: 2,
+                incoming: 1,
+            })
+        );
     }
 }
