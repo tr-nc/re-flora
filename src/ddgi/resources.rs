@@ -25,7 +25,7 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 8;
+const DDGI_TRACE_STATS_COUNT: usize = 11;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
 
@@ -480,6 +480,11 @@ pub struct DdgiTraceStats {
     pub backface_hits: u32,
     pub non_finite_records: u32,
     pub invalid_probe_rays: u32,
+    pub local_light_candidates: u32,
+    pub local_light_visible: u32,
+    pub local_light_occluded: u32,
+    /// Scene-linear point-light irradiance luminance accumulated as unsigned Q24.8 values.
+    pub local_light_irradiance_luma_q8: u32,
 }
 
 impl DdgiTraceStats {
@@ -492,7 +497,37 @@ impl DdgiTraceStats {
             backface_hits: values[4],
             non_finite_records: values[5],
             invalid_probe_rays: values[6],
+            local_light_candidates: values[7],
+            local_light_visible: values[8],
+            local_light_occluded: values[9],
+            local_light_irradiance_luma_q8: values[10],
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiLocalLightTraceTotals {
+    pub candidates: u64,
+    pub visible: u64,
+    pub occluded: u64,
+    pub irradiance_luma_q8: u64,
+}
+
+impl DdgiLocalLightTraceTotals {
+    pub fn accumulate(&mut self, batch: DdgiTraceStats) {
+        self.candidates += u64::from(batch.local_light_candidates);
+        self.visible += u64::from(batch.local_light_visible);
+        self.occluded += u64::from(batch.local_light_occluded);
+        self.irradiance_luma_q8 += u64::from(batch.local_light_irradiance_luma_q8);
+        assert_eq!(
+            self.candidates,
+            self.visible + self.occluded,
+            "accumulated DDGI local-light visibility partition diverged",
+        );
+    }
+
+    pub fn irradiance_luma(self) -> f64 {
+        self.irradiance_luma_q8 as f64 / 256.0
     }
 }
 
@@ -2073,6 +2108,13 @@ impl DdgiVolume {
                     .saturating_add(stats.backface_hits),
             "DDGI trace stats hit partition is inconsistent: {stats:?}",
         );
+        ensure!(
+            stats.local_light_candidates
+                == stats
+                    .local_light_visible
+                    .saturating_add(stats.local_light_occluded),
+            "DDGI trace stats local-light visibility partition is inconsistent: {stats:?}",
+        );
         Ok(stats)
     }
 }
@@ -2218,13 +2260,36 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 32);
+        assert_eq!(bytes.trace_stats, 44);
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);
         assert_eq!(bytes.radiance_voxel_palette, 80);
         assert_eq!(bytes.transport_query_info, 48);
+    }
+
+    #[test]
+    fn local_light_trace_totals_widen_complete_sweep_accumulation() {
+        let batch = |candidates, visible, occluded, irradiance_luma_q8| DdgiTraceStats {
+            local_light_candidates: candidates,
+            local_light_visible: visible,
+            local_light_occluded: occluded,
+            local_light_irradiance_luma_q8: irradiance_luma_q8,
+            ..Default::default()
+        };
+        let mut totals = DdgiLocalLightTraceTotals::default();
+        totals.accumulate(batch(7, 5, 2, u32::MAX));
+        totals.accumulate(batch(11, 3, 8, 256));
+
+        assert_eq!(totals.candidates, 18);
+        assert_eq!(totals.visible, 8);
+        assert_eq!(totals.occluded, 10);
+        assert_eq!(totals.irradiance_luma_q8, u64::from(u32::MAX) + 256);
+        assert_eq!(
+            totals.irradiance_luma(),
+            (u64::from(u32::MAX) + 256) as f64 / 256.0
+        );
     }
 
     #[test]

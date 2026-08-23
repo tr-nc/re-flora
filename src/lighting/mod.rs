@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 1;
+pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
 pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 1;
 const LOCAL_LIGHT_KIND_POINT: u32 = 1;
 
@@ -543,6 +544,11 @@ impl LocalLightGpuSnapshot {
             lights,
             overflow: result.overflow,
         }
+    }
+
+    pub(crate) fn with_flags(mut self, flags: u32) -> Self {
+        self.info.flags = flags;
+        self
     }
 
     pub(crate) fn payload(&self) -> LocalLightGpuPayload {

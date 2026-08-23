@@ -79,8 +79,8 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
+    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
     DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
@@ -100,7 +100,7 @@ use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTem
 use crate::geom::UAabb3;
 use crate::lighting::{
     LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
-    LOCAL_LIGHT_GPU_CAPACITY,
+    LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
@@ -141,6 +141,45 @@ fn local_light_impact_voxel_bound(
     let min = (bound.min() * scale).floor().clamp(Vec3::ZERO, extent);
     let max = (bound.max() * scale).ceil().clamp(Vec3::ZERO, extent);
     UAabb3::new(min.as_uvec3(), max.as_uvec3())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiLocalLightGpuEvidence {
+    pub field: DdgiFieldIdentity,
+    pub local_source_revision: u64,
+    pub local_light_count: u32,
+    pub sampled_probe_count: u32,
+    pub expected_probe_count: u32,
+    pub totals: DdgiLocalLightTraceTotals,
+}
+
+impl DdgiLocalLightGpuEvidence {
+    fn new(
+        field: DdgiFieldIdentity,
+        local_source_revision: u64,
+        local_light_count: u32,
+        expected_probe_count: u32,
+    ) -> Self {
+        Self {
+            field,
+            local_source_revision,
+            local_light_count,
+            sampled_probe_count: 0,
+            expected_probe_count,
+            totals: DdgiLocalLightTraceTotals::default(),
+        }
+    }
+
+    fn accumulate(&mut self, batch: DdgiRayBatch, stats: DdgiTraceStats) {
+        assert_eq!(self.field, batch.logical());
+        self.sampled_probe_count += batch.probe_count;
+        assert!(self.sampled_probe_count <= self.expected_probe_count);
+        self.totals.accumulate(stats);
+    }
+
+    pub fn is_complete(self) -> bool {
+        self.sampled_probe_count == self.expected_probe_count
+    }
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -681,6 +720,7 @@ pub struct TracerDesc {
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
+    pub ddgi_local_light_trace_diagnostics_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -802,6 +842,8 @@ pub struct Tracer {
     ddgi_history_retention: f32,
     prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
+    ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
+    ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     local_light_live_revision: Option<u64>,
@@ -1124,6 +1166,8 @@ impl Tracer {
             ddgi_history_retention: 0.99,
             prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
+            ddgi_local_light_gpu_evidence_accumulating: None,
+            ddgi_local_light_gpu_evidence_complete: None,
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
             local_light_live_revision: None,
@@ -1516,6 +1560,80 @@ impl Tracer {
 
     pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
         self.ddgi_runtime.lighting_diagnostics()
+    }
+
+    pub(crate) fn ddgi_local_light_gpu_evidence(&self) -> Option<DdgiLocalLightGpuEvidence> {
+        self.ddgi_local_light_gpu_evidence_complete
+    }
+
+    fn observe_ddgi_local_light_gpu_evidence(
+        &mut self,
+        batch: DdgiRayBatch,
+        stats: DdgiTraceStats,
+        expected_probe_count: u32,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> Result<()> {
+        if snapshot.local_lights.info.flags & LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS == 0 {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            snapshot.local_lights.info.transport_revision == batch.radiance_revision(),
+            "DDGI local-light diagnostics observed transport revision {} for batch revision {}",
+            snapshot.local_lights.info.transport_revision,
+            batch.radiance_revision(),
+        );
+        if self
+            .ddgi_local_light_gpu_evidence_accumulating
+            .is_none_or(|evidence| evidence.field != batch.logical())
+        {
+            self.ddgi_local_light_gpu_evidence_accumulating = Some(DdgiLocalLightGpuEvidence::new(
+                batch.logical(),
+                snapshot.local_lights.source_revision(),
+                snapshot.local_lights.count(),
+                expected_probe_count,
+            ));
+        }
+        let evidence = self
+            .ddgi_local_light_gpu_evidence_accumulating
+            .as_mut()
+            .expect("DDGI local-light diagnostics accumulator must exist");
+        anyhow::ensure!(
+            evidence.local_source_revision == snapshot.local_lights.source_revision()
+                && evidence.local_light_count == snapshot.local_lights.count(),
+            "DDGI local-light diagnostic sweep mixed immutable snapshots",
+        );
+        evidence.accumulate(batch, stats);
+        if evidence.is_complete() {
+            let semantic_identity_changed =
+                self.ddgi_local_light_gpu_evidence_complete
+                    .is_none_or(|previous| {
+                        previous.field.field().geometry_revision()
+                            != evidence.field.field().geometry_revision()
+                            || previous.field.field().radiance_revision()
+                                != evidence.field.field().radiance_revision()
+                            || previous.local_source_revision != evidence.local_source_revision
+                            || previous.local_light_count != evidence.local_light_count
+                    });
+            if semantic_identity_changed {
+                log::info!(
+                    "[DDGI][LOCAL_LIGHT_GPU_EVIDENCE] complete field_serial={} geometry_revision={} radiance_revision={} update_epoch={} source_revision={} light_count={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} irradiance_luma={:.6}",
+                    evidence.field.field().serial(),
+                    evidence.field.field().geometry_revision(),
+                    evidence.field.field().radiance_revision(),
+                    evidence.field.field().update_epoch(),
+                    evidence.local_source_revision,
+                    evidence.local_light_count,
+                    evidence.sampled_probe_count,
+                    evidence.totals.candidates,
+                    evidence.totals.visible,
+                    evidence.totals.occluded,
+                    evidence.totals.irradiance_luma_q8,
+                    evidence.totals.irradiance_luma(),
+                );
+            }
+            self.ddgi_local_light_gpu_evidence_complete = Some(*evidence);
+        }
+        Ok(())
     }
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
@@ -2713,7 +2831,12 @@ impl Tracer {
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
-        );
+        )
+        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+        } else {
+            0
+        });
         if self.local_light_live_revision != Some(local_lights.revision()) {
             self.resources
                 .local_lighting
@@ -3170,12 +3293,15 @@ impl Tracer {
                 let filtered_probe_count = volume.status().filtered_probe_count;
                 let probe_count = volume.status().grid.probe_count();
                 let build_token = volume.status().build_token;
+                let radiance_snapshot = volume
+                    .radiance_snapshot()
+                    .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
                 if filtered_probe_count == batch.probe_count
                     || filtered_probe_count == probe_count
                     || filtered_probe_count % 1_024 == 0
                 {
                     log::debug!(
-                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
+                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
                         batch.first_probe_index,
                         batch.probe_count,
                         crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3186,6 +3312,10 @@ impl Tracer {
                         stats.frontface_hits,
                         stats.backface_hits,
                         stats.non_finite_records,
+                        stats.local_light_candidates,
+                        stats.local_light_visible,
+                        stats.local_light_occluded,
+                        stats.local_light_irradiance_luma_q8,
                         batch.geometry_revision(),
                         build_token.map(DdgiBuildToken::serial),
                         batch.radiance_revision(),
@@ -3194,6 +3324,12 @@ impl Tracer {
                         batch.source(),
                     );
                 }
+                self.observe_ddgi_local_light_gpu_evidence(
+                    batch,
+                    stats,
+                    probe_count,
+                    radiance_snapshot,
+                )?;
                 let outcome = self
                     .ddgi_runtime
                     .volumes_mut()

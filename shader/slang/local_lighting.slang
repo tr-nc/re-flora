@@ -7,6 +7,7 @@ import terrain_ray_origin;
 
 public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 1u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
+public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
 
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
 // Position, range, and source_radius are authoritative world units in the same space as terrain
@@ -49,6 +50,15 @@ public struct LocalPointLightSample
     public float3 irradiance;
     public float3 direction_to_light;
     public float distance_to_light;
+};
+
+public struct LocalLightVoxelEvaluation
+{
+    public float3 irradiance;
+    public uint candidates;
+    public uint visible;
+    public uint occluded;
+    public uint irradiance_luma_q8;
 };
 
 public uint localLightCount(U_LocalLightInfo info)
@@ -95,7 +105,7 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
 
 // Exact finite segment visibility for voxel-backed receivers. All production local-light
 // consumers call this function so attenuation, units, range clipping, and occlusion stay aligned.
-public float3 evaluateVoxelVisibleLocalLightIrradiance(
+public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     U_LocalLightInfo info,
     StructuredBuffer<U_LightGpu> lights,
     StructuredBuffer<ContreeNode> nodeData,
@@ -106,7 +116,12 @@ public float3 evaluateVoxelVisibleLocalLightIrradiance(
     float rayOriginOffsetWorld,
     uint localInvocationIndex)
 {
-    float3 irradiance = float3(0.0);
+    LocalLightVoxelEvaluation result;
+    result.irradiance = float3(0.0);
+    result.candidates = 0u;
+    result.visible = 0u;
+    result.occluded = 0u;
+    result.irradiance_luma_q8 = 0u;
     uint count = localLightCount(info);
     [loop]
     for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
@@ -115,6 +130,7 @@ public float3 evaluateVoxelVisibleLocalLightIrradiance(
         LocalPointLightSample sample = evaluateUnshadowedPointLight(
             light, receiverPosition, receiverNormal);
         if (!any(sample.irradiance > float3(0.0))) continue;
+        result.candidates += 1u;
 
         float3 shadowOrigin = terrainRayOriginFromSurface(
             receiverPosition, receiverNormal, rayOriginOffsetWorld);
@@ -127,7 +143,35 @@ public float3 evaluateVoxelVisibleLocalLightIrradiance(
         float visibility = !shadowHit.is_hit ||
             shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= segmentLength
             ? 1.0 : 0.0;
-        irradiance += sample.irradiance * visibility;
+        if (visibility > 0.0)
+        {
+            result.visible += 1u;
+            result.irradiance += sample.irradiance;
+        }
+        else
+        {
+            result.occluded += 1u;
+        }
     }
-    return irradiance;
+    // One invocation contributes at most 65535 so a full 32768-ray DDGI batch cannot overflow
+    // the u32 atomic accumulator. CPU aggregation widens complete sweeps to u64.
+    float luminance = dot(result.irradiance, float3(0.2126, 0.7152, 0.0722));
+    result.irradiance_luma_q8 = uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
+    return result;
+}
+
+public float3 evaluateVoxelVisibleLocalLightIrradiance(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex)
+{
+    return evaluateVoxelVisibleLocalLight(
+        info, lights, nodeData, leafData, sceneTexture, receiverPosition,
+        receiverNormal, rayOriginOffsetWorld, localInvocationIndex).irradiance;
 }

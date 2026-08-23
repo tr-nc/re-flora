@@ -93,7 +93,10 @@ use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
-use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
+use crate::{
+    egui_renderer::EguiRenderer, window::WindowState, EnvironmentLightingTestCase,
+    WaterProfilePreference,
+};
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
@@ -819,6 +822,10 @@ impl App {
                 ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
+                ddgi_local_light_trace_diagnostics_enabled: matches!(
+                    options.environment_lighting_test_scene,
+                    Some(EnvironmentLightingTestCase::PointLightChanges)
+                ),
             },
             spatial_sound_manager.clone(),
         )?;

@@ -77,6 +77,11 @@ void recordTraceStat(uint index)
     InterlockedAdd(ddgi_trace_stats.data[index], 1u);
 }
 
+void recordTraceStatValue(uint index, uint value)
+{
+    if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[index], value);
+}
+
 float ddgiExactTerrainSunVisibility(MarchingResult receiver,
                                     float3 sunDirection,
                                     uint localInvocationIndex)
@@ -106,11 +111,20 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
-    directIrradiance += evaluateVoxelVisibleLocalLightIrradiance(
+    LocalLightVoxelEvaluation localLight = evaluateVoxelVisibleLocalLight(
         ddgi_local_light_info, ddgi_local_lights, contree_node_data,
         contree_leaf_data, scene_tex, ddgiReceiverPosition, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world,
         localInvocationIndex);
+    directIrradiance += localLight.irradiance;
+    if ((ddgi_local_light_info.flags &
+         LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u)
+    {
+        recordTraceStatValue(7u, localLight.candidates);
+        recordTraceStatValue(8u, localLight.visible);
+        recordTraceStatValue(9u, localLight.occluded);
+        recordTraceStatValue(10u, localLight.irradiance_luma_q8);
+    }
     float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(
         result.center_position, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
