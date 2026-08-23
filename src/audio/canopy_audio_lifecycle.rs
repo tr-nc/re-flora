@@ -1,5 +1,4 @@
-use crate::audio::{CanopyAcousticDescriptor, CanopyAcousticSample, CanopyAcousticSampleId};
-use glam::Vec3;
+use crate::audio::{CanopyAcousticDescriptor, CanopyAcousticSampleId};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -10,6 +9,13 @@ pub struct CanopyAudioGenerationKey {
 }
 
 impl CanopyAudioGenerationKey {
+    pub fn new(tree_id: u32, generation: u64) -> Self {
+        Self {
+            tree_id,
+            generation,
+        }
+    }
+
     pub fn tree_id(self) -> u32 {
         self.tree_id
     }
@@ -27,6 +33,14 @@ pub struct CanopyAudioSourceKey {
 }
 
 impl CanopyAudioSourceKey {
+    pub fn new(tree_id: u32, generation: u64, sample_id: CanopyAcousticSampleId) -> Self {
+        Self {
+            tree_id,
+            generation,
+            sample_id,
+        }
+    }
+
     pub fn tree_id(self) -> u32 {
         self.tree_id
     }
@@ -45,11 +59,7 @@ impl CanopyAudioSourceKey {
         generation: u64,
         sample_id: CanopyAcousticSampleId,
     ) -> Self {
-        Self {
-            tree_id,
-            generation,
-            sample_id,
-        }
+        Self::new(tree_id, generation, sample_id)
     }
 }
 
@@ -74,46 +84,9 @@ impl ActiveCanopyAcousticGeneration {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ActiveCanopyAcousticSample {
-    key: CanopyAudioSourceKey,
-    tree_origin_world: Vec3,
-    sample: CanopyAcousticSample,
-    lifecycle_power: f32,
-}
-
-impl ActiveCanopyAcousticSample {
-    pub fn key(&self) -> CanopyAudioSourceKey {
-        self.key
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn generation(&self) -> u64 {
-        self.key.generation
-    }
-
-    pub fn sample(&self) -> &CanopyAcousticSample {
-        &self.sample
-    }
-
-    pub fn world_position(&self) -> Vec3 {
-        self.tree_origin_world + self.sample.position_tree_voxels() / 256.0
-    }
-
-    pub fn lifecycle_power(&self) -> f32 {
-        self.lifecycle_power
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn effective_power(&self) -> f32 {
-        self.sample.weight() * self.lifecycle_power
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct CanopyAudioLifecycleSnapshot {
     generations: Vec<ActiveCanopyAcousticGeneration>,
-    samples: Vec<ActiveCanopyAcousticSample>,
 }
 
 impl CanopyAudioLifecycleSnapshot {
@@ -121,15 +94,11 @@ impl CanopyAudioLifecycleSnapshot {
         &self.generations
     }
 
-    pub fn samples(&self) -> &[ActiveCanopyAcousticSample] {
-        &self.samples
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn total_power(&self) -> f32 {
-        self.samples
+        self.generations
             .iter()
-            .map(ActiveCanopyAcousticSample::effective_power)
+            .map(|generation| generation.descriptor.total_weight() * generation.lifecycle_power)
             .sum()
     }
 }
@@ -306,38 +275,18 @@ impl CanopyAudioLifecycle {
         validate_time(time_seconds)?;
         self.prune(time_seconds);
         let mut generations = Vec::new();
-        let mut samples = Vec::new();
         for (&tree_id, tree) in &self.trees {
             for layer in &tree.layers {
                 let lifecycle_power = layer.power.power_at(time_seconds);
                 generations.push(ActiveCanopyAcousticGeneration {
-                    key: CanopyAudioGenerationKey {
-                        tree_id,
-                        generation: layer.descriptor.generation(),
-                    },
+                    key: CanopyAudioGenerationKey::new(tree_id, layer.descriptor.generation()),
                     descriptor: layer.descriptor.clone(),
                     lifecycle_power,
                 });
-                for sample in layer.descriptor.samples() {
-                    samples.push(ActiveCanopyAcousticSample {
-                        key: CanopyAudioSourceKey {
-                            tree_id,
-                            generation: layer.descriptor.generation(),
-                            sample_id: sample.id(),
-                        },
-                        tree_origin_world: layer.descriptor.tree_origin_world(),
-                        sample: sample.clone(),
-                        lifecycle_power,
-                    });
-                }
             }
         }
         generations.sort_by_key(ActiveCanopyAcousticGeneration::key);
-        samples.sort_by_key(ActiveCanopyAcousticSample::key);
-        Ok(CanopyAudioLifecycleSnapshot {
-            generations,
-            samples,
-        })
+        Ok(CanopyAudioLifecycleSnapshot { generations })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -425,32 +374,32 @@ mod tests {
 
         lifecycle.replace(7, descriptor(2, 4.0), 1.0).unwrap();
         let transition_start = lifecycle.snapshot(1.0).unwrap();
-        assert_eq!(transition_start.samples().len(), 2);
+        assert_eq!(transition_start.generations().len(), 2);
         assert_power(transition_start.total_power(), 1.0);
 
         let midpoint = lifecycle.snapshot(1.5).unwrap();
         assert_eq!(
             midpoint
-                .samples()
+                .generations()
                 .iter()
-                .map(ActiveCanopyAcousticSample::generation)
+                .map(|generation| generation.key().generation())
                 .collect::<Vec<_>>(),
             vec![1, 2]
         );
         assert!(midpoint
-            .samples()
+            .generations()
             .iter()
-            .all(|sample| (sample.lifecycle_power() - 0.5).abs() < 1.0e-6));
+            .all(|generation| (generation.lifecycle_power() - 0.5).abs() < 1.0e-6));
         assert_power(midpoint.total_power(), 1.0);
 
         let completed = lifecycle.snapshot(2.0).unwrap();
-        assert_eq!(completed.samples().len(), 1);
-        assert_eq!(completed.samples()[0].generation(), 2);
+        assert_eq!(completed.generations().len(), 1);
+        assert_eq!(completed.generations()[0].key().generation(), 2);
         assert_power(completed.total_power(), 1.0);
 
         lifecycle.remove(7, 2.0).unwrap();
         assert_power(lifecycle.snapshot(2.5).unwrap().total_power(), 0.5);
-        assert!(lifecycle.snapshot(3.0).unwrap().samples().is_empty());
+        assert!(lifecycle.snapshot(3.0).unwrap().generations().is_empty());
         assert_eq!(lifecycle.registered_tree_count(), 0);
         assert_eq!(
             lifecycle.diagnostics_snapshot(),

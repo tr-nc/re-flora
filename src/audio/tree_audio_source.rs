@@ -1,7 +1,8 @@
-use crate::audio::{CanopyAcousticSampleProvenance, CanopyAudioSourceKey, SpatialSoundManager};
+use crate::audio::{
+    CanopyAcousticDescriptor, CanopyAudioGenerationKey, CanopyAudioSourceKey, SpatialSoundManager,
+};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
-use glam::Vec3;
 use uuid::Uuid;
 
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
@@ -10,17 +11,12 @@ const TREE_AUDIO_FULL_WIND_STRENGTH: f32 = 8.0;
 const TREE_AUDIO_DECAY_RATE_MIN: f32 = 0.25;
 const TREE_AUDIO_DECAY_RATE_MAX: f32 = 8.0;
 
-/// One PetalSonic point-emitter adapter owned by a weighted canopy sample generation.
-pub struct TreeAudioSource {
+/// One immutable canopy generation realized as one PetalSonic Emitter and looping Voice.
+pub struct CanopyAudioVoice {
     pub uuid: Uuid,
-    pub key: CanopyAudioSourceKey,
-    pub position_tree_voxels: Vec3,
-    pub position: Vec3,
-    pub sample_weight: f32,
-    pub clearance_voxels: f32,
-    pub content_seed: u64,
+    pub key: CanopyAudioGenerationKey,
+    pub descriptor: CanopyAcousticDescriptor,
     pub phase: f32,
-    pub provenance: CanopyAcousticSampleProvenance,
     wind_volume_db: f32,
     lifecycle_power: f32,
     target_response: f32,
@@ -31,18 +27,13 @@ pub struct TreeAudioSource {
     base_wind: f32,
 }
 
-impl TreeAudioSource {
+impl CanopyAudioVoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         uuid: Uuid,
-        key: CanopyAudioSourceKey,
-        position_tree_voxels: Vec3,
-        position: Vec3,
-        sample_weight: f32,
-        clearance_voxels: f32,
-        content_seed: u64,
+        key: CanopyAudioGenerationKey,
+        descriptor: CanopyAcousticDescriptor,
         phase: f32,
-        provenance: CanopyAcousticSampleProvenance,
         wind_volume_db: f32,
         wind_response_curve: WindResponseCurve,
         base_wind: f32,
@@ -50,13 +41,8 @@ impl TreeAudioSource {
         Self {
             uuid,
             key,
-            position_tree_voxels,
-            position,
-            sample_weight: sample_weight.clamp(0.0, 1.0),
-            clearance_voxels,
-            content_seed,
+            descriptor,
             phase: phase.clamp(0.0, 1.0),
-            provenance,
             wind_volume_db,
             lifecycle_power: 0.0,
             target_response: 0.0,
@@ -64,8 +50,15 @@ impl TreeAudioSource {
             current_volume_db: TREE_SILENT_VOLUME_DB,
             last_update_time_seconds: None,
             wind_response_curve,
-            base_wind,
+            base_wind: base_wind.clamp(0.0, 1.0),
         }
+    }
+
+    pub fn sample_key(
+        &self,
+        sample_id: crate::audio::CanopyAcousticSampleId,
+    ) -> CanopyAudioSourceKey {
+        CanopyAudioSourceKey::new(self.key.tree_id(), self.key.generation(), sample_id)
     }
 
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
@@ -127,10 +120,20 @@ impl TreeAudioSource {
         wind_audio_release_decay: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let target_response = Self::linear_sampled_wind_response(
-            wind.sample_sources(self.position, time_seconds, wind_sources)
-                .length(),
-        );
+        let target_response = self
+            .descriptor
+            .samples()
+            .iter()
+            .map(|sample| {
+                let position = self.descriptor.sample_world_position(sample);
+                sample.weight()
+                    * Self::linear_sampled_wind_response(
+                        wind.sample_sources(position, time_seconds, wind_sources)
+                            .length(),
+                    )
+            })
+            .sum::<f32>()
+            .clamp(0.0, 1.0);
         let response = self.inertial_response(
             target_response,
             time_seconds,
@@ -182,10 +185,7 @@ impl TreeAudioSource {
         let response = response.clamp(0.0, 1.0);
         let content_active = response > f32::EPSILON || self.base_wind > f32::EPSILON;
         let target_volume_db = if content_active {
-            Self::volume_db_for_power(
-                self.wind_volume_db,
-                self.sample_weight * self.lifecycle_power,
-            )
+            Self::volume_db_for_power(self.wind_volume_db, self.lifecycle_power)
         } else {
             TREE_SILENT_VOLUME_DB
         };
@@ -210,16 +210,15 @@ impl TreeAudioSource {
 
 #[cfg(test)]
 mod tests {
-    use super::TreeAudioSource;
+    use super::CanopyAudioVoice;
 
     #[test]
-    fn weighted_sample_gain_preserves_normalized_power() {
+    fn generation_gain_uses_lifecycle_power_without_sample_count_gain() {
         let base = -10.0;
-        let quarter = TreeAudioSource::volume_db_for_power(base, 0.25);
+        let quarter = CanopyAudioVoice::volume_db_for_power(base, 0.25);
 
         assert!((quarter - (-16.0206)).abs() < 1.0e-3);
-        let reconstructed_power = 4.0 * 10.0_f32.powf((quarter - base) / 10.0);
-        assert!((reconstructed_power - 1.0).abs() < 1.0e-5);
-        assert_eq!(TreeAudioSource::volume_db_for_power(base, 0.0), -80.0);
+        assert_eq!(CanopyAudioVoice::volume_db_for_power(base, 1.0), base);
+        assert_eq!(CanopyAudioVoice::volume_db_for_power(base, 0.0), -80.0);
     }
 }

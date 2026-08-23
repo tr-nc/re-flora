@@ -2,8 +2,7 @@ mod audio_clip_cache;
 
 mod canopy_acoustics;
 pub use canopy_acoustics::{
-    CanopyAcousticDescriptor, CanopyAcousticSample, CanopyAcousticSampleId,
-    CanopyAcousticSampleProvenance,
+    CanopyAcousticDescriptor, CanopyAcousticSampleId, CanopyAcousticSampleProvenance,
 };
 
 mod canopy_audio_diagnostics;
@@ -14,13 +13,12 @@ pub use canopy_audio_diagnostics::{
 
 mod canopy_audio_lifecycle;
 pub use canopy_audio_lifecycle::{
-    ActiveCanopyAcousticGeneration, ActiveCanopyAcousticSample, CanopyAudioGenerationKey,
-    CanopyAudioLifecycle, CanopyAudioLifecycleSnapshot, CanopyAudioSourceKey,
-    CanopyTreeLifecycleDiagnostics,
+    ActiveCanopyAcousticGeneration, CanopyAudioGenerationKey, CanopyAudioLifecycle,
+    CanopyAudioLifecycleSnapshot, CanopyAudioSourceKey, CanopyTreeLifecycleDiagnostics,
 };
 
-mod canopy_point_emitter_adapter;
-use canopy_point_emitter_adapter::CanopyPointEmitterAdapter;
+mod canopy_distributed_emitter_adapter;
+use canopy_distributed_emitter_adapter::CanopyDistributedEmitterAdapter;
 
 mod canopy_audio_telemetry;
 pub use canopy_audio_telemetry::{
@@ -32,7 +30,7 @@ mod spatial_sound_manager;
 pub use spatial_sound_manager::SpatialSoundManager;
 
 mod tree_audio_source;
-pub use tree_audio_source::TreeAudioSource;
+pub use tree_audio_source::CanopyAudioVoice;
 
 mod tree_rustle;
 pub use tree_rustle::{TreeRustleControl, TreeRustleFactory, TreeRustleParams};

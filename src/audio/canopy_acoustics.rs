@@ -55,6 +55,7 @@ impl CanopyAcousticSample {
         self.weight
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn content_seed(&self) -> u64 {
         self.content_seed
     }

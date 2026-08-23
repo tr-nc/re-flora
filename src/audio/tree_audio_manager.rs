@@ -1,7 +1,7 @@
 use crate::audio::{
     CanopyAcousticDescriptor, CanopyAudioLifecycle, CanopyAudioSourceKey,
     CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry, CanopyDirectPathTelemetry,
-    CanopyPointEmitterAdapter, SpatialSoundManager, TreeRustleControl, TreeRustleFactory,
+    CanopyDistributedEmitterAdapter, SpatialSoundManager, TreeRustleControl, TreeRustleFactory,
     TreeRustleParams,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
@@ -30,7 +30,7 @@ pub struct TreeAudioManager {
     rustle_params: TreeRustleParams,
     rustle_clip: ResidentClip,
     lifecycle: CanopyAudioLifecycle,
-    emitter_adapter: CanopyPointEmitterAdapter,
+    emitter_adapter: CanopyDistributedEmitterAdapter,
     wind: Wind,
 }
 
@@ -48,7 +48,7 @@ impl TreeAudioManager {
             rustle_params,
             rustle_clip,
             lifecycle: CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS),
-            emitter_adapter: CanopyPointEmitterAdapter::new(spatial_sound_manager),
+            emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager),
             wind: Wind::new(),
         })
     }
@@ -67,6 +67,7 @@ impl TreeAudioManager {
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
             self.rustle_params.base_wind,
+            time_seconds,
         )
     }
 
@@ -81,6 +82,7 @@ impl TreeAudioManager {
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
             self.rustle_params.base_wind,
+            time_seconds,
         )?;
         Ok(())
     }
@@ -170,6 +172,7 @@ impl TreeAudioManager {
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
             self.rustle_params.base_wind,
+            time_seconds,
         )?;
         self.emitter_adapter.update(
             &self.wind,

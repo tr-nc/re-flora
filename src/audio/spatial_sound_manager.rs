@@ -217,24 +217,6 @@ impl SpatialSoundManager {
         )
     }
 
-    pub fn add_looping_spatial_clip_at_phase(
-        &self,
-        clip: ResidentClip,
-        volume_db: f32,
-        position: Vec3,
-        initial_phase: f32,
-    ) -> Result<Uuid> {
-        self.add_looping_clip_source(
-            clip,
-            volume_db,
-            Some(position),
-            Some(initial_phase),
-            false,
-            SourceExtent::Point,
-            OcclusionProfile::PointExact,
-        )
-    }
-
     pub fn add_looping_spatial_clip_with_extent_at_phase(
         &self,
         clip: ResidentClip,
