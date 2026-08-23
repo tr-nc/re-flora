@@ -51,6 +51,31 @@ pub(crate) struct DdgiFramePlan {
     pub iteration_will_complete: bool,
 }
 
+/// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
+/// harnesses. Physical atlas status remains separately available through `DdgiRuntimeStatus`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DdgiLightingDiagnostics {
+    pub latest_transport_revision: Option<u32>,
+    pub latest_source_live_revision: Option<u64>,
+    pub scheduler_published_revision: Option<u32>,
+    pub in_flight_revision: Option<u32>,
+    pub coalesced_revisions: u64,
+    pub has_mixed_in_flight_revision: bool,
+}
+
+impl DdgiLightingDiagnostics {
+    pub fn scheduler_revision_lag(self) -> u32 {
+        match (
+            self.latest_transport_revision,
+            self.scheduler_published_revision,
+        ) {
+            (Some(latest), Some(published)) => latest.saturating_sub(published),
+            (Some(latest), None) => latest,
+            _ => 0,
+        }
+    }
+}
+
 impl DdgiRuntimeWork {
     pub(crate) fn scheduled(self) -> DdgiScheduledWork {
         self.scheduled
@@ -81,6 +106,7 @@ pub(crate) struct DdgiRuntime {
     transport_scheduler: DdgiTransportScheduler,
     live_authored_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
+    coalesced_radiance_revisions: u64,
     capture_enabled: bool,
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
@@ -100,6 +126,7 @@ impl DdgiRuntime {
             transport_scheduler: DdgiTransportScheduler::new(),
             live_authored_lighting: None,
             in_flight_authored_lighting: None,
+            coalesced_radiance_revisions: 0,
             capture_enabled: false,
             capture_target: DdgiCaptureTarget::default(),
             capture_batch_order: DdgiBatchOrder::default(),
@@ -188,6 +215,22 @@ impl DdgiRuntime {
                 );
                 return;
             }
+        }
+        let previous_latest = self.transport_scheduler.latest_radiance_revision();
+        let in_flight_revision = self
+            .transport_scheduler
+            .in_flight()
+            .map(|work| work.destination().field().radiance_revision());
+        let published_revision = self
+            .transport_scheduler
+            .published()
+            .map(|field| field.field().radiance_revision());
+        if previous_latest.is_some()
+            && previous_latest != Some(lighting.revision)
+            && previous_latest != in_flight_revision
+            && previous_latest != published_revision
+        {
+            self.coalesced_radiance_revisions = self.coalesced_radiance_revisions.saturating_add(1);
         }
         self.live_authored_lighting = Some(lighting);
         self.transport_scheduler.observe_radiance(lighting.revision);
@@ -437,6 +480,29 @@ impl DdgiRuntime {
 
     pub(crate) fn latest_radiance_revision(&self) -> Option<u32> {
         self.transport_scheduler.latest_radiance_revision()
+    }
+
+    pub(crate) fn lighting_diagnostics(&self) -> DdgiLightingDiagnostics {
+        let in_flight_revision = self
+            .transport_scheduler
+            .in_flight()
+            .map(|work| work.destination().field().radiance_revision());
+        let authored_in_flight_revision = self
+            .in_flight_authored_lighting
+            .map(|lighting| lighting.revision);
+        DdgiLightingDiagnostics {
+            latest_transport_revision: self.transport_scheduler.latest_radiance_revision(),
+            latest_source_live_revision: self
+                .live_authored_lighting
+                .map(|lighting| lighting.source_live_revision),
+            scheduler_published_revision: self
+                .transport_scheduler
+                .published()
+                .map(|field| field.field().radiance_revision()),
+            in_flight_revision,
+            coalesced_revisions: self.coalesced_radiance_revisions,
+            has_mixed_in_flight_revision: in_flight_revision != authored_in_flight_revision,
+        }
     }
 
     pub(crate) fn live_authored_lighting(&self) -> Option<EnvironmentLightingState> {
@@ -801,6 +867,8 @@ mod tests {
     fn lighting(revision: u32, sun_luminance: f32) -> EnvironmentLightingState {
         EnvironmentLightingState {
             revision,
+            source_live_revision: u64::from(revision),
+            published_at: std::time::Duration::from_millis(u64::from(revision) * 10),
             snapshot: DdgiRadianceSnapshot {
                 sun_direction: Vec3::Y,
                 sun_color: Vec3::new(1.0, 0.9, 0.8),
@@ -1070,7 +1138,14 @@ mod tests {
         runtime.observe_authored_lighting(lighting(3, 3.0));
         let r4 = lighting(4, 4.0);
         runtime.observe_authored_lighting(r4);
+        let pending = runtime.lighting_diagnostics();
         assert_eq!(runtime.latest_radiance_revision(), Some(4));
+        assert_eq!(pending.latest_transport_revision, Some(4));
+        assert_eq!(pending.scheduler_published_revision, Some(1));
+        assert_eq!(pending.in_flight_revision, Some(2));
+        assert_eq!(pending.coalesced_revisions, 1);
+        assert_eq!(pending.scheduler_revision_lag(), 3);
+        assert!(!pending.has_mixed_in_flight_revision);
         assert_eq!(
             runtime.in_flight_authored_lighting().unwrap().snapshot,
             r2.snapshot,
@@ -1081,10 +1156,15 @@ mod tests {
             .complete_transport_work(r2_scheduled, r2_scheduled.destination(), active_token)
             .unwrap();
         let latest = runtime.claim_transport_work().unwrap();
+        let claimed = runtime.lighting_diagnostics();
         assert_eq!(
             latest.scheduled().destination().field().radiance_revision(),
             4
         );
+        assert_eq!(claimed.scheduler_published_revision, Some(2));
+        assert_eq!(claimed.in_flight_revision, Some(4));
+        assert_eq!(claimed.scheduler_revision_lag(), 2);
+        assert!(!claimed.has_mixed_in_flight_revision);
         assert_eq!(latest.authored_lighting().snapshot, r4.snapshot);
         assert_eq!(
             latest.scheduled().destination().source(),

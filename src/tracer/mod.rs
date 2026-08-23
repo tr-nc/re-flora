@@ -1245,8 +1245,9 @@ impl Tracer {
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
+        let lighting = self.ddgi_runtime.lighting_diagnostics();
         log::debug!(
-            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?}",
+            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} in_flight_revision={:?} revision_lag={} coalesced_revisions={} mixed_in_flight={}",
             work.kind(),
             destination.serial(),
             destination.geometry_revision(),
@@ -1255,6 +1256,13 @@ impl Tracer {
             destination.state(),
             destination.update_epoch(),
             work.destination().source(),
+            lighting.latest_transport_revision,
+            lighting.latest_source_live_revision,
+            lighting.scheduler_published_revision,
+            lighting.in_flight_revision,
+            lighting.scheduler_revision_lag(),
+            lighting.coalesced_revisions,
+            lighting.has_mixed_in_flight_revision,
         );
         Ok(true)
     }
@@ -2771,21 +2779,40 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        let environment_lighting = self.environment_lighting.update(DdgiRadianceSnapshot {
-            sun_direction: sun_dir,
-            sun_color,
-            sun_luminance,
-            terrain_ray_origin_offset_world,
-            ddgi_receiver_visibility_bias_world,
-            voxel_palette: DdgiVoxelPaletteSnapshot {
-                dirt_color: voxel_dirt_color,
-                sand_color: voxel_sand_color,
-                cherry_wood_color: voxel_cherry_wood_color,
-                oak_wood_color: voxel_oak_wood_color,
-                rock_color: voxel_rock_color,
-                hash_color_variance: voxel_color_variance,
+        let environment_lighting = self.environment_lighting.update(
+            DdgiRadianceSnapshot {
+                sun_direction: sun_dir,
+                sun_color,
+                sun_luminance,
+                terrain_ray_origin_offset_world,
+                ddgi_receiver_visibility_bias_world,
+                voxel_palette: DdgiVoxelPaletteSnapshot {
+                    dirt_color: voxel_dirt_color,
+                    sand_color: voxel_sand_color,
+                    cherry_wood_color: voxel_cherry_wood_color,
+                    oak_wood_color: voxel_oak_wood_color,
+                    rock_color: voxel_rock_color,
+                    hash_color_variance: voxel_color_variance,
+                },
             },
-        });
+            time_info.time_since_start_duration(),
+        );
+        if environment_lighting.transport_published {
+            log::info!(
+                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} published_at_ms={} transport_age_ms={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
+                environment_lighting.live.revision,
+                environment_lighting.transport.revision,
+                environment_lighting.transport.source_live_revision,
+                environment_lighting.revision_lag(),
+                environment_lighting.transport.published_at.as_millis(),
+                environment_lighting
+                    .transport_age(time_info.time_since_start_duration())
+                    .as_millis(),
+                environment_lighting.transport.snapshot.sun_direction,
+                environment_lighting.transport.snapshot.sun_color,
+                environment_lighting.transport.snapshot.sun_luminance,
+            );
+        }
         let ddgi_status = self.ddgi_runtime.volumes().status().active();
         let ddgi_geometry_revision = self
             .ddgi_voxel_visibility
@@ -2797,7 +2824,7 @@ impl Tracer {
         let ddgi_consumer_invalidation_voxel_bound = None;
         BufferUpdater::update_shading_info(
             &self.resources,
-            environment_lighting,
+            environment_lighting.transport,
             ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
@@ -2811,7 +2838,7 @@ impl Tracer {
             ddgi_consumer_invalidation_voxel_bound,
         )?;
         self.ddgi_runtime
-            .observe_authored_lighting(environment_lighting);
+            .observe_authored_lighting(environment_lighting.transport);
 
         BufferUpdater::update_starlight_info(
             &self.resources,
@@ -3091,6 +3118,23 @@ impl Tracer {
                                         "DDGI scheduler rejected validated completion: {error:?}"
                                     )
                                 })?;
+                            let lighting = self.ddgi_runtime.lighting_diagnostics();
+                            log::debug!(
+                                "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
+                                field.field().serial(),
+                                field.field().geometry_revision(),
+                                field.field().radiance_revision(),
+                                field.field().update_epoch(),
+                                work.kind(),
+                                lighting.latest_transport_revision,
+                                lighting.latest_source_live_revision,
+                                lighting.scheduler_published_revision,
+                                lighting.scheduler_revision_lag(),
+                                lighting.coalesced_revisions,
+                                atlas_stats.max_absolute_rgb_delta,
+                                atlas_stats.max_relative_rgb_delta,
+                                lighting.has_mixed_in_flight_revision,
+                            );
                             if self.ddgi_runtime.volumes().builder_is_active() {
                                 let descriptor_generation = self.next_descriptor_generation();
                                 let descriptor_retirements = {
