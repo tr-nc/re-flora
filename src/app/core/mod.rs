@@ -7,6 +7,7 @@ mod camera_control;
 mod camera_snapshot_ui;
 mod ddgi_spatial_weight_readback;
 mod denoiser_bench;
+mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
 mod frame_timing;
