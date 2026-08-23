@@ -1213,7 +1213,22 @@ impl Tracer {
         self.ddgi_runtime
             .volumes_mut()
             .builder_mut()
-            .begin_scheduled_work(work, runtime_work.local_refresh_voxel_bound())?;
+            .begin_scheduled_work(
+                work,
+                runtime_work.local_refresh_voxel_bound(),
+                runtime_work.radiance_history_policy(),
+                runtime_work.probe_priority(),
+            )?;
+        if let Some(priority) = runtime_work.probe_priority() {
+            log::debug!(
+                "[DDGI][PRIORITY] latched reason={:?} voxel_min={:?} voxel_max={:?} field_serial={} revision={}",
+                priority.reason(),
+                priority.voxel_bound().min(),
+                priority.voxel_bound().max(),
+                destination.serial(),
+                destination.radiance_revision(),
+            );
+        }
         if work.kind() == DdgiScheduledWorkKind::GeometryUpdate {
             if let Some((dirty_probes, preserved_probes)) = self
                 .ddgi_runtime
@@ -2627,6 +2642,19 @@ impl Tracer {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
+        let ddgi_world_extent = self
+            .ddgi_runtime
+            .volumes()
+            .status()
+            .active()
+            .grid
+            .world_extent_voxels();
+        let camera_voxel = (self.camera.position() * self.desc.voxel_dim_per_chunk.as_vec3())
+            .clamp(Vec3::ZERO, ddgi_world_extent.as_vec3())
+            .round()
+            .as_uvec3();
+        self.ddgi_runtime
+            .observe_camera_probe_priority(UAabb3::new(camera_voxel, camera_voxel));
         BufferUpdater::update_camera_info(
             &mut self.resources.uniforms.camera_info,
             view_mat,
@@ -3065,7 +3093,7 @@ impl Tracer {
                         let status = self.ddgi_runtime.volumes().builder().status();
                         let key = identity.field();
                         log::debug!(
-                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
+                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} max_rgb_value={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
                             build_token.map(DdgiBuildToken::serial),
                             key.geometry_revision(),
                             key.radiance_revision(),
@@ -3077,6 +3105,7 @@ impl Tracer {
                             batch.destination_label(),
                             atlas_stats.max_absolute_rgb_delta,
                             atlas_stats.max_relative_rgb_delta,
+                            atlas_stats.max_rgb_value,
                             atlas_stats.non_finite_count,
                             atlas_stats.negative_rgb_texel_count,
                             atlas_stats.valid_texel_count,
@@ -3325,6 +3354,43 @@ impl Tracer {
             );
         }
 
+        if self
+            .ddgi_runtime
+            .frame_plan()
+            .visibility_preservation_needed
+        {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.visibility_preserve",
+                || {
+                    self.ddgi_runtime
+                        .volumes()
+                        .builder()
+                        .record_visibility_preservation(cmdbuf)
+                },
+            );
+            self.ddgi_runtime.mark_visibility_preserved();
+            log::debug!(
+                "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
+                self.ddgi_runtime
+                    .volumes()
+                    .status()
+                    .builder()
+                    .scheduled_work
+                    .expect("visibility preservation requires scheduled work")
+                    .destination()
+                    .field()
+                    .geometry_revision(),
+                self.ddgi_runtime
+                    .volumes()
+                    .status()
+                    .builder()
+                    .radiance_revision,
+            );
+        }
+
         let ddgi_frame_plan = self.ddgi_runtime.frame_plan();
         let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
         if let Some(batch) = ddgi_ray_batch {
@@ -3404,7 +3470,7 @@ impl Tracer {
                 || status.filtered_probe_count % 1_024 == 0
             {
                 log::debug!(
-                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
+                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} priority={:?} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3418,6 +3484,7 @@ impl Tracer {
                     batch.update_epoch(),
                     batch.source(),
                     batch.destination_label(),
+                    batch.probe_priority().map(|priority| priority.reason()),
                     batch.irradiance_history_retention(self.ddgi_history_retention),
                     batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),

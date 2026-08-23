@@ -62,8 +62,9 @@ pub use config::{
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
-    DdgiRayBatch, DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes,
+    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
+    DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 pub(crate) use runtime::{DdgiRuntime, DdgiRuntimeVolumeTarget};
 #[allow(unused_imports)]

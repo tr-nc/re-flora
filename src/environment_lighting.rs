@@ -12,6 +12,8 @@ pub(crate) const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::f
 const DDGI_LARGE_SUN_STEP_ANGLE_RADIANS: f32 = 5.0_f32.to_radians();
 const DDGI_LARGE_SUN_STEP_COLOR_RELATIVE: f32 = 0.25;
 const DDGI_LARGE_SUN_STEP_LUMINANCE_RELATIVE: f32 = 0.35;
+const DDGI_CONTINUOUS_HISTORY_TIME_CONSTANT_SECONDS: f32 = 1.5;
+const DDGI_CONTINUOUS_HISTORY_MAX_CHANGE_REDUCTION: f32 = 0.35;
 
 const fn authored_sky_model_identity() -> u64 {
     let mut hash = FNV1A64_OFFSET_BASIS;
@@ -197,6 +199,24 @@ pub(crate) struct DdgiRadianceChange {
 }
 
 impl DdgiRadianceChange {
+    pub fn between(previous: DdgiRadianceSnapshot, next: DdgiRadianceSnapshot) -> Self {
+        let previous_identity = previous.identity();
+        let next_identity = next.identity();
+        let delta = DdgiRadianceDelta::between(
+            previous,
+            next,
+            !previous_identity.non_solar_eq(next_identity),
+        );
+        let reason = if delta.non_solar_changed {
+            DdgiRadianceChangeReason::TransportInputStep
+        } else if delta.is_large_sun_step() {
+            DdgiRadianceChangeReason::LargeSunStep
+        } else {
+            DdgiRadianceChangeReason::ContinuousSun
+        };
+        Self { reason, delta }
+    }
+
     pub fn resets_irradiance_history(self) -> bool {
         matches!(
             self.reason,
@@ -204,6 +224,50 @@ impl DdgiRadianceChange {
                 | DdgiRadianceChangeReason::LargeSunStep
                 | DdgiRadianceChangeReason::TransportInputStep
         )
+    }
+}
+
+/// History policy for a complete immutable field transition. It is derived from the field that is
+/// actually resident, not merely from the previous requested transport revision, so latest-wins
+/// coalescing cannot understate elapsed time or accumulated sun movement.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct DdgiRadianceHistoryPolicy {
+    pub change: DdgiRadianceChange,
+    pub elapsed: Duration,
+}
+
+impl DdgiRadianceHistoryPolicy {
+    pub fn between(
+        source: EnvironmentLightingState,
+        destination: EnvironmentLightingState,
+    ) -> Self {
+        Self {
+            change: DdgiRadianceChange::between(source.snapshot, destination.snapshot),
+            elapsed: destination.published_at.saturating_sub(source.published_at),
+        }
+    }
+
+    pub fn resets_history(self) -> bool {
+        self.change.resets_irradiance_history()
+    }
+
+    pub fn retention(self, configured: f32) -> f32 {
+        if self.resets_history() {
+            return 0.0;
+        }
+        let elapsed_seconds = self.elapsed.as_secs_f32().max(1.0 / 240.0);
+        let time_retention =
+            (-elapsed_seconds / DDGI_CONTINUOUS_HISTORY_TIME_CONSTANT_SECONDS).exp();
+        let normalized_change = (self.change.delta.sun_angle_radians
+            / DDGI_LARGE_SUN_STEP_ANGLE_RADIANS)
+            .max(self.change.delta.sun_color_relative / DDGI_LARGE_SUN_STEP_COLOR_RELATIVE)
+            .max(self.change.delta.sun_luminance_relative / DDGI_LARGE_SUN_STEP_LUMINANCE_RELATIVE)
+            .clamp(0.0, 1.0);
+        let change_retention =
+            1.0 - normalized_change * DDGI_CONTINUOUS_HISTORY_MAX_CHANGE_REDUCTION;
+        configured
+            .clamp(0.0, 0.99)
+            .min(time_retention * change_retention)
     }
 }
 
@@ -356,19 +420,12 @@ impl EnvironmentLightingCache {
         let current_identity = self
             .current_transport_identity
             .expect("transport change classification requires a current identity");
-        let delta = DdgiRadianceDelta::between(
-            current.snapshot,
-            snapshot,
-            !current_identity.non_solar_eq(identity),
-        );
-        let reason = if delta.non_solar_changed {
-            DdgiRadianceChangeReason::TransportInputStep
-        } else if delta.is_large_sun_step() {
-            DdgiRadianceChangeReason::LargeSunStep
-        } else {
-            DdgiRadianceChangeReason::ContinuousSun
-        };
-        DdgiRadianceChange { reason, delta }
+        let mut change = DdgiRadianceChange::between(current.snapshot, snapshot);
+        if !current_identity.non_solar_eq(identity) {
+            change.delta.non_solar_changed = true;
+            change.reason = DdgiRadianceChangeReason::TransportInputStep;
+        }
+        change
     }
 
     fn publish_transport(
@@ -674,6 +731,52 @@ mod tests {
         );
         assert!(changed.transport.change.delta.non_solar_changed);
         assert!(changed.transport.change.resets_irradiance_history());
+    }
+
+    #[test]
+    fn continuous_history_retention_uses_source_time_and_change_magnitude() {
+        let mut cache = EnvironmentLightingCache::default();
+        let source = cache
+            .update(snapshot(), std::time::Duration::ZERO)
+            .transport;
+        let mut changed = snapshot();
+        changed.sun_direction = glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
+        let destination = cache
+            .update(changed, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL)
+            .transport;
+        let policy = DdgiRadianceHistoryPolicy::between(source, destination);
+
+        assert_eq!(policy.elapsed, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL);
+        assert_eq!(
+            policy.change.reason,
+            DdgiRadianceChangeReason::ContinuousSun
+        );
+        assert!(!policy.resets_history());
+        let retention = policy.retention(0.99);
+        assert!(retention > 0.0 && retention < 0.99);
+
+        let mut larger = destination;
+        larger.published_at += DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL;
+        larger.snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let larger_policy = DdgiRadianceHistoryPolicy::between(destination, larger);
+        assert!(larger_policy.retention(0.99) < retention);
+    }
+
+    #[test]
+    fn discontinuous_history_policy_is_an_explicit_zero_weight_reset() {
+        let mut cache = EnvironmentLightingCache::default();
+        let source = cache
+            .update(snapshot(), std::time::Duration::ZERO)
+            .transport;
+        let mut changed = snapshot();
+        changed.sun_direction = Vec3::Z;
+        let destination = cache
+            .update(changed, std::time::Duration::from_millis(1))
+            .transport;
+        let policy = DdgiRadianceHistoryPolicy::between(source, destination);
+
+        assert!(policy.resets_history());
+        assert_eq!(policy.retention(0.99), 0.0);
     }
 
     #[test]

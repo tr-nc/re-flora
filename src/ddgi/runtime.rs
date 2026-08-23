@@ -1,13 +1,14 @@
-use crate::environment_lighting::EnvironmentLightingState;
+use crate::environment_lighting::{DdgiRadianceHistoryPolicy, EnvironmentLightingState};
 use crate::geom::UAabb3;
 use anyhow::Result;
 
 use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRayBatch, DdgiRefreshState,
-    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError,
-    DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiProbePriority,
+    DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork,
+    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh, DdgiTransportScheduler,
+    DdgiVolumeGrid, DdgiVolumeStage,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,15 +39,18 @@ impl DdgiRuntimeVolumeBuild {
 pub(crate) struct DdgiRuntimeWork {
     scheduled: DdgiScheduledWork,
     authored_lighting: EnvironmentLightingState,
+    radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
     local_refresh_voxel_bound: Option<UAabb3>,
+    probe_priority: Option<DdgiProbePriority>,
 }
 
 /// Logical DDGI work selected for one frame. The runtime owns sequencing decisions; the tracer
 /// only records the Vulkan passes described by this plan and reports completion back here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiFramePlan {
     pub global_sky_needs_update: bool,
     pub relocation_terrain_revision: Option<u32>,
+    pub visibility_preservation_needed: bool,
     pub ray_batch: Option<DdgiRayBatch>,
     pub iteration_will_complete: bool,
 }
@@ -85,8 +89,16 @@ impl DdgiRuntimeWork {
         self.authored_lighting
     }
 
+    pub(crate) fn radiance_history_policy(self) -> Option<DdgiRadianceHistoryPolicy> {
+        self.radiance_history_policy
+    }
+
     pub(crate) fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
         self.local_refresh_voxel_bound
+    }
+
+    pub(crate) fn probe_priority(self) -> Option<DdgiProbePriority> {
+        self.probe_priority
     }
 }
 
@@ -106,7 +118,10 @@ pub(crate) struct DdgiRuntime {
     transport_scheduler: DdgiTransportScheduler,
     live_authored_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
+    published_authored_lighting: Option<EnvironmentLightingState>,
     coalesced_radiance_revisions: u64,
+    camera_probe_priority: Option<UAabb3>,
+    lighting_impact_probe_priority: Option<UAabb3>,
     capture_enabled: bool,
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
@@ -126,7 +141,10 @@ impl DdgiRuntime {
             transport_scheduler: DdgiTransportScheduler::new(),
             live_authored_lighting: None,
             in_flight_authored_lighting: None,
+            published_authored_lighting: None,
             coalesced_radiance_revisions: 0,
+            camera_probe_priority: None,
+            lighting_impact_probe_priority: None,
             capture_enabled: false,
             capture_target: DdgiCaptureTarget::default(),
             capture_batch_order: DdgiBatchOrder::default(),
@@ -236,6 +254,17 @@ impl DdgiRuntime {
         self.transport_scheduler.observe_radiance(lighting.revision);
     }
 
+    pub(crate) fn observe_camera_probe_priority(&mut self, voxel_bound: UAabb3) {
+        self.camera_probe_priority = Some(voxel_bound);
+    }
+
+    /// Phase 2 local lights can publish their conservative DDGI influence bound through this seam.
+    /// `None` clears the previous influence when no movable light affects the volume.
+    #[allow(dead_code)]
+    pub(crate) fn observe_lighting_impact_probe_priority(&mut self, voxel_bound: Option<UAabb3>) {
+        self.lighting_impact_probe_priority = voxel_bound;
+    }
+
     pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
         self.terrain_refresh.request_density_rebuild(spacing_voxels);
     }
@@ -334,13 +363,41 @@ impl DdgiRuntime {
             "DDGI transport work revision does not match live Authored Environment Lighting",
         );
         self.in_flight_authored_lighting = Some(authored_lighting);
+        let radiance_history_policy = scheduled.transport_source().and_then(|source| {
+            (source.field().radiance_revision()
+                != scheduled.destination().field().radiance_revision())
+            .then(|| {
+                let published = self.published_authored_lighting.expect(
+                    "radiance-changing DDGI work must retain its actual published source lighting",
+                );
+                assert_eq!(
+                    published.revision,
+                    source.field().radiance_revision(),
+                    "DDGI published authored lighting diverged from the scheduled source field",
+                );
+                DdgiRadianceHistoryPolicy::between(published, authored_lighting)
+            })
+        });
         let local_refresh_voxel_bound = (scheduled.kind() == DdgiScheduledWorkKind::GeometryUpdate)
             .then(|| self.terrain_refresh.invalidation_voxel_bound())
             .flatten();
+        let probe_priority = local_refresh_voxel_bound
+            .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::TerrainEdit))
+            .or_else(|| {
+                self.lighting_impact_probe_priority.map(|bound| {
+                    DdgiProbePriority::new(bound, DdgiProbePriorityReason::LightingImpact)
+                })
+            })
+            .or_else(|| {
+                self.camera_probe_priority
+                    .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::Camera))
+            });
         Some(DdgiRuntimeWork {
             scheduled,
             authored_lighting,
+            radiance_history_policy,
             local_refresh_voxel_bound,
+            probe_priority,
         })
     }
 
@@ -375,6 +432,7 @@ impl DdgiRuntime {
         let published = self
             .transport_scheduler
             .complete_in_flight(work, published)?;
+        self.published_authored_lighting = Some(lighting);
         if self.active_build_token == Some(build_token) {
             self.active_ready = true;
         }
@@ -521,6 +579,7 @@ impl DdgiRuntime {
         DdgiFramePlan {
             global_sky_needs_update: builder.global_sky_needs_update(),
             relocation_terrain_revision: builder.pending_relocation_terrain_revision(),
+            visibility_preservation_needed: builder.visibility_preservation_needed(),
             iteration_will_complete: ray_batch
                 .is_some_and(|batch| builder.iteration_will_complete(batch)),
             ray_batch,
@@ -537,6 +596,10 @@ impl DdgiRuntime {
         self.volumes_mut()
             .builder_mut()
             .mark_relocated(terrain_revision)
+    }
+
+    pub(crate) fn mark_visibility_preserved(&mut self) {
+        self.volumes_mut().builder_mut().mark_visibility_preserved();
     }
 
     pub(crate) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
@@ -1170,6 +1233,65 @@ mod tests {
         assert_eq!(
             latest.scheduled().destination().source(),
             Some(r2_scheduled.destination().field())
+        );
+    }
+
+    #[test]
+    fn radiance_work_derives_history_from_the_actual_published_source() {
+        let (mut runtime, _, _) = initialized_runtime();
+        let mut continuous = lighting(2, 1.0);
+        continuous.published_at = std::time::Duration::from_millis(210);
+        continuous.snapshot.sun_direction =
+            glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
+        runtime.observe_authored_lighting(continuous);
+
+        let work = runtime.claim_transport_work().unwrap();
+        let history = work
+            .radiance_history_policy()
+            .expect("radiance update must name its temporal policy");
+        assert_eq!(history.elapsed, std::time::Duration::from_millis(200));
+        assert_eq!(
+            history.change.reason,
+            crate::environment_lighting::DdgiRadianceChangeReason::ContinuousSun
+        );
+        assert!(!history.resets_history());
+        assert!(history.retention(0.99) > 0.0);
+    }
+
+    #[test]
+    fn transport_work_latches_impact_then_camera_priority_without_changing_sweep_scope() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let camera = edit_bound(32, 32);
+        let impact = edit_bound(256, 288);
+        runtime.observe_camera_probe_priority(camera);
+        runtime.observe_lighting_impact_probe_priority(Some(impact));
+        runtime.observe_authored_lighting(lighting(2, 2.0));
+
+        let impact_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            impact_work.probe_priority(),
+            Some(DdgiProbePriority::new(
+                impact,
+                DdgiProbePriorityReason::LightingImpact
+            ))
+        );
+        runtime
+            .complete_transport_work(
+                impact_work.scheduled(),
+                impact_work.scheduled().destination(),
+                active_token,
+            )
+            .unwrap();
+
+        runtime.observe_lighting_impact_probe_priority(None);
+        runtime.observe_authored_lighting(lighting(3, 3.0));
+        let camera_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            camera_work.probe_priority(),
+            Some(DdgiProbePriority::new(
+                camera,
+                DdgiProbePriorityReason::Camera
+            ))
         );
     }
 }
