@@ -535,6 +535,8 @@ impl PipelineBuilder {
                 anchor: "gui_input",
                 providers: &[
                     resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,
@@ -551,6 +553,8 @@ impl PipelineBuilder {
                 anchor: "gui_input",
                 providers: &[
                     resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,

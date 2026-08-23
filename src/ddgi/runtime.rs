@@ -121,7 +121,7 @@ pub(crate) struct DdgiRuntime {
     published_authored_lighting: Option<EnvironmentLightingState>,
     coalesced_radiance_revisions: u64,
     camera_probe_priority: Option<UAabb3>,
-    lighting_impact_probe_priority: Option<UAabb3>,
+    lighting_impact_probe_priority: Option<(u32, UAabb3)>,
     capture_enabled: bool,
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
@@ -224,6 +224,10 @@ impl DdgiRuntime {
             lighting.revision, 0,
             "Authored Environment Lighting revisions must be nonzero"
         );
+        assert_eq!(
+            lighting.snapshot.local_lights.info.transport_revision, lighting.revision,
+            "DDGI local-light payload must be frozen to its authored transport revision",
+        );
         if let Some(current) = self.live_authored_lighting {
             if current.revision == lighting.revision {
                 assert_eq!(
@@ -261,8 +265,12 @@ impl DdgiRuntime {
     /// Phase 2 local lights can publish their conservative DDGI influence bound through this seam.
     /// `None` clears the previous influence when no movable light affects the volume.
     #[allow(dead_code)]
-    pub(crate) fn observe_lighting_impact_probe_priority(&mut self, voxel_bound: Option<UAabb3>) {
-        self.lighting_impact_probe_priority = voxel_bound;
+    pub(crate) fn observe_lighting_impact_probe_priority(
+        &mut self,
+        radiance_revision: u32,
+        voxel_bound: Option<UAabb3>,
+    ) {
+        self.lighting_impact_probe_priority = voxel_bound.map(|bound| (radiance_revision, bound));
     }
 
     pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
@@ -381,13 +389,20 @@ impl DdgiRuntime {
         let local_refresh_voxel_bound = (scheduled.kind() == DdgiScheduledWorkKind::GeometryUpdate)
             .then(|| self.terrain_refresh.invalidation_voxel_bound())
             .flatten();
+        let lighting_impact_priority = self
+            .lighting_impact_probe_priority
+            .filter(|(revision, _)| {
+                *revision == scheduled.destination().field().radiance_revision()
+            })
+            .map(|(_, bound)| {
+                DdgiProbePriority::new(bound, DdgiProbePriorityReason::LightingImpact)
+            });
+        if lighting_impact_priority.is_some() {
+            self.lighting_impact_probe_priority = None;
+        }
         let probe_priority = local_refresh_voxel_bound
             .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::TerrainEdit))
-            .or_else(|| {
-                self.lighting_impact_probe_priority.map(|bound| {
-                    DdgiProbePriority::new(bound, DdgiProbePriorityReason::LightingImpact)
-                })
-            })
+            .or(lighting_impact_priority)
             .or_else(|| {
                 self.camera_probe_priority
                     .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::Camera))
@@ -909,6 +924,10 @@ mod tests {
     };
     use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
     use crate::geom::UAabb3;
+    use crate::lighting::{
+        LocalLight, LocalLightBudget, LocalLightDomain, LocalLightGpuPayload,
+        LocalLightGpuSnapshot, PointLight,
+    };
     use glam::{UVec3, Vec3};
 
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
@@ -947,6 +966,7 @@ mod tests {
                     rock_color: Vec3::splat(0.4),
                     hash_color_variance: 0.5,
                 },
+                local_lights: LocalLightGpuPayload::empty(0).with_transport_revision(revision),
             },
         }
     }
@@ -1186,7 +1206,17 @@ mod tests {
     #[test]
     fn radiance_observations_coalesce_without_mutating_the_in_flight_snapshot() {
         let (mut runtime, active_token, _) = initialized_runtime();
-        let r2 = lighting(2, 2.0);
+        let mut lights = LocalLightDomain::default();
+        let id = lights.add(LocalLight::Point(
+            PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let mut r2 = lighting(2, 2.0);
+        r2.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            2,
+        )
+        .payload();
         runtime.observe_authored_lighting(r2);
         let r2_work = runtime.claim_transport_work().unwrap();
         assert_eq!(
@@ -1200,7 +1230,14 @@ mod tests {
         assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot);
 
         runtime.observe_authored_lighting(lighting(3, 3.0));
-        let r4 = lighting(4, 4.0);
+        lights.remove(id).unwrap();
+        let mut r4 = lighting(4, 4.0);
+        r4.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            4,
+        )
+        .payload();
         runtime.observe_authored_lighting(r4);
         let pending = runtime.lighting_diagnostics();
         assert_eq!(runtime.latest_radiance_revision(), Some(4));
@@ -1213,6 +1250,15 @@ mod tests {
         assert_eq!(
             runtime.in_flight_authored_lighting().unwrap().snapshot,
             r2.snapshot,
+        );
+        assert_eq!(
+            runtime
+                .in_flight_authored_lighting()
+                .unwrap()
+                .snapshot
+                .local_lights
+                .count(),
+            1
         );
 
         let r2_scheduled = r2_work.scheduled();
@@ -1230,6 +1276,7 @@ mod tests {
         assert_eq!(claimed.scheduler_revision_lag(), 2);
         assert!(!claimed.has_mixed_in_flight_revision);
         assert_eq!(latest.authored_lighting().snapshot, r4.snapshot);
+        assert_eq!(latest.authored_lighting().snapshot.local_lights.count(), 0);
         assert_eq!(
             latest.scheduled().destination().source(),
             Some(r2_scheduled.destination().field())
@@ -1264,8 +1311,8 @@ mod tests {
         let camera = edit_bound(32, 32);
         let impact = edit_bound(256, 288);
         runtime.observe_camera_probe_priority(camera);
-        runtime.observe_lighting_impact_probe_priority(Some(impact));
         runtime.observe_authored_lighting(lighting(2, 2.0));
+        runtime.observe_lighting_impact_probe_priority(2, Some(impact));
 
         let impact_work = runtime.claim_transport_work().unwrap();
         assert_eq!(
@@ -1283,8 +1330,8 @@ mod tests {
             )
             .unwrap();
 
-        runtime.observe_lighting_impact_probe_priority(None);
         runtime.observe_authored_lighting(lighting(3, 3.0));
+        runtime.observe_lighting_impact_probe_priority(3, None);
         let camera_work = runtime.claim_transport_work().unwrap();
         assert_eq!(
             camera_work.probe_priority(),

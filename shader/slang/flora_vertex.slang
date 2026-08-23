@@ -7,6 +7,7 @@ import flora_noise;
 import flora_shadow;
 import flora_types;
 import hash;
+import local_lighting;
 import sunlight;
 import terrain_edit_preview;
 import tracer_types;
@@ -42,6 +43,7 @@ struct B_FloraVoxelInfos
 [[vk::binding(14, 0)]]
 readonly GLSLShaderStorageBuffer<B_FloraVoxelInfos, Std430DataLayout>
     flora_voxel_infos;
+[[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
@@ -480,7 +482,18 @@ public float4 projectFloraPosition(float3 worldPosition)
 
 public bool rasterFloraUsesDdgiLighting()
 {
+    return rasterFloraDdgiLightingEnabled() ||
+        localLightCount(local_light_info) > 0u;
+}
+
+public bool rasterFloraDdgiLightingEnabled()
+{
     return gui_input.raster_flora_ddgi_lighting != 0u;
+}
+
+public U_LocalLightInfo floraLocalLightInfo()
+{
+    return local_light_info;
 }
 
 public float3 shadeLegacyRasterFloraVertex(
@@ -506,6 +519,11 @@ public float3 sampleFloraEnvironment(float3 voxelPosition, float3 shadingNormal)
 {
     return sampleDiffuseEnvironment(
         gui_input, shading_info, voxelPosition, shadingNormal);
+}
+
+public float floraTerrainRayOriginOffsetWorld()
+{
+    return gui_input.terrain_ray_origin_offset_world;
 }
 
 public float3 shadeFloraVertexWithEnvironment(

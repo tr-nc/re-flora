@@ -1,6 +1,8 @@
 use glam::Vec3;
 use std::time::Duration;
 
+use crate::lighting::{LocalLightGpuPayload, LocalLightInfluenceBound};
+
 // Authored sky lighting is compiled into these shaders rather than supplied through a runtime
 // uniform. Hash the authoritative sources so a capture or cached field can still name the exact
 // sky model that produced it. Adding runtime sky controls later should replace this compilation-
@@ -60,6 +62,7 @@ pub(crate) struct DdgiRadianceSnapshot {
     pub terrain_ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub voxel_palette: DdgiVoxelPaletteSnapshot,
+    pub local_lights: LocalLightGpuPayload,
 }
 
 impl DdgiRadianceSnapshot {
@@ -89,6 +92,7 @@ impl DdgiRadianceSnapshot {
                 .map(f32::to_bits),
             rock_color: self.voxel_palette.rock_color.to_array().map(f32::to_bits),
             hash_color_variance: self.voxel_palette.hash_color_variance.to_bits(),
+            local_lights: self.local_lights.with_transport_revision(0),
         }
     }
 }
@@ -113,6 +117,7 @@ struct DdgiRadianceIdentity {
     oak_wood_color: [u32; 3],
     rock_color: [u32; 3],
     hash_color_variance: u32,
+    local_lights: LocalLightGpuPayload,
 }
 
 impl DdgiRadianceIdentity {
@@ -135,6 +140,8 @@ pub(crate) struct DdgiRadianceDelta {
     pub sun_color_relative: f32,
     pub sun_luminance_relative: f32,
     pub non_solar_changed: bool,
+    pub local_lights_changed: bool,
+    pub local_light_impact_bound: Option<LocalLightInfluenceBound>,
 }
 
 impl DdgiRadianceDelta {
@@ -142,6 +149,7 @@ impl DdgiRadianceDelta {
         previous: DdgiRadianceSnapshot,
         next: DdgiRadianceSnapshot,
         non_solar_changed: bool,
+        local_lights_changed: bool,
     ) -> Self {
         let previous_direction = previous.sun_direction.normalize_or_zero();
         let next_direction = next.sun_direction.normalize_or_zero();
@@ -163,6 +171,19 @@ impl DdgiRadianceDelta {
             sun_color_relative: max_vec3_relative_delta(previous.sun_color, next.sun_color),
             sun_luminance_relative: relative_delta(previous.sun_luminance, next.sun_luminance),
             non_solar_changed,
+            local_lights_changed,
+            local_light_impact_bound: local_lights_changed
+                .then(|| {
+                    match (
+                        previous.local_lights.influence_bound(),
+                        next.local_lights.influence_bound(),
+                    ) {
+                        (Some(previous), Some(next)) => Some(previous.union(next)),
+                        (Some(bound), None) | (None, Some(bound)) => Some(bound),
+                        (None, None) => None,
+                    }
+                })
+                .flatten(),
         }
     }
 
@@ -189,6 +210,7 @@ pub(crate) enum DdgiRadianceChangeReason {
     Initial,
     ContinuousSun,
     LargeSunStep,
+    LocalLights,
     TransportInputStep,
 }
 
@@ -206,11 +228,14 @@ impl DdgiRadianceChange {
             previous,
             next,
             !previous_identity.non_solar_eq(next_identity),
+            previous_identity.local_lights != next_identity.local_lights,
         );
         let reason = if delta.non_solar_changed {
             DdgiRadianceChangeReason::TransportInputStep
         } else if delta.is_large_sun_step() {
             DdgiRadianceChangeReason::LargeSunStep
+        } else if delta.local_lights_changed {
+            DdgiRadianceChangeReason::LocalLights
         } else {
             DdgiRadianceChangeReason::ContinuousSun
         };
@@ -435,11 +460,15 @@ impl EnvironmentLightingCache {
         change: DdgiRadianceChange,
     ) {
         self.current_transport_revision = self.current_transport_revision.wrapping_add(1).max(1);
+        let mut snapshot = live.snapshot;
+        snapshot.local_lights = snapshot
+            .local_lights
+            .with_transport_revision(self.current_transport_revision);
         self.current_transport = Some(EnvironmentLightingState {
             revision: self.current_transport_revision,
             source_live_revision: live.revision,
             published_at: live.observed_at,
-            snapshot: live.snapshot,
+            snapshot,
             change,
         });
         self.current_transport_identity = Some(identity);
@@ -450,6 +479,9 @@ impl EnvironmentLightingCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lighting::{
+        LocalLight, LocalLightBudget, LocalLightDomain, LocalLightGpuSnapshot, PointLight,
+    };
 
     fn gui_param<'a>(config: &'a toml::Value, id: &str) -> &'a toml::Value {
         config["section"]
@@ -476,7 +508,101 @@ mod tests {
                 rock_color: Vec3::splat(0.4),
                 hash_color_variance: 0.5,
             },
+            local_lights: LocalLightGpuPayload::empty(0),
         }
+    }
+
+    fn point_payload(domain: &LocalLightDomain) -> crate::lighting::LocalLightGpuPayload {
+        LocalLightGpuSnapshot::from_authoritative(
+            &domain.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        )
+        .payload()
+    }
+
+    #[test]
+    fn local_light_transport_is_rate_limited_latest_wins_and_keeps_live_separate() {
+        let mut cache = EnvironmentLightingCache::default();
+        let mut lights = LocalLightDomain::default();
+        let mut initial = snapshot();
+        initial.local_lights = point_payload(&lights);
+        let first = cache.update(initial, Duration::ZERO);
+        assert!(first.transport_published);
+        assert_eq!(first.transport.snapshot.local_lights.count(), 0);
+
+        let id = lights.add(LocalLight::Point(
+            PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let mut added = snapshot();
+        added.local_lights = point_payload(&lights);
+        let pending = cache.update(added, Duration::from_millis(1));
+        assert!(!pending.transport_published);
+        assert_eq!(pending.live.snapshot.local_lights.count(), 1);
+        assert_eq!(pending.transport.snapshot.local_lights.count(), 0);
+
+        lights
+            .update(
+                id,
+                LocalLight::Point(
+                    PointLight::new(
+                        Vec3::new(2.0, 2.0, 3.0),
+                        Vec3::new(0.5, 0.75, 1.0),
+                        8.0,
+                        0.05,
+                        0.5,
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap();
+        let mut moved = snapshot();
+        moved.local_lights = point_payload(&lights);
+        let coalesced = cache.update(moved, Duration::from_millis(2));
+        assert!(!coalesced.transport_published);
+        assert_eq!(coalesced.transport.snapshot.local_lights.count(), 0);
+
+        let published = cache.update(moved, Duration::from_millis(200));
+        assert!(published.transport_published);
+        assert_eq!(
+            published.transport.change.reason,
+            DdgiRadianceChangeReason::LocalLights
+        );
+        assert_eq!(published.transport.snapshot.local_lights.count(), 1);
+        assert_eq!(
+            published.transport.snapshot.local_lights.source_revision(),
+            lights.snapshot().revision()
+        );
+        assert_eq!(
+            published
+                .transport
+                .snapshot
+                .local_lights
+                .info
+                .transport_revision,
+            published.transport.revision
+        );
+        assert_eq!(published.coalesced_live_revisions, 1);
+
+        lights.remove(id).unwrap();
+        let mut removed = snapshot();
+        removed.local_lights = point_payload(&lights);
+        let removal_pending = cache.update(removed, Duration::from_millis(201));
+        assert!(!removal_pending.transport_published);
+        assert_eq!(removal_pending.live.snapshot.local_lights.count(), 0);
+        assert_eq!(removal_pending.transport.snapshot.local_lights.count(), 1);
+
+        let removal_published = cache.update(removed, Duration::from_millis(400));
+        assert!(removal_published.transport_published);
+        assert_eq!(removal_published.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(
+            removal_published
+                .transport
+                .snapshot
+                .local_lights
+                .source_revision(),
+            lights.snapshot().revision()
+        );
     }
 
     fn sample_linear_probe_field(position_in_probe_cells: f64) -> f64 {
@@ -1255,8 +1381,9 @@ mod tests {
         assert!(tracer.contains(
             "shadowRay.origin = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
         ));
-        assert!(tracer
-            .contains("directLight = directLighting(albedo, result.normal, result.position);"));
+        assert!(
+            tracer.contains("directLight = directLighting(albedo, result.normal, result.position,")
+        );
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));

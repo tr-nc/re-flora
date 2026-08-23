@@ -98,6 +98,10 @@ use crate::gameplay::{
 };
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
+use crate::lighting::{
+    LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
+    LOCAL_LIGHT_GPU_CAPACITY,
+};
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::TimeInfo;
@@ -125,6 +129,18 @@ fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<
             build_token.spacing_voxels(),
         )
     });
+}
+
+fn local_light_impact_voxel_bound(
+    bound: LocalLightInfluenceBound,
+    voxels_per_world_unit: UVec3,
+    world_extent_voxels: UVec3,
+) -> UAabb3 {
+    let scale = voxels_per_world_unit.as_vec3();
+    let extent = world_extent_voxels.as_vec3();
+    let min = (bound.min() * scale).floor().clamp(Vec3::ZERO, extent);
+    let max = (bound.max() * scale).ceil().clamp(Vec3::ZERO, extent);
+    UAabb3::new(min.as_uvec3(), max.as_uvec3())
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -570,14 +586,16 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 
 fn flora_lighting_cache_dispatch_enabled(
     raster_flora_ddgi_lighting: bool,
+    local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    raster_flora_ddgi_lighting && required_entries > 0
+    (raster_flora_ddgi_lighting || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
 mod flora_lighting_cache_location_tests {
     use super::*;
+    use crate::lighting::{LocalLight, LocalLightDomain, PointLight};
 
     #[test]
     fn cache_location_packs_offset_voxel_count_and_lod_without_overlap() {
@@ -598,10 +616,36 @@ mod flora_lighting_cache_location_tests {
     }
 
     #[test]
-    fn cache_dispatch_requires_ddgi_mode_and_visible_flora() {
-        assert!(flora_lighting_cache_dispatch_enabled(true, 1));
-        assert!(!flora_lighting_cache_dispatch_enabled(true, 0));
-        assert!(!flora_lighting_cache_dispatch_enabled(false, 1));
+    fn cache_dispatch_requires_environment_or_local_lighting_and_visible_flora() {
+        assert!(flora_lighting_cache_dispatch_enabled(true, false, 1));
+        assert!(flora_lighting_cache_dispatch_enabled(false, true, 1));
+        assert!(!flora_lighting_cache_dispatch_enabled(true, true, 0));
+        assert!(!flora_lighting_cache_dispatch_enabled(false, false, 1));
+    }
+
+    #[test]
+    fn point_light_gpu_values_stay_in_world_units_and_priority_scales_each_axis_once() {
+        let mut domain = LocalLightDomain::default();
+        domain.add(LocalLight::Point(
+            PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let gpu = LocalLightGpuSnapshot::from_authoritative(
+            &domain.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        );
+        assert_eq!(gpu.lights[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(gpu.lights[0].range, 0.5);
+        assert_eq!(gpu.lights[0].source_radius, 0.05);
+
+        let world_bound = gpu.payload().influence_bound().unwrap();
+        let voxel_bound = local_light_impact_voxel_bound(
+            world_bound,
+            UVec3::new(256, 128, 64),
+            UVec3::splat(1_024),
+        );
+        assert_eq!(voxel_bound.min(), UVec3::new(128, 192, 160));
+        assert_eq!(voxel_bound.max(), UVec3::new(384, 320, 224));
     }
 
     #[test]
@@ -760,6 +804,8 @@ pub struct Tracer {
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
+    local_light_live_revision: Option<u64>,
+    local_light_live_count: u32,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -813,6 +859,8 @@ impl Tracer {
             &*self.resources.uniforms.post_processing_info,
             &*self.resources.shadow.shadow_camera_info,
             &*self.resources.wind.wind_sources,
+            &*self.resources.local_lighting.local_light_info,
+            &*self.resources.local_lighting.local_lights,
         ];
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
@@ -1078,6 +1126,8 @@ impl Tracer {
             ddgi_trace_stats_readback_pending: None,
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
+            local_light_live_revision: None,
+            local_light_live_count: 0,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -2081,6 +2131,12 @@ impl Tracer {
             "ddgi_transport_query_info",
             &ddgi_volume.ddgi_transport_query_info
         );
+        write_buffer!(
+            trace,
+            "ddgi_local_light_info",
+            &ddgi_volume.ddgi_local_light_info
+        );
+        write_buffer!(trace, "ddgi_local_lights", &ddgi_volume.ddgi_local_lights);
 
         let source_irradiance = inherited_source
             .and_then(DdgiVolume::published_irradiance_atlas)
@@ -2540,6 +2596,7 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
+        local_lights: &LocalLightSnapshot,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         dither_strength_lsb: f32,
@@ -2637,6 +2694,30 @@ impl Tracer {
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
         self.promote_ready_ddgi_staging();
+        let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+            local_lights,
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        );
+        if self.local_light_live_revision != Some(local_lights.revision()) {
+            self.resources
+                .local_lighting
+                .local_light_info
+                .fill_uniform(&local_light_gpu.info)?;
+            self.resources
+                .local_lighting
+                .local_lights
+                .fill(&local_light_gpu.lights)?;
+            self.local_light_live_revision = Some(local_lights.revision());
+            self.local_light_live_count = local_light_gpu.info.count;
+            log::info!(
+                "[LOCAL_LIGHT][LIVE] source_revision={} count={} capacity={} overflow_count={} direct_upload=true",
+                local_lights.revision(),
+                local_light_gpu.info.count,
+                local_light_gpu.info.capacity,
+                local_light_gpu.info.overflow_count,
+            );
+        }
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
         let view_mat = self.camera.get_view_mat();
@@ -2831,12 +2912,13 @@ impl Tracer {
                     rock_color: voxel_rock_color,
                     hash_color_variance: voxel_color_variance,
                 },
+                local_lights: local_light_gpu.payload(),
             },
             time_info.time_since_start_duration(),
         );
         if environment_lighting.transport_published {
             log::info!(
-                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
+                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
                 environment_lighting.live.revision,
                 environment_lighting.transport.revision,
                 environment_lighting.transport.source_live_revision,
@@ -2868,10 +2950,49 @@ impl Tracer {
                     .change
                     .delta
                     .non_solar_changed,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .local_lights_changed,
+                environment_lighting
+                    .transport
+                    .snapshot
+                    .local_lights
+                    .source_revision(),
+                environment_lighting.transport.snapshot.local_lights.count(),
                 environment_lighting.transport.snapshot.sun_direction,
                 environment_lighting.transport.snapshot.sun_color,
                 environment_lighting.transport.snapshot.sun_luminance,
             );
+            if environment_lighting
+                .transport
+                .change
+                .delta
+                .local_lights_changed
+            {
+                let impact = environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .local_light_impact_bound
+                    .map(|bound| {
+                        local_light_impact_voxel_bound(
+                            bound,
+                            self.desc.voxel_dim_per_chunk,
+                            self.ddgi_runtime
+                                .volumes()
+                                .status()
+                                .active()
+                                .grid
+                                .world_extent_voxels(),
+                        )
+                    });
+                self.ddgi_runtime.observe_lighting_impact_probe_priority(
+                    environment_lighting.transport.revision,
+                    impact,
+                );
+            }
         }
         let ddgi_status = self.ddgi_runtime.volumes().status().active();
         let ddgi_geometry_revision = self
@@ -4292,6 +4413,7 @@ impl Tracer {
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_flora_ddgi_lighting,
+            self.local_light_live_count > 0,
             required_lighting_cache_entries,
         ) {
             self.flora_lighting_cache.ensure_capacity(

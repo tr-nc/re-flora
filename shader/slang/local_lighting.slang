@@ -1,10 +1,17 @@
 module local_lighting;
 
+import contree_node;
+import marching_result;
+import scene_marching;
+import terrain_ray_origin;
+
 public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 1u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
 
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
-// Point intensity is scene-linear radiant intensity; the evaluator produces irradiance.
+// Position, range, and source_radius are authoritative world units in the same space as terrain
+// and flora hit positions. Point intensity is scene-linear radiant intensity; the evaluator
+// produces irradiance.
 public struct U_LightGpu
 {
     public uint abi_version;
@@ -84,4 +91,43 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
     result.direction_to_light = direction;
     result.distance_to_light = distance;
     return result;
+}
+
+// Exact finite segment visibility for voxel-backed receivers. All production local-light
+// consumers call this function so attenuation, units, range clipping, and occlusion stay aligned.
+public float3 evaluateVoxelVisibleLocalLightIrradiance(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex)
+{
+    float3 irradiance = float3(0.0);
+    uint count = localLightCount(info);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
+    {
+        U_LightGpu light = lights[lightIndex];
+        LocalPointLightSample sample = evaluateUnshadowedPointLight(
+            light, receiverPosition, receiverNormal);
+        if (!any(sample.irradiance > float3(0.0))) continue;
+
+        float3 shadowOrigin = terrainRayOriginFromSurface(
+            receiverPosition, receiverNormal, rayOriginOffsetWorld);
+        MarchingResult shadowHit = marchScene(
+            nodeData, leafData, sceneTexture, shadowOrigin,
+            sample.direction_to_light, 1.0 / sample.direction_to_light,
+            localInvocationIndex);
+        float originTravel = length(shadowOrigin - receiverPosition);
+        float segmentLength = max(0.0, sample.distance_to_light - originTravel);
+        float visibility = !shadowHit.is_hit ||
+            shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= segmentLength
+            ? 1.0 : 0.0;
+        irradiance += sample.irradiance * visibility;
+    }
+    return irradiance;
 }

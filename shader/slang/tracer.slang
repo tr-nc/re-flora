@@ -2,6 +2,7 @@ import contree_node;
 import ddgi_exact_sun_visibility;
 import ddgi_query;
 import environment_lighting;
+import local_lighting;
 import marching_result;
 import noise_tex;
 import packer;
@@ -35,6 +36,8 @@ readonly RWTexture3D<uint2> scene_tex;
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
 [[vk::binding(17, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
+[[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
+[[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
 
 [[vk::binding(0, 1)]] [[vk::image_format("r32ui")]]
 RWTexture2D<uint> compute_output_tex;
@@ -173,16 +176,23 @@ void parseTraceResult(out float3 albedo, MarchingResult result)
                                    result.center_position);
 }
 
-float3 directLighting(float3 albedo, float3 normal, float3 surfacePosition)
+float3 directLighting(float3 albedo, float3 normal, float3 surfacePosition,
+                      uint localInvocationIndex)
 {
     Ray shadowRay;
     shadowRay.direction = normalize(sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPositionFromSurface(
         surfacePosition, normal);
-    float cosine = dot(shadowRay.direction, normal);
-    if (cosine <= 0.0) return float3(0.0);
-    return shadowRayColor(shadowRay, normal) * cosine * albedo;
+    float cosine = max(0.0, dot(shadowRay.direction, normal));
+    float3 sunIrradiance = cosine > 0.0
+        ? shadowRayColor(shadowRay, normal) * cosine
+        : float3(0.0);
+    float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
+        local_light_info, local_lights, contree_node_data, contree_leaf_data,
+        scene_tex, surfacePosition, normal,
+        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+    return (sunIrradiance + localIrradiance) * albedo;
 }
 
 static const uint PATH_TRACING_MAX_BOUNCES = 8u;
@@ -196,20 +206,32 @@ int3 pathTracingBounceSeed(int3 seed, uint bounceIndex, int2 offset)
 float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
                                    uint localInvocationIndex)
 {
-    if (sun_info.sun_dir.y <= 0.0) return float3(0.0);
-
-    Ray shadowRay;
-    shadowRay.direction = sampleSunDisk(
-        seed, sun_info.sun_size, normalize(sun_info.sun_dir));
-    shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = terrainShadowReceiverPosition(
+    float3 sunIrradiance = float3(0.0);
+    if (sun_info.sun_dir.y > 0.0)
+    {
+        Ray shadowRay;
+        shadowRay.direction = sampleSunDisk(
+            seed, sun_info.sun_size, normalize(sun_info.sun_dir));
+        shadowRay.inverse_direction = 1.0 / shadowRay.direction;
+        shadowRay.origin = terrainShadowReceiverPosition(
+            receiver.center_position, receiver.normal);
+        float cosine = max(0.0, dot(shadowRay.direction, receiver.normal));
+        if (cosine > 0.0)
+        {
+            MarchingResult shadowHit = generalSceneMarching(shadowRay,
+                                                             localInvocationIndex);
+            float visibility = shadowHit.is_hit ? 0.0 : 1.0;
+            sunIrradiance = sun_info.sun_color * sun_info.sun_luminance *
+                cosine * visibility;
+        }
+    }
+    float3 receiverPosition = terrainVoxelSurfacePositionAlongNormal(
         receiver.center_position, receiver.normal);
-    float cosine = dot(shadowRay.direction, receiver.normal);
-    if (cosine <= 0.0) return float3(0.0);
-
-    MarchingResult shadowHit = generalSceneMarching(shadowRay, localInvocationIndex);
-    float visibility = shadowHit.is_hit ? 0.0 : 1.0;
-    return sun_info.sun_color * sun_info.sun_luminance * cosine * visibility;
+    float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
+        local_light_info, local_lights, contree_node_data, contree_leaf_data,
+        scene_tex, receiverPosition, receiver.normal,
+        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+    return sunIrradiance + localIrradiance;
 }
 
 float3 pathTracingIndirectIrradiance(MarchingResult primary, int3 seed,
@@ -462,7 +484,8 @@ void getPixelColor(out float3 color, out float depth,
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
         shading_info.environment_irradiance_capture_enabled != 0u)
     {
-        directLight = directLighting(albedo, result.normal, result.position);
+        directLight = directLighting(albedo, result.normal, result.position,
+                                     localInvocationIndex);
     }
     // The moment-visibility receiver remains fixed for every pixel of the voxel.
     // Only the nominal-grid position basis follows the exact surface hit so a

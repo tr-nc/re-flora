@@ -1,7 +1,15 @@
+import contree_node;
 import flora_lighting_cache;
 import flora_types;
 import flora_vertex;
 import surface_flora_vertex;
+import local_lighting;
+
+[[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
+[[vk::binding(44, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
+[[vk::binding(45, 0)]] StructuredBuffer<uint> contree_leaf_data;
+[[vk::binding(46, 0)]] [[vk::image_format("rg32ui")]]
+readonly RWTexture3D<uint2> scene_tex;
 
 struct B_ManualFloraInstances
 {
@@ -62,10 +70,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         growthProgress, competitionFactor, environmentFactor,
         instance.spawn_start_ms);
 
-    float3 irradiance = prepared.should_trim
+    float3 irradiance = prepared.should_trim ||
+                        !rasterFloraDdgiLightingEnabled()
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);
+    if (!prepared.should_trim)
+    {
+        irradiance += evaluateVoxelVisibleLocalLightIrradiance(
+            floraLocalLightInfo(), local_lights, contree_node_data,
+            contree_leaf_data, scene_tex, prepared.voxel_position,
+            prepared.shading_normal,
+            floraTerrainRayOriginOffsetWorld(), dispatchThreadId.x);
+    }
     flora_lighting_cache[
         floraLightingCacheIndex(
             floraPc, localInstanceIndex, dispatchThreadId.x)] =

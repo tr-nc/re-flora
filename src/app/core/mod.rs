@@ -75,6 +75,7 @@ use crate::environment_probes::{
 use crate::flora::species;
 use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
+use crate::lighting::LocalLightDomain;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -309,6 +310,7 @@ pub struct App {
     mute_audio_output: bool,
 
     tracer: Tracer,
+    local_lights: LocalLightDomain,
 
     // builders
     plain_builder: PlainBuilder,
@@ -1028,6 +1030,7 @@ impl App {
             gpu_profiler_latest_results: None,
 
             tracer,
+            local_lights: LocalLightDomain::default(),
 
             plain_builder,
             surface_builder,
@@ -3031,6 +3034,7 @@ impl App {
                 self.tracer
                     .update_buffers(
                         &self.time_info,
+                        &self.local_lights.snapshot(),
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled

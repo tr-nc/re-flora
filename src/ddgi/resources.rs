@@ -8,9 +8,11 @@ use super::{
 };
 use crate::environment_lighting::{DdgiRadianceHistoryPolicy, DdgiRadianceSnapshot};
 use crate::generated::gpu_structs::{
-    DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo,
+    DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo, LightGpu,
+    LocalLightInfo,
 };
 use crate::geom::UAabb3;
+use crate::lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY};
 use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Context, Result};
 use bytemuck::Zeroable;
@@ -344,7 +346,13 @@ impl DdgiRayBatch {
     }
 
     pub fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
-        self.resident.local_refresh_voxel_bound
+        self.resident.local_refresh_voxel_bound.or_else(|| {
+            (self.resident.work.kind() == DdgiScheduledWorkKind::RadianceUpdate)
+                .then(|| self.resident.probe_priority)
+                .flatten()
+                .filter(|priority| priority.reason() == DdgiProbePriorityReason::LightingImpact)
+                .map(DdgiProbePriority::voxel_bound)
+        })
     }
 
     pub fn probe_priority(self) -> Option<DdgiProbePriority> {
@@ -670,6 +678,8 @@ pub struct DdgiResourceBytes {
     pub radiance_sun: u64,
     pub radiance_voxel_palette: u64,
     pub transport_query_info: u64,
+    pub local_light_info: u64,
+    pub local_lights: u64,
 }
 
 impl DdgiResourceBytes {
@@ -716,6 +726,8 @@ impl DdgiResourceBytes {
             radiance_sun: std::mem::size_of::<DdgiRadianceSun>() as u64,
             radiance_voxel_palette: std::mem::size_of::<DdgiRadianceVoxelPalette>() as u64,
             transport_query_info: std::mem::size_of::<DdgiTransportQueryInfo>() as u64,
+            local_light_info: std::mem::size_of::<LocalLightInfo>() as u64,
+            local_lights: (LOCAL_LIGHT_GPU_CAPACITY * std::mem::size_of::<LightGpu>()) as u64,
         }
     }
 
@@ -733,6 +745,8 @@ impl DdgiResourceBytes {
             + self.radiance_sun
             + self.radiance_voxel_palette
             + self.transport_query_info
+            + self.local_light_info
+            + self.local_lights
     }
 }
 
@@ -880,6 +894,8 @@ pub struct DdgiVolume {
     pub ddgi_radiance_sun: Resource<Buffer>,
     pub ddgi_radiance_voxel_palette: Resource<Buffer>,
     pub ddgi_transport_query_info: Resource<Buffer>,
+    pub ddgi_local_light_info: Resource<Buffer>,
+    pub ddgi_local_lights: Resource<Buffer>,
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
@@ -979,6 +995,12 @@ impl ResourceContainer for DdgiVolume {
             )),
             "ddgi_transport_query_info" => {
                 ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
+            }
+            "ddgi_local_light_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_light_info))
+            }
+            "ddgi_local_lights" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_lights))
             }
             "ddgi_irradiance_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
@@ -1165,6 +1187,25 @@ impl DdgiVolume {
             padding: 0,
         };
         transport_query_info.fill_uniform(&transport_query_snapshot)?;
+        let ddgi_local_light_info = uniform_buffer(resource_bytes.local_light_info);
+        ddgi_local_light_info.fill_uniform(&LocalLightInfo {
+            abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+            count: 0,
+            capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
+            overflow_count: 0,
+            source_revision_low: 0,
+            source_revision_high: 0,
+            transport_revision: 0,
+            flags: 0,
+        })?;
+        let ddgi_local_lights = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            resource_bytes.local_lights,
+        );
+        ddgi_local_lights.fill(&[LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY])?;
         let irradiance_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -1199,7 +1240,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} local_light_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -1224,6 +1265,7 @@ impl DdgiVolume {
             resource_bytes.global_sky_irradiance,
             resource_bytes.radiance_sun + resource_bytes.radiance_voxel_palette,
             resource_bytes.transport_query_info,
+            resource_bytes.local_light_info + resource_bytes.local_lights,
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
 
@@ -1274,6 +1316,8 @@ impl DdgiVolume {
             ddgi_radiance_sun: Resource::new(radiance_sun),
             ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
             ddgi_transport_query_info: Resource::new(transport_query_info),
+            ddgi_local_light_info: Resource::new(ddgi_local_light_info),
+            ddgi_local_lights: Resource::new(ddgi_local_lights),
             transport_query_snapshot,
         })
     }
@@ -1366,6 +1410,11 @@ impl DdgiVolume {
             self.radiance_revision,
             self.stage,
         );
+        ensure!(
+            snapshot.local_lights.info.transport_revision == revision,
+            "DDGI local-light transport revision {} does not match radiance revision {revision}",
+            snapshot.local_lights.info.transport_revision,
+        );
         self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
             direction: snapshot.sun_direction.to_array(),
             terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
@@ -1386,6 +1435,9 @@ impl DdgiVolume {
             snapshot.ddgi_receiver_visibility_bias_world;
         self.ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)?;
+        self.ddgi_local_light_info
+            .fill_uniform(&snapshot.local_lights.info)?;
+        self.ddgi_local_lights.fill(&snapshot.local_lights.lights)?;
         self.radiance_revision = Some(revision);
         self.radiance_snapshot = Some(snapshot);
         Ok(())
@@ -1919,6 +1971,8 @@ impl DdgiVolume {
             &*self.ddgi_radiance_sun,
             &*self.ddgi_radiance_voxel_palette,
             &*self.ddgi_transport_query_info,
+            &*self.ddgi_local_light_info,
+            &*self.ddgi_local_lights,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }

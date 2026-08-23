@@ -26,10 +26,13 @@ impl LightId {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PointLight {
+    /// Position in authoritative world units. Terrain and raster hit positions use this space.
     pub position: Vec3,
     pub color: Vec3,
     pub intensity: f32,
+    /// Near-field attenuation clamp radius in world units.
     pub source_radius: f32,
+    /// Finite support radius in world units.
     pub range: f32,
 }
 
@@ -436,6 +439,67 @@ pub(crate) struct LocalLightGpuSnapshot {
     pub overflow: Vec<LocalLightOverflow>,
 }
 
+/// Copyable transport payload. DDGI stores this value inside its immutable authored-lighting
+/// snapshot, then uploads it into the private builder volume exactly once per transport revision.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LocalLightGpuPayload {
+    pub info: LocalLightInfo,
+    pub lights: [LightGpu; LOCAL_LIGHT_GPU_CAPACITY],
+}
+
+impl PartialEq for LocalLightGpuPayload {
+    fn eq(&self, other: &Self) -> bool {
+        bytemuck::bytes_of(&self.info) == bytemuck::bytes_of(&other.info)
+            && bytemuck::cast_slice::<LightGpu, u8>(&self.lights)
+                == bytemuck::cast_slice::<LightGpu, u8>(&other.lights)
+    }
+}
+
+impl Eq for LocalLightGpuPayload {}
+
+impl LocalLightGpuPayload {
+    pub(crate) fn empty(source_revision: u64) -> Self {
+        Self {
+            info: LocalLightInfo {
+                abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+                count: 0,
+                capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
+                overflow_count: 0,
+                source_revision_low: source_revision as u32,
+                source_revision_high: (source_revision >> 32) as u32,
+                transport_revision: 0,
+                flags: 0,
+            },
+            lights: [LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY],
+        }
+    }
+
+    pub(crate) fn source_revision(self) -> u64 {
+        u64::from(self.info.source_revision_low) | (u64::from(self.info.source_revision_high) << 32)
+    }
+
+    pub(crate) fn with_transport_revision(mut self, revision: u32) -> Self {
+        self.info.transport_revision = revision;
+        self
+    }
+
+    pub(crate) fn count(self) -> u32 {
+        self.info.count.min(self.info.capacity)
+    }
+
+    pub(crate) fn influence_bound(self) -> Option<LocalLightInfluenceBound> {
+        self.lights
+            .iter()
+            .take(self.count() as usize)
+            .filter(|light| {
+                light.abi_version == LOCAL_LIGHT_GPU_ABI_VERSION
+                    && light.kind == LOCAL_LIGHT_KIND_POINT
+            })
+            .map(|light| LocalLightInfluenceBound::around(Vec3::from(light.position), light.range))
+            .reduce(LocalLightInfluenceBound::union)
+    }
+}
+
 impl LocalLightGpuSnapshot {
     pub(crate) fn from_authoritative(
         snapshot: &LocalLightSnapshot,
@@ -448,14 +512,14 @@ impl LocalLightGpuSnapshot {
         let result = snapshot.apply_budget(budget);
         let mut lights = std::array::from_fn(|_| LightGpu::zeroed());
         for (gpu, record) in lights.iter_mut().zip(result.accepted.iter().copied()) {
-            let LocalLight::Point(point) = record.light else {
+            let LocalLight::Point(point) = record.light() else {
                 unreachable!("Phase 2 GPU budget only accepts point lights")
             };
             *gpu = LightGpu {
                 abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
                 kind: LOCAL_LIGHT_KIND_POINT,
-                stable_id_slot: record.id.slot,
-                stable_id_generation: record.id.generation,
+                stable_id_slot: record.id().slot,
+                stable_id_generation: record.id().generation,
                 position: point.position.to_array(),
                 range: point.range,
                 color: point.color.to_array(),
@@ -478,6 +542,13 @@ impl LocalLightGpuSnapshot {
             },
             lights,
             overflow: result.overflow,
+        }
+    }
+
+    pub(crate) fn payload(&self) -> LocalLightGpuPayload {
+        LocalLightGpuPayload {
+            info: self.info,
+            lights: self.lights,
         }
     }
 }
@@ -785,5 +856,23 @@ mod tests {
         assert_eq!(gpu.lights[0].stable_id_slot, accepted_id.slot());
         assert_eq!(gpu.lights[0].stable_id_generation, accepted_id.generation());
         assert_eq!(gpu.overflow[0].id, overflow_id);
+    }
+
+    #[test]
+    fn production_consumers_share_the_voxel_visible_local_light_evaluator() {
+        for source in [
+            include_str!("../../shader/slang/tracer.slang"),
+            include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
+            include_str!("../../shader/slang/tree_leaf_lighting_cache.comp.slang"),
+            include_str!("../../shader/slang/ddgi_probe_trace.slang"),
+        ] {
+            assert!(source.contains("import local_lighting;"));
+            assert!(source.contains("evaluateVoxelVisibleLocalLightIrradiance"));
+        }
+
+        let evaluator = include_str!("../../shader/slang/local_lighting.slang");
+        assert!(evaluator.contains("for (uint lightIndex = 0u;"));
+        assert!(evaluator.contains("marchScene("));
+        assert!(evaluator.contains("shadowHit.distance"));
     }
 }

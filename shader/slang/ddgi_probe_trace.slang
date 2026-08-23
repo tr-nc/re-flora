@@ -4,6 +4,7 @@ import ddgi_query;
 import ddgi_sampling;
 import ddgi_types;
 import marching_result;
+import local_lighting;
 import scene_marching;
 import skylight;
 import terrain_ray_origin;
@@ -46,6 +47,12 @@ ConstantBuffer<U_DdgiTransportQueryInfo> ddgi_transport_query_info;
 
 [[vk::binding(39, 0)]]
 Sampler2D ddgi_transport_source_visibility_atlas;
+
+[[vk::binding(42, 0)]]
+ConstantBuffer<U_LocalLightInfo> ddgi_local_light_info;
+
+[[vk::binding(43, 0)]]
+StructuredBuffer<U_LightGpu> ddgi_local_lights;
 
 struct DdgiProbeTracePushConstants
 {
@@ -99,6 +106,11 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
+    directIrradiance += evaluateVoxelVisibleLocalLightIrradiance(
+        ddgi_local_light_info, ddgi_local_lights, contree_node_data,
+        contree_leaf_data, scene_tex, ddgiReceiverPosition, normal,
+        ddgi_radiance_sun.terrain_ray_origin_offset_world,
+        localInvocationIndex);
     float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(
         result.center_position, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
