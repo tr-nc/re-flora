@@ -17,6 +17,8 @@ use std::sync::{
 };
 use uuid::Uuid;
 
+const SPATIAL_FRAME_PUBLISH_INTERVAL_SECONDS: f64 = 1.0 / 30.0;
+
 struct SourceInfo {
     emitter: Emitter,
     volume_db: f32,
@@ -52,7 +54,35 @@ pub struct SpatialSoundManager {
     global_volume_gain_db: Arc<Mutex<f32>>,
     health_log_state: Arc<Mutex<AudioHealthLogState>>,
     spatial_frame_revision: Arc<AtomicU64>,
+    spatial_frame_publish_cadence: Arc<Mutex<SpatialFramePublishCadence>>,
     published_acoustic_scene_version: Arc<AtomicU64>,
+}
+
+#[derive(Debug, Default)]
+struct SpatialFramePublishCadence {
+    last_published_sim_time_seconds: Option<f64>,
+    dirty: bool,
+}
+
+impl SpatialFramePublishCadence {
+    fn should_publish(&self, sim_time_seconds: f64) -> bool {
+        let Some(last_published) = self.last_published_sim_time_seconds else {
+            return true;
+        };
+        self.dirty
+            || !sim_time_seconds.is_finite()
+            || sim_time_seconds < last_published
+            || sim_time_seconds - last_published >= SPATIAL_FRAME_PUBLISH_INTERVAL_SECONDS
+    }
+
+    fn mark_published(&mut self, sim_time_seconds: f64) {
+        self.last_published_sim_time_seconds = Some(sim_time_seconds);
+        self.dirty = false;
+    }
+
+    fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
 }
 
 #[derive(Default)]
@@ -124,6 +154,9 @@ impl SpatialSoundManager {
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
             health_log_state: Arc::new(Mutex::new(AudioHealthLogState::default())),
             spatial_frame_revision: Arc::new(AtomicU64::new(0)),
+            spatial_frame_publish_cadence: Arc::new(Mutex::new(
+                SpatialFramePublishCadence::default(),
+            )),
             published_acoustic_scene_version: Arc::new(AtomicU64::new(
                 initial_acoustic_scene_version,
             )),
@@ -202,6 +235,7 @@ impl SpatialSoundManager {
                 occlusion_profile,
             },
         );
+        self.mark_spatial_frame_dirty();
         Ok(uuid)
     }
 
@@ -285,8 +319,12 @@ impl SpatialSoundManager {
         Ok(())
     }
 
-    /// Publish one complete listener + spatial Emitter generation for this game frame.
+    /// Publish one complete listener + spatial Emitter generation when its cadence is due.
     pub fn publish_spatial_frame(&self, sim_time_seconds: f64) -> Result<()> {
+        let mut cadence = self.spatial_frame_publish_cadence.lock().unwrap();
+        if !cadence.should_publish(sim_time_seconds) {
+            return Ok(());
+        }
         let listener = self.listener_state.lock().unwrap().clone();
         let rotation_matrix = glam::Mat3::from_cols(listener.right, listener.up, -listener.front);
         let rotation = glam::Quat::from_mat3(&rotation_matrix);
@@ -322,6 +360,8 @@ impl SpatialSoundManager {
             listener_pose,
             emitters,
         ))?;
+        cadence.mark_published(sim_time_seconds);
+        drop(cadence);
 
         for event in self.world.drain_events() {
             log::debug!("PetalSonic event: {event:?}");
@@ -451,9 +491,13 @@ impl SpatialSoundManager {
 
     #[allow(dead_code)]
     pub fn update_source_pos(&self, source_uuid: Uuid, target_pos: Vec3) -> Result<()> {
-        if let Some(source) = self.uuid_to_source.lock().unwrap().get_mut(&source_uuid) {
-            source.position = Some(target_pos);
-        }
+        let mut sources = self.uuid_to_source.lock().unwrap();
+        let Some(source) = sources.get_mut(&source_uuid) else {
+            return Ok(());
+        };
+        source.position = Some(target_pos);
+        drop(sources);
+        self.mark_spatial_frame_dirty();
         Ok(())
     }
 
@@ -511,6 +555,8 @@ impl SpatialSoundManager {
             return Err(error.into());
         }
         source.emitter = new_emitter;
+        drop(sources);
+        self.mark_spatial_frame_dirty();
         Ok(())
     }
 
@@ -532,9 +578,18 @@ impl SpatialSoundManager {
 
     #[allow(dead_code)]
     pub fn remove_source(&self, id: Uuid) {
-        if let Some(source) = self.uuid_to_source.lock().unwrap().remove(&id) {
+        let source = self.uuid_to_source.lock().unwrap().remove(&id);
+        if let Some(source) = source {
             let _ = self.world.destroy_emitter(source.emitter);
+            self.mark_spatial_frame_dirty();
         }
+    }
+
+    fn mark_spatial_frame_dirty(&self) {
+        self.spatial_frame_publish_cadence
+            .lock()
+            .unwrap()
+            .mark_dirty();
     }
 
     pub fn stop(&self) -> Result<()> {
@@ -561,7 +616,7 @@ impl SpatialSoundManager {
 
 #[cfg(test)]
 mod tests {
-    use super::SpatialSoundManager;
+    use super::{SpatialFramePublishCadence, SpatialSoundManager};
     use glam::Vec3;
     use petalsonic::{
         DistributedOcclusionProfile, ExtentSample, ExtentSampleId, OcclusionProfile, SourceExtent,
@@ -573,6 +628,29 @@ mod tests {
         assert!((SpatialSoundManager::acoustic_priority(-20.0) - 0.1).abs() < f32::EPSILON);
         assert_eq!(SpatialSoundManager::acoustic_priority(f32::NAN), 0.0);
         assert_eq!(SpatialSoundManager::acoustic_priority(100.0), 16.0);
+    }
+
+    #[test]
+    fn spatial_frame_cadence_coalesces_camera_frames_but_never_structural_changes() {
+        let mut cadence = SpatialFramePublishCadence::default();
+
+        assert!(cadence.should_publish(0.0));
+        cadence.mark_published(0.0);
+        assert!(!cadence.should_publish(0.01));
+
+        cadence.mark_dirty();
+        assert!(cadence.should_publish(0.011));
+        cadence.mark_published(0.011);
+        assert!(!cadence.should_publish(0.03));
+        assert!(cadence.should_publish(0.045));
+    }
+
+    #[test]
+    fn spatial_frame_cadence_recovers_from_non_monotonic_simulation_time() {
+        let mut cadence = SpatialFramePublishCadence::default();
+        cadence.mark_published(10.0);
+
+        assert!(cadence.should_publish(1.0));
     }
 
     #[test]
