@@ -6,9 +6,93 @@
 >
 > PetalSonic：crate `0.7.0`，对应不可变 tag commit `06d992f755fdc17a26b52a4eef97341ebe8d6e12`
 >
-> 范围：只诊断与设计，不实施；所有项目事实均以本基线为准，不依赖其他 worktree 的状态。
+> 初始范围：下文保留以 `0b607897...` 为基线的诊断与设计记录；“当前 0.7.0”“尚未实施”等措辞描述的是该历史切片。
 >
 > 证据标记：**当前代码**表示从上述基线及 PetalSonic 固定提交直接核对；**当前观测**表示本 worktree 的 release 隐藏静音运行日志；**一手资料**表示项目官方文档或作者论文；**建议**表示仍需测量和听感校准的设计起点。
+
+## 实施闭环更新（2026-08-24）
+
+本节记录研究之后完成的正式实现与验收，覆盖并取代下文的“尚未实施”状态，但保留原始诊断，便于审计问题是怎样从假设闭合为观测的。
+
+- Re: Flora 集成起点：`c88a2a03ef87ef109b81f016e082a0a442fe9f1d`。
+- 最终验证锁定的 PetalSonic producer：`b65ef9b56f29466dfaafb875793e04d91bf49e2a`；精确 contract 见该提交的 `docs/extended-source-routing.md`、`docs/adr/0002-capture-source-extent-per-voice.md`、`petalsonic/src/source_extent.rs`、`petalsonic/src/acoustic_propagation.rs` 和 `petalsonic/src/events.rs`。
+- 验证期间只通过 Cargo 命令行临时 patch 使用 producer；仓库清单和最终 `Cargo.lock` 仍指向 crates.io `petalsonic 0.7.0`，没有提交机器路径。正式合入需要先发布或以仓库可复现方式引入上述 producer API。
+
+### 已实现的长期模型
+
+答案已经从“架构有解”推进到“consumer 端已实现并闭环”：**一棵树的一个 active generation 只有一个 emitter、一个 looping Voice 和一个 PCM cursor；树冠是该 Voice 捕获的、不可变的 `WeightedSamples` extent，不再是 8 个各自播放 rustle PCM 的点声源。** Re: Flora 只构造领域 descriptor，PetalSonic 负责多采样声学聚合、方向 lobes、预算保留和 DSP 平滑。
+
+模块边界如下：
+
+- [`src/geom/round_cone_clearance.rs`](../src/geom/round_cone_clearance.rs) 只提供 wood primitive 的 signed clearance 真值；[`src/geom/shape/round_cone.rs`](../src/geom/shape/round_cone.rs) 暴露所需几何数据。
+- [`src/audio/canopy_acoustics.rs`](../src/audio/canopy_acoustics.rs) 从真实 leaf placements/sprays 构建 `CanopyAcousticDescriptor`。候选按树局部稳定八分体选择，最多 8 个；sample ID、relative power、content/phase seed 与 generation 都是确定性的，总 power 归一。输入遍历顺序不会改变布局。
+- [`src/audio/canopy_audio_lifecycle.rs`](../src/audio/canopy_audio_lifecycle.rs) 拥有 generation、旧/新 layout 的有界 crossfade 和删除语义；旧 generation 的 descriptor 不因重建而移动，完成过渡后 registry 回到一个 active generation。
+- [`src/audio/canopy_distributed_emitter_adapter.rs`](../src/audio/canopy_distributed_emitter_adapter.rs) 是唯一 Petal realization 边界：把 descriptor 转成 `SourceExtent::WeightedSamples` 和 `OcclusionProfile::AmbientDistributed`，每 generation 创建一个 looping Voice。Petal 类型没有泄漏到 canopy descriptor。
+- [`src/audio/spatial_sound_manager.rs`](../src/audio/spatial_sound_manager.rs) 保留完整 `SpatialFrame` 的 extent/profile 语义，并以约 30 Hz 合并仅 listener pose 改变的 frame；结构性 dirty frame 立即发布。它没有树冠特例，也没有复制 Petal solver。
+- [`src/audio/canopy_audio_telemetry.rs`](../src/audio/canopy_audio_telemetry.rs) 把 producer 的 voice/extent/sample/ray/cache/revision telemetry 映射为 opt-in tree/generation/sample 观测；[`src/audio/canopy_audio_diagnostics.rs`](../src/audio/canopy_audio_diagnostics.rs) 与 [`scripts/analyze_canopy_audio_diagnostic.py`](../scripts/analyze_canopy_audio_diagnostic.py) 提供固定轨迹和机器可解析验收。
+
+每个发布 sample 均先通过 wood clearance：阈值大于 Petal source endpoint epsilon，并另加几何/体素 safety margin。固定 seed 122 的单树布局发布 8 个真实 leaf samples，最小 clearance 为 `7.598783 voxel`，没有 fallback。多树压力场景的 5 棵树共 38 个 samples，每棵仍不超过 8 个，最小 clearance 为 `2.538373 voxel`。没有 sample 朝 listener 移动，也没有通过关闭整树自遮挡来规避问题。
+
+### Producer contract 与 telemetry 映射
+
+PetalSonic `b65ef9b...` 的 `SourceExtent::WeightedSamples` 在构造时按 stable ID 排序并归一，最多 8 个 sample；完整 `SpatialFrame` 原子更新 emitter pose 与 extent，而 play 接受时把 extent/profile 捕获进 immutable Voice。`AmbientDistributed` 按
+
+```text
+gain[band] = sqrt(sum(normalized_power_weight * transmission[band]^2))
+```
+
+聚合直接声能量，并提供 gain floor、attack/release、Schmitt enter/exit、minimum dwell、最大 last-good age 和最多 4 个 decorrelated lobes。[PetalSonic `b65ef9b...`：`docs/extended-source-routing.md`、`petalsonic/src/source_extent.rs`、`petalsonic/src/occlusion.rs`、`petalsonic/src/spatial/processor.rs`]
+
+consumer 现在逐 sample 记录 stable ID、归一功率、descriptor/producer world position、hit、三频 transmission 和由 Re: Flora 权威 transmission catalog 反查的 material label；逐 route 记录 visible fraction、raw/filtered 三频 gain、classification、dwell、transition、response/cache age、rays/cache hits、lobes、solve status 与 revisions。producer observation 没有材质名称，因此 material label 是基于项目材质 transmission 的确定性解释，不伪装成 producer 字段。[当前映射](../src/audio/canopy_audio_telemetry.rs) [当前材质真值](../src/builder/contree/mod.rs)
+
+`hit=false` 必须对应 `[1,1,1]`；`Solved` 必须是当前 revision；`Retained` 可复用原 observations 与原 response revision；`Deferred` 没有新 sample response，但 renderer 保持有界 last-good，不回 unity；superseded solve 只产生 discard。analyzer 分别验证这些状态，不把 Retained 的历史 response revision 误报为 rollback。[PetalSonic `b65ef9b...`：`docs/extended-source-routing.md`、`petalsonic/src/acoustic_propagation.rs`、`petalsonic/src/events.rs`] [consumer invariants](../src/audio/canopy_audio_telemetry.rs)
+
+### 确定性与生命周期验证
+
+纯逻辑与几何 fixtures 已证明：
+
+- 相同 seed、不同 leaf 输入遍历顺序得到相同 sample IDs、权重和 positions；sample 数有界、总 power 为 1；
+- 所有发布 sample 均在 wood 外且达到 clearance 阈值；没有合格 leaf candidate 时使用确定性 fallback；
+- generation 切换期间旧/新总功率有界，旧 descriptor 不变，crossfade 完成后旧 source 被回收，registry 回到基线；
+- consumer 可从 8 个 sample observations 重建 producer aggregate，误差为 0；其中 1/8 遮挡为约 `-0.574 dB`，半遮挡为约 `-2.967 dB`，对应 weighted-energy contract，而不是 point-source 的二元 transmission。
+
+这些不变量分别由 [`canopy_acoustics.rs`](../src/audio/canopy_acoustics.rs)、[`round_cone_clearance.rs`](../src/geom/round_cone_clearance.rs)、[`canopy_audio_lifecycle.rs`](../src/audio/canopy_audio_lifecycle.rs)、[`canopy_distributed_emitter_adapter.rs`](../src/audio/canopy_distributed_emitter_adapter.rs) 和 [`canopy_audio_telemetry.rs`](../src/audio/canopy_audio_telemetry.rs) 的单元测试覆盖。
+
+### 10 秒因果验收
+
+诊断固定 tree seed `122`、wind、clip phase 与 camera trajectory：forward orbit → 1 秒 hold → reverse orbit。`--mute` 只关闭物理输出；这里的行为证据来自逐 solve/sample telemetry，而不是“没有报错”或听感猜测。
+
+单树日志 `target/re-flora-logs/re-flora-20260824-014725.048-736200.log` 的 analyzer 结果：
+
+```text
+[CANOPY_AUDIO_ACCEPTANCE] verdict=PASS mode=single trees=1 emitters=1 voices=1
+samples=8 total_power=1.000000001 min_clearance_voxels=7.598783
+step_domain=raw max_step_db=2.926 hold_step_db=0.000
+raw_symmetry_db=2.020 filtered_symmetry_db=1.170
+extent_responses=283 processed=283 retained=0 deferred=0 rays=4528
+```
+
+这条轨迹证明一个 tree/generation 在 Re: Flora registry 与 Petal runtime 中都是一个 emitter/Voice；无 voice identity、sample contract、aggregate 或 revision 违规，telemetry drop 与 render rollback 均为 0。最大 raw 单步 `2.926 dB`，hold 段为 `0 dB`，不再出现整树在 unity 与 wood transmission 间的 `20–36 dB` 二元跳变。startup 几何收敛期间有 11 个 superseded solves，但它们只被 discard，轨迹期间没有 revision 回灌。该 run 的 Petal stop summary 为 `solves=294`、`published=283`、`solve_us_max=5969`、`response_age_ms=17`。
+
+多树预算日志 `target/re-flora-logs/re-flora-20260824-014745.263-736572.log` 的 analyzer 结果：
+
+```text
+[CANOPY_AUDIO_ACCEPTANCE] verdict=PASS mode=budget trees=5 emitters=5 voices=5
+samples=38 total_power=1.000000005 min_clearance_voxels=2.538373
+step_domain=filtered max_step_db=8.574 hold_step_db=0.932
+raw_symmetry_db=0.000 filtered_symmetry_db=0.000
+extent_responses=1340 processed=536 retained=74 deferred=730 rays=8124
+```
+
+压力场景把预算限制为 2 个 extents/solve、32 direct rays，明确观测到 `Retained` 与 `Deferred`，但没有回 unity、stale revision、telemetry drop 或 render rejected rollback。长时间 deferred 的 source 再次求解时，raw target 可因 camera 已移动而大幅变化；有声意义上的 filtered route 最大单步为 `8.574 dB`，仍有界并低于禁止的 `20–36 dB` 跳变，hold 段为 `0.932 dB`。该 run 的 stop summary 为 `solves=281`、`published=268`、`solve_us_max=9649`、`response_age_ms=27`。
+
+producer 在同一精确 SHA 提供的 release fixture 证据为：8×8 worker p99 `40 us`；8 Voice × 3 lobe renderer p99 `1185 us`（约实时预算 `4.15%`）；32 Voice p99 `54–60 us`。这些是 producer 自己的固定 fixture 数据，并非本次 Re: Flora 机器上的重测；Re: Flora 的权威性能观测是上面两个 release diagnostic 的 solve max/response age。
+
+### 最终判断与剩余限制
+
+**现有这套不是没法解：这个问题已经由真实树叶采样的分布式树冠 extent、单 Voice 生命周期、Petal 聚合与有界时间响应解决。** 旧 0.7 point API 确实无法直接表达长期模型，但这只是 API 能力边界，不是声学架构死路。衍射和完整波动声学仍未实现；它们可提升硬边界与低频绕射质量，却不是修复错误 branch endpoint、自遮挡二态和 Voice 复制的前置条件。
+
+当前剩余的交付约束是依赖发布：本分支需要 `b65ef9b...` 的 extended-source API 才能编译正式接入，而仓库不能提交本机 path dependency。producer 发布或以可复现 Git/registry 依赖进入集成分支后，应在同一 SHA 重新运行本文命令与日志 analyzer。多树 budget 场景允许真实大面积遮挡产生连续、有界变化；验收不应把所有遮挡“抹平”，也不应把故意延迟后的 raw target 差异误判为 renderer 跳变。
 
 ## 结论先行
 
@@ -393,3 +477,18 @@ Cornell 的 FDTD/方向 power field 在静态场景能以少量内存和快速�
 - 只读核对当前 Re: Flora source、`Cargo.toml`/`Cargo.lock`、本机 crates.io PetalSonic 0.7.0 source，以及 PetalSonic `v0.7.0` tag 解引用提交 `06d992f755fdc17a26b52a4eef97341ebe8d6e12`。
 - release 隐藏静音基线命令：`cargo run --release -- --hidden --mute --auto-exit 2`；本地日志 `target/re-flora-logs/re-flora-20260823-224232.617-411502.log` 正常退出。该 ignored run log 仅验证启用链与预算计数，不作为听感证据，也不随报告提交。
 - 除本 Markdown 报告外未修改生产代码、配置或生成文件。
+
+## 实施验证记录（2026-08-24）
+
+所有需要 extended-source API 的 Cargo 命令均使用未提交的命令行 patch，指向精确 producer `b65ef9b56f29466dfaafb875793e04d91bf49e2a`；下列记录中的“patched”都表示这一点：
+
+- `cargo fmt --check`：通过；
+- patched `cargo check --offline`：通过；
+- patched `cargo test --offline audio::canopy`：13 passed；
+- patched `cargo test --offline audio::tree_audio`：2 passed；
+- patched `cargo test --offline audio::spatial_sound_manager`：4 passed；
+- `python3 -m unittest scripts.tests.test_analyze_canopy_audio_diagnostic`：3 passed；
+- patched 全量 `cargo test --offline`：collision binary 4 passed；主 binary 为 520 passed、1 failed、1 ignored。唯一失败是未改动的基线 PATT fixture `patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`，其保存配置含 2 snapshots、旧断言预期 1；按任务边界未修改无关 fixture。排除该已知测试后为 520 passed、0 failed、1 ignored、1 filtered out；
+- patched `cargo run --release --offline -- --hidden --mute --auto-exit 0.5`：正常退出；`python3 scripts/check_latest_run_log.py --tail 30` 验证日志 `target/re-flora-logs/re-flora-20260824-014834.452-738251.log` 通过。该运行只证明 native window/Vulkan/audio lifecycle 启动路径，不作为音频行为证据；
+- 单树与多树 10 秒 diagnostic 分析器均为 `verdict=PASS`，数值见上文；
+- `config/gui.toml`、PATT snapshot/fixture、shader-derived/generated files均无本任务 diff；最终 manifest/lock 无 producer path/source 漂移。
