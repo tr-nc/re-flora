@@ -4,8 +4,9 @@ use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
     AcousticSceneSnapshot, BusParams, Emitter, EmitterDesc, EmitterSpatialState, LatencyProfile,
-    OutputDevicePolicy, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat,
-    ResidentClip, RuntimeState, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
+    OcclusionProfile, OutputDevicePolicy, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions, Pose,
+    Quat as PetalQuat, ResidentClip, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
+    Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -19,6 +20,8 @@ struct SourceInfo {
     emitter: Emitter,
     volume_db: f32,
     position: Option<Vec3>,
+    extent: SourceExtent,
+    occlusion_profile: OcclusionProfile,
 }
 
 struct OneShotEmitter {
@@ -115,11 +118,30 @@ impl SpatialSoundManager {
         })
     }
 
-    fn emitter_desc(position: Option<Vec3>, volume_db: f32) -> EmitterDesc {
+    fn emitter_desc(
+        position: Option<Vec3>,
+        volume_db: f32,
+        extent: SourceExtent,
+        occlusion_profile: OcclusionProfile,
+    ) -> EmitterDesc {
         match position {
-            Some(position) => EmitterDesc::spatial(Self::pose(position)).with_gain_db(volume_db),
+            Some(position) => {
+                Self::spatial_emitter_desc(position, volume_db, extent, occlusion_profile)
+            }
             None => EmitterDesc::non_spatial().with_gain_db(volume_db),
         }
+    }
+
+    fn spatial_emitter_desc(
+        position: Vec3,
+        volume_db: f32,
+        extent: SourceExtent,
+        occlusion_profile: OcclusionProfile,
+    ) -> EmitterDesc {
+        EmitterDesc::spatial(Self::pose(position))
+            .with_gain_db(volume_db)
+            .with_extent(extent)
+            .with_occlusion_profile(occlusion_profile)
     }
 
     fn pose(position: Vec3) -> Pose {
@@ -136,10 +158,13 @@ impl SpatialSoundManager {
         position: Option<Vec3>,
         initial_phase: Option<f32>,
         shuffle_phase: bool,
+        extent: SourceExtent,
+        occlusion_profile: OcclusionProfile,
     ) -> Result<Uuid> {
-        let emitter = self
-            .world
-            .create_emitter(clip, Self::emitter_desc(position, volume_db))?;
+        let emitter = self.world.create_emitter(
+            clip,
+            Self::emitter_desc(position, volume_db, extent.clone(), occlusion_profile),
+        )?;
         if let Err(error) = self.world.play(emitter, PlayOptions::looping()) {
             let _ = self.world.destroy_emitter(emitter);
             return Err(error.into());
@@ -161,6 +186,8 @@ impl SpatialSoundManager {
                 emitter,
                 volume_db,
                 position,
+                extent,
+                occlusion_profile,
             },
         );
         Ok(uuid)
@@ -185,6 +212,8 @@ impl SpatialSoundManager {
             Some(position),
             None,
             shuffle_phase,
+            SourceExtent::Point,
+            OcclusionProfile::PointExact,
         )
     }
 
@@ -195,7 +224,35 @@ impl SpatialSoundManager {
         position: Vec3,
         initial_phase: f32,
     ) -> Result<Uuid> {
-        self.add_looping_clip_source(clip, volume_db, Some(position), Some(initial_phase), false)
+        self.add_looping_clip_source(
+            clip,
+            volume_db,
+            Some(position),
+            Some(initial_phase),
+            false,
+            SourceExtent::Point,
+            OcclusionProfile::PointExact,
+        )
+    }
+
+    pub fn add_looping_spatial_clip_with_extent_at_phase(
+        &self,
+        clip: ResidentClip,
+        volume_db: f32,
+        position: Vec3,
+        initial_phase: f32,
+        extent: SourceExtent,
+        occlusion_profile: OcclusionProfile,
+    ) -> Result<Uuid> {
+        self.add_looping_clip_source(
+            clip,
+            volume_db,
+            Some(position),
+            Some(initial_phase),
+            false,
+            extent,
+            occlusion_profile,
+        )
     }
 
     pub fn add_non_spatial_source(&self, path: &str, volume_db: f32) -> Result<()> {
@@ -255,6 +312,7 @@ impl SpatialSoundManager {
             .filter_map(|source| {
                 source.position.map(|position| {
                     EmitterSpatialState::new(source.emitter, Self::pose(position))
+                        .with_extent(source.extent.clone())
                         .with_acoustic_priority(Self::acoustic_priority(source.volume_db))
                 })
             })
@@ -372,7 +430,12 @@ impl SpatialSoundManager {
         source.volume_db = volume_db;
         self.world.update_emitter(
             source.emitter,
-            Self::emitter_desc(source.position, source.volume_db),
+            Self::emitter_desc(
+                source.position,
+                source.volume_db,
+                source.extent.clone(),
+                source.occlusion_profile,
+            ),
         )?;
         Ok(())
     }
@@ -388,9 +451,15 @@ impl SpatialSoundManager {
             return Ok(());
         };
         let old_emitter = source.emitter;
-        let new_emitter = self
-            .world
-            .create_emitter(clip, Self::emitter_desc(source.position, source.volume_db))?;
+        let new_emitter = self.world.create_emitter(
+            clip,
+            Self::emitter_desc(
+                source.position,
+                source.volume_db,
+                source.extent.clone(),
+                source.occlusion_profile,
+            ),
+        )?;
         if let Err(error) = self.world.play(new_emitter, PlayOptions::looping()) {
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());
@@ -458,6 +527,10 @@ impl SpatialSoundManager {
 #[cfg(test)]
 mod tests {
     use super::SpatialSoundManager;
+    use glam::Vec3;
+    use petalsonic::{
+        DistributedOcclusionProfile, ExtentSample, ExtentSampleId, OcclusionProfile, SourceExtent,
+    };
 
     #[test]
     fn acoustic_priority_tracks_linear_source_gain_and_sanitizes_invalid_values() {
@@ -465,5 +538,28 @@ mod tests {
         assert!((SpatialSoundManager::acoustic_priority(-20.0) - 0.1).abs() < f32::EPSILON);
         assert_eq!(SpatialSoundManager::acoustic_priority(f32::NAN), 0.0);
         assert_eq!(SpatialSoundManager::acoustic_priority(100.0), 16.0);
+    }
+
+    #[test]
+    fn spatial_emitter_description_preserves_extent_and_occlusion_profile() {
+        let extent = SourceExtent::weighted_samples(vec![ExtentSample::new(
+            ExtentSampleId(17),
+            petalsonic::Vec3::new(0.25, 0.5, -0.75),
+            1.0,
+        )
+        .unwrap()])
+        .unwrap();
+        let profile = OcclusionProfile::AmbientDistributed(DistributedOcclusionProfile::default());
+
+        let desc = SpatialSoundManager::spatial_emitter_desc(
+            Vec3::new(1.0, 2.0, 3.0),
+            -12.0,
+            extent.clone(),
+            profile,
+        );
+
+        assert_eq!(desc.extent(), &extent);
+        assert_eq!(desc.occlusion_profile(), profile);
+        assert_eq!(desc.gain_db(), -12.0);
     }
 }
