@@ -131,6 +131,27 @@ pub struct LevelDispatchIndirect {
     pub dispatch_z: u32,
 }
 
+/// Auto-generated from `B_LocalLightVisibilityDiagnosticResult` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightVisibilityDiagnosticResult {
+    pub abi_version: u32,
+    pub request_serial: u32,
+    pub geometry_revision: u32,
+    pub identity_matches: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub light_id_slot: u32,
+    pub light_id_generation: u32,
+    pub candidates: u32,
+    pub visible: u32,
+    pub occluded: u32,
+    pub irradiance_luma_q8: u32,
+    pub irradiance: [f32; 4],
+    pub receiver_position_and_origin_offset: [f32; 4],
+    pub receiver_normal_and_reserved: [f32; 4],
+}
+
 /// Auto-generated from `B_MakeSurfaceResult` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -789,6 +810,22 @@ pub struct LocalLightInfo {
     pub source_revision_high: u32,
     pub transport_revision: u32,
     pub flags: u32,
+}
+
+/// Auto-generated from `U_LocalLightVisibilityDiagnosticInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightVisibilityDiagnosticInfo {
+    pub abi_version: u32,
+    pub request_serial: u32,
+    pub geometry_revision: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub light_id_slot: u32,
+    pub light_id_generation: u32,
+    pub reserved: u32,
+    pub receiver_position_and_origin_offset: [f32; 4],
+    pub receiver_normal_and_reserved: [f32; 4],
 }
 
 /// Auto-generated from `U_MakeSurfaceInfo` (native Slang source of truth).

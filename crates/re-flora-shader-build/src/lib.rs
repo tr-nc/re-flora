@@ -406,6 +406,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/lighting/local_light_visibility_diagnostic.comp",
+        source_path: "shader/slang/local_light_visibility_diagnostic.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/ddgi/irradiance_filter.comp",
         source_path: "shader/slang/ddgi_irradiance_filter.slang",
         module_path: "shader/slang",

@@ -40,13 +40,24 @@ const POINT_LIGHT_ADD_POSITION: Vec3 = Vec3::new(0.66, 0.68, 1.18);
 const POINT_LIGHT_MOVED_POSITION: Vec3 = Vec3::new(0.82, 0.62, 1.06);
 const POINT_LIGHT_RANGE_WORLD: f32 = 0.55;
 const POINT_LIGHT_SOURCE_RADIUS_WORLD: f32 = 0.03;
+const POINT_LIGHT_FIXED_RECEIVER_WORLD: Vec3 = Vec3::new(0.66, 101.0 / VOXELS_PER_WORLD_UNIT, 1.18);
+const POINT_LIGHT_FIXED_RECEIVER_NORMAL: Vec3 = Vec3::Y;
+const POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD: f32 = 0.001;
+const POINT_LIGHT_BLOCKER_MIN: Vec3 = Vec3::new(164.0, 128.0, 298.0);
+const POINT_LIGHT_BLOCKER_MAX: Vec3 = Vec3::new(174.0, 152.0, 307.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointLightTestStage {
     AwaitBaseline,
     AwaitAddLive,
-    AwaitAddMidflight,
+    AwaitVisibleDiagnostic,
+    AwaitBlockerSettled,
+    AwaitBlockedDiagnostic,
+    AwaitRestoreSettled,
+    AwaitRestoredDiagnostic,
+    AwaitPointOnDdgiPublication,
     AwaitMoveLive,
+    AwaitMoveMidflight,
     AwaitPhotometricUpdateLive,
     AwaitRemoveLive,
     AwaitFinalPublication,
@@ -369,6 +380,8 @@ fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity)
 pub(super) struct EnvironmentLightingTestScene {
     case: EnvironmentLightingTestCase,
     phase: TestScenePhase,
+    point_light_fixed_gpu_request_serial: u32,
+    point_light_fixed_gpu_visible_luma_q8: u32,
 }
 
 impl EnvironmentLightingTestScene {
@@ -376,6 +389,8 @@ impl EnvironmentLightingTestScene {
         Self {
             case,
             phase: TestScenePhase::Pending,
+            point_light_fixed_gpu_request_serial: 0,
+            point_light_fixed_gpu_visible_luma_q8: 0,
         }
     }
 
@@ -529,8 +544,26 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::PointLightLifecycle { stage, .. } => match stage {
                 PointLightTestStage::AwaitBaseline => "waiting-for-point-light-baseline",
                 PointLightTestStage::AwaitAddLive => "waiting-for-point-light-add-live",
-                PointLightTestStage::AwaitAddMidflight => "waiting-for-point-light-add-midflight",
+                PointLightTestStage::AwaitVisibleDiagnostic => {
+                    "waiting-for-point-light-visible-diagnostic"
+                }
+                PointLightTestStage::AwaitBlockerSettled => {
+                    "waiting-for-point-light-blocker-settle"
+                }
+                PointLightTestStage::AwaitBlockedDiagnostic => {
+                    "waiting-for-point-light-blocked-diagnostic"
+                }
+                PointLightTestStage::AwaitRestoreSettled => {
+                    "waiting-for-point-light-restore-settle"
+                }
+                PointLightTestStage::AwaitRestoredDiagnostic => {
+                    "waiting-for-point-light-restored-diagnostic"
+                }
+                PointLightTestStage::AwaitPointOnDdgiPublication => {
+                    "waiting-for-point-light-on-ddgi-publication"
+                }
                 PointLightTestStage::AwaitMoveLive => "waiting-for-point-light-move-live",
+                PointLightTestStage::AwaitMoveMidflight => "waiting-for-point-light-move-midflight",
                 PointLightTestStage::AwaitPhotometricUpdateLive => {
                     "waiting-for-point-light-photometric-update-live"
                 }
@@ -726,6 +759,22 @@ fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditPlan> {
         build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
             SKYLIGHT_MIN.as_uvec3(),
             SKYLIGHT_MAX.as_uvec3(),
+        ))],
+    })
+}
+
+fn point_light_blocker_edit_plan(voxel_type: u32) -> Result<WorldEditPlan> {
+    Ok(WorldEditPlan {
+        voxel_edits: vec![stamp_cuboids(
+            vec![Cuboid::from_min_max(
+                POINT_LIGHT_BLOCKER_MIN,
+                POINT_LIGHT_BLOCKER_MAX,
+            )],
+            voxel_type,
+        )?],
+        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
+            POINT_LIGHT_BLOCKER_MIN.as_uvec3(),
+            POINT_LIGHT_BLOCKER_MAX.as_uvec3(),
         ))],
     })
 }
@@ -992,10 +1041,15 @@ impl App {
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
-        let Some((case, phase)) = self
-            .environment_lighting_test_scene
-            .as_ref()
-            .map(|scene| (scene.case, scene.phase))
+        let Some((case, phase, fixed_gpu_request_serial, fixed_gpu_visible_luma_q8)) =
+            self.environment_lighting_test_scene.as_ref().map(|scene| {
+                (
+                    scene.case,
+                    scene.phase,
+                    scene.point_light_fixed_gpu_request_serial,
+                    scene.point_light_fixed_gpu_visible_luma_q8,
+                )
+            })
         else {
             return;
         };
@@ -1267,44 +1321,255 @@ impl App {
                         revision_lag,
                         coalesced,
                     );
+                    let id = light_id.expect("point-light id must be retained");
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            terrain_revision,
+                            expected_source_revision,
+                            id,
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("visible fixed-receiver diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
                         light_id,
                         in_flight,
                         in_flight_source_revision,
-                        stage: PointLightTestStage::AwaitAddMidflight,
+                        stage: PointLightTestStage::AwaitVisibleDiagnostic,
+                        expected_source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitVisibleDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    let id = light_id.expect("point-light id must be retained");
+                    assert_eq!(evidence.request.geometry_revision, terrain_revision);
+                    assert_eq!(evidence.request.source_revision, expected_source_revision);
+                    assert_eq!(evidence.request.light_id, id);
+                    assert_eq!(
+                        evidence.request.receiver_position,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD
+                    );
+                    assert_eq!(
+                        evidence.request.receiver_normal,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL
+                    );
+                    assert_eq!(evidence.candidates, 1);
+                    assert_eq!(evidence.visible, 1);
+                    assert_eq!(evidence.occluded, 0);
+                    assert!(evidence.irradiance_luma_q8 > 0);
+                    assert!(evidence.irradiance.min_element() > 0.0);
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_visible_luma_q8 = evidence.irradiance_luma_q8;
+                    let terrain_revision = self
+                        .apply_point_light_blocker(VOXEL_TYPE_ROCK, terrain_revision)
+                        .expect("point-light blocker add must succeed");
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitBlockerSettled,
+                        expected_source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitBlockerSettled => {
+                    if self.time_info.total_frame_count() <= mutation_frame {
+                        return;
+                    }
+                    assert_eq!(
+                        self.tracer.local_light_live_state(),
+                        (Some(expected_source_revision), 1)
+                    );
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            terrain_revision,
+                            expected_source_revision,
+                            light_id.expect("point-light id must be retained"),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("blocked fixed-receiver diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitBlockedDiagnostic,
+                        expected_source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitBlockedDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert_eq!(evidence.request.geometry_revision, terrain_revision);
+                    assert_eq!(evidence.request.source_revision, expected_source_revision);
+                    assert_eq!(evidence.request.light_id, light_id.unwrap());
+                    assert_eq!(
+                        evidence.request.receiver_position,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD
+                    );
+                    assert_eq!(
+                        evidence.request.receiver_normal,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL
+                    );
+                    assert_eq!(evidence.candidates, 1);
+                    assert_eq!(evidence.visible, 0);
+                    assert_eq!(evidence.occluded, 1);
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    assert_eq!(evidence.irradiance, Vec3::ZERO);
+                    let terrain_revision = self
+                        .apply_point_light_blocker(VOXEL_TYPE_EMPTY, terrain_revision)
+                        .expect("point-light blocker removal must succeed");
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitRestoreSettled,
+                        expected_source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitRestoreSettled => {
+                    if self.time_info.total_frame_count() <= mutation_frame {
+                        return;
+                    }
+                    assert_eq!(
+                        self.tracer.local_light_live_state(),
+                        (Some(expected_source_revision), 1)
+                    );
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            terrain_revision,
+                            expected_source_revision,
+                            light_id.expect("point-light id must be retained"),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("restored fixed-receiver diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitRestoredDiagnostic,
+                        expected_source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitRestoredDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert_eq!(evidence.request.geometry_revision, terrain_revision);
+                    assert_eq!(evidence.request.source_revision, expected_source_revision);
+                    assert_eq!(evidence.request.light_id, light_id.unwrap());
+                    assert_eq!(
+                        evidence.request.receiver_position,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD
+                    );
+                    assert_eq!(
+                        evidence.request.receiver_normal,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL
+                    );
+                    assert_eq!(evidence.candidates, 1);
+                    assert_eq!(evidence.visible, 1);
+                    assert_eq!(evidence.occluded, 0);
+                    assert_eq!(
+                        evidence.irradiance_luma_q8, fixed_gpu_visible_luma_q8,
+                        "removing the blocker must restore the exact fixed-sample energy"
+                    );
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=fixed-gpu-apples-to-apples receiver_world={:?} receiver_normal={:?} light_slot={} light_generation={} source_revision={} visible_luma_q8={} blocked_luma_q8=0 restored_luma_q8={} blocker_visible=0 blocker_occluded=1 restored_exact=true",
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        light_id.unwrap().slot(),
+                        light_id.unwrap().generation(),
+                        expected_source_revision,
+                        fixed_gpu_visible_luma_q8,
+                        evidence.irradiance_luma_q8,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitPointOnDdgiPublication,
                         expected_source_revision,
                         mutation_frame,
                     }
                 }
-                PointLightTestStage::AwaitAddMidflight => {
+                PointLightTestStage::AwaitPointOnDdgiPublication => {
                     let baseline = baseline.expect("point-light baseline must be retained");
                     let id = light_id.expect("point-light id must be retained");
-                    let status = self.tracer.ddgi_runtime_status();
-                    assert!(status.staging().is_none());
-                    let active = status.active();
-                    assert_eq!(active.published_field, Some(baseline));
-                    let Some(in_flight) = active.building_field else {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
                         return;
                     };
-                    let work = active
-                        .target_work
-                        .expect("point-light build must retain scheduled work");
-                    assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
-                    assert_eq!(work.destination(), in_flight);
-                    let probe_priority = active
-                        .probe_priority
-                        .expect("point-light radiance work must prioritize its impact bound");
-                    assert_eq!(
-                        probe_priority.reason(),
-                        DdgiProbePriorityReason::LightingImpact
-                    );
-                    let remaining = active
-                        .grid
-                        .probe_count()
-                        .saturating_sub(active.filtered_probe_count);
-                    if active.filtered_probe_count == 0 || remaining <= 3 * DDGI_PROBE_BATCH_SIZE {
+                    if transport.local_lights.source_revision() != expected_source_revision
+                        || transport.local_lights.count() != 1
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    if status.staging().is_some() {
+                        return;
+                    }
+                    let active = status.active();
+                    let Some(point_on_field) = active.published_field else {
+                        return;
+                    };
+                    if point_on_field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || point_on_field.field().geometry_revision() != terrain_revision
+                        || !is_converged_field(point_on_field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                    {
                         return;
                     }
                     let builder = self
@@ -1318,14 +1583,24 @@ impl App {
                     assert_eq!(builder.local_lights.count(), 1);
                     assert_eq!(
                         builder.local_lights.info.transport_revision,
-                        in_flight.field().radiance_revision()
+                        point_on_field.field().radiance_revision()
                     );
+                    assert_eq!(active.relocated_terrain_revision, Some(terrain_revision));
+                    let Some(gpu_evidence) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu_evidence.matches_classified_field(point_on_field)
+                        || gpu_evidence.local_source_revision != expected_source_revision
+                        || gpu_evidence.local_light_count != 1
+                    {
+                        return;
+                    }
+                    assert!(gpu_evidence.is_complete());
+                    assert!(gpu_evidence.totals.visible > 0);
+                    assert!(gpu_evidence.totals.irradiance_luma_q8 > 0);
                     let diagnostics = self.tracer.ddgi_lighting_diagnostics();
                     assert!(!diagnostics.has_mixed_in_flight_revision);
-                    assert_eq!(
-                        diagnostics.in_flight_revision,
-                        Some(in_flight.field().radiance_revision())
-                    );
+                    assert_eq!(diagnostics.in_flight_revision, None);
                     self.local_lights
                         .update(
                             id,
@@ -1344,26 +1619,26 @@ impl App {
                     let source_revision = self.local_lights.snapshot().revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
-                        "[POINT_LIGHT_ACCEPT] action=move frame={} source_revision={} from_world={:?} to_world={:?} ddgi_in_flight_revision={} ddgi_frozen_source_revision={} progress={}/{} priority_reason={:?} priority_voxel_min={:?} priority_voxel_max={:?} full_sweep_probes={} mixed_in_flight=false",
+                        "[POINT_LIGHT_ACCEPT] checkpoint=point-on-ddgi-gpu positive=true source_revision={} geometry_revision={} field_serial={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} action=move frame={} next_source_revision={} from_world={:?} to_world={:?} mixed_in_flight=false",
+                        expected_source_revision,
+                        terrain_revision,
+                        point_on_field.field().serial(),
+                        gpu_evidence.sampled_probe_count,
+                        gpu_evidence.totals.candidates,
+                        gpu_evidence.totals.visible,
+                        gpu_evidence.totals.occluded,
+                        gpu_evidence.totals.irradiance_luma_q8,
                         frame,
                         source_revision,
                         POINT_LIGHT_ADD_POSITION,
                         POINT_LIGHT_MOVED_POSITION,
-                        in_flight.field().radiance_revision(),
-                        expected_source_revision,
-                        active.filtered_probe_count,
-                        active.grid.probe_count(),
-                        probe_priority.reason(),
-                        probe_priority.voxel_bound().min(),
-                        probe_priority.voxel_bound().max(),
-                        active.grid.probe_count(),
                     );
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline: Some(baseline),
                         light_id: Some(id),
-                        in_flight: Some(in_flight),
-                        in_flight_source_revision: expected_source_revision,
+                        in_flight: None,
+                        in_flight_source_revision: 0,
                         stage: PointLightTestStage::AwaitMoveLive,
                         expected_source_revision: source_revision,
                         mutation_frame: frame,
@@ -1376,20 +1651,76 @@ impl App {
                     }
                     assert_eq!(live_count, 1);
                     assert!(self.time_info.total_frame_count() > mutation_frame);
-                    let builder = self
-                        .tracer
-                        .ddgi_builder_radiance_snapshot()
-                        .expect("moving point light must not detach DDGI builder snapshot");
-                    assert_eq!(
-                        builder.local_lights.source_revision(),
-                        in_flight_source_revision
-                    );
-                    assert_eq!(builder.local_lights.count(), 1);
                     assert!(
                         !self
                             .tracer
                             .ddgi_lighting_diagnostics()
                             .has_mixed_in_flight_revision
+                    );
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=move-live direct_immediate=true source_revision={} live_count=1 mutation_frame={} observed_frame={} mixed_in_flight=false",
+                        expected_source_revision,
+                        mutation_frame,
+                        self.time_info.total_frame_count(),
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitMoveMidflight,
+                        expected_source_revision,
+                        mutation_frame,
+                    }
+                }
+                PointLightTestStage::AwaitMoveMidflight => {
+                    let status = self.tracer.ddgi_runtime_status();
+                    assert!(status.staging().is_none());
+                    let active = status.active();
+                    let Some(in_flight) = active.building_field else {
+                        return;
+                    };
+                    if in_flight.field().geometry_revision() != terrain_revision {
+                        return;
+                    }
+                    let work = active
+                        .target_work
+                        .expect("moving point-light build must retain scheduled work");
+                    assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+                    assert_eq!(work.destination(), in_flight);
+                    let probe_priority = active
+                        .probe_priority
+                        .expect("moving point light must prioritize its impact bound");
+                    assert_eq!(
+                        probe_priority.reason(),
+                        DdgiProbePriorityReason::LightingImpact
+                    );
+                    let remaining = active
+                        .grid
+                        .probe_count()
+                        .saturating_sub(active.filtered_probe_count);
+                    if active.filtered_probe_count == 0 || remaining <= 3 * DDGI_PROBE_BATCH_SIZE {
+                        return;
+                    }
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("moving point light must latch an immutable DDGI snapshot");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        expected_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 1);
+                    assert_eq!(
+                        builder.local_lights.info.transport_revision,
+                        in_flight.field().radiance_revision()
+                    );
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    assert_eq!(
+                        diagnostics.in_flight_revision,
+                        Some(in_flight.field().radiance_revision())
                     );
                     let id = light_id.expect("point-light id must survive move");
                     self.local_lights
@@ -1410,19 +1741,26 @@ impl App {
                     let source_revision = self.local_lights.snapshot().revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
-                        "[POINT_LIGHT_ACCEPT] checkpoint=move-live direct_immediate=true action=update-color-intensity frame={} source_revision={} color={:?} intensity={} ddgi_frozen_source_revision={} mixed_in_flight=false",
+                        "[POINT_LIGHT_ACCEPT] checkpoint=move-midflight action=update-color-intensity frame={} source_revision={} color={:?} intensity={} ddgi_in_flight_revision={} ddgi_frozen_source_revision={} progress={}/{} priority_reason={:?} priority_voxel_min={:?} priority_voxel_max={:?} full_sweep_probes={} mixed_in_flight=false",
                         frame,
                         source_revision,
                         Vec3::new(0.20, 0.55, 1.0),
                         0.14,
-                        in_flight_source_revision,
+                        in_flight.field().radiance_revision(),
+                        expected_source_revision,
+                        active.filtered_probe_count,
+                        active.grid.probe_count(),
+                        probe_priority.reason(),
+                        probe_priority.voxel_bound().min(),
+                        probe_priority.voxel_bound().max(),
+                        active.grid.probe_count(),
                     );
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
                         light_id,
-                        in_flight,
-                        in_flight_source_revision,
+                        in_flight: Some(in_flight),
+                        in_flight_source_revision: expected_source_revision,
                         stage: PointLightTestStage::AwaitPhotometricUpdateLive,
                         expected_source_revision: source_revision,
                         mutation_frame: frame,
@@ -1516,9 +1854,15 @@ impl App {
                         return;
                     }
                     let baseline = baseline.expect("point-light baseline must be retained");
+                    assert_ne!(
+                        baseline.field().geometry_revision(),
+                        terrain_revision,
+                        "blocker add/remove must have advanced geometry independently"
+                    );
                     assert_eq!(
                         final_field.field().geometry_revision(),
-                        baseline.field().geometry_revision()
+                        terrain_revision,
+                        "light-only move/update/remove must retain restored geometry"
                     );
                     assert_eq!(active.relocated_terrain_revision, Some(terrain_revision));
                     let builder = self
@@ -1541,6 +1885,20 @@ impl App {
                         diagnostics.scheduler_published_revision,
                         Some(final_field.field().radiance_revision())
                     );
+                    let Some(gpu_evidence) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu_evidence.matches_classified_field(final_field)
+                        || gpu_evidence.local_source_revision != expected_source_revision
+                        || gpu_evidence.local_light_count != 0
+                    {
+                        return;
+                    }
+                    assert!(gpu_evidence.is_complete());
+                    assert_eq!(gpu_evidence.totals.candidates, 0);
+                    assert_eq!(gpu_evidence.totals.visible, 0);
+                    assert_eq!(gpu_evidence.totals.occluded, 0);
+                    assert_eq!(gpu_evidence.totals.irradiance_luma_q8, 0);
                     let atlas = active
                         .last_atlas_validation
                         .expect("final point-light field must have atlas validation evidence");
@@ -1552,10 +1910,10 @@ impl App {
                     let (revision_lag, coalesced) =
                         self.tracer.local_light_transport_observability();
                     assert_eq!(revision_lag, 0);
-                    assert!(coalesced >= 2);
+                    assert!(coalesced >= 1);
                     log_acceptance_field("POINT_LIGHT", "complete", final_field);
                     log::info!(
-                        "[POINT_LIGHT_ACCEPT] complete latest_wins=true direct_removed=true stale_contribution=false mixed_in_flight=false atlas_nonblack=true atlas_max_rgb={:.8} local_source_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} visibility_relocation_revision={} terrain_direct=true raster_direct=true ddgi_injection=true shared_units=world shared_visibility=exact-voxel-segment",
+                        "[POINT_LIGHT_ACCEPT] complete latest_wins=true direct_removed=true stale_contribution=false mixed_in_flight=false ddgi_off_candidates=0 ddgi_off_visible=0 ddgi_off_occluded=0 ddgi_off_luma_q8=0 atlas_nonblack=true atlas_max_rgb={:.8} local_source_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} visibility_relocation_revision={} terrain_direct=true raster_direct=true ddgi_injection=true shared_units=world shared_visibility=exact-voxel-segment",
                         atlas.max_rgb_value,
                         expected_source_revision,
                         final_field.field().radiance_revision(),
@@ -2251,6 +2609,31 @@ impl App {
         Ok(target_revision)
     }
 
+    fn apply_point_light_blocker(&mut self, voxel_type: u32, source_revision: u32) -> Result<u32> {
+        self.execute_edit_plan(point_light_blocker_edit_plan(voxel_type)?)?;
+        let target_revision = self.visible_terrain_revision;
+        anyhow::ensure!(
+            target_revision != source_revision,
+            "point-light blocker edit did not advance terrain revision from {}",
+            source_revision,
+        );
+        log::info!(
+            "[POINT_LIGHT_ACCEPT] action={} source_geometry_revision={} target_geometry_revision={} blocker_voxel_min={:?} blocker_voxel_max={:?} fixed_receiver_world={:?} fixed_receiver_normal={:?}",
+            if voxel_type == VOXEL_TYPE_EMPTY {
+                "remove-fixed-receiver-blocker"
+            } else {
+                "add-fixed-receiver-blocker"
+            },
+            source_revision,
+            target_revision,
+            POINT_LIGHT_BLOCKER_MIN.as_uvec3(),
+            POINT_LIGHT_BLOCKER_MAX.as_uvec3(),
+            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+        );
+        Ok(target_revision)
+    }
+
     fn apply_patt_seam_dig(&mut self, source_revision: u32) -> Result<u32> {
         let radius = super::TERRAIN_EDIT_DEFAULT_RADIUS;
         let mut removed_voxels = 0_u32;
@@ -2364,6 +2747,8 @@ mod tests {
         let scene = EnvironmentLightingTestScene {
             case: EnvironmentLightingTestCase::TerrainEditsInflightCapture,
             phase: TestScenePhase::CapturingInflightStaleActive { target_revision: 3 },
+            point_light_fixed_gpu_request_serial: 0,
+            point_light_fixed_gpu_visible_luma_q8: 0,
         };
 
         assert!(scene.is_capture_ready());
@@ -2477,6 +2862,33 @@ mod tests {
     fn thin_wall_cases_have_exact_voxel_thicknesses() {
         assert_eq!(ONE_VOXEL_WALL_MAX.z - ONE_VOXEL_WALL_MIN.z, 1.0);
         assert_eq!(TWO_VOXEL_WALL_MAX.z - TWO_VOXEL_WALL_MIN.z, 2.0);
+    }
+
+    #[test]
+    fn point_light_blocker_crosses_only_the_fixed_receiver_segment() {
+        let receiver_voxel = POINT_LIGHT_FIXED_RECEIVER_WORLD * VOXELS_PER_WORLD_UNIT;
+        let light_voxel = POINT_LIGHT_ADD_POSITION * VOXELS_PER_WORLD_UNIT;
+        assert!(receiver_voxel.y < POINT_LIGHT_BLOCKER_MIN.y);
+        assert!(POINT_LIGHT_BLOCKER_MAX.y < light_voxel.y);
+        assert!(
+            receiver_voxel.x >= POINT_LIGHT_BLOCKER_MIN.x
+                && receiver_voxel.x <= POINT_LIGHT_BLOCKER_MAX.x
+        );
+        assert!(
+            receiver_voxel.z >= POINT_LIGHT_BLOCKER_MIN.z
+                && receiver_voxel.z <= POINT_LIGHT_BLOCKER_MAX.z
+        );
+        for voxel_type in [VOXEL_TYPE_ROCK, VOXEL_TYPE_EMPTY] {
+            let plan = point_light_blocker_edit_plan(voxel_type).unwrap();
+            assert_eq!(plan.voxel_edits.len(), 1);
+            assert_eq!(plan.build_edits.len(), 1);
+            assert!(matches!(
+                plan.build_edits[0],
+                BuildEdit::RebuildMesh(bound)
+                    if bound.min() == POINT_LIGHT_BLOCKER_MIN.as_uvec3()
+                        && bound.max() == POINT_LIGHT_BLOCKER_MAX.as_uvec3()
+            ));
+        }
     }
 
     #[test]

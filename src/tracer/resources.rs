@@ -1,6 +1,9 @@
 use crate::{
     flora::species,
-    generated::gpu_structs::{LightGpu, LocalLightInfo},
+    generated::gpu_structs::{
+        LightGpu, LocalLightInfo, LocalLightVisibilityDiagnosticInfo,
+        LocalLightVisibilityDiagnosticResult,
+    },
     geom::UAabb3,
     lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY},
     particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
@@ -903,6 +906,9 @@ pub struct TerrainQueryResources {
 pub struct LocalLightingResources {
     pub local_light_info: Resource<Buffer>,
     pub local_lights: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_info: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_result: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_readback: Resource<Buffer>,
 }
 
 impl LocalLightingResources {
@@ -927,8 +933,8 @@ impl LocalLightingResources {
             })
             .expect("initial local-light info upload must fit");
         let local_lights = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             MemoryLocation::CpuToGpu,
             (LOCAL_LIGHT_GPU_CAPACITY * std::mem::size_of::<LightGpu>()) as u64,
@@ -936,9 +942,44 @@ impl LocalLightingResources {
         local_lights
             .fill(&[LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY])
             .expect("initial local-light data upload must fit");
+        let local_light_visibility_diagnostic_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticInfo>() as u64,
+        );
+        local_light_visibility_diagnostic_info
+            .fill_uniform(&LocalLightVisibilityDiagnosticInfo::zeroed())
+            .expect("initial local-light visibility diagnostic input must fit");
+        let local_light_visibility_diagnostic_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+            ),
+            MemoryLocation::GpuOnly,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticResult>() as u64,
+        );
+        let local_light_visibility_diagnostic_readback = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticResult>() as u64,
+        );
         Self {
             local_light_info: Resource::new(local_light_info),
             local_lights: Resource::new(local_lights),
+            local_light_visibility_diagnostic_info: Resource::new(
+                local_light_visibility_diagnostic_info,
+            ),
+            local_light_visibility_diagnostic_result: Resource::new(
+                local_light_visibility_diagnostic_result,
+            ),
+            local_light_visibility_diagnostic_readback: Resource::new(
+                local_light_visibility_diagnostic_readback,
+            ),
         }
     }
 }

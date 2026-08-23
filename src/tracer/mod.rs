@@ -34,6 +34,11 @@ mod direct_sun_shadow_runtime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
 
+mod local_light_visibility_diagnostic;
+use local_light_visibility_diagnostic::{
+    LocalLightVisibilityDiagnostic, LocalLightVisibilityDiagnosticEvidence,
+};
+
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -99,7 +104,7 @@ use crate::gameplay::{
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
 use crate::lighting::{
-    LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
+    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
     LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
@@ -179,6 +184,18 @@ impl DdgiLocalLightGpuEvidence {
 
     pub fn is_complete(self) -> bool {
         self.sampled_probe_count == self.expected_probe_count
+    }
+
+    pub fn matches_classified_field(self, classified: DdgiFieldIdentity) -> bool {
+        let sampled = self.field.field();
+        let classified_source = classified.source();
+        let classified_key = classified.field();
+        sampled.serial() == classified_key.serial()
+            && sampled.geometry_revision() == classified_key.geometry_revision()
+            && sampled.radiance_revision() == classified_key.radiance_revision()
+            && sampled.spacing_voxels() == classified_key.spacing_voxels()
+            && sampled.update_epoch() == classified_key.update_epoch()
+            && self.field.source() == classified_source
     }
 }
 
@@ -634,6 +651,7 @@ fn flora_lighting_cache_dispatch_enabled(
 #[cfg(test)]
 mod flora_lighting_cache_location_tests {
     use super::*;
+    use crate::ddgi::{DdgiFieldKey, DdgiFieldState};
     use crate::lighting::{LocalLight, LocalLightDomain, PointLight};
 
     #[test]
@@ -685,6 +703,30 @@ mod flora_lighting_cache_location_tests {
         );
         assert_eq!(voxel_bound.min(), UVec3::new(128, 192, 160));
         assert_eq!(voxel_bound.max(), UVec3::new(384, 320, 224));
+    }
+
+    #[test]
+    fn gpu_sweep_identity_accepts_only_the_final_state_classification_change() {
+        let source = DdgiFieldKey::new(8, 4, 2, 32, DdgiFieldState::Converging, 6).unwrap();
+        let sampled = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(9, 4, 2, 32, DdgiFieldState::Converging, 7).unwrap(),
+            Some(source),
+        )
+        .unwrap();
+        let classified = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(9, 4, 2, 32, DdgiFieldState::Converged, 7).unwrap(),
+            Some(source),
+        )
+        .unwrap();
+        let evidence = DdgiLocalLightGpuEvidence::new(sampled, 1, 1, 4_913);
+
+        assert!(evidence.matches_classified_field(classified));
+        let different_epoch = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(10, 4, 2, 32, DdgiFieldState::Converged, 8).unwrap(),
+            Some(sampled.field()),
+        )
+        .unwrap();
+        assert!(!evidence.matches_classified_field(different_epoch));
     }
 
     #[test]
@@ -848,6 +890,7 @@ pub struct Tracer {
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     local_light_live_revision: Option<u64>,
     local_light_live_count: u32,
+    local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -903,6 +946,10 @@ impl Tracer {
             &*self.resources.wind.wind_sources,
             &*self.resources.local_lighting.local_light_info,
             &*self.resources.local_lighting.local_lights,
+            &*self
+                .resources
+                .local_lighting
+                .local_light_visibility_diagnostic_info,
         ];
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
@@ -1172,6 +1219,7 @@ impl Tracer {
             ddgi_flora_consumer_logged_token_serial: None,
             local_light_live_revision: None,
             local_light_live_count: 0,
+            local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -1564,6 +1612,33 @@ impl Tracer {
 
     pub(crate) fn ddgi_local_light_gpu_evidence(&self) -> Option<DdgiLocalLightGpuEvidence> {
         self.ddgi_local_light_gpu_evidence_complete
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_local_light_visibility_diagnostic(
+        &mut self,
+        geometry_revision: u32,
+        source_revision: u64,
+        light_id: LightId,
+        receiver_position: Vec3,
+        receiver_normal: Vec3,
+        ray_origin_offset_world: f32,
+    ) -> Result<u32> {
+        self.local_light_visibility_diagnostic.request(
+            &self.resources.local_lighting,
+            geometry_revision,
+            source_revision,
+            light_id,
+            receiver_position,
+            receiver_normal,
+            ray_origin_offset_world,
+        )
+    }
+
+    pub(crate) fn local_light_visibility_diagnostic_evidence(
+        &self,
+    ) -> Option<LocalLightVisibilityDiagnosticEvidence> {
+        self.local_light_visibility_diagnostic.published()
     }
 
     fn observe_ddgi_local_light_gpu_evidence(
@@ -3227,6 +3302,8 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
+        self.local_light_visibility_diagnostic
+            .resolve_readback(&self.resources.local_lighting)?;
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
             let stats = self
                 .ddgi_runtime
@@ -3545,6 +3622,19 @@ impl Tracer {
             .volumes()
             .builder()
             .record_cpu_buffer_writes(cmdbuf);
+
+        if self.local_light_visibility_diagnostic.has_queued() {
+            let diagnostic = &mut self.local_light_visibility_diagnostic;
+            let resources = &self.resources.local_lighting;
+            let pipeline = &self.compute_pipelines.local_light_visibility_diagnostic_ppl;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "local_light.fixed_visibility_diagnostic",
+                || diagnostic.record(resources, pipeline, cmdbuf),
+            );
+        }
 
         if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
             let revision = lighting.revision;
