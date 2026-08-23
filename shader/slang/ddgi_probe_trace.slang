@@ -145,7 +145,17 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
-    return albedo * (directIrradiance + indirectIrradiance);
+    float3 surfaceEmission = ddgiVoxelSurfaceEmission(
+        ddgi_radiance_voxel_palette, result.voxel_type);
+    if ((ddgi_local_light_info.flags &
+         LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u &&
+        any(surfaceEmission > float3(0.0)))
+    {
+        recordTraceStat(11u);
+        recordTraceStatValue(12u, lightingLuminanceQ8(surfaceEmission));
+    }
+    return surfaceEmission +
+        albedo * (directIrradiance + indirectIrradiance);
 }
 
 [shader("compute")]

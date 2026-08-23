@@ -25,7 +25,7 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 11;
+const DDGI_TRACE_STATS_COUNT: usize = 13;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
 
@@ -485,6 +485,9 @@ pub struct DdgiTraceStats {
     pub local_light_occluded: u32,
     /// Scene-linear point-light irradiance luminance accumulated as unsigned Q24.8 values.
     pub local_light_irradiance_luma_q8: u32,
+    pub emissive_surface_hits: u32,
+    /// Scene-linear emitted radiance luminance accumulated as unsigned Q24.8 values.
+    pub emissive_surface_radiance_luma_q8: u32,
 }
 
 impl DdgiTraceStats {
@@ -501,6 +504,8 @@ impl DdgiTraceStats {
             local_light_visible: values[8],
             local_light_occluded: values[9],
             local_light_irradiance_luma_q8: values[10],
+            emissive_surface_hits: values[11],
+            emissive_surface_radiance_luma_q8: values[12],
         }
     }
 }
@@ -1472,6 +1477,8 @@ impl DdgiVolume {
                 oak_wood_color: snapshot.voxel_palette.oak_wood_color.to_array(),
                 rock_color: snapshot.voxel_palette.rock_color.to_array(),
                 hash_color_variance: snapshot.voxel_palette.hash_color_variance,
+                emissive_color: snapshot.voxel_palette.emissive_color.to_array(),
+                emissive_radiance: snapshot.voxel_palette.emissive_radiance,
                 ..DdgiRadianceVoxelPalette::zeroed()
             })?;
         self.transport_query_snapshot.visibility_bias_world =
@@ -2264,7 +2271,7 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 44);
+        assert_eq!(bytes.trace_stats, 52);
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
@@ -2294,6 +2301,18 @@ mod tests {
             totals.irradiance_luma(),
             (u64::from(u32::MAX) + 256) as f64 / 256.0
         );
+    }
+
+    #[test]
+    fn trace_stats_decode_real_emissive_hit_counters() {
+        let mut values = [0_u32; DDGI_TRACE_STATS_COUNT];
+        values[11] = 37;
+        values[12] = 9_472;
+
+        let stats = DdgiTraceStats::from_array(values);
+
+        assert_eq!(stats.emissive_surface_hits, 37);
+        assert_eq!(stats.emissive_surface_radiance_luma_q8, 9_472);
     }
 
     #[test]

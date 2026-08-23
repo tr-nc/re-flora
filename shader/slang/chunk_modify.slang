@@ -136,9 +136,13 @@ uint maxRemovedCountForType(uint voxelType)
     {
         return chunk_modify_info.max_removed_counts_0_3[voxelType];
     }
-    if (voxelType < EDIT_STATS_VOXEL_TYPE_COUNT)
+    if (voxelType < 8u)
     {
         return chunk_modify_info.max_removed_counts_4_7[voxelType - 4u];
+    }
+    if (voxelType < EDIT_STATS_VOXEL_TYPE_COUNT)
+    {
+        return chunk_modify_info.max_removed_counts_8_11[voxelType - 8u];
     }
     return 0u;
 }

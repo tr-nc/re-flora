@@ -906,6 +906,20 @@ mod tests {
     }
 
     #[test]
+    fn emissive_voxel_material_adds_surface_radiance_in_terrain_path_and_ddgi() {
+        let types = include_str!("../../shader/slang/voxel_types.slang");
+        assert!(types.contains("VOXEL_TYPE_EMISSIVE = 8u"));
+        let material = include_str!("../../shader/slang/tracer_material.slang");
+        assert!(material.contains("voxelSurfaceEmission"));
+        assert!(material.contains("ddgiVoxelSurfaceEmission"));
+        let terrain = include_str!("../../shader/slang/tracer.slang");
+        assert!(terrain.contains("color += voxelSurfaceEmission"));
+        assert!(terrain.contains("throughput * voxelSurfaceEmission"));
+        let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
+        assert!(ddgi.contains("ddgiVoxelSurfaceEmission"));
+    }
+
+    #[test]
     fn provider_rebuild_and_reorder_preserve_unchanged_light_ids() {
         let provider = ProviderId::new(7);
         let first_key = SourceLightKey::new(11, 0);

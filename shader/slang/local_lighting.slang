@@ -66,6 +66,12 @@ public struct LocalLightVoxelEvaluation
     public uint irradiance_luma_q8;
 };
 
+public uint lightingLuminanceQ8(float3 radiance)
+{
+    float luminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+    return uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
+}
+
 public uint localLightCount(U_LocalLightInfo info)
 {
     if (info.abi_version != LOCAL_LIGHT_GPU_ABI_VERSION) return 0u;
@@ -190,8 +196,7 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
     }
     // One invocation contributes at most 65535 so a full 32768-ray DDGI batch cannot overflow
     // the u32 atomic accumulator. CPU aggregation widens complete sweeps to u64.
-    float luminance = dot(result.irradiance, float3(0.2126, 0.7152, 0.0722));
-    result.irradiance_luma_q8 = uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
     return result;
 }
 
@@ -226,8 +231,7 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
         result.visible += lightResult.visible;
         result.occluded += lightResult.occluded;
     }
-    float luminance = dot(result.irradiance, float3(0.2126, 0.7152, 0.0722));
-    result.irradiance_luma_q8 = uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
     return result;
 }
 

@@ -105,6 +105,7 @@ use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTem
 use crate::geom::UAabb3;
 use crate::lighting::{
     LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
+    EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
     LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
@@ -156,6 +157,8 @@ pub(crate) struct DdgiLocalLightGpuEvidence {
     pub sampled_probe_count: u32,
     pub expected_probe_count: u32,
     pub totals: DdgiLocalLightTraceTotals,
+    pub emissive_surface_hits: u64,
+    pub emissive_surface_radiance_luma_q8: u64,
 }
 
 impl DdgiLocalLightGpuEvidence {
@@ -172,6 +175,8 @@ impl DdgiLocalLightGpuEvidence {
             sampled_probe_count: 0,
             expected_probe_count,
             totals: DdgiLocalLightTraceTotals::default(),
+            emissive_surface_hits: 0,
+            emissive_surface_radiance_luma_q8: 0,
         }
     }
 
@@ -180,6 +185,9 @@ impl DdgiLocalLightGpuEvidence {
         self.sampled_probe_count += batch.probe_count;
         assert!(self.sampled_probe_count <= self.expected_probe_count);
         self.totals.accumulate(stats);
+        self.emissive_surface_hits += u64::from(stats.emissive_surface_hits);
+        self.emissive_surface_radiance_luma_q8 +=
+            u64::from(stats.emissive_surface_radiance_luma_q8);
     }
 
     pub fn is_complete(self) -> bool {
@@ -1710,7 +1718,7 @@ impl Tracer {
                     });
             if semantic_identity_changed {
                 log::info!(
-                    "[DDGI][LOCAL_LIGHT_GPU_EVIDENCE] complete field_serial={} geometry_revision={} radiance_revision={} update_epoch={} source_revision={} light_count={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} irradiance_luma={:.6}",
+                    "[DDGI][LOCAL_LIGHT_GPU_EVIDENCE] complete field_serial={} geometry_revision={} radiance_revision={} update_epoch={} source_revision={} light_count={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} irradiance_luma={:.6} emissive_surface_hits={} emissive_surface_radiance_luma_q8={}",
                     evidence.field.field().serial(),
                     evidence.field.field().geometry_revision(),
                     evidence.field.field().radiance_revision(),
@@ -1723,6 +1731,8 @@ impl Tracer {
                     evidence.totals.occluded,
                     evidence.totals.irradiance_luma_q8,
                     evidence.totals.irradiance_luma(),
+                    evidence.emissive_surface_hits,
+                    evidence.emissive_surface_radiance_luma_q8,
                 );
             }
             self.ddgi_local_light_gpu_evidence_complete = Some(*evidence);
@@ -3066,6 +3076,8 @@ impl Tracer {
             voxel_oak_wood_color,
             voxel_rock_color,
             voxel_color_variance,
+            EMISSIVE_VOXEL_COLOR_SRGB,
+            EMISSIVE_VOXEL_SURFACE_RADIANCE,
         )?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,
@@ -3170,6 +3182,8 @@ impl Tracer {
                     oak_wood_color: voxel_oak_wood_color,
                     rock_color: voxel_rock_color,
                     hash_color_variance: voxel_color_variance,
+                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
+                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
                 },
                 local_lights: local_light_gpu.payload(),
             },
@@ -3424,7 +3438,7 @@ impl Tracer {
                     || filtered_probe_count % 1_024 == 0
                 {
                     log::debug!(
-                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
+                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
                         batch.first_probe_index,
                         batch.probe_count,
                         crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3439,6 +3453,8 @@ impl Tracer {
                         stats.local_light_visible,
                         stats.local_light_occluded,
                         stats.local_light_irradiance_luma_q8,
+                        stats.emissive_surface_hits,
+                        stats.emissive_surface_radiance_luma_q8,
                         batch.geometry_revision(),
                         build_token.map(DdgiBuildToken::serial),
                         batch.radiance_revision(),

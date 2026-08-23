@@ -52,6 +52,8 @@ pub(crate) struct DdgiVoxelPaletteSnapshot {
     pub oak_wood_color: Vec3,
     pub rock_color: Vec3,
     pub hash_color_variance: f32,
+    pub emissive_color: Vec3,
+    pub emissive_radiance: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,6 +94,12 @@ impl DdgiRadianceSnapshot {
                 .map(f32::to_bits),
             rock_color: self.voxel_palette.rock_color.to_array().map(f32::to_bits),
             hash_color_variance: self.voxel_palette.hash_color_variance.to_bits(),
+            emissive_color: self
+                .voxel_palette
+                .emissive_color
+                .to_array()
+                .map(f32::to_bits),
+            emissive_radiance: self.voxel_palette.emissive_radiance.to_bits(),
             local_lights: self.local_lights.for_radiance_identity(),
         }
     }
@@ -117,6 +125,8 @@ struct DdgiRadianceIdentity {
     oak_wood_color: [u32; 3],
     rock_color: [u32; 3],
     hash_color_variance: u32,
+    emissive_color: [u32; 3],
+    emissive_radiance: u32,
     local_lights: LocalLightGpuPayload,
 }
 
@@ -131,6 +141,8 @@ impl DdgiRadianceIdentity {
             && self.oak_wood_color == other.oak_wood_color
             && self.rock_color == other.rock_color
             && self.hash_color_variance == other.hash_color_variance
+            && self.emissive_color == other.emissive_color
+            && self.emissive_radiance == other.emissive_radiance
     }
 }
 
@@ -518,6 +530,8 @@ mod tests {
                 oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
                 rock_color: Vec3::splat(0.4),
                 hash_color_variance: 0.5,
+                emissive_color: Vec3::new(1.0, 0.36, 0.08),
+                emissive_radiance: 4.0,
             },
             local_lights: LocalLightGpuPayload::empty(0),
         }
@@ -731,6 +745,12 @@ mod tests {
         variants.push(value);
         value = snapshot();
         value.voxel_palette.hash_color_variance += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.emissive_color.x += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.emissive_radiance += 0.1;
         variants.push(value);
 
         for changed in variants {

@@ -270,6 +270,8 @@ float3 pathTracingIndirectIrradiance(MarchingResult primary, int3 seed,
 
         float3 sampleAlbedo;
         parseTraceResult(sampleAlbedo, result);
+        irradiance += throughput * voxelSurfaceEmission(
+            voxel_colors, result.voxel_type);
         throughput *= sampleAlbedo;
         int3 sunSeed = pathTracingBounceSeed(
             seed, bounceIndex, int2(47, 71));
@@ -290,7 +292,8 @@ float3 pathTraceTerrainReference(MarchingResult primary, float3 albedo,
         primary, primarySunSeed, localInvocationIndex);
     environmentIrradiance = gui_input.path_tracing_ambient_light +
         pathTracingIndirectIrradiance(primary, seed, localInvocationIndex);
-    return directLight + albedo * environmentIrradiance;
+    return voxelSurfaceEmission(voxel_colors, primary.voxel_type) +
+        directLight + albedo * environmentIrradiance;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -515,6 +518,7 @@ void getPixelColor(out float3 color, out float depth,
     }
     color = environmentIrradiance * albedo;
     color += directLight;
+    color += voxelSurfaceEmission(voxel_colors, result.voxel_type);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);
 }

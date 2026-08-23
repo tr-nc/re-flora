@@ -1,6 +1,6 @@
 use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
-use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
+use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
     DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason, DdgiRefreshState,
     DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
@@ -45,6 +45,8 @@ const POINT_LIGHT_FIXED_RECEIVER_NORMAL: Vec3 = Vec3::Y;
 const POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD: f32 = 0.001;
 const POINT_LIGHT_BLOCKER_MIN: Vec3 = Vec3::new(164.0, 128.0, 298.0);
 const POINT_LIGHT_BLOCKER_MAX: Vec3 = Vec3::new(174.0, 152.0, 307.0);
+const POINT_LIGHT_EMISSIVE_MIN: Vec3 = Vec3::new(196.0, 100.0, 344.0);
+const POINT_LIGHT_EMISSIVE_MAX: Vec3 = Vec3::new(212.0, 116.0, 360.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointLightTestStage {
@@ -646,6 +648,7 @@ struct TestSceneGeometry {
     rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
     sand: Vec<Cuboid>,
+    emissive: Vec<Cuboid>,
     test_rebuild_bound: UAabb3,
 }
 
@@ -730,11 +733,20 @@ impl TestSceneGeometry {
             ),
         };
 
+        let emissive = if case == EnvironmentLightingTestCase::PointLightChanges {
+            vec![Cuboid::from_min_max(
+                POINT_LIGHT_EMISSIVE_MIN,
+                POINT_LIGHT_EMISSIVE_MAX,
+            )]
+        } else {
+            Vec::new()
+        };
         Self {
             cleared_test_scene,
             rock,
             carved_empty,
             sand,
+            emissive,
             test_rebuild_bound,
         }
     }
@@ -750,6 +762,9 @@ impl TestSceneGeometry {
         }
         if !self.sand.is_empty() {
             voxel_edits.push(stamp_cuboids(self.sand, VOXEL_TYPE_SAND)?);
+        }
+        if !self.emissive.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.emissive, VOXEL_TYPE_EMISSIVE)?);
         }
         let build_edits = vec![BuildEdit::RebuildMesh(self.test_rebuild_bound)];
         Ok(WorldEditPlan {
@@ -1826,6 +1841,8 @@ impl App {
                     assert!(gpu_evidence.is_complete());
                     assert!(gpu_evidence.totals.visible > 0);
                     assert!(gpu_evidence.totals.irradiance_luma_q8 > 0);
+                    assert!(gpu_evidence.emissive_surface_hits > 0);
+                    assert!(gpu_evidence.emissive_surface_radiance_luma_q8 > 0);
                     let diagnostics = self.tracer.ddgi_lighting_diagnostics();
                     assert!(!diagnostics.has_mixed_in_flight_revision);
                     assert_eq!(diagnostics.in_flight_revision, None);
@@ -1847,7 +1864,7 @@ impl App {
                     let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
-                        "[POINT_LIGHT_ACCEPT] checkpoint=point-on-ddgi-gpu positive=true source_revision={} geometry_revision={} field_serial={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} action=move frame={} next_source_revision={} from_world={:?} to_world={:?} mixed_in_flight=false",
+                        "[POINT_LIGHT_ACCEPT] checkpoint=point-on-ddgi-gpu positive=true emissive_surface_hit=true source_revision={} geometry_revision={} field_serial={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} action=move frame={} next_source_revision={} from_world={:?} to_world={:?} mixed_in_flight=false",
                         expected_source_revision,
                         terrain_revision,
                         point_on_field.field().serial(),
@@ -1856,6 +1873,8 @@ impl App {
                         gpu_evidence.totals.visible,
                         gpu_evidence.totals.occluded,
                         gpu_evidence.totals.irradiance_luma_q8,
+                        gpu_evidence.emissive_surface_hits,
+                        gpu_evidence.emissive_surface_radiance_luma_q8,
                         frame,
                         source_revision,
                         POINT_LIGHT_ADD_POSITION,
@@ -3405,5 +3424,17 @@ mod tests {
         }
         assert_eq!(TerrainEdit::CloseSkylight.voxel_type(), VOXEL_TYPE_ROCK);
         assert_eq!(TerrainEdit::ReopenSkylight.voxel_type(), VOXEL_TYPE_EMPTY);
+    }
+
+    #[test]
+    fn point_light_scene_contains_a_real_emissive_surface_for_gpu_transport_evidence() {
+        let plan = TestSceneGeometry::build(EnvironmentLightingTestCase::PointLightChanges)
+            .compile()
+            .unwrap();
+        assert!(plan.voxel_edits.iter().any(|edit| matches!(
+            edit,
+            VoxelEdit::StampCuboids { voxel_type, .. }
+                if *voxel_type == crate::builder::VOXEL_TYPE_EMISSIVE
+        )));
     }
 }

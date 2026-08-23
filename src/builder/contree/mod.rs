@@ -4,8 +4,8 @@ mod resources;
 pub use resources::*;
 
 use super::plain::{
-    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
-    VOXEL_TYPE_STUCCO,
+    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_OAK_WOOD,
+    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
@@ -2389,6 +2389,7 @@ mod tests {
         let cherry = acoustic_material_for_voxel(VOXEL_TYPE_CHERRY_WOOD);
         let oak = acoustic_material_for_voxel(VOXEL_TYPE_OAK_WOOD);
         let rock = acoustic_material_for_voxel(VOXEL_TYPE_ROCK);
+        let emissive = acoustic_material_for_voxel(VOXEL_TYPE_EMISSIVE);
 
         assert!(sand.absorption[2] > dirt.absorption[2]);
         assert!(dirt.scattering > stucco.scattering);
@@ -2397,6 +2398,7 @@ mod tests {
             .iter()
             .all(|coefficient| *coefficient <= 0.05));
         assert_eq!(cherry, oak);
+        assert_eq!(emissive, stucco);
         assert_ne!(stucco, AcousticMaterial::default());
     }
 }
@@ -2497,7 +2499,7 @@ fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
             scattering: 0.90,
             transmission: [0.035, 0.015, 0.005],
         },
-        VOXEL_TYPE_STUCCO => AcousticMaterial {
+        VOXEL_TYPE_STUCCO | VOXEL_TYPE_EMISSIVE => AcousticMaterial {
             absorption: [0.04, 0.06, 0.08],
             scattering: 0.30,
             transmission: [0.015, 0.008, 0.004],

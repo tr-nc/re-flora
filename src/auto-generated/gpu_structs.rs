@@ -97,8 +97,8 @@ pub struct EditRemovalSample {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EditStats {
-    pub removed_counts: [u32; 8],
-    pub added_counts: [u32; 8],
+    pub removed_counts: [u32; 9],
+    pub added_counts: [u32; 9],
 }
 
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).
@@ -521,6 +521,7 @@ pub struct ChunkModifyInfo {
     pub max_write_count: u32,
     pub max_removed_counts_0_3: [u32; 4],
     pub max_removed_counts_4_7: [u32; 4],
+    pub max_removed_counts_8_11: [u32; 4],
 }
 
 /// Auto-generated from `U_ChunkSolidSampleInfo` (native Slang source of truth).
@@ -577,6 +578,8 @@ pub struct DdgiRadianceVoxelPalette {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+    pub emissive_color: [f32; 3],
+    pub emissive_radiance: f32,
 }
 
 /// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).
@@ -1012,6 +1015,8 @@ pub struct VoxelColors {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+    pub emissive_color: [f32; 3],
+    pub emissive_radiance: f32,
 }
 
 /// Auto-generated from `U_VoxelPropertySampleInfo` (native Slang source of truth).

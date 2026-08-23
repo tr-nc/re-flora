@@ -9,6 +9,13 @@ use super::{
 
 pub(crate) const EMISSIVE_VOXEL_PROVIDER_ID: ProviderId = ProviderId::new(2);
 pub(crate) const EMISSIVE_VOXEL_CLUSTER_DIM: UVec3 = UVec3::new(16, 16, 16);
+pub(crate) const EMISSIVE_VOXEL_COLOR_RGB8: [u8; 3] = [255, 92, 20];
+pub(crate) const EMISSIVE_VOXEL_COLOR_SRGB: Vec3 = Vec3::new(
+    EMISSIVE_VOXEL_COLOR_RGB8[0] as f32 / 255.0,
+    EMISSIVE_VOXEL_COLOR_RGB8[1] as f32 / 255.0,
+    EMISSIVE_VOXEL_COLOR_RGB8[2] as f32 / 255.0,
+);
+pub(crate) const EMISSIVE_VOXEL_SURFACE_RADIANCE: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EmissiveVoxelEmitter {

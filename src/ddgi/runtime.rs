@@ -1001,6 +1001,8 @@ mod tests {
                     oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
                     rock_color: Vec3::splat(0.4),
                     hash_color_variance: 0.5,
+                    emissive_color: Vec3::new(1.0, 0.36, 0.08),
+                    emissive_radiance: 4.0,
                 },
                 local_lights: LocalLightGpuPayload::empty(0).with_transport_revision(revision),
             },
