@@ -54,6 +54,38 @@ impl SpatialFramePublication {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AcousticPipelineSnapshot {
+    pub(crate) enabled: bool,
+    pub(crate) solve_count: u64,
+    pub(crate) superseded_solve_count: u64,
+    pub(crate) published_response_count: u64,
+    pub(crate) response_spatial_revision: u64,
+    pub(crate) response_geometry_version: u64,
+    pub(crate) response_age_ms: u64,
+}
+
+impl AcousticPipelineSnapshot {
+    pub(crate) fn activity_since(self, earlier: Self) -> AcousticPipelineActivity {
+        AcousticPipelineActivity {
+            solves: self.solve_count.saturating_sub(earlier.solve_count),
+            superseded: self
+                .superseded_solve_count
+                .saturating_sub(earlier.superseded_solve_count),
+            published: self
+                .published_response_count
+                .saturating_sub(earlier.published_response_count),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AcousticPipelineActivity {
+    pub(crate) solves: u64,
+    pub(crate) superseded: u64,
+    pub(crate) published: u64,
+}
+
 /// Re:Flora's narrow adapter around the world-owned PetalSonic runtime.
 #[derive(Clone)]
 pub struct SpatialSoundManager {
@@ -443,6 +475,19 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    pub(crate) fn acoustic_pipeline_snapshot(&self) -> AcousticPipelineSnapshot {
+        let diagnostics = self.world.diagnostics();
+        AcousticPipelineSnapshot {
+            enabled: self.world.environmental_acoustics_enabled(),
+            solve_count: diagnostics.acoustic_solve_count,
+            superseded_solve_count: diagnostics.acoustic_superseded_solve_count,
+            published_response_count: diagnostics.acoustic_published_response_count,
+            response_spatial_revision: diagnostics.acoustic_response_spatial_revision,
+            response_geometry_version: diagnostics.acoustic_response_geometry_version,
+            response_age_ms: diagnostics.acoustic_response_age_ms,
+        }
+    }
+
     fn acoustic_priority(volume_db: f32) -> f32 {
         if !volume_db.is_finite() {
             return 0.0;
@@ -546,7 +591,24 @@ impl SpatialSoundManager {
 
 #[cfg(test)]
 mod tests {
-    use super::SpatialSoundManager;
+    use super::{AcousticPipelineSnapshot, SpatialSoundManager};
+
+    fn acoustic_snapshot(
+        enabled: bool,
+        solves: u64,
+        superseded: u64,
+        published: u64,
+    ) -> AcousticPipelineSnapshot {
+        AcousticPipelineSnapshot {
+            enabled,
+            solve_count: solves,
+            superseded_solve_count: superseded,
+            published_response_count: published,
+            response_spatial_revision: 0,
+            response_geometry_version: 0,
+            response_age_ms: 0,
+        }
+    }
 
     #[test]
     fn acoustic_priority_tracks_linear_source_gain_and_sanitizes_invalid_values() {
@@ -554,5 +616,16 @@ mod tests {
         assert!((SpatialSoundManager::acoustic_priority(-20.0) - 0.1).abs() < f32::EPSILON);
         assert_eq!(SpatialSoundManager::acoustic_priority(f32::NAN), 0.0);
         assert_eq!(SpatialSoundManager::acoustic_priority(100.0), 16.0);
+    }
+
+    #[test]
+    fn acoustic_activity_uses_monotonic_counter_deltas() {
+        let start = acoustic_snapshot(true, 100, 90, 10);
+        let end = acoustic_snapshot(true, 107, 97, 10);
+
+        let activity = end.activity_since(start);
+        assert_eq!(activity.solves, 7);
+        assert_eq!(activity.superseded, 7);
+        assert_eq!(activity.published, 0);
     }
 }

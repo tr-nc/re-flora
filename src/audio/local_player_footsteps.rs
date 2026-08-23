@@ -1,10 +1,13 @@
-use super::spatial_sound_manager::{SpatialFramePublication, TransientSpatialEmitter};
+use super::spatial_sound_manager::{
+    AcousticPipelineSnapshot, SpatialFramePublication, TransientSpatialEmitter,
+};
 use super::SpatialSoundManager;
 use crate::gameplay::camera::{FootstepEvent, FootstepKind, Gait};
 use anyhow::Result;
 use petalsonic::{
-    DirectGeometry, DirectPath, DirectPropagation, EnvironmentSend, PetalSonicEvent, PlayCommandId,
-    PlayOptions, PlaybackControl, PlaybackTag, Pose, Vec3 as PetalVec3, VoiceTelemetryEvent,
+    DirectGeometry, DirectPath, DirectPropagation, EnvironmentResponse, EnvironmentSend,
+    PetalSonicEvent, PlayCommandId, PlayOptions, PlaybackControl, PlaybackTag, Pose,
+    Vec3 as PetalVec3, VoiceTelemetryEvent,
 };
 
 const LOCAL_FOOTSTEP_DIRECT_Y: f32 = -0.08;
@@ -67,6 +70,10 @@ struct ManagedFootstepVoice<EmitterHandle, ControlHandle> {
     control: ControlHandle,
     routing: FootstepRouting,
     published_revision: u64,
+    emitter_gain_db: f32,
+    clip_duration_seconds: f64,
+    wet_observation: FootstepWetObservation,
+    acoustics_at_play: AcousticPipelineSnapshot,
     completion_deadline_seconds: f64,
 }
 
@@ -77,6 +84,9 @@ impl<EmitterHandle, ControlHandle> ManagedFootstepVoice<EmitterHandle, ControlHa
         control: ControlHandle,
         routing: FootstepRouting,
         published_revision: u64,
+        emitter_gain_db: f32,
+        clip_duration_seconds: f64,
+        acoustics_at_play: AcousticPipelineSnapshot,
         completion_deadline_seconds: f64,
     ) -> Self {
         Self {
@@ -85,9 +95,80 @@ impl<EmitterHandle, ControlHandle> ManagedFootstepVoice<EmitterHandle, ControlHa
             control,
             routing,
             published_revision,
+            emitter_gain_db,
+            clip_duration_seconds,
+            wet_observation: FootstepWetObservation::default(),
+            acoustics_at_play,
             completion_deadline_seconds,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum EnvironmentResponseTiming {
+    #[default]
+    Unobserved,
+    ReadyAtFirstRender,
+    ArrivedDuringPlayback,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct FootstepWetObservation {
+    first_render_block: Option<u64>,
+    response_timing: EnvironmentResponseTiming,
+    response: Option<EnvironmentResponse>,
+}
+
+impl FootstepWetObservation {
+    fn record_first_render(
+        &mut self,
+        render_block_index: u64,
+        response: Option<EnvironmentResponse>,
+    ) {
+        self.first_render_block.get_or_insert(render_block_index);
+        if self.response_timing == EnvironmentResponseTiming::Unobserved {
+            if let Some(response) = response {
+                self.response_timing = EnvironmentResponseTiming::ReadyAtFirstRender;
+                self.response = Some(response);
+            }
+        }
+    }
+
+    fn record_environment_response(&mut self, response: EnvironmentResponse) {
+        if self.response_timing == EnvironmentResponseTiming::Unobserved {
+            self.response_timing = EnvironmentResponseTiming::ArrivedDuringPlayback;
+            self.response = Some(response);
+        }
+    }
+
+    fn outcome(
+        self,
+        acoustics_enabled_at_play: bool,
+        acoustics_enabled_at_retirement: bool,
+    ) -> FootstepWetOutcome {
+        match self.response_timing {
+            EnvironmentResponseTiming::ReadyAtFirstRender => {
+                FootstepWetOutcome::ResponseReadyAtFirstRender
+            }
+            EnvironmentResponseTiming::ArrivedDuringPlayback => {
+                FootstepWetOutcome::ResponseArrivedDuringPlayback
+            }
+            EnvironmentResponseTiming::Unobserved
+                if !acoustics_enabled_at_play && !acoustics_enabled_at_retirement =>
+            {
+                FootstepWetOutcome::AcousticsDisabled
+            }
+            EnvironmentResponseTiming::Unobserved => FootstepWetOutcome::MissingBeforeRetirement,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FootstepWetOutcome {
+    AcousticsDisabled,
+    MissingBeforeRetirement,
+    ResponseReadyAtFirstRender,
+    ResponseArrivedDuringPlayback,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +252,15 @@ impl<EmitterHandle, ControlHandle> ActiveFootstepRegistry<EmitterHandle, Control
             .find(|voice| voice.event_seq == event_seq)
     }
 
+    fn get_mut(
+        &mut self,
+        event_seq: u64,
+    ) -> Option<&mut ManagedFootstepVoice<EmitterHandle, ControlHandle>> {
+        self.voices
+            .iter_mut()
+            .find(|voice| voice.event_seq == event_seq)
+    }
+
     fn len(&self) -> usize {
         self.voices.len()
     }
@@ -227,6 +317,8 @@ struct PreparedSpatialFootstep {
     event: FootstepEvent,
     emitter: TransientSpatialEmitter,
     routing: FootstepRouting,
+    emitter_gain_db: f32,
+    clip_duration_seconds: f64,
     completion_deadline_seconds: f64,
 }
 
@@ -342,12 +434,16 @@ impl LocalPlayerFootstepAudio {
                 PlaybackTag(event.event_seq),
             ) {
                 Ok(control) => {
+                    let acoustics_at_play = self.spatial_sound_manager.acoustic_pipeline_snapshot();
                     self.active.activate(ManagedFootstepVoice::new(
                         event.event_seq,
                         prepared_voice.emitter,
                         control,
                         prepared_voice.routing,
                         publication.revision(),
+                        prepared_voice.emitter_gain_db,
+                        prepared_voice.clip_duration_seconds,
+                        acoustics_at_play,
                         prepared_voice.completion_deadline_seconds,
                     ));
                     log::debug!(
@@ -458,6 +554,8 @@ impl LocalPlayerFootstepAudio {
                 event,
                 emitter,
                 routing,
+                emitter_gain_db: gain_db,
+                clip_duration_seconds: duration_seconds,
                 completion_deadline_seconds: sim_time_seconds
                     + duration_seconds
                     + COMPLETION_DEADLINE_GRACE_SECONDS,
@@ -534,11 +632,11 @@ impl LocalPlayerFootstepAudio {
         }
     }
 
-    fn handle_voice_telemetry(&self, event: VoiceTelemetryEvent) {
+    fn handle_voice_telemetry(&mut self, event: VoiceTelemetryEvent) {
         match event {
             VoiceTelemetryEvent::FirstRendered(telemetry) => {
                 let event_seq = telemetry.play_command_id.0;
-                let Some(voice) = self.active.get(event_seq) else {
+                let Some(voice) = self.active.get_mut(event_seq) else {
                     log::debug!(
                         "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_first_render"
                     );
@@ -549,6 +647,10 @@ impl LocalPlayerFootstepAudio {
                     telemetry.spatial_revision,
                     telemetry.direct_local_pose,
                     telemetry.acoustic_origin,
+                );
+                voice.wet_observation.record_first_render(
+                    telemetry.render_block_index,
+                    telemetry.environment_response,
                 );
                 if contract.satisfied() {
                     log::debug!(
@@ -575,13 +677,23 @@ impl LocalPlayerFootstepAudio {
             VoiceTelemetryEvent::EnvironmentResponse {
                 play_command_id,
                 response,
-            } => log::debug!(
-                "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={} state=environment_response spatial_revision={} geometry_version={} age_ms={:.3}",
-                play_command_id.0,
-                response.spatial_revision,
-                response.geometry_version,
-                response.age.as_secs_f64() * 1000.0,
-            ),
+            } => {
+                let event_seq = play_command_id.0;
+                let Some(voice) = self.active.get_mut(event_seq) else {
+                    log::debug!(
+                        "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_environment_response"
+                    );
+                    return;
+                };
+                voice.wet_observation.record_environment_response(response);
+                log::debug!(
+                    "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={} state=environment_response spatial_revision={} geometry_version={} age_ms={:.3}",
+                    event_seq,
+                    response.spatial_revision,
+                    response.geometry_version,
+                    response.age.as_secs_f64() * 1000.0,
+                );
+            }
             other => log::debug!("PetalSonic voice telemetry: {other:?}"),
         }
     }
@@ -592,6 +704,7 @@ impl LocalPlayerFootstepAudio {
         stop_first: bool,
         reason: &'static str,
     ) {
+        self.log_wet_path_summary(&voice, reason);
         if stop_first {
             if let Err(err) = self
                 .spatial_sound_manager
@@ -604,6 +717,63 @@ impl LocalPlayerFootstepAudio {
             }
         }
         self.retire_prepared_emitter(voice.event_seq, voice.emitter, reason);
+    }
+
+    fn log_wet_path_summary(
+        &self,
+        voice: &ManagedFootstepVoice<TransientSpatialEmitter, PlaybackControl>,
+        reason: &'static str,
+    ) {
+        let acoustics_at_retirement = self.spatial_sound_manager.acoustic_pipeline_snapshot();
+        let activity = acoustics_at_retirement.activity_since(voice.acoustics_at_play);
+        let outcome = voice.wet_observation.outcome(
+            voice.acoustics_at_play.enabled,
+            acoustics_at_retirement.enabled,
+        );
+        let environment_send_gain_linear = 10.0_f32.powf(LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB / 20.0);
+        let environment_pre_acoustics_gain_db =
+            voice.emitter_gain_db + LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB;
+        let response_revision = voice
+            .wet_observation
+            .response
+            .map(|response| response.spatial_revision);
+        let response_geometry = voice
+            .wet_observation
+            .response
+            .map(|response| response.geometry_version);
+        let response_age_ms = voice
+            .wet_observation
+            .response
+            .map(|response| response.age.as_secs_f64() * 1000.0);
+        let message = format!(
+            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} early_reflections=unavailable late_reverb=unavailable post_dsp_wet_gain=unavailable acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
+            voice.event_seq,
+            reason,
+            outcome,
+            voice.wet_observation.first_render_block,
+            voice.clip_duration_seconds * 1000.0,
+            voice.emitter_gain_db,
+            LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB,
+            environment_send_gain_linear,
+            environment_pre_acoustics_gain_db,
+            response_revision,
+            response_geometry,
+            response_age_ms,
+            voice.acoustics_at_play.enabled,
+            acoustics_at_retirement.enabled,
+            activity.solves,
+            activity.superseded,
+            activity.published,
+            acoustics_at_retirement.response_spatial_revision,
+            acoustics_at_retirement.response_geometry_version,
+            acoustics_at_retirement.response_age_ms,
+        );
+        match outcome {
+            FootstepWetOutcome::MissingBeforeRetirement => log::warn!("{message}"),
+            FootstepWetOutcome::AcousticsDisabled
+            | FootstepWetOutcome::ResponseReadyAtFirstRender
+            | FootstepWetOutcome::ResponseArrivedDuringPlayback => log::info!("{message}"),
+        }
     }
 
     fn retire_prepared_emitter(
@@ -648,13 +818,17 @@ impl LocalPlayerFootstepAudio {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActiveFootstepRegistry, FirstRenderContractCheck, FootstepClipBank, FootstepRouting,
+        ActiveFootstepRegistry, EnvironmentResponseTiming, FirstRenderContractCheck,
+        FootstepClipBank, FootstepRouting, FootstepWetObservation, FootstepWetOutcome,
         LocalPlayerFootstepRoutingMode, ManagedFootstepVoice, MAX_ACTIVE_LOCAL_FOOTSTEPS,
     };
+    use crate::audio::spatial_sound_manager::AcousticPipelineSnapshot;
     use crate::gameplay::camera::{
         FootstepEvent, FootstepKind, FootstepSide, FootstepSurface, Gait,
     };
     use glam::Vec3;
+    use petalsonic::EnvironmentResponse;
+    use std::time::Duration;
 
     fn event(event_seq: u64, contact_world: Vec3, speed_mps: f32) -> FootstepEvent {
         FootstepEvent {
@@ -681,8 +855,75 @@ mod tests {
             control,
             FootstepRouting::for_event(&footstep),
             event_seq + 10,
+            -8.0,
+            0.5,
+            AcousticPipelineSnapshot {
+                enabled: true,
+                solve_count: 10,
+                superseded_solve_count: 8,
+                published_response_count: 2,
+                response_spatial_revision: 9,
+                response_geometry_version: 7,
+                response_age_ms: 12,
+            },
             deadline,
         )
+    }
+
+    fn environment_response(spatial_revision: u64) -> EnvironmentResponse {
+        EnvironmentResponse {
+            spatial_revision,
+            geometry_version: 7,
+            age: Duration::from_millis(12),
+        }
+    }
+
+    #[test]
+    fn wet_path_reports_response_starvation_when_none_arrives_before_completion() {
+        let mut observation = FootstepWetObservation::default();
+        observation.record_first_render(41, None);
+
+        assert_eq!(
+            observation.outcome(true, true),
+            FootstepWetOutcome::MissingBeforeRetirement
+        );
+        assert_eq!(
+            observation.response_timing,
+            EnvironmentResponseTiming::Unobserved
+        );
+        assert_eq!(observation.first_render_block, Some(41));
+    }
+
+    #[test]
+    fn wet_path_distinguishes_response_ready_at_onset_from_later_arrival() {
+        let response = environment_response(81);
+        let mut ready_at_onset = FootstepWetObservation::default();
+        ready_at_onset.record_first_render(42, Some(response));
+        assert_eq!(
+            ready_at_onset.outcome(true, true),
+            FootstepWetOutcome::ResponseReadyAtFirstRender
+        );
+        assert_eq!(ready_at_onset.response, Some(response));
+
+        let mut arrived_later = FootstepWetObservation::default();
+        arrived_later.record_first_render(43, None);
+        arrived_later.record_environment_response(response);
+        assert_eq!(
+            arrived_later.outcome(true, true),
+            FootstepWetOutcome::ResponseArrivedDuringPlayback
+        );
+        assert_eq!(arrived_later.response, Some(response));
+    }
+
+    #[test]
+    fn wet_path_does_not_report_starvation_when_acoustics_remain_disabled() {
+        let mut observation = FootstepWetObservation::default();
+        observation.record_first_render(44, None);
+
+        assert_eq!(
+            observation.outcome(false, false),
+            FootstepWetOutcome::AcousticsDisabled
+        );
     }
 
     #[test]
