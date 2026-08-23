@@ -3,10 +3,11 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticSceneSnapshot, BusParams, Emitter, EmitterDesc, EmitterSpatialState, LatencyProfile,
-    OcclusionProfile, OutputDevicePolicy, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions, Pose,
-    Quat as PetalQuat, ResidentClip, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
-    Vec3 as PetalVec3,
+    AcousticDiscardReason, AcousticExtentTelemetry, AcousticSceneSnapshot,
+    AcousticTelemetryDiagnostics, AcousticTelemetryEvent, BusParams, Emitter, EmitterDesc,
+    EmitterSpatialState, LatencyProfile, OcclusionProfile, OutputDevicePolicy, PetalSonicWorld,
+    PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat, ResidentClip, RuntimeDiagnostics,
+    RuntimeState, SourceExtent, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -27,6 +28,17 @@ struct SourceInfo {
 struct OneShotEmitter {
     emitter: Emitter,
     volume_db: f32,
+}
+
+pub enum SpatialAcousticTelemetryEvent {
+    ExtentResponse {
+        source_uuid: Option<Uuid>,
+        response: AcousticExtentTelemetry,
+    },
+    SolveDiscarded {
+        spatial_revision: u64,
+        geometry_version: u64,
+    },
 }
 
 /// Re:Flora's narrow adapter around the world-owned PetalSonic runtime.
@@ -387,6 +399,47 @@ impl SpatialSoundManager {
 
     pub fn acoustic_superseded_solve_count(&self) -> u64 {
         self.world.diagnostics().acoustic_superseded_solve_count
+    }
+
+    pub fn drain_acoustic_telemetry(&self) -> Vec<SpatialAcousticTelemetryEvent> {
+        let sources = self.uuid_to_source.lock().unwrap();
+        self.world
+            .drain_acoustic_telemetry()
+            .into_iter()
+            .filter_map(|event| match event {
+                AcousticTelemetryEvent::ExtentResponse(response) => {
+                    let source_uuid = sources.iter().find_map(|(&uuid, source)| {
+                        (source.emitter == response.emitter).then_some(uuid)
+                    });
+                    Some(SpatialAcousticTelemetryEvent::ExtentResponse {
+                        source_uuid,
+                        response: *response,
+                    })
+                }
+                AcousticTelemetryEvent::SolveDiscarded {
+                    spatial_revision,
+                    geometry_version,
+                    reason,
+                } => match reason {
+                    AcousticDiscardReason::Superseded => {
+                        Some(SpatialAcousticTelemetryEvent::SolveDiscarded {
+                            spatial_revision,
+                            geometry_version,
+                        })
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn acoustic_telemetry_diagnostics(&self) -> AcousticTelemetryDiagnostics {
+        self.world.acoustic_telemetry_diagnostics()
+    }
+
+    pub fn runtime_diagnostics(&self) -> RuntimeDiagnostics {
+        self.world.diagnostics()
     }
 
     fn acoustic_priority(volume_db: f32) -> f32 {

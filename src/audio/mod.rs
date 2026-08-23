@@ -22,12 +22,14 @@ use canopy_distributed_emitter_adapter::CanopyDistributedEmitterAdapter;
 
 mod canopy_audio_telemetry;
 pub use canopy_audio_telemetry::{
-    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioTelemetrySnapshot,
-    CanopyAudioTreeTelemetry, CanopyDirectPathTelemetry,
+    CanopyAcousticSolveStatus, CanopyAudioSampleTelemetry, CanopyAudioTelemetry,
+    CanopyAudioTelemetryDiagnostics, CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry,
+    CanopyDirectPathTelemetry, CanopyExtentAcousticObservation, CanopyOcclusionClassification,
+    CanopyRouteAcousticObservation, CanopySampleAcousticObservation,
 };
 
 mod spatial_sound_manager;
-pub use spatial_sound_manager::SpatialSoundManager;
+pub use spatial_sound_manager::{SpatialAcousticTelemetryEvent, SpatialSoundManager};
 
 mod tree_audio_source;
 pub use tree_audio_source::CanopyAudioVoice;

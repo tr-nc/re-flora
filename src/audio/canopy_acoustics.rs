@@ -11,6 +11,10 @@ const CANOPY_CONTENT_SEED_DOMAIN: u64 = 0x6c65_6166_5f61_7564;
 pub struct CanopyAcousticSampleId(u64);
 
 impl CanopyAcousticSampleId {
+    pub(crate) fn from_stable_value(value: u64) -> Self {
+        Self(value)
+    }
+
     pub fn value(self) -> u64 {
         self.0
     }
@@ -55,7 +59,6 @@ impl CanopyAcousticSample {
         self.weight
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn content_seed(&self) -> u64 {
         self.content_seed
     }
@@ -203,6 +206,7 @@ impl CanopyAcousticDescriptor {
         self.tree_seed
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn content_seed(&self) -> u64 {
         self.content_seed
     }

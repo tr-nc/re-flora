@@ -1,14 +1,17 @@
 use crate::audio::{
-    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAudioGenerationKey,
-    CanopyAudioLifecycleSnapshot, CanopyAudioSampleTelemetry, CanopyAudioTelemetry,
-    CanopyAudioVoice, CanopyDirectPathTelemetry, SpatialSoundManager,
+    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticSampleId,
+    CanopyAcousticSolveStatus, CanopyAudioGenerationKey, CanopyAudioLifecycleSnapshot,
+    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioVoice, CanopyDirectPathTelemetry,
+    CanopyExtentAcousticObservation, CanopyOcclusionClassification, CanopyRouteAcousticObservation,
+    CanopySampleAcousticObservation, SpatialAcousticTelemetryEvent, SpatialSoundManager,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use log::warn;
 use petalsonic::{
+    AcousticOcclusionState, AcousticSolveStatus, AcousticTelemetryDiagnostics,
     DistributedOcclusionProfile, ExtentSample, ExtentSampleId, OcclusionProfile, ResidentClip,
-    SourceExtent,
+    RuntimeDiagnostics, SourceExtent,
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -155,6 +158,93 @@ impl CanopyDistributedEmitterAdapter {
         self.telemetry.set_enabled(enabled);
     }
 
+    pub fn collect_acoustic_telemetry(&mut self) {
+        for event in self.spatial_sound_manager.drain_acoustic_telemetry() {
+            match event {
+                SpatialAcousticTelemetryEvent::ExtentResponse {
+                    source_uuid: Some(source_uuid),
+                    response,
+                } => {
+                    let Some(voice) = self.voices.values().find(|voice| voice.uuid == source_uuid)
+                    else {
+                        continue;
+                    };
+                    let key = voice.key;
+                    let descriptor = voice.descriptor.clone();
+                    self.telemetry.observe_extent_response(
+                        key,
+                        &descriptor,
+                        CanopyExtentAcousticObservation {
+                            voice_id: response.voice_id,
+                            spatial_revision: response.spatial_revision,
+                            geometry_version: response.geometry_version,
+                            response_spatial_revision: response.response_spatial_revision,
+                            response_geometry_version: response.response_geometry_version,
+                            extent_sample_count: response.extent_sample_count,
+                            direct: CanopyRouteAcousticObservation {
+                                samples: response
+                                    .direct
+                                    .samples
+                                    .iter()
+                                    .map(|sample| CanopySampleAcousticObservation {
+                                        sample_id: CanopyAcousticSampleId::from_stable_value(
+                                            sample.sample_id.0,
+                                        ),
+                                        normalized_power_weight: sample.normalized_power_weight,
+                                        world_position: glam::Vec3::new(
+                                            sample.world_position.x,
+                                            sample.world_position.y,
+                                            sample.world_position.z,
+                                        ),
+                                        hit: sample.hit,
+                                        transmission: sample.transmission,
+                                    })
+                                    .collect(),
+                                ray_count: response.direct.ray_count,
+                                cache_hit_count: response.direct.cache_hit_count,
+                                hit_count: response.direct.hit_count,
+                                visible_fraction: response.direct.visible_fraction,
+                                raw_gain: response.direct.raw_gain,
+                                filtered_gain: response.direct.filtered_gain,
+                                classification: match response.direct.classified_state {
+                                    AcousticOcclusionState::Visible => {
+                                        CanopyOcclusionClassification::Visible
+                                    }
+                                    AcousticOcclusionState::Occluded => {
+                                        CanopyOcclusionClassification::Occluded
+                                    }
+                                },
+                                dwell_seconds: response.direct.dwell_seconds,
+                            },
+                            solve_status: match response.solve_status {
+                                AcousticSolveStatus::Solved => CanopyAcousticSolveStatus::Solved,
+                                AcousticSolveStatus::Retained => {
+                                    CanopyAcousticSolveStatus::Retained
+                                }
+                                AcousticSolveStatus::Deferred => {
+                                    CanopyAcousticSolveStatus::Deferred
+                                }
+                            },
+                            cache_age_seconds: response.cache_age_seconds,
+                            budget_member: response.budget_member,
+                            lobe_count: response.lobes.len(),
+                        },
+                    );
+                }
+                SpatialAcousticTelemetryEvent::ExtentResponse {
+                    source_uuid: None, ..
+                } => {}
+                SpatialAcousticTelemetryEvent::SolveDiscarded {
+                    spatial_revision,
+                    geometry_version,
+                } => {
+                    self.telemetry
+                        .record_solve_discard(spatial_revision, geometry_version);
+                }
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub fn observe_direct_path(
         &mut self,
@@ -204,6 +294,18 @@ impl CanopyDistributedEmitterAdapter {
 
     pub fn petal_superseded_solve_count(&self) -> u64 {
         self.spatial_sound_manager.acoustic_superseded_solve_count()
+    }
+
+    pub fn telemetry_diagnostics(&self) -> crate::audio::CanopyAudioTelemetryDiagnostics {
+        self.telemetry.diagnostics()
+    }
+
+    pub fn petal_acoustic_telemetry_diagnostics(&self) -> AcousticTelemetryDiagnostics {
+        self.spatial_sound_manager.acoustic_telemetry_diagnostics()
+    }
+
+    pub fn petal_runtime_diagnostics(&self) -> RuntimeDiagnostics {
+        self.spatial_sound_manager.runtime_diagnostics()
     }
 
     fn spawn_voice(

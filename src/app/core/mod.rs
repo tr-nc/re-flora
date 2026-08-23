@@ -479,12 +479,44 @@ impl App {
         let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
             return;
         };
+        let emitter_count = snapshot
+            .samples
+            .iter()
+            .map(|sample| sample.emitter_uuid)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        let observed_voice_count = snapshot
+            .samples
+            .iter()
+            .filter_map(|sample| sample.direct_path.as_ref().map(|direct| direct.voice_id))
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         log::info!(
-            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trees={} samples={} petal_superseded_solves={}",
+            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trees={} emitters={} observed_voices={} samples={} extent_responses={} solve_discards={} last_discard_spatial_revision={} last_discard_geometry_version={} voice_identity_violations={} revision_rollbacks={} sample_contract_violations={} aggregate_mismatches={} petal_superseded_solves={} telemetry_queue_depth={} telemetry_queue_high_water={} telemetry_drops={} direct_rays={} sample_cache_hits={} processed_extents={} lobes={} retained={} deferred={} render_rejected_rollbacks={}",
             time_seconds,
             snapshot.trees.len(),
+            emitter_count,
+            observed_voice_count,
             snapshot.samples.len(),
+            snapshot.telemetry.extent_response_count,
+            snapshot.telemetry.solve_discard_count,
+            snapshot.telemetry.last_discard_spatial_revision,
+            snapshot.telemetry.last_discard_geometry_version,
+            snapshot.telemetry.voice_identity_violation_count,
+            snapshot.telemetry.revision_rollback_count,
+            snapshot.telemetry.sample_contract_violation_count,
+            snapshot.telemetry.aggregate_mismatch_count,
             snapshot.petal_superseded_solve_count,
+            snapshot.petal_telemetry_queue_depth,
+            snapshot.petal_telemetry_queue_high_water,
+            snapshot.petal_telemetry_dropped_events,
+            snapshot.petal_direct_ray_count,
+            snapshot.petal_sample_cache_hit_count,
+            snapshot.petal_processed_extent_count,
+            snapshot.petal_lobe_count,
+            snapshot.petal_retained_response_count,
+            snapshot.petal_deferred_response_count,
+            snapshot.petal_render_rejected_response_count,
         );
         for tree in snapshot.trees {
             log::info!(
@@ -501,16 +533,19 @@ impl App {
         for sample in snapshot.samples {
             let direct = sample.direct_path.as_ref();
             log::info!(
-                "[AUDIO][CANOPY][SAMPLE] time_seconds={:.6} tree={} generation={} sample={} emitter={} position_tree_voxels={:?} position_world={:?} clearance_voxels={:.6} weight={:.9} lifecycle_power={:.6} content_seed={} phase={:.9} provenance={:?} wind_target={:.6} wind_filtered={:.6} volume_db={:.6} candidate_membership={:?} hit={:?} hit_material={:?} hit_transmission={:?} visible_fraction={:?} raw_gain={:?} filtered_gain={:?} direct_transitions={:?} direct_superseded={:?}",
+                "[AUDIO][CANOPY][SAMPLE] time_seconds={:.6} tree={} generation={} sample={} emitter={} voice={:?} position_tree_voxels={:?} position_world={:?} observed_world={:?} clearance_voxels={:.6} weight={:.9} observed_weight={:?} lifecycle_power={:.6} content_seed={} phase={:.9} provenance={:?} wind_target={:.6} wind_filtered={:.6} volume_db={:.6} candidate_membership={:?} solve_status={:?} hit={:?} hit_material={:?} transmission={:?} visible_fraction={:?} raw_gain={:?} filtered_gain={:?} classification={:?} dwell_seconds={:?} rays={:?} cache_hits={:?} hit_count={:?} cache_age_seconds={:?} spatial_revision={:?} geometry_version={:?} response_spatial_revision={:?} response_geometry_version={:?} lobes={:?} direct_transitions={:?} direct_superseded={:?}",
                 time_seconds,
                 sample.key.tree_id(),
                 sample.key.generation(),
                 sample.key.sample_id().value(),
                 sample.emitter_uuid,
+                direct.map(|value| value.voice_id),
                 sample.position_tree_voxels,
                 sample.position_world,
+                direct.map(|value| value.observed_world_position),
                 sample.clearance_voxels,
                 sample.weight,
+                direct.map(|value| value.normalized_power_weight),
                 sample.lifecycle_power,
                 sample.content_seed,
                 sample.phase,
@@ -519,12 +554,24 @@ impl App {
                 sample.current_wind_response,
                 sample.current_volume_db,
                 direct.map(|value| value.candidate_membership),
+                direct.map(|value| value.solve_status),
                 direct.map(|value| value.hit),
                 direct.and_then(|value| value.hit_material.as_deref()),
-                direct.and_then(|value| value.hit_material_transmission),
+                direct.map(|value| value.transmission),
                 direct.map(|value| value.visible_fraction),
                 direct.map(|value| value.raw_direct_gain),
                 direct.map(|value| value.filtered_direct_gain),
+                direct.map(|value| value.classification),
+                direct.map(|value| value.dwell_seconds),
+                direct.map(|value| value.ray_count),
+                direct.map(|value| value.cache_hit_count),
+                direct.map(|value| value.hit_count),
+                direct.map(|value| value.cache_age_seconds),
+                direct.map(|value| value.spatial_revision),
+                direct.map(|value| value.geometry_version),
+                direct.map(|value| value.response_spatial_revision),
+                direct.map(|value| value.response_geometry_version),
+                direct.map(|value| value.lobe_count),
                 direct.map(|value| value.transition_count),
                 direct.map(|value| value.superseded_response_count),
             );
@@ -2095,6 +2142,7 @@ impl App {
                 {
                     log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
+                self.tree_audio_manager.collect_canopy_acoustic_telemetry();
                 self.update_environmental_acoustics();
                 self.log_canopy_audio_telemetry(time_since_start);
 

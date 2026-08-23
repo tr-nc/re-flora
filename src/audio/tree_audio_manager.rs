@@ -99,6 +99,10 @@ impl TreeAudioManager {
         self.emitter_adapter.set_telemetry_enabled(enabled);
     }
 
+    pub fn collect_canopy_acoustic_telemetry(&mut self) {
+        self.emitter_adapter.collect_acoustic_telemetry();
+    }
+
     /// Consumer hook for direct-path diagnostics from the forthcoming PetalSonic distributed
     /// emitter API. Keeping this typed avoids inventing a temporary Petal API in Re: Flora.
     #[allow(dead_code)]
@@ -112,6 +116,9 @@ impl TreeAudioManager {
 
     pub fn canopy_telemetry_snapshot(&self) -> Option<CanopyAudioTelemetrySnapshot> {
         let samples = self.emitter_adapter.telemetry_samples()?;
+        let telemetry = self.emitter_adapter.telemetry_diagnostics();
+        let petal_telemetry = self.emitter_adapter.petal_acoustic_telemetry_diagnostics();
+        let petal_runtime = self.emitter_adapter.petal_runtime_diagnostics();
         let trees = self
             .lifecycle
             .diagnostics_snapshot()
@@ -121,7 +128,19 @@ impl TreeAudioManager {
         Some(CanopyAudioTelemetrySnapshot {
             trees,
             samples,
+            telemetry,
             petal_superseded_solve_count: self.emitter_adapter.petal_superseded_solve_count(),
+            petal_telemetry_queue_depth: petal_telemetry.queue_depth,
+            petal_telemetry_queue_high_water: petal_telemetry.queue_high_water,
+            petal_telemetry_dropped_events: petal_telemetry.dropped_events,
+            petal_direct_ray_count: petal_runtime.acoustic_direct_ray_count,
+            petal_sample_cache_hit_count: petal_runtime.acoustic_sample_cache_hit_count,
+            petal_processed_extent_count: petal_runtime.acoustic_processed_extent_count,
+            petal_lobe_count: petal_runtime.acoustic_lobe_count,
+            petal_retained_response_count: petal_runtime.acoustic_retained_response_count,
+            petal_deferred_response_count: petal_runtime.acoustic_deferred_response_count,
+            petal_render_rejected_response_count: petal_runtime
+                .acoustic_render_rejected_response_count,
         })
     }
 
