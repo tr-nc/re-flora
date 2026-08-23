@@ -628,6 +628,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/lighting/local_light_abi.comp",
+        source_path: "shader/slang/local_lighting_abi.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/tracer.comp",
         source_path: "shader/slang/tracer.slang",
         module_path: "shader/slang",

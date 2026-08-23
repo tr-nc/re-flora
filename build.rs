@@ -694,6 +694,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/ddgi/atlas_reduce.comp",
     "shader/ddgi/voxel_visibility_pack.comp",
     "shader/ddgi/voxel_visibility_blocks.comp",
+    "shader/lighting/local_light_abi.comp",
     "shader/tracer/tracer.comp",
     "shader/tracer/tracer_shadow.comp",
     "shader/tracer/leaf_shadow_temporal.comp",

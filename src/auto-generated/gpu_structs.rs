@@ -760,6 +760,37 @@ pub struct InstancesToOccupancyInfo {
     pub _pad2: [u8; 8],
 }
 
+/// Auto-generated from `U_LightGpu` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LightGpu {
+    pub abi_version: u32,
+    pub kind: u32,
+    pub stable_id_slot: u32,
+    pub stable_id_generation: u32,
+    pub position: [f32; 3],
+    pub range: f32,
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub direction: [f32; 3],
+    pub source_radius: f32,
+    pub shape_params: [f32; 4],
+}
+
+/// Auto-generated from `U_LocalLightInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightInfo {
+    pub abi_version: u32,
+    pub count: u32,
+    pub capacity: u32,
+    pub overflow_count: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub transport_revision: u32,
+    pub flags: u32,
+}
+
 /// Auto-generated from `U_MakeSurfaceInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

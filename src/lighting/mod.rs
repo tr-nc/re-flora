@@ -1,5 +1,12 @@
+use bytemuck::Zeroable;
 use glam::{Vec2, Vec3};
 use std::sync::Arc;
+
+use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
+
+pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 1;
+pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 1;
+const LOCAL_LIGHT_KIND_POINT: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct LightId {
@@ -422,6 +429,59 @@ pub(crate) struct LocalLightBudgetResult {
     overflow: Vec<LocalLightOverflow>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct LocalLightGpuSnapshot {
+    pub info: LocalLightInfo,
+    pub lights: [LightGpu; LOCAL_LIGHT_GPU_CAPACITY],
+    pub overflow: Vec<LocalLightOverflow>,
+}
+
+impl LocalLightGpuSnapshot {
+    pub(crate) fn from_authoritative(
+        snapshot: &LocalLightSnapshot,
+        budget: LocalLightBudget,
+        transport_revision: u32,
+    ) -> Self {
+        let budget = LocalLightBudget::point_lights(
+            budget.point_light_capacity.min(LOCAL_LIGHT_GPU_CAPACITY),
+        );
+        let result = snapshot.apply_budget(budget);
+        let mut lights = std::array::from_fn(|_| LightGpu::zeroed());
+        for (gpu, record) in lights.iter_mut().zip(result.accepted.iter().copied()) {
+            let LocalLight::Point(point) = record.light else {
+                unreachable!("Phase 2 GPU budget only accepts point lights")
+            };
+            *gpu = LightGpu {
+                abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+                kind: LOCAL_LIGHT_KIND_POINT,
+                stable_id_slot: record.id.slot,
+                stable_id_generation: record.id.generation,
+                position: point.position.to_array(),
+                range: point.range,
+                color: point.color.to_array(),
+                intensity: point.intensity,
+                direction: Vec3::ZERO.to_array(),
+                source_radius: point.source_radius,
+                shape_params: [0.0; 4],
+            };
+        }
+        Self {
+            info: LocalLightInfo {
+                abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+                count: result.accepted.len() as u32,
+                capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
+                overflow_count: result.overflow.len() as u32,
+                source_revision_low: snapshot.revision as u32,
+                source_revision_high: (snapshot.revision >> 32) as u32,
+                transport_revision,
+                flags: 0,
+            },
+            lights,
+            overflow: result.overflow,
+        }
+    }
+}
+
 impl LocalLightBudgetResult {
     pub(crate) fn accepted(&self) -> &[LocalLightRecord] {
         &self.accepted
@@ -697,5 +757,33 @@ mod tests {
                 .max_element()
                 < 1.0e-6
         );
+    }
+
+    #[test]
+    fn versioned_gpu_snapshot_preserves_stable_identity_and_reports_overflow() {
+        use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
+
+        assert_eq!(std::mem::size_of::<LightGpu>(), 80);
+        assert_eq!(std::mem::size_of::<LocalLightInfo>(), 32);
+
+        let mut lights = LocalLightDomain::default();
+        let accepted_id = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
+        let overflow_id = lights.add(point(Vec3::new(0.8, 0.4, 0.6)));
+        let gpu = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            7,
+        );
+
+        assert_eq!(gpu.info.abi_version, LOCAL_LIGHT_GPU_ABI_VERSION);
+        assert_eq!(gpu.info.count, 1);
+        assert_eq!(gpu.info.capacity, 1);
+        assert_eq!(gpu.info.overflow_count, 1);
+        assert_eq!(gpu.info.source_revision_low, 2);
+        assert_eq!(gpu.info.source_revision_high, 0);
+        assert_eq!(gpu.info.transport_revision, 7);
+        assert_eq!(gpu.lights[0].stable_id_slot, accepted_id.slot());
+        assert_eq!(gpu.lights[0].stable_id_generation, accepted_id.generation());
+        assert_eq!(gpu.overflow[0].id, overflow_id);
     }
 }
