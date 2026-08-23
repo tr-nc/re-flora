@@ -145,6 +145,7 @@ impl FootstepWetObservation {
         self,
         acoustics_enabled_at_play: bool,
         acoustics_enabled_at_retirement: bool,
+        dropped_voice_telemetry: u64,
     ) -> FootstepWetOutcome {
         match self.response_timing {
             EnvironmentResponseTiming::ReadyAtFirstRender => {
@@ -158,6 +159,9 @@ impl FootstepWetObservation {
             {
                 FootstepWetOutcome::AcousticsDisabled
             }
+            EnvironmentResponseTiming::Unobserved if dropped_voice_telemetry > 0 => {
+                FootstepWetOutcome::TelemetryIncomplete
+            }
             EnvironmentResponseTiming::Unobserved => FootstepWetOutcome::MissingBeforeRetirement,
         }
     }
@@ -166,6 +170,7 @@ impl FootstepWetObservation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FootstepWetOutcome {
     AcousticsDisabled,
+    TelemetryIncomplete,
     MissingBeforeRetirement,
     ResponseReadyAtFirstRender,
     ResponseArrivedDuringPlayback,
@@ -428,13 +433,13 @@ impl LocalPlayerFootstepAudio {
         for prepared_voice in prepared.spatial {
             let event = prepared_voice.event;
             let options = prepared_voice.routing.play_options(event.event_seq);
+            let acoustics_at_play = self.spatial_sound_manager.acoustic_pipeline_snapshot();
             match self.spatial_sound_manager.play_controlled_transient(
                 prepared_voice.emitter,
                 options,
                 PlaybackTag(event.event_seq),
             ) {
                 Ok(control) => {
-                    let acoustics_at_play = self.spatial_sound_manager.acoustic_pipeline_snapshot();
                     self.active.activate(ManagedFootstepVoice::new(
                         event.event_seq,
                         prepared_voice.emitter,
@@ -729,6 +734,7 @@ impl LocalPlayerFootstepAudio {
         let outcome = voice.wet_observation.outcome(
             voice.acoustics_at_play.enabled,
             acoustics_at_retirement.enabled,
+            activity.dropped_voice_telemetry,
         );
         let environment_send_gain_linear = 10.0_f32.powf(LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB / 20.0);
         let environment_pre_acoustics_gain_db =
@@ -746,7 +752,7 @@ impl LocalPlayerFootstepAudio {
             .response
             .map(|response| response.age.as_secs_f64() * 1000.0);
         let message = format!(
-            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} early_reflections=unavailable late_reverb=unavailable post_dsp_wet_gain=unavailable acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
+            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} early_reflections=unavailable late_reverb=unavailable post_dsp_wet_gain=unavailable acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} dropped_voice_telemetry_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
             voice.event_seq,
             reason,
             outcome,
@@ -764,12 +770,14 @@ impl LocalPlayerFootstepAudio {
             activity.solves,
             activity.superseded,
             activity.published,
+            activity.dropped_voice_telemetry,
             acoustics_at_retirement.response_spatial_revision,
             acoustics_at_retirement.response_geometry_version,
             acoustics_at_retirement.response_age_ms,
         );
         match outcome {
-            FootstepWetOutcome::MissingBeforeRetirement => log::warn!("{message}"),
+            FootstepWetOutcome::TelemetryIncomplete
+            | FootstepWetOutcome::MissingBeforeRetirement => log::warn!("{message}"),
             FootstepWetOutcome::AcousticsDisabled
             | FootstepWetOutcome::ResponseReadyAtFirstRender
             | FootstepWetOutcome::ResponseArrivedDuringPlayback => log::info!("{message}"),
@@ -865,6 +873,7 @@ mod tests {
                 response_spatial_revision: 9,
                 response_geometry_version: 7,
                 response_age_ms: 12,
+                dropped_voice_telemetry_count: 0,
             },
             deadline,
         )
@@ -884,7 +893,7 @@ mod tests {
         observation.record_first_render(41, None);
 
         assert_eq!(
-            observation.outcome(true, true),
+            observation.outcome(true, true, 0),
             FootstepWetOutcome::MissingBeforeRetirement
         );
         assert_eq!(
@@ -900,7 +909,7 @@ mod tests {
         let mut ready_at_onset = FootstepWetObservation::default();
         ready_at_onset.record_first_render(42, Some(response));
         assert_eq!(
-            ready_at_onset.outcome(true, true),
+            ready_at_onset.outcome(true, true, 0),
             FootstepWetOutcome::ResponseReadyAtFirstRender
         );
         assert_eq!(ready_at_onset.response, Some(response));
@@ -909,7 +918,7 @@ mod tests {
         arrived_later.record_first_render(43, None);
         arrived_later.record_environment_response(response);
         assert_eq!(
-            arrived_later.outcome(true, true),
+            arrived_later.outcome(true, true, 0),
             FootstepWetOutcome::ResponseArrivedDuringPlayback
         );
         assert_eq!(arrived_later.response, Some(response));
@@ -921,8 +930,19 @@ mod tests {
         observation.record_first_render(44, None);
 
         assert_eq!(
-            observation.outcome(false, false),
+            observation.outcome(false, false, 0),
             FootstepWetOutcome::AcousticsDisabled
+        );
+    }
+
+    #[test]
+    fn wet_path_marks_missing_response_telemetry_as_incomplete_when_events_were_dropped() {
+        let mut observation = FootstepWetObservation::default();
+        observation.record_first_render(45, None);
+
+        assert_eq!(
+            observation.outcome(true, true, 1),
+            FootstepWetOutcome::TelemetryIncomplete
         );
     }
 

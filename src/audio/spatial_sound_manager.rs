@@ -63,6 +63,7 @@ pub(crate) struct AcousticPipelineSnapshot {
     pub(crate) response_spatial_revision: u64,
     pub(crate) response_geometry_version: u64,
     pub(crate) response_age_ms: u64,
+    pub(crate) dropped_voice_telemetry_count: u64,
 }
 
 impl AcousticPipelineSnapshot {
@@ -75,6 +76,9 @@ impl AcousticPipelineSnapshot {
             published: self
                 .published_response_count
                 .saturating_sub(earlier.published_response_count),
+            dropped_voice_telemetry: self
+                .dropped_voice_telemetry_count
+                .saturating_sub(earlier.dropped_voice_telemetry_count),
         }
     }
 }
@@ -84,6 +88,7 @@ pub(crate) struct AcousticPipelineActivity {
     pub(crate) solves: u64,
     pub(crate) superseded: u64,
     pub(crate) published: u64,
+    pub(crate) dropped_voice_telemetry: u64,
 }
 
 /// Re:Flora's narrow adapter around the world-owned PetalSonic runtime.
@@ -477,6 +482,7 @@ impl SpatialSoundManager {
 
     pub(crate) fn acoustic_pipeline_snapshot(&self) -> AcousticPipelineSnapshot {
         let diagnostics = self.world.diagnostics();
+        let voice_telemetry = self.world.voice_telemetry_diagnostics();
         AcousticPipelineSnapshot {
             enabled: self.world.environmental_acoustics_enabled(),
             solve_count: diagnostics.acoustic_solve_count,
@@ -485,6 +491,7 @@ impl SpatialSoundManager {
             response_spatial_revision: diagnostics.acoustic_response_spatial_revision,
             response_geometry_version: diagnostics.acoustic_response_geometry_version,
             response_age_ms: diagnostics.acoustic_response_age_ms,
+            dropped_voice_telemetry_count: voice_telemetry.dropped_events,
         }
     }
 
@@ -598,6 +605,7 @@ mod tests {
         solves: u64,
         superseded: u64,
         published: u64,
+        dropped_voice_telemetry: u64,
     ) -> AcousticPipelineSnapshot {
         AcousticPipelineSnapshot {
             enabled,
@@ -607,6 +615,7 @@ mod tests {
             response_spatial_revision: 0,
             response_geometry_version: 0,
             response_age_ms: 0,
+            dropped_voice_telemetry_count: dropped_voice_telemetry,
         }
     }
 
@@ -620,12 +629,13 @@ mod tests {
 
     #[test]
     fn acoustic_activity_uses_monotonic_counter_deltas() {
-        let start = acoustic_snapshot(true, 100, 90, 10);
-        let end = acoustic_snapshot(true, 107, 97, 10);
+        let start = acoustic_snapshot(true, 100, 90, 10, 2);
+        let end = acoustic_snapshot(true, 107, 97, 10, 5);
 
         let activity = end.activity_since(start);
         assert_eq!(activity.solves, 7);
         assert_eq!(activity.superseded, 7);
         assert_eq!(activity.published, 0);
+        assert_eq!(activity.dropped_voice_telemetry, 3);
     }
 }
