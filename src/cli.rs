@@ -40,6 +40,7 @@ pub enum MonitorScorePreference {
 pub enum TerrainConnectivityBenchMode {
     Existing,
     Correct,
+    Bounded,
 }
 
 impl TerrainConnectivityBenchMode {
@@ -47,6 +48,7 @@ impl TerrainConnectivityBenchMode {
         match value {
             "existing" => Some(Self::Existing),
             "correct" => Some(Self::Correct),
+            "bounded" => Some(Self::Bounded),
             _ => None,
         }
     }
@@ -55,6 +57,7 @@ impl TerrainConnectivityBenchMode {
         match self {
             Self::Existing => "existing",
             Self::Correct => "correct",
+            Self::Bounded => "bounded",
         }
     }
 }
@@ -65,6 +68,7 @@ pub struct TerrainConnectivityBenchOptions {
     pub available_particles: usize,
     pub warmup_frames: u32,
     pub observe_frames: u32,
+    pub voxel_budget: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -554,7 +558,7 @@ impl AppOptions {
             .map(|value| {
                 TerrainConnectivityBenchMode::from_cli_value(&value).ok_or_else(|| {
                     format!(
-                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing or correct."
+                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing, correct, or bounded."
                     )
                 })
             })
@@ -571,6 +575,9 @@ impl AppOptions {
                 observe_frames: parse_u32_after("--terrain-connectivity-bench-observe-frames")
                     .unwrap_or(DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES)
                     .max(1),
+                voxel_budget: parse_u32_after("--terrain-connectivity-bench-voxel-budget")
+                    .unwrap_or(16_384)
+                    .max(1) as usize,
             });
         if terrain_connectivity_bench.is_none()
             && args.iter().any(|arg| {
@@ -579,6 +586,7 @@ impl AppOptions {
                     "--terrain-connectivity-bench-available-particles"
                         | "--terrain-connectivity-bench-warmup-frames"
                         | "--terrain-connectivity-bench-observe-frames"
+                        | "--terrain-connectivity-bench-voxel-budget"
                 )
             })
         {
@@ -946,7 +954,7 @@ Options:
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)
-  --terrain-connectivity-bench <existing|correct>
+  --terrain-connectivity-bench <existing|correct|bounded>
                               Run the deterministic 437,205-voxel release benchmark
   --terrain-connectivity-bench-available-particles <N>
                               Set actual free particle slots at release (default/max: 16384)
@@ -954,6 +962,8 @@ Options:
                               Settled frames before release (default: 600)
   --terrain-connectivity-bench-observe-frames <N>
                               Frames retained after release (default: 180)
+  --terrain-connectivity-bench-voxel-budget <N>
+                              Per-frame topology voxel budget in bounded mode (default: 16384)
   --print-log-dir             Print the per-worktree run log directory and exit
   --latest-log                Print the latest run log path and exit
   --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
@@ -1093,6 +1103,7 @@ mod tests {
                 available_particles: 8192,
                 warmup_frames: 120,
                 observe_frames: 45,
+                voxel_budget: 16_384,
             })
         );
     }

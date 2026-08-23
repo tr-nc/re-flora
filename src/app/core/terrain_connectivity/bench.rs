@@ -22,12 +22,169 @@ const FIXTURE_THICKNESS: u32 = 5;
 pub(super) const FIXTURE_VOXELS: usize = 437_205;
 const PRE_EVENT_FRAME_SAMPLES: usize = 120;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum BenchState {
     InstallFixture,
-    Warmup { ready_after_frame: u64 },
-    Observing { event_frame: u64 },
+    Warmup {
+        ready_after_frame: u64,
+    },
+    Tracing {
+        release_frame: u64,
+        revision_before: u32,
+        snapshot_readback_us: f64,
+        classification_us: f64,
+    },
+    ValidateAtomicity {
+        release_frame: u64,
+        revision_before: u32,
+        snapshot_readback_us: f64,
+        classification_us: f64,
+    },
+    Commit {
+        release_frame: u64,
+        revision_before: u32,
+        snapshot_readback_us: f64,
+        classification_us: f64,
+        atomic_validation_us: f64,
+    },
+    Observing {
+        event_frame: u64,
+    },
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoundedDisposition {
+    Pending,
+    Detached,
+    Anchored,
+    Deferred,
+}
+
+impl BoundedDisposition {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Detached => "detached",
+            Self::Anchored => "anchored",
+            Self::Deferred => "deferred",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BoundedStep {
+    disposition: BoundedDisposition,
+    processed: usize,
+}
+
+struct BoundedTopologyJob {
+    bound: UAabb3,
+    dim: UVec3,
+    snapshot: Vec<u8>,
+    visited: Vec<bool>,
+    queue: VecDeque<u32>,
+    component: Vec<u32>,
+    terminal: Option<BoundedDisposition>,
+}
+
+impl BoundedTopologyJob {
+    fn new(bound: UAabb3, snapshot: Vec<u8>, seed: UVec3) -> anyhow::Result<Self> {
+        let dim = bound.dimensions();
+        let expected = usize::try_from(voxel_count(bound))?;
+        anyhow::ensure!(snapshot.len() == expected);
+        anyhow::ensure!(seed.cmpge(bound.min()).all() && seed.cmplt(bound.max()).all());
+        let local = seed - bound.min();
+        let seed_index = local.x + dim.x * (local.y + dim.y * local.z);
+        anyhow::ensure!(snapshot[seed_index as usize] & VOXEL_TYPE_MASK as u8 != 0);
+        let mut visited = vec![false; expected];
+        visited[seed_index as usize] = true;
+        Ok(Self {
+            bound,
+            dim,
+            snapshot,
+            visited,
+            queue: VecDeque::from([seed_index]),
+            component: Vec::with_capacity(FIXTURE_VOXELS),
+            terminal: None,
+        })
+    }
+
+    fn advance(&mut self, budget: usize) -> BoundedStep {
+        if let Some(disposition) = self.terminal {
+            return BoundedStep {
+                disposition,
+                processed: 0,
+            };
+        }
+        let mut processed = 0;
+        while processed < budget {
+            let Some(index) = self.queue.pop_front() else {
+                self.terminal = Some(BoundedDisposition::Detached);
+                break;
+            };
+            processed += 1;
+            self.component.push(index);
+            let local = self.position_of(index);
+            let world = self.bound.min() + local;
+            if world.y == 0 {
+                self.terminal = Some(BoundedDisposition::Anchored);
+                break;
+            }
+            if local.x == 0
+                || local.y == 0
+                || local.z == 0
+                || local.x + 1 == self.dim.x
+                || local.y + 1 == self.dim.y
+                || local.z + 1 == self.dim.z
+            {
+                self.terminal = Some(BoundedDisposition::Deferred);
+                break;
+            }
+
+            let neighbors = [
+                local - UVec3::X,
+                local + UVec3::X,
+                local - UVec3::Y,
+                local + UVec3::Y,
+                local - UVec3::Z,
+                local + UVec3::Z,
+            ];
+            for neighbor in neighbors {
+                let neighbor_index = self.index_of(neighbor);
+                if !self.visited[neighbor_index as usize]
+                    && self.snapshot[neighbor_index as usize] & VOXEL_TYPE_MASK as u8 != 0
+                {
+                    self.visited[neighbor_index as usize] = true;
+                    self.queue.push_back(neighbor_index);
+                }
+            }
+        }
+        let disposition = self.terminal.unwrap_or(BoundedDisposition::Pending);
+        BoundedStep {
+            disposition,
+            processed,
+        }
+    }
+
+    fn index_of(&self, local: UVec3) -> u32 {
+        local.x + self.dim.x * (local.y + self.dim.y * local.z)
+    }
+
+    fn position_of(&self, index: u32) -> UVec3 {
+        let plane = self.dim.x * self.dim.y;
+        let z = index / plane;
+        let remainder = index % plane;
+        UVec3::new(remainder % self.dim.x, remainder / self.dim.x, z)
+    }
+
+    fn pending_len(&self) -> usize {
+        self.queue.len()
+    }
+
+    fn component_len(&self) -> usize {
+        self.component.len()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -82,6 +239,8 @@ struct EventStages {
     spawned_particles: usize,
     revision_before: u32,
     revision_after: u32,
+    release_to_commit_frames: u64,
+    atomic_validation_us: f64,
 }
 
 pub(in crate::app::core) struct TerrainConnectivityBench {
@@ -92,6 +251,7 @@ pub(in crate::app::core) struct TerrainConnectivityBench {
     gpu_source_frame_by_slot: Vec<Option<u64>>,
     high_water: QueueHighWater,
     stages: Option<EventStages>,
+    bounded_job: Option<BoundedTopologyJob>,
 }
 
 impl TerrainConnectivityBench {
@@ -104,6 +264,7 @@ impl TerrainConnectivityBench {
             gpu_source_frame_by_slot: Vec::new(),
             high_water: QueueHighWater::default(),
             stages: None,
+            bounded_job: None,
         }
     }
 
@@ -162,11 +323,39 @@ impl TerrainConnectivityBench {
                         app.particle_system.available_capacity(),
                         self.options.available_particles,
                     );
-                    let event_frame = frame;
-                    let stages = run_release_event(app, self.options.mode)?;
-                    self.stages = Some(stages);
-                    self.state = BenchState::Observing { event_frame };
-                    log_event(self.options, event_frame, stages);
+                    if self.options.mode == TerrainConnectivityBenchMode::Bounded {
+                        let revision_before = app.visible_terrain_revision;
+                        let snapshot_started = Instant::now();
+                        let bound = isolation_bound();
+                        let snapshot = app
+                            .plain_builder
+                            .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
+                        let snapshot_readback_us =
+                            snapshot_started.elapsed().as_secs_f64() * 1_000_000.0;
+                        self.bounded_job =
+                            Some(BoundedTopologyJob::new(bound, snapshot, FIXTURE_ORIGIN)?);
+                        self.state = BenchState::Tracing {
+                            release_frame: frame,
+                            revision_before,
+                            snapshot_readback_us,
+                            classification_us: 0.0,
+                        };
+                        log::info!(
+                            "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=job_start mode=bounded release_frame={} revision={} snapshot_voxels={} snapshot_readback_us={:.0} voxel_budget={} available_particles={}",
+                            frame,
+                            revision_before,
+                            voxel_count(bound),
+                            snapshot_readback_us,
+                            self.options.voxel_budget,
+                            app.particle_system.available_capacity(),
+                        );
+                    } else {
+                        let event_frame = frame;
+                        let stages = run_release_event(app, self.options.mode)?;
+                        self.stages = Some(stages);
+                        self.state = BenchState::Observing { event_frame };
+                        log_event(self.options, event_frame, stages);
+                    }
                 } else if frame.is_multiple_of(120) {
                     log::info!(
                         "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=warmup frame={} ready_after={} contree_idle={} terrain_collider_pending={} water_ready={} ddgi_ready={} revision={}",
@@ -180,6 +369,117 @@ impl TerrainConnectivityBench {
                         app.visible_terrain_revision,
                     );
                 }
+            }
+            BenchState::Tracing {
+                release_frame,
+                revision_before,
+                snapshot_readback_us,
+                mut classification_us,
+            } => {
+                anyhow::ensure!(
+                    app.visible_terrain_revision == revision_before,
+                    "bounded topology input revision changed while pending"
+                );
+                let step_started = Instant::now();
+                let job = self
+                    .bounded_job
+                    .as_mut()
+                    .context("bounded topology state lost its job")?;
+                let step = job.advance(self.options.voxel_budget);
+                let step_us = step_started.elapsed().as_secs_f64() * 1_000_000.0;
+                classification_us += step_us;
+                log::info!(
+                    "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=job_frame mode=bounded release_frame={} frame={} relative={} voxel_budget={} processed={} processed_total={} pending={} step_us={:.0} classification_us={:.0} disposition={} visible_revision={}",
+                    release_frame,
+                    frame,
+                    frame.saturating_sub(release_frame),
+                    self.options.voxel_budget,
+                    step.processed,
+                    job.component_len(),
+                    job.pending_len(),
+                    step_us,
+                    classification_us,
+                    step.disposition.label(),
+                    app.visible_terrain_revision,
+                );
+                match step.disposition {
+                    BoundedDisposition::Pending => {
+                        self.state = BenchState::Tracing {
+                            release_frame,
+                            revision_before,
+                            snapshot_readback_us,
+                            classification_us,
+                        };
+                    }
+                    BoundedDisposition::Detached => {
+                        self.state = BenchState::ValidateAtomicity {
+                            release_frame,
+                            revision_before,
+                            snapshot_readback_us,
+                            classification_us,
+                        };
+                    }
+                    BoundedDisposition::Anchored | BoundedDisposition::Deferred => {
+                        anyhow::bail!(
+                            "bounded detached fixture ended as {}",
+                            step.disposition.label()
+                        );
+                    }
+                }
+            }
+            BenchState::ValidateAtomicity {
+                release_frame,
+                revision_before,
+                snapshot_readback_us,
+                classification_us,
+            } => {
+                anyhow::ensure!(app.visible_terrain_revision == revision_before);
+                let validation_started = Instant::now();
+                let before_commit = count_fixture_solids(app)?;
+                let atomic_validation_us = validation_started.elapsed().as_secs_f64() * 1_000_000.0;
+                anyhow::ensure!(
+                    before_commit == FIXTURE_VOXELS,
+                    "bounded topology modified live terrain while pending: remaining={before_commit}"
+                );
+                log::info!(
+                    "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=atomic_check mode=bounded release_frame={} frame={} remaining_fixture_voxels={} visible_revision={} validation_us={:.0}",
+                    release_frame,
+                    frame,
+                    before_commit,
+                    app.visible_terrain_revision,
+                    atomic_validation_us,
+                );
+                self.state = BenchState::Commit {
+                    release_frame,
+                    revision_before,
+                    snapshot_readback_us,
+                    classification_us,
+                    atomic_validation_us,
+                };
+            }
+            BenchState::Commit {
+                release_frame,
+                revision_before,
+                snapshot_readback_us,
+                classification_us,
+                atomic_validation_us,
+            } => {
+                let event_frame = frame;
+                let stages = run_bounded_commit(
+                    app,
+                    self.options.available_particles,
+                    self.bounded_job
+                        .take()
+                        .context("bounded topology commit lost its job")?,
+                    release_frame,
+                    revision_before,
+                    snapshot_readback_us,
+                    classification_us,
+                    atomic_validation_us,
+                )?;
+                self.stages = Some(stages);
+                self.state = BenchState::Observing { event_frame };
+                log_event(self.options, event_frame, stages);
             }
             BenchState::Observing { .. } | BenchState::Complete => {}
         }
@@ -223,7 +523,11 @@ impl TerrainConnectivityBench {
             dropped: results.dropped_scope_count as usize,
         };
         match self.state {
-            BenchState::InstallFixture | BenchState::Warmup { .. } => {
+            BenchState::InstallFixture
+            | BenchState::Warmup { .. }
+            | BenchState::Tracing { .. }
+            | BenchState::ValidateAtomicity { .. }
+            | BenchState::Commit { .. } => {
                 push_bounded(&mut self.pre_event_gpu, record);
             }
             BenchState::Observing { event_frame } => {
@@ -258,7 +562,11 @@ impl TerrainConnectivityBench {
             visible_revision: app.visible_terrain_revision,
         };
         match self.state {
-            BenchState::InstallFixture | BenchState::Warmup { .. } => {
+            BenchState::InstallFixture
+            | BenchState::Warmup { .. }
+            | BenchState::Tracing { .. }
+            | BenchState::ValidateAtomicity { .. }
+            | BenchState::Commit { .. } => {
                 push_bounded(&mut self.pre_event_cpu, record);
                 Ok(false)
             }
@@ -296,7 +604,8 @@ impl TerrainConnectivityBench {
                     let remaining = count_fixture_solids(app)?;
                     let expected = match self.options.mode {
                         TerrainConnectivityBenchMode::Existing => FIXTURE_VOXELS,
-                        TerrainConnectivityBenchMode::Correct => 0,
+                        TerrainConnectivityBenchMode::Correct
+                        | TerrainConnectivityBenchMode::Bounded => 0,
                     };
                     anyhow::ensure!(
                         remaining == expected,
@@ -448,6 +757,89 @@ fn run_release_event(
     })
 }
 
+fn run_bounded_commit(
+    app: &mut App,
+    expected_available_particles: usize,
+    mut job: BoundedTopologyJob,
+    release_frame: u64,
+    revision_before: u32,
+    snapshot_readback_us: f64,
+    classification_us: f64,
+    atomic_validation_us: f64,
+) -> anyhow::Result<EventStages> {
+    let total_started = Instant::now();
+    anyhow::ensure!(
+        app.visible_terrain_revision == revision_before,
+        "bounded topology commit revision changed from {} to {}",
+        revision_before,
+        app.visible_terrain_revision,
+    );
+    anyhow::ensure!(
+        app.particle_system.available_capacity() == expected_available_particles,
+        "bounded topology particle availability drifted"
+    );
+    anyhow::ensure!(
+        job.terminal == Some(BoundedDisposition::Detached) && job.component.len() == FIXTURE_VOXELS,
+        "bounded topology commit is not one complete detached fixture"
+    );
+    let sampling_started = Instant::now();
+    let sampled_count = expected_available_particles.min(job.component.len());
+    let visual_voxels = (0..sampled_count)
+        .map(|sample| {
+            let index = job.component[sample * job.component.len() / sampled_count];
+            let world = job.bound.min() + job.position_of(index);
+            (world, job.snapshot[index as usize] & VOXEL_TYPE_MASK as u8)
+        })
+        .collect::<Vec<_>>();
+    let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let invalidation_started = Instant::now();
+    for &index in &job.component {
+        job.snapshot[index as usize] = 0;
+    }
+    app.plain_builder.write_chunk_atlas_region(
+        job.bound.min(),
+        job.bound.dimensions(),
+        &job.snapshot,
+    )?;
+    let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let publication_started = Instant::now();
+    let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+        fixture_bound(),
+    )])?
+    .context("bounded fixture invalidation has no visible terrain chunks")?;
+    app.publish_visible_terrain(change)?;
+    let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let particle_started = Instant::now();
+    let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
+    let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
+    anyhow::ensure!(spawned_particles == visual_voxels.len());
+
+    Ok(EventStages {
+        total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
+        primary_readback_us: snapshot_readback_us,
+        classification_us,
+        sampling_us,
+        invalidation_us,
+        publication_us,
+        particle_spawn_us,
+        classified_voxels: job.component.len(),
+        invalidated_voxels: job.component.len(),
+        sampled_voxels: visual_voxels.len(),
+        spawned_particles,
+        revision_before,
+        revision_after: app.visible_terrain_revision,
+        release_to_commit_frames: app
+            .time_info
+            .total_frame_count()
+            .saturating_sub(release_frame),
+        atomic_validation_us,
+        ..EventStages::default()
+    })
+}
+
 fn install_fixture(app: &mut App) -> anyhow::Result<()> {
     let isolation = isolation_bound();
     let isolation_data = vec![0; voxel_count(isolation) as usize];
@@ -572,7 +964,7 @@ fn fixture_edit_bound() -> UAabb3 {
 
 fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: EventStages) {
     log::info!(
-        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={}",
+        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} atomic_validation_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={} release_to_commit_frames={}",
         options.mode.label(),
         frame,
         options.available_particles,
@@ -582,6 +974,7 @@ fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: Event
         stages.primary_readback_us,
         stages.trace_readback_us,
         stages.classification_us,
+        stages.atomic_validation_us,
         stages.sampling_us,
         stages.invalidation_us,
         stages.publication_us,
@@ -593,6 +986,7 @@ fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: Event
         stages.spawned_particles,
         stages.revision_before,
         stages.revision_after,
+        stages.release_to_commit_frames,
     );
 }
 
@@ -640,6 +1034,26 @@ fn push_bounded<T>(records: &mut VecDeque<T>, record: T) {
 mod tests {
     use super::*;
 
+    fn fixture_job() -> BoundedTopologyJob {
+        let bound = isolation_bound();
+        let mut snapshot = vec![0; voxel_count(bound) as usize];
+        let fixture = generate_hollow_canopy();
+        for z in 0..FIXTURE_DIM.z {
+            for y in 0..FIXTURE_DIM.y {
+                for x in 0..FIXTURE_DIM.x {
+                    let fixture_index = (x + FIXTURE_DIM.x * (y + FIXTURE_DIM.y * z)) as usize;
+                    let world = FIXTURE_ORIGIN + UVec3::new(x, y, z);
+                    let local = world - bound.min();
+                    let index = (local.x
+                        + bound.dimensions().x * (local.y + bound.dimensions().y * local.z))
+                        as usize;
+                    snapshot[index] = fixture[fixture_index];
+                }
+            }
+        }
+        BoundedTopologyJob::new(bound, snapshot, FIXTURE_ORIGIN).unwrap()
+    }
+
     #[test]
     fn deterministic_fixture_has_exact_requested_size() {
         let voxels = generate_hollow_canopy();
@@ -659,5 +1073,70 @@ mod tests {
         assert_eq!(component.len(), 20_000);
         assert_eq!(visual.len(), PARTICLE_CAPACITY);
         assert_eq!(deterministic_visual_sample(&component, 0).len(), 0);
+    }
+
+    #[test]
+    fn oversized_bounded_trace_is_explicitly_pending_then_detached() {
+        let mut job = fixture_job();
+        let first = job.advance(PARTICLE_CAPACITY);
+        assert_eq!(first.disposition, BoundedDisposition::Pending);
+        assert_eq!(first.processed, PARTICLE_CAPACITY);
+        assert_eq!(job.component_len(), PARTICLE_CAPACITY);
+        while job.advance(PARTICLE_CAPACITY).disposition == BoundedDisposition::Pending {}
+        assert_eq!(job.terminal, Some(BoundedDisposition::Detached));
+        assert_eq!(job.component_len(), FIXTURE_VOXELS);
+        assert_eq!(
+            job.snapshot
+                .iter()
+                .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+                .count(),
+            FIXTURE_VOXELS
+        );
+    }
+
+    #[test]
+    fn boundary_uncertainty_is_deferred_not_anchored_or_detached() {
+        let bound = UAabb3::new(UVec3::new(10, 10, 10), UVec3::new(13, 13, 13));
+        let mut snapshot = vec![0; voxel_count(bound) as usize];
+        snapshot[13] = 1;
+        snapshot[12] = 1;
+        let mut job = BoundedTopologyJob::new(bound, snapshot, UVec3::new(11, 11, 11)).unwrap();
+        assert_eq!(job.advance(10).disposition, BoundedDisposition::Deferred);
+    }
+
+    #[test]
+    fn same_scale_component_reaching_world_floor_is_anchored() {
+        let bound = UAabb3::new(
+            UVec3::new(FIXTURE_ORIGIN.x - 1, 0, FIXTURE_ORIGIN.z - 1),
+            FIXTURE_ORIGIN + FIXTURE_DIM + UVec3::ONE,
+        );
+        let dim = bound.dimensions();
+        let mut snapshot = vec![0; voxel_count(bound) as usize];
+        let index = |world: UVec3| {
+            let local = world - bound.min();
+            (local.x + dim.x * (local.y + dim.y * local.z)) as usize
+        };
+        let fixture = generate_hollow_canopy();
+        for z in 0..FIXTURE_DIM.z {
+            for y in 0..FIXTURE_DIM.y {
+                for x in 0..FIXTURE_DIM.x {
+                    let fixture_index = (x + FIXTURE_DIM.x * (y + FIXTURE_DIM.y * z)) as usize;
+                    snapshot[index(FIXTURE_ORIGIN + UVec3::new(x, y, z))] = fixture[fixture_index];
+                }
+            }
+        }
+        for y in 0..FIXTURE_ORIGIN.y {
+            snapshot[index(UVec3::new(FIXTURE_ORIGIN.x, y, FIXTURE_ORIGIN.z))] = 1;
+        }
+        assert!(
+            snapshot
+                .iter()
+                .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+                .count()
+                >= FIXTURE_VOXELS
+        );
+        let mut job = BoundedTopologyJob::new(bound, snapshot, FIXTURE_ORIGIN).unwrap();
+        while job.advance(PARTICLE_CAPACITY).disposition == BoundedDisposition::Pending {}
+        assert_eq!(job.terminal, Some(BoundedDisposition::Anchored));
     }
 }
