@@ -110,18 +110,11 @@ impl TreeAudioManager {
 
     pub fn canopy_telemetry_snapshot(&self) -> Option<CanopyAudioTelemetrySnapshot> {
         let samples = self.emitter_adapter.telemetry_samples()?;
-        let mut tree_ids = samples
-            .iter()
-            .map(|sample| sample.key.tree_id())
-            .collect::<Vec<_>>();
-        tree_ids.sort_unstable();
-        tree_ids.dedup();
-        let trees = tree_ids
+        let trees = self
+            .lifecycle
+            .diagnostics_snapshot()
             .into_iter()
-            .map(|tree_id| CanopyAudioTreeTelemetry {
-                tree_id,
-                lifecycle: self.lifecycle.tree_diagnostics(tree_id).unwrap_or_default(),
-            })
+            .map(|(tree_id, lifecycle)| CanopyAudioTreeTelemetry { tree_id, lifecycle })
             .collect();
         Some(CanopyAudioTelemetrySnapshot {
             trees,

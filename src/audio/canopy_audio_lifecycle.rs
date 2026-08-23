@@ -294,6 +294,16 @@ impl CanopyAudioLifecycle {
         self.diagnostics_by_tree.get(&tree_id).copied()
     }
 
+    pub fn diagnostics_snapshot(&self) -> Vec<(u32, CanopyTreeLifecycleDiagnostics)> {
+        let mut diagnostics = self
+            .diagnostics_by_tree
+            .iter()
+            .map(|(&tree_id, &diagnostics)| (tree_id, diagnostics))
+            .collect::<Vec<_>>();
+        diagnostics.sort_by_key(|(tree_id, _)| *tree_id);
+        diagnostics
+    }
+
     fn prune(&mut self, time_seconds: f32) {
         for (&tree_id, tree) in &mut self.trees {
             let previous_layer_count = tree.layers.len();
@@ -386,6 +396,19 @@ mod tests {
         assert_power(lifecycle.snapshot(2.5).unwrap().total_power(), 0.5);
         assert!(lifecycle.snapshot(3.0).unwrap().samples().is_empty());
         assert_eq!(lifecycle.registered_tree_count(), 0);
+        assert_eq!(
+            lifecycle.diagnostics_snapshot(),
+            vec![(
+                7,
+                CanopyTreeLifecycleDiagnostics {
+                    published_generation_count: 2,
+                    replacement_transition_count: 1,
+                    removal_transition_count: 1,
+                    superseded_transition_count: 0,
+                    retired_generation_count: 2,
+                }
+            )]
+        );
         assert_eq!(
             lifecycle.replace(7, descriptor(2, 4.0), 3.0),
             Err(CanopyAudioLifecycleError::NonMonotonicGeneration {
