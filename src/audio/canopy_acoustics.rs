@@ -1,4 +1,7 @@
-use crate::{geom::RoundCone, tree_gen::LeafPlacement};
+use crate::{
+    geom::{RoundCone, RoundConeClearanceIndex},
+    tree_gen::LeafPlacement,
+};
 use glam::Vec3;
 use std::cmp::Ordering;
 
@@ -11,6 +14,11 @@ pub struct CanopyAcousticSampleId(u64);
 impl CanopyAcousticSampleId {
     pub fn value(self) -> u64 {
         self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(value: u64) -> Self {
+        Self(value)
     }
 }
 
@@ -93,26 +101,41 @@ impl CanopyAcousticDescriptor {
             Vec::new()
         } else {
             let center = canopy_center(&candidates);
+            let clearance_index = RoundConeClearanceIndex::new(trunks);
             let mut sector_counts = [0_usize; Self::MAX_SAMPLES];
             for leaf in &candidates {
                 sector_counts[octant(leaf.position, center)] += 1;
             }
 
-            let eligible = candidates
-                .iter()
-                .copied()
-                .filter_map(|leaf| {
-                    let clearance = wood_clearance(leaf.position, trunks);
-                    (clearance >= Self::MIN_WOOD_CLEARANCE_VOXELS).then_some((leaf, clearance))
+            let mut ranked_candidates = candidates.clone();
+            ranked_candidates.sort_by(|left, right| {
+                right
+                    .position
+                    .distance_squared(center)
+                    .total_cmp(&left.position.distance_squared(center))
+                    .then_with(|| compare_leaf_placements(left, right))
+            });
+            let best_global_candidate = || {
+                ranked_candidates.iter().copied().find(|leaf| {
+                    clearance_index
+                        .has_minimum_clearance(leaf.position, Self::MIN_WOOD_CLEARANCE_VOXELS)
                 })
-                .collect::<Vec<_>>();
+            };
             let mut selected = Vec::<CanopyAcousticSample>::new();
 
             for (sector, population) in sector_counts.into_iter().enumerate() {
                 if population == 0 {
                     continue;
                 }
-                let Some((leaf, clearance)) = best_candidate_for_sector(&eligible, sector, center)
+                let Some(leaf) = ranked_candidates
+                    .iter()
+                    .copied()
+                    .filter(|leaf| octant(leaf.position, center) == sector)
+                    .find(|leaf| {
+                        clearance_index
+                            .has_minimum_clearance(leaf.position, Self::MIN_WOOD_CLEARANCE_VOXELS)
+                    })
+                    .or_else(|| best_global_candidate())
                 else {
                     continue;
                 };
@@ -126,7 +149,7 @@ impl CanopyAcousticDescriptor {
                 selected.push(CanopyAcousticSample {
                     id,
                     position_tree_voxels: leaf.position,
-                    clearance_voxels: clearance,
+                    clearance_voxels: clearance_index.minimum_clearance(leaf.position),
                     weight,
                     content_seed,
                     phase: unit_from_u64(mix_u64(content_seed ^ 0x7068_6173_655f_3031)),
@@ -135,7 +158,7 @@ impl CanopyAcousticDescriptor {
             }
             if selected.is_empty() {
                 if let Some((position, clearance)) =
-                    clear_leaf_spray_fallback(&candidates, trunks, center)
+                    clear_leaf_spray_fallback(&candidates, trunks, &clearance_index, center)
                 {
                     let id = sample_id(tree_seed, position);
                     let content_seed = mix_u64(CANOPY_CONTENT_SEED_DOMAIN ^ tree_seed ^ id.0);
@@ -217,44 +240,10 @@ fn octant(position: Vec3, center: Vec3) -> usize {
         | (usize::from(position.z >= center.z) << 2)
 }
 
-fn best_candidate_for_sector(
-    eligible: &[(LeafPlacement, f32)],
-    sector: usize,
-    center: Vec3,
-) -> Option<(LeafPlacement, f32)> {
-    eligible
-        .iter()
-        .filter(|(leaf, _)| octant(leaf.position, center) == sector)
-        .max_by(|(left, _), (right, _)| {
-            left.position
-                .distance_squared(center)
-                .total_cmp(&right.position.distance_squared(center))
-                .then_with(|| compare_leaf_placements(right, left))
-        })
-        .copied()
-        .or_else(|| {
-            eligible
-                .iter()
-                .max_by(|(left, _), (right, _)| {
-                    left.position
-                        .distance_squared(center)
-                        .total_cmp(&right.position.distance_squared(center))
-                        .then_with(|| compare_leaf_placements(right, left))
-                })
-                .copied()
-        })
-}
-
-fn wood_clearance(position: Vec3, trunks: &[RoundCone]) -> f32 {
-    trunks
-        .iter()
-        .map(|trunk| trunk.signed_distance(position))
-        .fold(f32::INFINITY, f32::min)
-}
-
 fn clear_leaf_spray_fallback(
     candidates: &[LeafPlacement],
     trunks: &[RoundCone],
+    clearance_index: &RoundConeClearanceIndex<'_>,
     center: Vec3,
 ) -> Option<(Vec3, f32)> {
     let mut sector_candidates = Vec::new();
@@ -282,29 +271,39 @@ fn clear_leaf_spray_fallback(
             let mut low = 0.0_f32;
             let mut high = 1.0_f32.min(limit);
             while high < limit
-                && wood_clearance(leaf.position + direction * high, trunks)
-                    < CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS
+                && !clearance_index.has_minimum_clearance(
+                    leaf.position + direction * high,
+                    CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS,
+                )
             {
                 low = high;
                 high = (high * 2.0).min(limit);
             }
 
-            let high_clearance = wood_clearance(leaf.position + direction * high, trunks);
-            if high_clearance < CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS {
+            if !clearance_index.has_minimum_clearance(
+                leaf.position + direction * high,
+                CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS,
+            ) {
                 return None;
             }
             for _ in 0..20 {
                 let middle = (low + high) * 0.5;
-                if wood_clearance(leaf.position + direction * middle, trunks)
-                    >= CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS
-                {
+                if clearance_index.has_minimum_clearance(
+                    leaf.position + direction * middle,
+                    CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS,
+                ) {
                     high = middle;
                 } else {
                     low = middle;
                 }
             }
             let position = leaf.position + direction * high;
-            Some((leaf, high, position, wood_clearance(position, trunks)))
+            Some((
+                leaf,
+                high,
+                position,
+                clearance_index.minimum_clearance(position),
+            ))
         })
         .min_by(|(left, left_distance, ..), (right, right_distance, ..)| {
             left_distance
