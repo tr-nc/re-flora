@@ -350,6 +350,17 @@ pub(crate) struct EnvironmentLightingCache {
 }
 
 impl EnvironmentLightingCache {
+    pub(crate) fn revision_lag(&self) -> u64 {
+        self.current_transport.map_or(0, |transport| {
+            self.current_live_revision
+                .saturating_sub(transport.source_live_revision)
+        })
+    }
+
+    pub(crate) fn coalesced_live_revisions(&self) -> u64 {
+        self.coalesced_live_revisions
+    }
+
     pub fn update(
         &mut self,
         mut snapshot: DdgiRadianceSnapshot,

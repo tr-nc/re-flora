@@ -809,6 +809,7 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) relocated_terrain_revision: Option<u32>,
     pub(crate) active_ray_batch: Option<DdgiRayBatch>,
     pub(crate) filtered_probe_count: u32,
+    pub(crate) probe_priority: Option<DdgiProbePriority>,
     pub(crate) promotion_ready: bool,
 }
 
@@ -1348,6 +1349,9 @@ impl DdgiVolume {
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
             filtered_probe_count: self.filtered_probe_count,
+            probe_priority: self
+                .building_iteration
+                .and_then(|iteration| iteration.probe_priority),
             promotion_ready: self.promotion_is_ready(),
         }
     }
@@ -2278,6 +2282,7 @@ mod tests {
             relocated_terrain_revision: None,
             active_ray_batch: None,
             filtered_probe_count: 0,
+            probe_priority: None,
             promotion_ready: false,
         };
         assert!(!status.is_ready());
@@ -2313,6 +2318,7 @@ mod tests {
                 relocated_terrain_revision: Some(terrain_revision),
                 active_ray_batch: None,
                 filtered_probe_count: 0,
+                probe_priority: None,
                 promotion_ready: published,
             }
         };

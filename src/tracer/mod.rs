@@ -1503,6 +1503,21 @@ impl Tracer {
         self.ddgi_runtime.volumes().builder().radiance_snapshot()
     }
 
+    pub(crate) fn local_light_live_state(&self) -> (Option<u64>, u32) {
+        (self.local_light_live_revision, self.local_light_live_count)
+    }
+
+    pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {
+        (
+            self.environment_lighting.revision_lag(),
+            self.environment_lighting.coalesced_live_revisions(),
+        )
+    }
+
+    pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
+        self.ddgi_runtime.lighting_diagnostics()
+    }
+
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
         self.ddgi_runtime
             .status(self.ddgi_runtime.volumes().status())

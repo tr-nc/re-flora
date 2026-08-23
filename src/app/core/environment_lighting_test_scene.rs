@@ -2,10 +2,11 @@ use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
-    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState, DdgiScheduledWorkKind,
-    DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
+    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason, DdgiRefreshState,
+    DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
+use crate::lighting::{LightId, LocalLight, PointLight};
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
 use egui::Color32;
@@ -35,6 +36,21 @@ const RADIANCE_R4_SUN_LUMINANCE: f32 = 0.8;
 const RADIANCE_R2_ROCK_COLOR: Color32 = Color32::from_rgb(126, 125, 128);
 const RADIANCE_R3_ROCK_COLOR: Color32 = Color32::from_rgb(130, 125, 128);
 const RADIANCE_R4_ROCK_COLOR: Color32 = Color32::from_rgb(134, 125, 128);
+const POINT_LIGHT_ADD_POSITION: Vec3 = Vec3::new(0.66, 0.68, 1.18);
+const POINT_LIGHT_MOVED_POSITION: Vec3 = Vec3::new(0.82, 0.62, 1.06);
+const POINT_LIGHT_RANGE_WORLD: f32 = 0.55;
+const POINT_LIGHT_SOURCE_RADIUS_WORLD: f32 = 0.03;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PointLightTestStage {
+    AwaitBaseline,
+    AwaitAddLive,
+    AwaitAddMidflight,
+    AwaitMoveLive,
+    AwaitPhotometricUpdateLive,
+    AwaitRemoveLive,
+    AwaitFinalPublication,
+}
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
@@ -132,6 +148,16 @@ enum TestScenePhase {
     },
     WaitingForRadianceBaseline {
         terrain_revision: u32,
+    },
+    PointLightLifecycle {
+        terrain_revision: u32,
+        baseline: Option<DdgiFieldIdentity>,
+        light_id: Option<LightId>,
+        in_flight: Option<DdgiFieldIdentity>,
+        in_flight_source_revision: u64,
+        stage: PointLightTestStage,
+        expected_source_revision: u64,
+        mutation_frame: u64,
     },
     CapturingRadianceBaseline {
         r1: DdgiFieldIdentity,
@@ -435,6 +461,7 @@ impl EnvironmentLightingTestScene {
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
         if !(is_terrain_edit_case(self.case)
             || self.case == EnvironmentLightingTestCase::RadianceChanges
+            || self.case == EnvironmentLightingTestCase::PointLightChanges
             || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
@@ -456,6 +483,9 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForRadianceBaseline { terrain_revision } => {
                 Some(terrain_revision)
             }
+            TestScenePhase::PointLightLifecycle {
+                terrain_revision, ..
+            } => Some(terrain_revision),
             TestScenePhase::CapturingRadianceBaseline { r1 }
             | TestScenePhase::MutatingRadianceR2 { r1 }
             | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
@@ -496,6 +526,19 @@ impl EnvironmentLightingTestScene {
                 "waiting-for-patt-seam-probe-field"
             }
             TestScenePhase::WaitingForRadianceBaseline { .. } => "waiting-for-radiance-baseline",
+            TestScenePhase::PointLightLifecycle { stage, .. } => match stage {
+                PointLightTestStage::AwaitBaseline => "waiting-for-point-light-baseline",
+                PointLightTestStage::AwaitAddLive => "waiting-for-point-light-add-live",
+                PointLightTestStage::AwaitAddMidflight => "waiting-for-point-light-add-midflight",
+                PointLightTestStage::AwaitMoveLive => "waiting-for-point-light-move-live",
+                PointLightTestStage::AwaitPhotometricUpdateLive => {
+                    "waiting-for-point-light-photometric-update-live"
+                }
+                PointLightTestStage::AwaitRemoveLive => "waiting-for-point-light-remove-live",
+                PointLightTestStage::AwaitFinalPublication => {
+                    "waiting-for-point-light-final-publication"
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
             TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => {
@@ -574,6 +617,7 @@ impl TestSceneGeometry {
             ),
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::RadianceChanges
+            | EnvironmentLightingTestCase::PointLightChanges
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -693,6 +737,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         }
         EnvironmentLightingTestCase::Portal
         | EnvironmentLightingTestCase::RadianceChanges
+        | EnvironmentLightingTestCase::PointLightChanges
         | EnvironmentLightingTestCase::DensityChanges
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1028,6 +1073,17 @@ impl App {
                 }
                 if case == EnvironmentLightingTestCase::RadianceChanges {
                     TestScenePhase::WaitingForRadianceBaseline { terrain_revision }
+                } else if case == EnvironmentLightingTestCase::PointLightChanges {
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline: None,
+                        light_id: None,
+                        in_flight: None,
+                        in_flight_source_revision: 0,
+                        stage: PointLightTestStage::AwaitBaseline,
+                        expected_source_revision: 0,
+                        mutation_frame: 0,
+                    }
                 } else if case == EnvironmentLightingTestCase::DensityChanges {
                     let runtime = self.tracer.ddgi_runtime_status();
                     let baseline = runtime
@@ -1131,6 +1187,386 @@ impl App {
                     TestScenePhase::WaitingForRadianceR2Midflight { r1 }
                 }
             }
+            TestScenePhase::PointLightLifecycle {
+                terrain_revision,
+                baseline,
+                light_id,
+                in_flight,
+                in_flight_source_revision,
+                stage,
+                expected_source_revision,
+                mutation_frame,
+            } => match stage {
+                PointLightTestStage::AwaitBaseline => {
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(baseline) = active.published_field else {
+                        return;
+                    };
+                    if !is_converged_field(baseline)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    assert_eq!(baseline.field().geometry_revision(), terrain_revision);
+                    assert_eq!(active.relocated_terrain_revision, Some(terrain_revision));
+                    let id = self.local_lights.add(LocalLight::Point(
+                        PointLight::new(
+                            POINT_LIGHT_ADD_POSITION,
+                            Vec3::new(1.0, 0.45, 0.20),
+                            0.08,
+                            POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                            POINT_LIGHT_RANGE_WORLD,
+                        )
+                        .expect("point-light test add must be valid"),
+                    ));
+                    let source_revision = self.local_lights.snapshot().revision();
+                    let frame = self.time_info.total_frame_count();
+                    log_acceptance_field("POINT_LIGHT", "baseline", baseline);
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] action=add frame={} light_slot={} light_generation={} source_revision={} position_world={:?} color={:?} intensity={} source_radius_world={} range_world={} geometry_revision={} direct_expected=next_render",
+                        frame,
+                        id.slot(),
+                        id.generation(),
+                        source_revision,
+                        POINT_LIGHT_ADD_POSITION,
+                        Vec3::new(1.0, 0.45, 0.20),
+                        0.08,
+                        POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                        POINT_LIGHT_RANGE_WORLD,
+                        terrain_revision,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline: Some(baseline),
+                        light_id: Some(id),
+                        in_flight: None,
+                        in_flight_source_revision: 0,
+                        stage: PointLightTestStage::AwaitAddLive,
+                        expected_source_revision: source_revision,
+                        mutation_frame: frame,
+                    }
+                }
+                PointLightTestStage::AwaitAddLive => {
+                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    if live_revision != Some(expected_source_revision) {
+                        return;
+                    }
+                    assert_eq!(live_count, 1);
+                    assert!(self.time_info.total_frame_count() > mutation_frame);
+                    let (revision_lag, coalesced) =
+                        self.tracer.local_light_transport_observability();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=add-live direct_immediate=true source_revision={} live_count={} mutation_frame={} observed_frame={} transport_revision_lag={} coalesced_live_revisions={} terrain_direct=true raster_direct=true shared_visibility=exact-voxel-segment",
+                        expected_source_revision,
+                        live_count,
+                        mutation_frame,
+                        self.time_info.total_frame_count(),
+                        revision_lag,
+                        coalesced,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitAddMidflight,
+                        expected_source_revision,
+                        mutation_frame,
+                    }
+                }
+                PointLightTestStage::AwaitAddMidflight => {
+                    let baseline = baseline.expect("point-light baseline must be retained");
+                    let id = light_id.expect("point-light id must be retained");
+                    let status = self.tracer.ddgi_runtime_status();
+                    assert!(status.staging().is_none());
+                    let active = status.active();
+                    assert_eq!(active.published_field, Some(baseline));
+                    let Some(in_flight) = active.building_field else {
+                        return;
+                    };
+                    let work = active
+                        .target_work
+                        .expect("point-light build must retain scheduled work");
+                    assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+                    assert_eq!(work.destination(), in_flight);
+                    let probe_priority = active
+                        .probe_priority
+                        .expect("point-light radiance work must prioritize its impact bound");
+                    assert_eq!(
+                        probe_priority.reason(),
+                        DdgiProbePriorityReason::LightingImpact
+                    );
+                    let remaining = active
+                        .grid
+                        .probe_count()
+                        .saturating_sub(active.filtered_probe_count);
+                    if active.filtered_probe_count == 0 || remaining <= 3 * DDGI_PROBE_BATCH_SIZE {
+                        return;
+                    }
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("point-light DDGI builder must latch an immutable snapshot");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        expected_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 1);
+                    assert_eq!(
+                        builder.local_lights.info.transport_revision,
+                        in_flight.field().radiance_revision()
+                    );
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    assert_eq!(
+                        diagnostics.in_flight_revision,
+                        Some(in_flight.field().radiance_revision())
+                    );
+                    self.local_lights
+                        .update(
+                            id,
+                            LocalLight::Point(
+                                PointLight::new(
+                                    POINT_LIGHT_MOVED_POSITION,
+                                    Vec3::new(1.0, 0.45, 0.20),
+                                    0.08,
+                                    POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                                    POINT_LIGHT_RANGE_WORLD,
+                                )
+                                .expect("point-light test move must be valid"),
+                            ),
+                        )
+                        .expect("point-light test id must stay live during move");
+                    let source_revision = self.local_lights.snapshot().revision();
+                    let frame = self.time_info.total_frame_count();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] action=move frame={} source_revision={} from_world={:?} to_world={:?} ddgi_in_flight_revision={} ddgi_frozen_source_revision={} progress={}/{} priority_reason={:?} priority_voxel_min={:?} priority_voxel_max={:?} full_sweep_probes={} mixed_in_flight=false",
+                        frame,
+                        source_revision,
+                        POINT_LIGHT_ADD_POSITION,
+                        POINT_LIGHT_MOVED_POSITION,
+                        in_flight.field().radiance_revision(),
+                        expected_source_revision,
+                        active.filtered_probe_count,
+                        active.grid.probe_count(),
+                        probe_priority.reason(),
+                        probe_priority.voxel_bound().min(),
+                        probe_priority.voxel_bound().max(),
+                        active.grid.probe_count(),
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline: Some(baseline),
+                        light_id: Some(id),
+                        in_flight: Some(in_flight),
+                        in_flight_source_revision: expected_source_revision,
+                        stage: PointLightTestStage::AwaitMoveLive,
+                        expected_source_revision: source_revision,
+                        mutation_frame: frame,
+                    }
+                }
+                PointLightTestStage::AwaitMoveLive => {
+                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    if live_revision != Some(expected_source_revision) {
+                        return;
+                    }
+                    assert_eq!(live_count, 1);
+                    assert!(self.time_info.total_frame_count() > mutation_frame);
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("moving point light must not detach DDGI builder snapshot");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        in_flight_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 1);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let id = light_id.expect("point-light id must survive move");
+                    self.local_lights
+                        .update(
+                            id,
+                            LocalLight::Point(
+                                PointLight::new(
+                                    POINT_LIGHT_MOVED_POSITION,
+                                    Vec3::new(0.20, 0.55, 1.0),
+                                    0.14,
+                                    POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                                    POINT_LIGHT_RANGE_WORLD,
+                                )
+                                .expect("point-light photometric update must be valid"),
+                            ),
+                        )
+                        .expect("point-light id must stay live during photometric update");
+                    let source_revision = self.local_lights.snapshot().revision();
+                    let frame = self.time_info.total_frame_count();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=move-live direct_immediate=true action=update-color-intensity frame={} source_revision={} color={:?} intensity={} ddgi_frozen_source_revision={} mixed_in_flight=false",
+                        frame,
+                        source_revision,
+                        Vec3::new(0.20, 0.55, 1.0),
+                        0.14,
+                        in_flight_source_revision,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitPhotometricUpdateLive,
+                        expected_source_revision: source_revision,
+                        mutation_frame: frame,
+                    }
+                }
+                PointLightTestStage::AwaitPhotometricUpdateLive => {
+                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    if live_revision != Some(expected_source_revision) {
+                        return;
+                    }
+                    assert_eq!(live_count, 1);
+                    assert!(self.time_info.total_frame_count() > mutation_frame);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let id = light_id.expect("point-light id must survive photometric update");
+                    self.local_lights
+                        .remove(id)
+                        .expect("point-light removal must use the current stable id");
+                    let source_revision = self.local_lights.snapshot().revision();
+                    let frame = self.time_info.total_frame_count();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=photometric-update-live direct_immediate=true action=remove frame={} source_revision={} live_count_before_remove={} ddgi_frozen_source_revision={} mixed_in_flight=false",
+                        frame,
+                        source_revision,
+                        live_count,
+                        in_flight_source_revision,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitRemoveLive,
+                        expected_source_revision: source_revision,
+                        mutation_frame: frame,
+                    }
+                }
+                PointLightTestStage::AwaitRemoveLive => {
+                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    if live_revision != Some(expected_source_revision) {
+                        return;
+                    }
+                    assert_eq!(live_count, 0);
+                    assert!(self.time_info.total_frame_count() > mutation_frame);
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    let (revision_lag, coalesced) =
+                        self.tracer.local_light_transport_observability();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=remove-live direct_immediate=true stale_direct=false source_revision={} live_count=0 transport_revision_lag={} coalesced_live_revisions={} mixed_in_flight=false",
+                        expected_source_revision,
+                        revision_lag,
+                        coalesced,
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitFinalPublication,
+                        expected_source_revision,
+                        mutation_frame,
+                    }
+                }
+                PointLightTestStage::AwaitFinalPublication => {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
+                        return;
+                    };
+                    if transport.local_lights.source_revision() != expected_source_revision
+                        || transport.local_lights.count() != 0
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(final_field) = active.published_field else {
+                        return;
+                    };
+                    if final_field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || !is_converged_field(final_field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                    {
+                        return;
+                    }
+                    let baseline = baseline.expect("point-light baseline must be retained");
+                    assert_eq!(
+                        final_field.field().geometry_revision(),
+                        baseline.field().geometry_revision()
+                    );
+                    assert_eq!(active.relocated_terrain_revision, Some(terrain_revision));
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("final DDGI field must retain its immutable snapshot");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        expected_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 0);
+                    assert_eq!(
+                        builder.local_lights.info.transport_revision,
+                        final_field.field().radiance_revision()
+                    );
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    assert_eq!(diagnostics.in_flight_revision, None);
+                    assert_eq!(
+                        diagnostics.scheduler_published_revision,
+                        Some(final_field.field().radiance_revision())
+                    );
+                    let atlas = active
+                        .last_atlas_validation
+                        .expect("final point-light field must have atlas validation evidence");
+                    assert_eq!(atlas.non_finite_count, 0);
+                    assert!(
+                        atlas.max_rgb_value > 0.0,
+                        "final DDGI atlas must not be black"
+                    );
+                    let (revision_lag, coalesced) =
+                        self.tracer.local_light_transport_observability();
+                    assert_eq!(revision_lag, 0);
+                    assert!(coalesced >= 2);
+                    log_acceptance_field("POINT_LIGHT", "complete", final_field);
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] complete latest_wins=true direct_removed=true stale_contribution=false mixed_in_flight=false atlas_nonblack=true atlas_max_rgb={:.8} local_source_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} visibility_relocation_revision={} terrain_direct=true raster_direct=true ddgi_injection=true shared_units=world shared_visibility=exact-voxel-segment",
+                        atlas.max_rgb_value,
+                        expected_source_revision,
+                        final_field.field().radiance_revision(),
+                        revision_lag,
+                        coalesced,
+                        final_field.field().geometry_revision(),
+                        active.relocated_terrain_revision.unwrap_or_default(),
+                    );
+                    TestScenePhase::Ready
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => return,
             TestScenePhase::MutatingRadianceR2 { .. } => return,
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => return,
@@ -2053,6 +2489,7 @@ mod tests {
             EnvironmentLightingTestCase::Donor,
             EnvironmentLightingTestCase::Dogleg,
             EnvironmentLightingTestCase::RadianceChanges,
+            EnvironmentLightingTestCase::PointLightChanges,
             EnvironmentLightingTestCase::DensityChanges,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,

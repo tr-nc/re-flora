@@ -674,6 +674,7 @@ pub struct DdgiRuntimeVolumeStatus {
     pub radiance_revision: Option<u32>,
     pub relocated_terrain_revision: Option<u32>,
     pub filtered_probe_count: u32,
+    pub probe_priority: Option<DdgiProbePriority>,
 }
 
 impl DdgiRuntimeVolumeStatus {
@@ -699,6 +700,7 @@ impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
             radiance_revision: status.radiance_revision,
             relocated_terrain_revision: status.relocated_terrain_revision,
             filtered_probe_count: status.filtered_probe_count,
+            probe_priority: status.probe_priority,
         }
     }
 }
@@ -1017,6 +1019,7 @@ mod tests {
             relocated_terrain_revision: Some(geometry_revision),
             active_ray_batch: None,
             filtered_probe_count: 2048,
+            probe_priority: None,
             promotion_ready: true,
         }
     }
