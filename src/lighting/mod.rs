@@ -895,6 +895,8 @@ mod tests {
         assert!(evaluator.contains("for (uint lightIndex = 0u;"));
         assert!(evaluator.contains("marchScene("));
         assert!(evaluator.contains("shadowHit.distance"));
+        assert!(evaluator.contains("light.position - shadowOrigin"));
+        assert!(evaluator.contains("segmentLength - light.source_radius"));
 
         let diagnostic =
             include_str!("../../shader/slang/local_light_visibility_diagnostic.comp.slang");

@@ -11,8 +11,9 @@ public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
 
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
 // Position, range, and source_radius are authoritative world units in the same space as terrain
-// and flora hit positions. Point intensity is scene-linear radiant intensity; the evaluator
-// produces irradiance.
+// and flora hit positions. source_radius both clamps near-field attenuation and defines the
+// spherical endpoint volume owned by the emitter for exact visibility. Point intensity is
+// scene-linear radiant intensity; the evaluator produces irradiance.
 public struct U_LightGpu
 {
     public uint abi_version;
@@ -158,14 +159,24 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
 
         float3 shadowOrigin = terrainRayOriginFromSurface(
             receiverPosition, receiverNormal, rayOriginOffsetWorld);
+        float3 shadowToLight = light.position - shadowOrigin;
+        float segmentLength = length(shadowToLight);
+        if (segmentLength <= light.source_radius)
+        {
+            result.visible += 1u;
+            result.irradiance += sample.irradiance;
+            return result;
+        }
+        float3 shadowDirection = shadowToLight / segmentLength;
         MarchingResult shadowHit = marchScene(
             nodeData, leafData, sceneTexture, shadowOrigin,
-            sample.direction_to_light, 1.0 / sample.direction_to_light,
+            shadowDirection, 1.0 / shadowDirection,
             localInvocationIndex);
-        float originTravel = length(shadowOrigin - receiverPosition);
-        float segmentLength = max(0.0, sample.distance_to_light - originTravel);
+        // A hit in the final source-radius sphere belongs to the emitter geometry itself. A hit
+        // before that endpoint volume remains an independent blocker.
+        float endpointStart = max(0.0, segmentLength - light.source_radius);
         float visibility = !shadowHit.is_hit ||
-            shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= segmentLength
+            shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= endpointStart
             ? 1.0 : 0.0;
         if (visibility > 0.0)
         {
