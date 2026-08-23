@@ -5,7 +5,7 @@ import marching_result;
 import scene_marching;
 import terrain_ray_origin;
 
-public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 1u;
+public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 2u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
 public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
 
@@ -36,6 +36,10 @@ public struct U_LocalLightInfo
     public uint overflow_count;
     public uint source_revision_low;
     public uint source_revision_high;
+    public uint registry_revision_low;
+    public uint registry_revision_high;
+    public uint live_revision_low;
+    public uint live_revision_high;
     public uint transport_revision;
     public uint flags;
 };

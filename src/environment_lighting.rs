@@ -92,7 +92,7 @@ impl DdgiRadianceSnapshot {
                 .map(f32::to_bits),
             rock_color: self.voxel_palette.rock_color.to_array().map(f32::to_bits),
             hash_color_variance: self.voxel_palette.hash_color_variance.to_bits(),
-            local_lights: self.local_lights.with_transport_revision(0),
+            local_lights: self.local_lights.for_radiance_identity(),
         }
     }
 }

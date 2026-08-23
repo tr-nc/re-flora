@@ -928,6 +928,10 @@ impl LocalLightingResources {
                 overflow_count: 0,
                 source_revision_low: 0,
                 source_revision_high: 0,
+                registry_revision_low: 0,
+                registry_revision_high: 0,
+                live_revision_low: 0,
+                live_revision_high: 0,
                 transport_revision: 0,
                 flags: 0,
             })

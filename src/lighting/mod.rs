@@ -7,9 +7,11 @@ use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 mod registry;
 pub(crate) use registry::*;
 
-pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 1;
+pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 2;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
-pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 1;
+/// First production small-N budget. CPU providers and the registry remain unbounded; selection is
+/// explicit and can be replaced by a clustered/tiled policy without changing provider APIs.
+pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 8;
 const LOCAL_LIGHT_KIND_POINT: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -277,7 +279,7 @@ pub(crate) enum LocalLightMutationError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LocalLightRecord {
     id: LightId,
-    source: Option<LocalLightSourceId>,
+    source: LocalLightSourceId,
     light: LocalLight,
 }
 
@@ -290,20 +292,29 @@ impl LocalLightRecord {
         self.light
     }
 
-    pub(crate) fn source(self) -> Option<LocalLightSourceId> {
+    pub(crate) fn source(self) -> LocalLightSourceId {
         self.source
     }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct LocalLightSnapshot {
-    revision: u64,
+    source_revision: u64,
+    registry_revision: u64,
     lights: Arc<[LocalLightRecord]>,
 }
 
 impl LocalLightSnapshot {
     pub(crate) fn revision(&self) -> u64 {
-        self.revision
+        self.registry_revision
+    }
+
+    pub(crate) fn source_revision(&self) -> u64 {
+        self.source_revision
+    }
+
+    pub(crate) fn registry_revision(&self) -> u64 {
+        self.registry_revision
     }
 
     pub(crate) fn lights(&self) -> &[LocalLightRecord] {
@@ -349,9 +360,35 @@ impl LocalLightSnapshot {
     }
 
     pub(crate) fn apply_budget(&self, budget: LocalLightBudget) -> LocalLightBudgetResult {
-        let mut accepted = Vec::with_capacity(budget.point_light_capacity.min(self.lights.len()));
+        StableSmallNLocalLightSelector.select(self, budget)
+    }
+}
+
+/// Replaceable CPU selection seam. Phase 3 deliberately uses a camera-independent stable order;
+/// a future clustered/tiled selector can implement this interface without widening provider APIs.
+pub(crate) trait LocalLightSelector {
+    fn select(
+        &self,
+        snapshot: &LocalLightSnapshot,
+        budget: LocalLightBudget,
+    ) -> LocalLightBudgetResult;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct StableSmallNLocalLightSelector;
+
+impl LocalLightSelector for StableSmallNLocalLightSelector {
+    fn select(
+        &self,
+        snapshot: &LocalLightSnapshot,
+        budget: LocalLightBudget,
+    ) -> LocalLightBudgetResult {
+        let mut ordered = snapshot.lights.to_vec();
+        ordered.sort_by_key(|record| (record.source, record.id));
+        let mut accepted =
+            Vec::with_capacity(budget.point_light_capacity.min(snapshot.lights.len()));
         let mut overflow = Vec::new();
-        for record in self.lights.iter().copied() {
+        for record in ordered {
             let reason = match record.light.kind() {
                 LocalLightKind::Point if accepted.len() < budget.point_light_capacity => {
                     accepted.push(record);
@@ -364,12 +401,15 @@ impl LocalLightSnapshot {
             };
             overflow.push(LocalLightOverflow {
                 id: record.id,
+                source: record.source,
                 reason,
             });
         }
         LocalLightBudgetResult { accepted, overflow }
     }
+}
 
+impl LocalLightSnapshot {
     pub(crate) fn influence_bound(&self) -> Option<LocalLightInfluenceBound> {
         self.lights.iter().fold(None, |bound, record| {
             let light_bound = record.light.influence_bound();
@@ -432,6 +472,7 @@ pub(crate) enum LocalLightOverflowReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LocalLightOverflow {
     pub id: LightId,
+    pub source: LocalLightSourceId,
     pub reason: LocalLightOverflowReason,
 }
 
@@ -476,6 +517,10 @@ impl LocalLightGpuPayload {
                 overflow_count: 0,
                 source_revision_low: source_revision as u32,
                 source_revision_high: (source_revision >> 32) as u32,
+                registry_revision_low: source_revision as u32,
+                registry_revision_high: (source_revision >> 32) as u32,
+                live_revision_low: source_revision as u32,
+                live_revision_high: (source_revision >> 32) as u32,
                 transport_revision: 0,
                 flags: 0,
             },
@@ -485,6 +530,34 @@ impl LocalLightGpuPayload {
 
     pub(crate) fn source_revision(self) -> u64 {
         u64::from(self.info.source_revision_low) | (u64::from(self.info.source_revision_high) << 32)
+    }
+
+    pub(crate) fn registry_revision(self) -> u64 {
+        u64::from(self.info.registry_revision_low)
+            | (u64::from(self.info.registry_revision_high) << 32)
+    }
+
+    pub(crate) fn live_revision(self) -> u64 {
+        u64::from(self.info.live_revision_low) | (u64::from(self.info.live_revision_high) << 32)
+    }
+
+    pub(crate) fn selection_eq(self, other: Self) -> bool {
+        self.info.abi_version == other.info.abi_version
+            && self.count() == other.count()
+            && self.info.capacity == other.info.capacity
+            && bytemuck::cast_slice::<LightGpu, u8>(&self.lights[..self.count() as usize])
+                == bytemuck::cast_slice::<LightGpu, u8>(&other.lights[..other.count() as usize])
+    }
+
+    pub(crate) fn for_radiance_identity(mut self) -> Self {
+        self.info.source_revision_low = 0;
+        self.info.source_revision_high = 0;
+        self.info.registry_revision_low = 0;
+        self.info.registry_revision_high = 0;
+        self.info.overflow_count = 0;
+        self.info.transport_revision = 0;
+        self.info.flags = 0;
+        self
     }
 
     pub(crate) fn with_transport_revision(mut self, revision: u32) -> Self {
@@ -544,8 +617,12 @@ impl LocalLightGpuSnapshot {
                 count: result.accepted.len() as u32,
                 capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
                 overflow_count: result.overflow.len() as u32,
-                source_revision_low: snapshot.revision as u32,
-                source_revision_high: (snapshot.revision >> 32) as u32,
+                source_revision_low: snapshot.source_revision as u32,
+                source_revision_high: (snapshot.source_revision >> 32) as u32,
+                registry_revision_low: snapshot.registry_revision as u32,
+                registry_revision_high: (snapshot.registry_revision >> 32) as u32,
+                live_revision_low: snapshot.registry_revision as u32,
+                live_revision_high: (snapshot.registry_revision >> 32) as u32,
                 transport_revision,
                 flags: 0,
             },
@@ -556,6 +633,12 @@ impl LocalLightGpuSnapshot {
 
     pub(crate) fn with_flags(mut self, flags: u32) -> Self {
         self.info.flags = flags;
+        self
+    }
+
+    pub(crate) fn with_live_revision(mut self, revision: u64) -> Self {
+        self.info.live_revision_low = revision as u32;
+        self.info.live_revision_high = (revision >> 32) as u32;
         self
     }
 
@@ -665,6 +748,7 @@ mod tests {
             upload.overflow(),
             &[LocalLightOverflow {
                 id: second,
+                source: lights.snapshot().lights()[1].source(),
                 reason: LocalLightOverflowReason::Capacity,
             }]
         );
@@ -755,7 +839,7 @@ mod tests {
         use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
         assert_eq!(std::mem::size_of::<LightGpu>(), 80);
-        assert_eq!(std::mem::size_of::<LocalLightInfo>(), 32);
+        assert_eq!(std::mem::size_of::<LocalLightInfo>(), 48);
 
         let mut lights = LocalLightRegistry::default();
         let accepted_id = lights.add(point(Vec3::new(0.2, 0.4, 0.6)));
@@ -768,10 +852,12 @@ mod tests {
 
         assert_eq!(gpu.info.abi_version, LOCAL_LIGHT_GPU_ABI_VERSION);
         assert_eq!(gpu.info.count, 1);
-        assert_eq!(gpu.info.capacity, 1);
+        assert_eq!(gpu.info.capacity, LOCAL_LIGHT_GPU_CAPACITY as u32);
         assert_eq!(gpu.info.overflow_count, 1);
         assert_eq!(gpu.info.source_revision_low, 2);
         assert_eq!(gpu.info.source_revision_high, 0);
+        assert_eq!(gpu.info.registry_revision_low, 2);
+        assert_eq!(gpu.info.live_revision_low, 2);
         assert_eq!(gpu.info.transport_revision, 7);
         assert_eq!(gpu.lights[0].stable_id_slot, accepted_id.slot());
         assert_eq!(gpu.lights[0].stable_id_generation, accepted_id.generation());
@@ -971,5 +1057,131 @@ mod tests {
                 incoming: 1,
             })
         );
+    }
+
+    #[test]
+    fn small_n_selection_uses_provider_source_order_and_reports_every_rejection() {
+        let mut registry = LocalLightRegistry::default();
+        let later_provider = ProviderId::new(20);
+        let earlier_provider = ProviderId::new(10);
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    later_provider,
+                    1,
+                    [
+                        SourceLight::new(SourceLightKey::new(2, 0), point(Vec3::X)),
+                        SourceLight::new(SourceLightKey::new(1, 0), point(Vec3::Y)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        registry
+            .reconcile(
+                LocalLightProviderSnapshot::new(
+                    earlier_provider,
+                    1,
+                    [
+                        SourceLight::new(SourceLightKey::new(9, 0), point(Vec3::Z)),
+                        SourceLight::new(
+                            SourceLightKey::new(10, 0),
+                            LocalLight::Spot(
+                                SpotLight::new(
+                                    Vec3::Y,
+                                    -Vec3::Y,
+                                    Vec3::ONE,
+                                    1.0,
+                                    0.01,
+                                    1.0,
+                                    0.1,
+                                    0.2,
+                                )
+                                .unwrap(),
+                            ),
+                        ),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let selection = registry
+            .snapshot()
+            .apply_budget(LocalLightBudget::point_lights(2));
+        assert_eq!(
+            selection
+                .accepted()
+                .iter()
+                .map(|record| record.source())
+                .collect::<Vec<_>>(),
+            vec![
+                LocalLightSourceId::new(earlier_provider, SourceLightKey::new(9, 0)),
+                LocalLightSourceId::new(later_provider, SourceLightKey::new(1, 0)),
+            ]
+        );
+        assert_eq!(selection.overflow().len(), 2);
+        assert_eq!(
+            selection.overflow()[0].source,
+            LocalLightSourceId::new(earlier_provider, SourceLightKey::new(10, 0))
+        );
+        assert_eq!(
+            selection.overflow()[0].reason,
+            LocalLightOverflowReason::UnsupportedKind
+        );
+        assert_eq!(
+            selection.overflow()[1].source,
+            LocalLightSourceId::new(later_provider, SourceLightKey::new(2, 0))
+        );
+        assert_eq!(
+            selection.overflow()[1].reason,
+            LocalLightOverflowReason::Capacity
+        );
+    }
+
+    #[test]
+    fn rejected_source_churn_does_not_change_the_selected_gpu_radiance_identity() {
+        let provider = ProviderId::new(30);
+        let mut registry = LocalLightRegistry::default();
+        let selected_sources = (0..LOCAL_LIGHT_GPU_CAPACITY).map(|index| {
+            SourceLight::new(
+                SourceLightKey::new(index as u64, 0),
+                point(Vec3::new(index as f32, 1.0, 0.0)),
+            )
+        });
+        registry
+            .reconcile(LocalLightProviderSnapshot::new(provider, 1, selected_sources).unwrap())
+            .unwrap();
+        let before = LocalLightGpuSnapshot::from_authoritative(
+            &registry.snapshot(),
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        )
+        .with_live_revision(7)
+        .payload();
+
+        let with_rejected = (0..=LOCAL_LIGHT_GPU_CAPACITY).map(|index| {
+            SourceLight::new(
+                SourceLightKey::new(index as u64, 0),
+                point(Vec3::new(index as f32, 1.0, 0.0)),
+            )
+        });
+        registry
+            .reconcile(LocalLightProviderSnapshot::new(provider, 2, with_rejected).unwrap())
+            .unwrap();
+        let after = LocalLightGpuSnapshot::from_authoritative(
+            &registry.snapshot(),
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        )
+        .with_live_revision(7)
+        .payload();
+
+        assert!(before.selection_eq(after));
+        assert_eq!(
+            before.for_radiance_identity(),
+            after.for_radiance_identity()
+        );
+        assert_ne!(before.registry_revision(), after.registry_revision());
     }
 }

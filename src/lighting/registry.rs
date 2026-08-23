@@ -296,6 +296,8 @@ impl LocalLightRegistry {
         );
         if !removed_keys.is_empty() || !updated_keys.is_empty() || !added_keys.is_empty() {
             self.publish_snapshot();
+        } else {
+            self.snapshot.source_revision = self.source_publication_revision;
         }
         Ok(self.outcome(
             provider,
@@ -423,13 +425,14 @@ impl LocalLightRegistry {
                         slot: slot as u32,
                         generation: entry.generation,
                     },
-                    source: Some(entry.source?),
+                    source: entry.source?,
                     light: entry.light?,
                 })
             })
             .collect();
         self.snapshot = LocalLightSnapshot {
-            revision: self.registry_revision,
+            source_revision: self.source_publication_revision,
+            registry_revision: self.registry_revision,
             lights: lights.into(),
         };
     }

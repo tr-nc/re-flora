@@ -808,6 +808,10 @@ pub struct LocalLightInfo {
     pub overflow_count: u32,
     pub source_revision_low: u32,
     pub source_revision_high: u32,
+    pub registry_revision_low: u32,
+    pub registry_revision_high: u32,
+    pub live_revision_low: u32,
+    pub live_revision_high: u32,
     pub transport_revision: u32,
     pub flags: u32,
 }

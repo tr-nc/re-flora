@@ -889,6 +889,9 @@ pub struct Tracer {
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     local_light_live_revision: Option<u64>,
+    local_light_live_payload: Option<crate::lighting::LocalLightGpuPayload>,
+    local_light_uploaded_source_revision: Option<u64>,
+    local_light_uploaded_registry_revision: Option<u64>,
     local_light_live_count: u32,
     local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
@@ -1218,6 +1221,9 @@ impl Tracer {
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
             local_light_live_revision: None,
+            local_light_live_payload: None,
+            local_light_uploaded_source_revision: None,
+            local_light_uploaded_registry_revision: None,
             local_light_live_count: 0,
             local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
@@ -2902,33 +2908,60 @@ impl Tracer {
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
         self.promote_ready_ddgi_staging();
-        let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+        let provisional_local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
-        )
-        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
-            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+        );
+        let provisional_payload = provisional_local_light_gpu.payload();
+        let selection_changed = self.local_light_live_payload.map_or_else(
+            || provisional_payload.count() > 0,
+            |previous| !previous.selection_eq(provisional_payload),
+        );
+        let live_revision = if selection_changed {
+            self.local_light_live_revision
+                .unwrap_or(0)
+                .wrapping_add(1)
+                .max(1)
         } else {
-            0
-        });
-        if self.local_light_live_revision != Some(local_lights.revision()) {
+            self.local_light_live_revision.unwrap_or(0)
+        };
+        let local_light_gpu = provisional_local_light_gpu
+            .with_live_revision(live_revision)
+            .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+            } else {
+                0
+            });
+        let metadata_changed = self.local_light_uploaded_source_revision
+            != Some(local_lights.source_revision())
+            || self.local_light_uploaded_registry_revision
+                != Some(local_lights.registry_revision());
+        if selection_changed || metadata_changed {
             self.resources
                 .local_lighting
                 .local_light_info
                 .fill_uniform(&local_light_gpu.info)?;
-            self.resources
-                .local_lighting
-                .local_lights
-                .fill(&local_light_gpu.lights)?;
-            self.local_light_live_revision = Some(local_lights.revision());
+            if selection_changed {
+                self.resources
+                    .local_lighting
+                    .local_lights
+                    .fill(&local_light_gpu.lights)?;
+            }
+            self.local_light_live_revision = Some(live_revision);
+            self.local_light_live_payload = Some(local_light_gpu.payload());
+            self.local_light_uploaded_source_revision = Some(local_lights.source_revision());
+            self.local_light_uploaded_registry_revision = Some(local_lights.registry_revision());
             self.local_light_live_count = local_light_gpu.info.count;
             log::info!(
-                "[LOCAL_LIGHT][LIVE] source_revision={} count={} capacity={} overflow_count={} direct_upload=true",
-                local_lights.revision(),
+                "[LOCAL_LIGHT][LIVE] source_revision={} registry_revision={} live_gpu_revision={} count={} capacity={} overflow_count={} selection_changed={} direct_upload=true",
+                local_lights.source_revision(),
+                local_lights.registry_revision(),
+                live_revision,
                 local_light_gpu.info.count,
                 local_light_gpu.info.capacity,
                 local_light_gpu.info.overflow_count,
+                selection_changed,
             );
         }
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
