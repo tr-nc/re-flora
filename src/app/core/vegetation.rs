@@ -8,7 +8,7 @@ use crate::app::world_edits::{
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
-use crate::audio::CanopyAcousticDescriptor;
+use crate::audio::{CanopyAcousticDescriptor, LegacyBranchEndpointLayout};
 use crate::builder::{
     ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
 };
@@ -1088,8 +1088,80 @@ impl App {
     pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
+        if self.canopy_audio_diagnostic.is_some() {
+            self.log_canopy_audio_layout_comparison();
+        }
         log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
         Ok(())
+    }
+
+    fn log_canopy_audio_layout_comparison(&self) {
+        let tree_desc = self
+            .debug_settings
+            .tree
+            .desc
+            .at_age(self.debug_settings.adjustables.tree_age.value);
+        let tree = Tree::new(tree_desc.clone());
+        let generation = self.trees.next_canopy_acoustic_generation.saturating_sub(1);
+        let canopy = CanopyAcousticDescriptor::build(
+            generation,
+            self.debug_tree_pos,
+            tree_desc.branching.seed,
+            tree.relative_leaf_placements(),
+            tree.trunks(),
+        );
+        let legacy =
+            LegacyBranchEndpointLayout::build(tree.relative_leaf_positions(), tree.trunks());
+        let legacy_min_clearance = legacy
+            .samples()
+            .iter()
+            .map(|sample| sample.clearance_voxels)
+            .fold(f32::INFINITY, f32::min);
+        let canopy_min_clearance = canopy
+            .samples()
+            .iter()
+            .map(|sample| sample.clearance_voxels())
+            .fold(f32::INFINITY, f32::min);
+        log::info!(
+            "[AUDIO][CANOPY][LAYOUT_COMPARISON] tree_seed={} generation={} leaf_branch_endpoints={} physical_leaf_placements={} legacy_samples={} legacy_selected_members={} legacy_below_clearance={} legacy_min_clearance_voxels={:.6} canopy_samples={} canopy_weight={:.9} canopy_min_clearance_voxels={:.6}",
+            tree_desc.branching.seed,
+            generation,
+            tree.relative_leaf_positions().len(),
+            tree.relative_leaf_placements().len(),
+            legacy.samples().len(),
+            legacy.selected_member_count(),
+            legacy.below_clearance_count(CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS),
+            legacy_min_clearance,
+            canopy.samples().len(),
+            canopy.total_weight(),
+            canopy_min_clearance,
+        );
+        for (index, sample) in legacy.samples().iter().enumerate() {
+            log::info!(
+                "[AUDIO][CANOPY][LEGACY_SAMPLE] index={} source=branch_endpoint_greedy_first_member position_tree_voxels={:?} position_world={:?} cluster_members={} clearance_voxels={:.6} meets_canopy_clearance={}",
+                index,
+                sample.position_tree_voxels,
+                self.debug_tree_pos + sample.position_tree_voxels / 256.0,
+                sample.cluster_members,
+                sample.clearance_voxels,
+                sample.clearance_voxels
+                    >= CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS,
+            );
+        }
+        for sample in canopy.samples() {
+            log::info!(
+                "[AUDIO][CANOPY][PHYSICAL_SAMPLE] generation={} sample={} source={:?} position_tree_voxels={:?} position_world={:?} clearance_voxels={:.6} weight={:.9} content_seed={} phase={:.9}",
+                canopy.generation(),
+                sample.id().value(),
+                sample.provenance(),
+                sample.position_tree_voxels(),
+                canopy.sample_world_position(sample),
+                sample.clearance_voxels(),
+                sample.weight(),
+                sample.content_seed(),
+                sample.phase(),
+            );
+        }
     }
 
     pub(super) fn update_tuned_tree_from_gui(&mut self) -> Result<()> {

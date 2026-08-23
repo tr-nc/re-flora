@@ -141,6 +141,8 @@ pub struct AppOptions {
     pub mute: bool,
     /// Emit opt-in, machine-parseable per-tree and per-canopy-sample audio telemetry.
     pub canopy_audio_telemetry: bool,
+    /// Run the fixed tree/wind/listener trajectory used for canopy audio diagnosis.
+    pub canopy_audio_diagnostic: bool,
     /// Select an audio output device by case-insensitive substring match.
     pub audio_output_device: Option<String>,
     /// Disable shadow rendering pass.
@@ -476,6 +478,19 @@ impl AppOptions {
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
+        let canopy_audio_diagnostic = args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+        if canopy_audio_diagnostic
+            && (terrain_load_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || screenshot_options.is_some()
+                || denoiser_bench.is_some()
+                || camera_snapshot.is_some())
+        {
+            return Err("Do not combine --canopy-audio-diagnostic with another fixed scene, terrain load, screenshot, denoiser benchmark, or camera snapshot".to_owned());
+        }
         if water_experience
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
@@ -520,6 +535,7 @@ impl AppOptions {
             hidden: args.iter().any(|a| a == "--hidden"),
             mute: args.iter().any(|a| a == "--mute"),
             canopy_audio_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
+            canopy_audio_diagnostic,
             audio_output_device: parse_required_string_after(
                 "--audio-output-device",
                 "an output device name substring",
@@ -796,6 +812,7 @@ Options:
   --hidden                    Run hidden while preserving render/swapchain path; audio output remains enabled unless --mute is set
   --mute                      Start with global audio output muted while keeping audio processing active
   --canopy-audio-telemetry    Log opt-in per-tree and per-canopy-sample acoustic telemetry at 10 Hz
+  --canopy-audio-diagnostic   Run the fixed tree, wind, forward/hold/reverse listener trajectory and enable canopy telemetry
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
   --no-shadows                Disable shadow rendering passes
@@ -951,6 +968,7 @@ mod tests {
         assert!(!options.hidden);
         assert!(!options.mute);
         assert!(!options.canopy_audio_telemetry);
+        assert!(!options.canopy_audio_diagnostic);
         assert!(options.audio_output_device.is_none());
         assert!(!options.perf);
         assert!(!options.water_experience);
@@ -1015,6 +1033,32 @@ mod tests {
 
         assert!(options.egui_texture_lifecycle_test);
         assert!(options.resize_lifecycle_test);
+    }
+
+    #[test]
+    fn parses_fixed_canopy_audio_diagnostic() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--canopy-audio-diagnostic",
+        ]);
+
+        assert!(options.canopy_audio_diagnostic);
+        assert!(!options.canopy_audio_telemetry);
+    }
+
+    #[test]
+    fn fixed_canopy_audio_diagnostic_rejects_competing_scene() {
+        let error = AppOptions::try_from_arg_strings(
+            ["re-flora", "--canopy-audio-diagnostic", "--house-scene"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Do not combine --canopy-audio-diagnostic"));
     }
 
     #[test]

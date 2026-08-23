@@ -63,7 +63,10 @@ use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
-use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
+use crate::audio::{
+    canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTrajectoryPhase,
+    SpatialSoundManager, TreeAudioManager, TreeRustleParams,
+};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
     VOXEL_MOISTURE_MAX,
@@ -90,7 +93,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
-use crate::wind::WindResponseCurve;
+use crate::wind::{WindResponseCurve, WindSource};
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
 use anyhow::{Context, Result};
@@ -138,6 +141,9 @@ const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.9;
 // Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
+const CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED: u64 = 122;
+const CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES: [WindSource; 1] =
+    [WindSource::new(35.0, 1.0, 1.0, 3, 2.0, 0.5, 0.75)];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GlobalKeyboardCommand {
@@ -211,6 +217,33 @@ impl EguiTextureLifecycleTest {
             }
             _ => {}
         }
+    }
+}
+
+struct CanopyAudioDiagnosticRuntime {
+    start_time_seconds: Option<f32>,
+    previous_phase: Option<CanopyAudioTrajectoryPhase>,
+}
+
+impl CanopyAudioDiagnosticRuntime {
+    fn new() -> Self {
+        Self {
+            start_time_seconds: None,
+            previous_phase: None,
+        }
+    }
+
+    fn sample(
+        &mut self,
+        tree_origin_world: Vec3,
+        time_seconds: f32,
+    ) -> (CanopyAudioDiagnosticPose, f32, bool) {
+        let start_time_seconds = *self.start_time_seconds.get_or_insert(time_seconds);
+        let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
+        let pose = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds);
+        let phase_changed = self.previous_phase != Some(pose.phase);
+        self.previous_phase = Some(pose.phase);
+        (pose, elapsed_seconds, phase_changed)
     }
 }
 
@@ -378,6 +411,7 @@ pub struct App {
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
+    canopy_audio_diagnostic: Option<CanopyAudioDiagnosticRuntime>,
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
@@ -414,6 +448,25 @@ impl Drop for App {
 }
 
 impl App {
+    fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
+        let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
+            return;
+        };
+        let (pose, elapsed_seconds, phase_changed) =
+            diagnostic.sample(self.debug_tree_pos, time_seconds);
+        self.tracer
+            .set_camera_pose_looking_at(pose.position_world, pose.target_world);
+        if phase_changed {
+            log::info!(
+                "[AUDIO][CANOPY][TRAJECTORY] elapsed_seconds={:.6} phase={:?} position_world={:?} target_world={:?}",
+                elapsed_seconds,
+                pose.phase,
+                pose.position_world,
+                pose.target_world,
+            );
+        }
+    }
+
     fn log_canopy_audio_telemetry(&mut self, time_seconds: f32) {
         let Some(next_log_seconds) = self.canopy_audio_telemetry_next_log_seconds else {
             return;
@@ -934,7 +987,18 @@ impl App {
         } else {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
-        let debug_settings = DebugSettings::load();
+        let mut debug_settings = DebugSettings::load();
+        if options.canopy_audio_diagnostic {
+            let mut fixed_tree_desc = TreeDesc::default();
+            fixed_tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED;
+            debug_settings.tree.desc = fixed_tree_desc;
+            debug_settings.adjustables.tree_age.value = 1.0;
+            log::info!(
+                "[AUDIO][CANOPY][DIAGNOSTIC] fixed_tree_seed={} fixed_tree_age=1.0 fixed_wind={:?}",
+                CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
+                CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES,
+            );
+        }
         spatial_sound_manager.set_environmental_acoustics(
             debug_settings.adjustables.audio_ray_tracing_enabled.value,
             Self::environmental_acoustics_quality(
@@ -981,7 +1045,9 @@ impl App {
             debug_settings.adjustables.tree_wind_volume_db.value,
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
-        tree_audio_manager.set_canopy_telemetry_enabled(options.canopy_audio_telemetry);
+        tree_audio_manager.set_canopy_telemetry_enabled(
+            options.canopy_audio_telemetry || options.canopy_audio_diagnostic,
+        );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1174,7 +1240,12 @@ impl App {
             ),
             denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
             auto_exit_delay: options.auto_exit_delay,
-            canopy_audio_telemetry_next_log_seconds: options.canopy_audio_telemetry.then_some(0.0),
+            canopy_audio_telemetry_next_log_seconds: (options.canopy_audio_telemetry
+                || options.canopy_audio_diagnostic)
+                .then_some(0.0),
+            canopy_audio_diagnostic: options
+                .canopy_audio_diagnostic
+                .then(CanopyAudioDiagnosticRuntime::new),
             tree_bench: options
                 .tree_bench
                 .then(|| TreeBench::new(options.tree_bench_samples)),
@@ -1984,6 +2055,7 @@ impl App {
                     log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
                 let time_since_start = self.time_info.time_since_start();
+                self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
@@ -1996,11 +2068,16 @@ impl App {
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let active_wind_sources =
+                let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
+                let active_wind_sources = if self.canopy_audio_diagnostic.is_some() {
+                    &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
+                } else {
+                    &configured_wind_sources
+                };
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
-                    &active_wind_sources,
+                    active_wind_sources,
                     self.debug_settings
                         .adjustables
                         .wind_audio_attack_decay

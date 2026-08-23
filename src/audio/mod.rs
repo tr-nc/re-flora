@@ -6,6 +6,12 @@ pub use canopy_acoustics::{
     CanopyAcousticSampleProvenance,
 };
 
+mod canopy_audio_diagnostics;
+pub use canopy_audio_diagnostics::{
+    canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTrajectoryPhase,
+    LegacyBranchEndpointLayout,
+};
+
 mod canopy_audio_lifecycle;
 pub use canopy_audio_lifecycle::{
     ActiveCanopyAcousticSample, CanopyAudioLifecycle, CanopyAudioLifecycleSnapshot,
