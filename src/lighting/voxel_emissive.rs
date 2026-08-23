@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{UVec3, Vec3};
 
+use crate::geom::UAabb3;
+
 use super::{
     LocalLight, LocalLightInfluenceBound, LocalLightProviderSnapshot,
     LocalLightProviderSnapshotError, PointLight, ProviderId, SourceLight, SourceLightKey,
@@ -68,6 +70,8 @@ pub(crate) enum EmissiveVoxelProviderError {
     DuplicateVoxel(UVec3),
     MissingVoxel(UVec3),
     DestinationOccupied(UVec3),
+    InvalidRegion(UAabb3),
+    EmitterOutsideRegion { voxel: UVec3, region: UAabb3 },
     InvalidAggregate(SourceLightKey),
     Snapshot(LocalLightProviderSnapshotError),
 }
@@ -264,6 +268,67 @@ impl EmissiveVoxelProvider {
         self.publish_replacements(replacements, next_count)
     }
 
+    /// Replaces the authoritative emissive voxels in one half-open voxel region as a single
+    /// publication. Voxels outside the region are preserved, including neighbours that share a
+    /// 16^3 aggregate cell. All validation and aggregate construction completes before mutation.
+    pub(crate) fn replace_region(
+        &mut self,
+        region: UAabb3,
+        emitters: impl IntoIterator<Item = (UVec3, EmissiveVoxelEmitter)>,
+    ) -> Result<EmissiveVoxelProviderChange, EmissiveVoxelProviderError> {
+        if region.min().cmpge(region.max()).any() {
+            return Err(EmissiveVoxelProviderError::InvalidRegion(region));
+        }
+        let in_region =
+            |voxel: UVec3| voxel.cmpge(region.min()).all() && voxel.cmplt(region.max()).all();
+        let mut incoming_by_cell: BTreeMap<
+            ClusterCoord,
+            BTreeMap<VoxelCoord, EmissiveVoxelEmitter>,
+        > = BTreeMap::new();
+        for (voxel, emitter) in emitters {
+            if !in_region(voxel) {
+                return Err(EmissiveVoxelProviderError::EmitterOutsideRegion { voxel, region });
+            }
+            let voxel = VoxelCoord::new(voxel);
+            if incoming_by_cell
+                .entry(voxel.cluster())
+                .or_default()
+                .insert(voxel, emitter)
+                .is_some()
+            {
+                return Err(EmissiveVoxelProviderError::DuplicateVoxel(voxel.get()));
+            }
+        }
+
+        let mut replacements = BTreeMap::new();
+        let mut old_dirty_count = 0usize;
+        // Enumerate the half-open region's intersecting aggregate cells directly. This path is
+        // bounded by the replaced region and never scans unrelated authoritative emitter cells.
+        for cell in clusters_intersecting_region(region) {
+            let current = self.cells.get(&cell).cloned().unwrap_or_default();
+            old_dirty_count += current.len();
+            let mut next = current
+                .iter()
+                .filter(|(voxel, _)| !in_region(voxel.get()))
+                .map(|(voxel, emitter)| (*voxel, *emitter))
+                .collect::<BTreeMap<_, _>>();
+            if let Some(incoming) = incoming_by_cell.get(&cell) {
+                next.extend(incoming.iter().map(|(voxel, emitter)| (*voxel, *emitter)));
+            }
+            replacements.insert(cell, next);
+        }
+        let next_dirty_count = replacements.values().map(BTreeMap::len).sum::<usize>();
+        if replacements.iter().all(|(cell, sources)| {
+            self.cells
+                .get(cell)
+                .map_or(sources.is_empty(), |current| current == sources)
+        }) {
+            return Ok(self.no_change());
+        }
+        let next_voxel_count = self.voxel_count - old_dirty_count + next_dirty_count;
+        self.publish_replacements(replacements, next_voxel_count)
+    }
+
     fn no_change(&self) -> EmissiveVoxelProviderChange {
         EmissiveVoxelProviderChange {
             source_revision: self.source_revision,
@@ -391,6 +456,16 @@ impl EmissiveVoxelProvider {
             .filter_map(|cell| self.aggregate_bound(cell))
             .reduce(LocalLightInfluenceBound::union)
     }
+}
+
+fn clusters_intersecting_region(region: UAabb3) -> impl Iterator<Item = ClusterCoord> {
+    let first = region.min() / EMISSIVE_VOXEL_CLUSTER_DIM;
+    let last = (region.max() - UVec3::ONE) / EMISSIVE_VOXEL_CLUSTER_DIM;
+    (first.z..=last.z).flat_map(move |z| {
+        (first.y..=last.y).flat_map(move |y| {
+            (first.x..=last.x).map(move |x| ClusterCoord::new(UVec3::new(x, y, z)))
+        })
+    })
 }
 
 fn aggregate_bounds_in(
@@ -558,5 +633,91 @@ mod tests {
         assert_eq!(provider.snapshot(), before_snapshot);
         assert_eq!(provider.cells[&VoxelCoord::new(stable).cluster()].len(), 1);
         assert_eq!(provider.aggregates.len(), 1);
+    }
+
+    #[test]
+    fn region_replacement_is_atomic_removes_stale_voxels_and_preserves_neighbours() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.0)).unwrap();
+        let old_inside = UVec3::new(1, 1, 1);
+        let outside = UVec3::new(20, 1, 1);
+        provider
+            .replace_all([
+                (old_inside, emitter(Vec3::X, 1.0)),
+                (outside, emitter(Vec3::Y, 2.0)),
+            ])
+            .unwrap();
+        let before = provider.snapshot();
+        let region = UAabb3::new(UVec3::ZERO, UVec3::splat(16));
+        let replacement = (UVec3::new(2, 2, 2), emitter(Vec3::Z, 3.0));
+
+        let changed = provider.replace_region(region, [replacement]).unwrap();
+
+        assert!(changed.changed);
+        assert_eq!(changed.dirty_cluster_count, 1);
+        assert_eq!(provider.voxel_count(), 2);
+        assert_ne!(
+            provider.snapshot().source_revision(),
+            before.source_revision()
+        );
+        assert!(provider.cells[&VoxelCoord::new(replacement.0).cluster()]
+            .contains_key(&VoxelCoord::new(replacement.0)));
+        assert!(!provider.cells[&VoxelCoord::new(old_inside).cluster()]
+            .contains_key(&VoxelCoord::new(old_inside)));
+        assert!(provider.cells[&VoxelCoord::new(outside).cluster()]
+            .contains_key(&VoxelCoord::new(outside)));
+
+        let revision = provider.snapshot().source_revision();
+        let noop = provider.replace_region(region, [replacement]).unwrap();
+        assert!(!noop.changed);
+        assert_eq!(provider.snapshot().source_revision(), revision);
+    }
+
+    #[test]
+    fn invalid_region_replacement_keeps_the_previous_publication() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.0)).unwrap();
+        provider
+            .set_voxel(UVec3::new(1, 1, 1), Some(emitter(Vec3::ONE, 1.0)))
+            .unwrap();
+        let before = provider.clone();
+        let region = UAabb3::new(UVec3::ZERO, UVec3::splat(16));
+        let outside = UVec3::new(16, 1, 1);
+
+        assert!(matches!(
+            provider.replace_region(region, [(outside, emitter(Vec3::X, 2.0))]),
+            Err(EmissiveVoxelProviderError::EmitterOutsideRegion { voxel, .. })
+                if voxel == outside
+        ));
+        assert_eq!(provider.cells, before.cells);
+        assert_eq!(provider.aggregates, before.aggregates);
+        assert_eq!(provider.snapshot(), before.snapshot());
+    }
+
+    #[test]
+    fn region_replacement_enumerates_only_intersecting_cells_with_many_unrelated_sources() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.0)).unwrap();
+        let unrelated = (1..=1_024).map(|cell| {
+            (
+                UVec3::new(cell * EMISSIVE_VOXEL_CLUSTER_DIM.x, 64, 64),
+                emitter(Vec3::X, 1.0),
+            )
+        });
+        provider.replace_all(unrelated).unwrap();
+        let unrelated_before = provider.cells.clone();
+        let target = UVec3::new(2, 2, 2);
+        let region = UAabb3::new(UVec3::ZERO, EMISSIVE_VOXEL_CLUSTER_DIM);
+
+        let change = provider
+            .replace_region(region, [(target, emitter(Vec3::Y, 2.0))])
+            .unwrap();
+
+        assert_eq!(change.dirty_cluster_count, 1);
+        assert_eq!(provider.voxel_count(), 1_025);
+        for (cell, sources) in unrelated_before {
+            assert_eq!(provider.cells.get(&cell), Some(&sources));
+        }
+        assert_eq!(
+            clusters_intersecting_region(region).collect::<Vec<_>>(),
+            vec![ClusterCoord::new(UVec3::ZERO)]
+        );
     }
 }
