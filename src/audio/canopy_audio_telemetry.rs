@@ -131,6 +131,8 @@ pub struct CanopyAudioTelemetrySnapshot {
     pub petal_telemetry_queue_depth: usize,
     pub petal_telemetry_queue_high_water: usize,
     pub petal_telemetry_dropped_events: u64,
+    pub petal_active_emitters: usize,
+    pub petal_active_voices: usize,
     pub petal_direct_ray_count: u64,
     pub petal_sample_cache_hit_count: u64,
     pub petal_processed_extent_count: u64,

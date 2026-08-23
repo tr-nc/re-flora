@@ -148,6 +148,8 @@ def _parse_summary(line: str) -> Summary:
         "trees",
         "emitters",
         "observed_voices",
+        "runtime_emitters",
+        "runtime_voices",
         "samples",
         "extent_responses",
         "solve_discards",
@@ -362,6 +364,10 @@ def analyze_text(text: str, expected_mode: str = "auto") -> DiagnosticMetric:
         failures.append("summary emitter count does not match sample identities")
     if len(final_voices) != final.values["observed_voices"]:
         failures.append("summary voice count does not match sample identities")
+    if final.values["runtime_emitters"] != final.values["emitters"]:
+        failures.append("runtime emitter count does not match canopy generations")
+    if final.values["runtime_voices"] != final.values["observed_voices"]:
+        failures.append("runtime Voice/cursor count does not match canopy generations")
     if sum(len(group) for group in final_groups) != final.values["samples"]:
         failures.append("summary sample count does not match sample rows")
 

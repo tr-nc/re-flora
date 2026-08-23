@@ -24,8 +24,8 @@ mod canopy_audio_telemetry;
 pub use canopy_audio_telemetry::{
     CanopyAcousticSolveStatus, CanopyAudioSampleTelemetry, CanopyAudioTelemetry,
     CanopyAudioTelemetryDiagnostics, CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry,
-    CanopyDirectPathTelemetry, CanopyExtentAcousticObservation, CanopyOcclusionClassification,
-    CanopyRouteAcousticObservation, CanopySampleAcousticObservation,
+    CanopyExtentAcousticObservation, CanopyOcclusionClassification, CanopyRouteAcousticObservation,
+    CanopySampleAcousticObservation,
 };
 
 mod spatial_sound_manager;

@@ -521,13 +521,15 @@ impl App {
             .collect::<std::collections::HashSet<_>>()
             .len();
         log::info!(
-            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trajectory_elapsed_seconds={:.6} trajectory_phase={:?} trees={} emitters={} observed_voices={} samples={} extent_responses={} solve_discards={} last_discard_spatial_revision={} last_discard_geometry_version={} voice_identity_violations={} revision_rollbacks={} sample_contract_violations={} aggregate_mismatches={} petal_superseded_solves={} telemetry_queue_depth={} telemetry_queue_high_water={} telemetry_drops={} direct_rays={} sample_cache_hits={} processed_extents={} lobes={} retained={} deferred={} render_rejected_rollbacks={}",
+            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trajectory_elapsed_seconds={:.6} trajectory_phase={:?} trees={} emitters={} observed_voices={} runtime_emitters={} runtime_voices={} samples={} extent_responses={} solve_discards={} last_discard_spatial_revision={} last_discard_geometry_version={} voice_identity_violations={} revision_rollbacks={} sample_contract_violations={} aggregate_mismatches={} petal_superseded_solves={} telemetry_queue_depth={} telemetry_queue_high_water={} telemetry_drops={} direct_rays={} sample_cache_hits={} processed_extents={} lobes={} retained={} deferred={} render_rejected_rollbacks={}",
             time_seconds,
             trajectory_elapsed_seconds,
             trajectory_phase,
             snapshot.trees.len(),
             emitter_count,
             observed_voice_count,
+            snapshot.petal_active_emitters,
+            snapshot.petal_active_voices,
             snapshot.samples.len(),
             snapshot.telemetry.extent_response_count,
             snapshot.telemetry.solve_discard_count,

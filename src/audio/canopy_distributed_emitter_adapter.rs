@@ -1,7 +1,7 @@
 use crate::audio::{
     ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticSampleId,
     CanopyAcousticSolveStatus, CanopyAudioGenerationKey, CanopyAudioLifecycleSnapshot,
-    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioVoice, CanopyDirectPathTelemetry,
+    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioVoice,
     CanopyExtentAcousticObservation, CanopyOcclusionClassification, CanopyRouteAcousticObservation,
     CanopySampleAcousticObservation, SpatialAcousticTelemetryEvent, SpatialSoundManager,
 };
@@ -242,20 +242,6 @@ impl CanopyDistributedEmitterAdapter {
                         .record_solve_discard(spatial_revision, geometry_version);
                 }
             }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn observe_direct_path(
-        &mut self,
-        key: crate::audio::CanopyAudioSourceKey,
-        observation: CanopyDirectPathTelemetry,
-    ) {
-        if self.voices.contains_key(&CanopyAudioGenerationKey::new(
-            key.tree_id(),
-            key.generation(),
-        )) {
-            self.telemetry.observe_direct_path(key, observation);
         }
     }
 

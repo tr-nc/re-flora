@@ -1,8 +1,7 @@
 use crate::audio::{
-    CanopyAcousticDescriptor, CanopyAudioLifecycle, CanopyAudioSourceKey,
-    CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry, CanopyDirectPathTelemetry,
-    CanopyDistributedEmitterAdapter, SpatialSoundManager, TreeRustleControl, TreeRustleFactory,
-    TreeRustleParams,
+    CanopyAcousticDescriptor, CanopyAudioLifecycle, CanopyAudioTelemetrySnapshot,
+    CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter, SpatialSoundManager,
+    TreeRustleControl, TreeRustleFactory, TreeRustleParams,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
@@ -103,17 +102,6 @@ impl TreeAudioManager {
         self.emitter_adapter.collect_acoustic_telemetry();
     }
 
-    /// Consumer hook for direct-path diagnostics from the forthcoming PetalSonic distributed
-    /// emitter API. Keeping this typed avoids inventing a temporary Petal API in Re: Flora.
-    #[allow(dead_code)]
-    pub fn observe_direct_path_telemetry(
-        &mut self,
-        key: CanopyAudioSourceKey,
-        observation: CanopyDirectPathTelemetry,
-    ) {
-        self.emitter_adapter.observe_direct_path(key, observation);
-    }
-
     pub fn canopy_telemetry_snapshot(&self) -> Option<CanopyAudioTelemetrySnapshot> {
         let samples = self.emitter_adapter.telemetry_samples()?;
         let telemetry = self.emitter_adapter.telemetry_diagnostics();
@@ -133,6 +121,8 @@ impl TreeAudioManager {
             petal_telemetry_queue_depth: petal_telemetry.queue_depth,
             petal_telemetry_queue_high_water: petal_telemetry.queue_high_water,
             petal_telemetry_dropped_events: petal_telemetry.dropped_events,
+            petal_active_emitters: petal_runtime.active_emitters,
+            petal_active_voices: petal_runtime.active_voices,
             petal_direct_ray_count: petal_runtime.acoustic_direct_ray_count,
             petal_sample_cache_hit_count: petal_runtime.acoustic_sample_cache_hit_count,
             petal_processed_extent_count: petal_runtime.acoustic_processed_extent_count,
