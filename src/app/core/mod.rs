@@ -3938,23 +3938,23 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
-                let spatial_frame_published = match self
+                self.local_player_footstep_audio
+                    .maintain(f64::from(time_since_start));
+                let prepared_footsteps = self
+                    .local_player_footstep_audio
+                    .prepare(&footstep_events, f64::from(time_since_start));
+                match self
                     .spatial_sound_manager
                     .publish_spatial_frame(f64::from(time_since_start))
                 {
-                    Ok(()) => true,
+                    Ok(publication) => self
+                        .local_player_footstep_audio
+                        .play_after_publication(prepared_footsteps, publication),
                     Err(err) => {
                         log::warn!("Failed to publish spatial audio frame: {}", err);
-                        false
+                        self.local_player_footstep_audio
+                            .abort_prepared(prepared_footsteps, "spatial_frame_publish_failed");
                     }
-                };
-                if spatial_frame_published {
-                    self.play_local_footstep_events_legacy_2d(&footstep_events);
-                } else if !footstep_events.is_empty() {
-                    log::warn!(
-                        "[AUDIO][LOCAL_FOOTSTEP] dropped={} reason=spatial_frame_publish_failed",
-                        footstep_events.len(),
-                    );
                 }
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;

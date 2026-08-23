@@ -40,33 +40,6 @@ impl App {
             })
             .collect()
     }
-
-    pub(super) fn play_local_footstep_events_legacy_2d(&self, events: &[FootstepEvent]) {
-        for event in events {
-            if let Err(err) = self.local_player_footstep_audio.play_legacy_2d(event) {
-                log::error!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=legacy_2d event_seq={} kind={:?} side={:?} surface={:?} contact={:?} sim_time={:.6} failed: {err:#}",
-                    event.event_seq,
-                    event.kind,
-                    event.side,
-                    event.surface,
-                    event.contact_world,
-                    event.sim_time_seconds,
-                );
-            } else {
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=legacy_2d order=publish_before_play event_seq={} kind={:?} side={:?} surface={:?} contact={:?} speed_mps={:.3} sim_time={:.6}",
-                    event.event_seq,
-                    event.kind,
-                    event.side,
-                    event.surface,
-                    event.contact_world,
-                    event.speed_mps,
-                    event.sim_time_seconds,
-                );
-            }
-        }
-    }
 }
 
 #[cfg(test)]

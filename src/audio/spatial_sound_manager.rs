@@ -4,8 +4,9 @@ use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
     AcousticSceneSnapshot, BusParams, Emitter, EmitterDesc, EmitterSpatialState, LatencyProfile,
-    OutputDevicePolicy, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat,
-    ResidentClip, RuntimeState, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
+    OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions,
+    PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip, RuntimeState,
+    SpatialFrame, SpatialQuality, Vec3 as PetalVec3, VoiceTelemetryEvent,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -26,6 +27,33 @@ struct OneShotEmitter {
     volume_db: f32,
 }
 
+struct TransientSpatialSource {
+    volume_db: f32,
+    position: Vec3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TransientSpatialEmitter {
+    emitter: Emitter,
+}
+
+impl TransientSpatialEmitter {
+    pub(crate) fn matches(self, emitter: Emitter) -> bool {
+        self.emitter == emitter
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SpatialFramePublication {
+    revision: u64,
+}
+
+impl SpatialFramePublication {
+    pub(crate) fn revision(self) -> u64 {
+        self.revision
+    }
+}
+
 /// Re:Flora's narrow adapter around the world-owned PetalSonic runtime.
 #[derive(Clone)]
 pub struct SpatialSoundManager {
@@ -33,6 +61,7 @@ pub struct SpatialSoundManager {
     clip_cache: Arc<AudioClipCache>,
     uuid_to_source: Arc<Mutex<HashMap<Uuid, SourceInfo>>>,
     one_shot_emitters: Arc<Mutex<HashMap<String, OneShotEmitter>>>,
+    transient_spatial_emitters: Arc<Mutex<HashMap<Emitter, TransientSpatialSource>>>,
     listener_state: Arc<Mutex<ListenerState>>,
     global_volume_gain_db: Arc<Mutex<f32>>,
     health_log_state: Arc<Mutex<AudioHealthLogState>>,
@@ -47,6 +76,7 @@ struct AudioHealthLogState {
     underruns: usize,
     rejected_commands: u64,
     dropped_events: u64,
+    dropped_voice_telemetry: u64,
     acoustic_published_responses: u64,
     acoustic_response_geometry_version: u64,
 }
@@ -105,6 +135,7 @@ impl SpatialSoundManager {
             clip_cache: Arc::new(AudioClipCache::new()?),
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             one_shot_emitters: Arc::new(Mutex::new(HashMap::new())),
+            transient_spatial_emitters: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
             health_log_state: Arc::new(Mutex::new(AudioHealthLogState::default())),
@@ -219,6 +250,64 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    pub(crate) fn create_transient_spatial_emitter(
+        &self,
+        path: &str,
+        volume_db: f32,
+        position: Vec3,
+    ) -> Result<TransientSpatialEmitter> {
+        let emitter = self.world.create_emitter(
+            self.cached_clip(path)?,
+            EmitterDesc::spatial(Self::pose(position)).with_gain_db(volume_db),
+        )?;
+        self.transient_spatial_emitters.lock().unwrap().insert(
+            emitter,
+            TransientSpatialSource {
+                volume_db,
+                position,
+            },
+        );
+        Ok(TransientSpatialEmitter { emitter })
+    }
+
+    pub(crate) fn transient_clip_duration_seconds(&self, path: &str) -> Result<f64> {
+        let clip = self.cached_clip(path)?;
+        Ok(clip.total_frames() as f64 / f64::from(clip.sample_rate()))
+    }
+
+    pub(crate) fn play_controlled_transient(
+        &self,
+        emitter: TransientSpatialEmitter,
+        options: PlayOptions,
+        tag: PlaybackTag,
+    ) -> Result<PlaybackControl> {
+        Ok(self.world.play_controlled(emitter.emitter, options, tag)?)
+    }
+
+    pub(crate) fn stop_controlled_transient(&self, control: PlaybackControl) -> Result<()> {
+        Ok(self.world.stop_playback(control)?)
+    }
+
+    pub(crate) fn destroy_transient_spatial_emitter(
+        &self,
+        emitter: TransientSpatialEmitter,
+    ) -> Result<()> {
+        self.world.destroy_emitter(emitter.emitter)?;
+        self.transient_spatial_emitters
+            .lock()
+            .unwrap()
+            .remove(&emitter.emitter);
+        Ok(())
+    }
+
+    pub(crate) fn drain_events(&self) -> Vec<PetalSonicEvent> {
+        self.world.drain_events()
+    }
+
+    pub(crate) fn drain_voice_telemetry(&self) -> Vec<VoiceTelemetryEvent> {
+        self.world.drain_voice_telemetry()
+    }
+
     pub fn update_player_pos(
         &self,
         player_pos: Vec3,
@@ -233,7 +322,10 @@ impl SpatialSoundManager {
     }
 
     /// Publish one complete listener + spatial Emitter generation for this game frame.
-    pub fn publish_spatial_frame(&self, sim_time_seconds: f64) -> Result<()> {
+    pub(crate) fn publish_spatial_frame(
+        &self,
+        sim_time_seconds: f64,
+    ) -> Result<SpatialFramePublication> {
         let listener = self.listener_state.lock().unwrap().clone();
         let rotation_matrix = glam::Mat3::from_cols(listener.right, listener.up, -listener.front);
         let rotation = glam::Quat::from_mat3(&rotation_matrix);
@@ -245,7 +337,7 @@ impl SpatialSoundManager {
             ),
             PetalQuat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w),
         );
-        let emitters = self
+        let mut emitters: Vec<_> = self
             .uuid_to_source
             .lock()
             .unwrap()
@@ -257,6 +349,12 @@ impl SpatialSoundManager {
                 })
             })
             .collect();
+        emitters.extend(self.transient_spatial_emitters.lock().unwrap().iter().map(
+            |(emitter, source)| {
+                EmitterSpatialState::new(*emitter, Self::pose(source.position))
+                    .with_acoustic_priority(Self::acoustic_priority(source.volume_db))
+            },
+        ));
         let revision = self
             .spatial_frame_revision
             .fetch_add(1, Ordering::Relaxed)
@@ -269,11 +367,9 @@ impl SpatialSoundManager {
             emitters,
         ))?;
 
-        for event in self.world.drain_events() {
-            log::debug!("PetalSonic event: {event:?}");
-        }
         let status = self.world.runtime_status();
         let diagnostics = self.world.diagnostics();
+        let voice_telemetry = self.world.voice_telemetry_diagnostics();
         let mut previous = self.health_log_state.lock().unwrap();
         if previous.runtime_state != Some(status.state)
             || previous.device_generation != diagnostics.device_generation
@@ -290,12 +386,15 @@ impl SpatialSoundManager {
         if diagnostics.underrun_count > previous.underruns
             || diagnostics.rejected_commands > previous.rejected_commands
             || diagnostics.dropped_events > previous.dropped_events
+            || voice_telemetry.dropped_events > previous.dropped_voice_telemetry
         {
             log::warn!(
-                "PetalSonic pressure: underruns={}, rejected_commands={}, dropped_events={}, render_p99_us={}",
+                "PetalSonic pressure: underruns={}, rejected_commands={}, dropped_events={}, dropped_voice_telemetry={}, voice_telemetry_high_water={}, render_p99_us={}",
                 diagnostics.underrun_count,
                 diagnostics.rejected_commands,
                 diagnostics.dropped_events,
+                voice_telemetry.dropped_events,
+                voice_telemetry.queue_high_water,
                 diagnostics.render_time_p99_us,
             );
         }
@@ -316,10 +415,11 @@ impl SpatialSoundManager {
         previous.underruns = diagnostics.underrun_count;
         previous.rejected_commands = diagnostics.rejected_commands;
         previous.dropped_events = diagnostics.dropped_events;
+        previous.dropped_voice_telemetry = voice_telemetry.dropped_events;
         previous.acoustic_published_responses = diagnostics.acoustic_published_response_count;
         previous.acoustic_response_geometry_version =
             diagnostics.acoustic_response_geometry_version;
-        Ok(())
+        Ok(SpatialFramePublication { revision })
     }
 
     pub fn publish_acoustic_scene(&self, snapshot: AcousticSceneSnapshot) -> Result<()> {
