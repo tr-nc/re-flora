@@ -31,8 +31,8 @@ use flora_frame_plan::{
 };
 
 mod direct_sun_shadow_runtime;
-use direct_sun_shadow_runtime::DirectSunShadowRuntime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
+use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
 
 pub mod tree_preview_mesh;
 
@@ -2663,6 +2663,15 @@ impl Tracer {
 
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
+        let shadow_light_space_change = self.direct_sun_shadows.observe_sun_direction(sun_dir);
+        if shadow_light_space_change != DirectSunShadowLightSpaceChange::Unchanged {
+            log::debug!(
+                "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
+                shadow_light_space_change,
+                self.direct_sun_shadows.light_space_revision(),
+                sun_dir.normalize(),
+            );
+        }
         if self
             .direct_sun_shadows
             .camera_update_required(update_shadow_map)
