@@ -73,6 +73,7 @@ struct AtlasVoxelReader<'a> {
     primary_bound: UAabb3,
     primary_voxels: &'a [u8],
     tiles: HashMap<UVec3, (UVec3, Vec<u8>)>,
+    tile_readback_us: f64,
 }
 
 impl<'a> AtlasVoxelReader<'a> {
@@ -88,6 +89,7 @@ impl<'a> AtlasVoxelReader<'a> {
             primary_bound,
             primary_voxels,
             tiles: HashMap::new(),
+            tile_readback_us: 0.0,
         }
     }
 
@@ -105,9 +107,11 @@ impl<'a> AtlasVoxelReader<'a> {
         let tile_origin = (world_voxel / CONNECTIVITY_TILE_DIM) * CONNECTIVITY_TILE_DIM;
         if !self.tiles.contains_key(&tile_origin) {
             let tile_dim = UVec3::splat(CONNECTIVITY_TILE_DIM).min(self.world_dim - tile_origin);
+            let readback_started = Instant::now();
             let voxels = self
                 .plain_builder
                 .read_chunk_atlas_region(tile_origin, tile_dim)?;
+            self.tile_readback_us += readback_started.elapsed().as_secs_f64() * 1_000_000.0;
             self.tiles.insert(tile_origin, (tile_dim, voxels));
         }
         let (tile_dim, voxels) = self

@@ -17,7 +17,7 @@ class TerrainConnectivityPerfTests(unittest.TestCase):
     def test_parser_separates_event_and_post_frames_and_checks_atomicity(self) -> None:
         marker = "[PERF][TERRAIN_CONNECTIVITY_BENCH]"
         lines = [
-            f"{marker} phase=event mode=correct frame=10 available_particles=0 total_us=100 current_path_us=0 primary_readback_us=5 classification_us=50 sampling_us=0 invalidation_us=30 publication_us=15 particle_spawn_us=0 classified_voxels=437205 invalidated_voxels=437205 sampled_voxels=0 spawned_particles=0 revision_before=2 revision_after=3",
+            f"{marker} phase=event mode=correct frame=10 available_particles=0 total_us=100 current_path_us=0 primary_readback_us=5 trace_readback_us=4 classification_us=50 sampling_us=0 invalidation_us=30 publication_us=15 particle_spawn_us=0 classified_voxels=437205 trace_readback_tiles=27 invalidated_voxels=437205 sampled_voxels=0 spawned_particles=0 revision_before=2 revision_after=3",
             f"{marker} phase=frame frame=9 relative=-1 cpu_total_us=4 gpu_present_us=1 tracked_us=1 untracked_us=2 terrain_collider_pending=0 contree_cache_pending=0 water_source_pending=0 water_collider_pending=0 water_cache_pending=0 ddgi_ready=true visible_revision=2",
             f"{marker} phase=frame frame=10 relative=0 cpu_total_us=104 gpu_present_us=1 tracked_us=1 untracked_us=102 terrain_collider_pending=2 contree_cache_pending=1 water_source_pending=0 water_collider_pending=0 water_cache_pending=0 ddgi_ready=false visible_revision=3",
             f"{marker} phase=frame frame=11 relative=1 cpu_total_us=5 gpu_present_us=1 tracked_us=1 untracked_us=3 terrain_collider_pending=0 contree_cache_pending=0 water_source_pending=0 water_collider_pending=0 water_cache_pending=0 ddgi_ready=true visible_revision=3",
@@ -28,6 +28,7 @@ class TerrainConnectivityPerfTests(unittest.TestCase):
         ]
         result = MODULE.summarize_run("\n".join(lines), "correct", 0)
         self.assertEqual(result["frame_cpu"]["event_us"], 104)
+        self.assertEqual(result["event"]["classification_cpu_us"], 46)
         self.assertEqual(result["queues"]["terrain_collider_pending"]["high_water"], 2)
         self.assertEqual(
             result["queues"]["terrain_collider_pending"]["drained_by_relative_frame"], 1

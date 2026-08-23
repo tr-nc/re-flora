@@ -29,12 +29,14 @@ NUMERIC_FIELDS = {
     "total_us",
     "current_path_us",
     "primary_readback_us",
+    "trace_readback_us",
     "classification_us",
     "sampling_us",
     "invalidation_us",
     "publication_us",
     "particle_spawn_us",
     "classified_voxels",
+    "trace_readback_tiles",
     "invalidated_voxels",
     "sampled_voxels",
     "spawned_particles",
@@ -128,6 +130,9 @@ def summarize_run(text: str, mode: str, capacity: int) -> dict[str, Any]:
     summary_record = summary[0]
     if event_record.get("mode") != mode or event_record.get("available_particles") != capacity:
         raise ValueError("event mode/capacity does not match requested case")
+    event_record["classification_cpu_us"] = float(event_record["classification_us"]) - float(
+        event_record.get("trace_readback_us", 0.0)
+    )
 
     cpu_frames = phases.get("frame", [])
     gpu_frames = phases.get("gpu_frame", [])
@@ -225,7 +230,9 @@ def aggregate_case(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "total_us",
         "current_path_us",
         "primary_readback_us",
+        "trace_readback_us",
         "classification_us",
+        "classification_cpu_us",
         "sampling_us",
         "invalidation_us",
         "publication_us",
@@ -393,9 +400,27 @@ def run_case(
             "command": command,
             "raw_log": str(raw_path.resolve()),
             "app_log": log_match.group(1) if log_match else None,
+            "runtime": runtime_provenance(completed.stdout),
         }
     )
     return run, completed.stdout
+
+
+def runtime_provenance(text: str) -> dict[str, str]:
+    patterns = {
+        "gpu": r"Selected physical device: (.+)$",
+        "physical_extent": r"Hidden window render extent is (.+)$",
+        "present_mode": r"Chosen swapchain present mode: (.+)$",
+        "swapchain_images": r"Swapchain image count: (.+)$",
+    }
+    values = {
+        key: match.group(1)
+        for key, pattern in patterns.items()
+        if (match := re.search(pattern, text, re.MULTILINE))
+    }
+    if values.keys() != patterns.keys():
+        raise ValueError(f"missing fixed runtime provenance: {values}")
+    return values
 
 
 def run_order(repetitions: int, capacities: list[int]) -> list[tuple[int, str, int]]:
@@ -437,6 +462,7 @@ def main() -> int:
         lock_wait = time.monotonic() - lock_started
         cases: dict[str, list[dict[str, Any]]] = {}
         provenance_text = ""
+        fixed_runtime: dict[str, str] | None = None
         order = run_order(args.runs, [16_384, 8_192, 0])
         for index, (repetition, mode, capacity) in enumerate(order, 1):
             print(
@@ -454,11 +480,15 @@ def main() -> int:
                 args.auto_exit,
             )
             cases.setdefault(f"{mode}-{capacity}", []).append(run)
+            if fixed_runtime is None:
+                fixed_runtime = run["runtime"]
+            elif run["runtime"] != fixed_runtime:
+                raise RuntimeError(
+                    f"runtime path drifted: expected {fixed_runtime}, got {run['runtime']}"
+                )
             provenance_text = text
 
-    gpu_match = re.search(r"Selected physical device: (.+)$", provenance_text, re.MULTILINE)
-    extent_match = re.search(r"Hidden window render extent is (.+)$", provenance_text, re.MULTILINE)
-    present_match = re.search(r"Chosen swapchain present mode: (.+)$", provenance_text, re.MULTILINE)
+    assert fixed_runtime is not None
     report = {
         "schema": "terrain-connectivity-perf-v1",
         "provenance": {
@@ -472,9 +502,7 @@ def main() -> int:
             "binary_sha256": sha256(binary),
             "hostname": platform.node(),
             "platform": platform.platform(),
-            "gpu": gpu_match.group(1) if gpu_match else None,
-            "physical_extent": extent_match.group(1) if extent_match else None,
-            "present_mode": present_match.group(1) if present_match else None,
+            **fixed_runtime,
             "camera_snapshot": "player-default",
             "perf_lock": str(PERF_LOCK),
             "perf_lock_wait_seconds": round(lock_wait, 6),

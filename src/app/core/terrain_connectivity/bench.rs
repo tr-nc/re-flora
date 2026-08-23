@@ -69,12 +69,14 @@ struct EventStages {
     total_us: f64,
     current_path_us: f64,
     primary_readback_us: f64,
+    trace_readback_us: f64,
     classification_us: f64,
     sampling_us: f64,
     invalidation_us: f64,
     publication_us: f64,
     particle_spawn_us: f64,
     classified_voxels: usize,
+    trace_readback_tiles: usize,
     invalidated_voxels: usize,
     sampled_voxels: usize,
     spawned_particles: usize,
@@ -372,10 +374,10 @@ fn run_release_event(
     );
 
     let classification_started = Instant::now();
-    let mut components = {
+    let (mut components, trace_readback_us, trace_readback_tiles) = {
         let mut reader =
             AtlasVoxelReader::new(&mut app.plain_builder, world_dim, block, &atlas_voxels);
-        detached_components_in_edit_region(
+        let components = detached_components_in_edit_region(
             &atlas_voxels,
             block,
             candidate_region,
@@ -383,7 +385,8 @@ fn run_release_event(
             VOXEL_TYPE_MASK as u8,
             usize::MAX,
             |world_voxel| reader.voxel_at(world_voxel),
-        )?
+        )?;
+        (components, reader.tile_readback_us, reader.tiles.len())
     };
     let classification_us = classification_started.elapsed().as_secs_f64() * 1_000_000.0;
     anyhow::ensure!(
@@ -428,12 +431,14 @@ fn run_release_event(
     Ok(EventStages {
         total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
         primary_readback_us,
+        trace_readback_us,
         classification_us,
         sampling_us,
         invalidation_us,
         publication_us,
         particle_spawn_us,
         classified_voxels: component.voxels.len(),
+        trace_readback_tiles,
         invalidated_voxels: component.voxels.len(),
         sampled_voxels: visual_voxels.len(),
         spawned_particles,
@@ -567,7 +572,7 @@ fn fixture_edit_bound() -> UAabb3 {
 
 fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: EventStages) {
     log::info!(
-        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} classification_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={}",
+        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={}",
         options.mode.label(),
         frame,
         options.available_particles,
@@ -575,12 +580,14 @@ fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: Event
         stages.total_us,
         stages.current_path_us,
         stages.primary_readback_us,
+        stages.trace_readback_us,
         stages.classification_us,
         stages.sampling_us,
         stages.invalidation_us,
         stages.publication_us,
         stages.particle_spawn_us,
         stages.classified_voxels,
+        stages.trace_readback_tiles,
         stages.invalidated_voxels,
         stages.sampled_voxels,
         stages.spawned_particles,
