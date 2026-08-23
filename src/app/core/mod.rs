@@ -99,6 +99,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
+use petalsonic::EnvironmentalAcousticsBudget;
 use rand::RngExt;
 use re_flora_vkn::{
     Allocator, Extent2D, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -142,6 +143,8 @@ const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.9;
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 const CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED: u64 = 122;
+const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS: usize = 2;
+const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS: usize = 32;
 const CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES: [WindSource; 1] =
     [WindSource::new(35.0, 1.0, 1.0, 3, 2.0, 0.5, 0.75)];
 
@@ -223,14 +226,20 @@ impl EguiTextureLifecycleTest {
 struct CanopyAudioDiagnosticRuntime {
     start_time_seconds: Option<f32>,
     previous_phase: Option<CanopyAudioTrajectoryPhase>,
+    budget_stress: bool,
 }
 
 impl CanopyAudioDiagnosticRuntime {
-    fn new() -> Self {
+    fn new(budget_stress: bool) -> Self {
         Self {
             start_time_seconds: None,
             previous_phase: None,
+            budget_stress,
         }
+    }
+
+    fn budget_stress(&self) -> bool {
+        self.budget_stress
     }
 
     fn sample(
@@ -957,6 +966,14 @@ impl App {
             1024,
             contree_builder.acoustic_scene_snapshot(),
             options.audio_output_device.clone(),
+            if options.canopy_audio_budget_diagnostic {
+                EnvironmentalAcousticsBudget {
+                    max_processed_extents: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
+                    max_direct_rays: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
+                }
+            } else {
+                EnvironmentalAcousticsBudget::default()
+            },
         )?;
 
         let tracer = Tracer::new(
@@ -1292,7 +1309,7 @@ impl App {
                 .then_some(0.0),
             canopy_audio_diagnostic: options
                 .canopy_audio_diagnostic
-                .then(CanopyAudioDiagnosticRuntime::new),
+                .then(|| CanopyAudioDiagnosticRuntime::new(options.canopy_audio_budget_diagnostic)),
             tree_bench: options
                 .tree_bench
                 .then(|| TreeBench::new(options.tree_bench_samples)),

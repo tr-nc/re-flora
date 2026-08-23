@@ -2,7 +2,10 @@ use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::visible_terrain::VisibleTerrainChange;
-use super::App;
+use super::{
+    App, CanopyAudioDiagnosticRuntime, CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
+    CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS, CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
+};
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
@@ -1091,7 +1094,46 @@ impl App {
         if self.canopy_audio_diagnostic.is_some() {
             self.log_canopy_audio_layout_comparison();
         }
+        if self
+            .canopy_audio_diagnostic
+            .as_ref()
+            .is_some_and(CanopyAudioDiagnosticRuntime::budget_stress)
+        {
+            self.plant_canopy_audio_budget_diagnostic_trees()?;
+        }
         log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
+        Ok(())
+    }
+
+    fn plant_canopy_audio_budget_diagnostic_trees(&mut self) -> Result<()> {
+        const OFFSETS: [Vec2; 4] = [
+            Vec2::new(0.48, 0.0),
+            Vec2::new(0.0, 0.48),
+            Vec2::new(-0.48, 0.0),
+            Vec2::new(0.0, -0.48),
+        ];
+
+        for (index, offset) in OFFSETS.into_iter().enumerate() {
+            let horizontal = Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z) + offset;
+            let position = Vec3::new(
+                horizontal.x,
+                self.query_terrain_height_cpu(horizontal),
+                horizontal.y,
+            );
+            let mut tree_desc = self.debug_settings.tree.desc.clone();
+            tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED + index as u64 + 1;
+            self.apply_tree_placement(TreePlacementEdit {
+                tree_desc,
+                placement: TreePlacement::World(position),
+                options: TreeAddOptions::default().with_new_id(),
+            })?;
+        }
+        log::info!(
+            "[AUDIO][CANOPY][BUDGET_DIAGNOSTIC] trees={} max_processed_extents={} max_direct_rays={}",
+            OFFSETS.len() + 1,
+            CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
+            CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
+        );
         Ok(())
     }
 

@@ -143,6 +143,8 @@ pub struct AppOptions {
     pub canopy_audio_telemetry: bool,
     /// Run the fixed tree/wind/listener trajectory used for canopy audio diagnosis.
     pub canopy_audio_diagnostic: bool,
+    /// Add deterministic surrounding trees and constrain the Petal acoustic solve budget.
+    pub canopy_audio_budget_diagnostic: bool,
     /// Select an audio output device by case-insensitive substring match.
     pub audio_output_device: Option<String>,
     /// Disable shadow rendering pass.
@@ -478,7 +480,11 @@ impl AppOptions {
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
-        let canopy_audio_diagnostic = args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+        let canopy_audio_budget_diagnostic = args
+            .iter()
+            .any(|arg| arg == "--canopy-audio-budget-diagnostic");
+        let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
+            || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
         if canopy_audio_diagnostic
             && (terrain_load_path.is_some()
                 || water_experience
@@ -536,6 +542,7 @@ impl AppOptions {
             mute: args.iter().any(|a| a == "--mute"),
             canopy_audio_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
             canopy_audio_diagnostic,
+            canopy_audio_budget_diagnostic,
             audio_output_device: parse_required_string_after(
                 "--audio-output-device",
                 "an output device name substring",
@@ -813,6 +820,8 @@ Options:
   --mute                      Start with global audio output muted while keeping audio processing active
   --canopy-audio-telemetry    Log opt-in per-tree and per-canopy-sample acoustic telemetry at 10 Hz
   --canopy-audio-diagnostic   Run the fixed tree, wind, forward/hold/reverse listener trajectory and enable canopy telemetry
+  --canopy-audio-budget-diagnostic
+                              Run the same trajectory with five fixed trees and a two-extent acoustic budget
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
   --no-shadows                Disable shadow rendering passes
@@ -1046,6 +1055,19 @@ mod tests {
 
         assert!(options.canopy_audio_diagnostic);
         assert!(!options.canopy_audio_telemetry);
+    }
+
+    #[test]
+    fn parses_fixed_canopy_audio_budget_diagnostic() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--canopy-audio-budget-diagnostic",
+        ]);
+
+        assert!(options.canopy_audio_diagnostic);
+        assert!(options.canopy_audio_budget_diagnostic);
     }
 
     #[test]

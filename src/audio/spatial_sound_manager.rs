@@ -5,9 +5,10 @@ use glam::Vec3;
 use petalsonic::{
     AcousticDiscardReason, AcousticExtentTelemetry, AcousticSceneSnapshot,
     AcousticTelemetryDiagnostics, AcousticTelemetryEvent, BusParams, Emitter, EmitterDesc,
-    EmitterSpatialState, LatencyProfile, OcclusionProfile, OutputDevicePolicy, PetalSonicWorld,
-    PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat, ResidentClip, RuntimeDiagnostics,
-    RuntimeState, SourceExtent, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
+    EmitterSpatialState, EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile,
+    OutputDevicePolicy, PetalSonicWorld, PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat,
+    ResidentClip, RuntimeDiagnostics, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
+    Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -122,6 +123,7 @@ impl SpatialSoundManager {
         frame_window_size: usize,
         acoustic_scene: AcousticSceneSnapshot,
         audio_output_device: Option<String>,
+        environmental_acoustics_budget: EnvironmentalAcousticsBudget,
     ) -> Result<Self> {
         let project_root = crate::util::get_project_root();
         let native_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.petalhrtf", project_root);
@@ -142,6 +144,7 @@ impl SpatialSoundManager {
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
             acoustic_scene: Some(acoustic_scene),
+            environmental_acoustics_budget,
             ..PetalSonicWorldDesc::default()
         })?;
 
