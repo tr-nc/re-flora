@@ -4,6 +4,22 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CanopyAudioGenerationKey {
+    tree_id: u32,
+    generation: u64,
+}
+
+impl CanopyAudioGenerationKey {
+    pub fn tree_id(self) -> u32 {
+        self.tree_id
+    }
+
+    pub fn generation(self) -> u64 {
+        self.generation
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CanopyAudioSourceKey {
     tree_id: u32,
     generation: u64,
@@ -34,6 +50,27 @@ impl CanopyAudioSourceKey {
             generation,
             sample_id,
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ActiveCanopyAcousticGeneration {
+    key: CanopyAudioGenerationKey,
+    descriptor: CanopyAcousticDescriptor,
+    lifecycle_power: f32,
+}
+
+impl ActiveCanopyAcousticGeneration {
+    pub fn key(&self) -> CanopyAudioGenerationKey {
+        self.key
+    }
+
+    pub fn descriptor(&self) -> &CanopyAcousticDescriptor {
+        &self.descriptor
+    }
+
+    pub fn lifecycle_power(&self) -> f32 {
+        self.lifecycle_power
     }
 }
 
@@ -75,10 +112,15 @@ impl ActiveCanopyAcousticSample {
 
 #[derive(Clone, Debug, Default)]
 pub struct CanopyAudioLifecycleSnapshot {
+    generations: Vec<ActiveCanopyAcousticGeneration>,
     samples: Vec<ActiveCanopyAcousticSample>,
 }
 
 impl CanopyAudioLifecycleSnapshot {
+    pub fn generations(&self) -> &[ActiveCanopyAcousticGeneration] {
+        &self.generations
+    }
+
     pub fn samples(&self) -> &[ActiveCanopyAcousticSample] {
         &self.samples
     }
@@ -263,10 +305,19 @@ impl CanopyAudioLifecycle {
     ) -> Result<CanopyAudioLifecycleSnapshot, CanopyAudioLifecycleError> {
         validate_time(time_seconds)?;
         self.prune(time_seconds);
+        let mut generations = Vec::new();
         let mut samples = Vec::new();
         for (&tree_id, tree) in &self.trees {
             for layer in &tree.layers {
                 let lifecycle_power = layer.power.power_at(time_seconds);
+                generations.push(ActiveCanopyAcousticGeneration {
+                    key: CanopyAudioGenerationKey {
+                        tree_id,
+                        generation: layer.descriptor.generation(),
+                    },
+                    descriptor: layer.descriptor.clone(),
+                    lifecycle_power,
+                });
                 for sample in layer.descriptor.samples() {
                     samples.push(ActiveCanopyAcousticSample {
                         key: CanopyAudioSourceKey {
@@ -281,8 +332,12 @@ impl CanopyAudioLifecycle {
                 }
             }
         }
+        generations.sort_by_key(ActiveCanopyAcousticGeneration::key);
         samples.sort_by_key(ActiveCanopyAcousticSample::key);
-        Ok(CanopyAudioLifecycleSnapshot { samples })
+        Ok(CanopyAudioLifecycleSnapshot {
+            generations,
+            samples,
+        })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -442,5 +497,31 @@ mod tests {
                 retired_generation_count: 2,
             })
         );
+    }
+
+    #[test]
+    fn snapshot_exposes_one_immutable_layer_per_active_generation() {
+        let mut lifecycle = CanopyAudioLifecycle::new(1.0);
+        lifecycle.replace(4, descriptor(10, -6.0), 0.0).unwrap();
+        lifecycle.snapshot(1.0).unwrap();
+
+        lifecycle.replace(4, descriptor(11, 6.0), 1.0).unwrap();
+        let midpoint = lifecycle.snapshot(1.5).unwrap();
+        let generations = midpoint.generations();
+
+        assert_eq!(generations.len(), 2);
+        assert_eq!(generations[0].key().generation(), 10);
+        assert_eq!(
+            generations[0].descriptor().samples()[0].position_tree_voxels(),
+            Vec3::new(-6.0, 4.0, 0.0),
+        );
+        assert_eq!(generations[1].key().generation(), 11);
+        assert_eq!(
+            generations[1].descriptor().samples()[0].position_tree_voxels(),
+            Vec3::new(6.0, 4.0, 0.0),
+        );
+        assert!(generations
+            .iter()
+            .all(|generation| (generation.lifecycle_power() - 0.5).abs() < 1.0e-6));
     }
 }

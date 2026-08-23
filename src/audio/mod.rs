@@ -14,8 +14,9 @@ pub use canopy_audio_diagnostics::{
 
 mod canopy_audio_lifecycle;
 pub use canopy_audio_lifecycle::{
-    ActiveCanopyAcousticSample, CanopyAudioLifecycle, CanopyAudioLifecycleSnapshot,
-    CanopyAudioSourceKey, CanopyTreeLifecycleDiagnostics,
+    ActiveCanopyAcousticGeneration, ActiveCanopyAcousticSample, CanopyAudioGenerationKey,
+    CanopyAudioLifecycle, CanopyAudioLifecycleSnapshot, CanopyAudioSourceKey,
+    CanopyTreeLifecycleDiagnostics,
 };
 
 mod canopy_point_emitter_adapter;
