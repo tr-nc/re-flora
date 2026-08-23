@@ -55,6 +55,9 @@ enum PointLightTestStage {
     AwaitBlockedDiagnostic,
     AwaitRestoreSettled,
     AwaitRestoredDiagnostic,
+    AwaitOverflowDiagnostic,
+    AwaitDiagnosticCleanupLive,
+    AwaitRemovedDiagnostic,
     AwaitPointOnDdgiPublication,
     AwaitMoveLive,
     AwaitMoveMidflight,
@@ -382,6 +385,10 @@ pub(super) struct EnvironmentLightingTestScene {
     phase: TestScenePhase,
     point_light_fixed_gpu_request_serial: u32,
     point_light_fixed_gpu_visible_luma_q8: u32,
+    point_light_diagnostic_selected_decoy_id: Option<LightId>,
+    point_light_diagnostic_overflow_id: Option<LightId>,
+    point_light_diagnostic_supplemental_ids: Vec<LightId>,
+    point_light_expected_registry_revision: u64,
 }
 
 impl EnvironmentLightingTestScene {
@@ -391,6 +398,10 @@ impl EnvironmentLightingTestScene {
             phase: TestScenePhase::Pending,
             point_light_fixed_gpu_request_serial: 0,
             point_light_fixed_gpu_visible_luma_q8: 0,
+            point_light_diagnostic_selected_decoy_id: None,
+            point_light_diagnostic_overflow_id: None,
+            point_light_diagnostic_supplemental_ids: Vec::new(),
+            point_light_expected_registry_revision: 0,
         }
     }
 
@@ -558,6 +569,15 @@ impl EnvironmentLightingTestScene {
                 }
                 PointLightTestStage::AwaitRestoredDiagnostic => {
                     "waiting-for-point-light-restored-diagnostic"
+                }
+                PointLightTestStage::AwaitOverflowDiagnostic => {
+                    "waiting-for-point-light-overflow-diagnostic"
+                }
+                PointLightTestStage::AwaitDiagnosticCleanupLive => {
+                    "waiting-for-point-light-diagnostic-cleanup-live"
+                }
+                PointLightTestStage::AwaitRemovedDiagnostic => {
+                    "waiting-for-point-light-removed-diagnostic"
                 }
                 PointLightTestStage::AwaitPointOnDdgiPublication => {
                     "waiting-for-point-light-on-ddgi-publication"
@@ -1266,6 +1286,16 @@ impl App {
                     }
                     assert_eq!(baseline.field().geometry_revision(), terrain_revision);
                     assert_eq!(active.relocated_terrain_revision, Some(terrain_revision));
+                    let selected_decoy_id = self.local_lights.add(LocalLight::Point(
+                        PointLight::new(
+                            POINT_LIGHT_ADD_POSITION,
+                            Vec3::new(1.0, 0.0, 0.0),
+                            8.0,
+                            POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                            POINT_LIGHT_RANGE_WORLD,
+                        )
+                        .expect("point-light diagnostic decoy must be valid"),
+                    ));
                     let id = self.local_lights.add(LocalLight::Point(
                         PointLight::new(
                             POINT_LIGHT_ADD_POSITION,
@@ -1276,11 +1306,37 @@ impl App {
                         )
                         .expect("point-light test add must be valid"),
                     ));
-                    let source_revision = self.local_lights.snapshot().revision();
+                    let mut supplemental_ids = vec![selected_decoy_id];
+                    for index in 0..7 {
+                        supplemental_ids.push(
+                            self.local_lights.add(LocalLight::Point(
+                                PointLight::new(
+                                    POINT_LIGHT_ADD_POSITION
+                                        + Vec3::X * (index as f32 + 1.0) * 0.01,
+                                    Vec3::ONE,
+                                    0.0,
+                                    POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                                    POINT_LIGHT_RANGE_WORLD,
+                                )
+                                .expect("zero-energy diagnostic capacity source must be valid"),
+                            )),
+                        );
+                    }
+                    let overflow_id = *supplemental_ids
+                        .last()
+                        .expect("diagnostic overflow source must exist");
+                    let scene = self
+                        .environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist");
+                    scene.point_light_diagnostic_selected_decoy_id = Some(selected_decoy_id);
+                    scene.point_light_diagnostic_overflow_id = Some(overflow_id);
+                    scene.point_light_diagnostic_supplemental_ids = supplemental_ids;
+                    let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log_acceptance_field("POINT_LIGHT", "baseline", baseline);
                     log::info!(
-                        "[POINT_LIGHT_ACCEPT] action=add frame={} light_slot={} light_generation={} source_revision={} position_world={:?} color={:?} intensity={} source_radius_world={} range_world={} geometry_revision={} direct_expected=next_render",
+                        "[POINT_LIGHT_ACCEPT] action=add-small-n frame={} target_slot={} target_generation={} target_selected_index=1 source_revision={} authoritative_count=9 gpu_capacity=8 expected_gpu_count=8 expected_overflow=1 position_world={:?} color={:?} intensity={} source_radius_world={} range_world={} geometry_revision={} direct_expected=next_render",
                         frame,
                         id.slot(),
                         id.generation(),
@@ -1308,7 +1364,7 @@ impl App {
                     if live_revision != Some(expected_source_revision) {
                         return;
                     }
-                    assert_eq!(live_count, 1);
+                    assert_eq!(live_count, 8);
                     assert!(self.time_info.total_frame_count() > mutation_frame);
                     let (revision_lag, coalesced) =
                         self.tracer.local_light_transport_observability();
@@ -1357,6 +1413,8 @@ impl App {
                         return;
                     }
                     let id = light_id.expect("point-light id must be retained");
+                    assert!(evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert_eq!(evidence.request.light_id, id);
@@ -1397,7 +1455,7 @@ impl App {
                     }
                     assert_eq!(
                         self.tracer.local_light_live_state(),
-                        (Some(expected_source_revision), 1)
+                        (Some(expected_source_revision), 8)
                     );
                     let request_serial = self
                         .tracer
@@ -1433,6 +1491,8 @@ impl App {
                     if evidence.request.request_serial != fixed_gpu_request_serial {
                         return;
                     }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert_eq!(evidence.request.light_id, light_id.unwrap());
@@ -1469,7 +1529,7 @@ impl App {
                     }
                     assert_eq!(
                         self.tracer.local_light_live_state(),
-                        (Some(expected_source_revision), 1)
+                        (Some(expected_source_revision), 8)
                     );
                     let request_serial = self
                         .tracer
@@ -1505,6 +1565,8 @@ impl App {
                     if evidence.request.request_serial != fixed_gpu_request_serial {
                         return;
                     }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert_eq!(evidence.request.light_id, light_id.unwrap());
@@ -1532,6 +1594,172 @@ impl App {
                         expected_source_revision,
                         fixed_gpu_visible_luma_q8,
                         evidence.irradiance_luma_q8,
+                    );
+                    let overflow_id = self
+                        .environment_lighting_test_scene
+                        .as_ref()
+                        .and_then(|scene| scene.point_light_diagnostic_overflow_id)
+                        .expect("point-light overflow diagnostic id must exist");
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            terrain_revision,
+                            expected_source_revision,
+                            overflow_id,
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("overflow identity diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitOverflowDiagnostic,
+                        expected_source_revision,
+                        mutation_frame,
+                    }
+                }
+                PointLightTestStage::AwaitOverflowDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    let (selected_decoy_id, overflow_id, supplemental_ids) = {
+                        let scene = self
+                            .environment_lighting_test_scene
+                            .as_mut()
+                            .expect("point-light test scene must exist");
+                        (
+                            scene
+                                .point_light_diagnostic_selected_decoy_id
+                                .expect("selected diagnostic decoy must exist"),
+                            scene
+                                .point_light_diagnostic_overflow_id
+                                .expect("overflow diagnostic id must exist"),
+                            std::mem::take(&mut scene.point_light_diagnostic_supplemental_ids),
+                        )
+                    };
+                    assert_eq!(evidence.request.light_id, overflow_id);
+                    assert_eq!(evidence.request.source_revision, expected_source_revision);
+                    assert!(!evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, None);
+                    assert_eq!(evidence.candidates, 0);
+                    assert_eq!(evidence.visible, 0);
+                    assert_eq!(evidence.occluded, 0);
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    assert_eq!(evidence.irradiance, Vec3::ZERO);
+                    for id in supplemental_ids {
+                        self.local_lights
+                            .remove(id)
+                            .expect("diagnostic supplemental light must remain live until cleanup");
+                    }
+                    let snapshot = self.local_lights.snapshot();
+                    let source_revision = snapshot.source_revision();
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_expected_registry_revision = snapshot.registry_revision();
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=n-diagnostic-overflow identity_matches=false selected_index=none overflow_slot={} overflow_generation={} source_revision_before={} cleanup_source_revision={} authoritative_count_after=1 selected_decoy_slot={} selected_decoy_generation={} stale_direct_expected=false",
+                        overflow_id.slot(),
+                        overflow_id.generation(),
+                        expected_source_revision,
+                        source_revision,
+                        selected_decoy_id.slot(),
+                        selected_decoy_id.generation(),
+                    );
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitDiagnosticCleanupLive,
+                        expected_source_revision: source_revision,
+                        mutation_frame: self.time_info.total_frame_count(),
+                    }
+                }
+                PointLightTestStage::AwaitDiagnosticCleanupLive => {
+                    if self.tracer.local_light_live_state() != (Some(expected_source_revision), 1) {
+                        return;
+                    }
+                    assert!(self.time_info.total_frame_count() > mutation_frame);
+                    let selected_decoy_id = self
+                        .environment_lighting_test_scene
+                        .as_ref()
+                        .and_then(|scene| scene.point_light_diagnostic_selected_decoy_id)
+                        .expect("removed selected diagnostic decoy id must be retained");
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            terrain_revision,
+                            expected_source_revision,
+                            selected_decoy_id,
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("removed identity diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("point-light test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    TestScenePhase::PointLightLifecycle {
+                        terrain_revision,
+                        baseline,
+                        light_id,
+                        in_flight,
+                        in_flight_source_revision,
+                        stage: PointLightTestStage::AwaitRemovedDiagnostic,
+                        expected_source_revision,
+                        mutation_frame,
+                    }
+                }
+                PointLightTestStage::AwaitRemovedDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    let selected_decoy_id = self
+                        .environment_lighting_test_scene
+                        .as_ref()
+                        .and_then(|scene| scene.point_light_diagnostic_selected_decoy_id)
+                        .expect("removed selected diagnostic decoy id must be retained");
+                    assert_eq!(evidence.request.light_id, selected_decoy_id);
+                    assert_eq!(evidence.request.source_revision, expected_source_revision);
+                    assert!(!evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, None);
+                    assert_eq!(evidence.candidates, 0);
+                    assert_eq!(evidence.visible, 0);
+                    assert_eq!(evidence.occluded, 0);
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    assert_eq!(evidence.irradiance, Vec3::ZERO);
+                    let expected_registry_revision = self
+                        .environment_lighting_test_scene
+                        .as_ref()
+                        .expect("point-light test scene must exist")
+                        .point_light_expected_registry_revision;
+                    let revisions = self.tracer.local_light_revision_observability();
+                    assert_eq!(revisions.0, Some(expected_source_revision));
+                    assert_eq!(revisions.1, Some(expected_registry_revision));
+                    log::info!(
+                        "[POINT_LIGHT_ACCEPT] checkpoint=n-diagnostic-complete target_selected_index=1 target_energy_isolated=true overflow_identity_matches=false removed_selected_identity_matches=false source_revision={} registry_revision={:?} live_gpu_revision={:?} gpu_count=1 authoritative_count=1 mixed_in_flight=false",
+                        expected_source_revision,
+                        revisions.1,
+                        revisions.2,
                     );
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
@@ -1616,7 +1844,7 @@ impl App {
                             ),
                         )
                         .expect("point-light test id must stay live during move");
-                    let source_revision = self.local_lights.snapshot().revision();
+                    let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
                         "[POINT_LIGHT_ACCEPT] checkpoint=point-on-ddgi-gpu positive=true source_revision={} geometry_revision={} field_serial={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} action=move frame={} next_source_revision={} from_world={:?} to_world={:?} mixed_in_flight=false",
@@ -1738,7 +1966,7 @@ impl App {
                             ),
                         )
                         .expect("point-light id must stay live during photometric update");
-                    let source_revision = self.local_lights.snapshot().revision();
+                    let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
                         "[POINT_LIGHT_ACCEPT] checkpoint=move-midflight action=update-color-intensity frame={} source_revision={} color={:?} intensity={} ddgi_in_flight_revision={} ddgi_frozen_source_revision={} progress={}/{} priority_reason={:?} priority_voxel_min={:?} priority_voxel_max={:?} full_sweep_probes={} mixed_in_flight=false",
@@ -1783,7 +2011,7 @@ impl App {
                     self.local_lights
                         .remove(id)
                         .expect("point-light removal must use the current stable id");
-                    let source_revision = self.local_lights.snapshot().revision();
+                    let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log::info!(
                         "[POINT_LIGHT_ACCEPT] checkpoint=photometric-update-live direct_immediate=true action=remove frame={} source_revision={} live_count_before_remove={} ddgi_frozen_source_revision={} mixed_in_flight=false",
@@ -2744,12 +2972,10 @@ mod tests {
 
     #[test]
     fn inflight_stale_active_checkpoint_is_capture_ready_without_becoming_final_ready() {
-        let scene = EnvironmentLightingTestScene {
-            case: EnvironmentLightingTestCase::TerrainEditsInflightCapture,
-            phase: TestScenePhase::CapturingInflightStaleActive { target_revision: 3 },
-            point_light_fixed_gpu_request_serial: 0,
-            point_light_fixed_gpu_visible_luma_q8: 0,
-        };
+        let mut scene = EnvironmentLightingTestScene::new(
+            EnvironmentLightingTestCase::TerrainEditsInflightCapture,
+        );
+        scene.phase = TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
 
         assert!(scene.is_capture_ready());
         assert!(!scene.is_ready());

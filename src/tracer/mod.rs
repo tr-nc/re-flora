@@ -1602,7 +1602,20 @@ impl Tracer {
     }
 
     pub(crate) fn local_light_live_state(&self) -> (Option<u64>, u32) {
-        (self.local_light_live_revision, self.local_light_live_count)
+        (
+            self.local_light_uploaded_source_revision,
+            self.local_light_live_count,
+        )
+    }
+
+    pub(crate) fn local_light_revision_observability(
+        &self,
+    ) -> (Option<u64>, Option<u64>, Option<u64>) {
+        (
+            self.local_light_uploaded_source_revision,
+            self.local_light_uploaded_registry_revision,
+            self.local_light_live_revision,
+        )
     }
 
     pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {

@@ -569,6 +569,17 @@ impl LocalLightGpuPayload {
         self.info.count.min(self.info.capacity)
     }
 
+    pub(crate) fn light_index(self, id: LightId) -> Option<usize> {
+        self.lights
+            .iter()
+            .take(self.count() as usize)
+            .position(|light| {
+                light.abi_version == LOCAL_LIGHT_GPU_ABI_VERSION
+                    && light.stable_id_slot == id.slot
+                    && light.stable_id_generation == id.generation
+            })
+    }
+
     pub(crate) fn influence_bound(self) -> Option<LocalLightInfluenceBound> {
         self.lights
             .iter()
@@ -874,18 +885,20 @@ mod tests {
             assert!(source.contains("import local_lighting;"));
             assert!(source.contains("evaluateVoxelVisibleLocalLightIrradiance"));
         }
-        for source in [
-            include_str!("../../shader/slang/ddgi_probe_trace.slang"),
-            include_str!("../../shader/slang/local_light_visibility_diagnostic.comp.slang"),
-        ] {
-            assert!(source.contains("import local_lighting;"));
-            assert!(source.contains("evaluateVoxelVisibleLocalLight("));
-        }
+        let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
+        assert!(ddgi.contains("import local_lighting;"));
+        assert!(ddgi.contains("evaluateVoxelVisibleLocalLight("));
 
         let evaluator = include_str!("../../shader/slang/local_lighting.slang");
         assert!(evaluator.contains("for (uint lightIndex = 0u;"));
         assert!(evaluator.contains("marchScene("));
         assert!(evaluator.contains("shadowHit.distance"));
+
+        let diagnostic =
+            include_str!("../../shader/slang/local_light_visibility_diagnostic.comp.slang");
+        assert!(diagnostic.contains("findLocalLightIndexByStableId"));
+        assert!(diagnostic.contains("evaluateVoxelVisibleLocalLightAtIndex"));
+        assert!(!diagnostic.contains("localLightCount(local_light_info) == 1u"));
     }
 
     #[test]
@@ -934,6 +947,12 @@ mod tests {
         assert_eq!(outcome.added, 0);
         assert_eq!(outcome.updated, 0);
         assert_eq!(outcome.removed, 0);
+        assert_eq!(registry.snapshot().source_revision(), 2);
+        assert_eq!(registry.snapshot().registry_revision(), registry_revision);
+        assert_ne!(
+            registry.snapshot().source_revision(),
+            registry.snapshot().registry_revision()
+        );
     }
 
     #[test]
@@ -1183,5 +1202,50 @@ mod tests {
             after.for_radiance_identity()
         );
         assert_ne!(before.registry_revision(), after.registry_revision());
+    }
+
+    #[test]
+    fn gpu_identity_lookup_handles_nonzero_index_reorder_overflow_and_removal() {
+        let provider = ProviderId::new(31);
+        let target_key = SourceLightKey::new(2, 0);
+        let overflow_key = SourceLightKey::new(9, 0);
+        let mut registry = LocalLightRegistry::default();
+        let reversed = (1..=9).rev().map(|index| {
+            SourceLight::new(
+                SourceLightKey::new(index, 0),
+                point(Vec3::new(index as f32 * 0.01, 1.0, 0.0)),
+            )
+        });
+        registry
+            .reconcile(LocalLightProviderSnapshot::new(provider, 1, reversed).unwrap())
+            .unwrap();
+        let target_id = registry.light_id(provider, target_key).unwrap();
+        let overflow_id = registry.light_id(provider, overflow_key).unwrap();
+        let selected = LocalLightGpuSnapshot::from_authoritative(
+            &registry.snapshot(),
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        )
+        .payload();
+
+        assert_eq!(selected.light_index(target_id), Some(1));
+        assert_eq!(selected.light_index(overflow_id), None);
+
+        let without_target = (1..=9).filter(|index| *index != 2).map(|index| {
+            SourceLight::new(
+                SourceLightKey::new(index, 0),
+                point(Vec3::new(index as f32 * 0.01, 1.0, 0.0)),
+            )
+        });
+        registry
+            .reconcile(LocalLightProviderSnapshot::new(provider, 2, without_target).unwrap())
+            .unwrap();
+        let after_removal = LocalLightGpuSnapshot::from_authoritative(
+            &registry.snapshot(),
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        )
+        .payload();
+        assert_eq!(after_removal.light_index(target_id), None);
     }
 }

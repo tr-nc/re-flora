@@ -71,6 +71,29 @@ public uint localLightCount(U_LocalLightInfo info)
     return min(info.count, info.capacity);
 }
 
+public bool findLocalLightIndexByStableId(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    uint stableIdSlot,
+    uint stableIdGeneration,
+    out uint lightIndex)
+{
+    uint count = localLightCount(info);
+    [loop]
+    for (uint index = 0u; index < count; ++index)
+    {
+        U_LightGpu light = lights[index];
+        if (light.stable_id_slot == stableIdSlot &&
+            light.stable_id_generation == stableIdGeneration)
+        {
+            lightIndex = index;
+            return true;
+        }
+    }
+    lightIndex = count;
+    return false;
+}
+
 public LocalPointLightSample evaluateUnshadowedPointLight(
     U_LightGpu light, float3 receiverPosition, float3 receiverNormal)
 {
@@ -107,9 +130,7 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
     return result;
 }
 
-// Exact finite segment visibility for voxel-backed receivers. All production local-light
-// consumers call this function so attenuation, units, range clipping, and occlusion stay aligned.
-public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
+public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
     U_LocalLightInfo info,
     StructuredBuffer<U_LightGpu> lights,
     StructuredBuffer<ContreeNode> nodeData,
@@ -118,7 +139,8 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     float3 receiverPosition,
     float3 receiverNormal,
     float rayOriginOffsetWorld,
-    uint localInvocationIndex)
+    uint localInvocationIndex,
+    uint lightIndex)
 {
     LocalLightVoxelEvaluation result;
     result.irradiance = float3(0.0);
@@ -126,14 +148,12 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     result.visible = 0u;
     result.occluded = 0u;
     result.irradiance_luma_q8 = 0u;
-    uint count = localLightCount(info);
-    [loop]
-    for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
+    if (lightIndex < localLightCount(info))
     {
         U_LightGpu light = lights[lightIndex];
         LocalPointLightSample sample = evaluateUnshadowedPointLight(
             light, receiverPosition, receiverNormal);
-        if (!any(sample.irradiance > float3(0.0))) continue;
+        if (!any(sample.irradiance > float3(0.0))) return result;
         result.candidates += 1u;
 
         float3 shadowOrigin = terrainRayOriginFromSurface(
@@ -159,6 +179,42 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     }
     // One invocation contributes at most 65535 so a full 32768-ray DDGI batch cannot overflow
     // the u32 atomic accumulator. CPU aggregation widens complete sweeps to u64.
+    float luminance = dot(result.irradiance, float3(0.2126, 0.7152, 0.0722));
+    result.irradiance_luma_q8 = uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
+    return result;
+}
+
+// Exact finite segment visibility for voxel-backed receivers. All production local-light
+// consumers call this function so attenuation, units, range clipping, and occlusion stay aligned.
+public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex)
+{
+    LocalLightVoxelEvaluation result;
+    result.irradiance = float3(0.0);
+    result.candidates = 0u;
+    result.visible = 0u;
+    result.occluded = 0u;
+    result.irradiance_luma_q8 = 0u;
+    uint count = localLightCount(info);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
+    {
+        LocalLightVoxelEvaluation lightResult = evaluateVoxelVisibleLocalLightAtIndex(
+            info, lights, nodeData, leafData, sceneTexture, receiverPosition,
+            receiverNormal, rayOriginOffsetWorld, localInvocationIndex, lightIndex);
+        result.irradiance += lightResult.irradiance;
+        result.candidates += lightResult.candidates;
+        result.visible += lightResult.visible;
+        result.occluded += lightResult.occluded;
+    }
     float luminance = dot(result.irradiance, float3(0.2126, 0.7152, 0.0722));
     result.irradiance_luma_q8 = uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
     return result;

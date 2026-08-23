@@ -7,7 +7,7 @@ use anyhow::{ensure, Result};
 use glam::Vec3;
 use re_flora_vkn::{BufferUse, CommandBuffer, ComputePipeline, Extent3D};
 
-const LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION: u32 = 1;
+const LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LocalLightVisibilityDiagnosticRequest {
@@ -50,6 +50,8 @@ impl LocalLightVisibilityDiagnosticRequest {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LocalLightVisibilityDiagnosticEvidence {
     pub request: LocalLightVisibilityDiagnosticRequest,
+    pub identity_matches: bool,
+    pub selected_light_index: Option<u32>,
     pub irradiance: Vec3,
     pub candidates: u32,
     pub visible: u32,
@@ -61,6 +63,25 @@ impl LocalLightVisibilityDiagnosticEvidence {
     pub fn irradiance_luma(self) -> f32 {
         self.irradiance_luma_q8 as f32 / 256.0
     }
+}
+
+fn decode_selected_light_index(
+    identity_matches: u32,
+    selected_light_index: u32,
+) -> Result<(bool, Option<u32>)> {
+    ensure!(
+        identity_matches <= 1,
+        "local-light visibility diagnostic identity flag is invalid"
+    );
+    ensure!(
+        (identity_matches == 1 && selected_light_index != u32::MAX)
+            || (identity_matches == 0 && selected_light_index == u32::MAX),
+        "local-light diagnostic selected index does not match its identity result"
+    );
+    Ok((
+        identity_matches == 1,
+        (selected_light_index != u32::MAX).then_some(selected_light_index),
+    ))
 }
 
 #[derive(Default)]
@@ -137,10 +158,8 @@ impl LocalLightVisibilityDiagnostic {
             result.abi_version == LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION,
             "local-light visibility diagnostic ABI mismatch"
         );
-        ensure!(
-            result.identity_matches == 1,
-            "local-light visibility diagnostic did not match the live LightId/source snapshot"
-        );
+        let (identity_matches, selected_light_index) =
+            decode_selected_light_index(result.identity_matches, result.selected_light_index)?;
         ensure!(
             result.request_serial == request.request_serial
                 && result.geometry_revision == request.geometry_revision
@@ -161,8 +180,19 @@ impl LocalLightVisibilityDiagnostic {
                 && result.candidates <= 1,
             "local-light visibility diagnostic visibility partition is invalid"
         );
+        ensure!(
+            result.identity_matches == 1
+                || (result.candidates == 0
+                    && result.visible == 0
+                    && result.occluded == 0
+                    && result.irradiance_luma_q8 == 0
+                    && result.irradiance == [0.0; 4]),
+            "unmatched local-light diagnostic must publish explicit zero contribution"
+        );
         let evidence = LocalLightVisibilityDiagnosticEvidence {
             request,
+            identity_matches,
+            selected_light_index,
             irradiance: Vec3::new(
                 result.irradiance[0],
                 result.irradiance[1],
@@ -174,12 +204,14 @@ impl LocalLightVisibilityDiagnostic {
             irradiance_luma_q8: result.irradiance_luma_q8,
         };
         log::info!(
-            "[LOCAL_LIGHT][FIXED_GPU_EVIDENCE] request={} geometry_revision={} source_revision={} light_slot={} light_generation={} receiver_world={:?} normal={:?} candidates={} visible={} occluded={} irradiance={:?} irradiance_luma_q8={} irradiance_luma={:.6}",
+            "[LOCAL_LIGHT][FIXED_GPU_EVIDENCE] request={} geometry_revision={} source_revision={} light_slot={} light_generation={} identity_matches={} selected_light_index={:?} receiver_world={:?} normal={:?} candidates={} visible={} occluded={} irradiance={:?} irradiance_luma_q8={} irradiance_luma={:.6}",
             request.request_serial,
             request.geometry_revision,
             request.source_revision,
             request.light_id.slot(),
             request.light_id.generation(),
+            evidence.identity_matches,
+            evidence.selected_light_index,
             request.receiver_position,
             request.receiver_normal,
             evidence.candidates,
@@ -255,5 +287,19 @@ mod tests {
             [0.66, 101.0 / 256.0, 1.18, 0.001]
         );
         assert_eq!(info.receiver_normal_and_reserved, [0.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn stale_source_revision_suppresses_a_still_found_light_index_without_error() {
+        assert_eq!(
+            decode_selected_light_index(0, u32::MAX).unwrap(),
+            (false, None)
+        );
+
+        let shader =
+            include_str!("../../shader/slang/local_light_visibility_diagnostic.comp.slang");
+        assert!(shader.contains(
+            "result.selected_light_index = identityMatches ? requestedLightIndex : 0xffffffffu"
+        ));
     }
 }
