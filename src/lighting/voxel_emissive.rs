@@ -61,6 +61,7 @@ pub(crate) enum EmissiveVoxelProviderError {
     DuplicateVoxel(UVec3),
     MissingVoxel(UVec3),
     DestinationOccupied(UVec3),
+    InvalidAggregate(SourceLightKey),
     Snapshot(LocalLightProviderSnapshotError),
 }
 
@@ -157,28 +158,23 @@ impl EmissiveVoxelProvider {
         if current == emitter {
             return Ok(self.no_change());
         }
-        let old_bound = self.aggregate_bound(cell);
+        let mut next_cell = self.cells.get(&cell).cloned().unwrap_or_default();
+        let mut next_voxel_count = self.voxel_count;
         match emitter {
             Some(emitter) => {
-                let inserted = self.cells.entry(cell).or_default().insert(voxel, emitter);
+                let inserted = next_cell.insert(voxel, emitter);
                 if inserted.is_none() {
-                    self.voxel_count += 1;
+                    next_voxel_count += 1;
                 }
             }
             None => {
-                let removed = self
-                    .cells
-                    .get_mut(&cell)
-                    .and_then(|sources| sources.remove(&voxel));
+                let removed = next_cell.remove(&voxel);
                 if removed.is_some() {
-                    self.voxel_count -= 1;
-                }
-                if self.cells.get(&cell).is_some_and(BTreeMap::is_empty) {
-                    self.cells.remove(&cell);
+                    next_voxel_count -= 1;
                 }
             }
         }
-        self.publish_dirty(BTreeSet::from([cell]), old_bound)
+        self.publish_replacements(BTreeMap::from([(cell, next_cell)]), next_voxel_count)
     }
 
     pub(crate) fn move_voxel(
@@ -208,17 +204,21 @@ impl EmissiveVoxelProvider {
         {
             return Err(EmissiveVoxelProviderError::DestinationOccupied(to.get()));
         }
-        let dirty = BTreeSet::from([from_cell, to_cell]);
-        let old_bound = self.aggregate_bounds(dirty.iter().copied());
-        self.cells
-            .get_mut(&from_cell)
-            .expect("validated source cell must exist")
-            .remove(&from);
-        if self.cells[&from_cell].is_empty() {
-            self.cells.remove(&from_cell);
+        let mut replacements = BTreeMap::new();
+        if from_cell == to_cell {
+            let mut sources = self.cells[&from_cell].clone();
+            sources.remove(&from);
+            sources.insert(to, emitter);
+            replacements.insert(from_cell, sources);
+        } else {
+            let mut from_sources = self.cells[&from_cell].clone();
+            from_sources.remove(&from);
+            let mut to_sources = self.cells.get(&to_cell).cloned().unwrap_or_default();
+            to_sources.insert(to, emitter);
+            replacements.insert(from_cell, from_sources);
+            replacements.insert(to_cell, to_sources);
         }
-        self.cells.entry(to_cell).or_default().insert(to, emitter);
-        self.publish_dirty(dirty, old_bound)
+        self.publish_replacements(replacements, self.voxel_count)
     }
 
     pub(crate) fn replace_all(
@@ -250,10 +250,11 @@ impl EmissiveVoxelProvider {
             .copied()
             .filter(|cell| self.cells.get(cell) != next.get(cell))
             .collect();
-        let old_bound = self.aggregate_bounds(dirty.iter().copied());
-        self.cells = next;
-        self.voxel_count = next_count;
-        self.publish_dirty(dirty, old_bound)
+        let replacements = dirty
+            .into_iter()
+            .map(|cell| (cell, next.get(&cell).cloned().unwrap_or_default()))
+            .collect();
+        self.publish_replacements(replacements, next_count)
     }
 
     fn no_change(&self) -> EmissiveVoxelProviderChange {
@@ -265,43 +266,65 @@ impl EmissiveVoxelProvider {
         }
     }
 
-    fn publish_dirty(
+    /// Prepares every changed aggregate and the immutable provider snapshot before committing any
+    /// mutable state. A numeric or snapshot error therefore leaves the old publication intact.
+    fn publish_replacements(
         &mut self,
-        dirty: BTreeSet<ClusterCoord>,
-        old_bound: Option<LocalLightInfluenceBound>,
+        replacements: BTreeMap<ClusterCoord, BTreeMap<VoxelCoord, EmissiveVoxelEmitter>>,
+        next_voxel_count: usize,
     ) -> Result<EmissiveVoxelProviderChange, EmissiveVoxelProviderError> {
-        for cell in dirty.iter().copied() {
-            match self.aggregate_cell(cell) {
+        let old_bound = self.aggregate_bounds(replacements.keys().copied());
+        let mut next_aggregates = self.aggregates.clone();
+        for (cell, sources) in &replacements {
+            match self.aggregate_sources(*cell, sources)? {
                 Some(light) => {
-                    self.aggregates.insert(cell, light);
+                    next_aggregates.insert(*cell, light);
                 }
                 None => {
-                    self.aggregates.remove(&cell);
+                    next_aggregates.remove(cell);
                 }
             }
         }
-        let new_bound = self.aggregate_bounds(dirty.iter().copied());
-        self.source_revision = self.source_revision.wrapping_add(1).max(1);
-        self.snapshot = LocalLightProviderSnapshot::new(
+        let new_bound = aggregate_bounds_in(&next_aggregates, replacements.keys().copied());
+        let next_source_revision = self.source_revision.wrapping_add(1).max(1);
+        let next_snapshot = LocalLightProviderSnapshot::new(
             EMISSIVE_VOXEL_PROVIDER_ID,
-            self.source_revision,
-            self.aggregates.iter().map(|(cell, light)| {
+            next_source_revision,
+            next_aggregates.iter().map(|(cell, light)| {
                 SourceLight::new(cell.source_key(), LocalLight::Point(*light))
             }),
         )
         .map_err(EmissiveVoxelProviderError::Snapshot)?;
+        let dirty_cluster_count = replacements.len();
+        for (cell, sources) in replacements {
+            if sources.is_empty() {
+                self.cells.remove(&cell);
+            } else {
+                self.cells.insert(cell, sources);
+            }
+        }
+        self.aggregates = next_aggregates;
+        self.voxel_count = next_voxel_count;
+        self.source_revision = next_source_revision;
+        self.snapshot = next_snapshot;
         Ok(EmissiveVoxelProviderChange {
             changed: true,
             source_revision: self.source_revision,
             voxel_count: self.voxel_count,
             aggregate_count: self.aggregates.len(),
-            dirty_cluster_count: dirty.len(),
+            dirty_cluster_count,
             impact_bound_world: union_optional_bounds(old_bound, new_bound),
         })
     }
 
-    fn aggregate_cell(&self, cell: ClusterCoord) -> Option<PointLight> {
-        let sources = self.cells.get(&cell)?;
+    fn aggregate_sources(
+        &self,
+        cell: ClusterCoord,
+        sources: &BTreeMap<VoxelCoord, EmissiveVoxelEmitter>,
+    ) -> Result<Option<PointLight>, EmissiveVoxelProviderError> {
+        if sources.is_empty() {
+            return Ok(None);
+        }
         let mut weighted_position = Vec3::ZERO;
         let mut radiometric_color = Vec3::ZERO;
         let mut total_intensity = 0.0;
@@ -340,7 +363,9 @@ impl EmissiveVoxelProvider {
             range = range.max(emitter.range_world + offset);
         }
         range = range.max(source_radius);
-        PointLight::new(position, color, total_intensity, source_radius, range).ok()
+        PointLight::new(position, color, total_intensity, source_radius, range)
+            .map(Some)
+            .map_err(|_| EmissiveVoxelProviderError::InvalidAggregate(cell.source_key()))
     }
 
     fn aggregate_bound(&self, cell: ClusterCoord) -> Option<LocalLightInfluenceBound> {
@@ -359,6 +384,17 @@ impl EmissiveVoxelProvider {
             .filter_map(|cell| self.aggregate_bound(cell))
             .reduce(LocalLightInfluenceBound::union)
     }
+}
+
+fn aggregate_bounds_in(
+    aggregates: &BTreeMap<ClusterCoord, PointLight>,
+    cells: impl IntoIterator<Item = ClusterCoord>,
+) -> Option<LocalLightInfluenceBound> {
+    cells
+        .into_iter()
+        .filter_map(|cell| aggregates.get(&cell).copied())
+        .map(|light| LocalLight::Point(light).influence_bound())
+        .reduce(LocalLightInfluenceBound::union)
 }
 
 fn union_optional_bounds(
@@ -489,5 +525,31 @@ mod tests {
         assert!(moved.changed);
         assert_eq!(moved.dirty_cluster_count, 2);
         assert_eq!(provider.voxel_count(), 2);
+    }
+
+    #[test]
+    fn aggregate_failure_leaves_provider_publication_transaction_unchanged() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.0)).unwrap();
+        let stable = UVec3::new(1, 1, 1);
+        provider
+            .set_voxel(stable, Some(emitter(Vec3::ONE, 1.0)))
+            .unwrap();
+        let before_snapshot = provider.snapshot();
+        let before_voxels = provider.voxel_count();
+        let invalid = EmissiveVoxelEmitter {
+            color: Vec3::splat(f32::MAX),
+            intensity: f32::MAX,
+            source_radius_world: 0.001,
+            range_world: 0.75,
+        };
+
+        assert!(matches!(
+            provider.set_voxel(UVec3::new(2, 1, 1), Some(invalid)),
+            Err(EmissiveVoxelProviderError::InvalidAggregate(_))
+        ));
+        assert_eq!(provider.voxel_count(), before_voxels);
+        assert_eq!(provider.snapshot(), before_snapshot);
+        assert_eq!(provider.cells[&VoxelCoord::new(stable).cluster()].len(), 1);
+        assert_eq!(provider.aggregates.len(), 1);
     }
 }
