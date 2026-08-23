@@ -5,7 +5,9 @@ use std::sync::Arc;
 use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
 mod registry;
+mod voxel_emissive;
 pub(crate) use registry::*;
+pub(crate) use voxel_emissive::*;
 
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 2;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
