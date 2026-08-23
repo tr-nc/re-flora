@@ -83,6 +83,8 @@ impl VisibleTerrainChange {
 impl App {
     pub(super) fn publish_visible_terrain(&mut self, change: VisibleTerrainChange) -> Result<()> {
         let chunk_ids = change.affected_chunks()?;
+        let affected_voxels = change.affected_voxels;
+        let terrain_changed = change.terrain_changed;
         let started_at = Instant::now();
         let mut physical_publications = match change.rebuild {
             VisibleTerrainRebuild::BuildEdits(build_edits) => build_edits
@@ -119,14 +121,20 @@ impl App {
                 });
         }
 
+        if terrain_changed {
+            if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
+                runtime.mark_trusted_change(affected_voxels, self.time_info.total_frame_count())?;
+            }
+        }
+
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         let revision =
-            next_visible_terrain_revision(self.visible_terrain_revision, change.terrain_changed);
+            next_visible_terrain_revision(self.visible_terrain_revision, terrain_changed);
         if let Some(revision) = revision {
             self.terrain_physics
-                .mark_terrain_voxels_dirty(change.affected_voxels);
+                .mark_terrain_voxels_dirty(affected_voxels);
             self.tracer
-                .observe_published_environment_probe_terrain(revision, change.affected_voxels)
+                .observe_published_environment_probe_terrain(revision, affected_voxels)
                 .unwrap_or_else(|err| {
                     panic!(
                         "visible terrain downstream observation failed after physical publication: {err:#}"
@@ -138,7 +146,7 @@ impl App {
         log::info!(
             "[PERF][VISIBLE_TERRAIN_PUBLICATION] chunks={} terrain_changed={} revision={:?} elapsed_ms={:.2}",
             chunk_ids.len(),
-            change.terrain_changed,
+            terrain_changed,
             revision,
             started_at.elapsed().as_secs_f64() * 1000.0,
         );
