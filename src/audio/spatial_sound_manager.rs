@@ -134,6 +134,7 @@ impl SpatialSoundManager {
         clip: ResidentClip,
         volume_db: f32,
         position: Option<Vec3>,
+        initial_phase: Option<f32>,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
         let emitter = self
@@ -143,11 +144,11 @@ impl SpatialSoundManager {
             let _ = self.world.destroy_emitter(emitter);
             return Err(error.into());
         }
-        if shuffle_phase {
-            if let Err(error) = self
-                .world
-                .seek_emitter(emitter, rand::rng().random_range(0.0..1.0))
-            {
+        let initial_phase = initial_phase
+            .map(|phase| phase.clamp(0.0, 1.0))
+            .or_else(|| shuffle_phase.then(|| rand::rng().random_range(0.0..1.0)));
+        if let Some(initial_phase) = initial_phase {
+            if let Err(error) = self.world.seek_emitter(emitter, initial_phase) {
                 let _ = self.world.destroy_emitter(emitter);
                 return Err(error.into());
             }
@@ -182,18 +183,19 @@ impl SpatialSoundManager {
             self.cached_clip(path)?,
             volume_db,
             Some(position),
+            None,
             shuffle_phase,
         )
     }
 
-    pub fn add_looping_spatial_clip(
+    pub fn add_looping_spatial_clip_at_phase(
         &self,
         clip: ResidentClip,
         volume_db: f32,
         position: Vec3,
-        shuffle_phase: bool,
+        initial_phase: f32,
     ) -> Result<Uuid> {
-        self.add_looping_clip_source(clip, volume_db, Some(position), shuffle_phase)
+        self.add_looping_clip_source(clip, volume_db, Some(position), Some(initial_phase), false)
     }
 
     pub fn add_non_spatial_source(&self, path: &str, volume_db: f32) -> Result<()> {
@@ -343,6 +345,10 @@ impl SpatialSoundManager {
         Ok(())
     }
 
+    pub fn acoustic_superseded_solve_count(&self) -> u64 {
+        self.world.diagnostics().acoustic_superseded_solve_count
+    }
+
     fn acoustic_priority(volume_db: f32) -> f32 {
         if !volume_db.is_finite() {
             return 0.0;
@@ -371,7 +377,12 @@ impl SpatialSoundManager {
         Ok(())
     }
 
-    pub fn replace_looping_clip(&self, source_uuid: Uuid, clip: ResidentClip) -> Result<()> {
+    pub fn replace_looping_clip(
+        &self,
+        source_uuid: Uuid,
+        clip: ResidentClip,
+        initial_phase: f32,
+    ) -> Result<()> {
         let mut sources = self.uuid_to_source.lock().unwrap();
         let Some(source) = sources.get_mut(&source_uuid) else {
             return Ok(());
@@ -386,7 +397,7 @@ impl SpatialSoundManager {
         }
         if let Err(error) = self
             .world
-            .seek_emitter(new_emitter, rand::rng().random_range(0.0..1.0))
+            .seek_emitter(new_emitter, initial_phase.clamp(0.0, 1.0))
         {
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());

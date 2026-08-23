@@ -377,6 +377,7 @@ pub struct App {
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
+    canopy_audio_telemetry_next_log_seconds: Option<f32>,
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
@@ -413,6 +414,70 @@ impl Drop for App {
 }
 
 impl App {
+    fn log_canopy_audio_telemetry(&mut self, time_seconds: f32) {
+        let Some(next_log_seconds) = self.canopy_audio_telemetry_next_log_seconds else {
+            return;
+        };
+        if time_seconds < next_log_seconds {
+            return;
+        }
+        self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
+
+        let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
+            return;
+        };
+        log::info!(
+            "[AUDIO][CANOPY][SUMMARY] time_seconds={:.6} trees={} samples={} petal_superseded_solves={}",
+            time_seconds,
+            snapshot.trees.len(),
+            snapshot.samples.len(),
+            snapshot.petal_superseded_solve_count,
+        );
+        for tree in snapshot.trees {
+            log::info!(
+                "[AUDIO][CANOPY][TREE] time_seconds={:.6} tree={} published={} replacements={} removals={} superseded_transitions={} retired_generations={}",
+                time_seconds,
+                tree.tree_id,
+                tree.lifecycle.published_generation_count,
+                tree.lifecycle.replacement_transition_count,
+                tree.lifecycle.removal_transition_count,
+                tree.lifecycle.superseded_transition_count,
+                tree.lifecycle.retired_generation_count,
+            );
+        }
+        for sample in snapshot.samples {
+            let direct = sample.direct_path.as_ref();
+            log::info!(
+                "[AUDIO][CANOPY][SAMPLE] time_seconds={:.6} tree={} generation={} sample={} emitter={} position_tree_voxels={:?} position_world={:?} clearance_voxels={:.6} weight={:.9} lifecycle_power={:.6} content_seed={} phase={:.9} provenance={:?} wind_target={:.6} wind_filtered={:.6} volume_db={:.6} candidate_membership={:?} hit={:?} hit_material={:?} hit_transmission={:?} visible_fraction={:?} raw_gain={:?} filtered_gain={:?} direct_transitions={:?} direct_superseded={:?}",
+                time_seconds,
+                sample.key.tree_id(),
+                sample.key.generation(),
+                sample.key.sample_id().value(),
+                sample.emitter_uuid,
+                sample.position_tree_voxels,
+                sample.position_world,
+                sample.clearance_voxels,
+                sample.weight,
+                sample.lifecycle_power,
+                sample.content_seed,
+                sample.phase,
+                sample.provenance,
+                sample.target_wind_response,
+                sample.current_wind_response,
+                sample.current_volume_db,
+                direct.map(|value| value.candidate_membership),
+                direct.map(|value| value.hit),
+                direct.and_then(|value| value.hit_material.as_deref()),
+                direct.and_then(|value| value.hit_material_transmission),
+                direct.map(|value| value.visible_fraction),
+                direct.map(|value| value.raw_direct_gain),
+                direct.map(|value| value.filtered_direct_gain),
+                direct.map(|value| value.transition_count),
+                direct.map(|value| value.superseded_response_count),
+            );
+        }
+    }
+
     pub(super) fn set_manual_time_of_day(&mut self, time_of_day: f32) {
         self.debug_settings.adjustables.time_of_day.value = time_of_day;
         self.world_clock.set_live_time_of_day(time_of_day);
@@ -910,12 +975,13 @@ impl App {
             ..LeafEmitterDesc::default()
         };
         let trees = TreeRuntime::new(leaf_emitter_desc);
-        let tree_audio_manager = TreeAudioManager::new(
+        let mut tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
             debug_settings.adjustables.tree_wind_volume_db.value,
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
+        tree_audio_manager.set_canopy_telemetry_enabled(options.canopy_audio_telemetry);
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1108,6 +1174,7 @@ impl App {
             ),
             denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
             auto_exit_delay: options.auto_exit_delay,
+            canopy_audio_telemetry_next_log_seconds: options.canopy_audio_telemetry.then_some(0.0),
             tree_bench: options
                 .tree_bench
                 .then(|| TreeBench::new(options.tree_bench_samples)),
@@ -1952,6 +2019,7 @@ impl App {
                     log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
                 self.update_environmental_acoustics();
+                self.log_canopy_audio_telemetry(time_since_start);
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();

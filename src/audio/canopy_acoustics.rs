@@ -6,7 +6,6 @@ use glam::Vec3;
 use std::cmp::Ordering;
 
 const CANOPY_CONTENT_SEED_DOMAIN: u64 = 0x6c65_6166_5f61_7564;
-const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CanopyAcousticSampleId(u64);
@@ -193,6 +192,7 @@ impl CanopyAcousticDescriptor {
         self.tree_origin_world
     }
 
+    #[allow(dead_code)]
     pub fn tree_seed(&self) -> u64 {
         self.tree_seed
     }
@@ -201,8 +201,9 @@ impl CanopyAcousticDescriptor {
         &self.samples
     }
 
+    #[allow(dead_code)]
     pub fn sample_world_position(&self, sample: &CanopyAcousticSample) -> Vec3 {
-        self.tree_origin_world + sample.position_tree_voxels / VOXELS_PER_WORLD_UNIT
+        self.tree_origin_world + sample.position_tree_voxels / 256.0
     }
 
     pub fn total_weight(&self) -> f32 {

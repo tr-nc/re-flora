@@ -828,7 +828,6 @@ struct TreeRecord {
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
-    canopy_acoustic_descriptor: CanopyAcousticDescriptor,
     butterfly_spawn_positions_ws: Vec<Vec3>,
 }
 
@@ -1050,7 +1049,8 @@ impl App {
         self.terrain_physics
             .unregister_tree_fruits(tree_id, &mut self.tracer)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
-        self.tree_audio_manager.remove_tree(tree_id);
+        self.tree_audio_manager
+            .remove_tree(tree_id, self.time_info.time_since_start())?;
         match self.trees.commit_removal(tree_id) {
             Some(record) => {
                 log::debug!(
@@ -1113,7 +1113,6 @@ impl App {
         for (tree_id, record) in &records {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
-            self.tree_audio_manager.remove_tree(*tree_id);
             self.plain_builder.chunk_replace_voxel_type_in_round_cones(
                 &record.trunk_geometry.bvh_nodes,
                 &record.trunk_geometry.round_cones,
@@ -1221,7 +1220,6 @@ impl App {
             let old_remove_start = Instant::now();
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, tuned_tree_id)?;
-            self.tree_audio_manager.remove_tree(tuned_tree_id);
             old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
             record.bound
         } else {
@@ -2102,13 +2100,14 @@ impl App {
         }
 
         let audio_start = Instant::now();
-        self.tree_audio_manager.add_tree_sources_from_clusters(
-            tree_id,
-            tree_pos,
-            &leaf_clusters,
-            false,
-            true,
-        )?;
+        let canopy_audio_source_count = self
+            .tree_audio_manager
+            .upsert_tree(
+                tree_id,
+                canopy_acoustic_descriptor.clone(),
+                self.time_info.time_since_start(),
+            )?
+            .len();
         let audio_elapsed = audio_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
@@ -2122,7 +2121,6 @@ impl App {
             bound: this_bound,
             mature_desc,
             trunk_geometry,
-            canopy_acoustic_descriptor,
             butterfly_spawn_positions_ws: quantized_leaf_render_positions
                 .iter()
                 .map(|position| {
@@ -2141,7 +2139,7 @@ impl App {
                 .record("tree_gui_leaf_emitter", emitter_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} clusters {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
                 total_start.elapsed().as_secs_f32() * 1000.0,
                 compile_elapsed.as_secs_f32() * 1000.0,
                 trunk_elapsed.as_secs_f32() * 1000.0,
@@ -2155,6 +2153,8 @@ impl App {
                 quantized_leaf_render_positions.len(),
                 fruit_specs.len(),
                 leaf_clusters.len(),
+                canopy_acoustic_descriptor.generation(),
+                canopy_audio_source_count,
                 rebuild_chunk_count,
                 rebuild_bound,
             );
@@ -2269,13 +2269,6 @@ mod tests {
                 bvh_nodes: Vec::new(),
                 round_cones: Vec::new(),
             },
-            canopy_acoustic_descriptor: CanopyAcousticDescriptor::build(
-                1,
-                Vec3::new(1.0, 2.0, 3.0),
-                0,
-                &[],
-                &[],
-            ),
             butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
         }
     }

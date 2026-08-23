@@ -1,4 +1,4 @@
-use crate::audio::SpatialSoundManager;
+use crate::audio::{CanopyAcousticSampleProvenance, CanopyAudioSourceKey, SpatialSoundManager};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
@@ -10,14 +10,19 @@ const TREE_AUDIO_FULL_WIND_STRENGTH: f32 = 8.0;
 const TREE_AUDIO_DECAY_RATE_MIN: f32 = 0.25;
 const TREE_AUDIO_DECAY_RATE_MAX: f32 = 8.0;
 
-/// Represents a single looping tree ambience source that can react to wind.
-#[allow(dead_code)]
+/// One PetalSonic point-emitter adapter owned by a weighted canopy sample generation.
 pub struct TreeAudioSource {
     pub uuid: Uuid,
-    pub tree_id: u32,
+    pub key: CanopyAudioSourceKey,
+    pub position_tree_voxels: Vec3,
     pub position: Vec3,
-    pub cluster_size: u32,
+    pub sample_weight: f32,
+    pub clearance_voxels: f32,
+    pub content_seed: u64,
+    pub phase: f32,
+    pub provenance: CanopyAcousticSampleProvenance,
     wind_volume_db: f32,
+    lifecycle_power: f32,
     target_response: f32,
     current_response: f32,
     current_volume_db: f32,
@@ -27,21 +32,33 @@ pub struct TreeAudioSource {
 }
 
 impl TreeAudioSource {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         uuid: Uuid,
-        tree_id: u32,
+        key: CanopyAudioSourceKey,
+        position_tree_voxels: Vec3,
         position: Vec3,
-        cluster_size: u32,
+        sample_weight: f32,
+        clearance_voxels: f32,
+        content_seed: u64,
+        phase: f32,
+        provenance: CanopyAcousticSampleProvenance,
         wind_volume_db: f32,
         wind_response_curve: WindResponseCurve,
         base_wind: f32,
     ) -> Self {
         Self {
             uuid,
-            tree_id,
+            key,
+            position_tree_voxels,
             position,
-            cluster_size,
+            sample_weight: sample_weight.clamp(0.0, 1.0),
+            clearance_voxels,
+            content_seed,
+            phase: phase.clamp(0.0, 1.0),
+            provenance,
             wind_volume_db,
+            lifecycle_power: 0.0,
             target_response: 0.0,
             current_response: 0.0,
             current_volume_db: TREE_SILENT_VOLUME_DB,
@@ -51,8 +68,6 @@ impl TreeAudioSource {
         }
     }
 
-    /// Keep the GUI response curve setter wired for now, but the debug audio path below
-    /// intentionally bypasses the response curve and uses linear sampled wind strength.
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
         self.wind_response_curve = wind_response_curve;
     }
@@ -72,6 +87,35 @@ impl TreeAudioSource {
 
         self.wind_volume_db = wind_volume_db;
         self.apply_response_volume(self.current_response, spatial_sound_manager)
+    }
+
+    pub fn set_lifecycle_power(
+        &mut self,
+        lifecycle_power: f32,
+        spatial_sound_manager: &SpatialSoundManager,
+    ) -> Result<()> {
+        let lifecycle_power = lifecycle_power.clamp(0.0, 1.0);
+        if (lifecycle_power - self.lifecycle_power).abs() <= f32::EPSILON {
+            return Ok(());
+        }
+        self.lifecycle_power = lifecycle_power;
+        self.apply_response_volume(self.current_response, spatial_sound_manager)
+    }
+
+    pub fn lifecycle_power(&self) -> f32 {
+        self.lifecycle_power
+    }
+
+    pub fn target_response(&self) -> f32 {
+        self.target_response
+    }
+
+    pub fn current_response(&self) -> f32 {
+        self.current_response
+    }
+
+    pub fn current_volume_db(&self) -> f32 {
+        self.current_volume_db
     }
 
     pub fn update(
@@ -136,10 +180,14 @@ impl TreeAudioSource {
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
         let response = response.clamp(0.0, 1.0);
-        let target_volume_db = if response <= f32::EPSILON && self.base_wind <= f32::EPSILON {
-            TREE_SILENT_VOLUME_DB
+        let content_active = response > f32::EPSILON || self.base_wind > f32::EPSILON;
+        let target_volume_db = if content_active {
+            Self::volume_db_for_power(
+                self.wind_volume_db,
+                self.sample_weight * self.lifecycle_power,
+            )
         } else {
-            self.wind_volume_db
+            TREE_SILENT_VOLUME_DB
         };
 
         self.current_response = response;
@@ -150,5 +198,28 @@ impl TreeAudioSource {
         spatial_sound_manager.update_source_volume(self.uuid, target_volume_db)?;
         self.current_volume_db = target_volume_db;
         Ok(())
+    }
+
+    fn volume_db_for_power(base_volume_db: f32, power: f32) -> f32 {
+        if power <= f32::EPSILON {
+            return TREE_SILENT_VOLUME_DB;
+        }
+        (base_volume_db + 10.0 * power.log10()).max(TREE_SILENT_VOLUME_DB)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TreeAudioSource;
+
+    #[test]
+    fn weighted_sample_gain_preserves_normalized_power() {
+        let base = -10.0;
+        let quarter = TreeAudioSource::volume_db_for_power(base, 0.25);
+
+        assert!((quarter - (-16.0206)).abs() < 1.0e-3);
+        let reconstructed_power = 4.0 * 10.0_f32.powf((quarter - base) / 10.0);
+        assert!((reconstructed_power - 1.0).abs() < 1.0e-5);
+        assert_eq!(TreeAudioSource::volume_db_for_power(base, 0.0), -80.0);
     }
 }

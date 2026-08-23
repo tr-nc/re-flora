@@ -139,6 +139,8 @@ pub struct AppOptions {
     pub hidden: bool,
     /// Start with global audio output muted while keeping audio processing active.
     pub mute: bool,
+    /// Emit opt-in, machine-parseable per-tree and per-canopy-sample audio telemetry.
+    pub canopy_audio_telemetry: bool,
     /// Select an audio output device by case-insensitive substring match.
     pub audio_output_device: Option<String>,
     /// Disable shadow rendering pass.
@@ -517,6 +519,7 @@ impl AppOptions {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
             mute: args.iter().any(|a| a == "--mute"),
+            canopy_audio_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
             audio_output_device: parse_required_string_after(
                 "--audio-output-device",
                 "an output device name substring",
@@ -792,6 +795,7 @@ Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
   --hidden                    Run hidden while preserving render/swapchain path; audio output remains enabled unless --mute is set
   --mute                      Start with global audio output muted while keeping audio processing active
+  --canopy-audio-telemetry    Log opt-in per-tree and per-canopy-sample acoustic telemetry at 10 Hz
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
   --no-shadows                Disable shadow rendering passes
@@ -946,6 +950,7 @@ mod tests {
         assert!(!options.windowed);
         assert!(!options.hidden);
         assert!(!options.mute);
+        assert!(!options.canopy_audio_telemetry);
         assert!(options.audio_output_device.is_none());
         assert!(!options.perf);
         assert!(!options.water_experience);
@@ -1361,6 +1366,7 @@ mod tests {
             "re-flora",
             "--hidden",
             "--mute",
+            "--canopy-audio-telemetry",
             "--auto-exit",
             "4",
             "--audio-output-device",
@@ -1393,6 +1399,7 @@ mod tests {
 
         assert!(options.hidden);
         assert!(options.mute);
+        assert!(options.canopy_audio_telemetry);
         assert_eq!(options.audio_output_device.as_deref(), Some("KA3"));
         assert!(options.perf);
         assert_eq!(options.auto_exit_delay, Some(4.0));

@@ -8,8 +8,17 @@ pub use canopy_acoustics::{
 
 mod canopy_audio_lifecycle;
 pub use canopy_audio_lifecycle::{
-    ActiveCanopyAcousticSample, CanopyAudioLifecycle, CanopyAudioLifecycleError,
-    CanopyAudioLifecycleSnapshot, CanopyAudioSourceKey, CanopyTreeLifecycleDiagnostics,
+    ActiveCanopyAcousticSample, CanopyAudioLifecycle, CanopyAudioLifecycleSnapshot,
+    CanopyAudioSourceKey, CanopyTreeLifecycleDiagnostics,
+};
+
+mod canopy_point_emitter_adapter;
+use canopy_point_emitter_adapter::CanopyPointEmitterAdapter;
+
+mod canopy_audio_telemetry;
+pub use canopy_audio_telemetry::{
+    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioTelemetrySnapshot,
+    CanopyAudioTreeTelemetry, CanopyDirectPathTelemetry,
 };
 
 mod spatial_sound_manager;

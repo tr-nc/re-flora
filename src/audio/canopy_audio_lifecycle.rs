@@ -22,6 +22,19 @@ impl CanopyAudioSourceKey {
     pub fn sample_id(self) -> CanopyAcousticSampleId {
         self.sample_id
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        tree_id: u32,
+        generation: u64,
+        sample_id: CanopyAcousticSampleId,
+    ) -> Self {
+        Self {
+            tree_id,
+            generation,
+            sample_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -37,10 +50,7 @@ impl ActiveCanopyAcousticSample {
         self.key
     }
 
-    pub fn tree_id(&self) -> u32 {
-        self.key.tree_id
-    }
-
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn generation(&self) -> u64 {
         self.key.generation
     }
@@ -57,6 +67,7 @@ impl ActiveCanopyAcousticSample {
         self.lifecycle_power
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn effective_power(&self) -> f32 {
         self.sample.weight() * self.lifecycle_power
     }
@@ -72,6 +83,7 @@ impl CanopyAudioLifecycleSnapshot {
         &self.samples
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn total_power(&self) -> f32 {
         self.samples
             .iter()
@@ -273,6 +285,7 @@ impl CanopyAudioLifecycle {
         Ok(CanopyAudioLifecycleSnapshot { samples })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn registered_tree_count(&self) -> usize {
         self.trees.len()
     }
