@@ -1075,7 +1075,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 
