@@ -607,13 +607,18 @@ impl App {
         let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
             return;
         };
-        let Some((pose, elapsed_seconds, phase_changed)) =
-            diagnostic.sample(self.debug_tree_pos, time_seconds)
-        else {
-            return;
-        };
+        let sample = diagnostic.sample(self.debug_tree_pos, time_seconds);
+        let pose = sample.map_or_else(
+            || canopy_audio_diagnostic_pose(self.debug_tree_pos, 0.0),
+            |(pose, _, _)| pose,
+        );
         self.tracer
             .set_camera_pose_looking_at(pose.position_world, pose.target_world);
+        let Some((_, elapsed_seconds, phase_changed)) = sample else {
+            // Hold the exact initial trajectory pose while the matching acoustic response and
+            // render pump settle. Diagnostic time and counters have not started yet.
+            return;
+        };
         if phase_changed {
             log::info!(
                 "[AUDIO][CANOPY][TRAJECTORY] elapsed_seconds={:.6} phase={:?} position_world={:?} target_world={:?}",
