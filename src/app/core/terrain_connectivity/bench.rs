@@ -46,6 +46,9 @@ enum BenchState {
         snapshot_readback_us: f64,
         classification_us: f64,
         atomic_validation_us: f64,
+        sampling_us: f64,
+        staging_clear_us: f64,
+        sampled_voxels: usize,
     },
     Observing {
         event_frame: u64,
@@ -229,6 +232,7 @@ struct EventStages {
     trace_readback_us: f64,
     classification_us: f64,
     sampling_us: f64,
+    staging_clear_us: f64,
     invalidation_us: f64,
     publication_us: f64,
     particle_spawn_us: f64,
@@ -252,6 +256,7 @@ pub(in crate::app::core) struct TerrainConnectivityBench {
     high_water: QueueHighWater,
     stages: Option<EventStages>,
     bounded_job: Option<BoundedTopologyJob>,
+    pending_visual_voxels: Option<Vec<(UVec3, u8)>>,
 }
 
 impl TerrainConnectivityBench {
@@ -265,6 +270,7 @@ impl TerrainConnectivityBench {
             high_water: QueueHighWater::default(),
             stages: None,
             bounded_job: None,
+            pending_visual_voxels: None,
         }
     }
 
@@ -449,12 +455,26 @@ impl TerrainConnectivityBench {
                     app.visible_terrain_revision,
                     atomic_validation_us,
                 );
+                anyhow::ensure!(
+                    app.particle_system.available_capacity() == self.options.available_particles
+                );
+                let job = self
+                    .bounded_job
+                    .as_mut()
+                    .context("bounded topology validation lost its job")?;
+                let (visual_voxels, sampling_us, staging_clear_us) =
+                    prepare_bounded_commit(job, self.options.available_particles);
+                let sampled_voxels = visual_voxels.len();
+                self.pending_visual_voxels = Some(visual_voxels);
                 self.state = BenchState::Commit {
                     release_frame,
                     revision_before,
                     snapshot_readback_us,
                     classification_us,
                     atomic_validation_us,
+                    sampling_us,
+                    staging_clear_us,
+                    sampled_voxels,
                 };
             }
             BenchState::Commit {
@@ -463,11 +483,13 @@ impl TerrainConnectivityBench {
                 snapshot_readback_us,
                 classification_us,
                 atomic_validation_us,
+                sampling_us,
+                staging_clear_us,
+                sampled_voxels,
             } => {
                 let event_frame = frame;
                 let stages = run_bounded_commit(
                     app,
-                    self.options.available_particles,
                     self.bounded_job
                         .take()
                         .context("bounded topology commit lost its job")?,
@@ -476,12 +498,38 @@ impl TerrainConnectivityBench {
                     snapshot_readback_us,
                     classification_us,
                     atomic_validation_us,
+                    sampling_us,
+                    staging_clear_us,
+                    sampled_voxels,
                 )?;
                 self.stages = Some(stages);
                 self.state = BenchState::Observing { event_frame };
                 log_event(self.options, event_frame, stages);
             }
-            BenchState::Observing { .. } | BenchState::Complete => {}
+            BenchState::Observing { event_frame } => {
+                if let Some(visual_voxels) = self.pending_visual_voxels.take() {
+                    let particle_started = Instant::now();
+                    let spawned = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
+                    let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
+                    anyhow::ensure!(spawned == visual_voxels.len());
+                    let stages = self
+                        .stages
+                        .as_mut()
+                        .context("bounded visual spawn lost event stages")?;
+                    stages.particle_spawn_us = particle_spawn_us;
+                    stages.spawned_particles = spawned;
+                    log::info!(
+                        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=visual_spawn mode=bounded event_frame={} frame={} relative={} spawned_particles={} particle_spawn_us={:.0} visible_revision={}",
+                        event_frame,
+                        frame,
+                        frame.saturating_sub(event_frame),
+                        spawned,
+                        particle_spawn_us,
+                        app.visible_terrain_revision,
+                    );
+                }
+            }
+            BenchState::Complete => {}
         }
         Ok(())
     }
@@ -759,13 +807,15 @@ fn run_release_event(
 
 fn run_bounded_commit(
     app: &mut App,
-    expected_available_particles: usize,
-    mut job: BoundedTopologyJob,
+    job: BoundedTopologyJob,
     release_frame: u64,
     revision_before: u32,
     snapshot_readback_us: f64,
     classification_us: f64,
     atomic_validation_us: f64,
+    sampling_us: f64,
+    staging_clear_us: f64,
+    sampled_voxels: usize,
 ) -> anyhow::Result<EventStages> {
     let total_started = Instant::now();
     anyhow::ensure!(
@@ -775,28 +825,10 @@ fn run_bounded_commit(
         app.visible_terrain_revision,
     );
     anyhow::ensure!(
-        app.particle_system.available_capacity() == expected_available_particles,
-        "bounded topology particle availability drifted"
-    );
-    anyhow::ensure!(
         job.terminal == Some(BoundedDisposition::Detached) && job.component.len() == FIXTURE_VOXELS,
         "bounded topology commit is not one complete detached fixture"
     );
-    let sampling_started = Instant::now();
-    let sampled_count = expected_available_particles.min(job.component.len());
-    let visual_voxels = (0..sampled_count)
-        .map(|sample| {
-            let index = job.component[sample * job.component.len() / sampled_count];
-            let world = job.bound.min() + job.position_of(index);
-            (world, job.snapshot[index as usize] & VOXEL_TYPE_MASK as u8)
-        })
-        .collect::<Vec<_>>();
-    let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
-
     let invalidation_started = Instant::now();
-    for &index in &job.component {
-        job.snapshot[index as usize] = 0;
-    }
     app.plain_builder.write_chunk_atlas_region(
         job.bound.min(),
         job.bound.dimensions(),
@@ -812,23 +844,17 @@ fn run_bounded_commit(
     app.publish_visible_terrain(change)?;
     let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
 
-    let particle_started = Instant::now();
-    let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
-    let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
-    anyhow::ensure!(spawned_particles == visual_voxels.len());
-
     Ok(EventStages {
         total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
         primary_readback_us: snapshot_readback_us,
         classification_us,
         sampling_us,
+        staging_clear_us,
         invalidation_us,
         publication_us,
-        particle_spawn_us,
         classified_voxels: job.component.len(),
         invalidated_voxels: job.component.len(),
-        sampled_voxels: visual_voxels.len(),
-        spawned_particles,
+        sampled_voxels,
         revision_before,
         revision_after: app.visible_terrain_revision,
         release_to_commit_frames: app
@@ -838,6 +864,29 @@ fn run_bounded_commit(
         atomic_validation_us,
         ..EventStages::default()
     })
+}
+
+fn prepare_bounded_commit(
+    job: &mut BoundedTopologyJob,
+    available_particles: usize,
+) -> (Vec<(UVec3, u8)>, f64, f64) {
+    let sampling_started = Instant::now();
+    let sampled_count = available_particles.min(job.component.len());
+    let visual_voxels = (0..sampled_count)
+        .map(|sample| {
+            let index = job.component[sample * job.component.len() / sampled_count];
+            let world = job.bound.min() + job.position_of(index);
+            (world, job.snapshot[index as usize] & VOXEL_TYPE_MASK as u8)
+        })
+        .collect::<Vec<_>>();
+    let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+    let clear_started = Instant::now();
+    for &index in &job.component {
+        job.snapshot[index as usize] = 0;
+    }
+    let staging_clear_us = clear_started.elapsed().as_secs_f64() * 1_000_000.0;
+    (visual_voxels, sampling_us, staging_clear_us)
 }
 
 fn install_fixture(app: &mut App) -> anyhow::Result<()> {
@@ -964,7 +1013,7 @@ fn fixture_edit_bound() -> UAabb3 {
 
 fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: EventStages) {
     log::info!(
-        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} voxel_budget={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} atomic_validation_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={} release_to_commit_frames={}",
+        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} voxel_budget={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} atomic_validation_us={:.0} sampling_us={:.0} staging_clear_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={} release_to_commit_frames={}",
         options.mode.label(),
         frame,
         options.available_particles,
@@ -977,6 +1026,7 @@ fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: Event
         stages.classification_us,
         stages.atomic_validation_us,
         stages.sampling_us,
+        stages.staging_clear_us,
         stages.invalidation_us,
         stages.publication_us,
         stages.particle_spawn_us,

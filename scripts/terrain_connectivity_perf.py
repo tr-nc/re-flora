@@ -42,6 +42,7 @@ NUMERIC_FIELDS = {
     "atomic_validation_us",
     "validation_us",
     "sampling_us",
+    "staging_clear_us",
     "invalidation_us",
     "publication_us",
     "particle_spawn_us",
@@ -53,6 +54,7 @@ NUMERIC_FIELDS = {
     "revision_before",
     "revision_after",
     "release_to_commit_frames",
+    "event_frame",
     "cpu_total_us",
     "gpu_present_us",
     "tracked_us",
@@ -252,6 +254,7 @@ def summarize_run(
     if mode == "bounded":
         job_frames = phases.get("job_frame", [])
         atomic_checks = phases.get("atomic_check", [])
+        visual_spawns = phases.get("visual_spawn", [])
         if (
             not job_frames
             or len(atomic_checks) != 1
@@ -260,8 +263,15 @@ def summarize_run(
             or int(job_frames[-1]["processed_total"]) != 437_205
             or int(atomic_checks[0]["remaining_fixture_voxels"]) != 437_205
             or int(atomic_checks[0]["visible_revision"]) != revision_before
+            or len(visual_spawns) != 1
+            or int(visual_spawns[0]["relative"]) != 1
+            or int(visual_spawns[0]["visible_revision"]) != revision_after
+            or int(visual_spawns[0]["spawned_particles"]) != capacity
+            or int(summary_record["spawned_particles"]) != capacity
         ):
             raise ValueError("bounded job Pending/Detached or atomic pre-commit invariant failed")
+        event_record["particle_spawn_us"] = float(visual_spawns[0]["particle_spawn_us"])
+        event_record["spawned_particles"] = int(visual_spawns[0]["spawned_particles"])
         result["bounded_job"] = {
             "steps": len(job_frames),
             "completion_relative_frame": int(job_frames[-1]["relative"]),
@@ -285,6 +295,7 @@ def aggregate_case(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "classification_cpu_us",
         "atomic_validation_us",
         "sampling_us",
+        "staging_clear_us",
         "invalidation_us",
         "publication_us",
         "particle_spawn_us",
