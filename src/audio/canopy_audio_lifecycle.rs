@@ -290,6 +290,7 @@ impl CanopyAudioLifecycle {
         self.trees.len()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn tree_diagnostics(&self, tree_id: u32) -> Option<CanopyTreeLifecycleDiagnostics> {
         self.diagnostics_by_tree.get(&tree_id).copied()
     }
