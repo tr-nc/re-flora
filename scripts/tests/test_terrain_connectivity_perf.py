@@ -14,6 +14,15 @@ class TerrainConnectivityPerfTests(unittest.TestCase):
     def test_percentiles_are_interpolated(self) -> None:
         self.assertEqual(MODULE.distribution([1, 2, 3, 4])["p95_us"], 3.85)
 
+    def test_bounded_case_selection_repeats_only_requested_workload(self) -> None:
+        self.assertEqual(
+            MODULE.bounded_run_order(2, [(16_384, 32_768)]),
+            [
+                (1, "bounded", 16_384, 32_768),
+                (2, "bounded", 16_384, 32_768),
+            ],
+        )
+
     def test_parser_separates_event_and_post_frames_and_checks_atomicity(self) -> None:
         marker = "[PERF][TERRAIN_CONNECTIVITY_BENCH]"
         lines = [

@@ -516,8 +516,10 @@ def baseline_run_order(repetitions: int) -> list[tuple[int, str, int, int]]:
     return order
 
 
-def bounded_run_order(repetitions: int) -> list[tuple[int, str, int, int]]:
-    cases = [
+def bounded_run_order(
+    repetitions: int, cases: list[tuple[int, int]] | None = None
+) -> list[tuple[int, str, int, int]]:
+    cases = cases or [
         (16_384, 8_192),
         (16_384, 16_384),
         (16_384, 32_768),
@@ -536,6 +538,27 @@ def bounded_run_order(repetitions: int) -> list[tuple[int, str, int, int]]:
     return order
 
 
+def parse_bounded_cases(values: list[str] | None) -> list[tuple[int, int]] | None:
+    if not values:
+        return None
+    cases = []
+    for value in values:
+        try:
+            capacity_text, budget_text = value.split(":", 1)
+            capacity = int(capacity_text)
+            budget = int(budget_text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                f"invalid bounded case {value!r}; expected CAPACITY:VOXEL_BUDGET"
+            ) from error
+        if capacity not in {0, 8_192, 16_384} or budget < 1:
+            raise argparse.ArgumentTypeError(
+                "bounded capacity must be 0, 8192, or 16384 and budget must be positive"
+            )
+        cases.append((capacity, budget))
+    return cases
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, required=True)
@@ -545,11 +568,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observe-frames", type=int, default=180)
     parser.add_argument("--auto-exit", type=float, default=90.0)
     parser.add_argument("--suite", choices=("baseline", "bounded"), default="baseline")
+    parser.add_argument(
+        "--bounded-case",
+        action="append",
+        help="bounded case as CAPACITY:VOXEL_BUDGET; repeat to select multiple cases",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    try:
+        bounded_cases = parse_bounded_cases(args.bounded_case)
+    except argparse.ArgumentTypeError as error:
+        raise SystemExit(str(error)) from error
+    if bounded_cases is not None and args.suite != "bounded":
+        raise SystemExit("--bounded-case requires --suite bounded")
     binary = args.binary.resolve()
     if not binary.is_file():
         raise SystemExit(f"release binary does not exist: {binary}")
@@ -567,7 +601,7 @@ def main() -> int:
         order = (
             baseline_run_order(args.runs)
             if args.suite == "baseline"
-            else bounded_run_order(args.runs)
+            else bounded_run_order(args.runs, bounded_cases)
         )
         for index, (repetition, mode, capacity, voxel_budget) in enumerate(order, 1):
             print(
