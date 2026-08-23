@@ -1,5 +1,11 @@
 mod audio_clip_cache;
 
+mod canopy_acoustics;
+pub use canopy_acoustics::{
+    CanopyAcousticDescriptor, CanopyAcousticSample, CanopyAcousticSampleId,
+    CanopyAcousticSampleProvenance,
+};
+
 mod spatial_sound_manager;
 pub use spatial_sound_manager::SpatialSoundManager;
 

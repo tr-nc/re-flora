@@ -8,6 +8,7 @@ use crate::app::world_edits::{
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
+use crate::audio::CanopyAcousticDescriptor;
 use crate::builder::{
     ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
 };
@@ -381,6 +382,7 @@ struct CompiledTreePlacement {
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
+    canopy_acoustic_descriptor: CanopyAcousticDescriptor,
 }
 
 #[derive(Clone, Debug)]
@@ -548,10 +550,18 @@ impl TreePlacementService {
         tree_pos: Vec3,
         extra_rebuild_bound: UAabb3,
         tree_age: f32,
+        canopy_generation: u64,
     ) -> CompiledTreePlacement {
         let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
         let mature_tree = Tree::new(mature_tree_desc.clone());
+        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build(
+            canopy_generation,
+            tree_pos,
+            tree_desc.branching.seed,
+            tree.relative_leaf_placements(),
+            tree.trunks(),
+        );
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
@@ -567,10 +577,18 @@ impl TreePlacementService {
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
         log::info!(
-            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} canopy_generation={} canopy_samples={} canopy_weight={:.3} canopy_min_clearance_voxels={:.3} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
             round_cones.len(),
             tree.relative_leaf_positions().len(),
             tree.relative_leaf_placements().len(),
+            canopy_acoustic_descriptor.generation(),
+            canopy_acoustic_descriptor.samples().len(),
+            canopy_acoustic_descriptor.total_weight(),
+            canopy_acoustic_descriptor
+                .samples()
+                .iter()
+                .map(|sample| sample.clearance_voxels())
+                .fold(f32::INFINITY, f32::min),
             tree_desc.size,
             tree_desc.trunk_thickness,
             TREE_MIN_TRUNK_THICKNESS,
@@ -655,6 +673,7 @@ impl TreePlacementService {
             leaf_render_local_positions,
             fruit_specs,
             world_leaf_positions,
+            canopy_acoustic_descriptor,
         }
     }
 }
@@ -809,12 +828,14 @@ struct TreeRecord {
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
+    canopy_acoustic_descriptor: CanopyAcousticDescriptor,
     butterfly_spawn_positions_ws: Vec<Vec3>,
 }
 
 pub(super) struct TreeRuntime {
     records: HashMap<u32, TreeRecord>,
     next_tree_id: u32,
+    next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
@@ -825,6 +846,7 @@ impl TreeRuntime {
         Self {
             records: HashMap::new(),
             next_tree_id: 1,
+            next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
@@ -841,6 +863,15 @@ impl TreeRuntime {
 
     fn tuned_tree_id(&self) -> u32 {
         self.tuned_tree_id
+    }
+
+    fn allocate_canopy_acoustic_generation(&mut self) -> u64 {
+        let generation = self.next_canopy_acoustic_generation;
+        self.next_canopy_acoustic_generation = self
+            .next_canopy_acoustic_generation
+            .checked_add(1)
+            .expect("canopy acoustic generation overflow");
+        generation
     }
 
     fn contains(&self, tree_id: u32) -> bool {
@@ -1097,11 +1128,13 @@ impl App {
         let mut rebuild_chunk_ids = Vec::new();
         for (tree_id, record) in records {
             let compile_start = Instant::now();
+            let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
             let compiled = TreePlacementService::compile(
                 record.mature_desc.clone(),
                 record.position,
                 UAabb3::default(),
                 tree_age,
+                canopy_generation,
             );
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
@@ -1151,6 +1184,7 @@ impl App {
                 &compiled.leaf_render_local_positions,
                 &compiled.fruit_specs,
                 &compiled.world_leaf_positions,
+                compiled.canopy_acoustic_descriptor.clone(),
                 total_start,
                 compile_elapsed,
                 trunk_elapsed,
@@ -1196,11 +1230,13 @@ impl App {
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
+        let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
         let compiled = TreePlacementService::compile(
             tree_desc,
             tree_pos,
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
+            canopy_generation,
         );
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
@@ -1255,6 +1291,7 @@ impl App {
             &compiled.leaf_render_local_positions,
             &compiled.fruit_specs,
             &compiled.world_leaf_positions,
+            compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
             trunk_elapsed,
@@ -2012,6 +2049,7 @@ impl App {
         leaf_render_local_positions: &[IVec3],
         fruit_specs: &[TreeFruitSpec],
         world_leaf_positions: &[Vec3],
+        canopy_acoustic_descriptor: CanopyAcousticDescriptor,
         total_start: Instant,
         compile_elapsed: std::time::Duration,
         trunk_elapsed: std::time::Duration,
@@ -2084,6 +2122,7 @@ impl App {
             bound: this_bound,
             mature_desc,
             trunk_geometry,
+            canopy_acoustic_descriptor,
             butterfly_spawn_positions_ws: quantized_leaf_render_positions
                 .iter()
                 .map(|position| {
@@ -2144,11 +2183,13 @@ impl App {
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
+        let canopy_generation = self.trees.allocate_canopy_acoustic_generation();
         let compiled = TreePlacementService::compile(
             tree_desc,
             tree_pos,
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
+            canopy_generation,
         );
         let compile_elapsed = compile_start.elapsed();
         if benchmark_gui_tree {
@@ -2201,6 +2242,7 @@ impl App {
             &compiled.leaf_render_local_positions,
             &compiled.fruit_specs,
             &compiled.world_leaf_positions,
+            compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
             trunk_elapsed,
@@ -2227,6 +2269,13 @@ mod tests {
                 bvh_nodes: Vec::new(),
                 round_cones: Vec::new(),
             },
+            canopy_acoustic_descriptor: CanopyAcousticDescriptor::build(
+                1,
+                Vec3::new(1.0, 2.0, 3.0),
+                0,
+                &[],
+                &[],
+            ),
             butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
         }
     }
