@@ -121,6 +121,17 @@ def distribution(values: Iterable[float]) -> dict[str, float | int]:
     }
 
 
+def frame_distribution(values: Iterable[float]) -> dict[str, float | int]:
+    summary = distribution(values)
+    return {
+        "samples": summary["samples"],
+        "p50_frames": summary["p50_us"],
+        "p95_frames": summary["p95_us"],
+        "p99_frames": summary["p99_us"],
+        "max_frames": summary["max_us"],
+    }
+
+
 def queue_completion_frame(frames: list[dict[str, Any]], field: str) -> int | None:
     nonzero = [int(frame["relative"]) for frame in frames if int(frame[field]) > 0]
     if not nonzero:
@@ -131,7 +142,9 @@ def queue_completion_frame(frames: list[dict[str, Any]], field: str) -> int | No
     return None
 
 
-def summarize_run(text: str, mode: str, capacity: int) -> dict[str, Any]:
+def summarize_run(
+    text: str, mode: str, capacity: int, voxel_budget: int | None = None
+) -> dict[str, Any]:
     phases = parse_marker_lines(text)
     event = phases.get("event", [])
     summary = phases.get("summary", [])
@@ -141,6 +154,8 @@ def summarize_run(text: str, mode: str, capacity: int) -> dict[str, Any]:
     summary_record = summary[0]
     if event_record.get("mode") != mode or event_record.get("available_particles") != capacity:
         raise ValueError("event mode/capacity does not match requested case")
+    if voxel_budget is not None and event_record.get("voxel_budget") != voxel_budget:
+        raise ValueError("event voxel budget does not match requested case")
     event_record["classification_cpu_us"] = float(event_record["classification_us"]) - float(
         event_record.get("trace_readback_us", 0.0)
     )
@@ -189,7 +204,7 @@ def summarize_run(text: str, mode: str, capacity: int) -> dict[str, Any]:
         "water_cache_pending",
     ]
     queue_frames = event_cpu + post_cpu
-    return {
+    result = {
         "mode": mode,
         "available_particles": capacity,
         "event": event_record,
@@ -234,6 +249,30 @@ def summarize_run(text: str, mode: str, capacity: int) -> dict[str, Any]:
             "post_gpu": len(post_gpu),
         },
     }
+    if mode == "bounded":
+        job_frames = phases.get("job_frame", [])
+        atomic_checks = phases.get("atomic_check", [])
+        if (
+            not job_frames
+            or len(atomic_checks) != 1
+            or job_frames[-1].get("disposition") != "detached"
+            or any(frame.get("disposition") != "pending" for frame in job_frames[:-1])
+            or int(job_frames[-1]["processed_total"]) != 437_205
+            or int(atomic_checks[0]["remaining_fixture_voxels"]) != 437_205
+            or int(atomic_checks[0]["visible_revision"]) != revision_before
+        ):
+            raise ValueError("bounded job Pending/Detached or atomic pre-commit invariant failed")
+        result["bounded_job"] = {
+            "steps": len(job_frames),
+            "completion_relative_frame": int(job_frames[-1]["relative"]),
+            "processed_voxels": int(job_frames[-1]["processed_total"]),
+            "step_cpu": distribution(frame["step_us"] for frame in job_frames),
+            "classification_cpu_total_us": float(job_frames[-1]["classification_us"]),
+            "max_pending": max(int(frame["pending"]) for frame in job_frames),
+            "atomic_validation_us": float(atomic_checks[0]["validation_us"]),
+            "atomic_check_frame": int(atomic_checks[0]["frame"]),
+        }
+    return result
 
 
 def aggregate_case(runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -250,7 +289,7 @@ def aggregate_case(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "publication_us",
         "particle_spawn_us",
     ]
-    return {
+    result = {
         "runs": len(runs),
         "stages": {
             stage: distribution(run["event"][stage] for run in runs) for stage in stage_names
@@ -313,6 +352,25 @@ def aggregate_case(runs: list[dict[str, Any]]) -> dict[str, Any]:
             for run in runs
         ),
     }
+    if "bounded_job" in runs[0]:
+        result["bounded_job"] = {
+            "completion_relative_frame": frame_distribution(
+                run["bounded_job"]["completion_relative_frame"] for run in runs
+            ),
+            "step_cpu": distribution(
+                step
+                for run in runs
+                for step in run["bounded_job"]["_step_cpu_samples"]
+            ),
+            "classification_cpu_total": distribution(
+                run["bounded_job"]["classification_cpu_total_us"] for run in runs
+            ),
+            "atomic_validation": distribution(
+                run["bounded_job"]["atomic_validation_us"] for run in runs
+            ),
+            "max_pending": max(run["bounded_job"]["max_pending"] for run in runs),
+        }
+    return result
 
 
 def _phase_samples(run: dict[str, Any], prefix: str, processor: str, phase: str) -> list[float]:
@@ -342,6 +400,11 @@ def enrich_private_samples(run: dict[str, Any], text: str) -> None:
                 for frame in frames
                 if predicate(int(frame["relative"]))
             ]
+    if "bounded_job" in run:
+        run["bounded_job"]["_step_cpu_samples"] = [
+            float(frame["step_us"])
+            for frame in phases.get("job_frame", [])
+        ]
 
 
 def strip_private_samples(value: Any) -> Any:
@@ -373,6 +436,7 @@ def run_case(
     warmup_frames: int,
     observe_frames: int,
     auto_exit: float,
+    voxel_budget: int,
 ) -> tuple[dict[str, Any], str]:
     command = [
         str(binary),
@@ -391,23 +455,26 @@ def run_case(
         str(warmup_frames),
         "--terrain-connectivity-bench-observe-frames",
         str(observe_frames),
+        "--terrain-connectivity-bench-voxel-budget",
+        str(voxel_budget),
     ]
     started = time.monotonic()
     completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     elapsed = time.monotonic() - started
-    raw_path = output_dir / f"{repetition:02d}-{mode}-{capacity}.log"
+    raw_path = output_dir / f"{repetition:02d}-{mode}-{capacity}-budget-{voxel_budget}.log"
     raw_path.write_text(completed.stdout, encoding="utf-8")
     if completed.returncode != 0:
         raise RuntimeError(f"benchmark failed ({completed.returncode}); see {raw_path}")
     for forbidden in ("ERROR", "panicked at", "VUID-", "device lost"):
         if forbidden in completed.stdout:
             raise RuntimeError(f"benchmark log contains {forbidden!r}; see {raw_path}")
-    run = summarize_run(completed.stdout, mode, capacity)
+    run = summarize_run(completed.stdout, mode, capacity, voxel_budget)
     enrich_private_samples(run, completed.stdout)
     log_match = RUN_LOG_RE.search(completed.stdout)
     run.update(
         {
             "repetition": repetition,
+            "voxel_budget": voxel_budget,
             "elapsed_seconds": round(elapsed, 3),
             "command": command,
             "raw_log": str(raw_path.resolve()),
@@ -435,8 +502,9 @@ def runtime_provenance(text: str) -> dict[str, str]:
     return values
 
 
-def run_order(repetitions: int, capacities: list[int]) -> list[tuple[int, str, int]]:
-    order: list[tuple[int, str, int]] = []
+def baseline_run_order(repetitions: int) -> list[tuple[int, str, int, int]]:
+    capacities = [16_384, 8_192, 0]
+    order: list[tuple[int, str, int, int]] = []
     for repetition in range(1, repetitions + 1):
         rotated = capacities[(repetition - 1) % len(capacities) :] + capacities[
             : (repetition - 1) % len(capacities)
@@ -444,7 +512,27 @@ def run_order(repetitions: int, capacities: list[int]) -> list[tuple[int, str, i
         modes = ("existing", "correct") if repetition % 2 else ("correct", "existing")
         for capacity in rotated:
             for mode in modes:
-                order.append((repetition, mode, capacity))
+                order.append((repetition, mode, capacity, 16_384))
+    return order
+
+
+def bounded_run_order(repetitions: int) -> list[tuple[int, str, int, int]]:
+    cases = [
+        (16_384, 8_192),
+        (16_384, 16_384),
+        (16_384, 32_768),
+        (16_384, 65_536),
+        (8_192, 16_384),
+        (0, 16_384),
+    ]
+    order: list[tuple[int, str, int, int]] = []
+    for repetition in range(1, repetitions + 1):
+        rotated = cases[(repetition - 1) % len(cases) :] + cases[: (repetition - 1) % len(cases)]
+        if repetition % 2 == 0:
+            rotated.reverse()
+        order.extend(
+            (repetition, "bounded", capacity, budget) for capacity, budget in rotated
+        )
     return order
 
 
@@ -456,6 +544,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-frames", type=int, default=600)
     parser.add_argument("--observe-frames", type=int, default=180)
     parser.add_argument("--auto-exit", type=float, default=90.0)
+    parser.add_argument("--suite", choices=("baseline", "bounded"), default="baseline")
     return parser.parse_args()
 
 
@@ -475,10 +564,14 @@ def main() -> int:
         cases: dict[str, list[dict[str, Any]]] = {}
         provenance_text = ""
         fixed_runtime: dict[str, str] | None = None
-        order = run_order(args.runs, [16_384, 8_192, 0])
-        for index, (repetition, mode, capacity) in enumerate(order, 1):
+        order = (
+            baseline_run_order(args.runs)
+            if args.suite == "baseline"
+            else bounded_run_order(args.runs)
+        )
+        for index, (repetition, mode, capacity, voxel_budget) in enumerate(order, 1):
             print(
-                f"[{index}/{len(order)}] repetition={repetition} mode={mode} capacity={capacity}",
+                f"[{index}/{len(order)}] repetition={repetition} mode={mode} capacity={capacity} voxel_budget={voxel_budget}",
                 flush=True,
             )
             run, text = run_case(
@@ -490,8 +583,14 @@ def main() -> int:
                 args.warmup_frames,
                 args.observe_frames,
                 args.auto_exit,
+                voxel_budget,
             )
-            cases.setdefault(f"{mode}-{capacity}", []).append(run)
+            case_name = (
+                f"{mode}-{capacity}"
+                if mode != "bounded"
+                else f"bounded-{capacity}-budget-{voxel_budget}"
+            )
+            cases.setdefault(case_name, []).append(run)
             if fixed_runtime is None:
                 fixed_runtime = run["runtime"]
             elif run["runtime"] != fixed_runtime:
@@ -522,9 +621,15 @@ def main() -> int:
             "warmup_frames": args.warmup_frames,
             "observe_frames": args.observe_frames,
             "run_order": [
-                {"repetition": repetition, "mode": mode, "capacity": capacity}
-                for repetition, mode, capacity in order
+                {
+                    "repetition": repetition,
+                    "mode": mode,
+                    "capacity": capacity,
+                    "voxel_budget": voxel_budget,
+                }
+                for repetition, mode, capacity, voxel_budget in order
             ],
+            "suite": args.suite,
         },
         "cases": {
             name: {

@@ -964,10 +964,11 @@ fn fixture_edit_bound() -> UAabb3 {
 
 fn log_event(options: TerrainConnectivityBenchOptions, frame: u64, stages: EventStages) {
     log::info!(
-        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} atomic_validation_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={} release_to_commit_frames={}",
+        "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=event mode={} frame={} available_particles={} voxel_budget={} fixture_voxels={} total_us={:.0} current_path_us={:.0} primary_readback_us={:.0} trace_readback_us={:.0} classification_us={:.0} atomic_validation_us={:.0} sampling_us={:.0} invalidation_us={:.0} publication_us={:.0} particle_spawn_us={:.0} classified_voxels={} trace_readback_tiles={} invalidated_voxels={} sampled_voxels={} spawned_particles={} revision_before={} revision_after={} release_to_commit_frames={}",
         options.mode.label(),
         frame,
         options.available_particles,
+        options.voxel_budget,
         FIXTURE_VOXELS,
         stages.total_us,
         stages.current_path_us,
