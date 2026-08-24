@@ -10,15 +10,21 @@
 >
 > 证据标记：**项目事实**来自上述 Re: Flora 基线或其 Git 历史；**PetalSonic 事实**来自 0.7.0 发布源码；**一手资料**来自引擎/SDK 官方文档；**推断/建议**会明确标出，不能当成已测量结果。
 
+> 2026-08-25 实现修正：后续体验证明，完全 listener-local 的 `(0, -0.08, 0)`
+> 会错误地忽略 camera pitch。最终 direct placement 改为 listener-position-relative：只跟随
+> listener 平移，offset 保持 world-axis/world-down，再由每个音频块的最新 listener orientation
+> 投影到 HRTF。本文较早的 listener-local 方案保留为历史对照；以下长期结论和验收条件已按
+> 该修正更新。
+
 ## 结论先行
 
 1. **当前脚步没有进入空间化或环境声学路径。** `play_jumping`、`play_landing` 和 `play_step` 虽然仍接收位置，却全部丢弃 `_position`，通过 `add_non_spatial_source` 播放。因此当前版本不会出现旧空间脚步的“拖在身后”，但也没有脚下方定位、遮挡、反射或材质驱动的空间感。参见 [`camera/audio.rs` L77-L113](../src/gameplay/camera/audio.rs#L77-L113) 和 [`spatial_sound_manager.rs` L199-L219](../src/audio/spatial_sound_manager.rs#L199-L219)。
 2. **以前严重“落后”的最可能主因不是有限声速，而是把完整脚步 clip 固定在落脚瞬间的世界点。** 提交 [`68278efa`](https://github.com/tr-nc/re-flora/commit/68278efa02a4ab5cdef315b71fcdb34971400cc2) 创建一次性 spatial source 后再也不更新它；listener 继续前进时，后续音频块的 `source - listener` 必然逐渐指向后方。仓库实测 run clip 平均约 `0.620 s`、walk clip 平均约 `0.627 s`，所以这不是一两个采样点的小误差，而是持续大半秒的确定性相对运动。
 3. **“一开始就不在正下方”还有一个独立但非必现的首块竞态。** 旧路径先在 camera update 内积分新位置并创建/播放 source，`Tracer::update_camera` 返回后才更新 listener；如果音频线程恰好在两者之间生成首块，会看到“本帧 source + 上一帧 listener”。这应通过 revision/onset telemetry 证实，不能断言每一步都发生。即便把此顺序完全修好，世界固定 source 在后续块中仍会确定性落后。
 4. **PetalSonic 0.7.0 的 direct path 没有按 `distance / 343 m/s` 延迟。** direct 每个渲染块直接用当前 source/listener 差计算衰减和 HRTF 方向；`343 m/s` 只用于 early reflection 的额外路程和 late reverb pre-delay。33 ms 声学 solver、50 ms gain/tap 平滑会使遮挡/反射/tail 参数滞后，却不会把 direct HRTF 方向缓存 50 ms。参见 [direct DSP](https://github.com/tr-nc/petalsonic/blob/06d992f755fdc17a26b52a4eef97341ebe8d6e12/petalsonic/src/spatial/processor.rs#L602-L655)、[HRTF direction](https://github.com/tr-nc/petalsonic/blob/06d992f755fdc17a26b52a4eef97341ebe8d6e12/petalsonic/src/spatial/processor.rs#L807-L880) 和 [reflection delay](https://github.com/tr-nc/petalsonic/blob/06d992f755fdc17a26b52a4eef97341ebe8d6e12/petalsonic/src/acoustic_propagation.rs#L608-L645)。
-5. **绝不能“拖在身后”的最强保证来自参考系，而不是预测。** 2D/head-locked direct 永远不会产生世界方位；而同一原子 `SpatialFrame` 中严格保持 listener-local 脚下偏移的 direct，也能保证平移、转向和输出排队都不改变其听觉方向。世界接触点 fully spatialized one-shot 天生会在玩家离开后位于身后；这对远处 NPC 正确，对本地玩家的主 direct 层不合适。
-6. **本项目最小可行方案：第一阶段保留当前 2D dry 作为安全基线；空间接入阶段再用原子更新的 listener-relative 脚下 emitter 替换它，而不是把两份 direct 叠播。** controller 只产生语义化 `FootstepEvent`，app 必须按 `movement → resolve event/clip and register emitter → listener/follower poses → publish complete SpatialFrame → play prepared events` 排序。PetalSonic 现有 API 足以实现这条“跟随的 spatial direct”，但环境响应会跟着玩家移动，不是真实的世界接触点 tail。
-7. **长期推荐：一份 PCM、两种空间语义的 perceptual split。** 即时 dry/direct 固定在 listener-local 脚下，禁用本地 direct 的 geometry/physical delay；同一声音的 early reflections/late environment send 使用真实世界接触点。这样 direct 绝不落后，同时保留脚下定位、地面材质和房间感。PetalSonic 0.7.0 还不能让同一 voice 的 direct placement 与 per-play acoustic origin 分离，也没有独立 wet send/direct-geometry-bypass，需扩展一个小而明确的接口。
+5. **绝不能“拖在身后”的最强保证来自参考系，而不是预测。** 主 direct 必须消除 listener translation，但不能消除 camera orientation：world-down offset 在水平视线中位于下方，低头时应投影到前方。世界接触点 fully spatialized one-shot 天生会在玩家离开后位于身后；这对远处 NPC 正确，对本地玩家的主 direct 层不合适。
+6. **本项目的 direct anchor 应是 listener-position-relative，而不是完全 listener-relative。** controller 只产生语义化 `FootstepEvent`，app 仍按 `movement → resolve event/clip and register emitter → listener pose → publish complete SpatialFrame → play prepared events` 排序。PetalSonic 在 render block 内用最新 listener orientation 变换 world-axis offset，不需要 host 追赶 pose。
+7. **长期推荐：一份 PCM、两种空间语义的 perceptual split。** 即时 dry/direct 使用 gravity-aligned listener-position-relative offset，并禁用本地 direct 的 geometry/physical delay；同一声音的 early reflections/late environment send 使用真实世界接触点。这样 direct 不会因平移落后，camera pitch 仍正确，同时保留地面材质和房间感。
 
 ## 当前声音怎样进入 PetalSonic 与 native environmental acoustics
 
@@ -189,14 +195,14 @@ PetalSonic 0.7.0 在 `create_emitter(clip, desc)` 时绑定 `ResidentClip`，`up
 | 1 | 本地脚步不空间化，2D/head-locked | **最强。** 根本没有世界方位，所以不可能被听成 rear world source。 | 保留素材/表面音色；没有脚下方位、遮挡与空间 tail（除非另加 wet）。 | 已实现，是安全回退与对照，不是终点。 |
 | 2 | listener-local 下方固定、immediate direct | **强保证。** 若 source/listener 来自同一原子 frame，local offset 恒定；旧帧或缓冲中的块也仍是相同“下方”。 | 有下方 HRTF 和距离；若用同一 moving emitter 做声学，room response 有但接触点随人移动。 | Petal 0.7.0 可由 host 每帧换算 world pose实现；需修事件/发布顺序和生命周期。**最小推荐。** |
 | 3 | 脚底世界接触点 fully spatialized one-shot | **不能保证，且移动后必然后移。** | 最真实的世界接触点、遮挡和反射；适合 NPC、掉落物、远处脚步。 | API 足够，但不应作为本地玩家占主导的 direct。 |
-| 4 | perceptual split：listener-relative dry/direct + world reflection/environment tail | **direct 强保证；tail 可在身后是有意的环境记忆。** | 同时保留即时脚下定位、表面 clip 和真实空间 tail。 | 当前 API 不足；需 direct/acoustic 双 pose 和 per-emitter route。**长期推荐。** |
+| 4 | perceptual split：listener-position-relative dry/direct + world reflection/environment tail | **direct 强保证；tail 可在身后是有意的环境记忆。** | direct 跟随平移但保留 camera pitch；同时保留表面 clip 和真实空间 tail。 | 最终实现；PetalSonic 增加 world-axis offset placement，并保留独立 environment origin。**长期推荐。** |
 | 5 | emitter 每帧跟随 player | 平移可保证；若只是“追踪上次 player world pose”而不是 listener-local 原子约束，首块/转头仍可能有 seam。 | direct 不拖后；反射和尾响跟人移动，世界接触感被涂抹。 | 当前 API 足够；应把它规范成方案 2 的 listener-local invariant，而非松散 chase。 |
 | 6 | motion prediction/source compensation | **无保证。** input、render occupancy、device latency 和突然停步/转向都可变化，预测会过冲。 | 可让远处 world source 在稳定速度下视觉更同步，但牺牲真实接触点。 | Host 可做，不推荐用于本地脚步 correctness；只可作为测量后的可选 polish。 |
 | 7 | 禁用本地 direct 的物理传播 delay，保留 occlusion/reflections | 单独不能修 fixed-world 后移；当前 direct 本来就无物理 delay。若再配合 listener-local direct 才有保证。 | 可保留环境互动，避免 local direct 被异步 geometry 突变。 | 全局开关做不到 per-emitter；长期需要 direct geometry bypass / wet route。 |
 
 **回答用户的两个核心取舍：**
 
-- 真正保证“绝不能落后”的是 1，以及满足“同一原子 frame + listener-local 恒定 offset + play 在该 frame publish 后”的 2/4 direct。5 只有被约束为 2 时才同样可靠。6 永远只能近似。
+- 真正保证“绝不能落后”且保留正确 camera pitch 的是 1，以及满足“listener translation-relative + world-axis offset + publish-before-play”的 4 direct。完全 listener-local 的 2 不会后拖，但会把低头时的脚步错误地锁在下方。6 永远只能近似。
 - 保留最多空间/地面材质/环境感的是 4。3 保留物理世界感，却与“本地 direct 绝不后拖”目标冲突；可只作为 4 的 wet/tail 坐标语义。
 
 ## 本项目最小方案：现有 PetalSonic API 内完成
@@ -224,7 +230,7 @@ App/Tracer 每帧：
 
 **建议起点，不是调音结论：**
 
-- listener-local offset：`(0, -0.08, 0)` world unit；先用中心线，确认真正的 left/right foot event 后再尝试 `x = ±0.01..0.02`。
+- listener-position-relative world offset：`(0, -0.08, 0)` world unit；先用 gravity-aligned 中心线，确认真正的 body-yaw/left-right seam 后再尝试横向 offset。
 - direct propagation：immediate（当前即如此）；不要对 local direct 做 motion prediction。
 - follower pose：不做位置平滑。增益/环境参数可继续平滑；任何 pose smoother 都会重新引入相对误差。
 - active footstep voice/emitter 并发上限：从 6 起测。run interval 0.25 s、最长 run clip 0.829 s，active set 至少要容纳 4 个重叠 run voice；6 为 jump/land 和未测的有效尾声留余量。
@@ -306,7 +312,7 @@ pub struct SpatialPlayOptions {
 
 - `src/domain.rs`：公开稳定 policy 与完整 spatial state；保留兼容默认。
 - `src/world.rs`：验证完整 frame、per-play acoustic pose、policy 值和 lifecycle，不暴露 DSP 细节。
-- `src/spatial/processor.rs`：同一 mono block 分 direct/wet；listener-relative direct direction；per-emitter geometry bypass；不要平滑 pose。
+- `src/spatial/processor.rs`：同一 mono block 分 direct/wet；listener-position-relative world offset 每块投影到当前 listener basis；per-emitter geometry bypass；不要平滑 pose。
 - `src/acoustic_propagation.rs`：按 active voice/contact 使用 `acoustic_world_pose`，并应丢弃 superseded solve 而不是发布旧 response。
 - `src/engine.rs` / diagnostics domain：增加 command→first-render→callback presentation 可观测链，以及 render block 使用的 spatial revision。
 - Petal 单元/离线渲染测试：验证 local direct invariant、wet delay、单 voice cursor 对齐和兼容默认。
@@ -316,7 +322,7 @@ pub struct SpatialPlayOptions {
 长期的 `FootstepEvent` 应携带稳定语义，例如 `FootstepSurface::{Soil, Sand, Wood, Stone, Stucco, Unknown}`，由 Re: Flora 将 `voxel_type` 映射到 clip bank。Petal `AcousticMaterial` 继续只表达 absorption/scattering/transmission。这样同一次脚步：
 
 - dry 的音色来自 surface clip；
-- direct 方位来自 listener-local feet；
+- direct 方位来自跟随 listener position 的 world-down feet offset；
 - reflection/tail 的频谱与路径来自 contact_world 周围的声学几何。
 
 当前只有 undergrowth 素材，未增加其他 bank 前，验收只能证明路由与 material ID 正确，不能声称已实现听觉上的木/石/沙差异。
@@ -358,7 +364,7 @@ Device estimate:
 
 ### 确定性测试
 
-1. listener-local `(0, -h, 0)` 在任意 world translation/yaw 下换算 world 再变回 local，结果仍为 `(0, -h, 0)`。
+1. listener-position-relative world offset `(0, -h, 0)` 不受 world translation 影响；水平视线时解析为 local-down，向下看 89° 时解析为近似 local-front `(0, 0, +h)`。
 2. 首个含声块的 listener 与 emitter/direct pose 必须来自同一 `SpatialFrame.revision`；不允许 play 使用尚未发表的新 emitter pose。
 3. 两步重叠时各 voice cursor 独立，旧 voice 的 acoustic world origin 不因新 contact 改变，direct local anchor 始终相同；completion 后 emitter/voice/registry 计数回基线。
 4. direct impulse 第一块没有 `distance / 343` silence；world wet 在 direct 后有延迟能量，direct 不被重复混入。
@@ -372,8 +378,8 @@ Device estimate:
 |---|---|---|
 | 快走直线 | dry local vector 全程在脚下容差内；不随 clip 年龄向 rear 漂移；event/onset latency 有分段数据。 | fixed world、上一帧 source、buffer 混淆 |
 | 冲刺直线 | 相比快走，direction 误差不随速度增长；无“拉橡皮筋”声像；voice cap 不触发或触发可解释。 | 固定接触点主因的回归 |
-| 移动中快速转头/转身 | listener-local dry 仍在下方；world wet 随头部 orientation 正确旋转，左右/前后符号不反。 | listener/source order、坐标 seam |
-| 原地转头 | 无平移时四个已知方向 impulse 与 right/up/front 约定一致；脚步仍下方。 | HRTF/相机 basis seam |
+| 移动中快速转头/转身 | world-down dry 随最新 listener orientation 正确投影；yaw 不产生后拖，pitch 会改变上下/前后方位。 | listener/source order、坐标 seam |
+| 原地低头/抬头 | 水平时脚步在下方；低头时平滑转到前方，抬头时转到后下方；半径保持不变。 | 完全 listener-local 锁定、HRTF/相机 basis seam |
 | 起跳与落地 | takeoff 使用离地 contact，空中无 regular step；landing 使用实际着地 contact/surface；移动落地不会重复 step + land。 | 事件晚发、jump pre/post pose |
 | 狭窄走廊/小房间 | dry onset/direction 与室外相同；early/tail 更明显且 response age 有界；关 environmental 后只消失环境层。 | solver/path cache、wet routing |
 | 连续跨材质 | event surface 与脚下 voxel 一致，clip bank 对应；world tail 使用相同 contact 周围声学材质。 | gameplay/acoustic material 混层 |
@@ -388,7 +394,7 @@ Device estimate:
 3. **材质接入：** ground contact/surface seam 与对应 clip banks；这与 Petal acoustic material 分层验证。
 4. **长期 split：** PetalSonic 增加 direct/acoustic 双 pose、per-emitter direct bypass 和单 voice wet send；在狭窄空间验证 tail，再替代最小 follower 的环境路径。
 
-最终推荐不是把旧 [`68278efa`](https://github.com/tr-nc/re-flora/commit/68278efa02a4ab5cdef315b71fcdb34971400cc2) 重做一遍，也不是用预测把 world source 推到玩家前面。正确的不变量是：**本地玩家听到的主脚步 direct 永远属于 listener-local 脚下；世界接触点只属于材质查询和低电平环境响应。**
+最终推荐不是把旧 [`68278efa`](https://github.com/tr-nc/re-flora/commit/68278efa02a4ab5cdef315b71fcdb34971400cc2) 重做一遍，也不是用预测把 world source 推到玩家前面。正确的不变量是：**主脚步 direct 跟随 listener position、保持 world-down offset、由最新 camera orientation 投影；世界接触点只属于材质查询和低电平环境响应。**
 
 ## 一手外部来源
 

@@ -11,7 +11,8 @@ use petalsonic::{
     Pose, Vec3 as PetalVec3, VoiceEnergyTelemetry, VoiceTelemetryEvent,
 };
 
-const LOCAL_FOOTSTEP_DIRECT_Y: f32 = -0.08;
+const LOCAL_FOOTSTEP_DIRECT_WORLD_Y: f32 = -0.08;
+const LOCAL_FOOTSTEP_DIRECT_RADIUS_TOLERANCE: f32 = 1.0e-5;
 const LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB: f32 = -12.0;
 const MAX_ACTIVE_LOCAL_FOOTSTEPS: usize = 6;
 const COMPLETION_DEADLINE_GRACE_SECONDS: f64 = 1.0;
@@ -37,20 +38,20 @@ pub enum LocalPlayerFootstepRoutingMode {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct FootstepRouting {
-    direct_listener_local: glam::Vec3,
+    direct_world_offset: glam::Vec3,
     environment_world: glam::Vec3,
 }
 
 impl FootstepRouting {
     fn for_event(event: &FootstepEvent) -> Self {
         Self {
-            direct_listener_local: glam::Vec3::new(0.0, LOCAL_FOOTSTEP_DIRECT_Y, 0.0),
+            direct_world_offset: glam::Vec3::new(0.0, LOCAL_FOOTSTEP_DIRECT_WORLD_Y, 0.0),
             environment_world: event.contact_world,
         }
     }
 
-    fn direct_pose(self) -> Pose {
-        Pose::from_position(Self::petal_position(self.direct_listener_local))
+    fn direct_world_offset_pose(self) -> Pose {
+        Pose::from_position(Self::petal_position(self.direct_world_offset))
     }
 
     fn environment_pose(self) -> Pose {
@@ -61,13 +62,23 @@ impl FootstepRouting {
         PetalVec3::new(position.x, position.y, position.z)
     }
 
+    fn direct_path(self) -> DirectPath {
+        DirectPath::listener_position_relative(self.direct_world_offset_pose())
+            .with_geometry(DirectGeometry::BypassTransmission)
+            .with_propagation(DirectPropagation::Immediate)
+    }
+
+    fn matches_resolved_direct_pose(self, direct_local_pose: Option<Pose>) -> bool {
+        direct_local_pose.is_some_and(|pose| {
+            pose.position.is_finite()
+                && (pose.position.length() - self.direct_world_offset.length()).abs()
+                    <= LOCAL_FOOTSTEP_DIRECT_RADIUS_TOLERANCE
+        })
+    }
+
     fn play_options(self, correlation_id: u64) -> PlayOptions {
         PlayOptions::once()
-            .with_direct_path(
-                DirectPath::listener_relative(self.direct_pose())
-                    .with_geometry(DirectGeometry::BypassTransmission)
-                    .with_propagation(DirectPropagation::Immediate),
-            )
+            .with_direct_path(self.direct_path())
             .with_environment_send(
                 EnvironmentSend::from_world_pose(self.environment_pose())
                     .with_gain_db(LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB),
@@ -308,7 +319,9 @@ impl FirstRenderContractCheck {
     ) -> Self {
         Self {
             revision_ok: spatial_revision >= voice.published_revision,
-            direct_ok: direct_local_pose == Some(voice.routing.direct_pose()),
+            direct_ok: voice
+                .routing
+                .matches_resolved_direct_pose(direct_local_pose),
             environment_ok: acoustic_origin == Some(voice.routing.environment_pose()),
         }
     }
@@ -471,9 +484,9 @@ struct ConcludingFootstepVoice<EmitterHandle, ControlHandle> {
 
 /// Converts semantic local-player footstep events into one PetalSonic Voice per event.
 ///
-/// The default route splits each Voice between an immediate listener-relative direct path and an
-/// environment send fixed at the captured world contact. Legacy 2D playback remains an explicit
-/// comparison and recovery route; it does not own gameplay cadence or contact generation.
+/// The default route splits each Voice between an immediate listener-position-relative direct path
+/// and an environment send fixed at the captured world contact. Legacy 2D playback remains an
+/// explicit comparison and recovery route; it does not own gameplay cadence or contact generation.
 pub struct LocalPlayerFootstepAudio {
     spatial_sound_manager: SpatialSoundManager,
     clip_bank: FootstepClipBank,
@@ -604,13 +617,13 @@ impl LocalPlayerFootstepAudio {
                         prepared_voice.completion_deadline_seconds,
                     ));
                     log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial order=publish_before_play event_seq={} kind={:?} side={:?} surface={:?} contact={:?} direct_listener_local={:?} environment_gain_db={:.1} speed_mps={:.3} event_sim_time={:.6} spatial_revision={} active={}",
+                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial order=publish_before_play event_seq={} kind={:?} side={:?} surface={:?} contact={:?} direct_world_offset={:?} environment_gain_db={:.1} speed_mps={:.3} event_sim_time={:.6} spatial_revision={} active={}",
                         event.event_seq,
                         event.kind,
                         event.side,
                         event.surface,
                         event.contact_world,
-                        prepared_voice.routing.direct_listener_local,
+                        prepared_voice.routing.direct_world_offset,
                         LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB,
                         event.speed_mps,
                         event.sim_time_seconds,
@@ -909,11 +922,12 @@ impl LocalPlayerFootstepAudio {
                 );
                 if contract.satisfied() {
                     log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={event_seq} state=first_render render_block={} published_revision={} audible_revision={} direct_listener_local={:?} environment_world={:?}",
+                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={event_seq} state=first_render render_block={} published_revision={} audible_revision={} direct_world_offset={:?} direct_local_pose={:?} environment_world={:?}",
                         telemetry.render_block_index,
                         voice.published_revision,
                         telemetry.spatial_revision,
-                        voice.routing.direct_listener_local,
+                        voice.routing.direct_world_offset,
+                        telemetry.direct_local_pose,
                         voice.routing.environment_world,
                     );
                 } else {
@@ -1104,7 +1118,7 @@ impl LocalPlayerFootstepAudio {
             TelemetryObservationStatus::NotReceivedBeforeDeadline
         };
         let message = format!(
-            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} qos_status={:?} qos_voice_id={:?} qos_spatial_revision={:?} qos_geometry_version={:?} candidate_rank={:?} candidate_limit={:?} direct_outcome={:?} environment_outcome={:?} environment_transmission_gain={:?} solve_status={:?} early_reflections_status={:?} early_tap_count={:?} energy_status={:?} source_energy={:?} direct_energy={:?} environment_send_energy={:?} early_reflection_energy={:?} global_late_reverb_status={:?} global_late_pre_delay_seconds={:?} global_late_rt60_seconds={:?} global_late_wet_gain={:?} global_late_cumulative_input_energy={:?} global_late_cumulative_output_energy={:?} acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} dropped_voice_telemetry_during_voice={} dropped_acoustic_telemetry_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
+            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_position_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} qos_status={:?} qos_voice_id={:?} qos_spatial_revision={:?} qos_geometry_version={:?} candidate_rank={:?} candidate_limit={:?} direct_outcome={:?} environment_outcome={:?} environment_transmission_gain={:?} solve_status={:?} early_reflections_status={:?} early_tap_count={:?} energy_status={:?} source_energy={:?} direct_energy={:?} environment_send_energy={:?} early_reflection_energy={:?} global_late_reverb_status={:?} global_late_pre_delay_seconds={:?} global_late_rt60_seconds={:?} global_late_wet_gain={:?} global_late_cumulative_input_energy={:?} global_late_cumulative_output_energy={:?} acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} dropped_voice_telemetry_during_voice={} dropped_acoustic_telemetry_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
             voice.event_seq,
             reason,
             outcome,
@@ -1222,7 +1236,8 @@ mod tests {
     };
     use glam::Vec3;
     use petalsonic::{
-        AcousticRouteOutcome, AcousticSolveStatus, EnvironmentResponse, LateReverbTelemetry,
+        AcousticRouteOutcome, AcousticSolveStatus, DirectPlacement, EnvironmentResponse,
+        LateReverbTelemetry, Pose, Vec3 as PetalVec3,
     };
     use std::time::Duration;
 
@@ -1449,15 +1464,19 @@ mod tests {
     }
 
     #[test]
-    fn direct_anchor_is_listener_local_and_independent_of_world_motion() {
+    fn direct_anchor_follows_listener_position_while_remaining_world_gravity_aligned() {
         let first = FootstepRouting::for_event(&event(1, Vec3::new(10.0, 2.0, -4.0), 0.55));
         let after_stop_and_reverse =
             FootstepRouting::for_event(&event(2, Vec3::new(-20.0, 8.0, 30.0), -0.55));
 
-        assert_eq!(first.direct_listener_local, Vec3::new(0.0, -0.08, 0.0));
+        assert_eq!(first.direct_world_offset, Vec3::new(0.0, -0.08, 0.0));
         assert_eq!(
-            after_stop_and_reverse.direct_listener_local,
-            first.direct_listener_local
+            after_stop_and_reverse.direct_world_offset,
+            first.direct_world_offset
+        );
+        assert_eq!(
+            first.direct_path().placement(),
+            DirectPlacement::ListenerPositionRelative(first.direct_world_offset_pose())
         );
         assert_eq!(first.environment_world, Vec3::new(10.0, 2.0, -4.0));
         assert_eq!(
@@ -1484,15 +1503,23 @@ mod tests {
         let exact = FirstRenderContractCheck::for_voice(
             &voice,
             voice.published_revision,
-            Some(voice.routing.direct_pose()),
+            Some(voice.routing.direct_world_offset_pose()),
             Some(voice.routing.environment_pose()),
         );
         assert!(exact.satisfied());
 
+        let looking_down = FirstRenderContractCheck::for_voice(
+            &voice,
+            voice.published_revision,
+            Some(Pose::from_position(PetalVec3::new(0.0, -0.0014, 0.07998))),
+            Some(voice.routing.environment_pose()),
+        );
+        assert!(looking_down.satisfied());
+
         let stale = FirstRenderContractCheck::for_voice(
             &voice,
             voice.published_revision - 1,
-            Some(voice.routing.direct_pose()),
+            Some(voice.routing.direct_world_offset_pose()),
             Some(voice.routing.environment_pose()),
         );
         assert!(!stale.revision_ok);
@@ -1508,7 +1535,7 @@ mod tests {
         let relocated_environment = FirstRenderContractCheck::for_voice(
             &voice,
             voice.published_revision,
-            Some(voice.routing.direct_pose()),
+            Some(voice.routing.direct_world_offset_pose()),
             Some(FootstepRouting::for_event(&event(99, Vec3::ZERO, 0.0)).environment_pose()),
         );
         assert!(!relocated_environment.environment_ok);
