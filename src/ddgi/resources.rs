@@ -2276,7 +2276,7 @@ mod tests {
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);
-        assert_eq!(bytes.radiance_voxel_palette, 80);
+        assert_eq!(bytes.radiance_voxel_palette, 96);
         assert_eq!(bytes.transport_query_info, 48);
     }
 

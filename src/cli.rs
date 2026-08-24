@@ -857,7 +857,8 @@ Options:
   --environment-lighting-test-scene [case]
                               Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
                               radiance-changes, point-light-changes, voxel-emissive-changes,
-                              raster-emitter-changes, density-changes, terrain-edits,
+                              raster-emitter-changes, multi-source-stress, local-light-scaling,
+                              density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
@@ -1104,7 +1105,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 
