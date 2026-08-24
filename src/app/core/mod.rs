@@ -1005,21 +1005,18 @@ impl App {
         self.set_audio_output_muted(!self.mute_audio_output, "M key");
     }
 
-    fn update_environmental_acoustics(&mut self) {
+    fn update_environmental_acoustics_quality(&mut self) {
         let quality = Self::environmental_acoustics_quality(
             self.debug_settings
                 .adjustables
                 .audio_ray_tracing_quality_percent
                 .value,
         );
-        if let Err(err) = self.spatial_sound_manager.set_environmental_acoustics(
-            self.debug_settings
-                .adjustables
-                .audio_ray_tracing_enabled
-                .value,
-            quality,
-        ) {
-            log::warn!("Failed to update environmental acoustics: {err}");
+        if let Err(err) = self
+            .spatial_sound_manager
+            .set_environmental_acoustics_quality(quality)
+        {
+            log::warn!("Failed to update environmental acoustics quality: {err}");
         }
     }
 
@@ -1264,8 +1261,7 @@ impl App {
                 CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES,
             );
         }
-        spatial_sound_manager.set_environmental_acoustics(
-            debug_settings.adjustables.audio_ray_tracing_enabled.value,
+        spatial_sound_manager.set_environmental_acoustics_quality(
             Self::environmental_acoustics_quality(
                 debug_settings
                     .adjustables
@@ -2359,7 +2355,7 @@ impl App {
                 }
                 self.tree_audio_manager.collect_canopy_acoustic_telemetry();
                 self.start_canopy_audio_diagnostic_when_ready(time_since_start);
-                self.update_environmental_acoustics();
+                self.update_environmental_acoustics_quality();
                 self.log_canopy_audio_telemetry(time_since_start);
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {

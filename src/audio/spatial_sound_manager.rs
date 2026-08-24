@@ -257,6 +257,9 @@ impl SpatialSoundManager {
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
             acoustic_scene: Some(acoustic_scene),
+            // Re: Flora treats geometry acoustics as part of spatial rendering, not a runtime
+            // feature that callers may disable.
+            environmental_acoustics_enabled: true,
             environmental_acoustics_budget,
             ..PetalSonicWorldDesc::default()
         })?;
@@ -641,9 +644,8 @@ impl SpatialSoundManager {
         Ok(())
     }
 
-    pub fn set_environmental_acoustics(&self, enabled: bool, quality: f32) -> Result<()> {
+    pub fn set_environmental_acoustics_quality(&self, quality: f32) -> Result<()> {
         self.world.set_environmental_acoustics_quality(quality)?;
-        self.world.set_environmental_acoustics_enabled(enabled)?;
         Ok(())
     }
 
