@@ -832,6 +832,7 @@ impl App {
                             | EnvironmentLightingTestCase::VoxelEmissiveChanges
                             | EnvironmentLightingTestCase::RasterEmitterChanges
                             | EnvironmentLightingTestCase::MultiSourceStress
+                            | EnvironmentLightingTestCase::LocalLightScaling
                     )
                 ),
             },

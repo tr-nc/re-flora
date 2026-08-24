@@ -48,6 +48,7 @@ pub enum EnvironmentLightingTestCase {
     VoxelEmissiveChanges,
     RasterEmitterChanges,
     MultiSourceStress,
+    LocalLightScaling,
     DensityChanges,
     TerrainEdits,
     TerrainEditsInflight,
@@ -69,6 +70,7 @@ impl EnvironmentLightingTestCase {
             "voxel-emissive-changes" => Some(Self::VoxelEmissiveChanges),
             "raster-emitter-changes" => Some(Self::RasterEmitterChanges),
             "multi-source-stress" => Some(Self::MultiSourceStress),
+            "local-light-scaling" => Some(Self::LocalLightScaling),
             "density-changes" => Some(Self::DensityChanges),
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
@@ -91,6 +93,7 @@ impl EnvironmentLightingTestCase {
             Self::VoxelEmissiveChanges => "voxel-emissive-changes",
             Self::RasterEmitterChanges => "raster-emitter-changes",
             Self::MultiSourceStress => "multi-source-stress",
+            Self::LocalLightScaling => "local-light-scaling",
             Self::DensityChanges => "density-changes",
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
@@ -660,7 +663,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -1063,6 +1066,10 @@ mod tests {
             (
                 "multi-source-stress",
                 EnvironmentLightingTestCase::MultiSourceStress,
+            ),
+            (
+                "local-light-scaling",
+                EnvironmentLightingTestCase::LocalLightScaling,
             ),
             (
                 "density-changes",

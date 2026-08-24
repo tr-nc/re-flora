@@ -18,6 +18,9 @@ use anyhow::{Context, Result};
 use egui::Color32;
 use glam::{UVec3, Vec3};
 
+mod local_light_scaling;
+use local_light_scaling::{LocalLightScalingSample, LocalLightScalingState};
+
 const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
@@ -317,6 +320,7 @@ enum TestScenePhase {
     VoxelEmissiveLifecycle(VoxelEmissiveLifecycleState),
     RasterEmitterLifecycle(RasterEmitterLifecycleState),
     MultiSourceLifecycle(MultiSourceLifecycleState),
+    LocalLightScaling(LocalLightScalingState),
     CapturingRadianceBaseline {
         r1: DdgiFieldIdentity,
     },
@@ -534,6 +538,8 @@ pub(super) struct EnvironmentLightingTestScene {
     point_light_diagnostic_supplemental_ids: Vec<LightId>,
     point_light_expected_registry_revision: u64,
     multi_source_overflow_authored_ids: Vec<LightId>,
+    local_light_scaling_ids: Vec<LightId>,
+    local_light_scaling_samples: Vec<LocalLightScalingSample>,
 }
 
 impl EnvironmentLightingTestScene {
@@ -548,6 +554,8 @@ impl EnvironmentLightingTestScene {
             point_light_diagnostic_supplemental_ids: Vec::new(),
             point_light_expected_registry_revision: 0,
             multi_source_overflow_authored_ids: Vec::new(),
+            local_light_scaling_ids: Vec::new(),
+            local_light_scaling_samples: Vec::new(),
         }
     }
 
@@ -637,6 +645,7 @@ impl EnvironmentLightingTestScene {
             || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
             || self.case == EnvironmentLightingTestCase::RasterEmitterChanges
             || self.case == EnvironmentLightingTestCase::MultiSourceStress
+            || self.case == EnvironmentLightingTestCase::LocalLightScaling
             || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
@@ -664,6 +673,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::VoxelEmissiveLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::RasterEmitterLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::MultiSourceLifecycle(state) => Some(state.terrain_revision),
+            TestScenePhase::LocalLightScaling(state) => Some(state.terrain_revision),
             TestScenePhase::CapturingRadianceBaseline { r1 }
             | TestScenePhase::MutatingRadianceR2 { r1 }
             | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
@@ -875,6 +885,7 @@ impl EnvironmentLightingTestScene {
                     "waiting-for-multi-source-final-publication"
                 }
             },
+            TestScenePhase::LocalLightScaling(state) => state.phase_label(),
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
             TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => {
@@ -958,6 +969,7 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::VoxelEmissiveChanges
             | EnvironmentLightingTestCase::RasterEmitterChanges
             | EnvironmentLightingTestCase::MultiSourceStress
+            | EnvironmentLightingTestCase::LocalLightScaling
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1214,6 +1226,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::VoxelEmissiveChanges
         | EnvironmentLightingTestCase::RasterEmitterChanges
         | EnvironmentLightingTestCase::MultiSourceStress
+        | EnvironmentLightingTestCase::LocalLightScaling
         | EnvironmentLightingTestCase::DensityChanges
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -2414,6 +2427,8 @@ impl App {
                         aggregate_irradiance: Vec3::ZERO,
                         swapped_authored_irradiance: Vec3::ZERO,
                     })
+                } else if case == EnvironmentLightingTestCase::LocalLightScaling {
+                    TestScenePhase::LocalLightScaling(LocalLightScalingState::new(terrain_revision))
                 } else if case == EnvironmentLightingTestCase::DensityChanges {
                     let runtime = self.tracer.ddgi_runtime_status();
                     let baseline = runtime
@@ -4080,6 +4095,12 @@ impl App {
                 };
                 next
             }
+            TestScenePhase::LocalLightScaling(state) => {
+                let Some(next) = self.advance_local_light_scaling(state) else {
+                    return;
+                };
+                next
+            }
             TestScenePhase::RasterEmitterLifecycle(mut state) => match state.stage {
                 RasterEmitterTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
@@ -5639,6 +5660,7 @@ mod tests {
             EnvironmentLightingTestCase::VoxelEmissiveChanges,
             EnvironmentLightingTestCase::RasterEmitterChanges,
             EnvironmentLightingTestCase::MultiSourceStress,
+            EnvironmentLightingTestCase::LocalLightScaling,
             EnvironmentLightingTestCase::DensityChanges,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,
