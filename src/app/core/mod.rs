@@ -315,6 +315,7 @@ pub struct App {
 
     tracer: Tracer,
     local_lights: LocalLightRegistry,
+    raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
     emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
 
     // builders
@@ -1057,6 +1058,7 @@ impl App {
 
             tracer,
             local_lights: LocalLightRegistry::default(),
+            raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
             emissive_voxel_lighting,
 
             plain_builder,

@@ -32,6 +32,10 @@ impl RasterEntityId {
     pub(crate) const fn generation(self) -> u32 {
         self.generation
     }
+
+    pub(crate) const fn slot(self) -> u32 {
+        self.slot
+    }
 }
 
 /// Provider-local part identity. This remains stable across instance-buffer rebuilds, LOD changes,
@@ -171,6 +175,16 @@ impl RasterEntityEmitterProvider {
         entity: RasterEntityId,
     ) -> Result<RasterEntityEmitterChange, RasterEntityEmitterProviderError> {
         self.publish_entity(entity, [])
+    }
+
+    pub(crate) fn remove_entities(
+        &mut self,
+        entities: impl IntoIterator<Item = RasterEntityId>,
+    ) -> Result<RasterEntityEmitterChange, RasterEntityEmitterProviderError> {
+        let entities = entities.into_iter().collect::<BTreeSet<_>>();
+        let mut next = self.sources.clone();
+        next.retain(|key, _| !entities.contains(&key.entity));
+        self.publish_if_changed(next)
     }
 
     pub(crate) fn replace_all(
@@ -391,6 +405,39 @@ mod tests {
             Err(RasterEntityEmitterProviderError::DuplicateKey(key))
         );
         assert_eq!(provider.snapshot(), before);
+    }
+
+    #[test]
+    fn multi_entity_removal_is_one_atomic_provider_and_registry_publication() {
+        let first = RasterEntityId::new(11, 1, 1);
+        let second = RasterEntityId::new(11, 2, 1);
+        let survivor = RasterEntityId::new(12, 1, 1);
+        let part = RasterEmitterPartId::new(1);
+        let mut provider = RasterEntityEmitterProvider::default();
+        provider
+            .replace_all([
+                (RasterEmitterKey::new(first, part), point(Vec3::X, 1.0)),
+                (RasterEmitterKey::new(second, part), point(Vec3::Y, 1.0)),
+                (RasterEmitterKey::new(survivor, part), point(Vec3::Z, 1.0)),
+            ])
+            .unwrap();
+        let mut registry = LocalLightRegistry::default();
+        registry.reconcile(provider.snapshot()).unwrap();
+        let provider_before = provider.snapshot().source_revision();
+        let registry_before = registry.registry_revision();
+
+        let change = provider.remove_entities([second, first, first]).unwrap();
+        assert_eq!(change.source_revision, provider_before + 1);
+        assert_eq!((change.added, change.updated, change.removed), (0, 0, 2));
+        registry.reconcile(provider.snapshot()).unwrap();
+        assert_eq!(registry.registry_revision(), registry_before + 1);
+        assert_eq!(provider.source_count(), 1);
+        assert!(registry
+            .light_id(
+                RASTER_ENTITY_LIGHT_PROVIDER_ID,
+                RasterEmitterKey::new(survivor, part).source_key(),
+            )
+            .is_some());
     }
 
     #[test]
