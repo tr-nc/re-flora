@@ -42,7 +42,7 @@ const SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS: u32 = 10;
 const SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL: u8 = 0;
 const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
 const SPRINKLER_RASTER_ENTITY_NAMESPACE: u32 = 0x5350_524B;
-const SPRINKLER_HEAD_EMITTER_PART: RasterEmitterPartId = RasterEmitterPartId::new(1);
+pub(super) const SPRINKLER_HEAD_EMITTER_PART: RasterEmitterPartId = RasterEmitterPartId::new(1);
 const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -795,6 +795,10 @@ impl SprinklerRuntime {
 
     pub(super) fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    pub(super) fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub(super) fn render_instances(&self) -> Vec<SprinklerRenderInstance> {

@@ -1,3 +1,4 @@
+use super::placeables::{SprinklerPlacementTarget, SPRINKLER_HEAD_EMITTER_PART};
 use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
@@ -8,7 +9,8 @@ use crate::ddgi::{
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::lighting::{
     EmissiveVoxelProvider, LightId, LocalLight, LocalLightRecord, LocalLightSnapshot, PointLight,
-    EMISSIVE_VOXEL_PROVIDER_ID,
+    RasterEmitterComponent, RasterEmitterKey, RasterEntityId, EMISSIVE_VOXEL_PROVIDER_ID,
+    RASTER_ENTITY_LIGHT_PROVIDER_ID,
 };
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
@@ -56,6 +58,16 @@ const VOXEL_EMISSIVE_SECONDARY_MIN: UVec3 = UVec3::new(170, 170, 296);
 const VOXEL_EMISSIVE_SECONDARY_MAX: UVec3 = UVec3::new(176, 176, 302);
 const VOXEL_EMISSIVE_MOVED_MIN: UVec3 = UVec3::new(176, 170, 296);
 const VOXEL_EMISSIVE_MOVED_MAX: UVec3 = UVec3::new(188, 176, 302);
+const RASTER_EMITTER_ADD_BASE_POSITION: Vec3 = Vec3::new(
+    POINT_LIGHT_ADD_POSITION.x,
+    POINT_LIGHT_ADD_POSITION.y - 4.0 / VOXELS_PER_WORLD_UNIT,
+    POINT_LIGHT_ADD_POSITION.z,
+);
+const RASTER_EMITTER_MOVED_BASE_POSITION: Vec3 = Vec3::new(
+    POINT_LIGHT_MOVED_POSITION.x,
+    POINT_LIGHT_MOVED_POSITION.y - 4.0 / VOXELS_PER_WORLD_UNIT,
+    POINT_LIGHT_MOVED_POSITION.z,
+);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointLightTestStage {
@@ -110,6 +122,38 @@ struct VoxelEmissiveLifecycleState {
     mutation_frame: u64,
     visible_luma_q8: u32,
     primary_intensity_bits: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RasterEmitterTestStage {
+    AwaitBaseline,
+    AwaitSpawnLive,
+    AwaitVisibleDiagnostic,
+    AwaitDdgiPublication,
+    AwaitNoopStable,
+    AwaitMoveLive,
+    AwaitMoveMidflight,
+    AwaitPhotometricLive,
+    AwaitRemoveLive,
+    AwaitRemovedDiagnostic,
+    AwaitFinalPublication,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RasterEmitterLifecycleState {
+    terrain_revision: u32,
+    baseline: Option<DdgiFieldIdentity>,
+    entity: Option<RasterEntityId>,
+    light_id: Option<LightId>,
+    in_flight: Option<DdgiFieldIdentity>,
+    in_flight_source_revision: u64,
+    stage: RasterEmitterTestStage,
+    expected_source_revision: u64,
+    expected_registry_revision: u64,
+    expected_provider_revision: u64,
+    expected_sprinkler_revision: u64,
+    mutation_frame: u64,
+    visible_luma_q8: u32,
 }
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
@@ -220,6 +264,7 @@ enum TestScenePhase {
         mutation_frame: u64,
     },
     VoxelEmissiveLifecycle(VoxelEmissiveLifecycleState),
+    RasterEmitterLifecycle(RasterEmitterLifecycleState),
     CapturingRadianceBaseline {
         r1: DdgiFieldIdentity,
     },
@@ -536,6 +581,7 @@ impl EnvironmentLightingTestScene {
             || self.case == EnvironmentLightingTestCase::RadianceChanges
             || self.case == EnvironmentLightingTestCase::PointLightChanges
             || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
+            || self.case == EnvironmentLightingTestCase::RasterEmitterChanges
             || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
@@ -561,6 +607,7 @@ impl EnvironmentLightingTestScene {
                 terrain_revision, ..
             } => Some(terrain_revision),
             TestScenePhase::VoxelEmissiveLifecycle(state) => Some(state.terrain_revision),
+            TestScenePhase::RasterEmitterLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::CapturingRadianceBaseline { r1 }
             | TestScenePhase::MutatingRadianceR2 { r1 }
             | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
@@ -689,6 +736,31 @@ impl EnvironmentLightingTestScene {
                     "waiting-for-voxel-emissive-final-publication"
                 }
             },
+            TestScenePhase::RasterEmitterLifecycle(state) => match state.stage {
+                RasterEmitterTestStage::AwaitBaseline => "waiting-for-raster-emitter-baseline",
+                RasterEmitterTestStage::AwaitSpawnLive => "waiting-for-raster-emitter-spawn-live",
+                RasterEmitterTestStage::AwaitVisibleDiagnostic => {
+                    "waiting-for-raster-emitter-visible-diagnostic"
+                }
+                RasterEmitterTestStage::AwaitDdgiPublication => {
+                    "waiting-for-raster-emitter-ddgi-publication"
+                }
+                RasterEmitterTestStage::AwaitNoopStable => "waiting-for-raster-emitter-noop-stable",
+                RasterEmitterTestStage::AwaitMoveLive => "waiting-for-raster-emitter-move-live",
+                RasterEmitterTestStage::AwaitMoveMidflight => {
+                    "waiting-for-raster-emitter-move-midflight"
+                }
+                RasterEmitterTestStage::AwaitPhotometricLive => {
+                    "waiting-for-raster-emitter-photometric-live"
+                }
+                RasterEmitterTestStage::AwaitRemoveLive => "waiting-for-raster-emitter-remove-live",
+                RasterEmitterTestStage::AwaitRemovedDiagnostic => {
+                    "waiting-for-raster-emitter-removed-diagnostic"
+                }
+                RasterEmitterTestStage::AwaitFinalPublication => {
+                    "waiting-for-raster-emitter-final-publication"
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
             TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => {
@@ -770,6 +842,7 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::RadianceChanges
             | EnvironmentLightingTestCase::PointLightChanges
             | EnvironmentLightingTestCase::VoxelEmissiveChanges
+            | EnvironmentLightingTestCase::RasterEmitterChanges
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -962,6 +1035,19 @@ fn volume_voxels(min: UVec3, max: UVec3) -> u32 {
     (max - min).element_product()
 }
 
+fn raster_emitter_component(position: Vec3, color: Vec3, intensity: f32) -> RasterEmitterComponent {
+    RasterEmitterComponent::new(LocalLight::Point(
+        PointLight::new(
+            position,
+            color,
+            intensity,
+            POINT_LIGHT_SOURCE_RADIUS_WORLD,
+            POINT_LIGHT_RANGE_WORLD,
+        )
+        .expect("raster-emitter lifecycle point light must be valid"),
+    ))
+}
+
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
         EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => {
@@ -971,6 +1057,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::RadianceChanges
         | EnvironmentLightingTestCase::PointLightChanges
         | EnvironmentLightingTestCase::VoxelEmissiveChanges
+        | EnvironmentLightingTestCase::RasterEmitterChanges
         | EnvironmentLightingTestCase::DensityChanges
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1334,6 +1421,26 @@ impl App {
                         mutation_frame: 0,
                         visible_luma_q8: 0,
                         primary_intensity_bits: 0,
+                    })
+                } else if case == EnvironmentLightingTestCase::RasterEmitterChanges {
+                    let snapshot = self.local_lights.snapshot();
+                    TestScenePhase::RasterEmitterLifecycle(RasterEmitterLifecycleState {
+                        terrain_revision,
+                        baseline: None,
+                        entity: None,
+                        light_id: None,
+                        in_flight: None,
+                        in_flight_source_revision: 0,
+                        stage: RasterEmitterTestStage::AwaitBaseline,
+                        expected_source_revision: snapshot.source_revision(),
+                        expected_registry_revision: snapshot.registry_revision(),
+                        expected_provider_revision: self
+                            .raster_entity_emitters
+                            .snapshot()
+                            .source_revision(),
+                        expected_sprinkler_revision: self.sprinklers.revision(),
+                        mutation_frame: 0,
+                        visible_luma_q8: 0,
                     })
                 } else if case == EnvironmentLightingTestCase::DensityChanges {
                     let runtime = self.tracer.ddgi_runtime_status();
@@ -2993,6 +3100,559 @@ impl App {
                     TestScenePhase::Ready
                 }
             },
+            TestScenePhase::RasterEmitterLifecycle(mut state) => match state.stage {
+                RasterEmitterTestStage::AwaitBaseline => {
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(baseline) = active.published_field else {
+                        return;
+                    };
+                    if !is_converged_field(baseline)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    assert_eq!(baseline.field().geometry_revision(), state.terrain_revision);
+                    assert_eq!(
+                        active.relocated_terrain_revision,
+                        Some(state.terrain_revision)
+                    );
+                    assert_eq!(self.tracer.local_light_live_state(), (Some(0), 0));
+                    assert_eq!(self.sprinklers.len(), 0);
+                    assert_eq!(self.tracer.sprinkler_instance_count(), 0);
+                    assert_eq!(self.raster_entity_emitters.source_count(), 0);
+
+                    let component = raster_emitter_component(
+                        POINT_LIGHT_ADD_POSITION,
+                        Vec3::new(1.0, 0.45, 0.20),
+                        0.08,
+                    );
+                    let (entity, light_id) = self
+                        .apply_emissive_sprinkler_placement(
+                            SprinklerPlacementTarget::Terrain(RASTER_EMITTER_ADD_BASE_POSITION),
+                            component,
+                        )
+                        .expect("production raster-emitter spawn must succeed");
+                    let key = RasterEmitterKey::new(entity, SPRINKLER_HEAD_EMITTER_PART);
+                    assert_eq!(
+                        self.local_lights
+                            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key(),),
+                        Some(light_id)
+                    );
+                    let snapshot = self.local_lights.snapshot();
+                    state.baseline = Some(baseline);
+                    state.entity = Some(entity);
+                    state.light_id = Some(light_id);
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.expected_provider_revision =
+                        self.raster_entity_emitters.snapshot().source_revision();
+                    state.expected_sprinkler_revision = self.sprinklers.revision();
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = RasterEmitterTestStage::AwaitSpawnLive;
+                    log_acceptance_field("RASTER_EMITTER", "baseline", baseline);
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] action=spawn entity={:?} part={} light_slot={} light_generation={} base_world={:?} emitter_world={:?} provider_source_revision={} registry_revision={} source_revision={} sprinkler_revision={} renderer_instances={} surface_emissive_pixels=false surface_lighting_contract=sun-plus-environment local_direct_self_injection=false",
+                        entity,
+                        SPRINKLER_HEAD_EMITTER_PART.get(),
+                        light_id.slot(),
+                        light_id.generation(),
+                        RASTER_EMITTER_ADD_BASE_POSITION,
+                        POINT_LIGHT_ADD_POSITION,
+                        state.expected_provider_revision,
+                        state.expected_registry_revision,
+                        state.expected_source_revision,
+                        state.expected_sprinkler_revision,
+                        self.tracer.sprinkler_instance_count(),
+                    );
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitSpawnLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    assert_eq!(self.sprinklers.len(), 1);
+                    assert_eq!(self.tracer.sprinkler_instance_count(), 1);
+                    assert_eq!(self.raster_entity_emitters.source_count(), 1);
+                    assert_eq!(
+                        self.tracer.local_light_revision_observability().1,
+                        Some(state.expected_registry_revision)
+                    );
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("raster-emitter fixed GPU diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = RasterEmitterTestStage::AwaitVisibleDiagnostic;
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitVisibleDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, Some(0));
+                    assert_eq!(evidence.request.light_id, state.light_id.unwrap());
+                    assert_eq!(
+                        evidence.request.source_revision,
+                        state.expected_source_revision
+                    );
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (1, 1, 0)
+                    );
+                    assert!(evidence.irradiance_luma_q8 > 0);
+                    state.visible_luma_q8 = evidence.irradiance_luma_q8;
+                    state.stage = RasterEmitterTestStage::AwaitDdgiPublication;
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] checkpoint=spawn-gpu-direct identity_matches=true selected_index=0 candidates=1 visible=1 occluded=0 luma_q8={} real_renderer_instances=1 direct_immediate=true",
+                        state.visible_luma_q8,
+                    );
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitDdgiPublication => {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
+                        return;
+                    };
+                    if transport.local_lights.source_revision() != state.expected_source_revision
+                        || transport.local_lights.count() != 1
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(field) = active.published_field else {
+                        return;
+                    };
+                    if field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || field.field().geometry_revision() != state.terrain_revision
+                        || !is_converged_field(field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    let Some(gpu) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu.matches_classified_field(field)
+                        || gpu.local_source_revision != state.expected_source_revision
+                        || gpu.local_light_count != 1
+                    {
+                        return;
+                    }
+                    assert!(gpu.is_complete());
+                    assert!(gpu.totals.visible > 0);
+                    assert!(gpu.totals.irradiance_luma_q8 > 0);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+
+                    let revisions_before = (
+                        self.raster_entity_emitters.snapshot().source_revision(),
+                        self.local_lights.snapshot().registry_revision(),
+                        self.local_lights.snapshot().source_revision(),
+                        self.sprinklers.revision(),
+                    );
+                    let light_id = self
+                        .update_emissive_sprinkler(
+                            state.entity.unwrap(),
+                            RASTER_EMITTER_ADD_BASE_POSITION,
+                            raster_emitter_component(
+                                POINT_LIGHT_ADD_POSITION,
+                                Vec3::new(1.0, 0.45, 0.20),
+                                0.08,
+                            ),
+                        )
+                        .expect("identical raster-emitter publication must succeed");
+                    assert_eq!(light_id, state.light_id.unwrap());
+                    assert_eq!(
+                        (
+                            self.raster_entity_emitters.snapshot().source_revision(),
+                            self.local_lights.snapshot().registry_revision(),
+                            self.local_lights.snapshot().source_revision(),
+                            self.sprinklers.revision(),
+                        ),
+                        revisions_before,
+                        "identical entity/component republish must be a total no-op"
+                    );
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = RasterEmitterTestStage::AwaitNoopStable;
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] checkpoint=ddgi-on provider_source_revision={} source_revision={} transport_revision={} field_serial={} probes={} candidates={} visible={} occluded={} luma_q8={} mixed_in_flight=false action=noop-republish revisions_unchanged=true light_id_unchanged=true",
+                        state.expected_provider_revision,
+                        state.expected_source_revision,
+                        field.field().radiance_revision(),
+                        field.field().serial(),
+                        gpu.sampled_probe_count,
+                        gpu.totals.candidates,
+                        gpu.totals.visible,
+                        gpu.totals.occluded,
+                        gpu.totals.irradiance_luma_q8,
+                    );
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitNoopStable => {
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    assert_eq!(
+                        self.tracer.local_light_live_state(),
+                        (Some(state.expected_source_revision), 1)
+                    );
+                    assert_eq!(
+                        self.raster_entity_emitters.snapshot().source_revision(),
+                        state.expected_provider_revision
+                    );
+                    assert_eq!(
+                        self.local_lights.snapshot().registry_revision(),
+                        state.expected_registry_revision
+                    );
+                    assert_eq!(
+                        self.sprinklers.revision(),
+                        state.expected_sprinkler_revision
+                    );
+
+                    let light_id = self
+                        .update_emissive_sprinkler(
+                            state.entity.unwrap(),
+                            RASTER_EMITTER_MOVED_BASE_POSITION,
+                            raster_emitter_component(
+                                POINT_LIGHT_MOVED_POSITION,
+                                Vec3::new(1.0, 0.45, 0.20),
+                                0.08,
+                            ),
+                        )
+                        .expect("production raster-emitter move must succeed");
+                    assert_eq!(light_id, state.light_id.unwrap());
+                    let snapshot = self.local_lights.snapshot();
+                    assert!(snapshot.source_revision() > state.expected_source_revision);
+                    assert!(snapshot.registry_revision() > state.expected_registry_revision);
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.expected_provider_revision =
+                        self.raster_entity_emitters.snapshot().source_revision();
+                    state.expected_sprinkler_revision = self.sprinklers.revision();
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = RasterEmitterTestStage::AwaitMoveLive;
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitMoveLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    let key =
+                        RasterEmitterKey::new(state.entity.unwrap(), SPRINKLER_HEAD_EMITTER_PART);
+                    assert_eq!(
+                        self.local_lights
+                            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key(),),
+                        state.light_id
+                    );
+                    assert_eq!(self.sprinklers.len(), 1);
+                    assert_eq!(self.tracer.sprinkler_instance_count(), 1);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] checkpoint=move-live stable_light_id=true entity={:?} light_slot={} light_generation={} provider_source_revision={} registry_revision={} source_revision={} renderer_instances=1 direct_immediate=true",
+                        state.entity.unwrap(),
+                        state.light_id.unwrap().slot(),
+                        state.light_id.unwrap().generation(),
+                        state.expected_provider_revision,
+                        state.expected_registry_revision,
+                        state.expected_source_revision,
+                    );
+                    state.stage = RasterEmitterTestStage::AwaitMoveMidflight;
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitMoveMidflight => {
+                    let status = self.tracer.ddgi_runtime_status();
+                    assert!(status.staging().is_none());
+                    let active = status.active();
+                    let Some(in_flight) = active.building_field else {
+                        return;
+                    };
+                    let work = active
+                        .target_work
+                        .expect("raster-emitter move build must retain work");
+                    assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+                    assert_eq!(work.destination(), in_flight);
+                    let priority = active
+                        .probe_priority
+                        .expect("raster-emitter move must carry lighting impact priority");
+                    assert_eq!(priority.reason(), DdgiProbePriorityReason::LightingImpact);
+                    let remaining = active
+                        .grid
+                        .probe_count()
+                        .saturating_sub(active.filtered_probe_count);
+                    if active.filtered_probe_count == 0 || remaining <= 3 * DDGI_PROBE_BATCH_SIZE {
+                        return;
+                    }
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("raster-emitter DDGI build must freeze its local-light snapshot");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        state.expected_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 1);
+                    assert_eq!(
+                        builder.local_lights.info.transport_revision,
+                        in_flight.field().radiance_revision()
+                    );
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let frozen_source_revision = state.expected_source_revision;
+                    let light_id = self
+                        .update_emissive_sprinkler(
+                            state.entity.unwrap(),
+                            RASTER_EMITTER_MOVED_BASE_POSITION,
+                            raster_emitter_component(
+                                POINT_LIGHT_MOVED_POSITION,
+                                Vec3::new(0.20, 0.55, 1.0),
+                                0.14,
+                            ),
+                        )
+                        .expect("raster-emitter photometric update must succeed");
+                    assert_eq!(light_id, state.light_id.unwrap());
+                    let snapshot = self.local_lights.snapshot();
+                    state.in_flight = Some(in_flight);
+                    state.in_flight_source_revision = frozen_source_revision;
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.expected_provider_revision =
+                        self.raster_entity_emitters.snapshot().source_revision();
+                    state.expected_sprinkler_revision = self.sprinklers.revision();
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = RasterEmitterTestStage::AwaitPhotometricLive;
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] checkpoint=move-midflight action=photometric-update stable_light_id=true frozen_source_revision={} live_source_revision={} ddgi_in_flight_revision={} progress={}/{} priority_reason={:?} full_sweep_probes={} mixed_in_flight=false",
+                        frozen_source_revision,
+                        state.expected_source_revision,
+                        in_flight.field().radiance_revision(),
+                        active.filtered_probe_count,
+                        active.grid.probe_count(),
+                        priority.reason(),
+                        active.grid.probe_count(),
+                    );
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitPhotometricLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let removed = self
+                        .remove_emissive_sprinkler(state.entity.unwrap())
+                        .expect("production raster-emitter despawn must succeed");
+                    assert_eq!(removed, state.light_id.unwrap());
+                    let key =
+                        RasterEmitterKey::new(state.entity.unwrap(), SPRINKLER_HEAD_EMITTER_PART);
+                    assert!(self
+                        .local_lights
+                        .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+                        .is_none());
+                    let snapshot = self.local_lights.snapshot();
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.expected_provider_revision =
+                        self.raster_entity_emitters.snapshot().source_revision();
+                    state.expected_sprinkler_revision = self.sprinklers.revision();
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = RasterEmitterTestStage::AwaitRemoveLive;
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] checkpoint=photometric-live action=despawn stable_light_id=true removed_slot={} removed_generation={} source_revision={} provider_source_revision={} registry_revision={} frozen_in_flight_source_revision={} stale_registry_source=false surface_emissive_pixels=false",
+                        removed.slot(),
+                        removed.generation(),
+                        state.expected_source_revision,
+                        state.expected_provider_revision,
+                        state.expected_registry_revision,
+                        state.in_flight_source_revision,
+                    );
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitRemoveLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 0)
+                    {
+                        return;
+                    }
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    assert!(self.sprinklers.is_empty());
+                    assert_eq!(self.tracer.sprinkler_instance_count(), 0);
+                    assert_eq!(self.raster_entity_emitters.source_count(), 0);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("removed raster-emitter diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = RasterEmitterTestStage::AwaitRemovedDiagnostic;
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitRemovedDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(!evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, None);
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (0, 0, 0)
+                    );
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    state.stage = RasterEmitterTestStage::AwaitFinalPublication;
+                    TestScenePhase::RasterEmitterLifecycle(state)
+                }
+                RasterEmitterTestStage::AwaitFinalPublication => {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
+                        return;
+                    };
+                    if transport.local_lights.source_revision() != state.expected_source_revision
+                        || transport.local_lights.count() != 0
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(field) = active.published_field else {
+                        return;
+                    };
+                    if field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || field.field().geometry_revision() != state.terrain_revision
+                        || !is_converged_field(field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    assert_eq!(diagnostics.in_flight_revision, None);
+                    let Some(gpu) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu.matches_classified_field(field)
+                        || gpu.local_source_revision != state.expected_source_revision
+                        || gpu.local_light_count != 0
+                    {
+                        return;
+                    }
+                    assert!(gpu.is_complete());
+                    assert_eq!(gpu.totals.candidates, 0);
+                    assert_eq!(gpu.totals.visible, 0);
+                    assert_eq!(gpu.totals.occluded, 0);
+                    assert_eq!(gpu.totals.irradiance_luma_q8, 0);
+                    let atlas = active
+                        .last_atlas_validation
+                        .expect("final raster-emitter field must have atlas evidence");
+                    assert_eq!(atlas.non_finite_count, 0);
+                    assert!(atlas.max_rgb_value > 0.0);
+                    let baseline = state.baseline.unwrap();
+                    assert_eq!(
+                        baseline.field().geometry_revision(),
+                        field.field().geometry_revision(),
+                        "raster emitter lifecycle must not invalidate geometry visibility"
+                    );
+                    assert_eq!(
+                        active.relocated_terrain_revision,
+                        Some(state.terrain_revision)
+                    );
+                    let (lag, coalesced) = self.tracer.local_light_transport_observability();
+                    assert_eq!(lag, 0);
+                    log_acceptance_field("RASTER_EMITTER", "complete", field);
+                    log::info!(
+                        "[RASTER_EMITTER_ACCEPT] complete production_hook=true spawn=true noop=true move=true photometric=true despawn=true stable_entity_part_identity=true stable_light_id=true provider_source_revision={} registry_revision={} source_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} renderer_instances=0 stale_direct=false stale_ddgi=false mixed_in_flight=false ddgi_on_luma_positive=true fixed_direct_luma_q8={} ddgi_off_candidates=0 ddgi_off_luma_q8=0 atlas_nonblack=true atlas_max_rgb={:.8} geometry_visibility_preserved=true surface_emissive_pixels=false surface_lighting_contract=sun-plus-environment local_direct_self_injection=false",
+                        state.expected_provider_revision,
+                        state.expected_registry_revision,
+                        state.expected_source_revision,
+                        field.field().radiance_revision(),
+                        lag,
+                        coalesced,
+                        state.visible_luma_q8,
+                        atlas.max_rgb_value,
+                    );
+                    TestScenePhase::Ready
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => return,
             TestScenePhase::MutatingRadianceR2 { .. } => return,
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => return,
@@ -3997,6 +4657,7 @@ mod tests {
             EnvironmentLightingTestCase::RadianceChanges,
             EnvironmentLightingTestCase::PointLightChanges,
             EnvironmentLightingTestCase::VoxelEmissiveChanges,
+            EnvironmentLightingTestCase::RasterEmitterChanges,
             EnvironmentLightingTestCase::DensityChanges,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,

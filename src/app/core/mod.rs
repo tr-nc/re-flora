@@ -830,6 +830,7 @@ impl App {
                     Some(
                         EnvironmentLightingTestCase::PointLightChanges
                             | EnvironmentLightingTestCase::VoxelEmissiveChanges
+                            | EnvironmentLightingTestCase::RasterEmitterChanges
                     )
                 ),
             },

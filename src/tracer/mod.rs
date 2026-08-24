@@ -6585,6 +6585,10 @@ impl Tracer {
         self.sprinkler_resources.upload(instances)
     }
 
+    pub(crate) fn sprinkler_instance_count(&self) -> u32 {
+        self.sprinkler_resources.instance_count
+    }
+
     pub fn upload_irrigation_pipes(&mut self, data: &IrrigationPipeRenderData) -> Result<()> {
         self.irrigation_pipe_resources.upload(data)
     }
