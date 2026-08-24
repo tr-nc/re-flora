@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
+mod raster_entity;
 mod registry;
 mod voxel_emissive;
+pub(crate) use raster_entity::*;
 pub(crate) use registry::*;
 pub(crate) use voxel_emissive::*;
 
