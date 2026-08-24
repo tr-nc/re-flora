@@ -56,6 +56,8 @@ public struct U_DdgiRadianceVoxelPalette
     public float3 oak_wood_color;
     public float3 rock_color;
     public float hash_color_variance;
+    public float3 emissive_color;
+    public float emissive_radiance;
 };
 
 // Builder-owned query geometry. This is intentionally separate from U_ShadingInfo, whose

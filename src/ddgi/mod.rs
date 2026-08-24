@@ -52,16 +52,21 @@ pub use atlas::{
     DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarget};
-pub use config::{DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_RAY_BUDGET_PER_FRAME};
+pub use config::{
+    DDGI_LOCAL_RECOVERY_MAX_ABSOLUTE_DELTA, DDGI_LOCAL_RECOVERY_MIN_EPOCH,
+    DDGI_LOCAL_RECOVERY_STABLE_EPOCHS, DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE,
+    DDGI_RAY_BUDGET_PER_FRAME, DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION,
+};
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
-    DdgiRayBatch, DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiLocalLightTraceTotals, DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch,
+    DdgiResourceBytes, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
     DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
-pub(crate) use runtime::{DdgiRuntime, DdgiRuntimeVolumeTarget};
+pub(crate) use runtime::{DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeTarget};
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
 #[allow(unused_imports)]

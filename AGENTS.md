@@ -3,6 +3,7 @@
 ## Development Notes
 
 - Keep changes small and focused.
+- Prefer root-cause-correct solutions with clean, extensible designs over short-term tricks. Do not ship a workaround merely because it is faster; use tricks only as explicitly labeled diagnostics or temporary experiments when requested.
 - Commit each validated step before starting the next one.
 - After completing and validating a requested feature or fix, commit it automatically; do not wait for the user to ask for a commit.
 - Prefer measuring before guessing on performance work.

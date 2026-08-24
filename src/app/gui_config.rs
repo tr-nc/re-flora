@@ -1208,6 +1208,25 @@ mod tests {
     }
 
     #[test]
+    fn environmental_acoustics_is_always_on_with_an_unconditional_quality_control() {
+        let config = GuiConfigLoader::load();
+        let params = config
+            .section
+            .iter()
+            .flat_map(|section| section.param.iter())
+            .collect::<Vec<_>>();
+
+        assert!(params
+            .iter()
+            .all(|param| param.id != "audio_ray_tracing_enabled"));
+        let quality = params
+            .iter()
+            .find(|param| param.id == "audio_ray_tracing_quality_percent")
+            .expect("environmental acoustics quality control");
+        assert!(quality.enabled_if.is_none());
+    }
+
+    #[test]
     fn enabled_if_condition_follows_controller_without_mutating_dependent_value() {
         let config = GuiConfigLoader::load();
         let mut adjustables = GuiAdjustables::from_config(&config);

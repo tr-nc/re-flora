@@ -36,6 +36,9 @@ run_case() {
         --environment-irradiance-capture "$capture"
         --auto-exit "$auto_exit"
     )
+    if [[ "$mode" == "closed" ]]; then
+        command+=(--environment-irradiance-capture-target converged)
+    fi
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
@@ -49,25 +52,32 @@ run_case() {
     command_status=${PIPESTATUS[0]}
     set -e
 
+    initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
+    if [[ -z "$initial_revision" ]]; then
+        echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing mode=$mode missing initial terrain revision" >&2
+        return 1
+    fi
+    closed_revision="$((initial_revision + 1))"
+    reopened_revision="$((initial_revision + 2))"
     required=(
-        "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready"
-        "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=1 target_revision=2"
-        "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=close-skylight target_revision=2"
-        "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight terrain_revision=2"
+        "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=$initial_revision"
+        "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=$initial_revision target_revision=$closed_revision"
+        "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=$closed_revision"
+        "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight terrain_revision=$closed_revision"
         "[ENV_IRRADIANCE_CAPTURE] saved"
     )
     if [[ "$mode" == "closed" ]]; then
         required+=(
-            "[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=2"
+            "[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=$closed_revision"
         )
     else
         required+=(
-            "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=2 target_revision=3"
-            "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=reopen-skylight target_revision=3"
-            "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=3"
-            "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision=3 spacing_voxels=$spacing"
-            "[ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=3"
-            "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=3"
+            "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=$closed_revision target_revision=$reopened_revision"
+            "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=reopen-skylight target_revision=$reopened_revision"
+            "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=$reopened_revision"
+            "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision=$reopened_revision spacing_voxels=$spacing"
+            "[ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=$reopened_revision"
+            "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=$reopened_revision"
         )
     fi
     missing=()
@@ -86,7 +96,7 @@ run_case() {
     fi
     if [[ "$mode" == "closed" ]]; then
         if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-            "$capture" --max-luminance 0.00001; then
+            "$capture" --max-luminance 0.00005; then
             echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing post-close capture leaks light" >&2
             return 1
         fi

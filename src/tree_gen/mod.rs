@@ -1,2 +1,2 @@
 mod tree;
-pub use tree::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
+pub use tree::{LeafPlacement, Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};

@@ -24,6 +24,27 @@ const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
 const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
 
+fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
+    match voxel_type {
+        crate::builder::VOXEL_TYPE_DIRT => super::voxel_backpack::BackpackVoxel::Dirt.color_rgb(),
+        crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
+            super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_OAK_WOOD => {
+            super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_SAND => super::voxel_backpack::BackpackVoxel::Sand.color_rgb(),
+        crate::builder::VOXEL_TYPE_STUCCO => {
+            super::voxel_backpack::BackpackVoxel::Stucco.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_ROCK => super::voxel_backpack::BackpackVoxel::Rock.color_rgb(),
+        crate::builder::VOXEL_TYPE_EMISSIVE => {
+            super::voxel_backpack::BackpackVoxel::Emissive.color_rgb()
+        }
+        _ => [210, 190, 140],
+    }
+}
+
 fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> ParticleSpawn {
     let hash = world_voxel.x.wrapping_mul(73_856_093)
         ^ world_voxel.y.wrapping_mul(19_349_663)
@@ -193,27 +214,7 @@ impl App {
             }
         }
 
-        let color_rgb = match voxel_type {
-            crate::builder::VOXEL_TYPE_DIRT => {
-                super::voxel_backpack::BackpackVoxel::Dirt.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
-                super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_OAK_WOOD => {
-                super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_SAND => {
-                super::voxel_backpack::BackpackVoxel::Sand.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_STUCCO => {
-                super::voxel_backpack::BackpackVoxel::Stucco.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_ROCK => {
-                super::voxel_backpack::BackpackVoxel::Rock.color_rgb()
-            }
-            _ => [210, 190, 140],
-        };
+        let color_rgb = terrain_harvest_rgb_for_voxel(voxel_type);
 
         Vec4::new(
             srgb_to_linear(color_rgb[0]),
@@ -873,5 +874,13 @@ mod tests {
         assert!(spawn.gravity_factor > 0.0);
         assert!(spawn.despawn_on_lifetime);
         assert!(spawn.despawn_below_ground);
+    }
+
+    #[test]
+    fn emissive_harvest_particles_use_the_backpack_material_color() {
+        assert_eq!(
+            terrain_harvest_rgb_for_voxel(crate::builder::VOXEL_TYPE_EMISSIVE),
+            crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8,
+        );
     }
 }

@@ -1,37 +1,35 @@
 use crate::audio::{
-    SpatialSoundManager, TreeAudioSource, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+    CanopyAcousticDescriptor, CanopyAudioLifecycle, CanopyAudioTelemetrySnapshot,
+    CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter, SpatialSoundManager,
+    TreeRustleControl, TreeRustleFactory, TreeRustleParams,
 };
-use crate::util::{cluster_positions, ClusterResult};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
-use glam::Vec3;
-use log::{debug, warn};
 use petalsonic::ResidentClip;
-use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 // The old tree loop asset was baked with a large pregain
 // (`tree_sound_48k_pregain_40db.wav`). The procedural generator is tuned at
 // reference-like raw levels, so add runtime makeup gain before the normal tree
-// volume and cluster controls are applied.
+// volume and normalized canopy sample weights are applied.
 const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
-const MAX_TREE_AUDIO_CLUSTER_SOURCES: usize = 8;
+const CANOPY_LAYOUT_CROSSFADE_SECONDS: f32 = 0.35;
 const TREE_RUSTLE_SAMPLE_RATE: u32 = 48_000;
 const TREE_RUSTLE_LOOP_SECONDS: f32 = 12.0;
 const TREE_RUSTLE_CLIP_SEED: u64 = 0x94d0_49bb_1331_11eb;
 
-/// Keeps track of all looping tree ambience sources so we can later
-/// drive them with wind simulations, recluster them, etc.
+/// Coordinates immutable weighted canopy descriptors, generation lifetime, and rustle content.
+///
+/// Geometry/layout selection lives in `CanopyAcousticDescriptor`, generation mixing lives in
+/// `CanopyAudioLifecycle`, and PetalSonic realization lives behind the emitter adapter.
 pub struct TreeAudioManager {
-    spatial_sound_manager: SpatialSoundManager,
     wind_volume_db: f32,
     wind_response_curve: WindResponseCurve,
     rustle_params: TreeRustleParams,
     rustle_clip: ResidentClip,
-    sources_by_tree: HashMap<u32, Vec<Uuid>>,
-    sources: HashMap<Uuid, TreeAudioSource>,
+    lifecycle: CanopyAudioLifecycle,
+    emitter_adapter: CanopyDistributedEmitterAdapter,
     wind: Wind,
 }
 
@@ -44,181 +42,96 @@ impl TreeAudioManager {
     ) -> Result<Self> {
         let rustle_clip = Self::render_rustle_clip(rustle_params)?;
         Ok(Self {
-            spatial_sound_manager,
             wind_volume_db,
             wind_response_curve,
             rustle_params,
             rustle_clip,
-            sources_by_tree: HashMap::new(),
-            sources: HashMap::new(),
+            lifecycle: CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS),
+            emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager),
             wind: Wind::new(),
         })
     }
 
-    /// Add audio emitters for the given tree and store their metadata.
-    ///
-    /// If `per_tree_audio` is true or `leaf_positions` is empty, a single
-    /// source is spawned at `tree_position`. Otherwise, the leaf positions
-    /// are clustered and one emitter is spawned per cluster.
-    ///
-    /// Note: Consider using `add_tree_sources_from_clusters()` if you already have
-    /// pre-computed clusters to avoid duplicate clustering computation.
-    #[allow(dead_code)]
-    pub fn add_tree_sources(
+    pub fn upsert_tree(
         &mut self,
         tree_id: u32,
-        tree_position: Vec3,
-        leaf_positions: &[Vec3],
-        per_tree_audio: bool,
-        cluster_distance: f32,
-        shuffle_phase: bool,
+        descriptor: CanopyAcousticDescriptor,
+        time_seconds: f32,
     ) -> Result<Vec<Uuid>> {
-        // Remove any existing emitters for this tree before spawning new ones.
-        self.remove_tree(tree_id);
-
-        if per_tree_audio || leaf_positions.is_empty() {
-            let mut created = Vec::new();
-            match self.spawn_looping_source(tree_id, tree_position, 1, shuffle_phase) {
-                Ok(uuid) => created.push(uuid),
-                Err(err) => {
-                    warn!(
-                        "Failed to spawn per-tree audio for tree {} at {:?}: {}",
-                        tree_id, tree_position, err
-                    );
-                }
-            }
-            return Ok(created);
-        }
-
-        let clusters = cluster_positions(leaf_positions, cluster_distance);
-        let input_count = leaf_positions.len();
-        let output_count = clusters.len();
-
-        if input_count > 0 && output_count > 0 {
-            let compression = input_count as f32 / output_count as f32;
-            debug!(
-                "Tree {} audio clustering at {:?}: inputs={} clusters={} compression={:.2}x",
-                tree_id, tree_position, input_count, output_count, compression
-            );
-        }
-
-        let selected_clusters = Self::select_audio_clusters(&clusters);
-        let mut created = Vec::with_capacity(selected_clusters.len().max(1));
-        if selected_clusters.is_empty() {
-            match self.spawn_looping_source(tree_id, tree_position, 1, shuffle_phase) {
-                Ok(uuid) => created.push(uuid),
-                Err(err) => {
-                    warn!(
-                        "Failed to spawn fallback tree audio for tree {} at {:?}: {}",
-                        tree_id, tree_position, err
-                    );
-                }
-            }
-            return Ok(created);
-        }
-
-        for cluster in selected_clusters {
-            match self.spawn_looping_source(
-                tree_id,
-                cluster.pos,
-                cluster.items_count,
-                shuffle_phase,
-            ) {
-                Ok(uuid) => created.push(uuid),
-                Err(err) => {
-                    warn!(
-                        "Failed to spawn clustered tree audio for tree {} at {:?}: {}",
-                        tree_id, cluster.pos, err
-                    );
-                }
-            }
-        }
-
-        Ok(created)
+        self.lifecycle.replace(tree_id, descriptor, time_seconds)?;
+        let snapshot = self.lifecycle.snapshot(time_seconds)?;
+        self.emitter_adapter.synchronize(
+            &snapshot,
+            &self.rustle_clip,
+            Self::base_volume_db(self.wind_volume_db),
+            self.wind_response_curve,
+            self.rustle_params.base_wind,
+            time_seconds,
+        )
     }
 
-    /// Add audio emitters for the given tree using pre-computed clusters.
-    ///
-    /// If `per_tree_audio` is true or `clusters` is empty, a single
-    /// source is spawned at `tree_position`. Otherwise, one emitter is spawned per cluster.
-    pub fn add_tree_sources_from_clusters(
-        &mut self,
-        tree_id: u32,
-        tree_position: Vec3,
-        clusters: &[ClusterResult],
-        per_tree_audio: bool,
-        shuffle_phase: bool,
-    ) -> Result<Vec<Uuid>> {
-        // Remove any existing emitters for this tree before spawning new ones.
-        self.remove_tree(tree_id);
-
-        if per_tree_audio || clusters.is_empty() {
-            let mut created = Vec::new();
-            match self.spawn_looping_source(tree_id, tree_position, 1, shuffle_phase) {
-                Ok(uuid) => created.push(uuid),
-                Err(err) => {
-                    warn!(
-                        "Failed to spawn per-tree audio for tree {} at {:?}: {}",
-                        tree_id, tree_position, err
-                    );
-                }
-            }
-            return Ok(created);
-        }
-
-        let selected_clusters = Self::select_audio_clusters(clusters);
-        let mut created = Vec::with_capacity(selected_clusters.len());
-
-        for cluster in selected_clusters {
-            match self.spawn_looping_source(
-                tree_id,
-                cluster.pos,
-                cluster.items_count,
-                shuffle_phase,
-            ) {
-                Ok(uuid) => created.push(uuid),
-                Err(err) => {
-                    warn!(
-                        "Failed to spawn clustered tree audio for tree {} at {:?}: {}",
-                        tree_id, cluster.pos, err
-                    );
-                }
-            }
-        }
-
-        Ok(created)
+    /// Begin a bounded fade-out. Physical PetalSonic emitters are retired by `update` after the
+    /// lifecycle snapshot no longer contains their generation/sample key.
+    pub fn remove_tree(&mut self, tree_id: u32, time_seconds: f32) -> Result<()> {
+        self.lifecycle.remove(tree_id, time_seconds)?;
+        let snapshot = self.lifecycle.snapshot(time_seconds)?;
+        self.emitter_adapter.synchronize(
+            &snapshot,
+            &self.rustle_clip,
+            Self::base_volume_db(self.wind_volume_db),
+            self.wind_response_curve,
+            self.rustle_params.base_wind,
+            time_seconds,
+        )?;
+        Ok(())
     }
 
-    /// Remove all emitters that belong to the provided tree ID.
-    pub fn remove_tree(&mut self, tree_id: u32) {
-        if let Some(uuids) = self.sources_by_tree.remove(&tree_id) {
-            for uuid in uuids {
-                self.sources.remove(&uuid);
-                self.spatial_sound_manager.remove_source(uuid);
-            }
-        }
-    }
-
-    /// Remove every registered tree emitter.
+    /// Immediately clear every physical source. This is a shutdown/testing escape hatch; normal
+    /// tree removal must use the bounded lifecycle above.
     #[allow(dead_code)]
     pub fn remove_all(&mut self) {
-        let tree_ids: Vec<u32> = self.sources_by_tree.keys().copied().collect();
-        for tree_id in tree_ids {
-            self.remove_tree(tree_id);
-        }
-        self.sources.clear();
+        self.emitter_adapter.remove_all();
+        self.lifecycle = CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS);
     }
 
-    /// Iterate all tracked sources.
-    #[allow(dead_code)]
-    pub fn sources(&self) -> impl Iterator<Item = &TreeAudioSource> {
-        self.sources.values()
+    pub fn set_canopy_telemetry_enabled(&mut self, enabled: bool) {
+        self.emitter_adapter.set_telemetry_enabled(enabled);
     }
 
-    /// Fetch metadata for a specific source.
-    #[allow(dead_code)]
-    pub fn source(&self, uuid: &Uuid) -> Option<&TreeAudioSource> {
-        self.sources.get(uuid)
+    pub fn collect_canopy_acoustic_telemetry(&mut self) {
+        self.emitter_adapter.collect_acoustic_telemetry();
+    }
+
+    pub fn canopy_telemetry_snapshot(&self) -> Option<CanopyAudioTelemetrySnapshot> {
+        let samples = self.emitter_adapter.telemetry_samples()?;
+        let telemetry = self.emitter_adapter.telemetry_diagnostics();
+        let petal_telemetry = self.emitter_adapter.petal_acoustic_telemetry_diagnostics();
+        let petal_runtime = self.emitter_adapter.petal_runtime_diagnostics();
+        let trees = self
+            .lifecycle
+            .diagnostics_snapshot()
+            .into_iter()
+            .map(|(tree_id, lifecycle)| CanopyAudioTreeTelemetry { tree_id, lifecycle })
+            .collect();
+        Some(CanopyAudioTelemetrySnapshot {
+            trees,
+            samples,
+            telemetry,
+            petal_superseded_solve_count: self.emitter_adapter.petal_superseded_solve_count(),
+            petal_telemetry_queue_depth: petal_telemetry.queue_depth,
+            petal_telemetry_queue_high_water: petal_telemetry.queue_high_water,
+            petal_telemetry_dropped_events: petal_telemetry.dropped_events,
+            petal_active_emitters: petal_runtime.active_emitters,
+            petal_active_voices: petal_runtime.active_voices,
+            petal_direct_ray_count: petal_runtime.acoustic_direct_ray_count,
+            petal_sample_cache_hit_count: petal_runtime.acoustic_sample_cache_hit_count,
+            petal_processed_extent_count: petal_runtime.acoustic_processed_extent_count,
+            petal_lobe_count: petal_runtime.acoustic_lobe_count,
+            petal_retained_response_count: petal_runtime.acoustic_retained_response_count,
+            petal_deferred_response_count: petal_runtime.acoustic_deferred_response_count,
+            petal_render_rejected_response_count: petal_runtime
+                .acoustic_render_rejected_response_count,
+        })
     }
 
     pub fn set_wind_volume_db(&mut self, wind_volume_db: f32) -> Result<()> {
@@ -227,13 +140,8 @@ impl TreeAudioManager {
         }
 
         self.wind_volume_db = wind_volume_db;
-        for source in self.sources.values_mut() {
-            source.set_wind_volume_db(
-                Self::clustered_volume_db(self.wind_volume_db, source.cluster_size),
-                &self.spatial_sound_manager,
-            )?;
-        }
-        Ok(())
+        self.emitter_adapter
+            .set_base_volume_db(Self::base_volume_db(self.wind_volume_db))
     }
 
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
@@ -242,9 +150,8 @@ impl TreeAudioManager {
         }
 
         self.wind_response_curve = wind_response_curve;
-        for source in self.sources.values_mut() {
-            source.set_wind_response_curve(self.wind_response_curve);
-        }
+        self.emitter_adapter
+            .set_wind_response_curve(self.wind_response_curve);
     }
 
     pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) -> Result<()> {
@@ -253,11 +160,8 @@ impl TreeAudioManager {
         }
 
         let rustle_clip = Self::render_rustle_clip(rustle_params)?;
-        for source in self.sources.values_mut() {
-            self.spatial_sound_manager
-                .replace_looping_clip(source.uuid, rustle_clip.clone())?;
-            source.set_base_wind(rustle_params.base_wind);
-        }
+        self.emitter_adapter
+            .replace_rustle_clip(&rustle_clip, rustle_params.base_wind)?;
         self.rustle_params = rustle_params;
         self.rustle_clip = rustle_clip;
         Ok(())
@@ -270,68 +174,22 @@ impl TreeAudioManager {
         wind_audio_attack_decay: f32,
         wind_audio_release_decay: f32,
     ) -> Result<()> {
-        for source in self.sources.values_mut() {
-            source.update(
-                &self.wind,
-                time_seconds,
-                wind_sources,
-                wind_audio_attack_decay,
-                wind_audio_release_decay,
-                &self.spatial_sound_manager,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn select_audio_clusters(clusters: &[ClusterResult]) -> Vec<ClusterResult> {
-        if clusters.len() <= MAX_TREE_AUDIO_CLUSTER_SOURCES {
-            return clusters.to_vec();
-        }
-
-        let mut selected = clusters.to_vec();
-        selected.sort_by(|a, b| b.items_count.cmp(&a.items_count));
-        selected.truncate(MAX_TREE_AUDIO_CLUSTER_SOURCES);
-        selected
-    }
-
-    fn spawn_looping_source(
-        &mut self,
-        tree_id: u32,
-        position: Vec3,
-        cluster_size: u32,
-        shuffle_phase: bool,
-    ) -> Result<Uuid> {
-        let wind_volume_db = Self::clustered_volume_db(self.wind_volume_db, cluster_size);
-        let uuid = self.spatial_sound_manager.add_looping_spatial_clip(
-            self.rustle_clip.clone(),
-            TREE_SILENT_VOLUME_DB,
-            position,
-            shuffle_phase,
-        )?;
-
-        self.register_source(tree_id, uuid, position, cluster_size, wind_volume_db);
-        Ok(uuid)
-    }
-
-    fn register_source(
-        &mut self,
-        tree_id: u32,
-        uuid: Uuid,
-        position: Vec3,
-        cluster_size: u32,
-        wind_volume_db: f32,
-    ) {
-        let entry = TreeAudioSource::new(
-            uuid,
-            tree_id,
-            position,
-            cluster_size,
-            wind_volume_db,
+        let snapshot = self.lifecycle.snapshot(time_seconds)?;
+        self.emitter_adapter.synchronize(
+            &snapshot,
+            &self.rustle_clip,
+            Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
             self.rustle_params.base_wind,
-        );
-        self.sources_by_tree.entry(tree_id).or_default().push(uuid);
-        self.sources.insert(uuid, entry);
+            time_seconds,
+        )?;
+        self.emitter_adapter.update(
+            &self.wind,
+            time_seconds,
+            wind_sources,
+            wind_audio_attack_decay,
+            wind_audio_release_decay,
+        )
     }
 
     fn render_rustle_clip(params: TreeRustleParams) -> Result<ResidentClip> {
@@ -341,15 +199,8 @@ impl TreeAudioManager {
             .map_err(Into::into)
     }
 
-    fn clustered_volume_db(volume_db: f32, clustered_amount: u32) -> f32 {
-        let volume_db = volume_db + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB;
-        let n = clustered_amount.max(1) as f32;
-        if n <= 1.0 {
-            return volume_db;
-        }
-
-        let gain_db = 10.0 * n.log10();
-        volume_db + gain_db
+    fn base_volume_db(volume_db: f32) -> f32 {
+        volume_db + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB
     }
 }
 
@@ -358,11 +209,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn clustered_volume_applies_procedural_makeup_gain() {
-        assert_eq!(
-            TreeAudioManager::clustered_volume_db(-15.0, 1),
-            -15.0 + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB
-        );
-        assert!((TreeAudioManager::clustered_volume_db(-15.0, 10) - 31.0).abs() < 0.001);
+    fn base_volume_keeps_procedural_rustle_makeup_without_leaf_count_gain() {
+        assert_eq!(TreeAudioManager::base_volume_db(-15.0), 21.0);
     }
 }

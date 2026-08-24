@@ -4,6 +4,7 @@ import ddgi_query;
 import ddgi_sampling;
 import ddgi_types;
 import marching_result;
+import local_lighting;
 import scene_marching;
 import skylight;
 import terrain_ray_origin;
@@ -47,6 +48,12 @@ ConstantBuffer<U_DdgiTransportQueryInfo> ddgi_transport_query_info;
 [[vk::binding(39, 0)]]
 Sampler2D ddgi_transport_source_visibility_atlas;
 
+[[vk::binding(42, 0)]]
+ConstantBuffer<U_LocalLightInfo> ddgi_local_light_info;
+
+[[vk::binding(43, 0)]]
+StructuredBuffer<U_LightGpu> ddgi_local_lights;
+
 struct DdgiProbeTracePushConstants
 {
     uint first_probe_index;
@@ -57,6 +64,9 @@ struct DdgiProbeTracePushConstants
     float far_distance_world;
     uint2 padding;
     float4 epoch_rotation;
+    uint4 local_refresh_enabled;
+    float4 local_refresh_world_min;
+    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -65,6 +75,11 @@ ConstantBuffer<DdgiProbeTracePushConstants> pc;
 void recordTraceStat(uint index)
 {
     InterlockedAdd(ddgi_trace_stats.data[index], 1u);
+}
+
+void recordTraceStatValue(uint index, uint value)
+{
+    if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[index], value);
 }
 
 float ddgiExactTerrainSunVisibility(MarchingResult receiver,
@@ -81,7 +96,8 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
 }
 
 float3 ddgiTransportHitRadiance(MarchingResult result,
-                                uint localInvocationIndex)
+                                uint localInvocationIndex,
+                                bool useHistory)
 {
     float3 normal = normalize(result.normal);
     float3 sunDirection = normalize(ddgi_radiance_sun.direction);
@@ -95,17 +111,31 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
+    LocalLightVoxelEvaluation localLight = evaluateVoxelVisibleLocalLight(
+        ddgi_local_light_info, ddgi_local_lights, contree_node_data,
+        contree_leaf_data, scene_tex, ddgiReceiverPosition, normal,
+        ddgi_radiance_sun.terrain_ray_origin_offset_world,
+        localInvocationIndex);
+    directIrradiance += localLight.irradiance;
+    if ((ddgi_local_light_info.flags &
+         LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u)
+    {
+        recordTraceStatValue(7u, localLight.candidates);
+        recordTraceStatValue(8u, localLight.visible);
+        recordTraceStatValue(9u, localLight.occluded);
+        recordTraceStatValue(10u, localLight.irradiance_luma_q8);
+    }
     float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(
         result.center_position, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
     float3 indirectIrradiance = float3(0.0);
-    if (pc.has_history != 0u && pc.source_slot == 0u)
+    if (useHistory && pc.source_slot == 0u)
     {
         indirectIrradiance = sampleDdgiTransportAtlas0(
             ddgi_transport_query_info, ddgiReceiverPosition, normal,
             ddgiHardVisibilityPosition).irradiance;
     }
-    else if (pc.has_history != 0u)
+    else if (useHistory)
     {
         indirectIrradiance = sampleDdgiTransportSource(
             ddgi_transport_query_info,
@@ -115,7 +145,17 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
-    return albedo * (directIrradiance + indirectIrradiance);
+    float3 surfaceEmission = ddgiVoxelSurfaceEmission(
+        ddgi_radiance_voxel_palette, result.voxel_type);
+    if ((ddgi_local_light_info.flags &
+         LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u &&
+        any(surfaceEmission > float3(0.0)))
+    {
+        recordTraceStat(11u);
+        recordTraceStatValue(12u, lightingLuminanceQ8(surfaceEmission));
+    }
+    return surfaceEmission +
+        albedo * (directIrradiance + indirectIrradiance);
 }
 
 [shader("compute")]
@@ -131,6 +171,14 @@ void main(uint3 groupId : SV_GroupID,
     bool probeIsValid =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
         metadata.state_and_reserved.y == pc.terrain_revision;
+    float3 nominalProbePosition =
+        metadata.nominal_position_and_min_clearance.xyz;
+    bool probeNeedsLocalRefresh = pc.local_refresh_enabled.x != 0u &&
+        all(nominalProbePosition >= pc.local_refresh_world_min.xyz) &&
+        all(nominalProbePosition <= pc.local_refresh_world_max.xyz);
+    bool resetLocalHistory =
+        probeNeedsLocalRefresh && pc.local_refresh_enabled.y == 0u;
+    bool useHistory = pc.has_history != 0u && !resetLocalHistory;
 
     [unroll]
     for (uint rayInThread = 0u; rayInThread < DDGI_RAYS_PER_THREAD;
@@ -170,7 +218,7 @@ void main(uint3 groupId : SV_GroupID,
             if (!backface)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
-                    result, localInvocationId.x);
+                    result, localInvocationId.x, useHistory);
             }
             recordTraceStat(backface ? 4u : 3u);
         }
