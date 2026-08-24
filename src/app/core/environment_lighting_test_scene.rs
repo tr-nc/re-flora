@@ -6,7 +6,10 @@ use crate::ddgi::{
     DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
-use crate::lighting::{LightId, LocalLight, PointLight};
+use crate::lighting::{
+    EmissiveVoxelProvider, LightId, LocalLight, LocalLightRecord, LocalLightSnapshot, PointLight,
+    EMISSIVE_VOXEL_PROVIDER_ID,
+};
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
 use egui::Color32;
@@ -47,6 +50,12 @@ const POINT_LIGHT_BLOCKER_MIN: Vec3 = Vec3::new(164.0, 128.0, 298.0);
 const POINT_LIGHT_BLOCKER_MAX: Vec3 = Vec3::new(174.0, 152.0, 307.0);
 const POINT_LIGHT_EMISSIVE_MIN: Vec3 = Vec3::new(196.0, 100.0, 344.0);
 const POINT_LIGHT_EMISSIVE_MAX: Vec3 = Vec3::new(212.0, 116.0, 360.0);
+const VOXEL_EMISSIVE_PRIMARY_MIN: UVec3 = UVec3::new(164, 170, 296);
+const VOXEL_EMISSIVE_PRIMARY_MAX: UVec3 = UVec3::new(170, 176, 302);
+const VOXEL_EMISSIVE_SECONDARY_MIN: UVec3 = UVec3::new(170, 170, 296);
+const VOXEL_EMISSIVE_SECONDARY_MAX: UVec3 = UVec3::new(176, 176, 302);
+const VOXEL_EMISSIVE_MOVED_MIN: UVec3 = UVec3::new(176, 170, 296);
+const VOXEL_EMISSIVE_MOVED_MAX: UVec3 = UVec3::new(188, 176, 302);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointLightTestStage {
@@ -66,6 +75,41 @@ enum PointLightTestStage {
     AwaitPhotometricUpdateLive,
     AwaitRemoveLive,
     AwaitFinalPublication,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VoxelEmissiveTestStage {
+    AwaitBaseline,
+    AwaitAddRegistry,
+    AwaitAddLive,
+    AwaitVisibleDiagnostic,
+    AwaitBlockerSettled,
+    AwaitBlockedDiagnostic,
+    AwaitRestoreSettled,
+    AwaitRestoredDiagnostic,
+    AwaitAggregateRegistry,
+    AwaitAggregateLive,
+    AwaitAggregateDiagnostic,
+    AwaitMoveRegistry,
+    AwaitMoveLive,
+    AwaitMovedDdgiPublication,
+    AwaitRemoveRegistry,
+    AwaitRemoveLive,
+    AwaitRemovedDiagnostic,
+    AwaitFinalPublication,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VoxelEmissiveLifecycleState {
+    terrain_revision: u32,
+    baseline: Option<DdgiFieldIdentity>,
+    light_id: Option<LightId>,
+    stage: VoxelEmissiveTestStage,
+    expected_source_revision: u64,
+    expected_registry_revision: u64,
+    mutation_frame: u64,
+    visible_luma_q8: u32,
+    primary_intensity_bits: u32,
 }
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
@@ -175,6 +219,7 @@ enum TestScenePhase {
         expected_source_revision: u64,
         mutation_frame: u64,
     },
+    VoxelEmissiveLifecycle(VoxelEmissiveLifecycleState),
     CapturingRadianceBaseline {
         r1: DdgiFieldIdentity,
     },
@@ -490,6 +535,7 @@ impl EnvironmentLightingTestScene {
         if !(is_terrain_edit_case(self.case)
             || self.case == EnvironmentLightingTestCase::RadianceChanges
             || self.case == EnvironmentLightingTestCase::PointLightChanges
+            || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
             || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
@@ -514,6 +560,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::PointLightLifecycle {
                 terrain_revision, ..
             } => Some(terrain_revision),
+            TestScenePhase::VoxelEmissiveLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::CapturingRadianceBaseline { r1 }
             | TestScenePhase::MutatingRadianceR2 { r1 }
             | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
@@ -592,6 +639,54 @@ impl EnvironmentLightingTestScene {
                 PointLightTestStage::AwaitRemoveLive => "waiting-for-point-light-remove-live",
                 PointLightTestStage::AwaitFinalPublication => {
                     "waiting-for-point-light-final-publication"
+                }
+            },
+            TestScenePhase::VoxelEmissiveLifecycle(state) => match state.stage {
+                VoxelEmissiveTestStage::AwaitBaseline => "waiting-for-voxel-emissive-baseline",
+                VoxelEmissiveTestStage::AwaitAddRegistry => {
+                    "waiting-for-voxel-emissive-add-registry"
+                }
+                VoxelEmissiveTestStage::AwaitAddLive => "waiting-for-voxel-emissive-add-live",
+                VoxelEmissiveTestStage::AwaitVisibleDiagnostic => {
+                    "waiting-for-voxel-emissive-visible-diagnostic"
+                }
+                VoxelEmissiveTestStage::AwaitBlockerSettled => {
+                    "waiting-for-voxel-emissive-blocker-settle"
+                }
+                VoxelEmissiveTestStage::AwaitBlockedDiagnostic => {
+                    "waiting-for-voxel-emissive-blocked-diagnostic"
+                }
+                VoxelEmissiveTestStage::AwaitRestoreSettled => {
+                    "waiting-for-voxel-emissive-restore-settle"
+                }
+                VoxelEmissiveTestStage::AwaitRestoredDiagnostic => {
+                    "waiting-for-voxel-emissive-restored-diagnostic"
+                }
+                VoxelEmissiveTestStage::AwaitAggregateRegistry => {
+                    "waiting-for-voxel-emissive-aggregate-registry"
+                }
+                VoxelEmissiveTestStage::AwaitAggregateLive => {
+                    "waiting-for-voxel-emissive-aggregate-live"
+                }
+                VoxelEmissiveTestStage::AwaitAggregateDiagnostic => {
+                    "waiting-for-voxel-emissive-aggregate-diagnostic"
+                }
+                VoxelEmissiveTestStage::AwaitMoveRegistry => {
+                    "waiting-for-voxel-emissive-move-registry"
+                }
+                VoxelEmissiveTestStage::AwaitMoveLive => "waiting-for-voxel-emissive-move-live",
+                VoxelEmissiveTestStage::AwaitMovedDdgiPublication => {
+                    "waiting-for-voxel-emissive-ddgi-publication"
+                }
+                VoxelEmissiveTestStage::AwaitRemoveRegistry => {
+                    "waiting-for-voxel-emissive-remove-registry"
+                }
+                VoxelEmissiveTestStage::AwaitRemoveLive => "waiting-for-voxel-emissive-remove-live",
+                VoxelEmissiveTestStage::AwaitRemovedDiagnostic => {
+                    "waiting-for-voxel-emissive-removed-diagnostic"
+                }
+                VoxelEmissiveTestStage::AwaitFinalPublication => {
+                    "waiting-for-voxel-emissive-final-publication"
                 }
             },
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
@@ -674,6 +769,7 @@ impl TestSceneGeometry {
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::RadianceChanges
             | EnvironmentLightingTestCase::PointLightChanges
+            | EnvironmentLightingTestCase::VoxelEmissiveChanges
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -814,6 +910,58 @@ fn point_light_blocker_edit_plan(voxel_type: u32) -> Result<WorldEditPlan> {
     })
 }
 
+fn voxel_emissive_edit_plan(edits: &[(UVec3, UVec3, u32)]) -> Result<WorldEditPlan> {
+    let min = edits
+        .iter()
+        .map(|(min, _, _)| *min)
+        .reduce(UVec3::min)
+        .context("voxel-emissive edit plan requires at least one voxel")?;
+    let max = edits
+        .iter()
+        .map(|(_, max, _)| *max)
+        .reduce(UVec3::max)
+        .expect("non-empty edit plan has a maximum");
+    let voxel_edits = edits
+        .iter()
+        .map(|(min, max, voxel_type)| {
+            stamp_cuboids(
+                vec![Cuboid::from_min_max(min.as_vec3(), max.as_vec3())],
+                *voxel_type,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(WorldEditPlan {
+        voxel_edits,
+        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(min, max))],
+    })
+}
+
+fn voxel_emissive_record(snapshot: &LocalLightSnapshot, voxel: UVec3) -> Option<LocalLightRecord> {
+    let key = EmissiveVoxelProvider::source_key_for_voxel(voxel);
+    snapshot.lights().iter().copied().find(|record| {
+        record.source().provider() == EMISSIVE_VOXEL_PROVIDER_ID && record.source().key() == key
+    })
+}
+
+fn voxel_emissive_source_count(snapshot: &LocalLightSnapshot) -> usize {
+    snapshot
+        .lights()
+        .iter()
+        .filter(|record| record.source().provider() == EMISSIVE_VOXEL_PROVIDER_ID)
+        .count()
+}
+
+fn expected_emissive_voxel_intensity(voxel_count: u32) -> f32 {
+    // Isotropic 256 voxels/world-unit: mean projected area is 1.5 voxel-face areas.
+    crate::lighting::EMISSIVE_VOXEL_SURFACE_RADIANCE
+        * (1.5 / VOXELS_PER_WORLD_UNIT.powi(2))
+        * voxel_count as f32
+}
+
+fn volume_voxels(min: UVec3, max: UVec3) -> u32 {
+    (max - min).element_product()
+}
+
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
         EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => {
@@ -822,6 +970,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         EnvironmentLightingTestCase::Portal
         | EnvironmentLightingTestCase::RadianceChanges
         | EnvironmentLightingTestCase::PointLightChanges
+        | EnvironmentLightingTestCase::VoxelEmissiveChanges
         | EnvironmentLightingTestCase::DensityChanges
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1173,6 +1322,19 @@ impl App {
                         expected_source_revision: 0,
                         mutation_frame: 0,
                     }
+                } else if case == EnvironmentLightingTestCase::VoxelEmissiveChanges {
+                    let snapshot = self.local_lights.snapshot();
+                    TestScenePhase::VoxelEmissiveLifecycle(VoxelEmissiveLifecycleState {
+                        terrain_revision,
+                        baseline: None,
+                        light_id: None,
+                        stage: VoxelEmissiveTestStage::AwaitBaseline,
+                        expected_source_revision: snapshot.source_revision(),
+                        expected_registry_revision: snapshot.registry_revision(),
+                        mutation_frame: 0,
+                        visible_luma_q8: 0,
+                        primary_intensity_bits: 0,
+                    })
                 } else if case == EnvironmentLightingTestCase::DensityChanges {
                     let runtime = self.tracer.ddgi_runtime_status();
                     let baseline = runtime
@@ -2172,6 +2334,665 @@ impl App {
                     TestScenePhase::Ready
                 }
             },
+            TestScenePhase::VoxelEmissiveLifecycle(mut state) => match state.stage {
+                VoxelEmissiveTestStage::AwaitBaseline => {
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(baseline) = active.published_field else {
+                        return;
+                    };
+                    if !is_converged_field(baseline)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    let snapshot = self.local_lights.snapshot();
+                    assert_eq!(voxel_emissive_source_count(&snapshot), 0);
+                    assert!(voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN).is_none());
+                    state.baseline = Some(baseline);
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.terrain_revision = self
+                        .apply_voxel_emissive_edits(
+                            "add-primary",
+                            &[(
+                                VOXEL_EMISSIVE_PRIMARY_MIN,
+                                VOXEL_EMISSIVE_PRIMARY_MAX,
+                                VOXEL_TYPE_EMISSIVE,
+                            )],
+                            state.terrain_revision,
+                        )
+                        .expect("primary emissive voxel edit must succeed");
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitAddRegistry;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitAddRegistry => {
+                    let snapshot = self.local_lights.snapshot();
+                    let Some(record) = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN)
+                    else {
+                        return;
+                    };
+                    if snapshot.source_revision() == state.expected_source_revision {
+                        return;
+                    }
+                    assert_eq!(voxel_emissive_source_count(&snapshot), 1);
+                    assert!(snapshot.registry_revision() > state.expected_registry_revision);
+                    let LocalLight::Point(point) = record.light() else {
+                        panic!("voxel provider must publish a point aggregate")
+                    };
+                    let expected_position = (VOXEL_EMISSIVE_PRIMARY_MIN.as_vec3()
+                        + VOXEL_EMISSIVE_PRIMARY_MAX.as_vec3())
+                        * (0.5 / VOXELS_PER_WORLD_UNIT);
+                    assert!(point.position.abs_diff_eq(expected_position, 1.0e-6));
+                    let one_voxel_intensity = expected_emissive_voxel_intensity(1);
+                    let emitter_voxels = (point.intensity / one_voxel_intensity).round() as u32;
+                    assert!(emitter_voxels > 1);
+                    assert!(
+                        emitter_voxels
+                            <= volume_voxels(
+                                VOXEL_EMISSIVE_PRIMARY_MIN,
+                                VOXEL_EMISSIVE_PRIMARY_MAX,
+                            )
+                    );
+                    assert!(
+                        (point.intensity - expected_emissive_voxel_intensity(emitter_voxels)).abs()
+                            <= 1.0e-6
+                    );
+                    let source_half_extent =
+                        (VOXEL_EMISSIVE_PRIMARY_MAX - VOXEL_EMISSIVE_PRIMARY_MIN).as_vec3()
+                            * (0.5 / VOXELS_PER_WORLD_UNIT);
+                    assert!(point.source_radius + 1.0e-6 >= source_half_extent.length());
+                    assert!(point.range >= 0.35);
+                    state.light_id = Some(record.id());
+                    state.primary_intensity_bits = point.intensity.to_bits();
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.stage = VoxelEmissiveTestStage::AwaitAddLive;
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=add-registry provider=voxel source_count=1 light_slot={} light_generation={} source_revision={} registry_revision={} emitter_voxels={} intensity={} position_world={:?} source_radius_world={} range_world={} edit_to_registry_frames={}",
+                        record.id().slot(),
+                        record.id().generation(),
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        emitter_voxels,
+                        point.intensity,
+                        point.position,
+                        point.source_radius,
+                        point.range,
+                        self.time_info.total_frame_count().saturating_sub(state.mutation_frame),
+                    );
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitAddLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    assert_eq!(
+                        self.tracer.local_light_revision_observability().1,
+                        Some(state.expected_registry_revision)
+                    );
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.expect("voxel aggregate id must exist"),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("voxel emitter visibility diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("voxel-emissive test scene must exist")
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = VoxelEmissiveTestStage::AwaitVisibleDiagnostic;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitVisibleDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, Some(0));
+                    assert_eq!(evidence.request.geometry_revision, state.terrain_revision);
+                    assert_eq!(
+                        evidence.request.source_revision,
+                        state.expected_source_revision
+                    );
+                    assert_eq!(evidence.request.light_id, state.light_id.unwrap());
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (1, 1, 0)
+                    );
+                    assert!(evidence.irradiance_luma_q8 > 0);
+                    state.visible_luma_q8 = evidence.irradiance_luma_q8;
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=emitter-endpoint-visible self_occluded=false candidates=1 visible=1 occluded=0 luma_q8={} light_slot={} light_generation={} source_radius_endpoint_volume=true",
+                        state.visible_luma_q8,
+                        state.light_id.unwrap().slot(),
+                        state.light_id.unwrap().generation(),
+                    );
+                    state.terrain_revision = self
+                        .apply_point_light_blocker(VOXEL_TYPE_ROCK, state.terrain_revision)
+                        .expect("voxel-emitter blocker add must succeed");
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitBlockerSettled;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitBlockerSettled => {
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("blocked voxel-emitter diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = VoxelEmissiveTestStage::AwaitBlockedDiagnostic;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitBlockedDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (1, 0, 1)
+                    );
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=independent-blocker candidates=1 visible=0 occluded=1 luma_q8=0 same_receiver=true same_light_id=true"
+                    );
+                    state.terrain_revision = self
+                        .apply_point_light_blocker(VOXEL_TYPE_EMPTY, state.terrain_revision)
+                        .expect("voxel-emitter blocker removal must succeed");
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitRestoreSettled;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitRestoreSettled => {
+                    if self.time_info.total_frame_count() <= state.mutation_frame {
+                        return;
+                    }
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("restored voxel-emitter diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = VoxelEmissiveTestStage::AwaitRestoredDiagnostic;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitRestoredDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (1, 1, 0)
+                    );
+                    assert_eq!(evidence.irradiance_luma_q8, state.visible_luma_q8);
+                    let old_source_revision = state.expected_source_revision;
+                    let old_registry_revision = state.expected_registry_revision;
+                    state.terrain_revision = self
+                        .apply_voxel_emissive_edits(
+                            "add-secondary-same-cluster",
+                            &[(
+                                VOXEL_EMISSIVE_SECONDARY_MIN,
+                                VOXEL_EMISSIVE_SECONDARY_MAX,
+                                VOXEL_TYPE_EMISSIVE,
+                            )],
+                            state.terrain_revision,
+                        )
+                        .expect("secondary emissive voxel edit must succeed");
+                    state.expected_source_revision = old_source_revision;
+                    state.expected_registry_revision = old_registry_revision;
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitAggregateRegistry;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitAggregateRegistry => {
+                    let snapshot = self.local_lights.snapshot();
+                    let Some(record) = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN)
+                    else {
+                        return;
+                    };
+                    if snapshot.source_revision() == state.expected_source_revision {
+                        return;
+                    }
+                    assert_eq!(voxel_emissive_source_count(&snapshot), 1);
+                    assert_eq!(record.id(), state.light_id.unwrap());
+                    assert!(snapshot.registry_revision() > state.expected_registry_revision);
+                    let LocalLight::Point(point) = record.light() else {
+                        panic!("voxel provider must publish point aggregates")
+                    };
+                    let primary_intensity = f32::from_bits(state.primary_intensity_bits);
+                    assert!(point.intensity > primary_intensity);
+                    let one_voxel_intensity = expected_emissive_voxel_intensity(1);
+                    let combined_count = (point.intensity / one_voxel_intensity).round() as u32;
+                    assert!(combined_count > 1);
+                    assert!(
+                        combined_count
+                            <= volume_voxels(
+                                VOXEL_EMISSIVE_PRIMARY_MIN,
+                                VOXEL_EMISSIVE_SECONDARY_MAX,
+                            )
+                    );
+                    assert!(
+                        (point.intensity - expected_emissive_voxel_intensity(combined_count)).abs()
+                            <= 1.0e-6
+                    );
+                    let combined_half_extent =
+                        (VOXEL_EMISSIVE_SECONDARY_MAX - VOXEL_EMISSIVE_PRIMARY_MIN).as_vec3()
+                            * (0.5 / VOXELS_PER_WORLD_UNIT);
+                    assert!(point.source_radius + 1.0e-6 >= combined_half_extent.length());
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.stage = VoxelEmissiveTestStage::AwaitAggregateLive;
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=aggregate-update stable_identity=true light_slot={} light_generation={} emitter_voxels={} intensity={} source_radius_world={} source_revision={} registry_revision={} edit_to_registry_frames={}",
+                        record.id().slot(),
+                        record.id().generation(),
+                        combined_count,
+                        point.intensity,
+                        point.source_radius,
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        self.time_info.total_frame_count().saturating_sub(state.mutation_frame),
+                    );
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitAggregateLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("updated aggregate diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = VoxelEmissiveTestStage::AwaitAggregateDiagnostic;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitAggregateDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(evidence.identity_matches);
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (1, 1, 0)
+                    );
+                    assert!(evidence.irradiance_luma_q8 > state.visible_luma_q8);
+                    let before_source_revision = state.expected_source_revision;
+                    let before_registry_revision = state.expected_registry_revision;
+                    state.terrain_revision = self
+                        .apply_voxel_emissive_edits(
+                            "move-cluster",
+                            &[
+                                (
+                                    VOXEL_EMISSIVE_PRIMARY_MIN,
+                                    VOXEL_EMISSIVE_SECONDARY_MAX,
+                                    VOXEL_TYPE_EMPTY,
+                                ),
+                                (
+                                    VOXEL_EMISSIVE_MOVED_MIN,
+                                    VOXEL_EMISSIVE_MOVED_MAX,
+                                    VOXEL_TYPE_EMISSIVE,
+                                ),
+                            ],
+                            state.terrain_revision,
+                        )
+                        .expect("emissive voxel move edit must succeed");
+                    state.expected_source_revision = before_source_revision;
+                    state.expected_registry_revision = before_registry_revision;
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitMoveRegistry;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitMoveRegistry => {
+                    let snapshot = self.local_lights.snapshot();
+                    let Some(record) = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_MOVED_MIN)
+                    else {
+                        return;
+                    };
+                    if voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN).is_some()
+                        || snapshot.source_revision() == state.expected_source_revision
+                    {
+                        return;
+                    }
+                    assert_eq!(voxel_emissive_source_count(&snapshot), 1);
+                    let old_id = state
+                        .light_id
+                        .expect("old aggregate identity must be retained");
+                    assert_ne!(record.id(), old_id);
+                    assert!(snapshot.lights().iter().all(|entry| entry.id() != old_id));
+                    assert!(snapshot.registry_revision() > state.expected_registry_revision);
+                    let LocalLight::Point(point) = record.light() else {
+                        panic!("moved voxel aggregate must be a point")
+                    };
+                    let moved_count =
+                        (point.intensity / expected_emissive_voxel_intensity(1)).round() as u32;
+                    assert!(moved_count > 1);
+                    assert!(
+                        moved_count
+                            <= volume_voxels(VOXEL_EMISSIVE_MOVED_MIN, VOXEL_EMISSIVE_MOVED_MAX,)
+                    );
+                    assert!(
+                        (point.intensity - expected_emissive_voxel_intensity(moved_count)).abs()
+                            <= 1.0e-6
+                    );
+                    state.light_id = Some(record.id());
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.stage = VoxelEmissiveTestStage::AwaitMoveLive;
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=move-registry old_slot={} old_generation={} new_slot={} new_generation={} stale_old=false provider_source_count=1 source_revision={} registry_revision={} edit_to_registry_frames={}",
+                        old_id.slot(),
+                        old_id.generation(),
+                        record.id().slot(),
+                        record.id().generation(),
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        self.time_info.total_frame_count().saturating_sub(state.mutation_frame),
+                    );
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitMoveLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 1)
+                    {
+                        return;
+                    }
+                    assert_eq!(
+                        self.tracer.local_light_revision_observability().1,
+                        Some(state.expected_registry_revision)
+                    );
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    state.stage = VoxelEmissiveTestStage::AwaitMovedDdgiPublication;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitMovedDdgiPublication => {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
+                        return;
+                    };
+                    if transport.local_lights.source_revision() != state.expected_source_revision
+                        || transport.local_lights.count() != 1
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    if status.staging().is_some() {
+                        return;
+                    }
+                    let active = status.active();
+                    let Some(field) = active.published_field else {
+                        return;
+                    };
+                    if field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || field.field().geometry_revision() != state.terrain_revision
+                        || !is_converged_field(field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                    {
+                        return;
+                    }
+                    let builder = self
+                        .tracer
+                        .ddgi_builder_radiance_snapshot()
+                        .expect("voxel DDGI builder must retain immutable local lights");
+                    assert_eq!(
+                        builder.local_lights.source_revision(),
+                        state.expected_source_revision
+                    );
+                    assert_eq!(builder.local_lights.count(), 1);
+                    let Some(gpu) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu.matches_classified_field(field)
+                        || gpu.local_source_revision != state.expected_source_revision
+                        || gpu.local_light_count != 1
+                    {
+                        return;
+                    }
+                    assert!(gpu.is_complete());
+                    assert!(gpu.totals.visible > 0);
+                    assert!(gpu.totals.irradiance_luma_q8 > 0);
+                    assert!(gpu.emissive_surface_hits > 0);
+                    assert!(gpu.emissive_surface_radiance_luma_q8 > 0);
+                    assert!(
+                        !self
+                            .tracer
+                            .ddgi_lighting_diagnostics()
+                            .has_mixed_in_flight_revision
+                    );
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=moved-ddgi-gpu local_light_positive=true emissive_material_hit=true source_revision={} registry_revision={} transport_revision={} geometry_revision={} candidates={} visible={} occluded={} luma_q8={} emissive_surface_hits={} emissive_surface_luma_q8={} mixed_in_flight=false",
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        field.field().radiance_revision(),
+                        state.terrain_revision,
+                        gpu.totals.candidates,
+                        gpu.totals.visible,
+                        gpu.totals.occluded,
+                        gpu.totals.irradiance_luma_q8,
+                        gpu.emissive_surface_hits,
+                        gpu.emissive_surface_radiance_luma_q8,
+                    );
+                    state.terrain_revision = self
+                        .apply_voxel_emissive_edits(
+                            "remove-moved",
+                            &[(
+                                VOXEL_EMISSIVE_MOVED_MIN,
+                                VOXEL_EMISSIVE_MOVED_MAX,
+                                VOXEL_TYPE_EMPTY,
+                            )],
+                            state.terrain_revision,
+                        )
+                        .expect("moved emissive voxel removal must succeed");
+                    state.mutation_frame = self.time_info.total_frame_count();
+                    state.stage = VoxelEmissiveTestStage::AwaitRemoveRegistry;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitRemoveRegistry => {
+                    let snapshot = self.local_lights.snapshot();
+                    if snapshot.source_revision() == state.expected_source_revision
+                        || voxel_emissive_source_count(&snapshot) != 0
+                    {
+                        return;
+                    }
+                    let removed_id = state
+                        .light_id
+                        .expect("removed id must be retained for stale check");
+                    assert!(snapshot
+                        .lights()
+                        .iter()
+                        .all(|record| record.id() != removed_id));
+                    assert!(snapshot.registry_revision() > state.expected_registry_revision);
+                    state.expected_source_revision = snapshot.source_revision();
+                    state.expected_registry_revision = snapshot.registry_revision();
+                    state.stage = VoxelEmissiveTestStage::AwaitRemoveLive;
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=remove-registry provider_source_count=0 removed_slot={} removed_generation={} stale_registry=false source_revision={} registry_revision={} edit_to_registry_frames={}",
+                        removed_id.slot(),
+                        removed_id.generation(),
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        self.time_info.total_frame_count().saturating_sub(state.mutation_frame),
+                    );
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitRemoveLive => {
+                    if self.tracer.local_light_live_state()
+                        != (Some(state.expected_source_revision), 0)
+                    {
+                        return;
+                    }
+                    let request_serial = self
+                        .tracer
+                        .request_local_light_visibility_diagnostic(
+                            state.terrain_revision,
+                            state.expected_source_revision,
+                            state.light_id.unwrap(),
+                            POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                            POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                            POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                        )
+                        .expect("removed voxel-emitter diagnostic request must succeed");
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .point_light_fixed_gpu_request_serial = request_serial;
+                    state.stage = VoxelEmissiveTestStage::AwaitRemovedDiagnostic;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitRemovedDiagnostic => {
+                    let Some(evidence) = self.tracer.local_light_visibility_diagnostic_evidence()
+                    else {
+                        return;
+                    };
+                    if evidence.request.request_serial != fixed_gpu_request_serial {
+                        return;
+                    }
+                    assert!(!evidence.identity_matches);
+                    assert_eq!(evidence.selected_light_index, None);
+                    assert_eq!(
+                        (evidence.candidates, evidence.visible, evidence.occluded),
+                        (0, 0, 0)
+                    );
+                    assert_eq!(evidence.irradiance_luma_q8, 0);
+                    state.stage = VoxelEmissiveTestStage::AwaitFinalPublication;
+                    TestScenePhase::VoxelEmissiveLifecycle(state)
+                }
+                VoxelEmissiveTestStage::AwaitFinalPublication => {
+                    let Some(transport) = self.tracer.ddgi_live_radiance_snapshot() else {
+                        return;
+                    };
+                    if transport.local_lights.source_revision() != state.expected_source_revision
+                        || transport.local_lights.count() != 0
+                    {
+                        return;
+                    }
+                    let status = self.tracer.ddgi_runtime_status();
+                    let active = status.active();
+                    let Some(field) = active.published_field else {
+                        return;
+                    };
+                    if field.field().radiance_revision()
+                        != transport.local_lights.info.transport_revision
+                        || field.field().geometry_revision() != state.terrain_revision
+                        || !is_converged_field(field)
+                        || active.stage != DdgiVolumeStage::Ready
+                        || active.building_field.is_some()
+                        || status.staging().is_some()
+                    {
+                        return;
+                    }
+                    let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                    assert!(!diagnostics.has_mixed_in_flight_revision);
+                    assert_eq!(diagnostics.in_flight_revision, None);
+                    let Some(gpu) = self.tracer.ddgi_local_light_gpu_evidence() else {
+                        return;
+                    };
+                    if !gpu.matches_classified_field(field)
+                        || gpu.local_source_revision != state.expected_source_revision
+                        || gpu.local_light_count != 0
+                    {
+                        return;
+                    }
+                    assert!(gpu.is_complete());
+                    assert_eq!(gpu.totals.candidates, 0);
+                    assert_eq!(gpu.totals.visible, 0);
+                    assert_eq!(gpu.totals.occluded, 0);
+                    assert_eq!(gpu.totals.irradiance_luma_q8, 0);
+                    let atlas = active
+                        .last_atlas_validation
+                        .expect("final voxel-emissive field must have atlas evidence");
+                    assert_eq!(atlas.non_finite_count, 0);
+                    assert!(atlas.max_rgb_value > 0.0);
+                    let (lag, coalesced) = self.tracer.local_light_transport_observability();
+                    assert_eq!(lag, 0);
+                    log_acceptance_field("VOXEL_EMISSIVE", "complete", field);
+                    log::info!(
+                        "[VOXEL_EMISSIVE_ACCEPT] complete provider_lifecycle=true stable_same_cluster_id=true moved_generation=true direct_removed=true stale_contribution=false mixed_in_flight=false ddgi_off_candidates=0 ddgi_off_luma_q8=0 atlas_nonblack=true atlas_max_rgb={:.8} source_revision={} registry_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} terrain_direct=true raster_direct=true ddgi_injection=true emissive_material_transport=true shared_units=world emitter_endpoint_volume=true",
+                        atlas.max_rgb_value,
+                        state.expected_source_revision,
+                        state.expected_registry_revision,
+                        field.field().radiance_revision(),
+                        lag,
+                        coalesced,
+                        state.terrain_revision,
+                    );
+                    TestScenePhase::Ready
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => return,
             TestScenePhase::MutatingRadianceR2 { .. } => return,
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => return,
@@ -2881,6 +3702,34 @@ impl App {
         Ok(target_revision)
     }
 
+    fn apply_voxel_emissive_edits(
+        &mut self,
+        action: &str,
+        edits: &[(UVec3, UVec3, u32)],
+        source_revision: u32,
+    ) -> Result<u32> {
+        let plan = voxel_emissive_edit_plan(edits)?;
+        let bound = match plan.build_edits[0] {
+            BuildEdit::RebuildMesh(bound) => bound,
+            _ => unreachable!("voxel-emissive edit helper only emits mesh rebuilds"),
+        };
+        self.execute_edit_plan(plan)?;
+        let target_revision = self.visible_terrain_revision;
+        anyhow::ensure!(
+            target_revision != source_revision,
+            "voxel-emissive {action} did not advance terrain revision from {source_revision}"
+        );
+        log::info!(
+            "[VOXEL_EMISSIVE_ACCEPT] action={} source_geometry_revision={} target_geometry_revision={} trusted_voxel_min={:?} trusted_voxel_max={:?}",
+            action,
+            source_revision,
+            target_revision,
+            bound.min(),
+            bound.max(),
+        );
+        Ok(target_revision)
+    }
+
     fn apply_patt_seam_dig(&mut self, source_revision: u32) -> Result<u32> {
         let radius = super::TERRAIN_EDIT_DEFAULT_RADIUS;
         let mut removed_voxels = 0_u32;
@@ -3147,6 +3996,7 @@ mod tests {
             EnvironmentLightingTestCase::Dogleg,
             EnvironmentLightingTestCase::RadianceChanges,
             EnvironmentLightingTestCase::PointLightChanges,
+            EnvironmentLightingTestCase::VoxelEmissiveChanges,
             EnvironmentLightingTestCase::DensityChanges,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,
@@ -3436,5 +4286,42 @@ mod tests {
             VoxelEdit::StampCuboids { voxel_type, .. }
                 if *voxel_type == crate::builder::VOXEL_TYPE_EMISSIVE
         )));
+    }
+
+    #[test]
+    fn voxel_emissive_lifecycle_edits_use_exact_trusted_bounds() {
+        let add = voxel_emissive_edit_plan(&[(
+            VOXEL_EMISSIVE_PRIMARY_MIN,
+            VOXEL_EMISSIVE_PRIMARY_MAX,
+            VOXEL_TYPE_EMISSIVE,
+        )])
+        .expect("bounded voxel add plan must compile");
+        assert!(matches!(
+            add.build_edits.as_slice(),
+            [BuildEdit::RebuildMesh(bound)]
+                if bound.min() == VOXEL_EMISSIVE_PRIMARY_MIN
+                    && bound.max() == VOXEL_EMISSIVE_PRIMARY_MAX
+        ));
+
+        let moved = voxel_emissive_edit_plan(&[
+            (
+                VOXEL_EMISSIVE_PRIMARY_MIN,
+                VOXEL_EMISSIVE_SECONDARY_MAX,
+                VOXEL_TYPE_EMPTY,
+            ),
+            (
+                VOXEL_EMISSIVE_MOVED_MIN,
+                VOXEL_EMISSIVE_MOVED_MAX,
+                VOXEL_TYPE_EMISSIVE,
+            ),
+        ])
+        .expect("move plan must compile");
+        assert!(matches!(
+            moved.build_edits.as_slice(),
+            [BuildEdit::RebuildMesh(bound)]
+                if bound.min() == VOXEL_EMISSIVE_PRIMARY_MIN
+                    && bound.max() == VOXEL_EMISSIVE_MOVED_MAX
+        ));
+        assert_eq!(moved.voxel_edits.len(), 2);
     }
 }

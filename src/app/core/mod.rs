@@ -826,7 +826,10 @@ impl App {
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
                     options.environment_lighting_test_scene,
-                    Some(EnvironmentLightingTestCase::PointLightChanges)
+                    Some(
+                        EnvironmentLightingTestCase::PointLightChanges
+                            | EnvironmentLightingTestCase::VoxelEmissiveChanges
+                    )
                 ),
             },
             spatial_sound_manager.clone(),
