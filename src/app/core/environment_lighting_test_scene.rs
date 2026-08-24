@@ -1701,7 +1701,7 @@ impl App {
                     assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
-                    assert_eq!(evidence.request.light_id, id);
+                    assert_eq!(evidence.request.target.light_id(), Some(id));
                     assert_eq!(
                         evidence.request.receiver_position,
                         POINT_LIGHT_FIXED_RECEIVER_WORLD
@@ -1779,7 +1779,7 @@ impl App {
                     assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
-                    assert_eq!(evidence.request.light_id, light_id.unwrap());
+                    assert_eq!(evidence.request.target.light_id(), light_id);
                     assert_eq!(
                         evidence.request.receiver_position,
                         POINT_LIGHT_FIXED_RECEIVER_WORLD
@@ -1853,7 +1853,7 @@ impl App {
                     assert_eq!(evidence.selected_light_index, Some(1));
                     assert_eq!(evidence.request.geometry_revision, terrain_revision);
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
-                    assert_eq!(evidence.request.light_id, light_id.unwrap());
+                    assert_eq!(evidence.request.target.light_id(), light_id);
                     assert_eq!(
                         evidence.request.receiver_position,
                         POINT_LIGHT_FIXED_RECEIVER_WORLD
@@ -1933,7 +1933,7 @@ impl App {
                             std::mem::take(&mut scene.point_light_diagnostic_supplemental_ids),
                         )
                     };
-                    assert_eq!(evidence.request.light_id, overflow_id);
+                    assert_eq!(evidence.request.target.light_id(), Some(overflow_id));
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert!(!evidence.identity_matches);
                     assert_eq!(evidence.selected_light_index, None);
@@ -2022,7 +2022,7 @@ impl App {
                         .as_ref()
                         .and_then(|scene| scene.point_light_diagnostic_selected_decoy_id)
                         .expect("removed selected diagnostic decoy id must be retained");
-                    assert_eq!(evidence.request.light_id, selected_decoy_id);
+                    assert_eq!(evidence.request.target.light_id(), Some(selected_decoy_id));
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert!(!evidence.identity_matches);
                     assert_eq!(evidence.selected_light_index, None);
@@ -2582,7 +2582,7 @@ impl App {
                         evidence.request.source_revision,
                         state.expected_source_revision
                     );
-                    assert_eq!(evidence.request.light_id, state.light_id.unwrap());
+                    assert_eq!(evidence.request.target.light_id(), state.light_id);
                     assert_eq!(
                         (evidence.candidates, evidence.visible, evidence.occluded),
                         (1, 1, 0)
@@ -3219,7 +3219,7 @@ impl App {
                     }
                     assert!(evidence.identity_matches);
                     assert_eq!(evidence.selected_light_index, Some(0));
-                    assert_eq!(evidence.request.light_id, state.light_id.unwrap());
+                    assert_eq!(evidence.request.target.light_id(), state.light_id);
                     assert_eq!(
                         evidence.request.source_revision,
                         state.expected_source_revision

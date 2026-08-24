@@ -467,10 +467,19 @@ impl LocalLightBudget {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum LocalLightOverflowReason {
     Capacity,
     UnsupportedKind,
+}
+
+impl LocalLightOverflowReason {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Capacity => "Capacity",
+            Self::UnsupportedKind => "UnsupportedKind",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

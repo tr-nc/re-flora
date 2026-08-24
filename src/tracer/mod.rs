@@ -104,9 +104,10 @@ use crate::gameplay::{
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
 use crate::lighting::{
-    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
-    EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
-    LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
+    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
+    LocalLightOverflowReason, LocalLightSnapshot, ProviderId, EMISSIVE_VOXEL_COLOR_SRGB,
+    EMISSIVE_VOXEL_SURFACE_RADIANCE, LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS,
+    LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
@@ -901,6 +902,7 @@ pub struct Tracer {
     local_light_uploaded_source_revision: Option<u64>,
     local_light_uploaded_registry_revision: Option<u64>,
     local_light_live_count: u32,
+    local_light_live_overflow: Vec<LocalLightOverflow>,
     local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
@@ -1233,6 +1235,7 @@ impl Tracer {
             local_light_uploaded_source_revision: None,
             local_light_uploaded_registry_revision: None,
             local_light_live_count: 0,
+            local_light_live_overflow: Vec::new(),
             local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
@@ -1633,6 +1636,10 @@ impl Tracer {
         )
     }
 
+    pub(crate) fn local_light_overflow_evidence(&self) -> &[LocalLightOverflow] {
+        &self.local_light_live_overflow
+    }
+
     pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
         self.ddgi_runtime.lighting_diagnostics()
     }
@@ -1656,6 +1663,25 @@ impl Tracer {
             geometry_revision,
             source_revision,
             light_id,
+            receiver_position,
+            receiver_normal,
+            ray_origin_offset_world,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_local_light_aggregate_visibility_diagnostic(
+        &mut self,
+        geometry_revision: u32,
+        source_revision: u64,
+        receiver_position: Vec3,
+        receiver_normal: Vec3,
+        ray_origin_offset_world: f32,
+    ) -> Result<u32> {
+        self.local_light_visibility_diagnostic.request_aggregate(
+            &self.resources.local_lighting,
+            geometry_revision,
+            source_revision,
             receiver_position,
             receiver_normal,
             ray_origin_offset_world,
@@ -2986,6 +3012,23 @@ impl Tracer {
                 local_light_gpu.info.overflow_count,
                 selection_changed,
             );
+            let mut overflow_groups =
+                std::collections::BTreeMap::<(ProviderId, LocalLightOverflowReason), usize>::new();
+            for overflow in &local_light_gpu.overflow {
+                *overflow_groups
+                    .entry((overflow.source.provider(), overflow.reason))
+                    .or_insert(0usize) += 1;
+            }
+            for ((provider, reason), count) in overflow_groups {
+                log::info!(
+                    "[LOCAL_LIGHT][OVERFLOW] source_revision={} provider={} reason={} count={} explicit=true",
+                    local_lights.source_revision(),
+                    provider.get(),
+                    reason.label(),
+                    count,
+                );
+            }
+            self.local_light_live_overflow = local_light_gpu.overflow.clone();
         }
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);

@@ -2,7 +2,9 @@ import contree_node;
 import local_lighting;
 import scene_marching;
 
-public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION = 2u;
+public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION = 3u;
+public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_SPECIFIC = 1u;
+public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_AGGREGATE = 2u;
 
 public struct U_LocalLightVisibilityDiagnosticInfo
 {
@@ -13,7 +15,7 @@ public struct U_LocalLightVisibilityDiagnosticInfo
     public uint source_revision_high;
     public uint light_id_slot;
     public uint light_id_generation;
-    public uint reserved;
+    public uint mode;
     public float4 receiver_position_and_origin_offset;
     public float4 receiver_normal_and_reserved;
 };
@@ -23,6 +25,7 @@ public struct B_LocalLightVisibilityDiagnosticResult
     public uint abi_version;
     public uint request_serial;
     public uint geometry_revision;
+    public uint mode;
     public uint identity_matches;
     public uint selected_light_index;
     public uint source_revision_low;
@@ -58,6 +61,7 @@ void main()
     result.abi_version = LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION;
     result.request_serial = info.request_serial;
     result.geometry_revision = info.geometry_revision;
+    result.mode = info.mode;
     result.selected_light_index = 0xffffffffu;
     result.source_revision_low = info.source_revision_low;
     result.source_revision_high = info.source_revision_high;
@@ -76,15 +80,21 @@ void main()
     bool foundRequestedLight = findLocalLightIndexByStableId(
         local_light_info, local_lights, info.light_id_slot,
         info.light_id_generation, requestedLightIndex);
-    bool identityMatches =
+    bool snapshotMatches =
         info.abi_version == LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION &&
         local_light_info.abi_version == LOCAL_LIGHT_GPU_ABI_VERSION &&
-        foundRequestedLight &&
         local_light_info.source_revision_low == info.source_revision_low &&
         local_light_info.source_revision_high == info.source_revision_high;
+    bool specificMode =
+        info.mode == LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_SPECIFIC;
+    bool aggregateMode =
+        info.mode == LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_AGGREGATE;
+    bool identityMatches = snapshotMatches &&
+        ((specificMode && foundRequestedLight) || aggregateMode);
     result.identity_matches = identityMatches ? 1u : 0u;
-    result.selected_light_index = identityMatches ? requestedLightIndex : 0xffffffffu;
-    if (identityMatches)
+    result.selected_light_index = identityMatches && specificMode
+        ? requestedLightIndex : 0xffffffffu;
+    if (identityMatches && specificMode)
     {
         LocalLightVoxelEvaluation evaluation = evaluateVoxelVisibleLocalLightAtIndex(
             local_light_info, local_lights, contree_node_data, contree_leaf_data,
@@ -97,10 +107,24 @@ void main()
         result.irradiance_luma_q8 = evaluation.irradiance_luma_q8;
         result.irradiance = float4(evaluation.irradiance, 0.0);
     }
+    else if (identityMatches && aggregateMode)
+    {
+        LocalLightVoxelEvaluation evaluation = evaluateVoxelVisibleLocalLight(
+            local_light_info, local_lights, contree_node_data, contree_leaf_data,
+            scene_tex, info.receiver_position_and_origin_offset.xyz,
+            info.receiver_normal_and_reserved.xyz,
+            info.receiver_position_and_origin_offset.w, 0u);
+        result.candidates = evaluation.candidates;
+        result.visible = evaluation.visible;
+        result.occluded = evaluation.occluded;
+        result.irradiance_luma_q8 = evaluation.irradiance_luma_q8;
+        result.irradiance = float4(evaluation.irradiance, 0.0);
+    }
     local_light_visibility_diagnostic_result.abi_version = result.abi_version;
     local_light_visibility_diagnostic_result.request_serial = result.request_serial;
     local_light_visibility_diagnostic_result.geometry_revision =
         result.geometry_revision;
+    local_light_visibility_diagnostic_result.mode = result.mode;
     local_light_visibility_diagnostic_result.identity_matches =
         result.identity_matches;
     local_light_visibility_diagnostic_result.selected_light_index =
