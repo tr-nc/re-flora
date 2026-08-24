@@ -9,7 +9,8 @@ use crate::ddgi::{
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::lighting::{
     EmissiveVoxelProvider, LightId, LocalLight, LocalLightRecord, LocalLightSnapshot, PointLight,
-    RasterEmitterComponent, RasterEmitterKey, RasterEntityId, EMISSIVE_VOXEL_PROVIDER_ID,
+    RasterEmitterComponent, RasterEmitterKey, RasterEntityId, SpotLight,
+    AUTHORED_LOCAL_LIGHT_PROVIDER_ID, EMISSIVE_VOXEL_PROVIDER_ID, LOCAL_LIGHT_GPU_CAPACITY,
     RASTER_ENTITY_LIGHT_PROVIDER_ID,
 };
 use crate::EnvironmentLightingTestCase;
@@ -68,6 +69,10 @@ const RASTER_EMITTER_MOVED_BASE_POSITION: Vec3 = Vec3::new(
     POINT_LIGHT_MOVED_POSITION.y - 4.0 / VOXELS_PER_WORLD_UNIT,
     POINT_LIGHT_MOVED_POSITION.z,
 );
+const MULTI_SOURCE_AUTHORED_COLOR: Vec3 = Vec3::new(1.0, 0.12, 0.04);
+const MULTI_SOURCE_AUTHORED_INTENSITY: f32 = 0.045;
+const MULTI_SOURCE_RASTER_COLOR: Vec3 = Vec3::new(0.04, 0.22, 1.0);
+const MULTI_SOURCE_RASTER_INTENSITY: f32 = 0.065;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PointLightTestStage {
@@ -156,6 +161,52 @@ struct RasterEmitterLifecycleState {
     visible_luma_q8: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MultiSourceTestStage {
+    AwaitBaseline,
+    AwaitVoxelRegistry,
+    AwaitThreeLive,
+    AwaitAuthoredDiagnostic,
+    AwaitVoxelDiagnostic,
+    AwaitRasterDiagnostic,
+    AwaitAggregateDiagnostic,
+    AwaitThreeDdgiPublication,
+    AwaitSwapLive,
+    AwaitSwappedAggregateDiagnostic,
+    AwaitSwappedAuthoredDiagnostic,
+    AwaitAuthoredRemoveLive,
+    AwaitAfterRemoveAggregateDiagnostic,
+    AwaitRemovedAuthoredDiagnostic,
+    AwaitVoxelMoveRegistry,
+    AwaitVoxelMoveLive,
+    AwaitMovedVoxelStaleDiagnostic,
+    AwaitOverflowLive,
+    AwaitFinalRegistry,
+    AwaitFinalLive,
+    AwaitFinalStaleDiagnostic,
+    AwaitFinalPublication,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MultiSourceLifecycleState {
+    terrain_revision: u32,
+    baseline: Option<DdgiFieldIdentity>,
+    authored_id: Option<LightId>,
+    voxel_id: Option<LightId>,
+    stale_voxel_id: Option<LightId>,
+    raster_id: Option<LightId>,
+    raster_entity: Option<RasterEntityId>,
+    stage: MultiSourceTestStage,
+    expected_source_revision: u64,
+    expected_registry_revision: u64,
+    mutation_frame: u64,
+    authored_irradiance: Vec3,
+    voxel_irradiance: Vec3,
+    raster_irradiance: Vec3,
+    aggregate_irradiance: Vec3,
+    swapped_authored_irradiance: Vec3,
+}
+
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
 const SHELL_MIN: Vec3 = Vec3::new(96.0, 84.0, 216.0);
@@ -233,7 +284,7 @@ const DOGLEG_FINAL_RECEIVER_ROI_MAX: Vec3 = Vec3::new(336.0, 160.0, 128.0);
 const TEST_REBUILD_MIN: UVec3 = UVec3::new(72, 76, 200);
 const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum TestScenePhase {
     Pending,
     TerrainPublished,
@@ -265,6 +316,7 @@ enum TestScenePhase {
     },
     VoxelEmissiveLifecycle(VoxelEmissiveLifecycleState),
     RasterEmitterLifecycle(RasterEmitterLifecycleState),
+    MultiSourceLifecycle(MultiSourceLifecycleState),
     CapturingRadianceBaseline {
         r1: DdgiFieldIdentity,
     },
@@ -481,6 +533,7 @@ pub(super) struct EnvironmentLightingTestScene {
     point_light_diagnostic_overflow_id: Option<LightId>,
     point_light_diagnostic_supplemental_ids: Vec<LightId>,
     point_light_expected_registry_revision: u64,
+    multi_source_overflow_authored_ids: Vec<LightId>,
 }
 
 impl EnvironmentLightingTestScene {
@@ -494,6 +547,7 @@ impl EnvironmentLightingTestScene {
             point_light_diagnostic_overflow_id: None,
             point_light_diagnostic_supplemental_ids: Vec::new(),
             point_light_expected_registry_revision: 0,
+            multi_source_overflow_authored_ids: Vec::new(),
         }
     }
 
@@ -582,6 +636,7 @@ impl EnvironmentLightingTestScene {
             || self.case == EnvironmentLightingTestCase::PointLightChanges
             || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
             || self.case == EnvironmentLightingTestCase::RasterEmitterChanges
+            || self.case == EnvironmentLightingTestCase::MultiSourceStress
             || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
@@ -608,6 +663,7 @@ impl EnvironmentLightingTestScene {
             } => Some(terrain_revision),
             TestScenePhase::VoxelEmissiveLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::RasterEmitterLifecycle(state) => Some(state.terrain_revision),
+            TestScenePhase::MultiSourceLifecycle(state) => Some(state.terrain_revision),
             TestScenePhase::CapturingRadianceBaseline { r1 }
             | TestScenePhase::MutatingRadianceR2 { r1 }
             | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
@@ -761,6 +817,64 @@ impl EnvironmentLightingTestScene {
                     "waiting-for-raster-emitter-final-publication"
                 }
             },
+            TestScenePhase::MultiSourceLifecycle(state) => match state.stage {
+                MultiSourceTestStage::AwaitBaseline => "waiting-for-multi-source-baseline",
+                MultiSourceTestStage::AwaitVoxelRegistry => {
+                    "waiting-for-multi-source-voxel-registry"
+                }
+                MultiSourceTestStage::AwaitThreeLive => "waiting-for-multi-source-three-live",
+                MultiSourceTestStage::AwaitAuthoredDiagnostic => {
+                    "waiting-for-multi-source-authored-diagnostic"
+                }
+                MultiSourceTestStage::AwaitVoxelDiagnostic => {
+                    "waiting-for-multi-source-voxel-diagnostic"
+                }
+                MultiSourceTestStage::AwaitRasterDiagnostic => {
+                    "waiting-for-multi-source-raster-diagnostic"
+                }
+                MultiSourceTestStage::AwaitAggregateDiagnostic => {
+                    "waiting-for-multi-source-aggregate-diagnostic"
+                }
+                MultiSourceTestStage::AwaitThreeDdgiPublication => {
+                    "waiting-for-multi-source-ddgi-publication"
+                }
+                MultiSourceTestStage::AwaitSwapLive => "waiting-for-multi-source-swap-live",
+                MultiSourceTestStage::AwaitSwappedAggregateDiagnostic => {
+                    "waiting-for-multi-source-swapped-aggregate-diagnostic"
+                }
+                MultiSourceTestStage::AwaitSwappedAuthoredDiagnostic => {
+                    "waiting-for-multi-source-swapped-authored-diagnostic"
+                }
+                MultiSourceTestStage::AwaitAuthoredRemoveLive => {
+                    "waiting-for-multi-source-authored-remove-live"
+                }
+                MultiSourceTestStage::AwaitAfterRemoveAggregateDiagnostic => {
+                    "waiting-for-multi-source-after-remove-aggregate"
+                }
+                MultiSourceTestStage::AwaitRemovedAuthoredDiagnostic => {
+                    "waiting-for-multi-source-removed-authored-diagnostic"
+                }
+                MultiSourceTestStage::AwaitVoxelMoveRegistry => {
+                    "waiting-for-multi-source-voxel-move-registry"
+                }
+                MultiSourceTestStage::AwaitVoxelMoveLive => {
+                    "waiting-for-multi-source-voxel-move-live"
+                }
+                MultiSourceTestStage::AwaitMovedVoxelStaleDiagnostic => {
+                    "waiting-for-multi-source-moved-voxel-stale"
+                }
+                MultiSourceTestStage::AwaitOverflowLive => "waiting-for-multi-source-overflow-live",
+                MultiSourceTestStage::AwaitFinalRegistry => {
+                    "waiting-for-multi-source-final-registry"
+                }
+                MultiSourceTestStage::AwaitFinalLive => "waiting-for-multi-source-final-live",
+                MultiSourceTestStage::AwaitFinalStaleDiagnostic => {
+                    "waiting-for-multi-source-final-stale"
+                }
+                MultiSourceTestStage::AwaitFinalPublication => {
+                    "waiting-for-multi-source-final-publication"
+                }
+            },
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
             TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
             TestScenePhase::CapturingRadianceR2NextFrame { .. } => {
@@ -843,6 +957,7 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::PointLightChanges
             | EnvironmentLightingTestCase::VoxelEmissiveChanges
             | EnvironmentLightingTestCase::RasterEmitterChanges
+            | EnvironmentLightingTestCase::MultiSourceStress
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1024,6 +1139,46 @@ fn voxel_emissive_source_count(snapshot: &LocalLightSnapshot) -> usize {
         .count()
 }
 
+fn provider_source_count(
+    snapshot: &LocalLightSnapshot,
+    provider: crate::lighting::ProviderId,
+) -> usize {
+    snapshot
+        .lights()
+        .iter()
+        .filter(|record| record.source().provider() == provider)
+        .count()
+}
+
+fn multi_source_authored_light() -> LocalLight {
+    LocalLight::Point(
+        PointLight::new(
+            POINT_LIGHT_ADD_POSITION,
+            MULTI_SOURCE_AUTHORED_COLOR,
+            MULTI_SOURCE_AUTHORED_INTENSITY,
+            POINT_LIGHT_SOURCE_RADIUS_WORLD,
+            POINT_LIGHT_RANGE_WORLD,
+        )
+        .expect("multi-source authored point must be valid"),
+    )
+}
+
+fn multi_source_raster_component() -> RasterEmitterComponent {
+    raster_emitter_component(
+        POINT_LIGHT_MOVED_POSITION,
+        MULTI_SOURCE_RASTER_COLOR,
+        MULTI_SOURCE_RASTER_INTENSITY,
+    )
+}
+
+fn vec3_near(actual: Vec3, expected: Vec3, relative_epsilon: f32) -> bool {
+    let scale = actual.abs().max(expected.abs()).max(Vec3::ONE);
+    (actual - expected)
+        .abs()
+        .cmple(scale * relative_epsilon)
+        .all()
+}
+
 fn expected_emissive_voxel_intensity(voxel_count: u32) -> f32 {
     // Isotropic 256 voxels/world-unit: mean projected area is 1.5 voxel-face areas.
     crate::lighting::EMISSIVE_VOXEL_SURFACE_RADIANCE
@@ -1058,6 +1213,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::PointLightChanges
         | EnvironmentLightingTestCase::VoxelEmissiveChanges
         | EnvironmentLightingTestCase::RasterEmitterChanges
+        | EnvironmentLightingTestCase::MultiSourceStress
         | EnvironmentLightingTestCase::DensityChanges
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1311,6 +1467,802 @@ impl App {
             .phase = next_phase;
     }
 
+    fn advance_multi_source_lifecycle(
+        &mut self,
+        mut state: MultiSourceLifecycleState,
+        fixed_gpu_request_serial: u32,
+    ) -> Option<TestScenePhase> {
+        let next = match state.stage {
+            MultiSourceTestStage::AwaitBaseline => {
+                let status = self.tracer.ddgi_runtime_status();
+                let active = status.active();
+                let baseline = active.published_field?;
+                if !is_converged_field(baseline)
+                    || active.stage != DdgiVolumeStage::Ready
+                    || active.building_field.is_some()
+                    || status.staging().is_some()
+                {
+                    return None;
+                }
+                assert_eq!(baseline.field().geometry_revision(), state.terrain_revision);
+                assert_eq!(self.local_lights.snapshot().lights().len(), 0);
+
+                let authored_id = self.local_lights.add(multi_source_authored_light());
+                let (raster_entity, raster_id) = self
+                    .apply_emissive_sprinkler_placement(
+                        SprinklerPlacementTarget::Terrain(RASTER_EMITTER_MOVED_BASE_POSITION),
+                        multi_source_raster_component(),
+                    )
+                    .expect("multi-source raster emitter spawn must succeed");
+                let terrain_revision = self
+                    .apply_voxel_emissive_edits(
+                        "multi-source-add",
+                        &[((
+                            VOXEL_EMISSIVE_PRIMARY_MIN,
+                            VOXEL_EMISSIVE_PRIMARY_MAX,
+                            VOXEL_TYPE_EMISSIVE,
+                        ))],
+                        state.terrain_revision,
+                    )
+                    .expect("multi-source voxel emitter add must succeed");
+                let snapshot = self.local_lights.snapshot();
+                state.terrain_revision = terrain_revision;
+                state.baseline = Some(baseline);
+                state.authored_id = Some(authored_id);
+                state.raster_id = Some(raster_id);
+                state.raster_entity = Some(raster_entity);
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitVoxelRegistry;
+                log_acceptance_field("MULTI_SOURCE", "baseline", baseline);
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] action=add authored_slot={} authored_generation={} raster_slot={} raster_generation={} raster_entity={:?} source_revision={} registry_revision={} target_geometry_revision={} provider_counts=authored:1,voxel:0,raster:1 renderer_instances={} surface_emissive_pixels=false",
+                    authored_id.slot(),
+                    authored_id.generation(),
+                    raster_id.slot(),
+                    raster_id.generation(),
+                    raster_entity,
+                    state.expected_source_revision,
+                    state.expected_registry_revision,
+                    terrain_revision,
+                    self.tracer.sprinkler_instance_count(),
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitVoxelRegistry => {
+                let snapshot = self.local_lights.snapshot();
+                let Some(voxel_record) =
+                    voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN)
+                else {
+                    return None;
+                };
+                if provider_source_count(&snapshot, AUTHORED_LOCAL_LIGHT_PROVIDER_ID) != 1
+                    || provider_source_count(&snapshot, EMISSIVE_VOXEL_PROVIDER_ID) != 1
+                    || provider_source_count(&snapshot, RASTER_ENTITY_LIGHT_PROVIDER_ID) != 1
+                {
+                    return None;
+                }
+                assert_eq!(snapshot.lights().len(), 3);
+                state.voxel_id = Some(voxel_record.id());
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitThreeLive;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=providers-authoritative source_revision={} registry_revision={} provider_counts=authored:1,voxel:1,raster:1 voxel_slot={} voxel_generation={} raster_instances={} no_duplicates=true",
+                    state.expected_source_revision,
+                    state.expected_registry_revision,
+                    voxel_record.id().slot(),
+                    voxel_record.id().generation(),
+                    self.tracer.sprinkler_instance_count(),
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitThreeLive => {
+                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 3)
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                assert_eq!(
+                    self.tracer.local_light_revision_observability().1,
+                    Some(state.expected_registry_revision)
+                );
+                assert!(
+                    !self
+                        .tracer
+                        .ddgi_lighting_diagnostics()
+                        .has_mixed_in_flight_revision
+                );
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.authored_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("multi-source authored diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitAuthoredDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitAuthoredDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!(evidence.request.target.light_id(), state.authored_id);
+                assert!(evidence.identity_matches && evidence.irradiance_luma_q8 > 0);
+                assert_eq!((evidence.candidates, evidence.visible), (1, 1));
+                state.authored_irradiance = evidence.irradiance;
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.voxel_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("multi-source voxel diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitVoxelDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitVoxelDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!(evidence.request.target.light_id(), state.voxel_id);
+                assert!(evidence.identity_matches && evidence.irradiance_luma_q8 > 0);
+                assert_eq!((evidence.candidates, evidence.visible), (1, 1));
+                state.voxel_irradiance = evidence.irradiance;
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.raster_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("multi-source raster diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitRasterDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitRasterDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!(evidence.request.target.light_id(), state.raster_id);
+                assert!(evidence.identity_matches && evidence.irradiance_luma_q8 > 0);
+                assert_eq!((evidence.candidates, evidence.visible), (1, 1));
+                state.raster_irradiance = evidence.irradiance;
+                let request = self
+                    .tracer
+                    .request_local_light_aggregate_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("multi-source aggregate diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitAggregateDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitAggregateDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert!(evidence.request.target.light_id().is_none());
+                assert!(evidence.identity_matches);
+                assert_eq!(
+                    (evidence.candidates, evidence.visible, evidence.occluded),
+                    (3, 3, 0)
+                );
+                let expected =
+                    state.authored_irradiance + state.voxel_irradiance + state.raster_irradiance;
+                assert!(vec3_near(evidence.irradiance, expected, 2.0e-5));
+                state.aggregate_irradiance = evidence.irradiance;
+                state.stage = MultiSourceTestStage::AwaitThreeDdgiPublication;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=gpu-additivity providers=authored+voxel+raster selected_count=3 individual_sum={:?} aggregate={:?} additive=true visibility_per_light=true",
+                    expected,
+                    evidence.irradiance,
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitThreeDdgiPublication => {
+                let transport = self.tracer.ddgi_live_radiance_snapshot()?;
+                if transport.local_lights.source_revision() != state.expected_source_revision
+                    || transport.local_lights.count() != 3
+                {
+                    return None;
+                }
+                let status = self.tracer.ddgi_runtime_status();
+                let active = status.active();
+                let field = active.published_field?;
+                if field.field().radiance_revision()
+                    != transport.local_lights.info.transport_revision
+                    || field.field().geometry_revision() != state.terrain_revision
+                    || !is_converged_field(field)
+                    || active.stage != DdgiVolumeStage::Ready
+                    || active.building_field.is_some()
+                    || status.staging().is_some()
+                {
+                    return None;
+                }
+                let gpu = self.tracer.ddgi_local_light_gpu_evidence()?;
+                if !gpu.matches_classified_field(field)
+                    || gpu.local_source_revision != state.expected_source_revision
+                    || gpu.local_light_count != 3
+                    || !gpu.is_complete()
+                {
+                    return None;
+                }
+                assert_eq!(gpu.sampled_probe_count, active.grid.probe_count());
+                assert!(gpu.totals.candidates > 0 && gpu.totals.irradiance_luma_q8 > 0);
+                assert!(
+                    !self
+                        .tracer
+                        .ddgi_lighting_diagnostics()
+                        .has_mixed_in_flight_revision
+                );
+
+                self.local_lights
+                    .update(
+                        state.authored_id.unwrap(),
+                        LocalLight::Point(
+                            PointLight::new(
+                                POINT_LIGHT_MOVED_POSITION,
+                                MULTI_SOURCE_RASTER_COLOR,
+                                MULTI_SOURCE_RASTER_INTENSITY,
+                                POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                                POINT_LIGHT_RANGE_WORLD,
+                            )
+                            .unwrap(),
+                        ),
+                    )
+                    .expect("multi-source authored swap update must retain stable id");
+                let raster_id = self
+                    .update_emissive_sprinkler(
+                        state.raster_entity.unwrap(),
+                        RASTER_EMITTER_ADD_BASE_POSITION,
+                        raster_emitter_component(
+                            POINT_LIGHT_ADD_POSITION,
+                            MULTI_SOURCE_AUTHORED_COLOR,
+                            MULTI_SOURCE_AUTHORED_INTENSITY,
+                        ),
+                    )
+                    .expect("multi-source raster swap update must succeed");
+                assert_eq!(raster_id, state.raster_id.unwrap());
+                let snapshot = self.local_lights.snapshot();
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitSwapLive;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=ddgi-three field_serial={} transport_revision={} source_revision={} probes={} candidates={} visible={} occluded={} luma_q8={} full_sweep=true no_starvation=true mixed_in_flight=false action=swap-authored-raster-descriptors stable_ids=true photometric_update=true move=true next_source_revision={}",
+                    field.field().serial(),
+                    field.field().radiance_revision(),
+                    gpu.local_source_revision,
+                    gpu.sampled_probe_count,
+                    gpu.totals.candidates,
+                    gpu.totals.visible,
+                    gpu.totals.occluded,
+                    gpu.totals.irradiance_luma_q8,
+                    state.expected_source_revision,
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitSwapLive => {
+                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 3)
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                assert_eq!(
+                    self.tracer.local_light_revision_observability().1,
+                    Some(state.expected_registry_revision)
+                );
+                let request = self
+                    .tracer
+                    .request_local_light_aggregate_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("swapped aggregate diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitSwappedAggregateDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitSwappedAggregateDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!((evidence.candidates, evidence.visible), (3, 3));
+                assert!(vec3_near(
+                    evidence.irradiance,
+                    state.aggregate_irradiance,
+                    2.0e-5
+                ));
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.authored_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("swapped authored diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitSwappedAuthoredDiagnostic;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=gpu-order-independence before={:?} after={:?} descriptor_multiset_same=true provider_order_stable=true order_independent=true",
+                    state.aggregate_irradiance,
+                    evidence.irradiance,
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitSwappedAuthoredDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!(evidence.request.target.light_id(), state.authored_id);
+                assert!(evidence.identity_matches && evidence.irradiance_luma_q8 > 0);
+                state.swapped_authored_irradiance = evidence.irradiance;
+                self.local_lights
+                    .remove(state.authored_id.unwrap())
+                    .expect("multi-source authored removal must succeed");
+                let snapshot = self.local_lights.snapshot();
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitAuthoredRemoveLive;
+                state
+            }
+            MultiSourceTestStage::AwaitAuthoredRemoveLive => {
+                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 2)
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                let request = self
+                    .tracer
+                    .request_local_light_aggregate_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("post-removal aggregate diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitAfterRemoveAggregateDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitAfterRemoveAggregateDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert_eq!((evidence.candidates, evidence.visible), (2, 2));
+                let expected = state.aggregate_irradiance - state.swapped_authored_irradiance;
+                assert!(vec3_near(evidence.irradiance, expected, 3.0e-5));
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.authored_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("removed authored diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitRemovedAuthoredDiagnostic;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=gpu-remove-one before={:?} removed={:?} after={:?} exact_provider_delta=true remaining_provider_count=2",
+                    state.aggregate_irradiance,
+                    state.swapped_authored_irradiance,
+                    evidence.irradiance,
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitRemovedAuthoredDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert!(!evidence.identity_matches);
+                assert_eq!(
+                    (evidence.candidates, evidence.visible, evidence.occluded),
+                    (0, 0, 0)
+                );
+                assert_eq!(evidence.irradiance, Vec3::ZERO);
+                let terrain_revision = self
+                    .apply_voxel_emissive_edits(
+                        "multi-source-move",
+                        &[
+                            (
+                                VOXEL_EMISSIVE_PRIMARY_MIN,
+                                VOXEL_EMISSIVE_PRIMARY_MAX,
+                                VOXEL_TYPE_EMPTY,
+                            ),
+                            (
+                                VOXEL_EMISSIVE_MOVED_MIN,
+                                VOXEL_EMISSIVE_MOVED_MAX,
+                                VOXEL_TYPE_EMISSIVE,
+                            ),
+                        ],
+                        state.terrain_revision,
+                    )
+                    .expect("multi-source voxel move must succeed");
+                state.terrain_revision = terrain_revision;
+                state.stage = MultiSourceTestStage::AwaitVoxelMoveRegistry;
+                state
+            }
+            MultiSourceTestStage::AwaitVoxelMoveRegistry => {
+                let snapshot = self.local_lights.snapshot();
+                if voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN).is_some() {
+                    return None;
+                }
+                let Some(moved) = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_MOVED_MIN) else {
+                    return None;
+                };
+                assert_ne!(moved.id(), state.voxel_id.unwrap());
+                assert_eq!(
+                    provider_source_count(&snapshot, EMISSIVE_VOXEL_PROVIDER_ID),
+                    1
+                );
+                assert_eq!(
+                    provider_source_count(&snapshot, RASTER_ENTITY_LIGHT_PROVIDER_ID),
+                    1
+                );
+                let stale_voxel_id = state.voxel_id.replace(moved.id()).unwrap();
+                state.stale_voxel_id = Some(stale_voxel_id);
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitVoxelMoveLive;
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] action=move-voxel old_slot={} old_generation={} new_slot={} new_generation={} geometry_revision={} source_revision={} registry_revision={} affected_old_plus_new=true stale_registry_source=false",
+                    stale_voxel_id.slot(),
+                    stale_voxel_id.generation(),
+                    moved.id().slot(),
+                    moved.id().generation(),
+                    state.terrain_revision,
+                    state.expected_source_revision,
+                    state.expected_registry_revision,
+                );
+                state
+            }
+            MultiSourceTestStage::AwaitVoxelMoveLive => {
+                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 2)
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.stale_voxel_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("stale multi-source identity request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitMovedVoxelStaleDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitMovedVoxelStaleDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert!(!evidence.identity_matches);
+                assert_eq!(evidence.irradiance, Vec3::ZERO);
+
+                let mut overflow_ids = Vec::with_capacity(LOCAL_LIGHT_GPU_CAPACITY + 1);
+                for index in 0..LOCAL_LIGHT_GPU_CAPACITY {
+                    overflow_ids.push(
+                        self.local_lights.add(LocalLight::Point(
+                            PointLight::new(
+                                POINT_LIGHT_ADD_POSITION + Vec3::X * index as f32 * 0.002,
+                                Vec3::ONE,
+                                0.0,
+                                POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                                POINT_LIGHT_RANGE_WORLD,
+                            )
+                            .unwrap(),
+                        )),
+                    );
+                }
+                overflow_ids.push(
+                    self.local_lights.add(LocalLight::Spot(
+                        SpotLight::new(
+                            POINT_LIGHT_ADD_POSITION,
+                            -Vec3::Y,
+                            Vec3::ONE,
+                            0.1,
+                            POINT_LIGHT_SOURCE_RADIUS_WORLD,
+                            POINT_LIGHT_RANGE_WORLD,
+                            0.1,
+                            0.2,
+                        )
+                        .unwrap(),
+                    )),
+                );
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .multi_source_overflow_authored_ids = overflow_ids;
+                let snapshot = self.local_lights.snapshot();
+                assert_eq!(snapshot.lights().len(), LOCAL_LIGHT_GPU_CAPACITY + 3);
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitOverflowLive;
+                state
+            }
+            MultiSourceTestStage::AwaitOverflowLive => {
+                if self.tracer.local_light_live_state()
+                    != (
+                        Some(state.expected_source_revision),
+                        LOCAL_LIGHT_GPU_CAPACITY as u32,
+                    )
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                let overflow = self.tracer.local_light_overflow_evidence();
+                assert_eq!(overflow.len(), 3);
+                assert_eq!(
+                    overflow
+                        .iter()
+                        .filter(|item| {
+                            item.source.provider() == AUTHORED_LOCAL_LIGHT_PROVIDER_ID
+                                && item.reason
+                                    == crate::lighting::LocalLightOverflowReason::UnsupportedKind
+                        })
+                        .count(),
+                    1
+                );
+                assert_eq!(
+                    overflow
+                        .iter()
+                        .filter(|item| {
+                            item.source.provider() == EMISSIVE_VOXEL_PROVIDER_ID
+                                && item.reason
+                                    == crate::lighting::LocalLightOverflowReason::Capacity
+                        })
+                        .count(),
+                    1
+                );
+                assert_eq!(
+                    overflow
+                        .iter()
+                        .filter(|item| {
+                            item.source.provider() == RASTER_ENTITY_LIGHT_PROVIDER_ID
+                                && item.reason
+                                    == crate::lighting::LocalLightOverflowReason::Capacity
+                        })
+                        .count(),
+                    1
+                );
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] checkpoint=overcapacity authoritative_count={} accepted_count={} overflow_count=3 overflow_by_provider_reason=authored:UnsupportedKind:1,voxel:Capacity:1,raster:Capacity:1 deterministic_selection=true silent_drop=false",
+                    LOCAL_LIGHT_GPU_CAPACITY + 3,
+                    LOCAL_LIGHT_GPU_CAPACITY,
+                );
+
+                let authored_ids = std::mem::take(
+                    &mut self
+                        .environment_lighting_test_scene
+                        .as_mut()
+                        .unwrap()
+                        .multi_source_overflow_authored_ids,
+                );
+                for id in authored_ids {
+                    self.local_lights
+                        .remove(id)
+                        .expect("multi-source overflow authored cleanup must succeed");
+                }
+                let removed_raster = self
+                    .remove_emissive_sprinkler(state.raster_entity.unwrap())
+                    .expect("multi-source raster cleanup must succeed");
+                assert_eq!(removed_raster, state.raster_id.unwrap());
+                let terrain_revision = self
+                    .apply_voxel_emissive_edits(
+                        "multi-source-remove",
+                        &[(
+                            VOXEL_EMISSIVE_MOVED_MIN,
+                            VOXEL_EMISSIVE_MOVED_MAX,
+                            VOXEL_TYPE_EMPTY,
+                        )],
+                        state.terrain_revision,
+                    )
+                    .expect("multi-source voxel cleanup must succeed");
+                state.terrain_revision = terrain_revision;
+                state.stage = MultiSourceTestStage::AwaitFinalRegistry;
+                state
+            }
+            MultiSourceTestStage::AwaitFinalRegistry => {
+                let snapshot = self.local_lights.snapshot();
+                if !snapshot.lights().is_empty()
+                    || self.raster_entity_emitters.source_count() != 0
+                    || self.sprinklers.len() != 0
+                    || voxel_emissive_source_count(&snapshot) != 0
+                {
+                    return None;
+                }
+                assert_eq!(self.tracer.sprinkler_instance_count(), 0);
+                assert!(self
+                    .local_lights
+                    .light_id(
+                        RASTER_ENTITY_LIGHT_PROVIDER_ID,
+                        RasterEmitterKey::new(
+                            state.raster_entity.unwrap(),
+                            SPRINKLER_HEAD_EMITTER_PART,
+                        )
+                        .source_key(),
+                    )
+                    .is_none());
+                state.expected_source_revision = snapshot.source_revision();
+                state.expected_registry_revision = snapshot.registry_revision();
+                state.mutation_frame = self.time_info.total_frame_count();
+                state.stage = MultiSourceTestStage::AwaitFinalLive;
+                state
+            }
+            MultiSourceTestStage::AwaitFinalLive => {
+                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 0)
+                    || self.time_info.total_frame_count() <= state.mutation_frame
+                {
+                    return None;
+                }
+                assert!(self.tracer.local_light_overflow_evidence().is_empty());
+                let request = self
+                    .tracer
+                    .request_local_light_visibility_diagnostic(
+                        state.terrain_revision,
+                        state.expected_source_revision,
+                        state.raster_id.unwrap(),
+                        POINT_LIGHT_FIXED_RECEIVER_WORLD,
+                        POINT_LIGHT_FIXED_RECEIVER_NORMAL,
+                        POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
+                    )
+                    .expect("final stale raster diagnostic request must succeed");
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .unwrap()
+                    .point_light_fixed_gpu_request_serial = request;
+                state.stage = MultiSourceTestStage::AwaitFinalStaleDiagnostic;
+                state
+            }
+            MultiSourceTestStage::AwaitFinalStaleDiagnostic => {
+                let evidence = self.tracer.local_light_visibility_diagnostic_evidence()?;
+                if evidence.request.request_serial != fixed_gpu_request_serial {
+                    return None;
+                }
+                assert!(!evidence.identity_matches);
+                assert_eq!(
+                    (evidence.candidates, evidence.visible, evidence.occluded),
+                    (0, 0, 0)
+                );
+                assert_eq!(evidence.irradiance, Vec3::ZERO);
+                state.stage = MultiSourceTestStage::AwaitFinalPublication;
+                state
+            }
+            MultiSourceTestStage::AwaitFinalPublication => {
+                let transport = self.tracer.ddgi_live_radiance_snapshot()?;
+                if transport.local_lights.source_revision() != state.expected_source_revision
+                    || transport.local_lights.count() != 0
+                {
+                    return None;
+                }
+                let status = self.tracer.ddgi_runtime_status();
+                let active = status.active();
+                let field = active.published_field?;
+                if field.field().radiance_revision()
+                    != transport.local_lights.info.transport_revision
+                    || field.field().geometry_revision() != state.terrain_revision
+                    || !is_converged_field(field)
+                    || active.stage != DdgiVolumeStage::Ready
+                    || active.building_field.is_some()
+                    || status.staging().is_some()
+                {
+                    return None;
+                }
+                let gpu = self.tracer.ddgi_local_light_gpu_evidence()?;
+                if !gpu.matches_classified_field(field)
+                    || gpu.local_source_revision != state.expected_source_revision
+                    || gpu.local_light_count != 0
+                    || !gpu.is_complete()
+                {
+                    return None;
+                }
+                assert_eq!(gpu.sampled_probe_count, active.grid.probe_count());
+                assert_eq!(gpu.totals.candidates, 0);
+                assert_eq!(gpu.totals.visible, 0);
+                assert_eq!(gpu.totals.occluded, 0);
+                assert_eq!(gpu.totals.irradiance_luma_q8, 0);
+                let diagnostics = self.tracer.ddgi_lighting_diagnostics();
+                assert!(!diagnostics.has_mixed_in_flight_revision);
+                assert_eq!(diagnostics.in_flight_revision, None);
+                let atlas = active
+                    .last_atlas_validation
+                    .expect("multi-source final field must have atlas evidence");
+                assert_eq!(atlas.non_finite_count, 0);
+                assert!(atlas.max_rgb_value > 0.0);
+                let (lag, coalesced) = self.tracer.local_light_transport_observability();
+                assert_eq!(lag, 0);
+                log_acceptance_field("MULTI_SOURCE", "complete", field);
+                log::info!(
+                    "[MULTI_SOURCE_ACCEPT] complete production_providers=authored+voxel+raster add=true move=true photometric=true remove=true overcapacity=true final_zero=true stable_ids=true registry_revision={} source_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} full_sweep_probes={} ddgi_candidates=0 ddgi_luma_q8=0 stale_direct=false stale_ddgi=false mixed_in_flight=false atlas_finite=true atlas_nonblack=true atlas_max_rgb={:.8} surface_emissive_pixels=false",
+                    state.expected_registry_revision,
+                    state.expected_source_revision,
+                    field.field().radiance_revision(),
+                    lag,
+                    coalesced,
+                    gpu.sampled_probe_count,
+                    atlas.max_rgb_value,
+                );
+                return Some(TestScenePhase::Ready);
+            }
+        };
+        Some(TestScenePhase::MultiSourceLifecycle(next))
+    }
+
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
         let Some((case, phase, fixed_gpu_request_serial, fixed_gpu_visible_luma_q8)) =
             self.environment_lighting_test_scene.as_ref().map(|scene| {
@@ -1441,6 +2393,26 @@ impl App {
                         expected_sprinkler_revision: self.sprinklers.revision(),
                         mutation_frame: 0,
                         visible_luma_q8: 0,
+                    })
+                } else if case == EnvironmentLightingTestCase::MultiSourceStress {
+                    let snapshot = self.local_lights.snapshot();
+                    TestScenePhase::MultiSourceLifecycle(MultiSourceLifecycleState {
+                        terrain_revision,
+                        baseline: None,
+                        authored_id: None,
+                        voxel_id: None,
+                        stale_voxel_id: None,
+                        raster_id: None,
+                        raster_entity: None,
+                        stage: MultiSourceTestStage::AwaitBaseline,
+                        expected_source_revision: snapshot.source_revision(),
+                        expected_registry_revision: snapshot.registry_revision(),
+                        mutation_frame: 0,
+                        authored_irradiance: Vec3::ZERO,
+                        voxel_irradiance: Vec3::ZERO,
+                        raster_irradiance: Vec3::ZERO,
+                        aggregate_irradiance: Vec3::ZERO,
+                        swapped_authored_irradiance: Vec3::ZERO,
                     })
                 } else if case == EnvironmentLightingTestCase::DensityChanges {
                     let runtime = self.tracer.ddgi_runtime_status();
@@ -3100,6 +4072,14 @@ impl App {
                     TestScenePhase::Ready
                 }
             },
+            TestScenePhase::MultiSourceLifecycle(state) => {
+                let Some(next) =
+                    self.advance_multi_source_lifecycle(state, fixed_gpu_request_serial)
+                else {
+                    return;
+                };
+                next
+            }
             TestScenePhase::RasterEmitterLifecycle(mut state) => match state.stage {
                 RasterEmitterTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
@@ -4658,6 +5638,7 @@ mod tests {
             EnvironmentLightingTestCase::PointLightChanges,
             EnvironmentLightingTestCase::VoxelEmissiveChanges,
             EnvironmentLightingTestCase::RasterEmitterChanges,
+            EnvironmentLightingTestCase::MultiSourceStress,
             EnvironmentLightingTestCase::DensityChanges,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,
@@ -4984,5 +5965,33 @@ mod tests {
                     && bound.max() == VOXEL_EMISSIVE_MOVED_MAX
         ));
         assert_eq!(moved.voxel_edits.len(), 2);
+    }
+
+    #[test]
+    fn multi_source_scene_uses_one_fixed_world_space_receiver_and_swappable_point_contracts() {
+        let authored = multi_source_authored_light();
+        let LocalLight::Point(authored) = authored else {
+            panic!("authored multi-source fixture must be a point light")
+        };
+        let raster = multi_source_raster_component();
+        let LocalLight::Point(raster) = raster.light() else {
+            panic!("raster multi-source fixture must be a point light")
+        };
+
+        for point in [authored, raster] {
+            let to_light = point.position - POINT_LIGHT_FIXED_RECEIVER_WORLD;
+            assert!(to_light.dot(POINT_LIGHT_FIXED_RECEIVER_NORMAL) > 0.0);
+            assert!(to_light.length() < point.range);
+            assert_eq!(point.source_radius, POINT_LIGHT_SOURCE_RADIUS_WORLD);
+            assert_eq!(point.range, POINT_LIGHT_RANGE_WORLD);
+        }
+        assert_ne!(authored.position, raster.position);
+        assert_ne!(authored.color, raster.color);
+        assert_ne!(authored.intensity, raster.intensity);
+        assert!(vec3_near(
+            authored.color * authored.intensity + raster.color * raster.intensity,
+            raster.color * raster.intensity + authored.color * authored.intensity,
+            f32::EPSILON,
+        ));
     }
 }

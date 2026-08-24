@@ -831,6 +831,7 @@ impl App {
                         EnvironmentLightingTestCase::PointLightChanges
                             | EnvironmentLightingTestCase::VoxelEmissiveChanges
                             | EnvironmentLightingTestCase::RasterEmitterChanges
+                            | EnvironmentLightingTestCase::MultiSourceStress
                     )
                 ),
             },
