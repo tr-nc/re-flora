@@ -44,6 +44,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let local_light_visibility_diagnostic_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/lighting/local_light_visibility_diagnostic.comp",
+            "main",
+        )
+        .unwrap();
         let ddgi_irradiance_filter_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/ddgi/irradiance_filter.comp",
@@ -386,6 +392,7 @@ impl PipelineBuilder {
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
             ddgi_probe_trace_sm,
+            local_light_visibility_diagnostic_sm,
             ddgi_irradiance_filter_sm,
             ddgi_visibility_filter_sm,
             ddgi_irradiance_gutter_sm,
@@ -483,6 +490,12 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let local_light_visibility_diagnostic_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.local_light_visibility_diagnostic_sm,
+            pool,
+            &[resources, contree_builder_resources, scene_accel_resources],
+        );
         let ddgi_irradiance_filter_ppl = ComputePipeline::new(
             device,
             &shader_modules.ddgi_irradiance_filter_sm,
@@ -535,6 +548,8 @@ impl PipelineBuilder {
                 anchor: "gui_input",
                 providers: &[
                     resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,
@@ -551,6 +566,8 @@ impl PipelineBuilder {
                 anchor: "gui_input",
                 providers: &[
                     resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,
@@ -673,6 +690,7 @@ impl PipelineBuilder {
             ddgi_octahedral_gutter_ppl,
             ddgi_probe_relocate_ppl,
             ddgi_probe_trace_ppl,
+            local_light_visibility_diagnostic_ppl,
             ddgi_irradiance_filter_ppl,
             ddgi_visibility_filter_ppl,
             ddgi_irradiance_gutter_ppl,
@@ -1178,6 +1196,7 @@ pub struct ShaderModules {
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
     pub ddgi_probe_trace_sm: ShaderModule,
+    pub local_light_visibility_diagnostic_sm: ShaderModule,
     pub ddgi_irradiance_filter_sm: ShaderModule,
     pub ddgi_visibility_filter_sm: ShaderModule,
     pub ddgi_irradiance_gutter_sm: ShaderModule,
@@ -1236,6 +1255,7 @@ pub struct ComputePipelines {
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,
     pub ddgi_probe_relocate_ppl: ComputePipeline,
     pub ddgi_probe_trace_ppl: ComputePipeline,
+    pub local_light_visibility_diagnostic_ppl: ComputePipeline,
     pub ddgi_irradiance_filter_ppl: ComputePipeline,
     pub ddgi_visibility_filter_ppl: ComputePipeline,
     pub ddgi_irradiance_gutter_ppl: ComputePipeline,

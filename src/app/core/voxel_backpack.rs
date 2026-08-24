@@ -1,6 +1,6 @@
 use crate::builder::{
-    ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_OAK_WOOD,
-    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
+    ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE,
+    VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,16 +11,18 @@ pub(super) enum BackpackVoxel {
     CherryWood,
     OakWood,
     Rock,
+    Emissive,
 }
 
 impl BackpackVoxel {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Dirt,
         Self::Sand,
         Self::Stucco,
         Self::CherryWood,
         Self::OakWood,
         Self::Rock,
+        Self::Emissive,
     ];
 
     pub(super) fn voxel_type(self) -> u32 {
@@ -31,6 +33,7 @@ impl BackpackVoxel {
             Self::CherryWood => VOXEL_TYPE_CHERRY_WOOD,
             Self::OakWood => VOXEL_TYPE_OAK_WOOD,
             Self::Rock => VOXEL_TYPE_ROCK,
+            Self::Emissive => VOXEL_TYPE_EMISSIVE,
         }
     }
 
@@ -42,6 +45,7 @@ impl BackpackVoxel {
             Self::CherryWood => "Cherry wood",
             Self::OakWood => "Oak wood",
             Self::Rock => "Rock",
+            Self::Emissive => "Emissive",
         }
     }
 
@@ -53,6 +57,7 @@ impl BackpackVoxel {
             Self::CherryWood => [219, 128, 152],
             Self::OakWood => [159, 110, 70],
             Self::Rock => [168, 176, 190],
+            Self::Emissive => crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8,
         }
     }
 
@@ -64,6 +69,7 @@ impl BackpackVoxel {
             Self::CherryWood => 3,
             Self::OakWood => 4,
             Self::Rock => 5,
+            Self::Emissive => 6,
         }
     }
 }
@@ -118,7 +124,9 @@ impl VoxelBackpack {
 #[cfg(test)]
 mod tests {
     use super::{BackpackVoxel, VoxelBackpack};
-    use crate::builder::{ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_ROCK, VOXEL_TYPE_STUCCO};
+    use crate::builder::{
+        ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_ROCK, VOXEL_TYPE_STUCCO,
+    };
 
     #[test]
     fn deposits_and_withdrawals_are_saturating() {
@@ -138,6 +146,7 @@ mod tests {
         stats.removed_counts[VOXEL_TYPE_DIRT as usize] = 3;
         stats.removed_counts[VOXEL_TYPE_STUCCO as usize] = 5;
         stats.removed_counts[VOXEL_TYPE_ROCK as usize] = 7;
+        stats.removed_counts[VOXEL_TYPE_EMISSIVE as usize] = 11;
         let mut backpack = VoxelBackpack::default();
 
         backpack.deposit_removed(&stats);
@@ -145,6 +154,7 @@ mod tests {
         assert_eq!(backpack.count(BackpackVoxel::Dirt), 3);
         assert_eq!(backpack.count(BackpackVoxel::Stucco), 5);
         assert_eq!(backpack.count(BackpackVoxel::Rock), 7);
+        assert_eq!(backpack.count(BackpackVoxel::Emissive), 11);
         assert_eq!(backpack.count(BackpackVoxel::Sand), 0);
     }
 
@@ -155,5 +165,9 @@ mod tests {
         backpack.deposit(BackpackVoxel::Sand, 4);
 
         assert_eq!(backpack.first_available(), Some((BackpackVoxel::Sand, 4)));
+        assert_eq!(
+            BackpackVoxel::Emissive.color_rgb(),
+            crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8
+        );
     }
 }

@@ -6,11 +6,13 @@ use super::{
     DDGI_RAY_BUDGET_PER_FRAME, DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION,
     DDGI_VISIBILITY_INTERIOR_SIDE,
 };
-use crate::environment_lighting::DdgiRadianceSnapshot;
+use crate::environment_lighting::{DdgiRadianceHistoryPolicy, DdgiRadianceSnapshot};
 use crate::generated::gpu_structs::{
-    DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo,
+    DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo, LightGpu,
+    LocalLightInfo,
 };
 use crate::geom::UAabb3;
+use crate::lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY};
 use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Context, Result};
 use bytemuck::Zeroable;
@@ -23,9 +25,42 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 8;
+const DDGI_TRACE_STATS_COUNT: usize = 13;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
-const DDGI_ATLAS_REDUCTION_COUNT: usize = 6;
+const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DdgiProbePriorityReason {
+    TerrainEdit,
+    LightingImpact,
+    Camera,
+}
+
+/// One immutable starting point for a complete probe sweep. Priority rotates the round-robin
+/// order; it never removes batches, so a continuously changing camera or light cannot starve the
+/// rest of the volume once work has started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiProbePriority {
+    voxel_bound: UAabb3,
+    reason: DdgiProbePriorityReason,
+}
+
+impl DdgiProbePriority {
+    pub fn new(voxel_bound: UAabb3, reason: DdgiProbePriorityReason) -> Self {
+        Self {
+            voxel_bound,
+            reason,
+        }
+    }
+
+    pub fn voxel_bound(self) -> UAabb3 {
+        self.voxel_bound
+    }
+
+    pub fn reason(self) -> DdgiProbePriorityReason {
+        self.reason
+    }
+}
 
 /// Centralized temporal stopping policy. Delta thresholds permit an early sleep after a minimum
 /// sample age. Rotated Monte Carlo samples can retain isolated high-delta texels indefinitely, so
@@ -103,21 +138,42 @@ enum DdgiHistoryMode {
     Stable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct DdgiResidentIteration {
     work: DdgiScheduledWork,
     logical: DdgiFieldIdentity,
     source: Option<DdgiResidentField>,
     destination: DdgiResidentField,
     local_refresh_voxel_bound: Option<UAabb3>,
+    probe_priority: Option<DdgiProbePriority>,
     history_mode: DdgiHistoryMode,
+    radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
 }
 
+#[cfg(test)]
 fn resident_iteration_for_work(
     work: DdgiScheduledWork,
     published: Option<DdgiResidentField>,
     local_refresh_voxel_bound: Option<UAabb3>,
     history_mode: DdgiHistoryMode,
+) -> Result<DdgiResidentIteration> {
+    resident_iteration_for_work_with_policy(
+        work,
+        published,
+        local_refresh_voxel_bound,
+        history_mode,
+        None,
+        None,
+    )
+}
+
+fn resident_iteration_for_work_with_policy(
+    work: DdgiScheduledWork,
+    published: Option<DdgiResidentField>,
+    local_refresh_voxel_bound: Option<UAabb3>,
+    history_mode: DdgiHistoryMode,
+    radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
+    probe_priority: Option<DdgiProbePriority>,
 ) -> Result<DdgiResidentIteration> {
     let destination = work.destination();
     match work.kind() {
@@ -148,7 +204,9 @@ fn resident_iteration_for_work(
                 source,
                 destination,
                 local_refresh_voxel_bound,
+                probe_priority,
                 history_mode,
+                radiance_history_policy,
             })
         }
         DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
@@ -180,13 +238,15 @@ fn resident_iteration_for_work(
                 source: Some(source),
                 destination,
                 local_refresh_voxel_bound,
+                probe_priority,
                 history_mode,
+                radiance_history_policy,
             })
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DdgiRayBatch {
     pub first_probe_index: u32,
     pub probe_count: u32,
@@ -278,11 +338,25 @@ impl DdgiRayBatch {
     }
 
     pub fn writes_visibility(self) -> bool {
-        true
+        self.resident.work.kind() != DdgiScheduledWorkKind::RadianceUpdate
+    }
+
+    pub fn needs_visibility_preservation(self) -> bool {
+        !self.writes_visibility() && self.resident.source.is_some()
     }
 
     pub fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
-        self.resident.local_refresh_voxel_bound
+        self.resident.local_refresh_voxel_bound.or_else(|| {
+            (self.resident.work.kind() == DdgiScheduledWorkKind::RadianceUpdate)
+                .then(|| self.resident.probe_priority)
+                .flatten()
+                .filter(|priority| priority.reason() == DdgiProbePriorityReason::LightingImpact)
+                .map(DdgiProbePriority::voxel_bound)
+        })
+    }
+
+    pub fn probe_priority(self) -> Option<DdgiProbePriority> {
+        self.resident.probe_priority
     }
 
     pub fn local_recovery_epoch(self) -> u32 {
@@ -292,7 +366,11 @@ impl DdgiRayBatch {
     pub fn irradiance_history_is_valid(self) -> bool {
         self.resident.source.is_some_and(|source| {
             source.logical.field().spacing_voxels() == self.spacing_voxels()
-                && source.logical.field().radiance_revision() == self.radiance_revision()
+                && (source.logical.field().radiance_revision() == self.radiance_revision()
+                    || self
+                        .resident
+                        .radiance_history_policy
+                        .is_some_and(|policy| !policy.resets_history()))
         })
     }
 
@@ -307,11 +385,22 @@ impl DdgiRayBatch {
             return 0.0;
         }
         let configured = configured.clamp(0.0, 0.99);
+        let radiance_changed = self.resident.source.is_some_and(|source| {
+            source.logical.field().radiance_revision() != self.radiance_revision()
+        });
+        let configured = if radiance_changed {
+            self.resident
+                .radiance_history_policy
+                .map_or(0.0, |policy| policy.retention(configured))
+        } else {
+            configured
+        };
         match self.resident.history_mode {
             DdgiHistoryMode::Stable => configured,
             DdgiHistoryMode::TopologyRecovery => {
                 configured.min(DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION)
             }
+            DdgiHistoryMode::Accumulating if radiance_changed => configured,
             DdgiHistoryMode::Accumulating => {
                 configured.min(self.update_epoch() as f32 / (self.update_epoch() as f32 + 1.0))
             }
@@ -391,6 +480,14 @@ pub struct DdgiTraceStats {
     pub backface_hits: u32,
     pub non_finite_records: u32,
     pub invalid_probe_rays: u32,
+    pub local_light_candidates: u32,
+    pub local_light_visible: u32,
+    pub local_light_occluded: u32,
+    /// Scene-linear point-light irradiance luminance accumulated as unsigned Q24.8 values.
+    pub local_light_irradiance_luma_q8: u32,
+    pub emissive_surface_hits: u32,
+    /// Scene-linear emitted radiance luminance accumulated as unsigned Q24.8 values.
+    pub emissive_surface_radiance_luma_q8: u32,
 }
 
 impl DdgiTraceStats {
@@ -403,7 +500,39 @@ impl DdgiTraceStats {
             backface_hits: values[4],
             non_finite_records: values[5],
             invalid_probe_rays: values[6],
+            local_light_candidates: values[7],
+            local_light_visible: values[8],
+            local_light_occluded: values[9],
+            local_light_irradiance_luma_q8: values[10],
+            emissive_surface_hits: values[11],
+            emissive_surface_radiance_luma_q8: values[12],
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiLocalLightTraceTotals {
+    pub candidates: u64,
+    pub visible: u64,
+    pub occluded: u64,
+    pub irradiance_luma_q8: u64,
+}
+
+impl DdgiLocalLightTraceTotals {
+    pub fn accumulate(&mut self, batch: DdgiTraceStats) {
+        self.candidates += u64::from(batch.local_light_candidates);
+        self.visible += u64::from(batch.local_light_visible);
+        self.occluded += u64::from(batch.local_light_occluded);
+        self.irradiance_luma_q8 += u64::from(batch.local_light_irradiance_luma_q8);
+        assert_eq!(
+            self.candidates,
+            self.visible + self.occluded,
+            "accumulated DDGI local-light visibility partition diverged",
+        );
+    }
+
+    pub fn irradiance_luma(self) -> f64 {
+        self.irradiance_luma_q8 as f64 / 256.0
     }
 }
 
@@ -450,6 +579,9 @@ impl DdgiRelocationReadbackStats {
 pub struct DdgiAtlasValidationStats {
     pub max_absolute_rgb_delta: f32,
     pub max_relative_rgb_delta: f32,
+    /// Maximum non-negative RGB component in the destination interior. A completed all-black
+    /// atlas is never publication-safe for the authored sky used by the game.
+    pub max_rgb_value: f32,
     pub non_finite_count: u32,
     pub negative_rgb_texel_count: u32,
     /// Valid 8x8 interior texels included in convergence deltas.
@@ -463,6 +595,7 @@ impl DdgiAtlasValidationStats {
         Self {
             max_absolute_rgb_delta: f32::from_bits(values[0]),
             max_relative_rgb_delta: f32::from_bits(values[1]),
+            max_rgb_value: f32::from_bits(values[6]),
             non_finite_count: values[2],
             negative_rgb_texel_count: values[3],
             valid_texel_count: values[4],
@@ -483,13 +616,19 @@ fn validate_atlas_stats(stats: DdgiAtlasValidationStats) -> Result<()> {
     ensure!(
         stats.max_absolute_rgb_delta.is_finite()
             && stats.max_relative_rgb_delta.is_finite()
+            && stats.max_rgb_value.is_finite()
             && stats.max_absolute_rgb_delta >= 0.0
-            && stats.max_relative_rgb_delta >= 0.0,
+            && stats.max_relative_rgb_delta >= 0.0
+            && stats.max_rgb_value >= 0.0,
         "DDGI atlas reduction produced invalid delta metrics: {stats:?}"
     );
     ensure!(
         stats.valid_texel_count > 0 && stats.scanned_stored_texel_count > 0,
         "DDGI full-atlas validation found no valid probe texels: {stats:?}"
+    );
+    ensure!(
+        stats.max_rgb_value > 0.0,
+        "DDGI full-atlas validation rejected an all-black irradiance atlas: {stats:?}"
     );
     ensure!(
         u64::from(stats.scanned_stored_texel_count) * 64
@@ -579,6 +718,8 @@ pub struct DdgiResourceBytes {
     pub radiance_sun: u64,
     pub radiance_voxel_palette: u64,
     pub transport_query_info: u64,
+    pub local_light_info: u64,
+    pub local_lights: u64,
 }
 
 impl DdgiResourceBytes {
@@ -625,6 +766,8 @@ impl DdgiResourceBytes {
             radiance_sun: std::mem::size_of::<DdgiRadianceSun>() as u64,
             radiance_voxel_palette: std::mem::size_of::<DdgiRadianceVoxelPalette>() as u64,
             transport_query_info: std::mem::size_of::<DdgiTransportQueryInfo>() as u64,
+            local_light_info: std::mem::size_of::<LocalLightInfo>() as u64,
+            local_lights: (LOCAL_LIGHT_GPU_CAPACITY * std::mem::size_of::<LightGpu>()) as u64,
         }
     }
 
@@ -642,6 +785,8 @@ impl DdgiResourceBytes {
             + self.radiance_sun
             + self.radiance_voxel_palette
             + self.transport_query_info
+            + self.local_light_info
+            + self.local_lights
     }
 }
 
@@ -704,6 +849,7 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) relocated_terrain_revision: Option<u32>,
     pub(crate) active_ray_batch: Option<DdgiRayBatch>,
     pub(crate) filtered_probe_count: u32,
+    pub(crate) probe_priority: Option<DdgiProbePriority>,
     pub(crate) promotion_ready: bool,
 }
 
@@ -771,6 +917,7 @@ pub struct DdgiVolume {
     local_refresh_voxel_bound: Option<UAabb3>,
     local_recovery_stable_epochs: u32,
     history_mode: DdgiHistoryMode,
+    visibility_preserved_for_iteration: bool,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_trace_stats: Resource<Buffer>,
@@ -788,6 +935,8 @@ pub struct DdgiVolume {
     pub ddgi_radiance_sun: Resource<Buffer>,
     pub ddgi_radiance_voxel_palette: Resource<Buffer>,
     pub ddgi_transport_query_info: Resource<Buffer>,
+    pub ddgi_local_light_info: Resource<Buffer>,
+    pub ddgi_local_lights: Resource<Buffer>,
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
@@ -888,6 +1037,12 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_transport_query_info" => {
                 ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
             }
+            "ddgi_local_light_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_light_info))
+            }
+            "ddgi_local_lights" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_lights))
+            }
             "ddgi_irradiance_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
             }
@@ -951,9 +1106,7 @@ impl DdgiVolume {
         }
 
         let device = vulkan_ctx.device().clone();
-        let sampled_storage_usage = vk::ImageUsageFlags::SAMPLED
-            | vk::ImageUsageFlags::STORAGE
-            | vk::ImageUsageFlags::TRANSFER_DST;
+        let sampled_storage_usage = ddgi_atlas_image_usage();
         let sampler_desc = SamplerDesc {
             mag_filter: vk::Filter::LINEAR,
             min_filter: vk::Filter::LINEAR,
@@ -1075,6 +1228,29 @@ impl DdgiVolume {
             padding: 0,
         };
         transport_query_info.fill_uniform(&transport_query_snapshot)?;
+        let ddgi_local_light_info = uniform_buffer(resource_bytes.local_light_info);
+        ddgi_local_light_info.fill_uniform(&LocalLightInfo {
+            abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+            count: 0,
+            capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
+            overflow_count: 0,
+            source_revision_low: 0,
+            source_revision_high: 0,
+            registry_revision_low: 0,
+            registry_revision_high: 0,
+            live_revision_low: 0,
+            live_revision_high: 0,
+            transport_revision: 0,
+            flags: 0,
+        })?;
+        let ddgi_local_lights = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            resource_bytes.local_lights,
+        );
+        ddgi_local_lights.fill(&[LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY])?;
         let irradiance_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -1109,7 +1285,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} local_light_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -1134,6 +1310,7 @@ impl DdgiVolume {
             resource_bytes.global_sky_irradiance,
             resource_bytes.radiance_sun + resource_bytes.radiance_voxel_palette,
             resource_bytes.transport_query_info,
+            resource_bytes.local_light_info + resource_bytes.local_lights,
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
 
@@ -1162,6 +1339,7 @@ impl DdgiVolume {
             local_refresh_voxel_bound: None,
             local_recovery_stable_epochs: 0,
             history_mode: DdgiHistoryMode::Accumulating,
+            visibility_preserved_for_iteration: false,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_trace_stats: Resource::new(trace_stats),
@@ -1183,6 +1361,8 @@ impl DdgiVolume {
             ddgi_radiance_sun: Resource::new(radiance_sun),
             ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
             ddgi_transport_query_info: Resource::new(transport_query_info),
+            ddgi_local_light_info: Resource::new(ddgi_local_light_info),
+            ddgi_local_lights: Resource::new(ddgi_local_lights),
             transport_query_snapshot,
         })
     }
@@ -1213,6 +1393,9 @@ impl DdgiVolume {
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
             filtered_probe_count: self.filtered_probe_count,
+            probe_priority: self
+                .building_iteration
+                .and_then(|iteration| iteration.probe_priority),
             promotion_ready: self.promotion_is_ready(),
         }
     }
@@ -1275,6 +1458,11 @@ impl DdgiVolume {
             self.radiance_revision,
             self.stage,
         );
+        ensure!(
+            snapshot.local_lights.info.transport_revision == revision,
+            "DDGI local-light transport revision {} does not match radiance revision {revision}",
+            snapshot.local_lights.info.transport_revision,
+        );
         self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
             direction: snapshot.sun_direction.to_array(),
             terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
@@ -1289,12 +1477,17 @@ impl DdgiVolume {
                 oak_wood_color: snapshot.voxel_palette.oak_wood_color.to_array(),
                 rock_color: snapshot.voxel_palette.rock_color.to_array(),
                 hash_color_variance: snapshot.voxel_palette.hash_color_variance,
+                emissive_color: snapshot.voxel_palette.emissive_color.to_array(),
+                emissive_radiance: snapshot.voxel_palette.emissive_radiance,
                 ..DdgiRadianceVoxelPalette::zeroed()
             })?;
         self.transport_query_snapshot.visibility_bias_world =
             snapshot.ddgi_receiver_visibility_bias_world;
         self.ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)?;
+        self.ddgi_local_light_info
+            .fill_uniform(&snapshot.local_lights.info)?;
+        self.ddgi_local_lights.fill(&snapshot.local_lights.lights)?;
         self.radiance_revision = Some(revision);
         self.radiance_snapshot = Some(snapshot);
         Ok(())
@@ -1332,6 +1525,8 @@ impl DdgiVolume {
         &mut self,
         work: DdgiScheduledWork,
         local_refresh_voxel_bound: Option<UAabb3>,
+        radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
+        probe_priority: Option<DdgiProbePriority>,
     ) -> Result<()> {
         ensure!(
             self.scheduled_work.is_none() && self.building_iteration.is_none(),
@@ -1377,11 +1572,13 @@ impl DdgiVolume {
                 }
             }
         }
-        let resident = resident_iteration_for_work(
+        let resident = resident_iteration_for_work_with_policy(
             work,
             self.published_field,
             self.local_refresh_voxel_bound,
             self.history_mode,
+            radiance_history_policy,
+            probe_priority,
         )?;
         match work.kind() {
             DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
@@ -1402,6 +1599,7 @@ impl DdgiVolume {
         }
         self.scheduled_work = Some(work);
         self.building_iteration = Some(resident);
+        self.visibility_preserved_for_iteration = false;
         self.filtered_probe_count = 0;
         self.next_batch_ordinal = 0;
         self.active_ray_batch = None;
@@ -1460,6 +1658,7 @@ impl DdgiVolume {
             self.stage,
             DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding
         ) || self.active_ray_batch.is_some()
+            || self.visibility_preservation_needed()
             || self.filtered_probe_count >= self.grid.probe_count()
         {
             return None;
@@ -1467,7 +1666,7 @@ impl DdgiVolume {
         let resident = self.building_iteration?;
         let priority_physical_ordinal = priority_probe_batch(
             self.grid,
-            resident.local_refresh_voxel_bound,
+            resident.probe_priority.map(DdgiProbePriority::voxel_bound),
             DDGI_PROBE_BATCH_SIZE,
         );
         let (first_probe_index, probe_count) = ddgi_probe_batch_range(
@@ -1482,6 +1681,42 @@ impl DdgiVolume {
             probe_count,
             resident,
         })
+    }
+
+    pub fn visibility_preservation_needed(&self) -> bool {
+        self.building_iteration.is_some_and(|iteration| {
+            DdgiRayBatch {
+                first_probe_index: 0,
+                probe_count: 0,
+                resident: iteration,
+            }
+            .needs_visibility_preservation()
+                && !self.visibility_preserved_for_iteration
+        })
+    }
+
+    pub fn record_visibility_preservation(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        assert!(self.visibility_preservation_needed());
+        let iteration = self
+            .building_iteration
+            .expect("visibility preservation requires a building iteration");
+        let source = iteration
+            .source
+            .expect("visibility preservation requires a resident source");
+        self.visibility_atlas(source.atlas_slot)
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.visibility_atlas(iteration.destination.atlas_slot)
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
+    pub fn mark_visibility_preserved(&mut self) {
+        assert!(self.visibility_preservation_needed());
+        self.visibility_preserved_for_iteration = true;
     }
 
     pub fn iteration_will_complete(&self, batch: DdgiRayBatch) -> bool {
@@ -1786,6 +2021,8 @@ impl DdgiVolume {
             &*self.ddgi_radiance_sun,
             &*self.ddgi_radiance_voxel_palette,
             &*self.ddgi_transport_query_info,
+            &*self.ddgi_local_light_info,
+            &*self.ddgi_local_lights,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
@@ -1881,6 +2118,13 @@ impl DdgiVolume {
                     .saturating_add(stats.frontface_hits)
                     .saturating_add(stats.backface_hits),
             "DDGI trace stats hit partition is inconsistent: {stats:?}",
+        );
+        ensure!(
+            stats.local_light_candidates
+                == stats
+                    .local_light_visible
+                    .saturating_add(stats.local_light_occluded),
+            "DDGI trace stats local-light visibility partition is inconsistent: {stats:?}",
         );
         Ok(stats)
     }
@@ -1988,6 +2232,13 @@ fn atlas_image_desc(
     }
 }
 
+fn ddgi_atlas_image_usage() -> vk::ImageUsageFlags {
+    vk::ImageUsageFlags::SAMPLED
+        | vk::ImageUsageFlags::STORAGE
+        | vk::ImageUsageFlags::TRANSFER_SRC
+        | vk::ImageUsageFlags::TRANSFER_DST
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2020,20 +2271,55 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 32);
+        assert_eq!(bytes.trace_stats, 52);
         assert_eq!(bytes.relocation_stats, 56);
-        assert_eq!(bytes.atlas_reduction, 24);
+        assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);
-        assert_eq!(bytes.radiance_voxel_palette, 80);
+        assert_eq!(bytes.radiance_voxel_palette, 96);
         assert_eq!(bytes.transport_query_info, 48);
+    }
+
+    #[test]
+    fn local_light_trace_totals_widen_complete_sweep_accumulation() {
+        let batch = |candidates, visible, occluded, irradiance_luma_q8| DdgiTraceStats {
+            local_light_candidates: candidates,
+            local_light_visible: visible,
+            local_light_occluded: occluded,
+            local_light_irradiance_luma_q8: irradiance_luma_q8,
+            ..Default::default()
+        };
+        let mut totals = DdgiLocalLightTraceTotals::default();
+        totals.accumulate(batch(7, 5, 2, u32::MAX));
+        totals.accumulate(batch(11, 3, 8, 256));
+
+        assert_eq!(totals.candidates, 18);
+        assert_eq!(totals.visible, 8);
+        assert_eq!(totals.occluded, 10);
+        assert_eq!(totals.irradiance_luma_q8, u64::from(u32::MAX) + 256);
+        assert_eq!(
+            totals.irradiance_luma(),
+            (u64::from(u32::MAX) + 256) as f64 / 256.0
+        );
+    }
+
+    #[test]
+    fn trace_stats_decode_real_emissive_hit_counters() {
+        let mut values = [0_u32; DDGI_TRACE_STATS_COUNT];
+        values[11] = 37;
+        values[12] = 9_472;
+
+        let stats = DdgiTraceStats::from_array(values);
+
+        assert_eq!(stats.emissive_surface_hits, 37);
+        assert_eq!(stats.emissive_surface_radiance_luma_q8, 9_472);
     }
 
     #[test]
     fn texture_descriptors_use_required_oracle_formats() {
         let irradiance = DdgiAtlasLayout::new(1, DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility = DdgiAtlasLayout::new(1, DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let usage = vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::STORAGE;
+        let usage = ddgi_atlas_image_usage();
         let irradiance_desc = atlas_image_desc(irradiance, DDGI_IRRADIANCE_FORMAT, usage);
         let visibility_desc = atlas_image_desc(visibility, DDGI_VISIBILITY_FORMAT, usage);
 
@@ -2043,6 +2329,12 @@ mod tests {
         assert_eq!(visibility_desc.extent, Extent3D::new(18, 18, 1));
         assert!(irradiance_desc.usage.contains(vk::ImageUsageFlags::STORAGE));
         assert!(visibility_desc.usage.contains(vk::ImageUsageFlags::SAMPLED));
+        assert!(visibility_desc
+            .usage
+            .contains(vk::ImageUsageFlags::TRANSFER_SRC));
+        assert!(visibility_desc
+            .usage
+            .contains(vk::ImageUsageFlags::TRANSFER_DST));
     }
 
     #[test]
@@ -2078,6 +2370,7 @@ mod tests {
             relocated_terrain_revision: None,
             active_ray_batch: None,
             filtered_probe_count: 0,
+            probe_priority: None,
             promotion_ready: false,
         };
         assert!(!status.is_ready());
@@ -2113,6 +2406,7 @@ mod tests {
                 relocated_terrain_revision: Some(terrain_revision),
                 active_ray_batch: None,
                 filtered_probe_count: 0,
+                probe_priority: None,
                 promotion_ready: published,
             }
         };
@@ -2243,12 +2537,32 @@ mod tests {
         assert_eq!(changed.destination.atlas_slot, DdgiAtlasSlot::Atlas0);
         assert_eq!(changed.destination.sky_slot, DdgiSkySlot::Sky1);
         assert_eq!(changed.logical.field().update_epoch(), 0);
+        let continuous_history = crate::environment_lighting::DdgiRadianceHistoryPolicy {
+            change: crate::environment_lighting::DdgiRadianceChange {
+                reason: crate::environment_lighting::DdgiRadianceChangeReason::ContinuousSun,
+                delta: crate::environment_lighting::DdgiRadianceDelta {
+                    sun_angle_radians: 1.0_f32.to_radians(),
+                    ..Default::default()
+                },
+            },
+            elapsed: std::time::Duration::from_millis(200),
+        };
         let changed_batch = DdgiRayBatch {
-            resident: changed,
+            resident: resident_iteration_for_work_with_policy(
+                new_radiance,
+                Some(published),
+                None,
+                DdgiHistoryMode::Stable,
+                Some(continuous_history),
+                None,
+            )
+            .unwrap(),
             ..same_batch
         };
-        assert_eq!(changed_batch.irradiance_history_retention(0.98), 0.0);
+        assert!(changed_batch.irradiance_history_retention(0.98) > 0.0);
         assert_eq!(changed_batch.visibility_history_retention(0.98), 0.98);
+        assert!(!changed_batch.writes_visibility());
+        assert!(changed_batch.needs_visibility_preservation());
     }
 
     #[test]
@@ -2406,7 +2720,7 @@ mod tests {
     }
 
     #[test]
-    fn terrain_edit_priority_starts_with_the_batch_nearest_the_edit_then_wraps() {
+    fn immutable_priority_starts_near_the_bound_then_wraps_without_starvation() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let edit = UAabb3::new(UVec3::splat(240), UVec3::splat(272));
         let priority = priority_probe_batch(grid, Some(edit), DDGI_PROBE_BATCH_SIZE).unwrap();
@@ -2486,6 +2800,7 @@ mod tests {
         let finite = DdgiAtlasValidationStats {
             max_absolute_rgb_delta: 0.25,
             max_relative_rgb_delta: 0.5,
+            max_rgb_value: 0.75,
             valid_texel_count: 64,
             scanned_stored_texel_count: 100,
             ..Default::default()
@@ -2509,6 +2824,15 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("negative RGB"));
+
+        let all_black = DdgiAtlasValidationStats {
+            max_rgb_value: 0.0,
+            ..finite
+        };
+        assert!(validate_atlas_stats(all_black)
+            .unwrap_err()
+            .to_string()
+            .contains("all-black"));
     }
 
     #[test]
@@ -2529,7 +2853,9 @@ mod tests {
                 source: None,
                 destination: resident,
                 local_refresh_voxel_bound: None,
+                probe_priority: None,
                 history_mode: DdgiHistoryMode::Accumulating,
+                radiance_history_policy: None,
             },
         };
         assert!(pending_trace_stats_batch_matches(

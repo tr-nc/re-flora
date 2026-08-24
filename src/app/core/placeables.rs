@@ -1,6 +1,10 @@
 use super::App;
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::builder::GrassGrowthInfluence;
+use crate::lighting::{
+    LightId, RasterEmitterComponent, RasterEmitterKey, RasterEmitterPartId, RasterEntityId,
+    RASTER_ENTITY_LIGHT_PROVIDER_ID,
+};
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
@@ -37,6 +41,8 @@ const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::ne
 const SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS: u32 = 10;
 const SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL: u8 = 0;
 const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
+const SPRINKLER_RASTER_ENTITY_NAMESPACE: u32 = 0x5350_524B;
+pub(super) const SPRINKLER_HEAD_EMITTER_PART: RasterEmitterPartId = RasterEmitterPartId::new(1);
 const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -533,6 +539,22 @@ struct SprinklerRecord {
     id: u32,
     base_position: Vec3,
     animation_phase: f32,
+    emitter_component: Option<RasterEmitterComponent>,
+}
+
+impl SprinklerRecord {
+    fn raster_entity_id(self) -> RasterEntityId {
+        RasterEntityId::new(SPRINKLER_RASTER_ENTITY_NAMESPACE, self.id, 1)
+    }
+
+    fn emitter_source(self) -> Option<(RasterEmitterKey, RasterEmitterComponent)> {
+        self.emitter_component.map(|component| {
+            (
+                RasterEmitterKey::new(self.raster_entity_id(), SPRINKLER_HEAD_EMITTER_PART),
+                component,
+            )
+        })
+    }
 }
 
 struct SprinklerEmitter {
@@ -689,12 +711,44 @@ impl SprinklerPlacementPlan {
     fn base_position(&self) -> Vec3 {
         self.record.base_position
     }
+
+    fn raster_entity_id(&self) -> RasterEntityId {
+        self.record.raster_entity_id()
+    }
+
+    fn emitter_source(&self) -> Option<(RasterEmitterKey, RasterEmitterComponent)> {
+        self.record.emitter_source()
+    }
+}
+
+struct SprinklerEmitterUpdatePlan {
+    expected_revision: u64,
+    entity: RasterEntityId,
+    base_position: Vec3,
+    component: RasterEmitterComponent,
+    changed: bool,
+    render_instances: Vec<SprinklerRenderInstance>,
+    grass_influence: GrassGrowthInfluence,
+}
+
+impl SprinklerEmitterUpdatePlan {
+    fn emitter_source(&self) -> (RasterEmitterKey, RasterEmitterComponent) {
+        (
+            RasterEmitterKey::new(self.entity, SPRINKLER_HEAD_EMITTER_PART),
+            self.component,
+        )
+    }
+
+    fn changed(&self) -> bool {
+        self.changed
+    }
 }
 
 struct SprinklerRemovalPlan {
     expected_revision: u64,
     removed_ids: HashSet<u32>,
     removed_grass_influence_ids: Vec<u64>,
+    removed_emitter_entities: Vec<RasterEntityId>,
     render_instances: Vec<SprinklerRenderInstance>,
 }
 
@@ -710,13 +764,20 @@ impl SprinklerRemovalPlan {
     fn removed_grass_influence_ids(&self) -> &[u64] {
         &self.removed_grass_influence_ids
     }
+
+    fn removed_emitter_entities(&self) -> &[RasterEntityId] {
+        &self.removed_emitter_entities
+    }
 }
 
 #[derive(Default)]
 pub(super) struct SprinklerRuntime {
     records: Vec<SprinklerRecord>,
     emitters: Vec<SprinklerEmitter>,
-    next_id: u32,
+    /// Monotonic, never-reused identity source. `u32::MAX + 1` means exhausted; placement then
+    /// fails explicitly so every u32 consumer (removal, grass influence, RNG, raster key) shares
+    /// the same no-ABA contract.
+    next_id: u64,
     revision: u64,
 }
 
@@ -734,6 +795,10 @@ impl SprinklerRuntime {
 
     pub(super) fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    pub(super) fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub(super) fn render_instances(&self) -> Vec<SprinklerRenderInstance> {
@@ -770,30 +835,40 @@ impl SprinklerRuntime {
         }
     }
 
-    fn plan_placement(&self, target: SprinklerPlacementTarget) -> SprinklerPlacementPlan {
+    fn plan_placement(&self, target: SprinklerPlacementTarget) -> Result<SprinklerPlacementPlan> {
+        self.plan_placement_with_emitter(target, None)
+    }
+
+    fn plan_placement_with_emitter(
+        &self,
+        target: SprinklerPlacementTarget,
+        emitter_component: Option<RasterEmitterComponent>,
+    ) -> Result<SprinklerPlacementPlan> {
         let base_position = target.position();
         let nozzle_position =
             base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
-        let id = self.next_id.max(1);
+        let id = u32::try_from(self.next_id)
+            .map_err(|_| anyhow!("sprinkler identity space exhausted; ids are never reused"))?;
         let animation_phase = sprinkler_animation_phase(id, base_position);
         let record = SprinklerRecord {
             id,
             base_position,
             animation_phase,
+            emitter_component,
         };
         let mut render_instances = self.render_instances();
         render_instances.push(SprinklerRenderInstance {
             base_position,
             animation_phase,
         });
-        SprinklerPlacementPlan {
+        Ok(SprinklerPlacementPlan {
             expected_revision: self.revision,
             record,
             emitter: SprinklerEmitter::new(id, nozzle_position, animation_phase),
             render_instances,
             grass_influence_id: sprinkler_grass_influence_id(id),
             grass_influence: sprinkler_grass_influence(base_position),
-        }
+        })
     }
 
     fn commit_placement(&mut self, plan: SprinklerPlacementPlan) {
@@ -801,11 +876,70 @@ impl SprinklerRuntime {
             self.revision, plan.expected_revision,
             "sprinkler placement plan must commit against its source revision"
         );
-        self.next_id = plan.record.id.wrapping_add(1).max(1);
+        self.next_id = u64::from(plan.record.id) + 1;
         self.records.push(plan.record);
         self.emitters.push(plan.emitter);
         self.revision = self.revision.wrapping_add(1);
         debug_assert_eq!(self.records.len(), self.emitters.len());
+    }
+
+    fn plan_emitter_update(
+        &self,
+        entity: RasterEntityId,
+        base_position: Vec3,
+        component: RasterEmitterComponent,
+    ) -> Option<SprinklerEmitterUpdatePlan> {
+        let record = self
+            .records
+            .iter()
+            .find(|record| record.raster_entity_id() == entity)?;
+        let changed =
+            record.base_position != base_position || record.emitter_component != Some(component);
+        let mut render_instances = self.render_instances();
+        let render = render_instances
+            .iter_mut()
+            .zip(self.records.iter())
+            .find_map(|(render, candidate)| {
+                (candidate.raster_entity_id() == entity).then_some(render)
+            })
+            .expect("live sprinkler record must have one raster instance");
+        render.base_position = base_position;
+        Some(SprinklerEmitterUpdatePlan {
+            expected_revision: self.revision,
+            entity,
+            base_position,
+            component,
+            changed,
+            render_instances,
+            grass_influence: sprinkler_grass_influence(base_position),
+        })
+    }
+
+    fn commit_emitter_update(&mut self, plan: SprinklerEmitterUpdatePlan) {
+        assert_eq!(self.revision, plan.expected_revision);
+        if !plan.changed {
+            return;
+        }
+        let index = self
+            .records
+            .iter()
+            .position(|record| record.raster_entity_id() == plan.entity)
+            .expect("emitter update entity must remain live until commit");
+        self.records[index].base_position = plan.base_position;
+        self.records[index].emitter_component = Some(plan.component);
+        self.emitters[index].nozzle_position =
+            plan.base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn emitter_source(
+        &self,
+        entity: RasterEntityId,
+    ) -> Option<(RasterEmitterKey, RasterEmitterComponent)> {
+        self.records
+            .iter()
+            .find(|record| record.raster_entity_id() == entity)
+            .and_then(|record| record.emitter_source())
     }
 
     fn plan_removal(&self, edit: TerrainBrushEdit) -> Option<SprinklerRemovalPlan> {
@@ -818,6 +952,20 @@ impl SprinklerRuntime {
             })
             .map(|record| record.id)
             .collect::<HashSet<_>>();
+        self.plan_removal_ids(removed_ids)
+    }
+
+    fn plan_removal_entity(&self, entity: RasterEntityId) -> Option<SprinklerRemovalPlan> {
+        let removed_ids = self
+            .records
+            .iter()
+            .filter(|record| record.raster_entity_id() == entity)
+            .map(|record| record.id)
+            .collect::<HashSet<_>>();
+        self.plan_removal_ids(removed_ids)
+    }
+
+    fn plan_removal_ids(&self, removed_ids: HashSet<u32>) -> Option<SprinklerRemovalPlan> {
         if removed_ids.is_empty() {
             return None;
         }
@@ -836,10 +984,17 @@ impl SprinklerRuntime {
             .filter(|record| removed_ids.contains(&record.id))
             .map(|record| sprinkler_grass_influence_id(record.id))
             .collect();
+        let removed_emitter_entities = self
+            .records
+            .iter()
+            .filter(|record| removed_ids.contains(&record.id) && record.emitter_component.is_some())
+            .map(|record| record.raster_entity_id())
+            .collect();
         Some(SprinklerRemovalPlan {
             expected_revision: self.revision,
             removed_ids,
             removed_grass_influence_ids,
+            removed_emitter_entities,
             render_instances,
         })
     }
@@ -920,6 +1075,54 @@ fn sprinkler_seed(id: u32, position: Vec3) -> u64 {
 }
 
 impl App {
+    fn stage_raster_emitter_upsert(
+        &self,
+        entity: RasterEntityId,
+        component: RasterEmitterComponent,
+    ) -> Result<(
+        crate::lighting::RasterEntityEmitterProvider,
+        crate::lighting::LocalLightRegistry,
+        crate::lighting::RasterEntityEmitterChange,
+        LightId,
+    )> {
+        let mut provider = self.raster_entity_emitters.clone();
+        let change = provider
+            .publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, component)])
+            .map_err(|err| anyhow!("raster emitter publication failed: {err:?}"))?;
+        let mut registry = self.local_lights.clone();
+        registry
+            .reconcile(provider.snapshot())
+            .map_err(|err| anyhow!("raster emitter reconcile failed: {err:?}"))?;
+        let key = RasterEmitterKey::new(entity, SPRINKLER_HEAD_EMITTER_PART);
+        let light_id = registry
+            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+            .ok_or_else(|| anyhow!("raster emitter reconcile omitted the published source"))?;
+        Ok((provider, registry, change, light_id))
+    }
+
+    fn stage_raster_emitter_removals(
+        &self,
+        entities: &[RasterEntityId],
+    ) -> Result<
+        Option<(
+            crate::lighting::RasterEntityEmitterProvider,
+            crate::lighting::LocalLightRegistry,
+        )>,
+    > {
+        if entities.is_empty() {
+            return Ok(None);
+        }
+        let mut provider = self.raster_entity_emitters.clone();
+        provider
+            .remove_entities(entities.iter().copied())
+            .map_err(|err| anyhow!("raster emitter removal failed: {err:?}"))?;
+        let mut registry = self.local_lights.clone();
+        registry
+            .reconcile(provider.snapshot())
+            .map_err(|err| anyhow!("raster emitter removal reconcile failed: {err:?}"))?;
+        Ok(Some((provider, registry)))
+    }
+
     pub(super) fn current_placeable_kind(&self) -> PlaceableKind {
         self.player_tools.selected_placeable()
     }
@@ -976,6 +1179,8 @@ impl App {
             return Ok(0);
         };
 
+        let staged_lights = self.stage_raster_emitter_removals(plan.removed_emitter_entities())?;
+
         let previous_render_instances = self.sprinklers.render_instances();
         self.tracer.upload_sprinklers(plan.render_instances())?;
         if let Err(effect_error) = self
@@ -995,6 +1200,10 @@ impl App {
         }
 
         let removed_count = self.sprinklers.commit_removal(plan);
+        if let Some((provider, registry)) = staged_lights {
+            self.raster_entity_emitters = provider;
+            self.local_lights = registry;
+        }
         log::info!("Removed {} sprinkler(s) with terrain brush", removed_count);
         Ok(removed_count)
     }
@@ -1003,7 +1212,24 @@ impl App {
         &mut self,
         target: SprinklerPlacementTarget,
     ) -> Result<()> {
-        let plan = self.sprinklers.plan_placement(target);
+        self.apply_sprinkler_placement_internal(target, None)
+            .map(|_| ())
+    }
+
+    fn apply_sprinkler_placement_internal(
+        &mut self,
+        target: SprinklerPlacementTarget,
+        component: Option<RasterEmitterComponent>,
+    ) -> Result<(RasterEntityId, Option<LightId>)> {
+        let plan = self
+            .sprinklers
+            .plan_placement_with_emitter(target, component)?;
+        let staged_lights = plan
+            .emitter_source()
+            .map(|(_, component)| {
+                self.stage_raster_emitter_upsert(plan.raster_entity_id(), component)
+            })
+            .transpose()?;
         let previous_render_instances = self.sprinklers.render_instances();
         self.tracer.upload_sprinklers(plan.render_instances())?;
         let (influence_id, influence) = plan.grass_influence();
@@ -1023,9 +1249,139 @@ impl App {
 
         let id = plan.id();
         let base_position = plan.base_position();
+        let entity = plan.raster_entity_id();
         self.sprinklers.commit_placement(plan);
+        let light_id = staged_lights.map(|(provider, registry, change, light_id)| {
+            self.raster_entity_emitters = provider;
+            self.local_lights = registry;
+            log::info!(
+                "[LOCAL_LIGHT][RASTER_PROVIDER] action=spawn entity={:?} part={} provider_source_revision={} provider_source_count={} registry_revision={} registry_source_revision={} light_slot={} light_generation={} surface_emissive_pixels=false",
+                entity,
+                SPRINKLER_HEAD_EMITTER_PART.get(),
+                change.source_revision,
+                change.source_count,
+                self.local_lights.registry_revision(),
+                self.local_lights.snapshot().source_revision(),
+                light_id.slot(),
+                light_id.generation(),
+            );
+            light_id
+        });
         log::info!("Placed sprinkler {} at {:?}", id, base_position);
-        Ok(())
+        Ok((entity, light_id))
+    }
+
+    pub(super) fn apply_emissive_sprinkler_placement(
+        &mut self,
+        target: SprinklerPlacementTarget,
+        component: RasterEmitterComponent,
+    ) -> Result<(RasterEntityId, LightId)> {
+        let (entity, light_id) =
+            self.apply_sprinkler_placement_internal(target, Some(component))?;
+        Ok((
+            entity,
+            light_id.expect("emissive sprinkler placement must publish one light"),
+        ))
+    }
+
+    pub(super) fn update_emissive_sprinkler(
+        &mut self,
+        entity: RasterEntityId,
+        base_position: Vec3,
+        component: RasterEmitterComponent,
+    ) -> Result<LightId> {
+        let plan = self
+            .sprinklers
+            .plan_emitter_update(entity, base_position, component)
+            .ok_or_else(|| anyhow!("raster emitter entity is not live: {entity:?}"))?;
+        if !plan.changed() {
+            let (key, _) = plan.emitter_source();
+            return self
+                .local_lights
+                .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+                .ok_or_else(|| anyhow!("live raster emitter has no registry light: {entity:?}"));
+        }
+        let (_, staged_component) = plan.emitter_source();
+        let (provider, registry, change, light_id) =
+            self.stage_raster_emitter_upsert(entity, staged_component)?;
+        let previous_render_instances = self.sprinklers.render_instances();
+        self.tracer.upload_sprinklers(&plan.render_instances)?;
+        if let Err(effect_error) = self.surface_builder.upsert_external_grass_growth_influence(
+            sprinkler_grass_influence_id(entity.slot()),
+            plan.grass_influence,
+            self.time_info.time_since_start_duration().as_millis() as u32,
+        ) {
+            if let Err(rollback_error) = self.tracer.upload_sprinklers(&previous_render_instances) {
+                return Err(anyhow!(
+                    "failed to move sprinkler grass influence: {effect_error}; failed to restore sprinkler render instances: {rollback_error}"
+                ));
+            }
+            return Err(effect_error);
+        }
+        self.sprinklers.commit_emitter_update(plan);
+        self.raster_entity_emitters = provider;
+        self.local_lights = registry;
+        log::info!(
+            "[LOCAL_LIGHT][RASTER_PROVIDER] action=update entity={:?} part={} provider_changed={} provider_source_revision={} provider_source_count={} registry_revision={} registry_source_revision={} light_slot={} light_generation={} surface_emissive_pixels=false",
+            entity,
+            SPRINKLER_HEAD_EMITTER_PART.get(),
+            change.changed,
+            change.source_revision,
+            change.source_count,
+            self.local_lights.registry_revision(),
+            self.local_lights.snapshot().source_revision(),
+            light_id.slot(),
+            light_id.generation(),
+        );
+        Ok(light_id)
+    }
+
+    pub(super) fn remove_emissive_sprinkler(&mut self, entity: RasterEntityId) -> Result<LightId> {
+        self.sprinklers
+            .emitter_source(entity)
+            .ok_or_else(|| anyhow!("raster emitter entity is not live: {entity:?}"))?;
+        let key = RasterEmitterKey::new(entity, SPRINKLER_HEAD_EMITTER_PART);
+        let light_id = self
+            .local_lights
+            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+            .ok_or_else(|| anyhow!("live raster emitter has no registry light: {entity:?}"))?;
+        let plan = self
+            .sprinklers
+            .plan_removal_entity(entity)
+            .expect("live raster emitter entity must have a removal plan");
+        let staged_lights = self
+            .stage_raster_emitter_removals(plan.removed_emitter_entities())?
+            .expect("emissive entity removal must stage a provider publication");
+        let previous_render_instances = self.sprinklers.render_instances();
+        self.tracer.upload_sprinklers(plan.render_instances())?;
+        if let Err(effect_error) = self
+            .surface_builder
+            .remove_external_grass_growth_influences(
+                plan.removed_grass_influence_ids(),
+                self.time_info.time_since_start_duration().as_millis() as u32,
+            )
+        {
+            if let Err(rollback_error) = self.tracer.upload_sprinklers(&previous_render_instances) {
+                return Err(anyhow!(
+                    "failed to remove emissive sprinkler grass influence: {effect_error}; failed to restore sprinkler render instances: {rollback_error}"
+                ));
+            }
+            return Err(effect_error);
+        }
+        self.sprinklers.commit_removal(plan);
+        self.raster_entity_emitters = staged_lights.0;
+        self.local_lights = staged_lights.1;
+        log::info!(
+            "[LOCAL_LIGHT][RASTER_PROVIDER] action=despawn entity={:?} part={} provider_source_count={} registry_revision={} registry_source_revision={} removed_light_slot={} removed_light_generation={} surface_emissive_pixels=false",
+            entity,
+            SPRINKLER_HEAD_EMITTER_PART.get(),
+            self.raster_entity_emitters.source_count(),
+            self.local_lights.registry_revision(),
+            self.local_lights.snapshot().source_revision(),
+            light_id.slot(),
+            light_id.generation(),
+        );
+        Ok(light_id)
     }
 }
 
@@ -1033,6 +1389,19 @@ impl App {
 mod tests {
     use super::*;
     use glam::UVec3;
+
+    fn test_raster_emitter(position: Vec3, intensity: f32) -> RasterEmitterComponent {
+        RasterEmitterComponent::new(crate::lighting::LocalLight::Point(
+            crate::lighting::PointLight::new(
+                position,
+                Vec3::new(1.0, 0.5, 0.25),
+                intensity,
+                0.02,
+                0.5,
+            )
+            .unwrap(),
+        ))
+    }
 
     fn commit_test_route(network: &mut IrrigationNetwork, start: Vec3, end: Vec3) {
         let begin = network
@@ -1072,7 +1441,9 @@ mod tests {
     fn sprinkler_runtime_plans_then_atomically_commits_lifecycle_changes() {
         let mut runtime = SprinklerRuntime::new();
         let base_position = Vec3::new(0.5, 0.25, 0.75);
-        let placement = runtime.plan_placement(SprinklerPlacementTarget::Terrain(base_position));
+        let placement = runtime
+            .plan_placement(SprinklerPlacementTarget::Terrain(base_position))
+            .unwrap();
 
         assert!(runtime.is_empty());
         assert_eq!(placement.render_instances().len(), 1);
@@ -1107,9 +1478,138 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_sprinklers_have_no_emitter_component() {
+        let runtime = SprinklerRuntime::new();
+        let plan = runtime
+            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
+            .unwrap();
+
+        assert!(plan.emitter_source().is_none());
+        assert_eq!(plan.raster_entity_id().generation(), 1);
+    }
+
+    #[test]
+    fn sprinkler_identity_exhaustion_is_explicit_and_never_reuses_u32_consumers() {
+        let mut runtime = SprinklerRuntime::new();
+        runtime.next_id = u64::from(u32::MAX);
+        let last = runtime
+            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
+            .unwrap();
+        assert_eq!(last.id(), u32::MAX);
+        assert_eq!(last.raster_entity_id().slot(), u32::MAX);
+        assert_eq!(
+            last.grass_influence().0,
+            sprinkler_grass_influence_id(u32::MAX)
+        );
+        runtime.commit_placement(last);
+        let revision_after_last = runtime.revision;
+
+        let error = runtime
+            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ONE))
+            .err()
+            .expect("the u32 identity space must be exhausted");
+        assert!(error.to_string().contains("identity space exhausted"));
+        assert_eq!(runtime.next_id, u64::from(u32::MAX) + 1);
+        assert_eq!(runtime.revision, revision_after_last);
+        assert_eq!(
+            runtime.len(),
+            1,
+            "failed preparation must not mutate records"
+        );
+        assert_eq!(runtime.records.len(), runtime.emitters.len());
+    }
+
+    #[test]
+    fn emissive_sprinkler_update_keeps_identity_and_noop_keeps_all_revisions() {
+        let mut runtime = SprinklerRuntime::new();
+        let initial_position = Vec3::new(0.25, 0.5, 0.75);
+        let initial_component = test_raster_emitter(initial_position, 2.0);
+        let placement = runtime
+            .plan_placement_with_emitter(
+                SprinklerPlacementTarget::Terrain(initial_position),
+                Some(initial_component),
+            )
+            .unwrap();
+        let entity = placement.raster_entity_id();
+        let (key, _) = placement.emitter_source().unwrap();
+        runtime.commit_placement(placement);
+
+        let mut provider = crate::lighting::RasterEntityEmitterProvider::default();
+        provider
+            .publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, initial_component)])
+            .unwrap();
+        let mut registry = crate::lighting::LocalLightRegistry::default();
+        registry.reconcile(provider.snapshot()).unwrap();
+        let light_id = registry
+            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+            .unwrap();
+        let revisions_before_noop = (
+            runtime.revision,
+            provider.snapshot().source_revision(),
+            registry.registry_revision(),
+            registry.snapshot().source_revision(),
+        );
+
+        let noop = runtime
+            .plan_emitter_update(entity, initial_position, initial_component)
+            .unwrap();
+        assert!(!noop.changed());
+        runtime.commit_emitter_update(noop);
+        let provider_noop = provider
+            .publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, initial_component)])
+            .unwrap();
+        assert!(!provider_noop.changed);
+        registry.reconcile(provider.snapshot()).unwrap();
+        assert_eq!(
+            (
+                runtime.revision,
+                provider.snapshot().source_revision(),
+                registry.registry_revision(),
+                registry.snapshot().source_revision(),
+            ),
+            revisions_before_noop
+        );
+
+        let moved_position = Vec3::new(0.5, 0.5, 0.75);
+        let moved_component = test_raster_emitter(moved_position, 4.0);
+        let update = runtime
+            .plan_emitter_update(entity, moved_position, moved_component)
+            .unwrap();
+        assert!(update.changed());
+        assert_eq!(runtime.records[0].base_position, initial_position);
+        runtime.commit_emitter_update(update);
+        provider
+            .publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, moved_component)])
+            .unwrap();
+        registry.reconcile(provider.snapshot()).unwrap();
+        assert_eq!(runtime.records[0].raster_entity_id(), entity);
+        assert_eq!(runtime.records[0].base_position, moved_position);
+        assert_eq!(
+            registry.light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key()),
+            Some(light_id),
+            "move and photometric update must preserve LightId"
+        );
+
+        let removal = runtime.plan_removal_entity(entity).unwrap();
+        let provider_revision = provider.snapshot().source_revision();
+        provider
+            .remove_entities(removal.removed_emitter_entities().iter().copied())
+            .unwrap();
+        assert_eq!(provider.snapshot().source_revision(), provider_revision + 1);
+        registry.reconcile(provider.snapshot()).unwrap();
+        runtime.commit_removal(removal);
+        assert!(runtime.is_empty());
+        assert!(registry
+            .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
+            .is_none());
+    }
+
+    #[test]
     fn sprinkler_removal_plan_ignores_non_overlapping_brushes() {
         let mut runtime = SprinklerRuntime::new();
-        let placement = runtime.plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO));
+        let placement = runtime
+            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
+            .unwrap();
         runtime.commit_placement(placement);
 
         assert!(runtime

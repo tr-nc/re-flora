@@ -32,7 +32,8 @@ bool isTerrainVoxel(uint voxelType)
 {
     return voxelType == VOXEL_TYPE_DIRT ||
            voxelType == VOXEL_TYPE_SAND ||
-           voxelType == VOXEL_TYPE_ROCK;
+           voxelType == VOXEL_TYPE_ROCK ||
+           voxelType == VOXEL_TYPE_EMISSIVE;
 }
 
 float tracePixelDepth(Ray ray, uint localInvocationIndex)

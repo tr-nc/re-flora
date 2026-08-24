@@ -317,6 +317,42 @@ pub struct GrassGrowthInfluence {
     pub min_level: u8,
 }
 
+struct ExternalGrassGrowthInfluenceTransaction {
+    previous: HashMap<u64, GrassGrowthInfluence>,
+    next: HashMap<u64, GrassGrowthInfluence>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum ExternalGrassGrowthInfluenceTransactionError<E> {
+    Apply(E),
+    ApplyAndRollback { apply: E, rollback: E },
+}
+
+impl ExternalGrassGrowthInfluenceTransaction {
+    /// Synchronize the staged state before publishing it. If staging touches only part of the GPU
+    /// state before failing, synchronizing `previous` restores the last authoritative snapshot.
+    fn execute<E>(
+        self,
+        mut synchronize: impl FnMut(&HashMap<u64, GrassGrowthInfluence>) -> std::result::Result<(), E>,
+    ) -> std::result::Result<
+        HashMap<u64, GrassGrowthInfluence>,
+        ExternalGrassGrowthInfluenceTransactionError<E>,
+    > {
+        if let Err(apply) = synchronize(&self.next) {
+            return match synchronize(&self.previous) {
+                Ok(()) => Err(ExternalGrassGrowthInfluenceTransactionError::Apply(apply)),
+                Err(rollback) => Err(
+                    ExternalGrassGrowthInfluenceTransactionError::ApplyAndRollback {
+                        apply,
+                        rollback,
+                    },
+                ),
+            };
+        }
+        Ok(self.next)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct AuthoredFloraInstance {
     pub species_index: u32,
@@ -953,7 +989,9 @@ impl SurfaceBuilder {
             return Ok(());
         }
 
-        let previous = self.external_grass_growth_influences.insert(id, influence);
+        let previous_state = self.external_grass_growth_influences.clone();
+        let mut next_state = previous_state.clone();
+        let previous = next_state.insert(id, influence);
         let mut dirty_chunks = previous
             .into_iter()
             .flat_map(|old| {
@@ -968,7 +1006,29 @@ impl SurfaceBuilder {
                 dirty_chunks.push(chunk);
             }
         }
-        self.sync_grass_growth_influence_chunks(&dirty_chunks, spawn_time_ms)
+        let transaction = ExternalGrassGrowthInfluenceTransaction {
+            previous: previous_state,
+            next: next_state,
+        };
+        match transaction.execute(|candidate| {
+            self.sync_grass_growth_influence_chunks_with(
+                &dirty_chunks,
+                spawn_time_ms,
+                candidate,
+            )
+        }) {
+            Ok(committed) => {
+                self.external_grass_growth_influences = committed;
+                Ok(())
+            }
+            Err(ExternalGrassGrowthInfluenceTransactionError::Apply(error)) => Err(error),
+            Err(ExternalGrassGrowthInfluenceTransactionError::ApplyAndRollback {
+                apply,
+                rollback,
+            }) => Err(anyhow::anyhow!(
+                "failed to publish external grass influence: {apply}; failed to restore previous influence snapshot: {rollback}"
+            )),
+        }
     }
 
     pub fn remove_external_grass_growth_influences(
@@ -976,9 +1036,11 @@ impl SurfaceBuilder {
         ids: &[u64],
         spawn_time_ms: u32,
     ) -> Result<()> {
+        let previous_state = self.external_grass_growth_influences.clone();
+        let mut next_state = previous_state.clone();
         let mut dirty_chunks = Vec::new();
         for id in ids {
-            let Some(removed) = self.external_grass_growth_influences.remove(id) else {
+            let Some(removed) = next_state.remove(id) else {
                 continue;
             };
             for chunk in self.grass_growth_potential_affected_chunks(
@@ -990,7 +1052,32 @@ impl SurfaceBuilder {
                 }
             }
         }
-        self.sync_grass_growth_influence_chunks(&dirty_chunks, spawn_time_ms)
+        if dirty_chunks.is_empty() {
+            return Ok(());
+        }
+        let transaction = ExternalGrassGrowthInfluenceTransaction {
+            previous: previous_state,
+            next: next_state,
+        };
+        match transaction.execute(|candidate| {
+            self.sync_grass_growth_influence_chunks_with(
+                &dirty_chunks,
+                spawn_time_ms,
+                candidate,
+            )
+        }) {
+            Ok(committed) => {
+                self.external_grass_growth_influences = committed;
+                Ok(())
+            }
+            Err(ExternalGrassGrowthInfluenceTransactionError::Apply(error)) => Err(error),
+            Err(ExternalGrassGrowthInfluenceTransactionError::ApplyAndRollback {
+                apply,
+                rollback,
+            }) => Err(anyhow::anyhow!(
+                "failed to remove external grass influences: {apply}; failed to restore previous influence snapshot: {rollback}"
+            )),
+        }
     }
 
     fn sync_grass_growth_influence_chunks(
@@ -998,8 +1085,18 @@ impl SurfaceBuilder {
         dirty_chunks: &[UVec3],
         spawn_time_ms: u32,
     ) -> Result<()> {
+        let influences = self.external_grass_growth_influences.clone();
+        self.sync_grass_growth_influence_chunks_with(dirty_chunks, spawn_time_ms, &influences)
+    }
+
+    fn sync_grass_growth_influence_chunks_with(
+        &mut self,
+        dirty_chunks: &[UVec3],
+        spawn_time_ms: u32,
+        influences: &HashMap<u64, GrassGrowthInfluence>,
+    ) -> Result<()> {
         for &chunk_id in dirty_chunks {
-            self.rebuild_grass_growth_potential_for_chunk(chunk_id)?;
+            self.rebuild_grass_growth_potential_for_chunk_with(chunk_id, influences)?;
         }
         for &chunk_id in dirty_chunks {
             self.refresh_grass_growth_from_potential(chunk_id, spawn_time_ms)?;
@@ -1036,6 +1133,15 @@ impl SurfaceBuilder {
     }
 
     fn rebuild_grass_growth_potential_for_chunk(&mut self, chunk_id: UVec3) -> Result<()> {
+        let influences = self.external_grass_growth_influences.clone();
+        self.rebuild_grass_growth_potential_for_chunk_with(chunk_id, &influences)
+    }
+
+    fn rebuild_grass_growth_potential_for_chunk_with(
+        &mut self,
+        chunk_id: UVec3,
+        external_influences: &HashMap<u64, GrassGrowthInfluence>,
+    ) -> Result<()> {
         if !self.chunk_bound.in_bound(chunk_id) {
             return Ok(());
         }
@@ -1077,7 +1183,7 @@ impl SurfaceBuilder {
             }
         }
 
-        for influence in self.external_grass_growth_influences.values() {
+        for influence in external_influences.values() {
             if influence.radius_voxels == 0 {
                 continue;
             }
@@ -1903,6 +2009,81 @@ fn get_occupancy_to_instances_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn influence(x: u32) -> GrassGrowthInfluence {
+        GrassGrowthInfluence {
+            center_world_vox: UVec3::new(x, 2, 3),
+            radius_voxels: 4,
+            min_level: 5,
+        }
+    }
+
+    #[test]
+    fn external_grass_transaction_restores_previous_snapshot_after_apply_failure() {
+        let previous = HashMap::from([(1, influence(1))]);
+        let next = HashMap::from([(2, influence(2))]);
+        let authoritative = previous.clone();
+        let transaction = ExternalGrassGrowthInfluenceTransaction {
+            previous: previous.clone(),
+            next: next.clone(),
+        };
+        let mut synchronized = Vec::new();
+        let result = transaction.execute(|candidate| {
+            synchronized.push(candidate.clone());
+            if synchronized.len() == 1 {
+                Err("apply")
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(
+            result,
+            Err(ExternalGrassGrowthInfluenceTransactionError::Apply("apply"))
+        );
+        assert_eq!(synchronized, [next, previous]);
+        assert_eq!(authoritative, HashMap::from([(1, influence(1))]));
+    }
+
+    #[test]
+    fn external_grass_transaction_reports_failed_rollback_without_publishing_next() {
+        let previous = HashMap::from([(1, influence(1))]);
+        let next = HashMap::from([(2, influence(2))]);
+        let authoritative = previous.clone();
+        let transaction = ExternalGrassGrowthInfluenceTransaction { previous, next };
+        let mut attempt = 0;
+        let result = transaction.execute(|_| {
+            attempt += 1;
+            if attempt == 1 {
+                Err("apply")
+            } else {
+                Err("rollback")
+            }
+        });
+
+        assert_eq!(
+            result,
+            Err(
+                ExternalGrassGrowthInfluenceTransactionError::ApplyAndRollback {
+                    apply: "apply",
+                    rollback: "rollback"
+                }
+            )
+        );
+        assert_eq!(authoritative, HashMap::from([(1, influence(1))]));
+    }
+
+    #[test]
+    fn external_grass_transaction_publishes_only_after_successful_sync() {
+        let previous = HashMap::from([(1, influence(1))]);
+        let next = HashMap::from([(2, influence(2))]);
+        let transaction = ExternalGrassGrowthInfluenceTransaction {
+            previous,
+            next: next.clone(),
+        };
+
+        assert_eq!(transaction.execute(|_| Ok::<_, ()>(())), Ok(next));
+    }
 
     #[test]
     fn flora_instance_position_round_trips_without_growth_bits() {

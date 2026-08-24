@@ -7,6 +7,7 @@ mod camera_control;
 mod camera_snapshot_ui;
 mod ddgi_spatial_weight_readback;
 mod denoiser_bench;
+mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
 mod frame_timing;
@@ -80,6 +81,7 @@ use crate::environment_probes::{
 use crate::flora::species;
 use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
+use crate::lighting::LocalLightRegistry;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -97,7 +99,10 @@ use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::{WindResponseCurve, WindSource};
 use crate::RenderFlags;
-use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
+use crate::{
+    egui_renderer::EguiRenderer, window::WindowState, EnvironmentLightingTestCase,
+    WaterProfilePreference,
+};
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
@@ -496,6 +501,9 @@ pub struct App {
     mute_audio_output: bool,
 
     tracer: Tracer,
+    local_lights: LocalLightRegistry,
+    raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
+    emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
 
     // builders
     plain_builder: PlainBuilder,
@@ -1197,6 +1205,16 @@ impl App {
                 ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
+                ddgi_local_light_trace_diagnostics_enabled: matches!(
+                    options.environment_lighting_test_scene,
+                    Some(
+                        EnvironmentLightingTestCase::PointLightChanges
+                            | EnvironmentLightingTestCase::VoxelEmissiveChanges
+                            | EnvironmentLightingTestCase::RasterEmitterChanges
+                            | EnvironmentLightingTestCase::MultiSourceStress
+                            | EnvironmentLightingTestCase::LocalLightScaling
+                    )
+                ),
             },
             spatial_sound_manager.clone(),
         )?;
@@ -1397,6 +1415,20 @@ impl App {
                 VOXEL_DIM_PER_CHUNK,
             )?;
 
+        // Keep the point-light diagnostic isolated to its authored identities; production and
+        // all other scenes consume emissive voxels from the immutable Contree CPU snapshot.
+        let emissive_voxel_lighting = (!matches!(
+            options.environment_lighting_test_scene,
+            Some(EnvironmentLightingTestCase::PointLightChanges)
+        ))
+        .then(|| {
+            emissive_voxel_lighting::EmissiveVoxelLightingRuntime::new(
+                CHUNK_DIM,
+                VOXEL_DIM_PER_CHUNK,
+            )
+        })
+        .transpose()?;
+
         let mut app = Self {
             vulkan_ctx,
             egui_renderer: renderer,
@@ -1423,6 +1455,9 @@ impl App {
             gpu_profiler_latest_results: None,
 
             tracer,
+            local_lights: LocalLightRegistry::default(),
+            raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
+            emissive_voxel_lighting,
 
             plain_builder,
             surface_builder,
@@ -2274,6 +2309,16 @@ impl App {
                         VOXEL_DIM_PER_CHUNK,
                     );
                 });
+                if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
+                    let source = self.contree_builder.cpu_voxel_source_snapshot();
+                    let frame = self.time_info.total_frame_count();
+                    let advance = cpu_timings.time(FrameCpuScope::EmissiveVoxelLighting, || {
+                        runtime.advance(&source, &mut self.local_lights, frame)
+                    });
+                    if let Err(err) = advance {
+                        log::error!("[LOCAL_LIGHT][VOXEL_PROVIDER] advance failed: {err:#}");
+                    }
+                }
                 if let Err(err) = self
                     .spatial_sound_manager
                     .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
@@ -3436,6 +3481,7 @@ impl App {
                 self.tracer
                     .update_buffers(
                         &self.time_info,
+                        &self.local_lights.snapshot(),
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -4376,11 +4422,12 @@ impl App {
                     );
                     self.log_gpu_profiler_frame(frame_count);
                     log::info!(
-                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us",
+                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us emissive_voxel.scan={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us",
                         frame_count,
                         total_ms * 1000.0,
                         egui_ms * 1000.0,
                         gpu_ms * 1000.0,
+                        frame_timing_snapshot.emissive_voxel_lighting_ms * 1000.0,
                         frame_timing_snapshot.render_acquire_ms * 1000.0,
                         frame_timing_snapshot.render_record_ms * 1000.0,
                         frame_timing_snapshot.render_shadow_prepass_record_ms * 1000.0,
@@ -4395,12 +4442,13 @@ impl App {
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         let water_terrain = self.water_terrain_status().diagnostics();
                         log::info!(
-                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms emissive_voxel_scan {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
                             total_ms,
                             egui_ms,
                             gpu_ms,
                             frame_timing_snapshot.contree_poll_ms,
+                            frame_timing_snapshot.emissive_voxel_lighting_ms,
                             frame_timing_snapshot.terrain_source_ms,
                             frame_timing_snapshot.water_cache_ms,
                             frame_timing_snapshot.collider_queue_ms,

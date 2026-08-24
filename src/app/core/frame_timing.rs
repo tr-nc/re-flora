@@ -6,6 +6,7 @@ use std::time::Instant;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FrameCpuScope {
     ContreePoll,
+    EmissiveVoxelLighting,
     TerrainSource,
     WaterCache,
     ColliderQueue,
@@ -23,6 +24,7 @@ pub(super) enum FrameCpuScope {
 pub(super) struct FrameCpuTimings {
     enabled: bool,
     contree_poll_ms: f32,
+    emissive_voxel_lighting_ms: f32,
     terrain_source_ms: f32,
     water_cache_ms: f32,
     collider_queue_ms: f32,
@@ -74,6 +76,7 @@ impl FrameCpuTimings {
 
         match scope {
             FrameCpuScope::ContreePoll => self.contree_poll_ms += elapsed_ms,
+            FrameCpuScope::EmissiveVoxelLighting => self.emissive_voxel_lighting_ms += elapsed_ms,
             FrameCpuScope::TerrainSource => self.terrain_source_ms += elapsed_ms,
             FrameCpuScope::WaterCache => self.water_cache_ms += elapsed_ms,
             FrameCpuScope::ColliderQueue => self.collider_queue_ms += elapsed_ms,
@@ -91,7 +94,10 @@ impl FrameCpuTimings {
     }
 
     pub(super) fn queue_work_ms(&self) -> f32 {
-        self.terrain_source_ms + self.water_cache_ms + self.collider_queue_ms
+        self.emissive_voxel_lighting_ms
+            + self.terrain_source_ms
+            + self.water_cache_ms
+            + self.collider_queue_ms
     }
 
     fn tracked_cpu_ms(&self) -> f32 {
@@ -118,6 +124,7 @@ impl FrameCpuTimings {
             egui_ms,
             gpu_present_ms,
             contree_poll_ms: self.contree_poll_ms,
+            emissive_voxel_lighting_ms: self.emissive_voxel_lighting_ms,
             terrain_source_ms: self.terrain_source_ms,
             water_cache_ms: self.water_cache_ms,
             collider_queue_ms: self.collider_queue_ms,
@@ -142,6 +149,7 @@ pub(super) struct FrameTimingSnapshot {
     pub(super) egui_ms: f32,
     pub(super) gpu_present_ms: f32,
     pub(super) contree_poll_ms: f32,
+    pub(super) emissive_voxel_lighting_ms: f32,
     pub(super) terrain_source_ms: f32,
     pub(super) water_cache_ms: f32,
     pub(super) collider_queue_ms: f32,
@@ -168,6 +176,7 @@ pub(super) fn draw_frame_timing_panel(
         ("egui", timing.egui_ms),
         ("gpu + present", timing.gpu_present_ms),
         ("contree poll", timing.contree_poll_ms),
+        ("emissive voxel scan", timing.emissive_voxel_lighting_ms),
         ("terrain source", timing.terrain_source_ms),
         ("water cache", timing.water_cache_ms),
         ("collider queue", timing.collider_queue_ms),

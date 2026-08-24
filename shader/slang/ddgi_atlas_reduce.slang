@@ -94,6 +94,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!interior) return;
 
     InterlockedAdd(ddgi_atlas_reduction.data[4], 1u, ignored);
+    float maxDestination = max(destination.x, max(destination.y, destination.z));
+    InterlockedMax(ddgi_atlas_reduction.data[6], asuint(max(maxDestination, 0.0)), ignored);
     if (pc.has_source == 0u) return;
 
     float3 absoluteDelta = abs(destination.xyz - source.xyz);

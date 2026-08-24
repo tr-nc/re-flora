@@ -654,6 +654,7 @@ mod tests {
         let validation = DdgiAtlasValidationStats {
             max_absolute_rgb_delta: 0.0125,
             max_relative_rgb_delta: 0.025,
+            max_rgb_value: 1.5,
             non_finite_count: 0,
             negative_rgb_texel_count: 0,
             valid_texel_count: 314_432,

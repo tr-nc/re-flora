@@ -14,6 +14,7 @@ mod gameplay;
 #[path = "auto-generated/mod.rs"]
 mod generated;
 mod geom;
+mod lighting;
 #[macro_use]
 mod gui_adjustables;
 mod particles;

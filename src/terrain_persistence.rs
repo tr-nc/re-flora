@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 pub const TERRAIN_FORMAT_VERSION: u32 = 1;
+// Schema 1 stores a one-byte voxel whose low nibble is the material identifier. Assigning a
+// previously unused nibble value (such as emissive type 8) is layout-compatible and round-trips
+// through old schema-1 files without rewriting their existing 0..7 meanings.
 pub const TERRAIN_VOXEL_SCHEMA_ID: u32 = 1;
 pub const TERRAIN_BYTES_PER_VOXEL: u32 = 1;
 pub const TERRAIN_RAW_CODEC: u32 = 0;
@@ -588,11 +591,14 @@ mod tests {
     fn chunks() -> Vec<TerrainSnapshotChunk> {
         (0..2)
             .flat_map(|z| (0..1).flat_map(move |y| (0..2).map(move |x| [x, y, z])))
-            .map(|coordinate| TerrainSnapshotChunk {
-                coordinate,
-                bytes: (0..8)
+            .map(|coordinate| {
+                let mut bytes = (0..8)
                     .map(|index| index as u8 + coordinate[0] as u8 + coordinate[2] as u8 * 3)
-                    .collect(),
+                    .collect::<Vec<_>>();
+                if coordinate == [0, 0, 0] {
+                    bytes[0] = crate::builder::VOXEL_TYPE_EMISSIVE as u8;
+                }
+                TerrainSnapshotChunk { coordinate, bytes }
             })
             .collect()
     }
@@ -626,6 +632,11 @@ mod tests {
         }
         assert_eq!(reader.finish().unwrap(), first_summary);
         assert_eq!(loaded, chunks());
+        assert!(loaded.iter().any(|chunk| chunk
+            .bytes
+            .iter()
+            .any(|byte| byte & crate::builder::VOXEL_TYPE_MASK
+                == crate::builder::VOXEL_TYPE_EMISSIVE as u8)));
     }
 
     #[test]
