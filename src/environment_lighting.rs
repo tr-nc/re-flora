@@ -430,11 +430,8 @@ impl EnvironmentLightingCache {
                     }
                     self.publish_transport(live, identity, change);
                     transport_published = true;
-                } else {
-                    if self.pending_transport_identity.replace(identity).is_some() {
-                        self.coalesced_live_revisions =
-                            self.coalesced_live_revisions.saturating_add(1);
-                    }
+                } else if self.pending_transport_identity.replace(identity).is_some() {
+                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
                 }
             }
         }

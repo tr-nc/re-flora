@@ -87,6 +87,7 @@ impl TerrainMoistureRuntime {
         recorded_count
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn record_dry(
         &mut self,
         plain_builder: &mut PlainBuilder,

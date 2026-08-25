@@ -158,6 +158,7 @@ fn validate_source_pair(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum DdgiScheduledWorkKind {
     GeometryUpdate,
     DensityUpdate,

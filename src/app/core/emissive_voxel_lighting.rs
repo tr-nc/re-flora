@@ -337,17 +337,15 @@ impl EmissiveVoxelLightingRuntime {
             .map_err(|err| anyhow!("invalid emissive voxel terrain change: {err:?}"))?;
         // Whole-chunk/world replacements are conservative full scans, not runtime-edit latency.
         if touched > 0 && touched < self.scheduler.cells_per_chunk {
-            let metrics = self
-                .local_edit_metrics
-                .get_or_insert_with(|| LocalEditMetrics {
-                    first_queued_frame: frame,
-                    change_count: 0,
-                    requested_cells: 0,
-                    scanned_cells: 0,
-                    emissive_voxels: 0,
-                    provider_publications: 0,
-                    cpu_ms: 0.0,
-                });
+            let metrics = self.local_edit_metrics.get_or_insert(LocalEditMetrics {
+                first_queued_frame: frame,
+                change_count: 0,
+                requested_cells: 0,
+                scanned_cells: 0,
+                emissive_voxels: 0,
+                provider_publications: 0,
+                cpu_ms: 0.0,
+            });
             metrics.first_queued_frame = metrics.first_queued_frame.min(frame);
             metrics.change_count += 1;
             metrics.requested_cells += touched;

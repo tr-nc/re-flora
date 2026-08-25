@@ -26,7 +26,7 @@ impl GuiConfigLoader {
             );
         }
 
-        let content = std::fs::read_to_string(&config_path).unwrap_or_else(|e| {
+        let content = std::fs::read_to_string(config_path).unwrap_or_else(|e| {
             panic!(
                 "Failed to read GUI config file at {}: {}",
                 config_path.display(),

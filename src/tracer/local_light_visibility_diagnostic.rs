@@ -132,6 +132,7 @@ impl LocalLightVisibilityDiagnostic {
         self.queued.is_some()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn request(
         &mut self,
         resources: &LocalLightingResources,

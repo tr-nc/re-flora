@@ -318,6 +318,7 @@ impl SpatialSoundManager {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_looping_clip_source(
         &self,
         clip: ResidentClip,
@@ -696,8 +697,8 @@ impl SpatialSoundManager {
                     spatial_revision,
                     geometry_version,
                     reason,
-                } => match reason {
-                    AcousticDiscardReason::Superseded => {
+                } => {
+                    if reason == AcousticDiscardReason::Superseded {
                         inbox
                             .canopy
                             .push(SpatialAcousticTelemetryEvent::SolveDiscarded {
@@ -705,8 +706,7 @@ impl SpatialSoundManager {
                                 geometry_version,
                             })
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             }
         }

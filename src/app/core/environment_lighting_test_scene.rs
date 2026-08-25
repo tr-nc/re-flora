@@ -78,6 +78,7 @@ const MULTI_SOURCE_RASTER_COLOR: Vec3 = Vec3::new(0.04, 0.22, 1.0);
 const MULTI_SOURCE_RASTER_INTENSITY: f32 = 0.065;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum PointLightTestStage {
     AwaitBaseline,
     AwaitAddLive,
@@ -98,6 +99,7 @@ enum PointLightTestStage {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum VoxelEmissiveTestStage {
     AwaitBaseline,
     AwaitAddRegistry,
@@ -133,6 +135,7 @@ struct VoxelEmissiveLifecycleState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum RasterEmitterTestStage {
     AwaitBaseline,
     AwaitSpawnLive,
@@ -165,6 +168,7 @@ struct RasterEmitterLifecycleState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum MultiSourceTestStage {
     AwaitBaseline,
     AwaitVoxelRegistry,
@@ -1510,11 +1514,11 @@ impl App {
                 let terrain_revision = self
                     .apply_voxel_emissive_edits(
                         "multi-source-add",
-                        &[((
+                        &[(
                             VOXEL_EMISSIVE_PRIMARY_MIN,
                             VOXEL_EMISSIVE_PRIMARY_MAX,
                             VOXEL_TYPE_EMISSIVE,
-                        ))],
+                        )],
                         state.terrain_revision,
                     )
                     .expect("multi-source voxel emitter add must succeed");
@@ -1545,11 +1549,7 @@ impl App {
             }
             MultiSourceTestStage::AwaitVoxelRegistry => {
                 let snapshot = self.local_lights.snapshot();
-                let Some(voxel_record) =
-                    voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN)
-                else {
-                    return None;
-                };
+                let voxel_record = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN)?;
                 if provider_source_count(&snapshot, AUTHORED_LOCAL_LIGHT_PROVIDER_ID) != 1
                     || provider_source_count(&snapshot, EMISSIVE_VOXEL_PROVIDER_ID) != 1
                     || provider_source_count(&snapshot, RASTER_ENTITY_LIGHT_PROVIDER_ID) != 1
@@ -1964,9 +1964,7 @@ impl App {
                 if voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_PRIMARY_MIN).is_some() {
                     return None;
                 }
-                let Some(moved) = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_MOVED_MIN) else {
-                    return None;
-                };
+                let moved = voxel_emissive_record(&snapshot, VOXEL_EMISSIVE_MOVED_MIN)?;
                 assert_ne!(moved.id(), state.voxel_id.unwrap());
                 assert_eq!(
                     provider_source_count(&snapshot, EMISSIVE_VOXEL_PROVIDER_ID),
@@ -2154,7 +2152,7 @@ impl App {
                 let snapshot = self.local_lights.snapshot();
                 if !snapshot.lights().is_empty()
                     || self.raster_entity_emitters.source_count() != 0
-                    || self.sprinklers.len() != 0
+                    || !self.sprinklers.is_empty()
                     || voxel_emissive_source_count(&snapshot) != 0
                 {
                     return None;
@@ -5520,12 +5518,12 @@ mod tests {
 
     #[test]
     fn portal_only_breaks_through_the_roof() {
-        assert!(SKYLIGHT_MIN.x > INTERIOR_MIN.x);
-        assert!(SKYLIGHT_MAX.x < INTERIOR_MAX.x);
+        const { assert!(SKYLIGHT_MIN.x > INTERIOR_MIN.x) };
+        const { assert!(SKYLIGHT_MAX.x < INTERIOR_MAX.x) };
         assert_eq!(SKYLIGHT_MIN.y, INTERIOR_MAX.y);
-        assert!(SKYLIGHT_MAX.y > SHELL_MAX.y);
-        assert!(SKYLIGHT_MIN.z > INTERIOR_MIN.z);
-        assert!(SKYLIGHT_MAX.z < INTERIOR_MAX.z);
+        const { assert!(SKYLIGHT_MAX.y > SHELL_MAX.y) };
+        const { assert!(SKYLIGHT_MIN.z > INTERIOR_MIN.z) };
+        const { assert!(SKYLIGHT_MAX.z < INTERIOR_MAX.z) };
     }
 
     #[test]
@@ -5702,9 +5700,9 @@ mod tests {
             DONOR_LEFT_ROOF_MAX - DONOR_LEFT_ROOF_MIN,
             DONOR_RIGHT_ROOF_MAX - DONOR_RIGHT_ROOF_MIN
         );
-        assert!(DONOR_LEFT_ROOF_MAX.y - DONOR_LEFT_ROOF_MIN.y >= 64.0);
-        assert!(DONOR_DIVIDER_MAX.x - DONOR_DIVIDER_MIN.x >= 64.0);
-        assert!(DONOR_BACK_MAX.z - DONOR_BACK_MIN.z >= 32.0);
+        const { assert!(DONOR_LEFT_ROOF_MAX.y - DONOR_LEFT_ROOF_MIN.y >= 64.0) };
+        const { assert!(DONOR_DIVIDER_MAX.x - DONOR_DIVIDER_MIN.x >= 64.0) };
+        const { assert!(DONOR_BACK_MAX.z - DONOR_BACK_MIN.z >= 32.0) };
     }
 
     #[test]
@@ -5842,10 +5840,10 @@ mod tests {
 
     #[test]
     fn dogleg_blockers_are_spacing_16_and_spacing_32_robust() {
-        assert!(DOGLEG_BLOCK_MAX.y - DOGLEG_FIRST_LEG_MAX.y >= 64.0);
-        assert!(DOGLEG_RECEIVER_CHAMBER_MIN.z - DOGLEG_BLOCK_MIN.z >= 32.0);
-        assert!(DOGLEG_SECOND_LEG_MIN.x - DOGLEG_FIRST_LEG_MIN.x >= 64.0);
-        assert!(DOGLEG_BLOCK_MAX.x - DOGLEG_FIRST_LEG_MAX.x >= 64.0);
+        const { assert!(DOGLEG_BLOCK_MAX.y - DOGLEG_FIRST_LEG_MAX.y >= 64.0) };
+        const { assert!(DOGLEG_RECEIVER_CHAMBER_MIN.z - DOGLEG_BLOCK_MIN.z >= 32.0) };
+        const { assert!(DOGLEG_SECOND_LEG_MIN.x - DOGLEG_FIRST_LEG_MIN.x >= 64.0) };
+        const { assert!(DOGLEG_BLOCK_MAX.x - DOGLEG_FIRST_LEG_MAX.x >= 64.0) };
     }
 
     #[test]

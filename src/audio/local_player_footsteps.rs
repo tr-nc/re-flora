@@ -102,6 +102,7 @@ struct ManagedFootstepVoice<EmitterHandle, ControlHandle> {
 }
 
 impl<EmitterHandle, ControlHandle> ManagedFootstepVoice<EmitterHandle, ControlHandle> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         event_seq: u64,
         emitter: EmitterHandle,

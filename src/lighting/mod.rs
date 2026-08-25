@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 use bytemuck::Zeroable;
 use glam::{Vec2, Vec3};
 use std::sync::Arc;
@@ -269,6 +271,7 @@ pub(crate) fn evaluate_unshadowed_point_irradiance(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum LocalLightValidationError {
     InvalidPointLight,
     InvalidSpotLight,
@@ -550,6 +553,7 @@ impl LocalLightGpuPayload {
             | (u64::from(self.info.registry_revision_high) << 32)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn live_revision(self) -> u64 {
         u64::from(self.info.live_revision_low) | (u64::from(self.info.live_revision_high) << 32)
     }

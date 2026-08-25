@@ -751,6 +751,7 @@ pub struct DdgiRuntimeStatus {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 enum DdgiRuntimeState {
     Active {
         active: DdgiRuntimeVolumeStatus,

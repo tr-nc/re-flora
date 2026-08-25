@@ -140,7 +140,7 @@ impl CanopyAcousticDescriptor {
                         clearance_index
                             .has_minimum_clearance(leaf.position, Self::MIN_WOOD_CLEARANCE_VOXELS)
                     })
-                    .or_else(|| best_global_candidate())
+                    .or_else(&best_global_candidate)
                 else {
                     continue;
                 };

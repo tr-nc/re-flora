@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{UVec3, Vec3};

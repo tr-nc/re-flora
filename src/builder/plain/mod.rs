@@ -3382,7 +3382,6 @@ fn update_toruses(resources: &PlainBuilderResources, toruses: &[Torus]) -> Resul
             major_radius: torus.major_radius(),
             inverse_rotation: torus.rotation().conjugate().to_array(),
             tube_radius: torus.tube_radius(),
-            ..Toruses::zeroed()
         };
         resources
             .toruses
