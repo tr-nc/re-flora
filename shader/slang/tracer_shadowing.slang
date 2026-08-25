@@ -39,7 +39,9 @@ struct ShadowReceiverPlane
 
 public struct DirectSunShadowReceiver
 {
-    float4 world_position;
+    float4 terrain_world_position;
+    float4 leaf_world_position;
+    float4 cloud_world_position;
     int3 pcss_seed;
     uint source_mask;
     uint terrain_mode;
@@ -49,11 +51,14 @@ public struct DirectSunShadowReceiver
 };
 
 public DirectSunShadowReceiver makeDirectSunShadowReceiver(
-    float4 worldPosition, int3 pcssSeed, uint sourceMask, uint terrainMode,
+    float4 terrainWorldPosition, float4 leafWorldPosition,
+    float4 cloudWorldPosition, int3 pcssSeed, uint sourceMask, uint terrainMode,
     uint availableMask, uint flags)
 {
     DirectSunShadowReceiver receiver;
-    receiver.world_position = worldPosition;
+    receiver.terrain_world_position = terrainWorldPosition;
+    receiver.leaf_world_position = leafWorldPosition;
+    receiver.cloud_world_position = cloudWorldPosition;
     receiver.pcss_seed = pcssSeed;
     receiver.source_mask = sourceMask;
     receiver.terrain_mode = terrainMode;
@@ -190,7 +195,8 @@ float pcssTransmittance(Sampler2D shadowMap, Sampler2DArray scalarNoise,
                         float4x4 shadowViewProjectionInverse,
                         DirectSunShadowReceiver receiver)
 {
-    float4 lightSpace = mul(shadowViewProjection, receiver.world_position);
+    float4 lightSpace = mul(
+        shadowViewProjection, receiver.terrain_world_position);
     float3 ndc = lightSpace.xyz / lightSpace.w;
     float2 receiverUv = ndc.xy * 0.5 + 0.5;
     ShadowReceiverPlane receiverPlane = makeShadowReceiverPlane(
@@ -296,7 +302,7 @@ public float directSunShadowTransmittanceVsmLeafCloud(
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
     {
         terrainShadow = vsmTransmittance(
-            vsmMap, shadowViewProjection, receiver.world_position);
+            vsmMap, shadowViewProjection, receiver.terrain_world_position);
     }
 
     float leafShadow = 1.0;
@@ -309,7 +315,7 @@ public float directSunShadowTransmittanceVsmLeafCloud(
             leafMaskMap,
             gui,
             shadowViewProjection,
-            receiver.world_position,
+            receiver.leaf_world_position,
             depthGate);
     }
 
@@ -320,7 +326,7 @@ public float directSunShadowTransmittanceVsmLeafCloud(
             cloudShadowMap,
             gui,
             shadowViewProjection,
-            receiver.world_position);
+            receiver.cloud_world_position);
     }
     return terrainShadow * leafShadow * cloudShadow;
 }
@@ -336,7 +342,8 @@ public float directSunShadowTransmittance(
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
     {
         terrainShadow = receiver.terrain_mode == DIRECT_TERRAIN_SHADOW_VSM
-            ? vsmTransmittance(vsmMap, shadowViewProjection, receiver.world_position)
+            ? vsmTransmittance(
+                vsmMap, shadowViewProjection, receiver.terrain_world_position)
             : pcssTransmittance(shadowMap, scalarNoise, unitVectorNoise,
                                 shadowViewProjection, shadowViewProjectionInverse,
                                 receiver);
@@ -347,13 +354,14 @@ public float directSunShadowTransmittance(
     {
         bool depthGate = (receiver.flags & DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE) != 0u;
         leafShadow = leafTransmittance(leafOpacityMap, leafMaskMap, gui,
-                                       shadowViewProjection, receiver.world_position,
+                                       shadowViewProjection,
+                                       receiver.leaf_world_position,
                                        depthGate);
     }
 
     float cloudShadow = 1.0;
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_CLOUD))
         cloudShadow = cloudTransmittance(cloudShadowMap, gui, shadowViewProjection,
-                                         receiver.world_position);
+                                         receiver.cloud_world_position);
     return terrainShadow * leafShadow * cloudShadow;
 }

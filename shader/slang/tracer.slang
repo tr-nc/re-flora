@@ -134,8 +134,10 @@ float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
 float3 shadowRayColor(Ray ray, float3 receiverNormal)
 {
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
+    float4 receiverPosition = float4(ray.origin, 1.0);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(ray.origin, 1.0), int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
+        receiverPosition, receiverPosition, receiverPosition,
+        int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_TERRAIN_SHADOW_VSM,
         DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
