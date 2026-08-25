@@ -8,6 +8,8 @@ import tracer_types;
 static const float FLORA_TWO_PI = 6.28318530718;
 static const float FLORA_NATURAL_BEND_MAX_ANGLE = 1.45;
 static const uint WIND_VOLUME_BUCKET_COUNT = 4u;
+static const float LEAF_SHADOW_SPRAY_PADDLE_AMPLITUDE_SCALE = 0.12;
+static const float LEAF_SHADOW_SPRAY_PADDLE_FREQUENCY_SCALE = 0.12;
 
 public float floraSmootherstep(float value)
 {
@@ -305,6 +307,44 @@ public float3 leafWindPaddling(U_GuiInput gui, float3 wind, float windGradient,
     return flapDirection *
         (paddle * gui.leaf_paddle_amplitude_voxels * amplitudeResponse *
          shellWeight * exposedSideWeight);
+}
+
+public float3 leafShadowSprayPaddling(U_GuiInput gui, float3 wind,
+                                      float windGradient, uint spraySeed,
+                                      float time)
+{
+    float windStrength = length(wind.xz);
+    float amplitudeResponse = floraWindCurveResponse(
+        windStrength, gui.leaf_paddle_amplitude_wind_start_strength,
+        gui.leaf_paddle_amplitude_wind_full_strength,
+        gui.leaf_paddle_amplitude_wind_knee_bias);
+    if (amplitudeResponse <= 0.0) return float3(0.0);
+
+    float frequencyResponse = floraWindCurveResponse(
+        windStrength, gui.leaf_paddle_frequency_wind_start_strength,
+        gui.leaf_paddle_frequency_wind_full_strength,
+        gui.leaf_paddle_frequency_wind_knee_bias);
+    float frequencyMultiplier = max(0.0, lerp(
+        gui.leaf_paddle_frequency_min_multiplier,
+        gui.leaf_paddle_frequency_max_multiplier, frequencyResponse));
+
+    float2 windDirection = floraWindPlanarDirection(wind);
+    float3 crossWindDirection = float3(-windDirection.y, 0.0, windDirection.x);
+    float3 paddleDirection = normalize(float3(
+        crossWindDirection.x * 0.35, 1.0, crossWindDirection.z * 0.35));
+    float phase = constructFloat01(
+        wellonsHash(spraySeed ^ 0x68E31DA4u)) * FLORA_TWO_PI;
+    float paddle = sin(
+        time * gui.leaf_paddle_primary_speed * frequencyMultiplier *
+        LEAF_SHADOW_SPRAY_PADDLE_FREQUENCY_SCALE + phase);
+    paddle += 0.35 * sin(
+        time * gui.leaf_paddle_secondary_speed * frequencyMultiplier *
+        LEAF_SHADOW_SPRAY_PADDLE_FREQUENCY_SCALE + phase * 1.61);
+    float shellWeight = pow(clamp(windGradient, 0.0, 1.0), 1.15);
+    return paddleDirection *
+        (paddle * gui.leaf_paddle_amplitude_voxels *
+         LEAF_SHADOW_SPRAY_PADDLE_AMPLITUDE_SCALE * amplitudeResponse *
+         shellWeight);
 }
 
 public FloraSpawnAnimationPose sampleFloraSpawnAnimation(

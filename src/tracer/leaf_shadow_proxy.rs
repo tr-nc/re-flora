@@ -4,13 +4,16 @@ use glam::{IVec3, UVec3};
 use std::collections::BTreeMap;
 
 pub(super) const LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS: i32 = 4;
+pub(super) const LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS: i32 = 2;
 pub(super) const SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS: f32 = 1.225;
+const MIN_COARSE_OPTICAL_LAYER_DENSITY: f32 = 0.30;
+const MIN_COARSE_OCCUPIED_FINE_CELLS: usize = 3;
 
 // The visible leaf stream stays one instance per generated leaf voxel. The shadow stream instead
 // bins leaves in stable, spray-local cells: the spray anchor is the object-space frame used by the
-// leaf wind shader, so neither camera motion nor per-frame wind changes cluster membership. Four
-// voxels project to roughly nine texels in the current leaf-opacity map in the benchmark scene,
-// putting the producer footprint safely above its sampling bandwidth while retaining crown holes.
+// leaf wind shader, so neither camera motion nor per-frame wind changes cluster membership. Dense
+// interiors remain four-voxel proxies; low-density or spatially partial cells split into two-voxel
+// children. This preserves readable boundaries without returning to one moving caster per leaf.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct LeafShadowProxy {
@@ -21,16 +24,31 @@ pub(super) struct LeafShadowProxy {
     pub(super) source_count: u32,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct ClusterAccumulator {
     local_position_sum: [i64; 3],
     source_count: u32,
 }
 
+impl ClusterAccumulator {
+    fn add(&mut self, local: IVec3) {
+        self.local_position_sum[0] += i64::from(local.x);
+        self.local_position_sum[1] += i64::from(local.y);
+        self.local_position_sum[2] += i64::from(local.z);
+        self.source_count += 1;
+    }
+}
+
+#[derive(Default)]
+struct CoarseClusterAccumulator {
+    cluster: ClusterAccumulator,
+    local_positions: Vec<IVec3>,
+}
+
 pub(super) fn build_leaf_shadow_proxies(
     instances: &[TreeRenderInstanceData],
 ) -> Result<Vec<LeafShadowProxy>> {
-    let mut clusters = BTreeMap::<(i32, i32, i32, i32, i32, i32), ClusterAccumulator>::new();
+    let mut clusters = BTreeMap::<(i32, i32, i32, i32, i32, i32), CoarseClusterAccumulator>::new();
 
     for instance in instances {
         let object_anchor = leaf_spray_anchor(instance)?;
@@ -44,51 +62,103 @@ pub(super) fn build_leaf_shadow_proxies(
             local.z.div_euclid(LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS),
         );
         let cluster = clusters.entry(key).or_default();
-        cluster.local_position_sum[0] += i64::from(local.x);
-        cluster.local_position_sum[1] += i64::from(local.y);
-        cluster.local_position_sum[2] += i64::from(local.z);
-        cluster.source_count += 1;
+        cluster.cluster.add(local);
+        cluster.local_positions.push(local);
     }
 
-    let proxy_size = LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32;
-    // opacity_layer_count is an optical-area density, not a binary alpha threshold. Multiplying it
-    // by the proxy area exactly recovers the summed source billboard area; the shader converts the
-    // fractional layer count to transmittance with 1 - (1 - alpha)^layers.
-    let source_area_ratio = (SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS / proxy_size).powi(2);
+    let mut proxies = Vec::with_capacity(clusters.len());
+    for (key, cluster) in clusters {
+        let object_anchor = IVec3::new(key.0, key.1, key.2);
+        let fine_clusters = group_local_positions(
+            cluster.local_positions.iter().copied(),
+            LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
+        );
+        let coarse_density = opacity_layer_count(
+            cluster.cluster.source_count,
+            LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32,
+        );
+        let refine = coarse_density < MIN_COARSE_OPTICAL_LAYER_DENSITY
+            || fine_clusters.len() < MIN_COARSE_OCCUPIED_FINE_CELLS;
+        if refine {
+            for fine_cluster in fine_clusters.into_values() {
+                proxies.push(proxy_from_cluster(
+                    object_anchor,
+                    fine_cluster,
+                    LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS as f32,
+                )?);
+            }
+        } else {
+            proxies.push(proxy_from_cluster(
+                object_anchor,
+                cluster.cluster,
+                LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32,
+            )?);
+        }
+    }
+    Ok(proxies)
+}
+
+fn group_local_positions(
+    positions: impl Iterator<Item = IVec3>,
+    cell_size_voxels: i32,
+) -> BTreeMap<(i32, i32, i32), ClusterAccumulator> {
+    let mut clusters = BTreeMap::new();
+    for local in positions {
+        let key = (
+            local.x.div_euclid(cell_size_voxels),
+            local.y.div_euclid(cell_size_voxels),
+            local.z.div_euclid(cell_size_voxels),
+        );
+        let cluster: &mut ClusterAccumulator = clusters.entry(key).or_default();
+        cluster.add(local);
+    }
     clusters
-        .into_iter()
-        .map(|(key, cluster)| {
-            let object_anchor = IVec3::new(key.0, key.1, key.2);
-            let count = i64::from(cluster.source_count);
-            let leaf_local_pos = IVec3::new(
-                rounded_div(cluster.local_position_sum[0], count),
-                rounded_div(cluster.local_position_sum[1], count),
-                rounded_div(cluster.local_position_sum[2], count),
-            );
-            let world_pos_i64 = [
-                i64::from(object_anchor.x) + i64::from(leaf_local_pos.x),
-                i64::from(object_anchor.y) + i64::from(leaf_local_pos.y),
-                i64::from(object_anchor.z) + i64::from(leaf_local_pos.z),
-            ];
-            anyhow::ensure!(
-                world_pos_i64
-                    .iter()
-                    .all(|&value| (0..=i64::from(u32::MAX)).contains(&value)),
-                "leaf shadow proxy world position is outside unsigned voxel space"
-            );
-            Ok(LeafShadowProxy {
-                world_pos: UVec3::new(
-                    world_pos_i64[0] as u32,
-                    world_pos_i64[1] as u32,
-                    world_pos_i64[2] as u32,
-                ),
-                leaf_local_pos,
-                billboard_size_voxels: proxy_size,
-                opacity_layer_count: cluster.source_count as f32 * source_area_ratio,
-                source_count: cluster.source_count,
-            })
-        })
-        .collect()
+}
+
+fn proxy_from_cluster(
+    object_anchor: IVec3,
+    cluster: ClusterAccumulator,
+    proxy_size: f32,
+) -> Result<LeafShadowProxy> {
+    let leaf_local_pos = mean_local_position(&cluster);
+    let world_pos_i64 = [
+        i64::from(object_anchor.x) + i64::from(leaf_local_pos.x),
+        i64::from(object_anchor.y) + i64::from(leaf_local_pos.y),
+        i64::from(object_anchor.z) + i64::from(leaf_local_pos.z),
+    ];
+    anyhow::ensure!(
+        world_pos_i64
+            .iter()
+            .all(|&value| (0..=i64::from(u32::MAX)).contains(&value)),
+        "leaf shadow proxy world position is outside unsigned voxel space"
+    );
+    Ok(LeafShadowProxy {
+        world_pos: UVec3::new(
+            world_pos_i64[0] as u32,
+            world_pos_i64[1] as u32,
+            world_pos_i64[2] as u32,
+        ),
+        leaf_local_pos,
+        billboard_size_voxels: proxy_size,
+        opacity_layer_count: opacity_layer_count(cluster.source_count, proxy_size),
+        source_count: cluster.source_count,
+    })
+}
+
+fn mean_local_position(cluster: &ClusterAccumulator) -> IVec3 {
+    let count = i64::from(cluster.source_count);
+    IVec3::new(
+        rounded_div(cluster.local_position_sum[0], count),
+        rounded_div(cluster.local_position_sum[1], count),
+        rounded_div(cluster.local_position_sum[2], count),
+    )
+}
+
+fn opacity_layer_count(source_count: u32, proxy_size: f32) -> f32 {
+    // This is an optical-area density, not a binary alpha threshold. Multiplying it by the proxy
+    // area exactly recovers the summed source billboard area; the shader converts the fractional
+    // layer count to transmittance with 1 - (1 - alpha)^layers.
+    source_count as f32 * (SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS / proxy_size).powi(2)
 }
 
 fn leaf_spray_anchor(instance: &TreeRenderInstanceData) -> Result<IVec3> {
@@ -139,12 +209,55 @@ mod tests {
             build_leaf_shadow_proxies(&leaves.iter().copied().rev().collect::<Vec<_>>()).unwrap();
 
         assert_eq!(forward, reversed);
-        assert_eq!(forward.len(), 3);
+        assert_eq!(forward.len(), 5);
         assert!(forward.iter().all(|proxy| [anchor, second_anchor]
             .contains(&(proxy.world_pos.as_ivec3() - proxy.leaf_local_pos))));
         assert!(forward
             .iter()
-            .all(|proxy| proxy.billboard_size_voxels == 4.0));
+            .all(|proxy| proxy.billboard_size_voxels == 2.0));
+    }
+
+    #[test]
+    fn dense_well_distributed_cell_stays_coarse() {
+        let anchor = IVec3::splat(100);
+        let leaves = [
+            leaf(anchor, IVec3::new(0, 0, 0)),
+            leaf(anchor, IVec3::new(2, 0, 0)),
+            leaf(anchor, IVec3::new(0, 2, 0)),
+            leaf(anchor, IVec3::new(0, 0, 2)),
+        ];
+        let proxies = build_leaf_shadow_proxies(&leaves).unwrap();
+
+        assert_eq!(proxies.len(), 1);
+        assert_eq!(proxies[0].billboard_size_voxels, 4.0);
+        assert_eq!(proxies[0].source_count, 4);
+    }
+
+    #[test]
+    fn sparse_or_spatially_partial_cells_refine() {
+        let anchor = IVec3::splat(100);
+        let sparse = [
+            leaf(anchor, IVec3::new(0, 0, 0)),
+            leaf(anchor, IVec3::new(2, 0, 0)),
+            leaf(anchor, IVec3::new(0, 2, 0)),
+        ];
+        let spatially_partial = [
+            leaf(anchor, IVec3::new(0, 0, 0)),
+            leaf(anchor, IVec3::new(1, 0, 0)),
+            leaf(anchor, IVec3::new(0, 1, 0)),
+            leaf(anchor, IVec3::new(0, 0, 1)),
+        ];
+
+        let sparse_proxies = build_leaf_shadow_proxies(&sparse).unwrap();
+        let partial_proxies = build_leaf_shadow_proxies(&spatially_partial).unwrap();
+
+        assert_eq!(sparse_proxies.len(), 3);
+        assert!(sparse_proxies
+            .iter()
+            .all(|proxy| proxy.billboard_size_voxels == 2.0));
+        assert_eq!(partial_proxies.len(), 1);
+        assert_eq!(partial_proxies[0].billboard_size_voxels, 2.0);
+        assert_eq!(partial_proxies[0].source_count, 4);
     }
 
     #[test]

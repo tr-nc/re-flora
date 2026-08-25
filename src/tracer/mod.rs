@@ -7025,6 +7025,14 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
         let leaf_shadow_proxies = build_leaf_shadow_proxies(&leaf_voxel_instances)?;
+        let coarse_proxy_count = leaf_shadow_proxies
+            .iter()
+            .filter(|proxy| {
+                proxy.billboard_size_voxels
+                    == leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32
+            })
+            .count();
+        let refined_proxy_count = leaf_shadow_proxies.len() - coarse_proxy_count;
         let shadow_instances = leaf_shadow_proxies
             .iter()
             .map(|proxy| TreeShadowRenderInstanceData {
@@ -7035,12 +7043,15 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
         log::info!(
-            "[LEAF_SHADOW_PROXY] tree={} sources={} proxies={} ratio={:.3} cell_voxels={} optical_area_preserved=true",
+            "[LEAF_SHADOW_PROXY] tree={} sources={} proxies={} ratio={:.3} coarse_proxies={} refined_proxies={} coarse_cell_voxels={} fine_cell_voxels={} optical_area_preserved=true",
             tree_id,
             leaf_voxel_instances.len(),
             shadow_instances.len(),
             shadow_instances.len() as f32 / leaf_voxel_instances.len().max(1) as f32,
+            coarse_proxy_count,
+            refined_proxy_count,
             leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
+            leaf_shadow_proxy::LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
         );
         let tree_leaves_instance = self.build_tree_render_instances(
             tree_id,

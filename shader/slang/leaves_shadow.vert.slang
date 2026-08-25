@@ -185,7 +185,8 @@ VertexOutput main(VertexInput input)
         ? instancePosition
         : instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
     // Tree proxy leaves move coherently with their spray anchor. The visible leaf path retains its
-    // per-leaf wind seed and paddling; only sub-shadow-texel caster motion is removed here.
+    // per-leaf wind seed and paddling; the shadow path uses one phase-continuous paddle per spray so
+    // cluster motion remains readable without restoring sub-shadow-texel phase noise.
     uint windSeed = seed;
     float3 wind = sampleWindVolume(
         wind_volume_info, wind_volume_tex, windSamplePosition, windSeed);
@@ -195,6 +196,11 @@ VertexOutput main(VertexInput input)
     if (isApple)
     {
         windOffset = appleWindSwing(gui_input, wind, seed, motionTime);
+    }
+    else if (isTreeLeaf)
+    {
+        windOffset += leafShadowSprayPaddling(
+            gui_input, wind, windGradient, seed, pc.time);
     }
 
     float3 anchorPosition =
