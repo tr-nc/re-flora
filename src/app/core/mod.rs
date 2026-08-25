@@ -52,6 +52,7 @@ use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
+use self::terrain_connectivity::bench::TerrainConnectivityBench;
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
@@ -543,6 +544,7 @@ pub struct App {
     terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
     terrain_connectivity: TerrainConnectivityRuntime,
+    terrain_connectivity_bench: Option<TerrainConnectivityBench>,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
@@ -807,6 +809,10 @@ impl App {
     }
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
+        let source_frame = self
+            .terrain_connectivity_bench
+            .as_ref()
+            .and_then(|bench| bench.gpu_source_frame(frame_slot));
         let Some(profiler) = &self.gpu_profiler else {
             return;
         };
@@ -825,6 +831,9 @@ impl App {
                         scope.name,
                         scope.duration_us(),
                     );
+                }
+                if let Some(bench) = self.terrain_connectivity_bench.as_mut() {
+                    bench.observe_gpu_results(source_frame, &results);
                 }
                 self.gpu_profiler_latest_results = Some(results);
             }
@@ -1512,6 +1521,9 @@ impl App {
             terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
+            terrain_connectivity_bench: options
+                .terrain_connectivity_bench
+                .map(TerrainConnectivityBench::new),
 
             particle_system,
             butterfly_emitters,
@@ -3273,6 +3285,8 @@ impl App {
                     self.on_terminate(event_loop);
                     return;
                 }
+                TerrainConnectivityBench::advance(self)
+                    .unwrap_or_else(|err| panic!("[TERRAIN_CONNECTIVITY_BENCH] failed: {err:#}"));
                 if AuthoredFloraBench::run_next(self) {
                     self.on_terminate(event_loop);
                     return;
@@ -3359,6 +3373,9 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
+                if let Some(bench) = self.terrain_connectivity_bench.as_mut() {
+                    bench.note_gpu_frame_started(frame_slot, self.time_info.total_frame_count());
+                }
                 let cmdbuf = frame.command_buffer();
                 let frame_extent_generation = frame.frame_extent_generation();
                 assert_eq!(
@@ -4466,6 +4483,18 @@ impl App {
                             water_terrain.cache_active,
                             water_terrain.cache_inflight,
                         );
+                    }
+                }
+                if let Some(mut bench) = self.terrain_connectivity_bench.take() {
+                    let complete = bench
+                        .observe_completed_frame(self, frame_timing_snapshot)
+                        .unwrap_or_else(|err| {
+                            panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
+                        });
+                    self.terrain_connectivity_bench = Some(bench);
+                    if complete {
+                        self.on_terminate(event_loop);
+                        return;
                     }
                 }
                 if let Some(render_start_time) = self.render_start_time {

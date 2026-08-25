@@ -6,6 +6,8 @@ use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+pub(super) mod bench;
+
 // Most releases resolve from one contiguous readback. Components that cross this
 // fast-path halo continue through lazily loaded tiles below.
 const ANALYSIS_HALO_VOXELS: u32 = 24;
@@ -71,6 +73,7 @@ struct AtlasVoxelReader<'a> {
     primary_bound: UAabb3,
     primary_voxels: &'a [u8],
     tiles: HashMap<UVec3, (UVec3, Vec<u8>)>,
+    tile_readback_us: f64,
 }
 
 impl<'a> AtlasVoxelReader<'a> {
@@ -86,6 +89,7 @@ impl<'a> AtlasVoxelReader<'a> {
             primary_bound,
             primary_voxels,
             tiles: HashMap::new(),
+            tile_readback_us: 0.0,
         }
     }
 
@@ -103,9 +107,11 @@ impl<'a> AtlasVoxelReader<'a> {
         let tile_origin = (world_voxel / CONNECTIVITY_TILE_DIM) * CONNECTIVITY_TILE_DIM;
         if !self.tiles.contains_key(&tile_origin) {
             let tile_dim = UVec3::splat(CONNECTIVITY_TILE_DIM).min(self.world_dim - tile_origin);
+            let readback_started = Instant::now();
             let voxels = self
                 .plain_builder
                 .read_chunk_atlas_region(tile_origin, tile_dim)?;
+            self.tile_readback_us += readback_started.elapsed().as_secs_f64() * 1_000_000.0;
             self.tiles.insert(tile_origin, (tile_dim, voxels));
         }
         let (tile_dim, voxels) = self
@@ -163,6 +169,9 @@ impl App {
     }
 
     pub(super) fn resolve_detached_terrain_after_edit(&mut self) -> anyhow::Result<()> {
+        if bench::TerrainConnectivityBench::try_begin_manual_release(self)? {
+            return Ok(());
+        }
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
         let Some((edited, block)) = self.terrain_connectivity.take_edit_region(world_dim) else {
             return Ok(());
