@@ -890,6 +890,66 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_direct_light_gate_detects_subvoxel_range_for_exact_sunlit_receiver(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "subvoxel-direct-light.rfirr"
+            voxel = 1.0 / analyzer.TERRAIN_VOXELS_PER_WORLD_UNIT
+            camera = (0.5 * voxel, 0.5 * voxel, -1.0)
+            world = [
+                (0.20 * voxel, 0.20 * voxel, 0.0, 1.0),
+                (0.35 * voxel, 0.35 * voxel, 0.0, 1.0),
+                (0.65 * voxel, 0.65 * voxel, 0.0, 1.0),
+                (0.80 * voxel, 0.80 * voxel, 0.0, 1.0),
+            ]
+            self.write_capture_v5(
+                capture_path,
+                [(0.0, 0.0, 0.0, 1.0)] * 4,
+                world,
+                [
+                    (0.25, 0.25, 0.25, 1.0),
+                    (0.25, 0.25, 0.25, 1.0),
+                    (0.75, 0.75, 0.75, 1.0),
+                    (0.75, 0.75, 0.75, 1.0),
+                ],
+            )
+
+            summary = analyzer.summarize(
+                analyzer.load_capture(capture_path), camera_position=camera
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--camera-position",
+                *(str(value) for value in camera),
+                "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+                "0.5",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--camera-position",
+                *(str(value) for value in camera),
+                "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+                "0.499",
+            )
+
+        self.assertEqual(
+            summary["direct_light_sunlit_receiver_voxel_count"], 1
+        )
+        self.assertAlmostEqual(
+            summary[
+                "direct_light_sunlit_receiver_voxel_luminance_range_max"
+            ],
+            0.5,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "direct_light_sunlit_receiver_voxel_luminance_range_max: "
+            "expected at most 0.499, got 0.5",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
     def test_world_roi_includes_gpu_positions_within_boundary_epsilon(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "world-roi-boundary.rfirr"

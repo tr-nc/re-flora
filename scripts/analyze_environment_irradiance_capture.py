@@ -68,6 +68,7 @@ TERRAIN_VOXELS_PER_WORLD_UNIT = 256.0
 VOXEL_FACE_BOUNDARY_EPSILON = 1.0e-3
 VOXEL_FACE_MIN_MIXED_CLASS_PIXELS = 2
 RECEIVER_VOXEL_INTERIOR_NUDGE = 1.0e-3
+DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS = 4
 
 
 @dataclass(frozen=True)
@@ -453,6 +454,9 @@ def summarize(
         tuple[int, int, int, int], list[int]
     ] = {}
     roi_combined_receiver_voxel_counts: dict[tuple[int, int, int], list[int]] = {}
+    direct_light_receiver_voxel_samples: dict[
+        tuple[int, int, int], list[tuple[float, float]]
+    ] = {}
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -521,6 +525,10 @@ def summarize(
                             voxel_key, [0, 0]
                         )
                         counts[0 if combined_zero else 1] += 1
+                        if all(math.isfinite(value) for value in world_pixel):
+                            direct_light_receiver_voxel_samples.setdefault(
+                                voxel_key, []
+                            ).append((world_pixel[3], direct_luminance))
             if world_pixel is None:
                 continue
             position = world_pixel[:3]
@@ -536,6 +544,14 @@ def summarize(
     direct_light_luminances.sort()
     for values in direct_light_roi_luminances.values():
         values.sort()
+    direct_light_sunlit_receiver_voxel_luminance_ranges = sorted(
+        max(luminance for _, luminance in samples)
+        - min(luminance for _, luminance in samples)
+        for samples in direct_light_receiver_voxel_samples.values()
+        if len(samples) >= DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS
+        and all(exact_visibility == 1.0 for exact_visibility, _ in samples)
+        and all(luminance > 0.0 for _, luminance in samples)
+    )
     roi_channel_mean = (
         [value / roi_terrain_hit_count for value in roi_channel_sum]
         if roi_terrain_hit_count > 0
@@ -675,6 +691,23 @@ def summarize(
         ),
         "direct_light_luminance_max": (
             direct_light_luminances[-1] if direct_light_luminances else None
+        ),
+        "direct_light_sunlit_receiver_voxel_count": (
+            len(direct_light_sunlit_receiver_voxel_luminance_ranges)
+            if direct_light_available and camera_position is not None
+            else None
+        ),
+        "direct_light_sunlit_receiver_voxel_luminance_range_p99": (
+            percentile(
+                direct_light_sunlit_receiver_voxel_luminance_ranges, 0.99
+            )
+            if direct_light_sunlit_receiver_voxel_luminance_ranges
+            else None
+        ),
+        "direct_light_sunlit_receiver_voxel_luminance_range_max": (
+            direct_light_sunlit_receiver_voxel_luminance_ranges[-1]
+            if direct_light_sunlit_receiver_voxel_luminance_ranges
+            else None
         ),
         "direct_light_sunlit_roi": (
             list(direct_light_sunlit_roi)
@@ -1172,6 +1205,15 @@ def main() -> int:
     parser.add_argument("--min-direct-light-sunlit-luminance-mean", type=float)
     parser.add_argument("--direct-light-shadowed-roi", type=float, nargs=6)
     parser.add_argument("--max-direct-light-shadowed-luminance-max", type=float)
+    parser.add_argument(
+        "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+        type=float,
+        help=(
+            "require exact-sunlit receiver voxels with at least four internal "
+            "pixels to have no more than this direct-light luminance range; "
+            "requires --camera-position"
+        ),
+    )
     parser.add_argument("--expect-version", type=int)
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
@@ -1335,6 +1377,10 @@ def main() -> int:
     gate_max(
         "direct_light_shadowed_roi_luminance_max",
         args.max_direct_light_shadowed_luminance_max,
+    )
+    gate_max(
+        "direct_light_sunlit_receiver_voxel_luminance_range_max",
+        args.max_direct_light_sunlit_receiver_voxel_luminance_range,
     )
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
