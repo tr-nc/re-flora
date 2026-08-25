@@ -17,6 +17,7 @@ HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
+HEADER_V7 = HEADER_V4
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -234,6 +235,56 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         payload = b"".join(
             analyzer.PIXEL.pack(*pixel)
             for pixel in irradiance_pixels + world_pixels + direct_light_pixels
+        )
+        path.write_bytes(header + payload)
+
+    def write_capture_v7(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        direct_light_pixels: list[tuple[float, float, float, float]],
+        receiver_pixels: list[tuple[float, float, float, float]],
+    ) -> None:
+        self.assertEqual(len(irradiance_pixels), len(world_pixels))
+        self.assertEqual(len(irradiance_pixels), len(direct_light_pixels))
+        self.assertEqual(len(irradiance_pixels), len(receiver_pixels))
+        header = HEADER_V7.pack(
+            analyzer.MAGIC,
+            7,
+            len(irradiance_pixels),
+            1,
+            4,
+            1,
+            16,
+            0,
+            4,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            2,
+            31,
+            1,
+            30,
+            88,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            len(irradiance_pixels),
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in (
+                irradiance_pixels
+                + world_pixels
+                + direct_light_pixels
+                + receiver_pixels
+            )
         )
         path.write_bytes(header + payload)
 
@@ -890,62 +941,48 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
-    def test_direct_light_gate_detects_subvoxel_range_for_exact_sunlit_receiver(
-        self,
-    ) -> None:
+    def test_terrain_shadow_gate_uses_captured_marcher_voxel_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "subvoxel-direct-light.rfirr"
             voxel = 1.0 / analyzer.TERRAIN_VOXELS_PER_WORLD_UNIT
-            camera = (0.5 * voxel, 0.5 * voxel, -1.0)
             world = [
                 (0.20 * voxel, 0.20 * voxel, 0.0, 1.0),
                 (0.35 * voxel, 0.35 * voxel, 0.0, 1.0),
                 (0.65 * voxel, 0.65 * voxel, 0.0, 1.0),
                 (0.80 * voxel, 0.80 * voxel, 0.0, 1.0),
             ]
-            self.write_capture_v5(
+            self.write_capture_v7(
                 capture_path,
                 [(0.0, 0.0, 0.0, 1.0)] * 4,
                 world,
-                [
-                    (0.25, 0.25, 0.25, 1.0),
-                    (0.25, 0.25, 0.25, 1.0),
-                    (0.75, 0.75, 0.75, 1.0),
-                    (0.75, 0.75, 0.75, 1.0),
-                ],
+                [(0.25, 0.25, 0.25, 1.0)] * 4,
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, value)
+                 for value in (0.25, 0.25, 0.75, 0.75)],
             )
 
-            summary = analyzer.summarize(
-                analyzer.load_capture(capture_path), camera_position=camera
-            )
+            summary = analyzer.summarize(analyzer.load_capture(capture_path))
             accepted = self.run_analyzer(
                 capture_path,
-                "--camera-position",
-                *(str(value) for value in camera),
-                "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+                "--max-terrain-shadow-receiver-voxel-transmittance-range",
                 "0.5",
             )
             rejected = self.run_analyzer(
                 capture_path,
-                "--camera-position",
-                *(str(value) for value in camera),
-                "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+                "--max-terrain-shadow-receiver-voxel-transmittance-range",
                 "0.499",
             )
 
-        self.assertEqual(
-            summary["direct_light_sunlit_receiver_voxel_count"], 1
-        )
+        self.assertTrue(summary["terrain_shadow_receiver_available"])
+        self.assertTrue(summary["terrain_shadow_receiver_valid"])
+        self.assertEqual(summary["terrain_shadow_receiver_voxel_count"], 1)
         self.assertAlmostEqual(
-            summary[
-                "direct_light_sunlit_receiver_voxel_luminance_range_max"
-            ],
+            summary["terrain_shadow_receiver_voxel_transmittance_range_max"],
             0.5,
         )
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
         self.assertIn(
-            "direct_light_sunlit_receiver_voxel_luminance_range_max: "
+            "terrain_shadow_receiver_voxel_transmittance_range_max: "
             "expected at most 0.499, got 0.5",
             json.loads(rejected.stdout)["validation_failures"],
         )

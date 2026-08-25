@@ -4,7 +4,7 @@
 
 基线：`agent/voxel-shadow-subvoxel-diagnosis` / `c1748623`
 
-任务边界：只做诊断、测量、根因定位与修复设计；没有实现生产修复。
+任务边界：本文最初只做诊断、测量、根因定位与修复设计；用户随后明确授权运行测试并实施修复。本文末尾记录已实施的 seam 与验收证据。
 
 ## 结论摘要
 
@@ -276,7 +276,7 @@ DirectSunShadowReceiverPositions
 
 ## 9. 推荐实施阶段
 
-本任务没有执行以下阶段；它们是后续实现顺序。
+以下是诊断阶段提出的实施顺序；后续授权实现已经完成阶段 0～2。
 
 ### 阶段 0：先固化合同与诊断面
 
@@ -324,17 +324,54 @@ DirectSunShadowReceiverPositions
 
 ## 11. 风险与未验证项
 
-1. **主要产品代价是可见的 voxel stair-step，而不是算力。** canonical VSM 会让整 voxel 同时跨入/跨出 penumbra；斜向边缘、移动太阳或 caster 可能出现更明显的块状跳变。当前任务没有生产实现，因此无法对 artifact 做视觉接受判断。
+1. **主要产品代价是可见的 voxel stair-step，而不是算力。** canonical VSM 会让整 voxel 同时跨入/跨出 penumbra；斜向边缘、移动太阳或 caster 可能出现更明显的块状跳变。生产修复已实现，但尚未做可见/manual artifact 接受判断。
 2. **接触阴影/self-shadow 需专门回归。** canonical surface 是沿存储 normal 与 voxel AABB 求交，再加 0.0065 world offset；它比实际 ray hit 更稳定，但可能让小 caster/contact 在整 voxel 上同时出现/消失，也可能改变 peter-panning。不能用增加 bias 掩盖。
 3. **共享 API 是回归面。** `terrain_moisture_dry.slang` 复用 direct-sun shadowing；深化 seam 时必须保持其 canonical exposure 和 source availability，不能只验证画面。
 4. **leaf/cloud 不应被本修复绑架。** 最小 textual edit 是替换 renderer 的 surface receiver，但若仍通过单一 shared position 组合 source，就会改变 leaf/cloud；这正是推荐先做 API seam 的理由。
-5. **baseline 场景不是全部几何。** 已验证 house terrain、固定 sun、无 flora/cloud、RTX 3060 Ti、960×540 internal/1024² shadow；未验证不同 sun angle、极端 normal、fruit contact、terrain edit、其他 GPU/driver、不同 resolution。
-6. **没有做可见/manual try-out。** 用户明确禁止可见启动；PNG 只作早期定位且已删除，不作为证据。报告提交前只做 hidden/muted E2E。
-7. **没有性能结论。** 临时 probe 的运行时间不是生产实现 benchmark；只有未来 production change 的 release fixed-workload GPU/frame 数据才有效。
-8. **没有实现、merge、push 或移除 worktree。** 所有临时 shader/config probe、capture、截图和生成物均在报告提交前撤销/删除；最终提交只包含本文档。
+5. **baseline 场景不是全部几何。** 诊断验证了 house terrain、固定 sun、无 flora/cloud、RTX 3060 Ti、960×540 internal/1024² shadow；实施后的正式门槛另在 800×450 internal 上通过。未验证不同 sun angle、极端 normal、fruit contact、terrain edit、其他 GPU/driver、不同 resolution。
+6. **没有做可见/manual try-out。** 本轮只运行 hidden/muted；因此不把线性数值验收冒充主观视觉接受。
+7. **没有性能结论。** 本修复没有增加正常渲染的 shadow lookup；capture v7 的第四 plane 只在启用 capture 时按完整 extent 分配，普通运行只保留最小占位 buffer。仍未做固定 workload 的 frame/GPU scope benchmark。
+8. **没有 merge、push 或移除 worktree。** 临时 shader probe 不进入提交；161 MiB capture 与分析 JSON 在记录指标后已移入 trash，提交不包含截图或生成物；正常 per-worktree run log 仍位于 ignored `target/re-flora-logs/`。
 
 ## 12. 最终建议
 
-把缺陷定义为 **terrain-caster filtered direct-sun transmittance 缺少 receiver voxel identity**，而不是“VSM 太糊”“shadow map 分辨率不足”或“屏幕需要 denoiser”。后续优先做 source-specific receiver seam，再只把 terrain renderer 切到已有 canonical voxel-surface helper；保留 leaf/cloud 连续、DDGI 现有 hybrid 语义。
+把缺陷定义为 **terrain-caster filtered direct-sun transmittance 缺少 receiver voxel identity**，而不是“VSM 太糊”“shadow map 分辨率不足”或“屏幕需要 denoiser”。已实施的修复先建立 source-specific receiver seam，再只把 terrain renderer 切到已有 canonical voxel-surface helper；leaf/cloud 连续位置与 DDGI 现有 hybrid 语义保持不变。
 
-这能在最深的正确层建立可测试不变量，也把代价说清楚：换来的不是更平滑的阴影，而是**同 voxel 一致、跨 voxel 阶梯化的 filtered terrain shadow**。是否接受这个视觉取舍，应在阶段 0 明确后再实现。
+这在最深的正确层建立了可测试不变量，也把代价说清楚：换来的不是更平滑的阴影，而是**同 voxel 一致、跨 voxel 阶梯化的 filtered terrain shadow**。线性 contract 已通过；是否接受跨 voxel 阶梯的视觉取舍，仍需用户可见/manual 体验。
+
+## 13. 授权后的生产修复与验收
+
+### 13.1 实施内容
+
+- `DirectSunShadowReceiver` 现在分别携带 `terrain_world_position`、`leaf_world_position` 与 `cloud_world_position`。先以三个相同位置完成 behavior-neutral seam，并用 capture 证明环境、world、direct-light 三个既有 plane bit-exact。
+- `tracer.slang::directLighting` 同时接收 `result.center_position` 和连续 `result.position`：terrain VSM 使用 `terrainShadowReceiverPosition(voxelCenter, normal)`；leaf/cloud 使用 `terrainShadowReceiverPositionFromSurface(surfacePosition, normal)`；local light 仍使用连续 surface position。
+- `DirectSunShadowTransmittances` 暴露 terrain/leaf/cloud 分项与组合值，只做一次既有 source sampling。普通最终着色仍使用组合值；capture 单独记录 terrain 分项，避免拿 final RGB 或 direct RGB 猜测 shadow visibility。
+- `.rfi` 升级为 v7，第四个 float4 plane 为 `marcher receiver center XYZ + terrain VSM transmittance`。capture buffer 的 plane count 由 Rust 单一常量驱动；未启用 capture 时只分配一个 pixel 的最小占位，避免把诊断 plane 的显存成本带入普通运行。
+- analyzer 的永久门槛按捕获的真实 marcher center 分组，不再从连续 world hit 与 camera 方向反推 voxel。后者在 voxel face/edge/corner 上会误分组，已由临时 center probe 证伪。
+
+### 13.2 RED→GREEN 证据
+
+修复前，固定 `house-overlook`、flora/cloud/local-light 等干扰关闭的 release capture 中，旧的连续 terrain VSM receiver 在同一 voxel 内产生非零变化；诊断 source-plane probe 的最大范围为 `0.673871`。仅把 terrain receiver 换成 canonical center 后，同样分组的范围为精确 `0`。
+
+正式 v7 黑盒验收使用 800×450 internal、1024² VSM、302,214 个 terrain-hit pixels。按真实 marcher center 分组后，有 25,889 个 receiver voxels 至少覆盖 4 个 internal pixels：
+
+| 指标 | 结果 |
+|---|---:|
+| `terrain_shadow_receiver_voxel_transmittance_range_p99` | `0.0` |
+| `terrain_shadow_receiver_voxel_transmittance_range_max` | `0.0` |
+| threshold | `1e-6` |
+| validation failures | `[]` |
+
+第二次独立 release capture 与第一次在 environment/world/receiver、direct-light plane 上全部 bit-exact，包含 receiver plane SHA-256 `82a489440954b2f2f01ae345a49f8e40534d042b3c29105ef81bfb18a0f03289`。
+
+### 13.3 当前语义保证
+
+修复保证的是：**同一 terrain marcher voxel 的 filtered terrain VSM transmittance 不随 voxel 内 surface hit 改变。** 它不保证 leaf/cloud shadow、local light、DDGI spatial weighting、material/emission、tone mapping 或 dither 生成相同 final RGB。hard exact terrain visibility 的 canonical 合同没有改变；leaf/cloud 仍连续，因此 foliage-shadow 的独立优先级与语义边界未被本修复吞并。
+
+### 13.4 验证记录与未验证项
+
+- `cargo fmt --check`、`cargo check` 通过；100 个 native Slang shader 全部可编译。
+- `python3 -m unittest discover -s scripts/tests -p 'test_*.py'`：82/82 通过；其中 analyzer 35/35 通过。
+- 完整 `cargo test` 唯一失败是任务开始前已知的独立 PATT fixture：`patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof` 为 expected 1 / observed 2。只排除这一个已知 fixture 后为 631 passed、0 failed、1 ignored。
+- `cargo run --release -- --hidden --mute --auto-exit 0.5` 通过；同 worktree latest log 无 error、panic、validation failure 或 device loss。
+- 未验证：可见/manual artifact 接受、不同 sun angle 与 shadow resolution、terrain edit/fruit contact、其他 GPU/driver，以及固定 workload 性能数据。没有运行可见窗口、merge、push 或删除 worktree。

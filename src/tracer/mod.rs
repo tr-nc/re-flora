@@ -67,6 +67,7 @@ const LEAF_INSTANCE_TYPE: u32 = crate::flora::species::TREE_LEAF_RENDER_SPECIES_
 const APPLE_INSTANCE_TYPE: u32 = crate::flora::species::APPLE_RENDER_SPECIES_INDEX;
 const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
+pub(crate) const ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT: u32 = 4;
 pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 const FLORA_LIGHTING_CACHE_OFFSET_BITS: u32 = 22;
@@ -1057,6 +1058,7 @@ impl Tracer {
             chunk_bound,
             render_extent,
             screen_extent,
+            desc.environment_irradiance_capture_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
@@ -1962,6 +1964,7 @@ impl Tracer {
             self.allocator.clone(),
             render_extent,
             screen_extent,
+            self.desc.environment_irradiance_capture_enabled,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(

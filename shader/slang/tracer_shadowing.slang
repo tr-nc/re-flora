@@ -50,6 +50,14 @@ public struct DirectSunShadowReceiver
     float3 receiver_plane_normal;
 };
 
+public struct DirectSunShadowTransmittances
+{
+    public float terrain;
+    public float leaf;
+    public float cloud;
+    public float combined;
+};
+
 public DirectSunShadowReceiver makeDirectSunShadowReceiver(
     float4 terrainWorldPosition, float4 leafWorldPosition,
     float4 cloudWorldPosition, int3 pcssSeed, uint sourceMask, uint terrainMode,
@@ -289,7 +297,7 @@ bool sourceEnabled(DirectSunShadowReceiver receiver, uint source)
            (receiver.available_mask & source) != 0u;
 }
 
-public float directSunShadowTransmittanceVsmLeafCloud(
+public DirectSunShadowTransmittances directSunShadowTransmittancesVsmLeafCloud(
     DirectSunShadowReceiver receiver,
     U_GuiInput gui,
     float4x4 shadowViewProjection,
@@ -328,7 +336,26 @@ public float directSunShadowTransmittanceVsmLeafCloud(
             shadowViewProjection,
             receiver.cloud_world_position);
     }
-    return terrainShadow * leafShadow * cloudShadow;
+    DirectSunShadowTransmittances transmittances;
+    transmittances.terrain = terrainShadow;
+    transmittances.leaf = leafShadow;
+    transmittances.cloud = cloudShadow;
+    transmittances.combined = terrainShadow * leafShadow * cloudShadow;
+    return transmittances;
+}
+
+public float directSunShadowTransmittanceVsmLeafCloud(
+    DirectSunShadowReceiver receiver,
+    U_GuiInput gui,
+    float4x4 shadowViewProjection,
+    Sampler2D vsmMap,
+    Sampler2D leafOpacityMap,
+    Sampler2D leafMaskMap,
+    Sampler2D cloudShadowMap)
+{
+    return directSunShadowTransmittancesVsmLeafCloud(
+        receiver, gui, shadowViewProjection, vsmMap, leafOpacityMap,
+        leafMaskMap, cloudShadowMap).combined;
 }
 
 public float directSunShadowTransmittance(

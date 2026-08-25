@@ -1398,20 +1398,29 @@ mod tests {
     }
 
     #[test]
-    fn direct_terrain_shadow_uses_exact_surface_hit_and_keeps_ddgi_voxel_receiver() {
+    fn direct_shadow_uses_source_specific_positions_and_keeps_ddgi_hybrid_receiver() {
         let tracer = include_str!("../shader/slang/tracer.slang");
         let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang");
 
+        assert!(ray_origin.contains("public float3 terrainRayOriginAlongNormal("));
         assert!(ray_origin.contains("public float3 terrainRayOriginFromSurface("));
-        assert!(ray_origin.contains(
-            "return surfacePosition +\n        normalDirection * max(0.0, offsetWorld);"
+        assert!(tracer.contains(
+            "float3 terrainReceiverPosition = terrainShadowReceiverPosition(\n        voxelCenter, normal);"
         ));
         assert!(tracer.contains(
-            "shadowRay.origin = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
+            "float3 leafCloudReceiverPosition = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
         ));
-        assert!(
-            tracer.contains("directLight = directLighting(albedo, result.normal, result.position,")
-        );
+        assert!(tracer.contains(
+            "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
+        ));
+        for position in [
+            "receiver.terrain_world_position",
+            "receiver.leaf_world_position",
+            "receiver.cloud_world_position",
+        ] {
+            assert!(shadowing.contains(position));
+        }
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));

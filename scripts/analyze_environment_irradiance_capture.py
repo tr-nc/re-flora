@@ -20,6 +20,7 @@ HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
+HEADER_V7 = HEADER_V4
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -69,6 +70,7 @@ VOXEL_FACE_BOUNDARY_EPSILON = 1.0e-3
 VOXEL_FACE_MIN_MIXED_CLASS_PIXELS = 2
 RECEIVER_VOXEL_INTERIOR_NUDGE = 1.0e-3
 DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS = 4
+CAPTURED_RECEIVER_CENTER_EPSILON = 1.0e-3
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class Capture:
     payload: bytes
     world_payload: bytes = b""
     direct_light_payload: bytes = b""
+    terrain_shadow_receiver_payload: bytes = b""
     plane_count: int = 1
     geometry_revision: int | None = None
     radiance_revision: int | None = None
@@ -184,8 +187,10 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6):
-        header = {4: HEADER_V4, 5: HEADER_V5, 6: HEADER_V6}[version]
+    elif version in (4, 5, 6, 7):
+        header = {4: HEADER_V4, 5: HEADER_V5, 6: HEADER_V6, 7: HEADER_V7}[
+            version
+        ]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
         (
@@ -224,7 +229,7 @@ def load_capture(path: Path) -> Capture:
                 "source_state": None if source_state_or_stage == UNKNOWN_U32 else source_state_or_stage,
                 "source_update_epoch": None if source_epoch_or_iteration == UNKNOWN_U32 else source_epoch_or_iteration,
             }
-            if version == 6
+            if version >= 6
             else {
                 "transport_stage": None if state_or_stage == UNKNOWN_U32 else state_or_stage,
                 "transport_iteration": None if epoch_or_iteration == UNKNOWN_U32 else epoch_or_iteration,
@@ -252,9 +257,15 @@ def load_capture(path: Path) -> Capture:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
-    expected_plane_counts = (3,) if version in (5, 6) else (1, 2)
+    expected_plane_counts = (
+        (4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2))
+    )
     if plane_count not in expected_plane_counts:
-        expected_label = "three" if version in (5, 6) else "one or two"
+        expected_label = (
+            "four"
+            if version == 7
+            else ("three" if version in (5, 6) else "one or two")
+        )
         raise ValueError(
             f"{path}: expected {expected_label} float4 planes, got {plane_count}"
         )
@@ -274,6 +285,7 @@ def load_capture(path: Path) -> Capture:
         payload[:plane_size],
         payload[plane_size : 2 * plane_size] if plane_count >= 2 else b"",
         payload[2 * plane_size : 3 * plane_size] if plane_count >= 3 else b"",
+        payload[3 * plane_size : 4 * plane_size] if plane_count >= 4 else b"",
         plane_count,
         **metadata,
     )
@@ -338,6 +350,21 @@ def receiver_voxel_key(
     )
 
 
+def captured_receiver_voxel_key(
+    center: tuple[float, float, float],
+) -> tuple[int, int, int] | None:
+    scaled_indices = tuple(
+        value * TERRAIN_VOXELS_PER_WORLD_UNIT - 0.5 for value in center
+    )
+    rounded_indices = tuple(round(value) for value in scaled_indices)
+    if any(
+        abs(value - rounded) > CAPTURED_RECEIVER_CENTER_EPSILON
+        for value, rounded in zip(scaled_indices, rounded_indices)
+    ):
+        return None
+    return rounded_indices
+
+
 def summarize(
     capture: Capture,
     world_roi: tuple[float, float, float, float, float, float] | None = None,
@@ -370,6 +397,11 @@ def summarize(
     world_pixels = (
         list(PIXEL.iter_unpack(capture.world_payload))
         if capture.world_payload
+        else [None] * capture.sample_count
+    )
+    terrain_shadow_receiver_pixels = (
+        list(PIXEL.iter_unpack(capture.terrain_shadow_receiver_payload))
+        if capture.terrain_shadow_receiver_payload
         else [None] * capture.sample_count
     )
     for (red, green, blue, hit), world_pixel in zip(
@@ -454,8 +486,13 @@ def summarize(
         tuple[int, int, int, int], list[int]
     ] = {}
     roi_combined_receiver_voxel_counts: dict[tuple[int, int, int], list[int]] = {}
-    direct_light_receiver_voxel_samples: dict[
-        tuple[int, int, int], list[tuple[float, float]]
+    terrain_shadow_receiver_available = bool(
+        capture.terrain_shadow_receiver_payload
+    )
+    terrain_shadow_receiver_finite = True
+    terrain_shadow_receiver_valid = True
+    terrain_shadow_receiver_voxel_samples: dict[
+        tuple[int, int, int], list[float]
     ] = {}
     direct_light_roi_luminances = {
         "sunlit": [],
@@ -470,10 +507,11 @@ def summarize(
         "shadowed": direct_light_shadowed_roi,
     }
     if direct_light_available:
-        for irradiance_pixel, world_pixel, direct_pixel in zip(
+        for irradiance_pixel, world_pixel, direct_pixel, receiver_pixel in zip(
             PIXEL.iter_unpack(capture.payload),
             world_pixels,
             PIXEL.iter_unpack(capture.direct_light_payload),
+            terrain_shadow_receiver_pixels,
         ):
             terrain_hit = irradiance_pixel[3] > 0.5
             direct_red, direct_green, direct_blue, direct_hit = direct_pixel
@@ -494,6 +532,30 @@ def summarize(
                 + 0.0722 * direct_blue
             )
             direct_light_luminances.append(direct_luminance)
+            if receiver_pixel is not None:
+                receiver_center = receiver_pixel[:3]
+                terrain_shadow_transmittance = receiver_pixel[3]
+                finite_receiver = all(
+                    math.isfinite(value) for value in receiver_pixel
+                )
+                terrain_shadow_receiver_finite = (
+                    terrain_shadow_receiver_finite and finite_receiver
+                )
+                if finite_receiver:
+                    voxel_key = captured_receiver_voxel_key(receiver_center)
+                    valid_receiver = (
+                        voxel_key is not None
+                        and 0.0 <= terrain_shadow_transmittance <= 1.0
+                    )
+                    terrain_shadow_receiver_valid = (
+                        terrain_shadow_receiver_valid and valid_receiver
+                    )
+                    if valid_receiver:
+                        terrain_shadow_receiver_voxel_samples.setdefault(
+                            voxel_key, []
+                        ).append(terrain_shadow_transmittance)
+                else:
+                    terrain_shadow_receiver_valid = False
             for channel, value in enumerate(direct_rgb):
                 if value < 0.0:
                     direct_light_rgb_channel_negative_count[channel] += 1
@@ -525,10 +587,6 @@ def summarize(
                             voxel_key, [0, 0]
                         )
                         counts[0 if combined_zero else 1] += 1
-                        if all(math.isfinite(value) for value in world_pixel):
-                            direct_light_receiver_voxel_samples.setdefault(
-                                voxel_key, []
-                            ).append((world_pixel[3], direct_luminance))
             if world_pixel is None:
                 continue
             position = world_pixel[:3]
@@ -544,13 +602,10 @@ def summarize(
     direct_light_luminances.sort()
     for values in direct_light_roi_luminances.values():
         values.sort()
-    direct_light_sunlit_receiver_voxel_luminance_ranges = sorted(
-        max(luminance for _, luminance in samples)
-        - min(luminance for _, luminance in samples)
-        for samples in direct_light_receiver_voxel_samples.values()
+    terrain_shadow_receiver_voxel_transmittance_ranges = sorted(
+        max(samples) - min(samples)
+        for samples in terrain_shadow_receiver_voxel_samples.values()
         if len(samples) >= DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS
-        and all(exact_visibility == 1.0 for exact_visibility, _ in samples)
-        and all(luminance > 0.0 for _, luminance in samples)
     )
     roi_channel_mean = (
         [value / roi_terrain_hit_count for value in roi_channel_sum]
@@ -591,7 +646,9 @@ def summarize(
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,
-        "finite": finite and direct_light_finite,
+        "finite": finite
+        and direct_light_finite
+        and terrain_shadow_receiver_finite,
         "metadata_finite": metadata_finite,
         "rgb_abs_max": rgb_abs_max,
         "rgb_nonzero_count": rgb_nonzero_count,
@@ -692,21 +749,32 @@ def summarize(
         "direct_light_luminance_max": (
             direct_light_luminances[-1] if direct_light_luminances else None
         ),
-        "direct_light_sunlit_receiver_voxel_count": (
-            len(direct_light_sunlit_receiver_voxel_luminance_ranges)
-            if direct_light_available and camera_position is not None
+        "terrain_shadow_receiver_available": terrain_shadow_receiver_available,
+        "terrain_shadow_receiver_finite": (
+            terrain_shadow_receiver_finite
+            if terrain_shadow_receiver_available
             else None
         ),
-        "direct_light_sunlit_receiver_voxel_luminance_range_p99": (
+        "terrain_shadow_receiver_valid": (
+            terrain_shadow_receiver_valid
+            if terrain_shadow_receiver_available
+            else None
+        ),
+        "terrain_shadow_receiver_voxel_count": (
+            len(terrain_shadow_receiver_voxel_transmittance_ranges)
+            if terrain_shadow_receiver_available
+            else None
+        ),
+        "terrain_shadow_receiver_voxel_transmittance_range_p99": (
             percentile(
-                direct_light_sunlit_receiver_voxel_luminance_ranges, 0.99
+                terrain_shadow_receiver_voxel_transmittance_ranges, 0.99
             )
-            if direct_light_sunlit_receiver_voxel_luminance_ranges
+            if terrain_shadow_receiver_voxel_transmittance_ranges
             else None
         ),
-        "direct_light_sunlit_receiver_voxel_luminance_range_max": (
-            direct_light_sunlit_receiver_voxel_luminance_ranges[-1]
-            if direct_light_sunlit_receiver_voxel_luminance_ranges
+        "terrain_shadow_receiver_voxel_transmittance_range_max": (
+            terrain_shadow_receiver_voxel_transmittance_ranges[-1]
+            if terrain_shadow_receiver_voxel_transmittance_ranges
             else None
         ),
         "direct_light_sunlit_roi": (
@@ -798,6 +866,11 @@ def summarize(
             if direct_light_available
             else None
         ),
+        "terrain_shadow_receiver_payload_sha256": (
+            hashlib.sha256(capture.terrain_shadow_receiver_payload).hexdigest()
+            if terrain_shadow_receiver_available
+            else None
+        ),
     }
 
 
@@ -813,7 +886,7 @@ def metadata_mismatches(first: Capture, second: Capture) -> list[str]:
         "build_token_serial",
         "publication_state",
     ]
-    if first.version == 6 or second.version == 6:
+    if first.version >= 6 or second.version >= 6:
         fields.extend(
             ["lifecycle_state", "update_epoch", "source_state", "source_update_epoch"]
         )
@@ -841,7 +914,7 @@ def cross_process_metadata_mismatches(
 ) -> tuple[list[str], list[str]]:
     mismatches = metadata_mismatches(first, second)
     ignored: list[str] = []
-    if first.version == 6 and second.version == 6:
+    if first.version >= 6 and second.version >= 6:
         process_local_fields = {
             "build_token_serial",
             "field_serial",
@@ -874,6 +947,8 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
         compatible
         and first.payload == second.payload
         and first.world_payload == second.world_payload
+        and first.terrain_shadow_receiver_payload
+        == second.terrain_shadow_receiver_payload
     )
     direct_light_bit_exact = (
         compatible and first.direct_light_payload == second.direct_light_payload
@@ -895,6 +970,16 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
         "second_direct_light_sha256": (
             hashlib.sha256(second.direct_light_payload).hexdigest()
             if second.direct_light_payload
+            else None
+        ),
+        "first_terrain_shadow_receiver_sha256": (
+            hashlib.sha256(first.terrain_shadow_receiver_payload).hexdigest()
+            if first.terrain_shadow_receiver_payload
+            else None
+        ),
+        "second_terrain_shadow_receiver_sha256": (
+            hashlib.sha256(second.terrain_shadow_receiver_payload).hexdigest()
+            if second.terrain_shadow_receiver_payload
             else None
         ),
     }
@@ -947,6 +1032,12 @@ def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, obj
     exact_sun_visibility_bit_exact = float4_alpha_payload(
         current.world_payload
     ) == float4_alpha_payload(baseline.world_payload)
+    receiver_center_xyz_bit_exact = world_xyz_payload(
+        current.terrain_shadow_receiver_payload
+    ) == world_xyz_payload(baseline.terrain_shadow_receiver_payload)
+    terrain_shadow_transmittance_bit_exact = float4_alpha_payload(
+        current.terrain_shadow_receiver_payload
+    ) == float4_alpha_payload(baseline.terrain_shadow_receiver_payload)
     compatible = base_compatible and not mismatches
     return {
         "compatible": compatible,
@@ -955,6 +1046,8 @@ def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, obj
         "world_xyz_bit_exact": world_xyz_bit_exact,
         "terrain_hit_mask_bit_exact": terrain_hit_mask_bit_exact,
         "exact_sun_visibility_bit_exact": exact_sun_visibility_bit_exact,
+        "receiver_center_xyz_bit_exact": receiver_center_xyz_bit_exact,
+        "terrain_shadow_transmittance_bit_exact": terrain_shadow_transmittance_bit_exact,
     }
 
 
@@ -1206,12 +1299,11 @@ def main() -> int:
     parser.add_argument("--direct-light-shadowed-roi", type=float, nargs=6)
     parser.add_argument("--max-direct-light-shadowed-luminance-max", type=float)
     parser.add_argument(
-        "--max-direct-light-sunlit-receiver-voxel-luminance-range",
+        "--max-terrain-shadow-receiver-voxel-transmittance-range",
         type=float,
         help=(
-            "require exact-sunlit receiver voxels with at least four internal "
-            "pixels to have no more than this direct-light luminance range; "
-            "requires --camera-position"
+            "require captured marcher voxels with at least four internal pixels "
+            "to have no more than this terrain VSM transmittance range"
         ),
     )
     parser.add_argument("--expect-version", type=int)
@@ -1379,8 +1471,8 @@ def main() -> int:
         args.max_direct_light_shadowed_luminance_max,
     )
     gate_max(
-        "direct_light_sunlit_receiver_voxel_luminance_range_max",
-        args.max_direct_light_sunlit_receiver_voxel_luminance_range,
+        "terrain_shadow_receiver_voxel_transmittance_range_max",
+        args.max_terrain_shadow_receiver_voxel_transmittance_range,
     )
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
@@ -1396,6 +1488,12 @@ def main() -> int:
             for count in capture_summary["direct_light_rgb_channel_negative_count"]
         ):
             failures.append("terrain-hit direct-light RGB contains negative channels")
+    if capture_summary["terrain_shadow_receiver_available"]:
+        if not capture_summary["terrain_shadow_receiver_valid"]:
+            failures.append(
+                "terrain-shadow receiver plane contains a noncanonical center or "
+                "transmittance outside [0, 1]"
+            )
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (
             ("max_abs_delta", args.convergence_max_abs_delta),

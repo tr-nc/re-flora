@@ -57,7 +57,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--expect-batch-order reverse",
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
-            "--expect-version 6",
+            "--expect-version 7",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
