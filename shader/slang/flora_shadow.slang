@@ -98,17 +98,19 @@ public struct StylizedVoxelShadowSample
     public float weight;
 };
 
-public StylizedVoxelShadowSample sampleStylizedVoxelShadow(
+public StylizedVoxelShadowSample sampleStylizedVoxelShadowAtLeafReceiver(
     U_GuiInput gui, U_SunInfo sun, U_ShadowCameraInfo shadowCamera,
     Sampler2D terrainShadowMap, Sampler2D leafOpacityMap,
     Sampler2D leafMaskMap, Sampler2D cloudShadowMap,
-    float3 voxelCenter, float3 shadingNormal)
+    float3 voxelCenter, float3 leafReceiverCenter, float3 shadingNormal)
 {
     float4 worldPosition = float4(voxelCenter, 1.0);
+    float4 leafReceiverPosition = float4(leafReceiverCenter, 1.0);
     float terrain = terrainShadowTransmittance(
         terrainShadowMap, shadowCamera.view_proj_mat, worldPosition);
     float leaf = leafShadowTransmittance(
-        leafOpacityMap, leafMaskMap, gui, shadowCamera.view_proj_mat, worldPosition);
+        leafOpacityMap, leafMaskMap, gui, shadowCamera.view_proj_mat,
+        leafReceiverPosition);
     float cloud = cloudShadowTransmittance(
         cloudShadowMap, gui, shadowCamera.view_proj_mat, worldPosition);
     StylizedVoxelShadowSample result;
@@ -116,6 +118,17 @@ public StylizedVoxelShadowSample sampleStylizedVoxelShadow(
     result.weight =
         result.sun_transmittance * directionWeight(shadingNormal, sun.sun_dir);
     return result;
+}
+
+public StylizedVoxelShadowSample sampleStylizedVoxelShadow(
+    U_GuiInput gui, U_SunInfo sun, U_ShadowCameraInfo shadowCamera,
+    Sampler2D terrainShadowMap, Sampler2D leafOpacityMap,
+    Sampler2D leafMaskMap, Sampler2D cloudShadowMap,
+    float3 voxelCenter, float3 shadingNormal)
+{
+    return sampleStylizedVoxelShadowAtLeafReceiver(
+        gui, sun, shadowCamera, terrainShadowMap, leafOpacityMap, leafMaskMap,
+        cloudShadowMap, voxelCenter, voxelCenter, shadingNormal);
 }
 
 public float stylizedVoxelShadowWeight(
