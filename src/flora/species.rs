@@ -100,6 +100,7 @@ pub struct FloraSpeciesDesc {
 }
 
 impl FloraSpeciesDesc {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         key: &'static str,
         display_name: &'static str,

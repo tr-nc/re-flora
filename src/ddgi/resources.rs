@@ -348,7 +348,7 @@ impl DdgiRayBatch {
     pub fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
         self.resident.local_refresh_voxel_bound.or_else(|| {
             (self.resident.work.kind() == DdgiScheduledWorkKind::RadianceUpdate)
-                .then(|| self.resident.probe_priority)
+                .then_some(self.resident.probe_priority)
                 .flatten()
                 .filter(|priority| priority.reason() == DdgiProbePriorityReason::LightingImpact)
                 .map(DdgiProbePriority::voxel_bound)

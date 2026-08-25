@@ -835,6 +835,7 @@ impl SprinklerRuntime {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn plan_placement(&self, target: SprinklerPlacementTarget) -> Result<SprinklerPlacementPlan> {
         self.plan_placement_with_emitter(target, None)
     }

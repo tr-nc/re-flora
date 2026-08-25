@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use super::{LightId, LocalLight, LocalLightMutationError, LocalLightRecord, LocalLightSnapshot};
@@ -31,10 +33,12 @@ impl SourceLightKey {
         Self { primary, secondary }
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn primary(self) -> u64 {
         self.primary
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn secondary(self) -> u64 {
         self.secondary
     }
@@ -108,6 +112,7 @@ impl LocalLightProviderSnapshot {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn provider(&self) -> ProviderId {
         self.provider
     }
@@ -327,6 +332,7 @@ impl LocalLightRegistry {
         self.registry_revision
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn source_publication_revision(&self) -> u64 {
         self.source_publication_revision
     }

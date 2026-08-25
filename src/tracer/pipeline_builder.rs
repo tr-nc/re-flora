@@ -447,6 +447,7 @@ impl PipelineBuilder {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_compute_pipelines(
         vulkan_ctx: &VulkanContext,
         shader_modules: &ShaderModules,
@@ -748,6 +749,7 @@ impl PipelineBuilder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_graphics_pipelines(
         vulkan_ctx: &VulkanContext,
         shader_modules: &ShaderModules,

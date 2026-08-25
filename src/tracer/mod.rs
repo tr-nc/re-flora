@@ -836,10 +836,10 @@ struct PreparedTreeFoliageBatch<'a> {
     descriptors: PreparedDrawDescriptors,
 }
 
-fn tree_foliage_instance<'a>(
-    surface_resources: &'a SurfaceResources,
+fn tree_foliage_instance(
+    surface_resources: &SurfaceResources,
     batch: TreeFoliageBatch,
-) -> &'a TreeLeavesInstance {
+) -> &TreeLeavesInstance {
     let instances = match batch.kind() {
         TreeFoliageKind::Leaves => &surface_resources.instances.leaves_instances,
         TreeFoliageKind::Apples => &surface_resources.instances.apple_instances,
@@ -3477,7 +3477,7 @@ impl Tracer {
                     .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
                 if filtered_probe_count == batch.probe_count
                     || filtered_probe_count == probe_count
-                    || filtered_probe_count % 1_024 == 0
+                    || filtered_probe_count.is_multiple_of(1_024)
                 {
                     log::debug!(
                         "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
@@ -3942,7 +3942,7 @@ impl Tracer {
             let status = self.ddgi_runtime.volumes().status().builder();
             if status.filtered_probe_count == batch.probe_count
                 || status.filtered_probe_count == status.grid.probe_count()
-                || status.filtered_probe_count % 1_024 == 0
+                || status.filtered_probe_count.is_multiple_of(1_024)
             {
                 log::debug!(
                     "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} priority={:?} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
@@ -4941,7 +4941,7 @@ impl Tracer {
                                 "flora_lighting_cache",
                                 DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
                                     Some(buffer) => buffer.as_ref(),
-                                    None => &*instances.resource.instances_buf,
+                                    None => &instances.resource.instances_buf,
                                 }),
                             ),
                         ],
@@ -4972,7 +4972,7 @@ impl Tracer {
                                 "flora_lighting_cache",
                                 DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
                                     Some(buffer) => buffer.as_ref(),
-                                    None => &*instance.resources.instances_buf,
+                                    None => &instance.resources.instances_buf,
                                 }),
                             ),
                         ],

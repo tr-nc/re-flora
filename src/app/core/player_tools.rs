@@ -853,8 +853,10 @@ mod tests {
         ];
 
         for (tool, button, expected) in cases {
-            let mut runtime = PlayerToolRuntime::default();
-            runtime.selected_tool = tool;
+            let mut runtime = PlayerToolRuntime {
+                selected_tool: tool,
+                ..Default::default()
+            };
             runtime.set_pointer_button_state(button, ElementState::Pressed);
             assert_eq!(
                 runtime.begin_pointer_action(button),

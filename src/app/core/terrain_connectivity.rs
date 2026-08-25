@@ -198,7 +198,7 @@ impl App {
                 block,
                 candidate_region,
                 world_dim,
-                VOXEL_TYPE_MASK as u8,
+                VOXEL_TYPE_MASK,
                 available_particles,
                 |world_voxel| reader.voxel_at(world_voxel),
             )?

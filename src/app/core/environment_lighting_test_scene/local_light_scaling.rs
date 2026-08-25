@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(LOCAL_LIGHT_SCALING_COUNTS, [1, 2, 4, 8, 0]);
         assert_eq!(LOCAL_LIGHT_SCALING_COUNTS[3], LOCAL_LIGHT_GPU_CAPACITY);
         assert_eq!(LOCAL_LIGHT_SCALING_COUNTS.last().copied(), Some(0));
-        assert!(LOCAL_LIGHT_SCALING_SAMPLE_FRAMES >= 32);
+        const { assert!(LOCAL_LIGHT_SCALING_SAMPLE_FRAMES >= 32) };
     }
 
     #[test]

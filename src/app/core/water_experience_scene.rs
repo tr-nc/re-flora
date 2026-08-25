@@ -229,12 +229,12 @@ mod tests {
 
     #[test]
     fn experience_camera_frames_the_fluid_volume_from_outside_the_basin() {
-        assert!(CAMERA_POSITION_WS.z > BASIN_OUTER_MAX_WS.z);
-        assert!(CAMERA_POSITION_WS.y > BASIN_OUTER_MAX_WS.y);
-        assert!(CAMERA_TARGET_WS.x > INITIAL_FLUID_MIN_WS.x);
-        assert!(CAMERA_TARGET_WS.x < INITIAL_FLUID_MAX_WS.x);
-        assert!(CAMERA_TARGET_WS.z > INITIAL_FLUID_MIN_WS.z);
-        assert!(CAMERA_TARGET_WS.z < INITIAL_FLUID_MAX_WS.z);
+        const { assert!(CAMERA_POSITION_WS.z > BASIN_OUTER_MAX_WS.z) };
+        const { assert!(CAMERA_POSITION_WS.y > BASIN_OUTER_MAX_WS.y) };
+        const { assert!(CAMERA_TARGET_WS.x > INITIAL_FLUID_MIN_WS.x) };
+        const { assert!(CAMERA_TARGET_WS.x < INITIAL_FLUID_MAX_WS.x) };
+        const { assert!(CAMERA_TARGET_WS.z > INITIAL_FLUID_MIN_WS.z) };
+        const { assert!(CAMERA_TARGET_WS.z < INITIAL_FLUID_MAX_WS.z) };
     }
 
     #[test]

@@ -43,6 +43,7 @@ impl BufferUpdater {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_shading_info(
         resources: &TracerResources,
         environment: EnvironmentLightingState,
@@ -195,6 +196,7 @@ impl BufferUpdater {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_voxel_colors(
         resources: &TracerResources,
         dirt_color: Vec3,

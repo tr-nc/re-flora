@@ -141,7 +141,8 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
                 animation_group,
             });
 
-            if progress > 0.45 && progress < 0.92 && (y as usize + branch_idx * 3) % 4 == 0 {
+            if progress > 0.45 && progress < 0.92 && (y as usize + branch_idx * 3).is_multiple_of(4)
+            {
                 let side_step = IVec2::new(
                     if direction.x > 0.35 {
                         1
@@ -249,6 +250,55 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<FloraMeshData> {
                     max_length,
                     is_lod_used,
                 )?;
+            }
+        }
+    }
+
+    Ok(mesh)
+}
+
+pub fn gen_ember_bloom(is_lod_used: bool) -> Result<FloraMeshData> {
+    // Keep the legacy generator/key name so existing saves still resolve this species.
+    // Visually this is now a tall ornamental allium: a slender stalk topped by a
+    // blocky globe made from a dense core and a few individual florets.
+    const STEM_HEIGHT: i32 = 12;
+    const FLOWER_CENTER_Y: i32 = 14;
+    const FLOWER_RADIUS: i32 = 2;
+    const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
+
+    let max_vertical = (FLOWER_CENTER_Y + FLOWER_RADIUS) as f32;
+    let max_horizontal = FLOWER_RADIUS as f32;
+    let max_length = ((max_vertical * max_vertical + 2.0 * max_horizontal * max_horizontal).sqrt())
+        .ceil()
+        .max(1.0) as u32;
+    let mut mesh = FloraMeshData::new(max_length);
+
+    let mut append_voxel = |pos: IVec3, material_id: u8| -> Result<()> {
+        let vertex_offset = mesh.vertices.len() as u32;
+        let gradient = (pos - ORIGIN).as_vec3().length() / max_length as f32;
+        append_indexed_cube_data_with_info(
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
+            pos,
+            vertex_offset,
+            FloraVoxelInfo::new(gradient, gradient, gradient, material_id),
+            is_lod_used,
+        )
+    };
+
+    for y in 0..STEM_HEIGHT {
+        append_voxel(IVec3::new(0, y, 0), FLORA_VOXEL_MATERIAL_GRADIENT)?;
+    }
+
+    for y in -FLOWER_RADIUS..=FLOWER_RADIUS {
+        for x in -FLOWER_RADIUS..=FLOWER_RADIUS {
+            for z in -FLOWER_RADIUS..=FLOWER_RADIUS {
+                let distance_sq = x * x + y * y + z * z;
+                let pos = IVec3::new(x, FLOWER_CENTER_Y + y, z);
+                if distance_sq <= 4 {
+                    append_voxel(pos, FLORA_VOXEL_MATERIAL_ALLIUM_CORE)?;
+                }
             }
         }
     }
@@ -365,53 +415,4 @@ mod tests {
         assert!((center - left).abs() < 1e-5);
         assert!((right - center).abs() < 1e-5);
     }
-}
-
-pub fn gen_ember_bloom(is_lod_used: bool) -> Result<FloraMeshData> {
-    // Keep the legacy generator/key name so existing saves still resolve this species.
-    // Visually this is now a tall ornamental allium: a slender stalk topped by a
-    // blocky globe made from a dense core and a few individual florets.
-    const STEM_HEIGHT: i32 = 12;
-    const FLOWER_CENTER_Y: i32 = 14;
-    const FLOWER_RADIUS: i32 = 2;
-    const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
-
-    let max_vertical = (FLOWER_CENTER_Y + FLOWER_RADIUS) as f32;
-    let max_horizontal = FLOWER_RADIUS as f32;
-    let max_length = ((max_vertical * max_vertical + 2.0 * max_horizontal * max_horizontal).sqrt())
-        .ceil()
-        .max(1.0) as u32;
-    let mut mesh = FloraMeshData::new(max_length);
-
-    let mut append_voxel = |pos: IVec3, material_id: u8| -> Result<()> {
-        let vertex_offset = mesh.vertices.len() as u32;
-        let gradient = (pos - ORIGIN).as_vec3().length() / max_length as f32;
-        append_indexed_cube_data_with_info(
-            &mut mesh.vertices,
-            &mut mesh.indices,
-            &mut mesh.voxel_infos,
-            pos,
-            vertex_offset,
-            FloraVoxelInfo::new(gradient, gradient, gradient, material_id),
-            is_lod_used,
-        )
-    };
-
-    for y in 0..STEM_HEIGHT {
-        append_voxel(IVec3::new(0, y, 0), FLORA_VOXEL_MATERIAL_GRADIENT)?;
-    }
-
-    for y in -FLOWER_RADIUS..=FLOWER_RADIUS {
-        for x in -FLOWER_RADIUS..=FLOWER_RADIUS {
-            for z in -FLOWER_RADIUS..=FLOWER_RADIUS {
-                let distance_sq = x * x + y * y + z * z;
-                let pos = IVec3::new(x, FLOWER_CENTER_Y + y, z);
-                if distance_sq <= 4 {
-                    append_voxel(pos, FLORA_VOXEL_MATERIAL_ALLIUM_CORE)?;
-                }
-            }
-        }
-    }
-
-    Ok(mesh)
 }

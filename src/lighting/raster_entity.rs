@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
@@ -64,10 +66,12 @@ impl RasterEmitterKey {
         Self { entity, part }
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn entity(self) -> RasterEntityId {
         self.entity
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn part(self) -> RasterEmitterPartId {
         self.part
     }
