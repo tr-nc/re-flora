@@ -3989,7 +3989,7 @@ impl Tracer {
 
         if render_flags.enable_flora
             && render_flags.enable_leaves
-            && render_flags.enable_shadows
+            && render_flags.enable_leaf_shadows
             && update_shadow_map
         {
             Self::with_gpu_scope(
