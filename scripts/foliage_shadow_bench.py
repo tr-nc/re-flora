@@ -24,11 +24,10 @@ TEMPORAL_METRICS = (
     "mean_noticeable_pixel_ratio",
     "max_transition_mean_abs_luma_delta_8bit",
 )
-LEAF_SIGNAL_METRICS = (
+EXCESS_METRICS = (
     "mean_abs_luma_delta_8bit",
     "mean_p99_abs_luma_delta_8bit",
     "mean_noticeable_pixel_ratio",
-    "max_transition_mean_abs_luma_delta_8bit",
 )
 
 
@@ -67,58 +66,21 @@ def load_luma_sequence(report: dict) -> bytes:
     return samples
 
 
-def histogram_percentile(histogram: list[int], sample_count: int, percentile: float) -> int:
-    target = max(1, int(sample_count * percentile + 0.999999))
-    cumulative = 0
-    for value, count in enumerate(histogram):
-        cumulative += count
-        if cumulative >= target:
-            return value
-    return len(histogram) - 1
-
-
-def leaf_signal_metrics(shadow: dict, control: dict) -> dict[str, float]:
-    shadow_luma = load_luma_sequence(shadow)
-    control_luma = load_luma_sequence(control)
-    if len(shadow_luma) != len(control_luma):
-        raise SystemExit("shadow/control luma sequences have different sizes")
-
-    frame_bytes = int(shadow["luma_frame_bytes"])
-    frame_count = int(shadow["captured_frames"])
-    threshold = int(shadow["noticeable_delta_threshold_8bit"])
-    previous_signal = [
-        control_luma[index] - shadow_luma[index] for index in range(frame_bytes)
-    ]
-    transition_means = []
-    transition_p99 = []
-    transition_noticeable = []
-    max_delta = 0
-    for frame in range(1, frame_count):
-        start = frame * frame_bytes
-        histogram = [0] * 511
-        delta_sum = 0
-        noticeable = 0
-        for pixel in range(frame_bytes):
-            index = start + pixel
-            signal = control_luma[index] - shadow_luma[index]
-            delta = abs(signal - previous_signal[pixel])
-            previous_signal[pixel] = signal
-            histogram[delta] += 1
-            delta_sum += delta
-            noticeable += delta >= threshold
-            max_delta = max(max_delta, delta)
-        transition_means.append(delta_sum / frame_bytes)
-        transition_p99.append(histogram_percentile(histogram, frame_bytes, 0.99))
-        transition_noticeable.append(noticeable / frame_bytes)
-
-    transition_count = max(1, len(transition_means))
+def temporal_excess_metrics(shadow: dict, control: dict) -> dict[str, float]:
+    """Subtract paired run distributions without assuming cross-process phase alignment."""
     return {
-        "mean_abs_luma_delta_8bit": sum(transition_means) / transition_count,
-        "mean_p99_abs_luma_delta_8bit": sum(transition_p99) / transition_count,
-        "mean_noticeable_pixel_ratio": sum(transition_noticeable) / transition_count,
-        "max_transition_mean_abs_luma_delta_8bit": max(transition_means, default=0.0),
-        "max_abs_luma_delta_8bit": float(max_delta),
+        metric: max(0.0, float(aggregate(shadow)[metric]) - float(aggregate(control)[metric]))
+        for metric in EXCESS_METRICS
     }
+
+
+def mean_luma(report: dict) -> float:
+    samples = load_luma_sequence(report)
+    return sum(samples) / len(samples)
+
+
+def leaf_darkening(shadow: dict, control: dict) -> float:
+    return max(0.0, mean_luma(control) - mean_luma(shadow))
 
 
 def print_pair(prefix: Path) -> None:
@@ -133,11 +95,11 @@ def print_pair(prefix: Path) -> None:
         shadow_value = float(aggregate(shadow)[metric])
         control_value = float(aggregate(control)[metric])
         print(f"{metric:48} {shadow_value:12.6f} {control_value:12.6f}")
-    signal = leaf_signal_metrics(shadow, control)
-    print("leaf shadow signal temporal metrics (control_luma - shadow_luma):")
-    for metric in LEAF_SIGNAL_METRICS:
-        print(f"  {metric}: {signal[metric]:.6f}")
-    print(f"  max_abs_luma_delta_8bit: {signal['max_abs_luma_delta_8bit']:.0f}")
+    excess = temporal_excess_metrics(shadow, control)
+    print("leaf-shadow temporal excess (shadow distribution - control distribution):")
+    for metric in EXCESS_METRICS:
+        print(f"  {metric}: {excess[metric]:.6f}")
+    print(f"mean_leaf_darkening_8bit: {leaf_darkening(shadow, control):.6f}")
     print(
         f"{DETAIL_METRIC:48} {float(aggregate(shadow)[DETAIL_METRIC]):12.6f} "
         f"{float(aggregate(control)[DETAIL_METRIC]):12.6f}"
@@ -184,12 +146,12 @@ def run_benchmark(args: argparse.Namespace) -> int:
 def compare_reports(args: argparse.Namespace) -> int:
     baseline_shadow, baseline_control = load_pair(args.baseline)
     candidate_shadow, candidate_control = load_pair(args.candidate)
-    baseline_signal = leaf_signal_metrics(baseline_shadow, baseline_control)
-    candidate_signal = leaf_signal_metrics(candidate_shadow, candidate_control)
-    print(f"{'leaf signal metric':48} {'baseline':>16} {'candidate':>17} {'change':>10}")
-    for metric in LEAF_SIGNAL_METRICS:
-        before = baseline_signal[metric]
-        after = candidate_signal[metric]
+    baseline_excess = temporal_excess_metrics(baseline_shadow, baseline_control)
+    candidate_excess = temporal_excess_metrics(candidate_shadow, candidate_control)
+    print(f"{'temporal excess metric':48} {'baseline':>16} {'candidate':>17} {'change':>10}")
+    for metric in EXCESS_METRICS:
+        before = baseline_excess[metric]
+        after = candidate_excess[metric]
         change = ((after / before) - 1.0) * 100.0 if before else 0.0
         print(f"{metric:48} {before:16.6f} {after:17.6f} {change:+9.2f}%")
 
@@ -200,19 +162,37 @@ def compare_reports(args: argparse.Namespace) -> int:
         f"{DETAIL_METRIC:48} {baseline_detail:16.6f} {candidate_detail:17.6f} "
         f"{-detail_loss * 100.0:+9.2f}%"
     )
+    baseline_darkening = leaf_darkening(baseline_shadow, baseline_control)
+    candidate_darkening = leaf_darkening(candidate_shadow, candidate_control)
+    darkening_change = (
+        abs(candidate_darkening / baseline_darkening - 1.0) if baseline_darkening else 0.0
+    )
+    print(
+        f"{'mean_leaf_darkening_8bit':48} {baseline_darkening:16.6f} "
+        f"{candidate_darkening:17.6f} "
+        f"{((candidate_darkening / baseline_darkening - 1.0) * 100.0 if baseline_darkening else 0.0):+9.2f}%"
+    )
 
     failures = []
-    if args.min_mean_signal_reduction is not None:
-        before = baseline_signal["mean_abs_luma_delta_8bit"]
-        after = candidate_signal["mean_abs_luma_delta_8bit"]
+    if args.min_mean_excess_reduction is not None:
+        before = baseline_excess["mean_abs_luma_delta_8bit"]
+        after = candidate_excess["mean_abs_luma_delta_8bit"]
         reduction = 1.0 - after / before if before else 0.0
-        if reduction < args.min_mean_signal_reduction:
+        if reduction < args.min_mean_excess_reduction:
             failures.append(
-                f"mean leaf-signal reduction {reduction:.3f} < "
-                f"{args.min_mean_signal_reduction:.3f}"
+                f"mean temporal-excess reduction {reduction:.3f} < "
+                f"{args.min_mean_excess_reduction:.3f}"
             )
     if args.max_detail_loss is not None and detail_loss > args.max_detail_loss:
         failures.append(f"detail loss {detail_loss:.3f} > {args.max_detail_loss:.3f}")
+    if (
+        args.max_leaf_darkening_change is not None
+        and darkening_change > args.max_leaf_darkening_change
+    ):
+        failures.append(
+            f"leaf darkening change {darkening_change:.3f} > "
+            f"{args.max_leaf_darkening_change:.3f}"
+        )
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
@@ -222,16 +202,16 @@ def compare_reports(args: argparse.Namespace) -> int:
 
 def check_report(args: argparse.Namespace) -> int:
     shadow, control = load_pair(args.prefix)
-    signal = leaf_signal_metrics(shadow, control)
+    excess = temporal_excess_metrics(shadow, control)
     failures = []
     checks = (
-        ("mean_abs_luma_delta_8bit", args.max_mean_signal_delta),
-        ("mean_noticeable_pixel_ratio", args.max_noticeable_signal_ratio),
+        ("mean_abs_luma_delta_8bit", args.max_mean_temporal_excess),
+        ("mean_noticeable_pixel_ratio", args.max_noticeable_temporal_excess),
     )
     for metric, limit in checks:
-        value = signal[metric]
+        value = excess[metric]
         if limit is not None and value > limit:
-            failures.append(f"{metric} leaf signal {value:.6f} > {limit:.6f}")
+            failures.append(f"{metric} temporal excess {value:.6f} > {limit:.6f}")
     print_pair(args.prefix)
     if failures:
         for failure in failures:
@@ -253,14 +233,15 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser = subparsers.add_parser("compare", help="compare two paired captures")
     compare_parser.add_argument("baseline", type=Path)
     compare_parser.add_argument("candidate", type=Path)
-    compare_parser.add_argument("--min-mean-signal-reduction", type=float)
+    compare_parser.add_argument("--min-mean-excess-reduction", type=float)
     compare_parser.add_argument("--max-detail-loss", type=float)
+    compare_parser.add_argument("--max-leaf-darkening-change", type=float)
     compare_parser.set_defaults(func=compare_reports)
 
     check_parser = subparsers.add_parser("check", help="check one paired capture against limits")
     check_parser.add_argument("prefix", type=Path)
-    check_parser.add_argument("--max-mean-signal-delta", type=float)
-    check_parser.add_argument("--max-noticeable-signal-ratio", type=float)
+    check_parser.add_argument("--max-mean-temporal-excess", type=float)
+    check_parser.add_argument("--max-noticeable-temporal-excess", type=float)
     check_parser.set_defaults(func=check_report)
     return parser
 
