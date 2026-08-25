@@ -41,6 +41,7 @@ pub enum TerrainConnectivityBenchMode {
     Existing,
     Correct,
     Bounded,
+    Manual,
 }
 
 impl TerrainConnectivityBenchMode {
@@ -49,6 +50,7 @@ impl TerrainConnectivityBenchMode {
             "existing" => Some(Self::Existing),
             "correct" => Some(Self::Correct),
             "bounded" => Some(Self::Bounded),
+            "manual" => Some(Self::Manual),
             _ => None,
         }
     }
@@ -58,6 +60,7 @@ impl TerrainConnectivityBenchMode {
             Self::Existing => "existing",
             Self::Correct => "correct",
             Self::Bounded => "bounded",
+            Self::Manual => "manual",
         }
     }
 }
@@ -552,13 +555,15 @@ impl AppOptions {
             .any(|a| a == "--tail-latest-log")
             .then(|| parse_u32_after("--tail-latest-log").unwrap_or(200) as usize);
 
-        let terrain_connectivity_bench_mode =
-            parse_required_string_after("--terrain-connectivity-bench", "existing or correct")?;
+        let terrain_connectivity_bench_mode = parse_required_string_after(
+            "--terrain-connectivity-bench",
+            "existing, correct, bounded, or manual",
+        )?;
         let terrain_connectivity_bench = terrain_connectivity_bench_mode
             .map(|value| {
                 TerrainConnectivityBenchMode::from_cli_value(&value).ok_or_else(|| {
                     format!(
-                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing, correct, or bounded."
+                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing, correct, bounded, or manual."
                     )
                 })
             })
@@ -954,8 +959,8 @@ Options:
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)
-  --terrain-connectivity-bench <existing|correct|bounded>
-                              Run the deterministic 437,205-voxel release benchmark
+  --terrain-connectivity-bench <existing|correct|bounded|manual>
+                              Run the 437,205-voxel release benchmark or manual scene
   --terrain-connectivity-bench-available-particles <N>
                               Set actual free particle slots at release (default/max: 16384)
   --terrain-connectivity-bench-warmup-frames <N>
@@ -1103,6 +1108,28 @@ mod tests {
                 available_particles: 8192,
                 warmup_frames: 120,
                 observe_frames: 45,
+                voxel_budget: 16_384,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_manual_terrain_connectivity_scene() {
+        let options = parse(&[
+            "re-flora",
+            "--terrain-connectivity-bench",
+            "manual",
+            "--terrain-connectivity-bench-warmup-frames",
+            "0",
+        ]);
+
+        assert_eq!(
+            options.terrain_connectivity_bench,
+            Some(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Manual,
+                available_particles: 16_384,
+                warmup_frames: 0,
+                observe_frames: DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES,
                 voxel_budget: 16_384,
             })
         );

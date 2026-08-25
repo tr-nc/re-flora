@@ -21,6 +21,8 @@ const FIXTURE_DIM: UVec3 = UVec3::new(187, 55, 243);
 const FIXTURE_THICKNESS: u32 = 5;
 pub(super) const FIXTURE_VOXELS: usize = 437_205;
 const PRE_EVENT_FRAME_SAMPLES: usize = 120;
+const MANUAL_SUPPORT_HALF_WIDTH: u32 = 2;
+const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum BenchState {
@@ -28,6 +30,7 @@ enum BenchState {
     Warmup {
         ready_after_frame: u64,
     },
+    AwaitingManualEdit,
     Tracing {
         release_frame: u64,
         revision_before: u32,
@@ -278,6 +281,65 @@ impl TerrainConnectivityBench {
         self.state != BenchState::Complete
     }
 
+    pub(in crate::app::core) fn try_begin_manual_release(app: &mut App) -> anyhow::Result<bool> {
+        let Some(mut bench) = app.terrain_connectivity_bench.take() else {
+            return Ok(false);
+        };
+        if bench.options.mode != TerrainConnectivityBenchMode::Manual {
+            app.terrain_connectivity_bench = Some(bench);
+            return Ok(false);
+        }
+
+        let result = bench.begin_manual_release(app);
+        app.terrain_connectivity_bench = Some(bench);
+        result.map(|_| true)
+    }
+
+    fn begin_manual_release(&mut self, app: &mut App) -> anyhow::Result<()> {
+        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        if app
+            .terrain_connectivity
+            .take_edit_region(world_dim)
+            .is_none()
+        {
+            return Ok(());
+        }
+        if self.state != BenchState::AwaitingManualEdit {
+            log::warn!(
+                "[TERRAIN_CONNECTIVITY_MANUAL] ignored edit release while state={:?}",
+                self.state
+            );
+            return Ok(());
+        }
+
+        let frame = app.time_info.total_frame_count();
+        let revision_before = app.visible_terrain_revision;
+        let snapshot_started = Instant::now();
+        let bound = isolation_bound();
+        let snapshot = app
+            .plain_builder
+            .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
+        let snapshot_readback_us = snapshot_started.elapsed().as_secs_f64() * 1_000_000.0;
+        self.bounded_job = Some(BoundedTopologyJob::new(
+            bound,
+            snapshot,
+            manual_canopy_seed(),
+        )?);
+        self.state = BenchState::Tracing {
+            release_frame: frame,
+            revision_before,
+            snapshot_readback_us,
+            classification_us: 0.0,
+        };
+        log::info!(
+            "[TERRAIN_CONNECTIVITY_MANUAL] phase=job_start release_frame={} revision={} voxel_budget={}",
+            frame,
+            revision_before,
+            self.options.voxel_budget,
+        );
+        Ok(())
+    }
+
     pub(in crate::app::core) fn advance(app: &mut App) -> anyhow::Result<()> {
         let Some(mut bench) = app.terrain_connectivity_bench.take() else {
             return Ok(());
@@ -292,7 +354,12 @@ impl TerrainConnectivityBench {
         match self.state {
             BenchState::InstallFixture => {
                 let started = Instant::now();
-                install_fixture(app)?;
+                if self.options.mode == TerrainConnectivityBenchMode::Manual {
+                    install_manual_fixture(app)?;
+                    configure_manual_camera(app)?;
+                } else {
+                    install_fixture(app)?;
+                }
                 let reserve_started = Instant::now();
                 set_available_particle_capacity(app, self.options.available_particles)?;
                 let reserve_us = reserve_started.elapsed().as_secs_f64() * 1_000_000.0;
@@ -316,7 +383,8 @@ impl TerrainConnectivityBench {
             BenchState::Warmup { ready_after_frame } => {
                 let ready = frame >= ready_after_frame
                     && app.contree_builder.cpu_chunk_cache_jobs_idle()
-                    && app.terrain_physics.terrain_collider_pending_len() == 0
+                    && (self.options.mode == TerrainConnectivityBenchMode::Manual
+                        || app.terrain_physics.terrain_collider_pending_len() == 0)
                     && app.water_terrain_status().is_ready()
                     && app
                         .tracer
@@ -329,7 +397,13 @@ impl TerrainConnectivityBench {
                         app.particle_system.available_capacity(),
                         self.options.available_particles,
                     );
-                    if self.options.mode == TerrainConnectivityBenchMode::Bounded {
+                    if self.options.mode == TerrainConnectivityBenchMode::Manual {
+                        self.state = BenchState::AwaitingManualEdit;
+                        log::info!(
+                            "[TERRAIN_CONNECTIVITY_MANUAL] phase=ready instruction=dig_through_the_sand_support_then_release_the_mouse revision={}",
+                            app.visible_terrain_revision,
+                        );
+                    } else if self.options.mode == TerrainConnectivityBenchMode::Bounded {
                         let revision_before = app.visible_terrain_revision;
                         let snapshot_started = Instant::now();
                         let bound = isolation_bound();
@@ -376,6 +450,7 @@ impl TerrainConnectivityBench {
                     );
                 }
             }
+            BenchState::AwaitingManualEdit => {}
             BenchState::Tracing {
                 release_frame,
                 revision_before,
@@ -426,10 +501,21 @@ impl TerrainConnectivityBench {
                         };
                     }
                     BoundedDisposition::Anchored | BoundedDisposition::Deferred => {
-                        anyhow::bail!(
-                            "bounded detached fixture ended as {}",
-                            step.disposition.label()
-                        );
+                        if self.options.mode == TerrainConnectivityBenchMode::Manual {
+                            log::info!(
+                                "[TERRAIN_CONNECTIVITY_MANUAL] phase=still_connected disposition={} processed_voxels={} revision={}",
+                                step.disposition.label(),
+                                job.component_len(),
+                                app.visible_terrain_revision,
+                            );
+                            self.bounded_job = None;
+                            self.state = BenchState::AwaitingManualEdit;
+                        } else {
+                            anyhow::bail!(
+                                "bounded detached fixture ended as {}",
+                                step.disposition.label()
+                            );
+                        }
                     }
                 }
             }
@@ -441,11 +527,21 @@ impl TerrainConnectivityBench {
             } => {
                 anyhow::ensure!(app.visible_terrain_revision == revision_before);
                 let validation_started = Instant::now();
-                let before_commit = count_fixture_solids(app)?;
+                let before_commit = count_job_component_solids(
+                    app,
+                    self.bounded_job
+                        .as_ref()
+                        .context("bounded topology validation lost its job")?,
+                )?;
                 let atomic_validation_us = validation_started.elapsed().as_secs_f64() * 1_000_000.0;
+                let expected_component = self
+                    .bounded_job
+                    .as_ref()
+                    .context("bounded topology validation lost its job")?
+                    .component_len();
                 anyhow::ensure!(
-                    before_commit == FIXTURE_VOXELS,
-                    "bounded topology modified live terrain while pending: remaining={before_commit}"
+                    before_commit == expected_component,
+                    "bounded topology modified live terrain while pending: remaining={before_commit} expected={expected_component}"
                 );
                 log::info!(
                     "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=atomic_check mode=bounded release_frame={} frame={} remaining_fixture_voxels={} visible_revision={} validation_us={:.0}",
@@ -501,6 +597,7 @@ impl TerrainConnectivityBench {
                     sampling_us,
                     staging_clear_us,
                     sampled_voxels,
+                    self.options.mode == TerrainConnectivityBenchMode::Manual,
                 )?;
                 self.stages = Some(stages);
                 self.state = BenchState::Observing { event_frame };
@@ -573,6 +670,7 @@ impl TerrainConnectivityBench {
         match self.state {
             BenchState::InstallFixture
             | BenchState::Warmup { .. }
+            | BenchState::AwaitingManualEdit
             | BenchState::Tracing { .. }
             | BenchState::ValidateAtomicity { .. }
             | BenchState::Commit { .. } => {
@@ -612,6 +710,7 @@ impl TerrainConnectivityBench {
         match self.state {
             BenchState::InstallFixture
             | BenchState::Warmup { .. }
+            | BenchState::AwaitingManualEdit
             | BenchState::Tracing { .. }
             | BenchState::ValidateAtomicity { .. }
             | BenchState::Commit { .. } => {
@@ -653,7 +752,8 @@ impl TerrainConnectivityBench {
                     let expected = match self.options.mode {
                         TerrainConnectivityBenchMode::Existing => FIXTURE_VOXELS,
                         TerrainConnectivityBenchMode::Correct
-                        | TerrainConnectivityBenchMode::Bounded => 0,
+                        | TerrainConnectivityBenchMode::Bounded
+                        | TerrainConnectivityBenchMode::Manual => 0,
                     };
                     anyhow::ensure!(
                         remaining == expected,
@@ -685,11 +785,11 @@ impl TerrainConnectivityBench {
                         record.ddgi_ready,
                     );
                     self.state = BenchState::Complete;
-                    return Ok(true);
+                    return Ok(self.options.mode != TerrainConnectivityBenchMode::Manual);
                 }
                 Ok(false)
             }
-            BenchState::Complete => Ok(true),
+            BenchState::Complete => Ok(self.options.mode != TerrainConnectivityBenchMode::Manual),
         }
     }
 }
@@ -816,6 +916,7 @@ fn run_bounded_commit(
     sampling_us: f64,
     staging_clear_us: f64,
     sampled_voxels: usize,
+    manual: bool,
 ) -> anyhow::Result<EventStages> {
     let total_started = Instant::now();
     anyhow::ensure!(
@@ -824,10 +925,13 @@ fn run_bounded_commit(
         revision_before,
         app.visible_terrain_revision,
     );
-    anyhow::ensure!(
-        job.terminal == Some(BoundedDisposition::Detached) && job.component.len() == FIXTURE_VOXELS,
-        "bounded topology commit is not one complete detached fixture"
-    );
+    anyhow::ensure!(job.terminal == Some(BoundedDisposition::Detached));
+    if !manual {
+        anyhow::ensure!(
+            job.component.len() == FIXTURE_VOXELS,
+            "bounded topology commit is not one complete detached fixture"
+        );
+    }
     let invalidation_started = Instant::now();
     app.plain_builder.write_chunk_atlas_region(
         job.bound.min(),
@@ -913,6 +1017,65 @@ fn install_fixture(app: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn install_manual_fixture(app: &mut App) -> anyhow::Result<()> {
+    install_fixture(app)?;
+    let bound = manual_support_bound();
+    let support = generate_manual_support();
+    app.plain_builder
+        .write_chunk_atlas_region(bound.min(), bound.dimensions(), &support)?;
+    app.plain_builder.mark_all_solid_workgroups_dirty();
+    let change =
+        VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(bound)])?
+            .context("manual support installation has no visible terrain chunks")?;
+    app.publish_visible_terrain(change)?;
+    Ok(())
+}
+
+fn configure_manual_camera(app: &mut App) -> anyhow::Result<()> {
+    let center = manual_support_center().as_vec3() / VOXELS_PER_WORLD_UNIT;
+    let target = center + Vec3::Y * 0.035;
+    let position = target + Vec3::new(-0.24, 0.04, -0.28);
+    app.camera_control.apply_snapshot_mode(true);
+    app.camera_control.set_orbit_focus(target);
+    anyhow::ensure!(
+        app.tracer.set_camera_pose_looking_at(position, target),
+        "failed to configure terrain connectivity manual camera"
+    );
+    Ok(())
+}
+
+fn manual_support_center() -> UVec3 {
+    UVec3::new(
+        FIXTURE_ORIGIN.x + FIXTURE_DIM.x / 2,
+        FIXTURE_ORIGIN.y,
+        FIXTURE_ORIGIN.z + FIXTURE_DIM.z / 2,
+    )
+}
+
+fn manual_support_bound() -> UAabb3 {
+    let center = manual_support_center();
+    let min = UVec3::new(
+        center.x - MANUAL_SUPPORT_HALF_WIDTH,
+        0,
+        center.z - MANUAL_SUPPORT_HALF_WIDTH,
+    );
+    let max = UVec3::new(
+        center.x + MANUAL_SUPPORT_HALF_WIDTH + 1,
+        FIXTURE_ORIGIN.y + FIXTURE_DIM.y,
+        center.z + MANUAL_SUPPORT_HALF_WIDTH + 1,
+    );
+    UAabb3::new(min, max)
+}
+
+fn generate_manual_support() -> Vec<u8> {
+    let bound = manual_support_bound();
+    vec![crate::builder::VOXEL_TYPE_SAND as u8; voxel_count(bound) as usize]
+}
+
+fn manual_canopy_seed() -> UVec3 {
+    FIXTURE_ORIGIN
+}
+
 fn generate_hollow_canopy() -> Vec<u8> {
     let mut voxels = vec![0; (FIXTURE_DIM.x * FIXTURE_DIM.y * FIXTURE_DIM.z) as usize];
     let mut count = 0usize;
@@ -988,6 +1151,17 @@ fn count_fixture_solids(app: &mut App) -> anyhow::Result<usize> {
     Ok(voxels
         .iter()
         .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+        .count())
+}
+
+fn count_job_component_solids(app: &mut App, job: &BoundedTopologyJob) -> anyhow::Result<usize> {
+    let voxels = app
+        .plain_builder
+        .read_chunk_atlas_region(job.bound.min(), job.bound.dimensions())?;
+    Ok(job
+        .component
+        .iter()
+        .filter(|index| voxels[**index as usize] & VOXEL_TYPE_MASK as u8 != 0)
         .count())
 }
 
@@ -1105,6 +1279,24 @@ mod tests {
         BoundedTopologyJob::new(bound, snapshot, FIXTURE_ORIGIN).unwrap()
     }
 
+    fn manual_fixture_job(cut_support_at_y: Option<u32>) -> BoundedTopologyJob {
+        let mut job = fixture_job();
+        let support = manual_support_bound();
+        for z in support.min().z..support.max().z {
+            for y in isolation_bound().min().y..support.max().y {
+                for x in support.min().x..support.max().x {
+                    if cut_support_at_y == Some(y) {
+                        continue;
+                    }
+                    let local = UVec3::new(x, y, z) - job.bound.min();
+                    let index = job.index_of(local);
+                    job.snapshot[index as usize] = crate::builder::VOXEL_TYPE_SAND as u8;
+                }
+            }
+        }
+        job
+    }
+
     #[test]
     fn deterministic_fixture_has_exact_requested_size() {
         let voxels = generate_hollow_canopy();
@@ -1153,6 +1345,18 @@ mod tests {
         snapshot[12] = 1;
         let mut job = BoundedTopologyJob::new(bound, snapshot, UVec3::new(11, 11, 11)).unwrap();
         assert_eq!(job.advance(10).disposition, BoundedDisposition::Deferred);
+    }
+
+    #[test]
+    fn manual_canopy_stays_connected_until_the_support_is_cut() {
+        let mut connected = manual_fixture_job(None);
+        while connected.advance(PARTICLE_CAPACITY).disposition == BoundedDisposition::Pending {}
+        assert_eq!(connected.terminal, Some(BoundedDisposition::Deferred));
+
+        let mut detached = manual_fixture_job(Some(FIXTURE_ORIGIN.y + 4));
+        while detached.advance(PARTICLE_CAPACITY).disposition == BoundedDisposition::Pending {}
+        assert_eq!(detached.terminal, Some(BoundedDisposition::Detached));
+        assert!(detached.component_len() >= FIXTURE_VOXELS);
     }
 
     #[test]

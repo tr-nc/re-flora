@@ -169,6 +169,9 @@ impl App {
     }
 
     pub(super) fn resolve_detached_terrain_after_edit(&mut self) -> anyhow::Result<()> {
+        if bench::TerrainConnectivityBench::try_begin_manual_release(self)? {
+            return Ok(());
+        }
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
         let Some((edited, block)) = self.terrain_connectivity.take_edit_region(world_dim) else {
             return Ok(());
