@@ -1426,6 +1426,7 @@ impl TracerResources {
         chunk_bound: UAabb3,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
         shadow_map_extent: Extent2D,
         cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
@@ -1474,6 +1475,7 @@ impl TracerResources {
                 allocator.clone(),
                 rendering_extent,
                 screen_extent,
+                environment_irradiance_capture_enabled,
             ),
         }
     }
@@ -1484,10 +1486,17 @@ impl TracerResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
     ) -> ExtentDependentResources {
         std::mem::replace(
             &mut self.extent_dependent_resources,
-            ExtentDependentResources::new(device, allocator, rendering_extent, screen_extent),
+            ExtentDependentResources::new(
+                device,
+                allocator,
+                rendering_extent,
+                screen_extent,
+                environment_irradiance_capture_enabled,
+            ),
         )
     }
 

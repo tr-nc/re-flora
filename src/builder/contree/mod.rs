@@ -1306,6 +1306,13 @@ impl ContreeBuilder {
         self.cpu_chunk_cache_jobs_are_idle()
     }
 
+    pub fn cpu_chunk_cache_pending_len(&self) -> usize {
+        self.cpu_chunk_cache_queue.len()
+            + self.cpu_chunk_cache_queue.active_len()
+            + usize::from(self.active_cpu_chunk_cache_job.is_some())
+            + usize::from(self.cpu_chunk_cache_decode_inflight)
+    }
+
     #[allow(dead_code)]
     pub fn cpu_chunk_query_source_ready(&self, chunk_idx: UVec3) -> bool {
         !self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx)

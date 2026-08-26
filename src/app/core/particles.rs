@@ -1,3 +1,4 @@
+use super::terrain_connectivity::bench::TerrainConnectivityBench;
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
@@ -489,39 +490,47 @@ impl App {
 
         let total_start = Instant::now();
         let setup_start = Instant::now();
-        self.butterfly_emitter_desc =
-            Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
-        for emitter in &mut self.butterfly_emitters {
-            emitter.apply_desc(&self.butterfly_emitter_desc);
+        let diagnostic_capacity_isolation = self
+            .terrain_connectivity_bench
+            .as_ref()
+            .is_some_and(TerrainConnectivityBench::active);
+        if !diagnostic_capacity_isolation {
+            self.butterfly_emitter_desc =
+                Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
+            for emitter in &mut self.butterfly_emitters {
+                emitter.apply_desc(&self.butterfly_emitter_desc);
+            }
+            self.ensure_butterfly_emitter();
+            self.refresh_butterfly_spawn_sources(dt);
         }
-        self.ensure_butterfly_emitter();
-        self.refresh_butterfly_spawn_sources(dt);
         let wind_time = self.time_info.time_since_start();
         self.particle_system
             .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
         let emit_start = Instant::now();
-        Self::drive_emitters(
-            &mut self.butterfly_emitters,
-            &mut self.particle_system,
-            dt,
-            wind_time,
-        );
-        self.trees.advance_leaf_emitters(
-            &mut self.particle_system,
-            dt,
-            wind_time,
-            self.render_flags.enable_leaves,
-        );
-        let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
-        self.sprinklers.advance_particles(
-            &mut self.particle_system,
-            dt,
-            wind_time,
-            self.world_clock.flora_tick(),
-            world_tick_seconds,
-        );
+        if !diagnostic_capacity_isolation {
+            Self::drive_emitters(
+                &mut self.butterfly_emitters,
+                &mut self.particle_system,
+                dt,
+                wind_time,
+            );
+            self.trees.advance_leaf_emitters(
+                &mut self.particle_system,
+                dt,
+                wind_time,
+                self.render_flags.enable_leaves,
+            );
+            let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
+            self.sprinklers.advance_particles(
+                &mut self.particle_system,
+                dt,
+                wind_time,
+                self.world_clock.flora_tick(),
+                world_tick_seconds,
+            );
+        }
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();

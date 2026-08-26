@@ -1398,20 +1398,43 @@ mod tests {
     }
 
     #[test]
-    fn direct_terrain_shadow_uses_exact_surface_hit_and_keeps_ddgi_voxel_receiver() {
+    fn terrain_leaf_shadows_share_voxel_receiver_while_cloud_keeps_continuous_position() {
         let tracer = include_str!("../shader/slang/tracer.slang");
         let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang");
 
+        assert!(ray_origin.contains("public float3 terrainRayOriginAlongNormal("));
         assert!(ray_origin.contains("public float3 terrainRayOriginFromSurface("));
-        assert!(ray_origin.contains(
-            "return surfacePosition +\n        normalDirection * max(0.0, offsetWorld);"
+        assert!(tracer.contains(
+            "float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(\n        voxelCenter, normal);"
         ));
         assert!(tracer.contains(
-            "shadowRay.origin = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
+            "float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
         ));
-        assert!(
-            tracer.contains("directLight = directLighting(albedo, result.normal, result.position,")
+        let receiver_factory = tracer
+            .split_once("DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(")
+            .expect("terrain direct-light path must construct a shadow receiver")
+            .1
+            .split_once("int3(0)")
+            .expect("terrain direct-light receiver must retain its deterministic seed")
+            .0;
+        assert_eq!(
+            receiver_factory
+                .matches("terrainLeafReceiverPosition")
+                .count(),
+            2
         );
+        assert_eq!(receiver_factory.matches("cloudReceiverPosition").count(), 1);
+        assert!(tracer.contains(
+            "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
+        ));
+        for position in [
+            "receiver.terrain_world_position",
+            "receiver.leaf_world_position",
+            "receiver.cloud_world_position",
+        ] {
+            assert!(shadowing.contains(position));
+        }
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));

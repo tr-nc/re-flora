@@ -640,6 +640,10 @@ impl TerrainPhysics {
         }
     }
 
+    pub(super) fn terrain_collider_pending_len(&self) -> usize {
+        self.dirty_terrain_bricks.len()
+    }
+
     /// Returns true when the work item reached a terminal result and was removed from the queue.
     /// A CPU Contree cache miss is explicitly non-terminal and remains queued for a later frame.
     fn try_refresh_terrain_brick(
