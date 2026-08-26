@@ -1,6 +1,9 @@
 use rapier3d::parry::shape::AxisMask;
 use rapier3d::prelude::*;
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 const PREFIX: &str = "[COLLISION_BENCH] backend=rapier_voxels";
 const BRICK_SIZE: i32 = 32;
