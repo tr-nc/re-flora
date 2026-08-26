@@ -30,6 +30,9 @@ use flora_frame_plan::{
     TreeFoliageKind, TreeFoliageMainConfig,
 };
 
+mod leaf_shadow_proxy;
+use leaf_shadow_proxy::build_leaf_shadow_proxies;
+
 mod direct_sun_shadow_runtime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
@@ -759,6 +762,14 @@ struct TreeRenderInstanceData {
     leaf_local_pos: IVec3,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TreeShadowRenderInstanceData {
+    world_pos: UVec3,
+    leaf_local_pos: IVec3,
+    billboard_size_voxels: f32,
+    opacity_layer_count: f32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TracerDesc {
     pub scaling_factor: f32,
@@ -836,9 +847,16 @@ struct PreparedTreeFoliageBatch<'a> {
     descriptors: PreparedDrawDescriptors,
 }
 
+#[derive(Clone, Copy)]
+enum TreeFoliageInstanceStream {
+    Visible,
+    Shadow,
+}
+
 fn tree_foliage_instance(
     surface_resources: &SurfaceResources,
     batch: TreeFoliageBatch,
+    stream: TreeFoliageInstanceStream,
 ) -> &TreeLeavesInstance {
     let instances = match batch.kind() {
         TreeFoliageKind::Leaves => &surface_resources.instances.leaves_instances,
@@ -851,10 +869,18 @@ fn tree_foliage_instance(
             batch.tree_id(),
         )
     });
+    let actual_instance_count = match stream {
+        TreeFoliageInstanceStream::Visible => instance.resources.instances_len,
+        TreeFoliageInstanceStream::Shadow => instance.resources.shadow_instances_len,
+    };
     assert_eq!(
-        instance.resources.instances_len,
+        actual_instance_count,
         batch.instance_count(),
-        "tree foliage frame batch {:?} tree {} instance count changed after planning",
+        "tree foliage {:?} stream batch {:?} tree {} instance count changed after planning",
+        match stream {
+            TreeFoliageInstanceStream::Visible => "visible",
+            TreeFoliageInstanceStream::Shadow => "shadow",
+        },
         batch.kind(),
         batch.tree_id(),
     );
@@ -3989,7 +4015,7 @@ impl Tracer {
 
         if render_flags.enable_flora
             && render_flags.enable_leaves
-            && render_flags.enable_shadows
+            && render_flags.enable_leaf_shadows
             && update_shadow_map
         {
             Self::with_gpu_scope(
@@ -4854,7 +4880,11 @@ impl Tracer {
                     .iter()
                     .filter(|batch| batch.kind() == TreeFoliageKind::Leaves)
                 {
-                    let tree_instance = tree_foliage_instance(surface_resources, batch);
+                    let tree_instance = tree_foliage_instance(
+                        surface_resources,
+                        batch,
+                        TreeFoliageInstanceStream::Visible,
+                    );
                     let instance_count = batch.instance_count();
                     let mut push_constant = flora_push_constant(
                         time,
@@ -4955,7 +4985,11 @@ impl Tracer {
             .iter()
             .copied()
             .map(|batch| {
-                let instance = tree_foliage_instance(surface_resources, batch);
+                let instance = tree_foliage_instance(
+                    surface_resources,
+                    batch,
+                    TreeFoliageInstanceStream::Visible,
+                );
                 let pipeline = match batch.lod_state() {
                     LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
                     LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
@@ -5714,7 +5748,7 @@ impl Tracer {
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
                     bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
+                    instance_count: instance.resources.shadow_instances_len,
                 }),
             surface_resources
                 .instances
@@ -5723,7 +5757,7 @@ impl Tracer {
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
                     bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
+                    instance_count: instance.resources.shadow_instances_len,
                 }),
         );
         let prepared_tree_foliage_batches = tree_foliage_frame_plan
@@ -5731,13 +5765,17 @@ impl Tracer {
             .iter()
             .copied()
             .map(|batch| {
-                let instance = tree_foliage_instance(surface_resources, batch);
+                let instance = tree_foliage_instance(
+                    surface_resources,
+                    batch,
+                    TreeFoliageInstanceStream::Shadow,
+                );
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
                         cmdbuf,
                         &[(
-                            "tree_leaf_instances",
-                            DescriptorResource::Buffer(&instance.resources.instances_buf),
+                            "tree_leaf_shadow_instances",
+                            DescriptorResource::Buffer(&instance.resources.shadow_instances_buf),
                         )],
                     )
                     .unwrap_or_else(|error| {
@@ -5814,7 +5852,7 @@ impl Tracer {
             for prepared in prepared_batches {
                 let batch = prepared.batch;
                 assert_eq!(
-                    prepared.instance.resources.instances_len,
+                    prepared.instance.resources.shadow_instances_len,
                     batch.instance_count(),
                     "foliage shadow batch {:?} tree {} instance count changed before draw",
                     batch.kind(),
@@ -6850,10 +6888,11 @@ impl Tracer {
         &self,
         tree_id: u32,
         instances: &[TreeRenderInstanceData],
+        shadow_instances: &[TreeShadowRenderInstanceData],
         aabb_margin: f32,
         span_label: &str,
     ) -> Result<TreeLeavesInstance> {
-        use crate::builder::TreeLeafInstance;
+        use crate::builder::{TreeLeafInstance, TreeLeafShadowInstance};
 
         let mut instances_data = Vec::with_capacity(instances.len());
         let chunk_world_offset = instances
@@ -6874,6 +6913,25 @@ impl Tracer {
                 span_label,
             );
         }
+        if let Some(max_shadow_pos) = shadow_instances
+            .iter()
+            .map(|instance| instance.world_pos)
+            .reduce(UVec3::max)
+        {
+            let min_shadow_pos = shadow_instances
+                .iter()
+                .map(|instance| instance.world_pos)
+                .reduce(UVec3::min)
+                .expect("non-empty shadow instances must have a minimum");
+            anyhow::ensure!(
+                min_shadow_pos.cmpge(chunk_world_offset).all()
+                    && (max_shadow_pos - chunk_world_offset)
+                        .cmplt(UVec3::splat(1024))
+                        .all(),
+                "{} shadow instance span exceeds packed 10-bit local-position range",
+                span_label,
+            );
+        }
         let pack_local_pos = |world_pos: UVec3| -> u32 {
             let local_pos = world_pos - chunk_world_offset;
             (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
@@ -6886,6 +6944,19 @@ impl Tracer {
                 )?,
             });
         }
+        let shadow_instances_data = shadow_instances
+            .iter()
+            .map(|instance| {
+                Ok(TreeLeafShadowInstance {
+                    packed_local_pos: pack_local_pos(instance.world_pos),
+                    packed_leaf_local_pos: Self::pack_tree_leaf_voxel_local_pos(
+                        instance.leaf_local_pos,
+                    )?,
+                    billboard_size_voxels: instance.billboard_size_voxels,
+                    opacity_layer_count: instance.opacity_layer_count,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let scaled_positions = instances
             .iter()
@@ -6908,6 +6979,7 @@ impl Tracer {
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             instances.len() as u64,
+            shadow_instances.len() as u64,
         );
 
         if !instances_data.is_empty() {
@@ -6918,6 +6990,15 @@ impl Tracer {
             tree_instance.resources.instances_len = instances_data.len() as u32;
         } else {
             tree_instance.resources.instances_len = 0;
+        }
+        if !shadow_instances_data.is_empty() {
+            tree_instance
+                .resources
+                .shadow_instances_buf
+                .fill(&shadow_instances_data)?;
+            tree_instance.resources.shadow_instances_len = shadow_instances_data.len() as u32;
+        } else {
+            tree_instance.resources.shadow_instances_len = 0;
         }
 
         Ok(tree_instance)
@@ -6943,8 +7024,42 @@ impl Tracer {
                 leaf_local_pos,
             })
             .collect::<Vec<_>>();
-        let tree_leaves_instance =
-            self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
+        let leaf_shadow_proxies = build_leaf_shadow_proxies(&leaf_voxel_instances)?;
+        let coarse_proxy_count = leaf_shadow_proxies
+            .iter()
+            .filter(|proxy| {
+                proxy.billboard_size_voxels
+                    == leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32
+            })
+            .count();
+        let refined_proxy_count = leaf_shadow_proxies.len() - coarse_proxy_count;
+        let shadow_instances = leaf_shadow_proxies
+            .iter()
+            .map(|proxy| TreeShadowRenderInstanceData {
+                world_pos: proxy.world_pos,
+                leaf_local_pos: proxy.leaf_local_pos,
+                billboard_size_voxels: proxy.billboard_size_voxels,
+                opacity_layer_count: proxy.opacity_layer_count,
+            })
+            .collect::<Vec<_>>();
+        log::info!(
+            "[LEAF_SHADOW_PROXY] tree={} sources={} proxies={} ratio={:.3} coarse_proxies={} refined_proxies={} coarse_cell_voxels={} fine_cell_voxels={} optical_area_preserved=true",
+            tree_id,
+            leaf_voxel_instances.len(),
+            shadow_instances.len(),
+            shadow_instances.len() as f32 / leaf_voxel_instances.len().max(1) as f32,
+            coarse_proxy_count,
+            refined_proxy_count,
+            leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
+            leaf_shadow_proxy::LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
+        );
+        let tree_leaves_instance = self.build_tree_render_instances(
+            tree_id,
+            &leaf_voxel_instances,
+            &shadow_instances,
+            0.2,
+            "tree leaf",
+        )?;
         let retired = surface_resources
             .instances
             .leaves_instances
@@ -6975,8 +7090,22 @@ impl Tracer {
                 ),
             })
             .collect::<Vec<_>>();
-        let tree_apple_instance =
-            self.build_tree_render_instances(tree_id, &apple_instances, 0.08, "tree apple")?;
+        let apple_shadow_instances = apple_instances
+            .iter()
+            .map(|instance| TreeShadowRenderInstanceData {
+                world_pos: instance.world_pos,
+                leaf_local_pos: instance.leaf_local_pos,
+                billboard_size_voxels: leaf_shadow_proxy::SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS,
+                opacity_layer_count: 1.0,
+            })
+            .collect::<Vec<_>>();
+        let tree_apple_instance = self.build_tree_render_instances(
+            tree_id,
+            &apple_instances,
+            &apple_shadow_instances,
+            0.08,
+            "tree apple",
+        )?;
         let retired = surface_resources
             .instances
             .apple_instances

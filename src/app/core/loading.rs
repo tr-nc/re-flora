@@ -404,6 +404,17 @@ impl App {
             );
         }
 
+        if self
+            .denoiser_bench
+            .as_ref()
+            .is_some_and(DenoiserBench::is_foliage_shadow)
+        {
+            self.configure_foliage_shadow_bench_receiver()
+                .unwrap_or_else(|err| {
+                    panic!("[FOLIAGE_SHADOW_BENCH] receiver setup failed: {err:#}")
+                });
+        }
+
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
