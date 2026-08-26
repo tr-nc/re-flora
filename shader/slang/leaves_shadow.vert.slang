@@ -26,14 +26,14 @@ struct B_FloraVoxelInfos
 readonly GLSLShaderStorageBuffer<B_FloraVoxelInfos, Std430DataLayout>
     flora_voxel_infos;
 
-struct B_TreeLeafInstances
+struct B_TreeLeafShadowInstances
 {
-    TreeLeafInstance data[];
+    TreeLeafShadowInstance data[];
 };
 
 [[vk::binding(0, 1)]]
-readonly GLSLShaderStorageBuffer<B_TreeLeafInstances, Std430DataLayout>
-    tree_leaf_instances;
+readonly GLSLShaderStorageBuffer<B_TreeLeafShadowInstances, Std430DataLayout>
+    tree_leaf_shadow_instances;
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
@@ -128,10 +128,11 @@ uint lookupFloraVoxelInfo(uint instanceType, int3 voxelLocalPosition)
     return fallbackInfo;
 }
 
-float3 billboardVertexPosition(float3 voxelPosition, uint3 vertexOffset)
+float3 billboardVertexPosition(float3 voxelPosition, uint3 vertexOffset,
+                               float billboardSizeVoxels)
 {
     float2 mappedOffset =
-        (float2(vertexOffset.xy) - 0.5) * SCALING_FACTOR * 1.225;
+        (float2(vertexOffset.xy) - 0.5) * SCALING_FACTOR * billboardSizeVoxels;
     float3 right = normalize(float3(
         shadow_camera_info.view_mat[0][0],
         shadow_camera_info.view_mat[0][1],
@@ -150,8 +151,8 @@ VertexOutput main(VertexInput input)
     uint3 vertexOffset;
     unpackVertexData(input.packed_data, voxelLocalPosition, vertexOffset);
 
-    TreeLeafInstance leafInstance =
-        tree_leaf_instances.data[input.instance_index];
+    TreeLeafShadowInstance leafInstance =
+        tree_leaf_shadow_instances.data[input.instance_index];
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, pc.chunk_world_offset);
     bool isTreeLeaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
@@ -183,9 +184,10 @@ VertexOutput main(VertexInput input)
     float3 windSamplePosition = isApple
         ? instancePosition
         : instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
-    uint windSeed = isApple
-        ? seed
-        : windVolumeVoxelSeed(seed, leafVoxelLocalPosition);
+    // Tree proxy leaves move coherently with their spray anchor. The visible leaf path retains its
+    // per-leaf wind seed and paddling; the shadow path uses one phase-continuous paddle per spray so
+    // cluster motion remains readable without restoring sub-shadow-texel phase noise.
+    uint windSeed = seed;
     float3 wind = sampleWindVolume(
         wind_volume_info, wind_volume_tex, windSamplePosition, windSeed);
     float3 windOffset = wind * windGradient * windGradient;
@@ -195,22 +197,32 @@ VertexOutput main(VertexInput input)
     {
         windOffset = appleWindSwing(gui_input, wind, seed, motionTime);
     }
-    else
+    else if (isTreeLeaf)
     {
-        windOffset += leafWindPaddling(
-            gui_input, wind, windGradient, seed, leafVoxelLocalPosition,
-            motionTime);
+        windOffset += leafShadowSprayPaddling(
+            gui_input, wind, windGradient, seed, pc.time);
     }
 
     float3 anchorPosition =
         (float3(leafVoxelLocalPosition) + windOffset) * SCALING_FACTOR +
         instancePosition;
     float3 voxelPosition = anchorPosition + 0.5 * SCALING_FACTOR;
-    float3 vertexPosition = billboardVertexPosition(voxelPosition, vertexOffset);
+    float billboardSizeVoxels = isTreeLeaf
+        ? max(leafInstance.billboard_size_voxels, 0.0)
+        : 1.225;
+    float3 vertexPosition = billboardVertexPosition(
+        voxelPosition, vertexOffset, billboardSizeVoxels);
     VertexOutput output;
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(vertexPosition, 1.0));
-    output.opacity = clamp(gui_input.leaf_shadow_fragment_opacity, 0.0, 1.0);
+    float fragmentOpacity = clamp(
+        gui_input.leaf_shadow_fragment_opacity, 0.0, 1.0);
+    // Fractional Beer-Lambert layers preserve the cluster's summed source optical area instead of
+    // turning a coarse billboard into an opaque/binary caster.
+    output.opacity = isTreeLeaf
+        ? 1.0 - pow(1.0 - fragmentOpacity,
+                    max(leafInstance.opacity_layer_count, 0.0))
+        : fragmentOpacity;
 
     uint paletteSeed = wellonsHash(seed);
     output.position.z += float(paletteSeed & 1u) * 1.0e-8;

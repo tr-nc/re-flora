@@ -92,6 +92,16 @@ public struct TreeLeafInstance
     public uint packed_leaf_local_pos;
 };
 
+public struct TreeLeafShadowInstance
+{
+    public uint packed_local_pos;
+    public uint packed_leaf_local_pos;
+    // Shadow-only proxy footprint and source optical-area density. Visible leaves keep the compact
+    // TreeLeafInstance ABI above.
+    public float billboard_size_voxels;
+    public float opacity_layer_count;
+};
+
 public uint3 unpackTreeLeafLocalPosition(uint packedLocalPosition)
 {
     return uint3(packedLocalPosition & 0x3ffu,

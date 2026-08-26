@@ -10,6 +10,7 @@ mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
+mod foliage_shadow_bench;
 mod frame_timing;
 mod house_scene;
 mod hybrid_transparency_test_scene;
@@ -101,8 +102,8 @@ use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::{WindResponseCurve, WindSource};
 use crate::RenderFlags;
 use crate::{
-    egui_renderer::EguiRenderer, window::WindowState, EnvironmentLightingTestCase,
-    WaterProfilePreference,
+    egui_renderer::EguiRenderer, window::WindowState, DenoiserBenchScene,
+    EnvironmentLightingTestCase, WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -1277,6 +1278,13 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
+        if options
+            .denoiser_bench
+            .as_ref()
+            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+        {
+            foliage_shadow_bench::configure_tree(&mut debug_settings);
+        }
         if options.canopy_audio_diagnostic {
             let mut fixed_tree_desc = TreeDesc::default();
             fixed_tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED;
@@ -1603,6 +1611,13 @@ impl App {
         // Test scenes provide a useful default pose, but an explicit snapshot
         // is the caller's final camera choice for screenshots and repro runs.
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
+        if options
+            .denoiser_bench
+            .as_ref()
+            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+        {
+            app.configure_foliage_shadow_bench_camera()?;
+        }
         app.sync_cursor_with_panels();
 
         Ok(app)
@@ -2361,7 +2376,11 @@ impl App {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
-                let frame_delta_time = self.time_info.delta_time();
+                let frame_delta_time = self
+                    .denoiser_bench
+                    .as_ref()
+                    .and_then(DenoiserBench::fixed_frame_delta_seconds)
+                    .unwrap_or_else(|| self.time_info.delta_time());
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -2376,6 +2395,11 @@ impl App {
                     log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
                 let time_since_start = self.time_info.time_since_start();
+                let visual_time_since_start = self
+                    .denoiser_bench
+                    .as_ref()
+                    .and_then(DenoiserBench::visual_time_seconds)
+                    .unwrap_or(time_since_start);
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -2586,6 +2610,10 @@ impl App {
                     .is_some()
                     || self.hybrid_transparency_test_scene.is_some())
                     && (self.screenshot_capture.is_scheduled() || self.denoiser_bench.is_some());
+                let hide_ui_for_frame_stability_bench = self
+                    .denoiser_bench
+                    .as_ref()
+                    .is_some_and(DenoiserBench::hides_ui);
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -2603,7 +2631,9 @@ impl App {
                         apply_gui_style(&mut style);
                         ctx.set_global_style(style);
 
-                        if hide_ui_for_environment_test_capture {
+                        if hide_ui_for_environment_test_capture
+                            || hide_ui_for_frame_stability_bench
+                        {
                             return;
                         }
 
@@ -3867,7 +3897,7 @@ impl App {
                         self.world_clock.flora_tick(),
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
-                        self.time_info.time_since_start_duration().as_millis() as u32,
+                        (visual_time_since_start * 1000.0) as u32,
                         self.debug_settings
                             .adjustables
                             .flora_spawn_duration_seconds
@@ -4110,7 +4140,7 @@ impl App {
                             self.tracer.record_shadow_prepass(
                                 cmdbuf,
                                 self.surface_builder.get_resources(),
-                                self.time_info.time_since_start(),
+                                visual_time_since_start,
                                 leaf_color_tables,
                                 &self.render_flags,
                                 update_shadow_map,
