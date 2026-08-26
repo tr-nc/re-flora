@@ -131,16 +131,16 @@ float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
         surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
-float3 shadowRayColor(float3 terrainReceiverPosition,
-                      float3 leafCloudReceiverPosition,
+float3 shadowRayColor(float3 terrainLeafReceiverPosition,
+                      float3 cloudReceiverPosition,
                       float3 receiverNormal,
                       out DirectSunShadowTransmittances shadow)
 {
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(terrainReceiverPosition, 1.0),
-        float4(leafCloudReceiverPosition, 1.0),
-        float4(leafCloudReceiverPosition, 1.0),
+        float4(terrainLeafReceiverPosition, 1.0),
+        float4(terrainLeafReceiverPosition, 1.0),
+        float4(cloudReceiverPosition, 1.0),
         int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_TERRAIN_SHADOW_VSM,
         DIRECT_SUN_SHADOW_SOURCE_ALL,
@@ -189,9 +189,9 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
                       out DirectSunShadowTransmittances shadow)
 {
     float3 sunDirection = normalize(sun_info.sun_dir);
-    float3 terrainReceiverPosition = terrainShadowReceiverPosition(
+    float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(
         voxelCenter, normal);
-    float3 leafCloudReceiverPosition = terrainShadowReceiverPositionFromSurface(
+    float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(
         surfacePosition, normal);
     float cosine = max(0.0, dot(sunDirection, normal));
     shadow.terrain = 1.0;
@@ -202,7 +202,7 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     if (cosine > 0.0)
     {
         sunIrradiance = shadowRayColor(
-            terrainReceiverPosition, leafCloudReceiverPosition, normal,
+            terrainLeafReceiverPosition, cloudReceiverPosition, normal,
             shadow) * cosine;
     }
     float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
