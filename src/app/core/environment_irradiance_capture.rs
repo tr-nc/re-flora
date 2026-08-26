@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 7;
+const CAPTURE_VERSION: u32 = 8;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
@@ -578,7 +578,7 @@ impl EnvironmentIrradianceCaptureRuntime {
             evidence.write(&readback.path)?;
         }
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance+float4-terrain-leaf-cloud-combined-shadow-transmittance",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -636,9 +636,9 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 7);
+        assert_eq!(CAPTURE_VERSION, 8);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
-        assert_eq!(CAPTURE_PLANE_COUNT, 4);
+        assert_eq!(CAPTURE_PLANE_COUNT, 5);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
     }
 

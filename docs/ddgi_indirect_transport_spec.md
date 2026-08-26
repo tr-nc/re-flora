@@ -142,8 +142,8 @@ Active/Staging promotion occur only for one complete field.
 
 The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` capture analysis:
 
-- capture v7 records lifecycle state, epoch, source identity, revisions, publication, batch order,
-  and full-atlas deltas;
+- capture v8 records lifecycle state, epoch, source identity, revisions, publication, batch order,
+  full-atlas deltas, and source-separated terrain/leaf/cloud direct-shadow transmittance;
 - sealed, portal, donor, and dogleg scenes exercise no-created-energy, leak, color-transfer, and
   multi-epoch propagation behavior at spacing 32 and 16;
 - forward/reverse epoch-zero captures verify batch-order independence;

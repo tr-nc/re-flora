@@ -300,7 +300,7 @@ check_inflight_stale_active_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --compare-direct-light --expect-version 7 \
+        "$first" --compare "$second" --compare-direct-light --expect-version 8 \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \

@@ -18,6 +18,7 @@ HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
+HEADER_V8 = HEADER_V4
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -284,6 +285,67 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 + world_pixels
                 + direct_light_pixels
                 + receiver_pixels
+            )
+        )
+        path.write_bytes(header + payload)
+
+    def write_capture_v8(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        direct_light_pixels: list[tuple[float, float, float, float]],
+        receiver_pixels: list[tuple[float, float, float, float]],
+        direct_sun_shadow_pixels: list[tuple[float, float, float, float]],
+    ) -> None:
+        pixel_count = len(irradiance_pixels)
+        self.assertTrue(
+            all(
+                len(pixels) == pixel_count
+                for pixels in (
+                    world_pixels,
+                    direct_light_pixels,
+                    receiver_pixels,
+                    direct_sun_shadow_pixels,
+                )
+            )
+        )
+        header = HEADER_V8.pack(
+            analyzer.MAGIC,
+            8,
+            pixel_count,
+            1,
+            4,
+            1,
+            16,
+            0,
+            5,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            2,
+            31,
+            1,
+            30,
+            88,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            pixel_count,
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in (
+                irradiance_pixels
+                + world_pixels
+                + direct_light_pixels
+                + receiver_pixels
+                + direct_sun_shadow_pixels
             )
         )
         path.write_bytes(header + payload)
@@ -984,6 +1046,50 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertIn(
             "terrain_shadow_receiver_voxel_transmittance_range_max: "
             "expected at most 0.499, got 0.5",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
+    def test_v8_leaf_shadow_gate_uses_captured_marcher_voxel_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "subvoxel-leaf-shadow.rfirr"
+            voxel = 1.0 / analyzer.TERRAIN_VOXELS_PER_WORLD_UNIT
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)] * 4
+            leaf_values = (0.2, 0.2, 0.8, 0.8)
+            self.write_capture_v8(
+                capture_path,
+                [(0.0, 0.0, 0.0, 1.0)] * 4,
+                [(0.2 * voxel, 0.2 * voxel, 0.0, 1.0)] * 4,
+                [(0.25, 0.25, 0.25, 1.0)] * 4,
+                receiver,
+                [(1.0, leaf, 1.0, leaf) for leaf in leaf_values],
+            )
+
+            capture = analyzer.load_capture(capture_path)
+            summary = analyzer.summarize(capture)
+            accepted = self.run_analyzer(
+                capture_path,
+                "--max-leaf-shadow-receiver-voxel-transmittance-range",
+                "0.601",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--max-leaf-shadow-receiver-voxel-transmittance-range",
+                "0.599",
+            )
+
+        self.assertEqual(capture.version, 8)
+        self.assertEqual(capture.plane_count, 5)
+        self.assertTrue(summary["direct_sun_shadow_available"])
+        self.assertTrue(summary["direct_sun_shadow_valid"])
+        self.assertEqual(summary["leaf_shadow_receiver_voxel_count"], 1)
+        self.assertAlmostEqual(
+            summary["leaf_shadow_receiver_voxel_transmittance_range_max"], 0.6
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "leaf_shadow_receiver_voxel_transmittance_range_max: "
+            "expected at most 0.599, got 0.6000000089406967",
             json.loads(rejected.stdout)["validation_failures"],
         )
 

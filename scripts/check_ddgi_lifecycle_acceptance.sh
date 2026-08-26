@@ -131,7 +131,7 @@ check_radiance() {
     }
 
     "$analyzer" "$capture" \
-        --expect-version 7 \
+        --expect-version 8 \
         --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
@@ -198,7 +198,7 @@ check_density() {
     fi
 
     "$analyzer" "$capture" \
-        --expect-version 7 \
+        --expect-version 8 \
         --expect-spacing-voxels 16 \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \

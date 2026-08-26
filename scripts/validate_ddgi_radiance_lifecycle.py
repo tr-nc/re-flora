@@ -58,7 +58,7 @@ def validate(
     for checkpoint in CHECKPOINTS:
         capture = captures[checkpoint]
         identity = identities[checkpoint]
-        require(capture.version == 7, f"{checkpoint}: capture is not v7", failures)
+        require(capture.version == 8, f"{checkpoint}: capture is not v8", failures)
         require(
             capture.spacing_voxels == spacing_voxels,
             f"{checkpoint}: spacing is not {spacing_voxels}",
@@ -76,7 +76,7 @@ def validate(
         )
         require(
             field_matches_capture(identity["active_field"], capture),
-            f"{checkpoint}: sidecar active field does not match v7 header",
+            f"{checkpoint}: sidecar active field does not match v8 header",
             failures,
         )
 

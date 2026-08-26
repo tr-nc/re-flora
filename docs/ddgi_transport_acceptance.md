@@ -9,16 +9,17 @@ missing subordinate checker is a failure.
 
 Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `.rfirr` capture v7 contains pre-albedo environment irradiance, world position plus exact sun
+- `.rfirr` capture v8 contains pre-albedo environment irradiance, world position plus exact sun
   visibility, the raster terrain's independent direct-light RGB, and marcher receiver-center XYZ
-  plus terrain VSM transmittance;
+  plus terrain VSM transmittance, followed by terrain/leaf/cloud/combined direct-shadow
+  transmittance;
 - `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
 - `.console.log` records scheduling, source/destination slots, per-epoch retention, full-atlas
   validation, atomic publication, and terminal sleep reason;
 - `convergence-calibration.json` contains every validated convergence curve.
 
 Old capture versions remain readable for committed historical evidence, but all current-runtime
-acceptance requires v7 `Converging` / `Converged` metadata and `update_epoch`.
+acceptance requires v8 `Converging` / `Converged` metadata and `update_epoch`.
 
 ## Transport matrix
 

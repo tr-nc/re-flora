@@ -21,6 +21,7 @@ HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
+HEADER_V8 = HEADER_V4
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -86,6 +87,7 @@ class Capture:
     world_payload: bytes = b""
     direct_light_payload: bytes = b""
     terrain_shadow_receiver_payload: bytes = b""
+    direct_sun_shadow_payload: bytes = b""
     plane_count: int = 1
     geometry_revision: int | None = None
     radiance_revision: int | None = None
@@ -187,10 +189,14 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6, 7):
-        header = {4: HEADER_V4, 5: HEADER_V5, 6: HEADER_V6, 7: HEADER_V7}[
-            version
-        ]
+    elif version in (4, 5, 6, 7, 8):
+        header = {
+            4: HEADER_V4,
+            5: HEADER_V5,
+            6: HEADER_V6,
+            7: HEADER_V7,
+            8: HEADER_V8,
+        }[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
         (
@@ -258,13 +264,19 @@ def load_capture(path: Path) -> Capture:
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
     expected_plane_counts = (
-        (4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2))
+        (5,)
+        if version == 8
+        else ((4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2)))
     )
     if plane_count not in expected_plane_counts:
         expected_label = (
-            "four"
-            if version == 7
-            else ("three" if version in (5, 6) else "one or two")
+            "five"
+            if version == 8
+            else (
+                "four"
+                if version == 7
+                else ("three" if version in (5, 6) else "one or two")
+            )
         )
         raise ValueError(
             f"{path}: expected {expected_label} float4 planes, got {plane_count}"
@@ -286,6 +298,7 @@ def load_capture(path: Path) -> Capture:
         payload[plane_size : 2 * plane_size] if plane_count >= 2 else b"",
         payload[2 * plane_size : 3 * plane_size] if plane_count >= 3 else b"",
         payload[3 * plane_size : 4 * plane_size] if plane_count >= 4 else b"",
+        payload[4 * plane_size : 5 * plane_size] if plane_count >= 5 else b"",
         plane_count,
         **metadata,
     )
@@ -404,6 +417,11 @@ def summarize(
         if capture.terrain_shadow_receiver_payload
         else [None] * capture.sample_count
     )
+    direct_sun_shadow_pixels = (
+        list(PIXEL.iter_unpack(capture.direct_sun_shadow_payload))
+        if capture.direct_sun_shadow_payload
+        else [None] * capture.sample_count
+    )
     for (red, green, blue, hit), world_pixel in zip(
         PIXEL.iter_unpack(capture.payload), world_pixels
     ):
@@ -494,6 +512,12 @@ def summarize(
     terrain_shadow_receiver_voxel_samples: dict[
         tuple[int, int, int], list[float]
     ] = {}
+    direct_sun_shadow_available = bool(capture.direct_sun_shadow_payload)
+    direct_sun_shadow_finite = True
+    direct_sun_shadow_valid = True
+    direct_sun_shadow_voxel_samples: dict[
+        str, dict[tuple[int, int, int], list[float]]
+    ] = {source: {} for source in ("terrain", "leaf", "cloud", "combined")}
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -507,11 +531,18 @@ def summarize(
         "shadowed": direct_light_shadowed_roi,
     }
     if direct_light_available:
-        for irradiance_pixel, world_pixel, direct_pixel, receiver_pixel in zip(
+        for (
+            irradiance_pixel,
+            world_pixel,
+            direct_pixel,
+            receiver_pixel,
+            direct_sun_shadow_pixel,
+        ) in zip(
             PIXEL.iter_unpack(capture.payload),
             world_pixels,
             PIXEL.iter_unpack(capture.direct_light_payload),
             terrain_shadow_receiver_pixels,
+            direct_sun_shadow_pixels,
         ):
             terrain_hit = irradiance_pixel[3] > 0.5
             direct_red, direct_green, direct_blue, direct_hit = direct_pixel
@@ -532,6 +563,7 @@ def summarize(
                 + 0.0722 * direct_blue
             )
             direct_light_luminances.append(direct_luminance)
+            captured_voxel_key = None
             if receiver_pixel is not None:
                 receiver_center = receiver_pixel[:3]
                 terrain_shadow_transmittance = receiver_pixel[3]
@@ -542,9 +574,9 @@ def summarize(
                     terrain_shadow_receiver_finite and finite_receiver
                 )
                 if finite_receiver:
-                    voxel_key = captured_receiver_voxel_key(receiver_center)
+                    captured_voxel_key = captured_receiver_voxel_key(receiver_center)
                     valid_receiver = (
-                        voxel_key is not None
+                        captured_voxel_key is not None
                         and 0.0 <= terrain_shadow_transmittance <= 1.0
                     )
                     terrain_shadow_receiver_valid = (
@@ -552,10 +584,39 @@ def summarize(
                     )
                     if valid_receiver:
                         terrain_shadow_receiver_voxel_samples.setdefault(
-                            voxel_key, []
+                            captured_voxel_key, []
                         ).append(terrain_shadow_transmittance)
                 else:
                     terrain_shadow_receiver_valid = False
+            if direct_sun_shadow_pixel is not None:
+                finite_shadows = all(
+                    math.isfinite(value) for value in direct_sun_shadow_pixel
+                )
+                direct_sun_shadow_finite = (
+                    direct_sun_shadow_finite and finite_shadows
+                )
+                terrain_shadow, leaf_shadow, cloud_shadow, combined_shadow = (
+                    direct_sun_shadow_pixel
+                )
+                valid_shadows = (
+                    finite_shadows
+                    and captured_voxel_key is not None
+                    and all(0.0 <= value <= 1.0 for value in direct_sun_shadow_pixel)
+                    and abs(
+                        combined_shadow
+                        - terrain_shadow * leaf_shadow * cloud_shadow
+                    )
+                    <= 1.0e-5
+                )
+                direct_sun_shadow_valid = direct_sun_shadow_valid and valid_shadows
+                if valid_shadows:
+                    for source, value in zip(
+                        ("terrain", "leaf", "cloud", "combined"),
+                        direct_sun_shadow_pixel,
+                    ):
+                        direct_sun_shadow_voxel_samples[source].setdefault(
+                            captured_voxel_key, []
+                        ).append(value)
             for channel, value in enumerate(direct_rgb):
                 if value < 0.0:
                     direct_light_rgb_channel_negative_count[channel] += 1
@@ -607,6 +668,14 @@ def summarize(
         for samples in terrain_shadow_receiver_voxel_samples.values()
         if len(samples) >= DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS
     )
+    direct_sun_shadow_voxel_transmittance_ranges = {
+        source: sorted(
+            max(samples) - min(samples)
+            for samples in voxel_samples.values()
+            if len(samples) >= DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS
+        )
+        for source, voxel_samples in direct_sun_shadow_voxel_samples.items()
+    }
     roi_channel_mean = (
         [value / roi_terrain_hit_count for value in roi_channel_sum]
         if roi_terrain_hit_count > 0
@@ -648,7 +717,8 @@ def summarize(
         "terrain_hit_count": terrain_hit_count,
         "finite": finite
         and direct_light_finite
-        and terrain_shadow_receiver_finite,
+        and terrain_shadow_receiver_finite
+        and direct_sun_shadow_finite,
         "metadata_finite": metadata_finite,
         "rgb_abs_max": rgb_abs_max,
         "rgb_nonzero_count": rgb_nonzero_count,
@@ -777,6 +847,34 @@ def summarize(
             if terrain_shadow_receiver_voxel_transmittance_ranges
             else None
         ),
+        "direct_sun_shadow_available": direct_sun_shadow_available,
+        "direct_sun_shadow_finite": (
+            direct_sun_shadow_finite if direct_sun_shadow_available else None
+        ),
+        "direct_sun_shadow_valid": (
+            direct_sun_shadow_valid if direct_sun_shadow_available else None
+        ),
+        **{
+            f"{source}_shadow_receiver_voxel_count": (
+                len(ranges) if direct_sun_shadow_available else None
+            )
+            for source, ranges in direct_sun_shadow_voxel_transmittance_ranges.items()
+            if source != "terrain"
+        },
+        **{
+            f"{source}_shadow_receiver_voxel_transmittance_range_p99": (
+                percentile(ranges, 0.99) if ranges else None
+            )
+            for source, ranges in direct_sun_shadow_voxel_transmittance_ranges.items()
+            if source != "terrain"
+        },
+        **{
+            f"{source}_shadow_receiver_voxel_transmittance_range_max": (
+                ranges[-1] if ranges else None
+            )
+            for source, ranges in direct_sun_shadow_voxel_transmittance_ranges.items()
+            if source != "terrain"
+        },
         "direct_light_sunlit_roi": (
             list(direct_light_sunlit_roi)
             if direct_light_sunlit_roi is not None
@@ -871,6 +969,11 @@ def summarize(
             if terrain_shadow_receiver_available
             else None
         ),
+        "direct_sun_shadow_payload_sha256": (
+            hashlib.sha256(capture.direct_sun_shadow_payload).hexdigest()
+            if direct_sun_shadow_available
+            else None
+        ),
     }
 
 
@@ -949,6 +1052,7 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
         and first.world_payload == second.world_payload
         and first.terrain_shadow_receiver_payload
         == second.terrain_shadow_receiver_payload
+        and first.direct_sun_shadow_payload == second.direct_sun_shadow_payload
     )
     direct_light_bit_exact = (
         compatible and first.direct_light_payload == second.direct_light_payload
@@ -980,6 +1084,16 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
         "second_terrain_shadow_receiver_sha256": (
             hashlib.sha256(second.terrain_shadow_receiver_payload).hexdigest()
             if second.terrain_shadow_receiver_payload
+            else None
+        ),
+        "first_direct_sun_shadow_sha256": (
+            hashlib.sha256(first.direct_sun_shadow_payload).hexdigest()
+            if first.direct_sun_shadow_payload
+            else None
+        ),
+        "second_direct_sun_shadow_sha256": (
+            hashlib.sha256(second.direct_sun_shadow_payload).hexdigest()
+            if second.direct_sun_shadow_payload
             else None
         ),
     }
@@ -1306,6 +1420,22 @@ def main() -> int:
             "to have no more than this terrain VSM transmittance range"
         ),
     )
+    parser.add_argument(
+        "--max-leaf-shadow-receiver-voxel-transmittance-range",
+        type=float,
+        help=(
+            "require captured marcher voxels with at least four internal pixels "
+            "to have no more than this leaf-shadow transmittance range"
+        ),
+    )
+    parser.add_argument(
+        "--max-combined-shadow-receiver-voxel-transmittance-range",
+        type=float,
+        help=(
+            "require captured marcher voxels with at least four internal pixels "
+            "to have no more than this combined direct-shadow transmittance range"
+        ),
+    )
     parser.add_argument("--expect-version", type=int)
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
@@ -1474,6 +1604,14 @@ def main() -> int:
         "terrain_shadow_receiver_voxel_transmittance_range_max",
         args.max_terrain_shadow_receiver_voxel_transmittance_range,
     )
+    gate_max(
+        "leaf_shadow_receiver_voxel_transmittance_range_max",
+        args.max_leaf_shadow_receiver_voxel_transmittance_range,
+    )
+    gate_max(
+        "combined_shadow_receiver_voxel_transmittance_range_max",
+        args.max_combined_shadow_receiver_voxel_transmittance_range,
+    )
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
     if not capture_summary["metadata_finite"]:
@@ -1493,6 +1631,12 @@ def main() -> int:
             failures.append(
                 "terrain-shadow receiver plane contains a noncanonical center or "
                 "transmittance outside [0, 1]"
+            )
+    if capture_summary["direct_sun_shadow_available"]:
+        if not capture_summary["direct_sun_shadow_valid"]:
+            failures.append(
+                "direct-sun shadow plane contains a noncanonical receiver, a "
+                "transmittance outside [0, 1], or an invalid combined product"
             )
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (
