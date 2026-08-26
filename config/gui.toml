@@ -141,7 +141,7 @@ label = "Path Tracing Reference (Terrain)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "path_tracing_ambient_light"
@@ -396,7 +396,7 @@ label = "Wind Source 2 Pattern Scale"
 type = "Float"
 
 [section.param.data]
-value = 1.5
+value = 8
 min = 0.05
 max = 8
 
@@ -440,7 +440,7 @@ label = "Wind Source 2 Gain"
 type = "Float"
 
 [section.param.data]
-value = 2.15
+value = 6.5
 min = 0
 max = 8
 
