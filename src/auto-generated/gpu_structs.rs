@@ -282,6 +282,23 @@ pub struct TreeLeafInstances {
     pub packed_leaf_local_pos: u32,
 }
 
+/// Auto-generated from `B_TreeLeafLightingCache` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafLightingCache {
+    pub irradiance: [u32; 0],
+}
+
+/// Auto-generated from `B_TreeLeafShadowInstances` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafShadowInstances {
+    pub packed_local_pos: u32,
+    pub packed_leaf_local_pos: u32,
+    pub billboard_size_voxels: f32,
+    pub opacity_layer_count: f32,
+}
+
 /// Auto-generated from `B_VoxelPropertySampleResult` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -394,6 +411,19 @@ pub struct PushConstantLeafShadowTemporal {
     pub temporal_alpha: f32,
     pub reset_history: u32,
     pub _pad0: [u8; 8],
+}
+
+/// Auto-generated from `PushConstantLeaves` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantLeaves {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantLeavesShadow` (native Slang source of truth).

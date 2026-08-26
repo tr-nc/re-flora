@@ -10,9 +10,25 @@ pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
 
 const SCREENSHOT_USAGE: &str = "Expected `--screenshot <preset> <path> --screenshot-delay <sec>`.";
 const DENOISER_BENCH_USAGE: &str = "Expected `--denoiser-bench <preset> <report.toml>`.";
+const FOLIAGE_SHADOW_BENCH_USAGE: &str = "Expected `--foliage-shadow-bench <report.toml>`.";
 
 pub const DEFAULT_DENOISER_BENCH_WARMUP_FRAMES: u32 = 90;
 pub const DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES: u32 = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DenoiserBenchScene {
+    CameraSnapshot,
+    FoliageShadow,
+}
+
+impl DenoiserBenchScene {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CameraSnapshot => "camera-snapshot",
+            Self::FoliageShadow => "foliage-shadow",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
@@ -164,6 +180,8 @@ pub struct AppOptions {
     pub audio_output_device: Option<String>,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
+    /// Disable only leaf-opacity shadow production while retaining terrain/VSM shadows.
+    pub no_leaf_shadows: bool,
     /// Disable god ray pass.
     pub no_god_rays: bool,
     /// Disable lens flare passes.
@@ -278,6 +296,7 @@ pub struct DenoiserBenchOptions {
     pub warmup_frames: u32,
     pub capture_frames: u32,
     pub camera_motion: bool,
+    pub scene: DenoiserBenchScene,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -460,9 +479,28 @@ impl AppOptions {
         };
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
+        let foliage_shadow_bench = parse_foliage_shadow_bench_request(&args, &parse_u32_after)?;
+        if denoiser_bench.is_some() && foliage_shadow_bench.is_some() {
+            return Err(format!(
+                "Do not combine --denoiser-bench with --foliage-shadow-bench. {DENOISER_BENCH_USAGE} {FOLIAGE_SHADOW_BENCH_USAGE}"
+            ));
+        }
+        let frame_stability_bench = denoiser_bench
+            .as_ref()
+            .map(|(_, options)| options.clone())
+            .or(foliage_shadow_bench);
         if screenshot.is_some() && denoiser_bench.is_some() {
             return Err(format!(
                 "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
+            ));
+        }
+        if screenshot.is_some()
+            && frame_stability_bench
+                .as_ref()
+                .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+        {
+            return Err(format!(
+                "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
         }
         let camera_snapshot = if let Some(screenshot) = &screenshot {
@@ -495,6 +533,9 @@ impl AppOptions {
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
+        let foliage_shadow_bench_requested = frame_stability_bench
+            .as_ref()
+            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow);
         let canopy_audio_budget_diagnostic = args
             .iter()
             .any(|arg| arg == "--canopy-audio-budget-diagnostic");
@@ -545,6 +586,18 @@ impl AppOptions {
                     .to_owned(),
             );
         }
+        if foliage_shadow_bench_requested
+            && (terrain_load_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || water_edit_soak
+                || camera_snapshot.is_some()
+                || args.iter().any(|arg| arg == "--no-flora"))
+        {
+            return Err("Do not combine --foliage-shadow-bench with another fixed scene, terrain load, camera snapshot, water edit soak, or --no-flora".to_owned());
+        }
 
         let tail_latest_log = args
             .iter()
@@ -563,6 +616,7 @@ impl AppOptions {
                 "an output device name substring",
             )?,
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
+            no_leaf_shadows: args.iter().any(|a| a == "--no-leaf-shadows"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
@@ -576,7 +630,7 @@ impl AppOptions {
             terrain_load_path,
             terrain_save_path,
             camera_snapshot,
-            denoiser_bench: denoiser_bench.map(|(_, options)| options),
+            denoiser_bench: frame_stability_bench,
             list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             egui_texture_lifecycle_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
@@ -661,8 +715,42 @@ fn parse_denoiser_bench_request(
             camera_motion: args
                 .iter()
                 .any(|arg| arg == "--denoiser-bench-camera-motion"),
+            scene: DenoiserBenchScene::CameraSnapshot,
         },
     )))
+}
+
+fn parse_foliage_shadow_bench_request(
+    args: &[String],
+    parse_u32_after: &impl Fn(&str) -> Option<u32>,
+) -> Result<Option<DenoiserBenchOptions>, String> {
+    let Some(index) = args.iter().position(|arg| arg == "--foliage-shadow-bench") else {
+        if args.iter().any(|arg| {
+            arg == "--foliage-shadow-bench-warmup-frames" || arg == "--foliage-shadow-bench-frames"
+        }) {
+            return Err(format!(
+                "Foliage shadow benchmark frame options require --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
+            ));
+        }
+        return Ok(None);
+    };
+
+    let report_path = required_denoiser_bench_arg(args, index + 1, "report path")?;
+    let warmup_frames = parse_u32_after("--foliage-shadow-bench-warmup-frames")
+        .unwrap_or(DEFAULT_DENOISER_BENCH_WARMUP_FRAMES);
+    let capture_frames = parse_u32_after("--foliage-shadow-bench-frames")
+        .unwrap_or(DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES);
+    if capture_frames < 2 {
+        return Err("--foliage-shadow-bench-frames must be at least 2".to_owned());
+    }
+
+    Ok(Some(DenoiserBenchOptions {
+        report_path,
+        warmup_frames,
+        capture_frames,
+        camera_motion: false,
+        scene: DenoiserBenchScene::FoliageShadow,
+    }))
 }
 
 fn parse_environment_lighting_test_scene(
@@ -840,6 +928,7 @@ Options:
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
   --no-shadows                Disable shadow rendering passes
+  --no-leaf-shadows           Disable leaf-opacity shadows while retaining terrain/VSM shadows
   --no-god-rays               Disable god ray pass
   --no-lens-flare             Disable lens flare passes
   --no-tracer                 Disable main tracer pass
@@ -861,6 +950,12 @@ Options:
   --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
   --denoiser-bench-camera-motion
                               Apply deterministic camera motion and retain up to four review keyframes
+  --foliage-shadow-bench <report.toml>
+                              Run the fixed-tree, fixed-camera receiver stability benchmark
+  --foliage-shadow-bench-warmup-frames <N>
+                              Frames discarded before foliage-shadow capture (default: 90)
+  --foliage-shadow-bench-frames <N>
+                              Foliage-shadow frames captured, at least 2 (default: 64)
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -933,6 +1028,7 @@ Examples:
   re-flora --no-shadows
   re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
   re-flora --hidden --mute --windowed --denoiser-bench player-default target/denoiser.toml
+  re-flora --hidden --mute --windowed --foliage-shadow-bench target/foliage-shadow.toml
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
@@ -953,6 +1049,7 @@ Examples:
 #[derive(Clone, Debug)]
 pub struct RenderFlags {
     pub enable_shadows: bool,
+    pub enable_leaf_shadows: bool,
     pub enable_god_rays: bool,
     pub enable_lens_flare: bool,
     pub enable_tracer: bool,
@@ -966,6 +1063,7 @@ impl From<&AppOptions> for RenderFlags {
     fn from(options: &AppOptions) -> Self {
         Self {
             enable_shadows: !options.no_shadows,
+            enable_leaf_shadows: !options.no_shadows && !options.no_leaf_shadows,
             enable_god_rays: !options.no_god_rays,
             enable_lens_flare: !options.no_lens_flare,
             enable_tracer: !options.no_tracer,
@@ -996,6 +1094,7 @@ mod tests {
         assert!(!options.canopy_audio_telemetry);
         assert!(!options.canopy_audio_diagnostic);
         assert!(options.audio_output_device.is_none());
+        assert!(!options.no_leaf_shadows);
         assert!(!options.perf);
         assert!(!options.water_experience);
         assert!(options.present_mode.is_none());
@@ -1680,6 +1779,52 @@ mod tests {
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
         assert!(benchmark.camera_motion);
+        assert_eq!(benchmark.scene, DenoiserBenchScene::CameraSnapshot);
+    }
+
+    #[test]
+    fn parses_foliage_shadow_benchmark_without_camera_snapshot() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--foliage-shadow-bench",
+            "target/foliage-shadow.toml",
+            "--foliage-shadow-bench-warmup-frames",
+            "12",
+            "--foliage-shadow-bench-frames",
+            "8",
+        ]);
+
+        assert!(options.camera_snapshot.is_none());
+        let benchmark = options.denoiser_bench.unwrap();
+        assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
+        assert_eq!(benchmark.warmup_frames, 12);
+        assert_eq!(benchmark.capture_frames, 8);
+        assert!(!benchmark.camera_motion);
+        assert_eq!(benchmark.scene, DenoiserBenchScene::FoliageShadow);
+    }
+
+    #[test]
+    fn leaf_shadow_control_preserves_other_shadow_passes() {
+        let options = parse(&["re-flora", "--no-leaf-shadows"]);
+        let flags = RenderFlags::from(&options);
+        assert!(flags.enable_shadows);
+        assert!(!flags.enable_leaf_shadows);
+        assert!(flags.enable_leaves);
+    }
+
+    #[test]
+    fn foliage_shadow_benchmark_rejects_no_flora() {
+        let panic = std::panic::catch_unwind(|| {
+            parse(&[
+                "re-flora",
+                "--foliage-shadow-bench",
+                "target/foliage-shadow.toml",
+                "--no-flora",
+            ])
+        })
+        .expect_err("foliage benchmark without flora should panic");
+        assert!(panic_message(panic).contains("--no-flora"));
     }
 
     #[test]

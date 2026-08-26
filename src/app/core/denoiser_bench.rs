@@ -1,4 +1,4 @@
-use crate::DenoiserBenchOptions;
+use crate::{DenoiserBenchOptions, DenoiserBenchScene};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{
@@ -7,8 +7,10 @@ use std::{
     time::Instant,
 };
 
-const REPORT_VERSION: u32 = 3;
+const REPORT_VERSION: u32 = 5;
 const NOTICEABLE_DELTA_8BIT: u8 = 8;
+const FOLIAGE_SHADOW_BENCH_FRAME_SECONDS: f32 = 1.0 / 60.0;
+const FOLIAGE_STRUCTURE_SAMPLE_SCALE: u32 = 2;
 pub(super) const CAMERA_STRAFE_PER_FRAME_WORLD: f32 = 0.003;
 pub(super) const CAMERA_FORWARD_PER_FRAME_WORLD: f32 = 0.001;
 pub(super) const CAMERA_YAW_PER_FRAME_RADIANS: f32 = 0.0025;
@@ -38,6 +40,11 @@ struct AggregateMetrics {
 #[derive(Debug, Serialize)]
 struct DenoiserBenchReport<'a> {
     version: u32,
+    scene: &'static str,
+    source_width: u32,
+    source_height: u32,
+    analysis_x: u32,
+    analysis_y: u32,
     width: u32,
     height: u32,
     warmup_frames: u32,
@@ -49,13 +56,25 @@ struct DenoiserBenchReport<'a> {
     camera_strafe_per_frame_world: f32,
     camera_forward_per_frame_world: f32,
     camera_yaw_per_frame_radians: f32,
+    fixed_animation_step_seconds: f32,
     capture_seconds: f64,
     aggregate: AggregateMetrics,
+    luma_sequence_path: &'a str,
+    luma_frame_bytes: usize,
+    structure_analysis_x: u32,
+    structure_analysis_y: u32,
+    structure_analysis_width: u32,
+    structure_analysis_height: u32,
+    structure_sample_scale: u32,
+    structure_sample_width: u32,
+    structure_sample_height: u32,
+    structure_luma_sequence_path: &'a str,
+    structure_luma_frame_bytes: usize,
     keyframe_paths: &'a [String],
     transitions: &'a [TransitionMetrics],
 }
 
-struct MotionKeyframe {
+struct CapturedKeyframe {
     frame: u32,
     label: &'static str,
     width: u32,
@@ -63,17 +82,31 @@ struct MotionKeyframe {
     rgba: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AnalysisRegion {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
 pub(super) struct DenoiserBench {
     options: DenoiserBenchOptions,
     presented_frames: u32,
     captured_frames: u32,
-    width: u32,
-    height: u32,
+    source_width: u32,
+    source_height: u32,
+    analysis_region: Option<AnalysisRegion>,
+    structure_analysis_region: Option<AnalysisRegion>,
     previous_luma: Option<Vec<u8>>,
     luma_sum: Vec<u32>,
+    captured_luma: Vec<u8>,
+    captured_structure_luma: Vec<u8>,
     transitions: Vec<TransitionMetrics>,
-    motion_keyframes: Vec<MotionKeyframe>,
+    keyframes: Vec<CapturedKeyframe>,
     keyframe_paths: Vec<String>,
+    luma_sequence_path: String,
+    structure_luma_sequence_path: String,
     capture_started: Option<Instant>,
 }
 
@@ -83,13 +116,19 @@ impl DenoiserBench {
             options,
             presented_frames: 0,
             captured_frames: 0,
-            width: 0,
-            height: 0,
+            source_width: 0,
+            source_height: 0,
+            analysis_region: None,
+            structure_analysis_region: None,
             previous_luma: None,
             luma_sum: Vec::new(),
+            captured_luma: Vec::new(),
+            captured_structure_luma: Vec::new(),
             transitions: Vec::new(),
-            motion_keyframes: Vec::new(),
+            keyframes: Vec::new(),
             keyframe_paths: Vec::new(),
+            luma_sequence_path: String::new(),
+            structure_luma_sequence_path: String::new(),
             capture_started: None,
         }
     }
@@ -101,6 +140,24 @@ impl DenoiserBench {
 
     pub(super) fn mark_frame_presented(&mut self) {
         self.presented_frames += 1;
+    }
+
+    pub(super) fn hides_ui(&self) -> bool {
+        self.options.scene == DenoiserBenchScene::FoliageShadow
+    }
+
+    pub(super) fn is_foliage_shadow(&self) -> bool {
+        self.options.scene == DenoiserBenchScene::FoliageShadow
+    }
+
+    pub(super) fn fixed_frame_delta_seconds(&self) -> Option<f32> {
+        (self.options.scene == DenoiserBenchScene::FoliageShadow)
+            .then_some(FOLIAGE_SHADOW_BENCH_FRAME_SECONDS)
+    }
+
+    pub(super) fn visual_time_seconds(&self) -> Option<f32> {
+        self.fixed_frame_delta_seconds()
+            .map(|step| self.presented_frames as f32 * step)
     }
 
     pub(super) fn camera_motion_frame(&self) -> Option<(u32, bool)> {
@@ -120,31 +177,49 @@ impl DenoiserBench {
             width,
             height
         );
+        let analysis_region = analysis_region(self.options.scene, width, height);
+        let structure_analysis_region =
+            foliage_structure_analysis_region(self.options.scene, width, height);
         if self.captured_frames == 0 {
-            self.width = width;
-            self.height = height;
+            self.source_width = width;
+            self.source_height = height;
+            self.analysis_region = Some(analysis_region);
+            self.structure_analysis_region = structure_analysis_region;
             self.capture_started = Some(Instant::now());
             log::info!(
-                "[DENOISER_BENCH] warmup complete after {} presented frames; capturing {} frames at {}x{}",
+                "[DENOISER_BENCH] warmup complete scene={} after {} presented frames; capturing {} frames at {}x{} analysis={}x{}+{},{}",
+                self.options.scene.label(),
                 self.presented_frames,
                 self.options.capture_frames,
                 width,
-                height
+                height,
+                analysis_region.width,
+                analysis_region.height,
+                analysis_region.x,
+                analysis_region.y,
             );
         } else {
             anyhow::ensure!(
-                (width, height) == (self.width, self.height),
+                (width, height) == (self.source_width, self.source_height),
                 "benchmark extent changed from {}x{} to {}x{}",
-                self.width,
-                self.height,
+                self.source_width,
+                self.source_height,
                 width,
                 height
             );
+            anyhow::ensure!(
+                self.analysis_region == Some(analysis_region),
+                "benchmark analysis region changed during capture"
+            );
+            anyhow::ensure!(
+                self.structure_analysis_region == structure_analysis_region,
+                "benchmark structure analysis region changed during capture"
+            );
         }
 
-        if self.options.camera_motion {
+        if self.options.camera_motion || self.options.scene == DenoiserBenchScene::FoliageShadow {
             if let Some(label) = keyframe_label(self.captured_frames, self.options.capture_frames) {
-                self.motion_keyframes.push(MotionKeyframe {
+                self.keyframes.push(CapturedKeyframe {
                     frame: self.captured_frames,
                     label,
                     width,
@@ -154,7 +229,19 @@ impl DenoiserBench {
             }
         }
 
-        let current_luma = rgba_to_luma(rgba);
+        let current_luma = rgba_region_to_luma(rgba, width, analysis_region);
+        if self.options.scene == DenoiserBenchScene::FoliageShadow {
+            self.captured_luma.extend_from_slice(&current_luma);
+            let structure_region = structure_analysis_region
+                .context("foliage shadow benchmark requires a structure analysis region")?;
+            let structure_luma = rgba_region_to_luma(rgba, width, structure_region);
+            self.captured_structure_luma.extend(box_downsample_luma(
+                &structure_luma,
+                structure_region.width,
+                structure_region.height,
+                FOLIAGE_STRUCTURE_SAMPLE_SCALE,
+            ));
+        }
         if self.luma_sum.is_empty() {
             self.luma_sum.resize(current_luma.len(), 0);
         }
@@ -180,27 +267,45 @@ impl DenoiserBench {
     }
 
     fn write_report(&mut self) -> Result<()> {
+        self.luma_sequence_path = self.write_luma_sequence()?;
+        self.structure_luma_sequence_path = self.write_structure_luma_sequence()?;
         self.keyframe_paths = self
-            .motion_keyframes
+            .keyframes
             .iter()
             .map(|keyframe| {
                 let path = self.write_keyframe(keyframe)?;
                 Ok(path.display().to_string())
             })
             .collect::<Result<Vec<_>>>()?;
+        let analysis_region = self
+            .analysis_region
+            .context("benchmark completed without an analysis region")?;
         let aggregate = aggregate_metrics(
             &self.transitions,
             mean_frame_spatial_gradient(
                 &self.luma_sum,
-                self.width,
-                self.height,
+                analysis_region.width,
+                analysis_region.height,
                 self.captured_frames,
             ),
         );
+        let structure_region = self.structure_analysis_region.unwrap_or(AnalysisRegion {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        });
+        let structure_sample_width = structure_region.width / FOLIAGE_STRUCTURE_SAMPLE_SCALE;
+        let structure_sample_height = structure_region.height / FOLIAGE_STRUCTURE_SAMPLE_SCALE;
         let report = DenoiserBenchReport {
             version: REPORT_VERSION,
-            width: self.width,
-            height: self.height,
+            scene: self.options.scene.label(),
+            source_width: self.source_width,
+            source_height: self.source_height,
+            analysis_x: analysis_region.x,
+            analysis_y: analysis_region.y,
+            width: analysis_region.width,
+            height: analysis_region.height,
             warmup_frames: self.options.warmup_frames,
             captured_frames: self.captured_frames,
             transition_count: self.transitions.len(),
@@ -222,11 +327,28 @@ impl DenoiserBench {
             } else {
                 0.0
             },
+            fixed_animation_step_seconds: self.fixed_frame_delta_seconds().unwrap_or(0.0),
             capture_seconds: self
                 .capture_started
                 .map(|started| started.elapsed().as_secs_f64())
                 .unwrap_or_default(),
             aggregate,
+            luma_sequence_path: &self.luma_sequence_path,
+            luma_frame_bytes: analysis_region.width as usize * analysis_region.height as usize,
+            structure_analysis_x: structure_region.x,
+            structure_analysis_y: structure_region.y,
+            structure_analysis_width: structure_region.width,
+            structure_analysis_height: structure_region.height,
+            structure_sample_scale: if self.options.scene == DenoiserBenchScene::FoliageShadow {
+                FOLIAGE_STRUCTURE_SAMPLE_SCALE
+            } else {
+                0
+            },
+            structure_sample_width,
+            structure_sample_height,
+            structure_luma_sequence_path: &self.structure_luma_sequence_path,
+            structure_luma_frame_bytes: structure_sample_width as usize
+                * structure_sample_height as usize,
             keyframe_paths: &self.keyframe_paths,
             transitions: &self.transitions,
         };
@@ -243,7 +365,8 @@ impl DenoiserBench {
         fs::write(path, serialized)
             .with_context(|| format!("write denoiser report {}", path.display()))?;
         log::info!(
-            "[DENOISER_BENCH] complete mode=raw camera_motion={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} keyframes={} report={}",
+            "[DENOISER_BENCH] complete mode=raw scene={} camera_motion={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} keyframes={} report={}",
+            self.options.scene.label(),
             self.options.camera_motion,
             self.transitions.len(),
             report.aggregate.mean_abs_luma_delta_8bit,
@@ -256,14 +379,77 @@ impl DenoiserBench {
         Ok(())
     }
 
-    fn write_keyframe(&self, keyframe: &MotionKeyframe) -> Result<PathBuf> {
+    fn write_luma_sequence(&self) -> Result<String> {
+        if self.options.scene != DenoiserBenchScene::FoliageShadow {
+            return Ok(String::new());
+        }
+        let report_path = Path::new(&self.options.report_path);
+        let report_stem = report_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("denoiser-bench");
+        let path = report_path.with_file_name(format!("{report_stem}.receiver-luma-u8.bin"));
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "create benchmark luma sequence directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::write(&path, &self.captured_luma)
+            .with_context(|| format!("write benchmark luma sequence {}", path.display()))?;
+        log::info!(
+            "[DENOISER_BENCH] retained receiver luma sequence bytes={} path={}",
+            self.captured_luma.len(),
+            path.display(),
+        );
+        Ok(path.display().to_string())
+    }
+
+    fn write_structure_luma_sequence(&self) -> Result<String> {
+        if self.options.scene != DenoiserBenchScene::FoliageShadow {
+            return Ok(String::new());
+        }
+        let report_path = Path::new(&self.options.report_path);
+        let report_stem = report_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("denoiser-bench");
+        let path = report_path.with_file_name(format!("{report_stem}.structure-luma-u8.bin"));
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "create benchmark structure luma directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::write(&path, &self.captured_structure_luma).with_context(|| {
+            format!("write benchmark structure luma sequence {}", path.display())
+        })?;
+        log::info!(
+            "[DENOISER_BENCH] retained structure luma sequence bytes={} path={}",
+            self.captured_structure_luma.len(),
+            path.display(),
+        );
+        Ok(path.display().to_string())
+    }
+
+    fn write_keyframe(&self, keyframe: &CapturedKeyframe) -> Result<PathBuf> {
         let report_path = Path::new(&self.options.report_path);
         let report_stem = report_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("denoiser-bench");
         let path =
-            report_path.with_file_name(format!("{report_stem}.motion-{}.png", keyframe.label));
+            report_path.with_file_name(format!("{report_stem}.frame-{}.png", keyframe.label));
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -279,7 +465,7 @@ impl DenoiserBench {
             .save(&path)
             .with_context(|| format!("write benchmark keyframe {}", path.display()))?;
         log::info!(
-            "[DENOISER_BENCH] retained motion keyframe frame={} label={} path={}",
+            "[DENOISER_BENCH] retained keyframe frame={} label={} path={}",
             keyframe.frame,
             keyframe.label,
             path.display()
@@ -301,6 +487,63 @@ fn keyframe_label(frame: u32, frame_count: u32) -> Option<&'static str> {
     }
 }
 
+fn analysis_region(scene: DenoiserBenchScene, width: u32, height: u32) -> AnalysisRegion {
+    match scene {
+        DenoiserBenchScene::CameraSnapshot => AnalysisRegion {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        DenoiserBenchScene::FoliageShadow => {
+            // The fixed camera places the deterministic grass patch and its canopy projection in
+            // this resolution-independent rectangle. Excluding visible canopy and bare terrain
+            // keeps the metric specific to the moving receiver named by the benchmark.
+            let x = width.saturating_mul(3) / 10;
+            let y = height.saturating_mul(3) / 10;
+            AnalysisRegion {
+                x,
+                y,
+                width: (width.saturating_mul(3) / 10).max(1),
+                height: (height.saturating_mul(11) / 20).max(1),
+            }
+        }
+    }
+}
+
+fn foliage_structure_analysis_region(
+    scene: DenoiserBenchScene,
+    width: u32,
+    height: u32,
+) -> Option<AnalysisRegion> {
+    if scene != DenoiserBenchScene::FoliageShadow {
+        return None;
+    }
+    // The bare terrain left of the grass receiver contains the projected crown silhouette and
+    // internal openings without visible-leaf or grass shading. Keep the extent divisible by the
+    // sample scale so every stored sample represents the same 4x4 screen footprint.
+    let sample_scale = FOLIAGE_STRUCTURE_SAMPLE_SCALE;
+    let tile_extent = sample_scale * 16;
+    let rounded_down = |value: u32, multiple: u32| value / multiple * multiple;
+    Some(AnalysisRegion {
+        x: 0,
+        y: rounded_down(height / 6, sample_scale),
+        width: rounded_down(width.saturating_mul(3) / 10, tile_extent).max(tile_extent),
+        height: rounded_down(height.saturating_mul(3) / 4, tile_extent).max(tile_extent),
+    })
+}
+
+fn rgba_region_to_luma(rgba: &[u8], source_width: u32, region: AnalysisRegion) -> Vec<u8> {
+    let row_stride = source_width as usize * 4;
+    let region_row_bytes = region.width as usize * 4;
+    let mut luma = Vec::with_capacity(region.width as usize * region.height as usize);
+    for y in region.y..region.y + region.height {
+        let row_start = y as usize * row_stride + region.x as usize * 4;
+        luma.extend(rgba_to_luma(&rgba[row_start..row_start + region_row_bytes]));
+    }
+    luma
+}
+
 fn rgba_to_luma(rgba: &[u8]) -> Vec<u8> {
     rgba.chunks_exact(4)
         .map(|pixel| {
@@ -309,6 +552,30 @@ fn rgba_to_luma(rgba: &[u8]) -> Vec<u8> {
             ((weighted + 128) >> 8) as u8
         })
         .collect()
+}
+
+fn box_downsample_luma(luma: &[u8], width: u32, height: u32, scale: u32) -> Vec<u8> {
+    assert!(scale > 0);
+    assert_eq!(width % scale, 0);
+    assert_eq!(height % scale, 0);
+    assert_eq!(luma.len(), width as usize * height as usize);
+    let output_width = width / scale;
+    let output_height = height / scale;
+    let sample_count = scale * scale;
+    let mut output = Vec::with_capacity(output_width as usize * output_height as usize);
+    for output_y in 0..output_height {
+        for output_x in 0..output_width {
+            let mut sum = 0u32;
+            for y in 0..scale {
+                let row = (output_y * scale + y) * width + output_x * scale;
+                for x in 0..scale {
+                    sum += u32::from(luma[(row + x) as usize]);
+                }
+            }
+            output.push(((sum + sample_count / 2) / sample_count) as u8);
+        }
+    }
+    output
 }
 
 fn analyze_transition(
@@ -418,7 +685,12 @@ fn aggregate_metrics(
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze_transition, keyframe_label, mean_frame_spatial_gradient, rgba_to_luma};
+    use super::{
+        analysis_region, analyze_transition, box_downsample_luma,
+        foliage_structure_analysis_region, keyframe_label, mean_frame_spatial_gradient,
+        rgba_region_to_luma, rgba_to_luma, AnalysisRegion,
+    };
+    use crate::DenoiserBenchScene;
 
     #[test]
     fn identical_frames_have_zero_temporal_delta() {
@@ -463,5 +735,56 @@ mod tests {
                 (63, "end"),
             ]
         );
+    }
+
+    #[test]
+    fn foliage_analysis_region_tracks_the_fixed_grass_receiver() {
+        assert_eq!(
+            analysis_region(DenoiserBenchScene::FoliageShadow, 1920, 1080),
+            AnalysisRegion {
+                x: 576,
+                y: 324,
+                width: 576,
+                height: 594,
+            }
+        );
+    }
+
+    #[test]
+    fn foliage_structure_region_tracks_bare_terrain_and_has_uniform_samples() {
+        assert_eq!(
+            foliage_structure_analysis_region(DenoiserBenchScene::FoliageShadow, 1920, 1080,),
+            Some(AnalysisRegion {
+                x: 0,
+                y: 180,
+                width: 576,
+                height: 800,
+            })
+        );
+    }
+
+    #[test]
+    fn structure_luma_downsample_is_an_exact_box_average() {
+        let luma = (0..64).collect::<Vec<_>>();
+        assert_eq!(box_downsample_luma(&luma, 8, 8, 4), vec![14, 18, 46, 50]);
+    }
+
+    #[test]
+    fn rgba_region_conversion_excludes_pixels_outside_the_receiver_roi() {
+        let rgba = [
+            255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        ];
+        let luma = rgba_region_to_luma(
+            &rgba,
+            4,
+            AnalysisRegion {
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+        );
+        assert_eq!(luma, vec![0, 255, 54, 255]);
     }
 }
