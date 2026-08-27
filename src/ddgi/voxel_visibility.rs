@@ -93,6 +93,8 @@ impl DdgiVoxelVisibility {
         allocator: Allocator,
         dimensions: UVec3,
         voxels_per_world_unit: UVec3,
+        glass_experiment_enabled: bool,
+        glass_material_revision: u32,
         pack_shader: &ShaderModule,
     ) -> Result<Self> {
         ensure!(
@@ -183,6 +185,9 @@ impl DdgiVoxelVisibility {
                 block_dimensions.z,
                 0,
             ],
+            glass_experiment_enabled: u32::from(glass_experiment_enabled),
+            glass_material_revision,
+            padding: [0; 2],
         };
         info.fill_uniform(&info_snapshot)?;
 
@@ -191,7 +196,7 @@ impl DdgiVoxelVisibility {
         let block_bytes = block_dimensions.element_product() as u64;
         let bytes = packed_bytes + block_bytes;
         log::info!(
-            "[DDGI][VOXEL_VISIBILITY] allocated voxels={}x{}x{} packed={}x{}x{} blocks={}x{}x{} bytes={} mib={:.2} max_steps={}",
+            "[DDGI][VOXEL_VISIBILITY] allocated voxels={}x{}x{} packed={}x{}x{} blocks={}x{}x{} bytes={} mib={:.2} max_steps={} glass_experiment_enabled={} glass_material_revision={}",
             dimensions.x,
             dimensions.y,
             dimensions.z,
@@ -204,6 +209,8 @@ impl DdgiVoxelVisibility {
             bytes,
             bytes as f64 / (1024.0 * 1024.0),
             max_steps,
+            glass_experiment_enabled,
+            glass_material_revision,
         );
 
         Ok(Self {

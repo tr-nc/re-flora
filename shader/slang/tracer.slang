@@ -212,7 +212,8 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     }
     float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
         local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, surfacePosition, normal,
+        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
+        surfacePosition, normal,
         gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
     return (sunIrradiance + localIrradiance) * albedo;
 }
@@ -240,9 +241,23 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         float cosine = max(0.0, dot(shadowRay.direction, receiver.normal));
         if (cosine > 0.0)
         {
-            MarchingResult shadowHit = generalSceneMarching(shadowRay,
-                                                             localInvocationIndex);
-            float visibility = shadowHit.is_hit ? 0.0 : 1.0;
+            float visibility;
+            if (shading_info.glass_experiment_enabled != 0u)
+            {
+                SceneStraightTransport transport = traceVoxelStraightTransport(
+                    chunk_atlas, shadowRay.origin, shadowRay.direction,
+                    256.0, true);
+                visibility = transport.exhausted != 0u ||
+                    transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
+                    ? 0.0
+                    : 1.0;
+            }
+            else
+            {
+                MarchingResult shadowHit = generalSceneMarching(
+                    shadowRay, localInvocationIndex);
+                visibility = shadowHit.is_hit ? 0.0 : 1.0;
+            }
             sunIrradiance = sun_info.sun_color * sun_info.sun_luminance *
                 cosine * visibility;
         }
@@ -251,7 +266,8 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         receiver.center_position, receiver.normal);
     float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
         local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, receiverPosition, receiver.normal,
+        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
+        receiverPosition, receiver.normal,
         gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
     return sunIrradiance + localIrradiance;
 }
@@ -322,38 +338,6 @@ float depthFromWorldPosition(float3 worldPosition)
 {
     float4 ndc = mul(camera_info.view_proj_mat, float4(worldPosition, 1.0));
     return ndc.z / ndc.w;
-}
-
-MarchingResult emptyMarchingResult()
-{
-    MarchingResult result;
-    result.iteration_count = 0u;
-    result.is_hit = false;
-    result.position = float3(0.0);
-    result.center_position = float3(0.0);
-    result.distance = 1.0e10;
-    result.normal = float3(0.0);
-    result.voxel_type = 0u;
-    result.hash_id = 0u;
-    result.voxel_address = 0u;
-    return result;
-}
-
-MarchingResult marchingResultFromOpaqueEvent(SceneQueryEvent event, Ray ray)
-{
-    MarchingResult result = emptyMarchingResult();
-    if (event.kind != SCENE_QUERY_EVENT_OPAQUE) return result;
-    result.iteration_count = event.dda_steps;
-    result.is_hit = true;
-    result.position = event.position;
-    result.center_position = (float3(event.to_cell) + 0.5) / 256.0;
-    result.distance = length(event.position - ray.origin);
-    result.normal = event.incident_face_normal;
-    result.voxel_type = event.to_voxel_type;
-    uint3 cell = uint3(max(event.to_cell, int3(0)));
-    result.hash_id = (cell.x * 73856093u ^ cell.y * 19349663u ^
-                      cell.z * 83492791u) & VOXEL_HASH_MASK;
-    return result;
 }
 
 uint packGlassFrontData(ScenePrimaryQuery query)
@@ -621,7 +605,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     {
         glassPrimary = tracePrimaryVoxelSurfaces(
             chunk_atlas, ray.origin, ray.direction, 256.0, true);
-        primaryResult = marchingResultFromOpaqueEvent(glassPrimary.opaque_hit, ray);
+        primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
+            glassPrimary.opaque_hit, ray.origin);
         glass_front_depth_tex[dispatchThreadId.xy] =
             glassPrimary.has_glass_front != 0u
                 ? depthFromWorldPosition(glassPrimary.glass_front.position)

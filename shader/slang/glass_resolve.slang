@@ -52,7 +52,6 @@ static const uint GLASS_FALLBACK_FOREGROUND = 7u;
 static const uint GLASS_FALLBACK_EXHAUSTED = 8u;
 static const uint GLASS_FALLBACK_QUERY_BUDGET = 9u;
 
-static const float GLASS_WORLD_BIAS = 1.0e-4 / 256.0;
 static const float GLASS_DEPTH_TOLERANCE = 0.003;
 
 struct GlassActivePath
@@ -325,7 +324,7 @@ GlassResolveResult traceGlassRadiance(Ray cameraRay, float glassFrontDepth)
         float3 reflectedDirection = normalize(reflect(
             path.direction, event.incident_face_normal));
         GlassActivePath reflected = emptyGlassPath();
-        reflected.origin = event.position + reflectedDirection * GLASS_WORLD_BIAS;
+        reflected.origin = sceneQueryOffsetAcrossInterface(event, false, 256.0);
         reflected.direction = reflectedDirection;
         reflected.throughput = path.throughput * fresnel;
         reflected.serial = nextSerial++;
@@ -338,7 +337,7 @@ GlassResolveResult traceGlassRadiance(Ray cameraRay, float glassFrontDepth)
                 fromMaterial.ior, toMaterial.ior, transmittedDirection))
         {
             GlassActivePath transmitted = emptyGlassPath();
-            transmitted.origin = event.position + transmittedDirection * GLASS_WORLD_BIAS;
+            transmitted.origin = sceneQueryOffsetAcrossInterface(event, true, 256.0);
             transmitted.direction = transmittedDirection;
             transmitted.throughput = path.throughput * (1.0 - fresnel);
             transmitted.serial = nextSerial++;

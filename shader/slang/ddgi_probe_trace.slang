@@ -5,6 +5,7 @@ import ddgi_sampling;
 import ddgi_types;
 import marching_result;
 import local_lighting;
+import scene_query;
 import scene_marching;
 import skylight;
 import terrain_ray_origin;
@@ -22,6 +23,9 @@ StructuredBuffer<uint> contree_leaf_data;
 
 [[vk::binding(9, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
+
+[[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
+readonly RWTexture3D<uint> chunk_atlas;
 
 [[vk::binding(25, 0)]]
 GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
@@ -82,6 +86,26 @@ void recordTraceStatValue(uint index, uint value)
     if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[index], value);
 }
 
+MarchingResult ddgiTraceScene(float3 origin, float3 direction,
+                              uint localInvocationIndex,
+                              out float3 transmittance,
+                              out uint transportExhausted)
+{
+    transmittance = float3(1.0);
+    transportExhausted = 0u;
+    if (ddgi_transport_query_info.glass_experiment_enabled == 0u)
+    {
+        return marchScene(
+            contree_node_data, contree_leaf_data, scene_tex,
+            origin, direction, 1.0 / direction, localInvocationIndex);
+    }
+    SceneStraightTransport transport = traceVoxelStraightTransport(
+        chunk_atlas, origin, direction, pc.far_distance_world, true);
+    transmittance = transport.transmittance;
+    transportExhausted = transport.exhausted;
+    return sceneQueryMarchingResultFromOpaqueEvent(transport.terminal, origin);
+}
+
 float ddgiExactTerrainSunVisibility(MarchingResult receiver,
                                     float3 sunDirection,
                                     uint localInvocationIndex)
@@ -89,6 +113,13 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
     float3 origin = terrainRayOriginAlongNormal(
         receiver.center_position, receiver.normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
+    if (ddgi_transport_query_info.glass_experiment_enabled != 0u)
+    {
+        SceneStraightTransport transport = traceVoxelStraightTransport(
+            chunk_atlas, origin, sunDirection, pc.far_distance_world, true);
+        return transport.exhausted == 0u &&
+            transport.terminal.kind != SCENE_QUERY_EVENT_OPAQUE ? 1.0 : 0.0;
+    }
     MarchingResult shadowHit = marchScene(
         contree_node_data, contree_leaf_data, scene_tex,
         origin, sunDirection, 1.0 / sunDirection, localInvocationIndex);
@@ -113,7 +144,9 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         result.center_position, normal);
     LocalLightVoxelEvaluation localLight = evaluateVoxelVisibleLocalLight(
         ddgi_local_light_info, ddgi_local_lights, contree_node_data,
-        contree_leaf_data, scene_tex, ddgiReceiverPosition, normal,
+        contree_leaf_data, scene_tex, chunk_atlas,
+        ddgi_transport_query_info.glass_experiment_enabled != 0u,
+        ddgiReceiverPosition, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world,
         localInvocationIndex);
     directIrradiance += localLight.irradiance;
@@ -200,14 +233,17 @@ void main(uint3 groupId : SV_GroupID,
         recordTraceStat(1u);
         float3 direction = ddgiEpochDirection(
             rayIndex, DDGI_RAYS_PER_PROBE, pc.epoch_rotation);
-        MarchingResult result = marchScene(
-            contree_node_data, contree_leaf_data, scene_tex,
+        float3 transportTransmittance;
+        uint transportExhausted;
+        MarchingResult result = ddgiTraceScene(
             metadata.actual_position_and_clearance.xyz, direction,
-            1.0 / direction, localInvocationId.x);
+            localInvocationId.x, transportTransmittance, transportExhausted);
+        if (transportExhausted != 0u) recordTraceStat(5u);
         if (!result.is_hit)
         {
             rayRecord.xyz = getAuthoredSkyRadiance(
-                direction, normalize(ddgi_radiance_sun.direction));
+                direction, normalize(ddgi_radiance_sun.direction)) *
+                transportTransmittance;
             recordTraceStat(2u);
         }
         else
@@ -218,7 +254,8 @@ void main(uint3 groupId : SV_GroupID,
             if (!backface)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
-                    result, localInvocationId.x, useHistory);
+                    result, localInvocationId.x, useHistory) *
+                    transportTransmittance;
             }
             recordTraceStat(backface ? 4u : 3u);
         }

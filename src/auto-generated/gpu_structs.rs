@@ -447,6 +447,10 @@ pub struct PushConstantProbeRelocate {
     pub spacing_voxels: u32,
     pub voxels_per_world_unit: [f32; 3],
     pub terrain_revision: u32,
+    pub glass_experiment_enabled: u32,
+    pub _pad0: [u8; 12],
+    pub padding: [u32; 3],
+    pub _pad1: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantProbeTrace` (native Slang source of truth).
@@ -626,7 +630,11 @@ pub struct DdgiTransportQueryInfo {
     pub irradiance_tile_columns: u32,
     pub visibility_tile_columns: u32,
     pub geometry_revision: u32,
-    pub padding: u32,
+    pub glass_experiment_enabled: u32,
+    pub glass_material_revision: u32,
+    pub glass_padding_0: u32,
+    pub glass_padding_1: u32,
+    pub glass_padding_2: u32,
 }
 
 /// Auto-generated from `U_DdgiVoxelVisibilityInfo` (native Slang source of truth).
@@ -643,6 +651,9 @@ pub struct DdgiVoxelVisibilityInfo {
     pub update_word_dimensions: [u32; 4],
     pub update_block_offset: [u32; 4],
     pub update_block_dimensions: [u32; 4],
+    pub glass_experiment_enabled: u32,
+    pub glass_material_revision: u32,
+    pub padding: [u32; 2],
 }
 
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).

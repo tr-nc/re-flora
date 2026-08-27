@@ -63,6 +63,8 @@ pub(crate) struct DdgiRadianceSnapshot {
     pub sun_luminance: f32,
     pub terrain_ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
+    pub glass_experiment_enabled: bool,
+    pub glass_material_revision: u32,
     pub voxel_palette: DdgiVoxelPaletteSnapshot,
     pub local_lights: LocalLightGpuPayload,
 }
@@ -80,6 +82,8 @@ impl DdgiRadianceSnapshot {
             sun_luminance: self.sun_luminance.to_bits(),
             terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world.to_bits(),
             ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world.to_bits(),
+            glass_experiment_enabled: self.glass_experiment_enabled,
+            glass_material_revision: self.glass_material_revision,
             dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
             sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
             cherry_wood_color: self
@@ -119,6 +123,8 @@ struct DdgiRadianceIdentity {
     sun_luminance: u32,
     terrain_ray_origin_offset_world: u32,
     ddgi_receiver_visibility_bias_world: u32,
+    glass_experiment_enabled: bool,
+    glass_material_revision: u32,
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -135,6 +141,8 @@ impl DdgiRadianceIdentity {
         self.authored_sky_model_identity == other.authored_sky_model_identity
             && self.terrain_ray_origin_offset_world == other.terrain_ray_origin_offset_world
             && self.ddgi_receiver_visibility_bias_world == other.ddgi_receiver_visibility_bias_world
+            && self.glass_experiment_enabled == other.glass_experiment_enabled
+            && self.glass_material_revision == other.glass_material_revision
             && self.dirt_color == other.dirt_color
             && self.sand_color == other.sand_color
             && self.cherry_wood_color == other.cherry_wood_color
@@ -520,6 +528,8 @@ mod tests {
             sun_luminance: 2.0,
             terrain_ray_origin_offset_world: 0.005,
             ddgi_receiver_visibility_bias_world: 0.001,
+            glass_experiment_enabled: false,
+            glass_material_revision: 0,
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
@@ -726,6 +736,12 @@ mod tests {
         value.ddgi_receiver_visibility_bias_world += 0.001;
         variants.push(value);
         value = snapshot();
+        value.glass_experiment_enabled = true;
+        variants.push(value);
+        value = snapshot();
+        value.glass_material_revision = 1;
+        variants.push(value);
+        value = snapshot();
         value.voxel_palette.dirt_color.x += 0.1;
         variants.push(value);
         value = snapshot();
@@ -879,6 +895,27 @@ mod tests {
         let changed = cache.update(changed, std::time::Duration::from_millis(1));
 
         assert!(changed.transport_published);
+        assert_eq!(
+            changed.transport.change.reason,
+            DdgiRadianceChangeReason::TransportInputStep
+        );
+        assert!(changed.transport.change.delta.non_solar_changed);
+        assert!(changed.transport.change.resets_irradiance_history());
+    }
+
+    #[test]
+    fn glass_optical_revision_is_an_immutable_immediate_transport_input() {
+        let mut cache = EnvironmentLightingCache::default();
+        let mut initial = snapshot();
+        initial.glass_experiment_enabled = true;
+        initial.glass_material_revision = 1;
+        let initial = cache.update(initial, std::time::Duration::ZERO);
+        let mut optical_edit = initial.transport.snapshot;
+        optical_edit.glass_material_revision = 2;
+        let changed = cache.update(optical_edit, std::time::Duration::from_millis(1));
+
+        assert!(changed.transport_published);
+        assert_eq!(changed.transport.snapshot.glass_material_revision, 2);
         assert_eq!(
             changed.transport.change.reason,
             DdgiRadianceChangeReason::TransportInputStep
@@ -1160,7 +1197,8 @@ mod tests {
         assert!(transport.contains("getAuthoredSkyRadiance("));
         assert!(transport.contains("sampleDiffuseBounce("));
         assert!(transport.contains("sampleSunDisk("));
-        assert!(transport.contains("generalSceneMarching(shadowRay"));
+        assert!(transport.contains("traceVoxelStraightTransport("));
+        assert!(transport.contains("generalSceneMarching(\n                    shadowRay"));
         assert!(transport.contains("generalSceneMarching(indirectRay"));
         assert!(transport.contains("gui_input.path_tracing_max_bounces"));
         assert!(!transport.contains("sampleDdgi"));

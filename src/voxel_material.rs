@@ -2,6 +2,9 @@ mod generated {
     include!(concat!(env!("OUT_DIR"), "/voxel_material_config.rs"));
 }
 
+pub(crate) const GLASS_EXPERIMENT_MATERIAL_REVISION: u32 =
+    generated::GLASS_EXPERIMENT_MATERIAL_REVISION;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VoxelMaterialMode {
     Standard,

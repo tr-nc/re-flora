@@ -5,7 +5,7 @@ use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::{append_box, GeometryPreviewMesh, GlassSceneQueryEventKind, TerrainRayQuery};
 use crate::voxel_material::{
     canonicalize_atlas_data, material_for, DirectShadowPolicy, LocalShadowPolicy,
-    VoxelMaterialMode, VoxelSurfaceClass,
+    VoxelMaterialMode, VoxelSurfaceClass, GLASS_EXPERIMENT_MATERIAL_REVISION,
 };
 use anyhow::{Context, Result};
 use glam::{UVec3, Vec3, Vec4};
@@ -257,6 +257,61 @@ impl App {
         Ok(())
     }
 
+    fn validate_gpu_transport_policy_capture(&mut self, terrain_revision: u32) -> Result<()> {
+        let transport = self.tracer.capture_glass_straight_transport(
+            TerrainRayQuery {
+                origin: GPU_CAPTURE_ORIGIN,
+                direction: GPU_CAPTURE_DIRECTION,
+            },
+            2.0,
+        )?;
+        let optical = material_for(VOXEL_TYPE_SAND, VoxelMaterialMode::GlassExperiment)
+            .optical
+            .context("Glass transport capture has no optical material")?;
+        let thickness_world = (GLASS_SLAB_A_MAX.z - GLASS_SLAB_A_MIN.z) as f32 / 256.0;
+        let beer = Vec3::from_array(optical.attenuation_color)
+            .powf(thickness_world / optical.attenuation_distance_world);
+        let normal_fresnel = ((optical.ior - 1.0) / (optical.ior + 1.0)).powi(2);
+        let expected = beer * (1.0 - normal_fresnel).powi(2);
+        anyhow::ensure!(
+            transport.terminal == GlassSceneQueryEventKind::Opaque
+                && transport.interfaces == 2
+                && transport.scene_queries == 3
+                && !transport.exhausted
+                && transport.transmittance.abs_diff_eq(expected, 2.0e-5),
+            "GPU straight Glass transport differs from Fresnel/Beer reference: {transport:?} expected={expected:?}"
+        );
+
+        let occupancy = self.tracer.capture_ddgi_semantic_occupancy(&[
+            GLASS_SLAB_A_MIN + UVec3::ONE,
+            BACK_WALL_MIN + UVec3::ONE,
+        ])?;
+        anyhow::ensure!(
+            occupancy.len() == 2
+                && !occupancy[0].occupied
+                && occupancy[1].occupied
+                && occupancy.iter().all(|sample| {
+                    sample.geometry_revision == terrain_revision
+                        && sample.glass_material_revision == GLASS_EXPERIMENT_MATERIAL_REVISION
+                }),
+            "published DDGI semantic bits disagree with Glass/opaque policy: {occupancy:?}"
+        );
+        log::info!(
+            "[GLASS_VOXEL_TEST][TRANSPORT] gpu_reference_match=true terminal=opaque interfaces={} scene_queries={} dda_steps={} transmittance=({:.6},{:.6},{:.6}) semantic_glass_occupied={} semantic_rock_occupied={} geometry_revision={} glass_material_revision={}",
+            transport.interfaces,
+            transport.scene_queries,
+            transport.dda_steps,
+            transport.transmittance.x,
+            transport.transmittance.y,
+            transport.transmittance.z,
+            occupancy[0].occupied,
+            occupancy[1].occupied,
+            terrain_revision,
+            GLASS_EXPERIMENT_MATERIAL_REVISION,
+        );
+        Ok(())
+    }
+
     pub(super) fn process_glass_voxel_test_scene(&mut self) {
         let Some(phase) = self
             .glass_voxel_test_scene
@@ -299,6 +354,10 @@ impl App {
                 self.validate_gpu_scene_query_capture()
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] GPU SceneQuery validation failed: {err:#}")
+                    });
+                self.validate_gpu_transport_policy_capture(terrain_revision)
+                    .unwrap_or_else(|err| {
+                        panic!("[GLASS_VOXEL_TEST] GPU transport validation failed: {err:#}")
                     });
                 log::info!(
                     "[GLASS_VOXEL_TEST] terrain published revision={} canonical_glass_voxels={} settling_frames={}",

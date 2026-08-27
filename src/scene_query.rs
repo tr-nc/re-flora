@@ -115,6 +115,14 @@ pub(crate) struct RadianceResult {
     pub diagnostics: QueryDiagnostics,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SegmentTransmittanceResult {
+    pub transmittance: DVec3,
+    pub interface_events: u32,
+    pub dda_steps: u32,
+    pub exhausted: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct DenseVoxelScene {
     dimensions: UVec3,
@@ -510,6 +518,75 @@ impl DenseVoxelScene {
                 .max(active.len() as u32);
         }
         result
+    }
+
+    pub(crate) fn trace_segment_transmittance(
+        &self,
+        start: DVec3,
+        end: DVec3,
+        event_budget: u32,
+        step_budget: u32,
+    ) -> SegmentTransmittanceResult {
+        let segment = end - start;
+        let distance = segment.length();
+        if !distance.is_finite() || distance <= f64::EPSILON {
+            return SegmentTransmittanceResult {
+                transmittance: DVec3::ZERO,
+                interface_events: 0,
+                dda_steps: 0,
+                exhausted: true,
+            };
+        }
+        let direction = segment / distance;
+        let ray = SceneRay {
+            origin: start,
+            direction,
+        };
+        let walk = self.walk_voxel_media(ray, event_budget, step_budget);
+        let mut transmittance = DVec3::ONE;
+        for medium in &walk.segments {
+            if medium.material.surface_class != VoxelSurfaceClass::Dielectric {
+                continue;
+            }
+            let interval_start = (medium.start - start).dot(direction).clamp(0.0, distance);
+            let interval_end = (medium.end - start).dot(direction).clamp(0.0, distance);
+            let overlap = (interval_end - interval_start).max(0.0);
+            if overlap > 0.0 {
+                transmittance *= beer_lambert(medium.material.sigma_a, overlap);
+            }
+        }
+        for interface in &walk.interfaces {
+            let interface_distance = (interface.position - start).dot(direction);
+            if interface_distance < 0.0 || interface_distance >= distance {
+                continue;
+            }
+            if interface.to_material.surface_class == VoxelSurfaceClass::Opaque {
+                transmittance = DVec3::ZERO;
+                break;
+            }
+            let fresnel = dielectric_fresnel_unpolarized(
+                direction,
+                interface.incident_face_normal,
+                interface.from_material.ior,
+                interface.to_material.ior,
+            );
+            transmittance *= 1.0 - fresnel;
+        }
+        if walk.opaque_hit.is_some_and(|hit| {
+            let hit_distance = (hit.position - start).dot(direction);
+            hit_distance >= 0.0 && hit_distance < distance
+        }) {
+            transmittance = DVec3::ZERO;
+        }
+        SegmentTransmittanceResult {
+            transmittance,
+            interface_events: walk.interfaces.len() as u32,
+            dda_steps: walk.dda_steps,
+            exhausted: matches!(
+                walk.termination,
+                QueryTermination::EventBudget | QueryTermination::StepBudget
+            ),
+        }
     }
 
     fn clip_ray_to_domain(&self, ray: SceneRay) -> Option<(f64, f64, DVec3)> {
@@ -1015,6 +1092,64 @@ mod tests {
         assert!(result.diagnostics.query_budget_fallbacks >= 1);
         assert_eq!(result.diagnostics.budget_exhaustions, 0);
         assert!(result.radiance.cmpgt(DVec3::ZERO).all());
+    }
+
+    #[test]
+    fn finite_segment_accumulates_fresnel_and_beer_through_connected_glass() {
+        let scene = scene_x(&[
+            VOXEL_TYPE_EMPTY as u8,
+            VOXEL_TYPE_SAND as u8,
+            VOXEL_TYPE_SAND as u8,
+            VOXEL_TYPE_EMPTY as u8,
+        ]);
+        let result = scene.trace_segment_transmittance(
+            DVec3::new(0.5, 0.5, 0.5),
+            DVec3::new(3.5, 0.5, 0.5),
+            8,
+            32,
+        );
+        let glass = scene.query_material(VOXEL_TYPE_SAND);
+        let expected = DVec3::splat(0.96 * 0.96) * beer_lambert(glass.sigma_a, 2.0);
+
+        assert_eq!(result.interface_events, 2);
+        assert!(!result.exhausted);
+        assert!(result.transmittance.abs_diff_eq(expected, 1.0e-12));
+    }
+
+    #[test]
+    fn finite_segment_endpoint_and_standard_sand_preserve_semantic_boundary() {
+        let glass_scene = scene_x(&[
+            VOXEL_TYPE_EMPTY as u8,
+            VOXEL_TYPE_SAND as u8,
+            VOXEL_TYPE_SAND as u8,
+        ]);
+        let inside = glass_scene.trace_segment_transmittance(
+            DVec3::new(0.5, 0.5, 0.5),
+            DVec3::new(1.5, 0.5, 0.5),
+            8,
+            32,
+        );
+        let glass = glass_scene.query_material(VOXEL_TYPE_SAND);
+        let expected_inside = DVec3::splat(0.96) * beer_lambert(glass.sigma_a, 0.5);
+        assert!(inside.transmittance.abs_diff_eq(expected_inside, 1.0e-12));
+
+        let standard_sand = DenseVoxelScene::new(
+            UVec3::new(3, 1, 1),
+            1.0,
+            vec![
+                VOXEL_TYPE_EMPTY as u8,
+                VOXEL_TYPE_SAND as u8,
+                VOXEL_TYPE_EMPTY as u8,
+            ],
+            VoxelMaterialMode::Standard,
+        );
+        let blocked = standard_sand.trace_segment_transmittance(
+            DVec3::new(0.5, 0.5, 0.5),
+            DVec3::new(2.5, 0.5, 0.5),
+            8,
+            32,
+        );
+        assert_eq!(blocked.transmittance, DVec3::ZERO);
     }
 
     #[test]

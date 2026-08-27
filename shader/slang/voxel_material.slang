@@ -22,6 +22,7 @@ public static const uint GLASS_EXPERIMENT_VOXEL_TYPE = 3u;
 public static const uint STANDARD_SOIL_VOXEL_TYPE_MASK = 12u;
 public static const uint STANDARD_SOLID_MATERIAL_FLAGS = 31u;
 public static const uint GLASS_EXPERIMENT_MATERIAL_FLAGS = 15u;
+public static const uint GLASS_EXPERIMENT_MATERIAL_REVISION = 1u;
 
 public static const float GLASS_EXPERIMENT_IOR = 1.5;
 public static const float3 GLASS_EXPERIMENT_ATTENUATION_COLOR = float3(0.82, 0.94, 0.98);

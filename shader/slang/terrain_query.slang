@@ -1,4 +1,5 @@
 import contree_node;
+import ddgi_voxel_visibility;
 import marching_result;
 import ray;
 import scene_query;
@@ -59,6 +60,32 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         return;
     }
     rayDirection = normalize(rayDirection);
+
+    if (query.origin.w >= 2.5)
+    {
+        uint geometryRevision;
+        uint glassMaterialRevision;
+        bool occupied = ddgiPublishedVoxelIsOccupied(
+            int3(round(rayOrigin)), geometryRevision, glassMaterialRevision);
+        terrain_query_result[queryIndex] = float4(
+            occupied ? 1.0 : 0.0, float(geometryRevision),
+            float(glassMaterialRevision), 1.0);
+        return;
+    }
+
+    if (query.origin.w >= 1.5)
+    {
+        SceneStraightTransport transport = traceVoxelStraightTransport(
+            chunk_atlas, rayOrigin, rayDirection, query.direction.w, true);
+        uint packed = (transport.terminal.kind & 0x0fu) |
+            ((transport.interfaces & 0xffu) << 4u) |
+            ((transport.scene_queries & 0xffu) << 12u) |
+            ((transport.exhausted & 1u) << 20u) |
+            ((min(transport.dda_steps, 0x07ffu) & 0x07ffu) << 21u);
+        terrain_query_result[queryIndex] = float4(
+            transport.transmittance, asfloat(packed));
+        return;
+    }
 
     if (query.origin.w >= 0.5)
     {

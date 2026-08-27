@@ -233,6 +233,8 @@ struct DdgiProbeRelocationPushConstants {
     spacing_voxels: u32,
     voxels_per_world_unit: [f32; 3],
     terrain_revision: u32,
+    glass_experiment_enabled: u32,
+    _padding: [u32; 3],
 }
 
 #[repr(C)]
@@ -472,6 +474,23 @@ pub(crate) struct GlassSceneQueryCaptureEvent {
     pub(crate) to_voxel_type: u32,
     pub(crate) tied_axes: u8,
     pub(crate) dda_steps: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GlassStraightTransportCapture {
+    pub(crate) terminal: GlassSceneQueryEventKind,
+    pub(crate) transmittance: Vec3,
+    pub(crate) interfaces: u32,
+    pub(crate) scene_queries: u32,
+    pub(crate) dda_steps: u32,
+    pub(crate) exhausted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdgiSemanticOccupancyCapture {
+    pub(crate) occupied: bool,
+    pub(crate) geometry_revision: u32,
+    pub(crate) glass_material_revision: u32,
 }
 
 fn srgb_to_linear_channel(channel: f32) -> f32 {
@@ -1170,6 +1189,12 @@ impl Tracer {
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
             desc.voxel_dim_per_chunk,
+            desc.glass_experiment_enabled,
+            if desc.glass_experiment_enabled {
+                crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
+            } else {
+                0
+            },
             &shader_modules.ddgi_voxel_visibility_pack_sm,
         )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
@@ -2298,6 +2323,7 @@ impl Tracer {
                 &self.resources,
                 contree_builder_resources,
                 scene_accel_resources,
+                plain_builder_resources,
                 ddgi_builder,
                 &self.ddgi_voxel_visibility,
             ],
@@ -3284,6 +3310,12 @@ impl Tracer {
                 sun_luminance,
                 terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
+                glass_experiment_enabled: self.desc.glass_experiment_enabled,
+                glass_material_revision: if self.desc.glass_experiment_enabled {
+                    crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
+                } else {
+                    0
+                },
                 voxel_palette: DdgiVoxelPaletteSnapshot {
                     dirt_color: voxel_dirt_color,
                     sand_color: voxel_sand_color,
@@ -6024,6 +6056,8 @@ impl Tracer {
             spacing_voxels: grid.spacing_voxels(),
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk.as_vec3().to_array(),
             terrain_revision,
+            glass_experiment_enabled: u32::from(self.desc.glass_experiment_enabled),
+            _padding: [0; 3],
         };
         self.compute_pipelines.ddgi_probe_relocate_ppl.record(
             cmdbuf,
@@ -7446,7 +7480,24 @@ impl Tracer {
             events.push(event);
             match event.kind {
                 GlassSceneQueryEventKind::Interface => {
-                    origin = event.position + direction * (1.0e-4 / 256.0);
+                    let crossed_axes = Vec3::new(
+                        if event.tied_axes & 0b001 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        if event.tied_axes & 0b010 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        if event.tied_axes & 0b100 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    );
+                    origin = event.position + crossed_axes * direction.signum() * (1.0e-4 / 256.0);
                 }
                 GlassSceneQueryEventKind::Opaque | GlassSceneQueryEventKind::Miss => {
                     return Ok(events);
@@ -7462,27 +7513,99 @@ impl Tracer {
         anyhow::bail!("Glass scene-query GPU capture exhausted its 8-event budget")
     }
 
-    fn capture_next_glass_scene_query_event(
+    pub(crate) fn capture_glass_straight_transport(
         &mut self,
         ray: TerrainRayQuery,
-    ) -> Result<GlassSceneQueryCaptureEvent> {
+        max_distance_world: f32,
+    ) -> Result<GlassStraightTransportCapture> {
+        anyhow::ensure!(
+            ray.direction.normalize_or_zero() != Vec3::ZERO
+                && max_distance_world.is_finite()
+                && max_distance_world > 0.0,
+            "Glass straight-transport capture requires a finite ray and distance"
+        );
+        let values = self.capture_terrain_query_debug_rows(&[[
+            ray.origin.x,
+            ray.origin.y,
+            ray.origin.z,
+            2.0,
+            ray.direction.x,
+            ray.direction.y,
+            ray.direction.z,
+            max_distance_world,
+        ]])?[0];
+        let packed = values[3].to_bits();
+        let terminal = match packed & 0x0f {
+            1 => GlassSceneQueryEventKind::Interface,
+            2 => GlassSceneQueryEventKind::Opaque,
+            3 => GlassSceneQueryEventKind::Miss,
+            4 => GlassSceneQueryEventKind::StepBudget,
+            value => anyhow::bail!(
+                "Glass straight-transport GPU capture returned invalid terminal kind {value}"
+            ),
+        };
+        Ok(GlassStraightTransportCapture {
+            terminal,
+            transmittance: Vec3::new(values[0], values[1], values[2]),
+            interfaces: (packed >> 4) & 0xff,
+            scene_queries: (packed >> 12) & 0xff,
+            exhausted: ((packed >> 20) & 1) != 0,
+            dda_steps: (packed >> 21) & 0x07ff,
+        })
+    }
+
+    pub(crate) fn capture_ddgi_semantic_occupancy(
+        &mut self,
+        voxel_coordinates: &[UVec3],
+    ) -> Result<Vec<DdgiSemanticOccupancyCapture>> {
+        anyhow::ensure!(
+            !voxel_coordinates.is_empty() && voxel_coordinates.len() <= MAX_TERRAIN_QUERIES,
+            "DDGI semantic occupancy capture count is out of range"
+        );
+        let rows = voxel_coordinates
+            .iter()
+            .map(|coordinate| {
+                [
+                    coordinate.x as f32,
+                    coordinate.y as f32,
+                    coordinate.z as f32,
+                    3.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            })
+            .collect::<Vec<_>>();
+        Ok(self
+            .capture_terrain_query_debug_rows(&rows)?
+            .into_iter()
+            .map(|values| DdgiSemanticOccupancyCapture {
+                occupied: values[0] >= 0.5,
+                geometry_revision: values[1] as u32,
+                glass_material_revision: values[2] as u32,
+            })
+            .collect())
+    }
+
+    fn capture_terrain_query_debug_rows(&mut self, rows: &[[f32; 8]]) -> Result<Vec<[f32; 4]>> {
+        anyhow::ensure!(
+            !rows.is_empty() && rows.len() <= MAX_TERRAIN_QUERIES,
+            "terrain-query debug capture count is out of range"
+        );
+        let query_count = rows.len() as u32;
         self.resources
             .terrain_query
             .terrain_query_count
             .fill_uniform(&crate::generated::gpu_structs::TerrainQueryCount {
-                valid_query_count: 1,
+                valid_query_count: query_count,
                 ..bytemuck::Zeroable::zeroed()
             })?;
-        self.resources.terrain_query.terrain_query_info.fill(&[
-            ray.origin.x,
-            ray.origin.y,
-            ray.origin.z,
-            1.0,
-            ray.direction.x,
-            ray.direction.y,
-            ray.direction.z,
-            0.0,
-        ])?;
+        let row_values = rows.iter().flatten().copied().collect::<Vec<_>>();
+        self.resources
+            .terrain_query
+            .terrain_query_info
+            .fill(&row_values)?;
 
         execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
@@ -7499,7 +7622,7 @@ impl Tracer {
                 );
                 self.compute_pipelines.terrain_query_ppl.record(
                     cmdbuf,
-                    Extent3D::new(1, 1, 1),
+                    Extent3D::new(query_count, 1, 1),
                     None,
                 );
                 cmdbuf.use_buffer(
@@ -7514,12 +7637,32 @@ impl Tracer {
             .terrain_query
             .terrain_query_result
             .read_back()
-            .context("read Glass scene-query GPU capture")?;
+            .context("read terrain-query debug GPU capture")?;
         let values: &[f32] = bytemuck::cast_slice(&raw_data);
         anyhow::ensure!(
-            values.len() >= 4,
-            "Glass scene-query GPU result is truncated"
+            values.len() >= rows.len() * 4,
+            "terrain-query debug GPU result is truncated"
         );
+        Ok(values[..rows.len() * 4]
+            .chunks_exact(4)
+            .map(|item| [item[0], item[1], item[2], item[3]])
+            .collect())
+    }
+
+    fn capture_next_glass_scene_query_event(
+        &mut self,
+        ray: TerrainRayQuery,
+    ) -> Result<GlassSceneQueryCaptureEvent> {
+        let values = self.capture_terrain_query_debug_rows(&[[
+            ray.origin.x,
+            ray.origin.y,
+            ray.origin.z,
+            1.0,
+            ray.direction.x,
+            ray.direction.y,
+            ray.direction.z,
+            0.0,
+        ]])?[0];
         let packed = values[3].to_bits();
         let kind = match packed & 0x0f {
             1 => GlassSceneQueryEventKind::Interface,

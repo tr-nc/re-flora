@@ -494,6 +494,7 @@ impl PipelineBuilder {
                 resources,
                 contree_builder_resources,
                 scene_accel_resources,
+                plain_builder_resources,
                 ddgi_volume,
                 ddgi_voxel_visibility,
             ],
@@ -502,7 +503,12 @@ impl PipelineBuilder {
             device,
             &shader_modules.local_light_visibility_diagnostic_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
         let ddgi_irradiance_filter_ppl = ComputePipeline::new(
             device,
@@ -600,7 +606,12 @@ impl PipelineBuilder {
             device,
             &shader_modules.tracer_shadow_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
 
         let shadow_depth_copy_ppl = ComputePipeline::new(
@@ -640,6 +651,7 @@ impl PipelineBuilder {
                 contree_builder_resources,
                 scene_accel_resources,
                 plain_builder_resources,
+                ddgi_voxel_visibility,
             ],
         );
 

@@ -2,6 +2,7 @@ module scene_query;
 
 import voxel_data;
 import voxel_material;
+import marching_result;
 
 public static const uint SCENE_QUERY_EVENT_NONE = 0u;
 public static const uint SCENE_QUERY_EVENT_INTERFACE = 1u;
@@ -13,6 +14,8 @@ public static const uint SCENE_QUERY_MAX_ACTIVE_PATHS = 4u;
 public static const uint SCENE_QUERY_MAX_INTERFACE_EVENTS = 8u;
 public static const uint SCENE_QUERY_MAX_SCENE_QUERIES = 8u;
 public static const uint SCENE_QUERY_MAX_DDA_STEPS = 2048u;
+public static const uint SCENE_STRAIGHT_TRANSPORT_MAX_INTERFACES = 16u;
+public static const uint SCENE_STRAIGHT_TRANSPORT_MAX_QUERIES = 16u;
 public static const float SCENE_QUERY_THROUGHPUT_CUTOFF = 1.0e-2;
 
 static const float SCENE_QUERY_DIRECTION_EPSILON = 1.0e-20;
@@ -56,6 +59,17 @@ public struct SceneQueryDiagnostics
     public uint budget_exhaustions;
 };
 
+public struct SceneStraightTransport
+{
+    public SceneQueryEvent terminal;
+    public float3 transmittance;
+    public uint scene_queries;
+    public uint dda_steps;
+    public uint interfaces;
+    public uint glass_segments;
+    public uint exhausted;
+};
+
 SceneQueryEvent makeSceneQueryEvent()
 {
     SceneQueryEvent result;
@@ -70,6 +84,37 @@ SceneQueryEvent makeSceneQueryEvent()
     result.dda_steps = 0u;
     result.tied_axes = 0u;
     return result;
+}
+
+public MarchingResult sceneQueryMarchingResultFromOpaqueEvent(
+    SceneQueryEvent event, float3 rayOrigin)
+{
+    MarchingResult result;
+    result.iteration_count = event.dda_steps;
+    result.is_hit = event.kind == SCENE_QUERY_EVENT_OPAQUE;
+    result.position = event.position;
+    result.center_position = (float3(event.to_cell) + 0.5) / 256.0;
+    result.distance = length(event.position - rayOrigin);
+    result.normal = event.incident_face_normal;
+    result.voxel_type = event.to_voxel_type;
+    uint3 cell = uint3(max(event.to_cell, int3(0)));
+    result.hash_id = (cell.x * 73856093u ^ cell.y * 19349663u ^
+                      cell.z * 83492791u) & VOXEL_HASH_MASK;
+    result.voxel_address = 0u;
+    return result;
+}
+
+// Offset by the crossed cell axes instead of the ray direction. At grazing incidence a
+// direction-scaled normal component can be smaller than one world-space float ULP and repeatedly
+// rediscover the same boundary. Cell-directed offsets remain deterministic for edge/corner ties.
+public float3 sceneQueryOffsetAcrossInterface(SceneQueryEvent event,
+                                               bool enterToCell,
+                                               float worldToVoxelScale)
+{
+    float3 crossedAxes = float3(event.to_cell - event.from_cell);
+    float side = enterToCell ? 1.0 : -1.0;
+    return event.position + crossedAxes *
+        (side * SCENE_QUERY_VOXEL_BIAS / worldToVoxelScale);
 }
 
 public ScenePrimaryQuery makeScenePrimaryQuery()
@@ -337,7 +382,6 @@ public ScenePrimaryQuery tracePrimaryVoxelSurfaces(
     ScenePrimaryQuery result = makeScenePrimaryQuery();
     float3 direction = normalize(directionWorld);
     float3 origin = originWorld;
-    float worldBias = SCENE_QUERY_VOXEL_BIAS / worldToVoxelScale;
     for (uint queryIndex = 0u; queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES; ++queryIndex)
     {
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
@@ -364,7 +408,8 @@ public ScenePrimaryQuery tracePrimaryVoxelSurfaces(
                 result.has_glass_front = 1u;
                 result.glass_front = event;
             }
-            origin = event.position + direction * worldBias;
+            origin = sceneQueryOffsetAcrossInterface(
+                event, true, worldToVoxelScale);
             continue;
         }
         if (event.kind == SCENE_QUERY_EVENT_STEP_BUDGET)
@@ -455,4 +500,125 @@ public float3 sceneQueryBeerLambert(float3 sigmaA, float distanceWorld)
 public float sceneQueryThroughputLuminance(float3 throughput)
 {
     return dot(throughput, float3(0.2126, 0.7152, 0.0722));
+}
+
+SceneStraightTransport makeSceneStraightTransport()
+{
+    SceneStraightTransport result;
+    result.terminal = makeSceneQueryEvent();
+    result.transmittance = float3(1.0);
+    result.scene_queries = 0u;
+    result.dda_steps = 0u;
+    result.interfaces = 0u;
+    result.glass_segments = 0u;
+    result.exhausted = 0u;
+    return result;
+}
+
+// Bounded straight-through transport for shadow and probe rays. Refraction is deliberately not
+// followed here: each true dielectric boundary contributes exact Fresnel transmission and each
+// dielectric segment contributes Beer attenuation along the authoritative world-space distance.
+public SceneStraightTransport traceVoxelStraightTransport(
+    readonly RWTexture3D<uint> denseAtlas,
+    float3 originWorld,
+    float3 directionWorld,
+    float maxDistanceWorld,
+    bool glassExperimentEnabled)
+{
+    SceneStraightTransport result = makeSceneStraightTransport();
+    float directionLength = length(directionWorld);
+    if (directionLength <= SCENE_QUERY_DIRECTION_EPSILON ||
+        isnan(directionLength) || isinf(directionLength) ||
+        maxDistanceWorld <= 0.0 || isnan(maxDistanceWorld) ||
+        isinf(maxDistanceWorld))
+    {
+        result.exhausted = 1u;
+        result.transmittance = float3(0.0);
+        result.terminal.kind = SCENE_QUERY_EVENT_STEP_BUDGET;
+        return result;
+    }
+
+    float3 direction = directionWorld / directionLength;
+    float3 origin = originWorld;
+    float remaining = maxDistanceWorld;
+    [loop]
+    for (uint queryIndex = 0u;
+         queryIndex < SCENE_STRAIGHT_TRANSPORT_MAX_QUERIES;
+         ++queryIndex)
+    {
+        SceneQueryEvent event = walkVoxelMediaToNextEvent(
+            denseAtlas, origin, direction, 256.0,
+            glassExperimentEnabled, SCENE_QUERY_MAX_DDA_STEPS);
+        result.scene_queries += 1u;
+        result.dda_steps += event.dda_steps;
+        float eventDistance = max(0.0, dot(event.position - origin, direction));
+        VoxelMaterial fromMaterial = voxelMaterial(
+            event.from_voxel_type, glassExperimentEnabled);
+        if (eventDistance >= remaining)
+        {
+            if (fromMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
+            {
+                result.transmittance *= sceneQueryBeerLambert(
+                    sceneQueryAbsorptionCoefficient(fromMaterial), remaining);
+                result.glass_segments += 1u;
+            }
+            result.terminal.kind = SCENE_QUERY_EVENT_MISS;
+            return result;
+        }
+        if (fromMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
+            event.medium_distance_world > 0.0)
+        {
+            result.transmittance *= sceneQueryBeerLambert(
+                sceneQueryAbsorptionCoefficient(fromMaterial),
+                event.medium_distance_world);
+            result.glass_segments += 1u;
+        }
+
+        if (event.kind == SCENE_QUERY_EVENT_OPAQUE ||
+            event.kind == SCENE_QUERY_EVENT_MISS)
+        {
+            result.terminal = event;
+            return result;
+        }
+        if (event.kind != SCENE_QUERY_EVENT_INTERFACE)
+        {
+            result.terminal = event;
+            result.exhausted = 1u;
+            result.transmittance = float3(0.0);
+            return result;
+        }
+
+        result.interfaces += 1u;
+        if (result.interfaces > SCENE_STRAIGHT_TRANSPORT_MAX_INTERFACES)
+        {
+            result.terminal = event;
+            result.exhausted = 1u;
+            result.transmittance = float3(0.0);
+            return result;
+        }
+        VoxelMaterial toMaterial = voxelMaterial(
+            event.to_voxel_type, glassExperimentEnabled);
+        float fresnel = sceneQueryDielectricFresnel(
+            direction, event.incident_face_normal,
+            fromMaterial.ior, toMaterial.ior);
+        result.transmittance *= 1.0 - fresnel;
+        remaining -= eventDistance;
+        origin = sceneQueryOffsetAcrossInterface(event, true, 256.0);
+    }
+    result.terminal.kind = SCENE_QUERY_EVENT_STEP_BUDGET;
+    result.exhausted = 1u;
+    result.transmittance = float3(0.0);
+    return result;
+}
+
+public SceneStraightTransport traceVoxelSegmentTransmittance(
+    readonly RWTexture3D<uint> denseAtlas,
+    float3 startWorld,
+    float3 endWorld,
+    bool glassExperimentEnabled)
+{
+    float3 segment = endWorld - startWorld;
+    return traceVoxelStraightTransport(
+        denseAtlas, startWorld, segment, length(segment),
+        glassExperimentEnabled);
 }

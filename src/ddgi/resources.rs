@@ -1225,7 +1225,11 @@ impl DdgiVolume {
             irradiance_tile_columns: irradiance_layout.tile_grid().x,
             visibility_tile_columns: visibility_layout.tile_grid().x,
             geometry_revision: 0,
-            padding: 0,
+            glass_experiment_enabled: 0,
+            glass_material_revision: 0,
+            glass_padding_0: 0,
+            glass_padding_1: 0,
+            glass_padding_2: 0,
         };
         transport_query_info.fill_uniform(&transport_query_snapshot)?;
         let ddgi_local_light_info = uniform_buffer(resource_bytes.local_light_info);
@@ -1483,6 +1487,9 @@ impl DdgiVolume {
             })?;
         self.transport_query_snapshot.visibility_bias_world =
             snapshot.ddgi_receiver_visibility_bias_world;
+        self.transport_query_snapshot.glass_experiment_enabled =
+            u32::from(snapshot.glass_experiment_enabled);
+        self.transport_query_snapshot.glass_material_revision = snapshot.glass_material_revision;
         self.ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)?;
         self.ddgi_local_light_info
@@ -2277,7 +2284,7 @@ mod tests {
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);
         assert_eq!(bytes.radiance_voxel_palette, 96);
-        assert_eq!(bytes.transport_query_info, 48);
+        assert_eq!(bytes.transport_query_info, 64);
     }
 
     #[test]
