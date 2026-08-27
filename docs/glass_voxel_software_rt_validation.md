@@ -130,3 +130,20 @@ python scripts/perf_suite.py run glass-coverage-25 \
   captured by dedicated tests and readbacks, but full per-frame DDGI Glass segment/recovery
   telemetry remains future instrumentation.
 - Results are specific to the tested GPU, driver, resolution, and fixed authored scenes.
+
+## Final validation commands
+
+- `cargo fmt --check`: pass.
+- `cargo check`: pass; 102 native Slang shaders precompiled.
+- `cargo test -- --skip patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`:
+  pass (4 auxiliary binary tests plus 675 main tests, 1 ignored, and the one documented PATT
+  fixture filtered out).
+- `python -m unittest discover -s scripts/tests -p 'test_*.py'`: 83 passed.
+- Normal feature-OFF hidden release run and Glass 25% resize-lifecycle hidden release run:
+  pass, clean shutdown, no Vulkan validation error, device loss, panic, non-finite Glass pixel,
+  or Glass exhaustion.
+
+An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
+execution because Cargo itself panicked in feature resolution. The authoritative root
+`cargo check` and root `cargo test` both compile and exercise the shader-build dependency and
+passed; this toolchain issue is not counted as a Glass test failure.
