@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Re: Flora Glass Voxel — 软件光追实施指南</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08110f;
+      --panel: #0e1b18;
+      --panel-2: #13231f;
+      --ink: #e8f3ee;
+      --muted: #9bb3aa;
+      --line: #274039;
+      --mint: #61d6ad;
+      --cyan: #71cde0;
+      --amber: #ffc96b;
+      --red: #ff8a80;
+      --violet: #b9a3ff;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .22);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% -5%, rgba(97, 214, 173, .15), transparent 32rem),
+        radial-gradient(circle at 95% 5%, rgba(113, 205, 224, .12), transparent 30rem),
+        var(--bg);
+      line-height: 1.68;
+    }
+    a { color: var(--cyan); text-underline-offset: 3px; }
+    a:hover { color: #b8f1ff; }
+    code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    code {
+      padding: .08rem .32rem;
+      border: 1px solid rgba(113, 205, 224, .16);
+      border-radius: .35rem;
+      color: #c6f0f7;
+      background: rgba(113, 205, 224, .07);
+    }
+    pre {
+      overflow-x: auto;
+      margin: 1rem 0;
+      padding: 1rem 1.1rem;
+      border: 1px solid var(--line);
+      border-radius: .75rem;
+      color: #d7eee5;
+      background: #081411;
+      line-height: 1.55;
+    }
+    h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; }
+    h1 { margin: .7rem 0 .9rem; font-size: clamp(2.2rem, 7vw, 4.8rem); }
+    h2 { margin: 0 0 1.15rem; font-size: clamp(1.55rem, 3.4vw, 2.2rem); }
+    h3 { margin: 1.6rem 0 .65rem; font-size: 1.18rem; color: #d7eee5; }
+    p { margin: .65rem 0; }
+    ul, ol { padding-left: 1.35rem; }
+    li + li { margin-top: .36rem; }
+    small, .muted { color: var(--muted); }
+
+    .shell { width: min(1180px, calc(100% - 2rem)); margin: 0 auto; }
+    header { padding: 5.5rem 0 2.5rem; }
+    .eyebrow {
+      color: var(--mint);
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      font-size: .78rem;
+    }
+    .lede { max-width: 820px; color: #bfd2cb; font-size: 1.12rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.3rem; }
+    .pill {
+      padding: .38rem .68rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(14, 27, 24, .72);
+      font-size: .84rem;
+    }
+    .pill strong { color: var(--ink); }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      overflow-x: auto;
+      border-block: 1px solid var(--line);
+      background: rgba(8, 17, 15, .92);
+      backdrop-filter: blur(14px);
+    }
+    nav .shell { display: flex; gap: 1.1rem; padding-block: .7rem; white-space: nowrap; }
+    nav a { color: var(--muted); text-decoration: none; font-size: .86rem; }
+    nav a:hover { color: var(--mint); }
+
+    main { padding: 1.3rem 0 5rem; }
+    section {
+      margin: 1.25rem 0;
+      padding: clamp(1.25rem, 3vw, 2.1rem);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: linear-gradient(160deg, rgba(19, 35, 31, .95), rgba(10, 22, 19, .97));
+      box-shadow: var(--shadow);
+      scroll-margin-top: 4rem;
+    }
+    .grid { display: grid; gap: 1rem; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: .8rem;
+      background: rgba(8, 20, 17, .62);
+    }
+    .card h3 { margin-top: 0; }
+    .verdict {
+      border-color: rgba(97, 214, 173, .52);
+      background: linear-gradient(135deg, rgba(97, 214, 173, .12), rgba(8, 20, 17, .72));
+    }
+    .warn { border-color: rgba(255, 201, 107, .42); }
+    .danger { border-color: rgba(255, 138, 128, .4); }
+    .tag {
+      display: inline-block;
+      padding: .14rem .43rem;
+      border-radius: .35rem;
+      font-size: .73rem;
+      font-weight: 750;
+      letter-spacing: .03em;
+      color: #07130f;
+      background: var(--mint);
+    }
+    .tag.partial { background: var(--amber); }
+    .tag.missing { background: var(--red); }
+    .tag.decision { background: var(--violet); }
+
+    .table-wrap { overflow-x: auto; margin: 1rem 0; }
+    table { width: 100%; border-collapse: collapse; min-width: 700px; }
+    th, td { padding: .72rem .78rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--mint); text-align: left; font-size: .82rem; letter-spacing: .04em; }
+    tbody tr:hover { background: rgba(97, 214, 173, .035); }
+    td:first-child { color: #d7eee5; font-weight: 650; }
+
+    .flow { display: grid; gap: .62rem; margin: 1rem 0; }
+    .flow-step {
+      position: relative;
+      padding: .85rem 1rem .85rem 3.3rem;
+      border: 1px solid var(--line);
+      border-radius: .75rem;
+      background: #0a1714;
+    }
+    .flow-step b:first-child {
+      position: absolute;
+      left: .82rem;
+      top: .72rem;
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 50%;
+      color: #06100d;
+      background: var(--mint);
+    }
+    .arrow { margin-left: 1.55rem; color: var(--muted); }
+    .callout {
+      margin: 1rem 0;
+      padding: .85rem 1rem;
+      border-left: 4px solid var(--amber);
+      border-radius: .3rem .7rem .7rem .3rem;
+      color: #ead9b9;
+      background: rgba(255, 201, 107, .07);
+    }
+    .decision-line { border-left-color: var(--mint); color: #ccebdd; background: rgba(97, 214, 173, .07); }
+    .phase { border-top: 4px solid var(--mint); }
+    .phase h3 { display: flex; align-items: center; gap: .55rem; }
+    .phase-no {
+      display: inline-grid;
+      place-items: center;
+      min-width: 2rem;
+      height: 2rem;
+      border-radius: .5rem;
+      color: #06100d;
+      background: var(--mint);
+      font-size: .9rem;
+    }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li { position: relative; padding-left: 1.55rem; }
+    .checklist li::before { content: "□"; position: absolute; left: 0; color: var(--mint); }
+    .source-list li { margin-bottom: .65rem; }
+    footer { padding: 0 0 4rem; color: var(--muted); font-size: .86rem; }
+
+    @media (max-width: 820px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      header { padding-top: 3.6rem; }
+      section { border-radius: .8rem; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: #fff; --panel: #fff; --ink: #17201d; --muted: #4f5c57; --line: #ccd7d2; }
+      body { background: #fff; }
+      nav { display: none; }
+      section, .card, .flow-step { background: #fff; box-shadow: none; break-inside: avoid; }
+      a { color: #075f62; }
+      header { padding-top: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell">
+    <div class="eyebrow">Re: Flora · Architecture &amp; Delivery Guide</div>
+    <h1>Glass Voxel<br>软件光追实施指南</h1>
+    <p class="lede">
+      面向当前 Re: Flora 渲染器的可执行技术路线：保留 raster + compute voxel tracer，明确排除硬件
+      RT，把 Glass 做成真正有 entry/exit、折射、Fresnel、TIR 与体积吸收的介电体，并让 DDGI、阴影、
+      存档、碰撞和编辑语义保持一致。
+    </p>
+    <div class="meta">
+      <span class="pill"><strong>日期</strong> 2026-08-27</span>
+      <span class="pill"><strong>主线基线</strong> <code>400794af</code></span>
+      <span class="pill"><strong>研究分支</strong> <code>agent/glass-voxel-research</code></span>
+      <span class="pill"><strong>状态</strong> 设计与实施指导，不含生产实现</span>
+    </div>
+  </header>
+
+  <nav aria-label="章节导航">
+    <div class="shell">
+      <a href="#decision">结论</a>
+      <a href="#state">现状</a>
+      <a href="#evidence">外部证据</a>
+      <a href="#architecture">架构</a>
+      <a href="#optics">光学</a>
+      <a href="#ddgi">DDGI</a>
+      <a href="#delivery">实施阶段</a>
+      <a href="#validation">验证</a>
+      <a href="#risks">风险</a>
+      <a href="#sources">来源</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section id="decision">
+      <div class="grid two">
+        <div class="card verdict">
+          <span class="tag decision">最终技术选型</span>
+          <h2>继续 raster + compute/software voxel RT</h2>
+          <p>
+            这是和现有 renderer 最贴合、可渐进交付且最容易做确定性验证的路径。现成的 Contree
+            负责快速找到 surface，权威 dense voxel atlas 负责精确穿越 Glass medium；无需引入
+            Vulkan/DXR hardware RT、BLAS/TLAS 或 ray query。
+          </p>
+        </div>
+        <div class="card warn">
+          <span class="tag partial">有条件可发布</span>
+          <h2>Glass 不是一个材质 if 分支</h2>
+          <p>
+            它跨越体素 ABI、存档 schema、first-hit query、composition 顺序、direct/local shadow、
+            DDGI visibility 与 probe relocation。只有这些语义成组一致，才能称为 production-ready。
+          </p>
+        </div>
+      </div>
+
+      <h3>首版产品契约</h3>
+      <div class="grid three">
+        <div class="card">
+          <strong>承诺</strong>
+          <ul>
+            <li>Air + 一种均匀 smooth Glass。</li>
+            <li>Glass 使用 voxel ID <code>9</code>。</li>
+            <li>精确 entry/exit、Snell、dielectric Fresnel、TIR。</li>
+            <li>按实际世界空间路径长度做 Beer-Lambert。</li>
+            <li>face-connected 同材质 Glass 是连续 medium。</li>
+            <li>有界、确定性的 secondary path。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <strong>近似但明确</strong>
+          <ul>
+            <li>raster opaque 内容优先 screen-space 查询。</li>
+            <li>screen miss 回退 voxel world query 或 sky/environment。</li>
+            <li>DDGI 使用同方向低频 transmission，不折弯 probe ray。</li>
+            <li>direct sun 首版不产生 Glass shadow。</li>
+          </ul>
+        </div>
+        <div class="card danger">
+          <strong>首版不承诺</strong>
+          <ul>
+            <li>硬件 RT 与统一 raster secondary visibility。</li>
+            <li>粗糙玻璃、色散、多 IOR 嵌套介质。</li>
+            <li>specular caustics。</li>
+            <li>玻璃前后多层 particle/droplet 的完整排序与折射。</li>
+            <li>任意非体素对象的离屏 reflection/refraction。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout decision-line">
+        <strong>Go / No-Go：</strong>建议进入 Phase 0–1。不要直接从现有 terrarium glass prototype
+        改名上线；先建立 <code>VoxelMaterial</code> 和 <code>SceneQuery</code> 两个深模块，再接视觉路径。
+      </div>
+    </section>
+
+    <section id="state">
+      <h2>当前项目进度与真实缺口</h2>
+      <p>
+        本表来自对 <code>main@400794af</code> 的代码与 release hidden run 复审。现有系统已经具备
+        软件 voxel RT 的主要地基，但还没有通用 Glass material、medium traversal 或可达的 Glass resolve。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>能力</th><th>当前事实</th><th>状态</th><th>Glass 影响</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>体素编码</td>
+              <td>低 4 bit 表示 type；ID 8 已是 Emissive；edit stats 容量为 9。</td>
+              <td><span class="tag partial">部分</span></td>
+              <td>Glass 必须使用 ID 9；统计至少扩到 10，建议直接覆盖 16 个 type。</td>
+            </tr>
+            <tr>
+              <td>存档</td>
+              <td>每 voxel 1 byte，format/schema 均为 1；新程序可 round-trip 新 nibble，但旧 binary 会接受并误解。</td>
+              <td><span class="tag partial">风险</span></td>
+              <td>建议 writer 升 schema 2、reader 支持 1/2；旧 binary 对新文件必须明确拒绝。</td>
+            </tr>
+            <tr>
+              <td>Contree</td>
+              <td>只保留 exposed surface leaf；<code>marchScene()</code> 返回 first hit。</td>
+              <td><span class="tag">可复用</span></td>
+              <td>适合作为 fast surface/chunk entry，不足以找连续 Glass 的 exit 与内部路径长度。</td>
+            </tr>
+            <tr>
+              <td>Dense atlas</td>
+              <td><code>r8ui</code> 权威 atlas 已绑定到 tracer，拥有每 cell 的 material truth。</td>
+              <td><span class="tag">就绪</span></td>
+              <td>在现有资源上加 material-transition DDA，不需要新 world acceleration structure。</td>
+            </tr>
+            <tr>
+              <td>Composition</td>
+              <td>只比较一层 raster depth 与一层 compute depth；合成后才进入 RGBA16F。</td>
+              <td><span class="tag partial">需拆分</span></td>
+              <td>先合完整 opaque HDR，再独立 Glass resolve；禁止把 Glass front 写进 raster depth prefill。</td>
+            </tr>
+            <tr>
+              <td>Terrarium Glass</td>
+              <td>存在 analytic panel、SSR/refraction 与 GUI knobs，但 composition 未调用，raster <code>enable_glass = false</code>。</td>
+              <td><span class="tag missing">不可达</span></td>
+              <td>只作为 screen-space validation/fallback 的参考，不能当通用 voxel Glass 基础。</td>
+            </tr>
+            <tr>
+              <td>DDGI</td>
+              <td>4,913 probes、spacing 32、每帧 32,768 rays；probe trace、moment visibility、exact visibility 与 relocation 已存在。</td>
+              <td><span class="tag">成熟地基</span></td>
+              <td>当前所有路径仍假设 non-empty/first hit 是 opaque；需一次性制定 Glass policy。</td>
+            </tr>
+            <tr>
+              <td>Direct / local light</td>
+              <td>terrain VSM 是 nearest scalar depth；local light 最多 8 个并使用 finite-segment binary visibility。</td>
+              <td><span class="tag partial">可扩展</span></td>
+              <td>sun 首版 skip Glass；local visibility 最终升级成共享 RGB segment transmittance。</td>
+            </tr>
+            <tr>
+              <td>Gameplay consumers</td>
+              <td>water/collision/support 多处使用“non-empty 即 solid”；inventory、particle、acoustic 是显式 type mapping。</td>
+              <td><span class="tag partial">需审计</span></td>
+              <td>Glass 的 solid/support/acoustic/harvest policy 必须显式声明，避免 accidental default。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>基线验证结果</h3>
+      <div class="grid three">
+        <div class="card"><strong>Build</strong><br><code>cargo fmt --check</code> 通过；<code>cargo check</code> 通过，100 个 Slang shader 编译。</div>
+        <div class="card"><strong>Tests</strong><br>精确跳过已知 PATT seam fixture 后：644 passed、0 failed、1 ignored、1 filtered。</div>
+        <div class="card"><strong>Runtime</strong><br>release hidden/muted 0.5 秒 smoke 通过，运行日志无真实 error、panic、fatal 或 validation failure。</div>
+      </div>
+      <p class="muted">
+        已知基线例外：<code>patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof</code>
+        当前 expected 1 / observed 2；它与本次纯文档集成无关，不能被 Glass 工作顺手“修掉”。
+      </p>
+    </section>
+
+    <section id="evidence">
+      <h2>production 引擎与论文：能借什么，不能借什么</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>来源</th><th>可迁移的生产经验</th><th>不能据此宣称</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><a href="https://dev.epicgames.com/documentation/unreal-engine/lumen-technical-details-in-unreal-engine?lang=en-US">Unreal Lumen</a></td>
+              <td>screen trace 先行、可靠 world representation fallback；质量档、覆盖限制与 profiler scope 是产品契约。</td>
+              <td>Lumen software RT 没有替 Re: Flora 解决 voxel thick Glass 的 entry/exit、Beer 或 DDGI transport。</td>
+            </tr>
+            <tr>
+              <td><a href="https://docs.godotengine.org/en/4.4/tutorials/3d/global_illumination/using_sdfgi.html">Godot SDFGI</a></td>
+              <td>raster + software grid/SDF traversal + probe GI 能生产化；cascade、ray count、history 与 half-res 需要显式档位。</td>
+              <td>SDF first hit 默认仍是 opaque visibility，不会自动获得 dielectric medium semantics。</td>
+            </tr>
+            <tr>
+              <td><a href="https://jcgt.org/published/0008/02/01/">DDGI 2019</a> / <a href="https://jcgt.org/published/0010/02/01/">Production DDGI 2021</a></td>
+              <td>irradiance + directional hit-distance moments、visibility-aware interpolation、relocation、classification、cascades 与 temporal control。</td>
+              <td>论文没有定义“折射 probe ray 后如何仍保持原方向 moments 正确”的 Glass contract。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/main/docs/DDGIVolume.md">RTXGI-DDGI</a></td>
+              <td>SDK 明确由应用负责 ray radiance/hit distance，SDK 负责 blend、relocation 与 classification；这证明 query backend 可以自定义。</td>
+              <td>其 sample 使用 hardware TLAS，也只示范 alpha-mask ignore；不应把 hardware 实现依赖带进本项目。</td>
+            </tr>
+            <tr>
+              <td><a href="https://www.pbr-book.org/4ed/Reflection_Models/Specular_Reflection_and_Transmission">PBRT v4</a></td>
+              <td>Snell、精确 dielectric Fresnel、TIR 和 smooth dielectric 是首版数学 reference。</td>
+              <td>离线 path tracer 的无界递归/采样预算不能直接照搬到实时 compute。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_volume/README.md">glTF KHR_materials_volume</a></td>
+              <td>surface transmission 与 volume attenuation 分离；closed boundary；world-space Beer distance；ray tracer 使用真实 path length。</td>
+              <td>raster thickness texture 只是 lossy estimate，不适合已有精确 atlas 的 voxel Glass。</td>
+            </tr>
+            <tr>
+              <td><a href="https://docs.vulkan.org/samples/latest/samples/api/oit_linked_lists/README.html">Vulkan PPLL OIT</a></td>
+              <td>primary pixel 的多个 raster fragment 可以存储、排序，并设置明确的层数/内存上限。</td>
+              <td>OIT 只拥有当前视图 rasterized fragments，不能提供离屏或被遮挡的 secondary visibility。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <strong>关键推断：</strong>screen-space-first + world-space fallback 是成熟的 production pattern；
+        但 Re: Flora 的 world-space truth 只覆盖 voxel/sky。首版应诚实记录 raster-only flora/object 的离屏缺失，
+        不能用 OIT、sorting 或 DDGI 模糊这个边界。
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>推荐渲染架构</h2>
+      <h3>Pass 顺序</h3>
+      <div class="flow" aria-label="Glass 渲染 pass 流程">
+        <div class="flow-step"><b>1</b><strong>Voxel primary query</strong> — Glass 不作为 opaque 终点；同时输出 first opaque 与 nearest GlassFront event。</div>
+        <div class="arrow">↓</div>
+        <div class="flow-step"><b>2</b><strong>Raster opaque pass</strong> — depth prefill 使用 first opaque voxel depth，让 Glass 后的 flora/object 真正被绘制。</div>
+        <div class="arrow">↓</div>
+        <div class="flow-step"><b>3</b><strong>Opaque scene resolve</strong> — voxel + raster + sky/cloud 合成 <code>UnifiedOpaqueHDR</code>，保留 nearest opaque depth 与 provenance。</div>
+        <div class="arrow">↓</div>
+        <div class="flow-step"><b>4</b><strong>Glass resolve</strong> — 读取 opaque HDR/depth 与 GlassFront；world-space voxel query + validated screen-space raster sample；写独立 RGBA16F target。</div>
+        <div class="arrow">↓</div>
+        <div class="flow-step"><b>5</b><strong>Camera-space effects</strong> — 明确支持的 raster translucency、god rays/lens flare，再 tone map、dither 与 final output。</div>
+      </div>
+      <p>
+        不能在同一个 HDR image 上一边读取 opaque scene 一边写 Glass，必须 ping-pong。当前 raster target
+        是 RGBA8 UNORM；如果希望玻璃后/反射中的 emissive 与 local-light highlight 不被提前裁掉，
+        Phase 2 必须用 capture 与带宽实测决定是否把 opaque raster target 提升为 RGBA16F。
+      </p>
+
+      <h3>深模块 1：<code>VoxelMaterial</code></h3>
+      <p>用一份权威声明生成或校验 Rust/Slang mirror，取代散落的 <code>type != Empty</code> 与 per-type if 链：</p>
+      <pre>VoxelMaterial {
+  id: 9,
+  surface_class: Dielectric,
+  collision_solid: true,
+  water_solid: true,
+  terrain_support: ExplicitPolicy,
+  probe_relocation_solid: true,
+  blocks_ddgi_visibility: false,
+  direct_shadow: SkipV1,
+  local_shadow: OpticalTransmittance,
+  soil_state_allowed: false,
+  optical: { ior, sigma_a_rgb, roughness: 0 }
+}</pre>
+      <p>
+        Glass voxel 的 moisture/fertility 高 nibble 必须规范为 0。IOR、attenuation color/distance 与未来 roughness
+        属于 material table，不占 per-voxel soil-state bits。ID 8 的 Emissive collector 必须保持 exact-ID 行为。
+      </p>
+
+      <h3>深模块 2：<code>SceneQuery</code></h3>
+      <pre>trace_first_surface(ray, mask)
+  -&gt; SurfaceHit | Miss
+
+walk_voxel_media(ray, starting_medium, event_budget)
+  -&gt; ordered InterfaceEvent | MediumSegment | OpaqueHit | Miss
+
+trace_radiance(ray, path_budget, fallback_policy)
+  -&gt; RadianceResult + QueryDiagnostics
+
+trace_segment_transmittance(origin, target, policy)
+  -&gt; RGB transmittance + TerminationReason</pre>
+      <ol>
+        <li>现有 Contree 找 first surface / chunk entry，保留 sparse surface acceleration。</li>
+        <li>进入 Glass 后，用 authoritative dense atlas 做 Amanatides–Woo style cell-boundary DDA。</li>
+        <li>DDA 返回 axis-aligned geometric face normal、from/to material、cell 与 world-space segment length。</li>
+        <li>Glass → Glass 只累计距离；Glass ↔ Air 或 Glass → Opaque 才是 interface event。</li>
+        <li>camera 所在 atlas cell 初始化 current medium，不能靠 shading normal 猜 entering/exiting。</li>
+        <li>epsilon、corner tie、chunk seam、world boundary 和预算终止都封装在模块内。</li>
+      </ol>
+      <div class="callout decision-line">
+        <strong>不建设假 seam：</strong>没有 TLAS/BLAS adapter，也不预留 hardware ray-query 接口。
+        当前唯一 truth backend 就是 Contree + dense atlas；未来真有第二个实现时再抽象 adapter。
+      </div>
+    </section>
+
+    <section id="optics">
+      <h2>介电光学与有界路径策略</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>每个真实界面</h3>
+          <ol>
+            <li>用 DDA face normal 判定 incident/outgoing medium。</li>
+            <li>使用 <code>eta_i / eta_t</code> 求 Snell refraction。</li>
+            <li>计算 exact unpolarized dielectric Fresnel <code>F</code>。</li>
+            <li>无折射解时进入 TIR，<code>F = 1</code>。</li>
+            <li>medium segment 乘 <code>exp(-sigma_a * distance_world)</code>。</li>
+            <li>Opaque 命中终止 transmitted branch；Miss 走 sky/environment。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>作者友好的 Beer 参数</h3>
+          <pre>sigma_a = -log(attenuation_color)
+          / attenuation_distance
+
+T(distance) = exp(-sigma_a * distance)
+            = attenuation_color
+              ^ (distance / attenuation_distance)</pre>
+          <p>attenuation distance 是世界空间长度；一 voxel 厚斜入射路径可以明显长于 voxel edge。</p>
+        </div>
+      </div>
+
+      <h3>确定性 top-K，而不是无界递归</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>控制项</th><th>初始工程上限</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>active paths</td><td><code>4</code></td><td>按 RGB luminance throughput 排序，稳定 tie-break。</td></tr>
+            <tr><td>interface events</td><td><code>8</code></td><td>Glass slab、air gap 与有限 TIR loop 可覆盖；最终由 reference scenes 决定。</td></tr>
+            <tr><td>scene queries</td><td><code>8</code></td><td>所有 fallback/query 都计入，不允许隐藏额外工作。</td></tr>
+            <tr><td>throughput cutoff</td><td><code>1e-3</code></td><td>是待校准初值，不是既定画质常量。</td></tr>
+            <tr><td>budget exhaustion</td><td>默认 authored scenes 为 0</td><td>必须写 counter/debug reason；绝不能静默裁掉。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        reference mode 使用 CPU double precision 或离线高预算路径，对 interface sequence、exit position、
+        Fresnel/TIR、Beer 与总能量做误差比较。它属于开发/离线 gate，不进入普通快速 <code>cargo test</code>
+        的 GPU 长时路径。
+      </p>
+
+      <h3>Screen-space sample 的有效性</h3>
+      <ul class="checklist">
+        <li>projected UV 在 viewport 内。</li>
+        <li>sampled opaque depth 位于 Glass exit 之后，并通过 thickness/depth tolerance。</li>
+        <li>provenance 是允许被折射的 opaque raster 或已合成 opaque voxel。</li>
+        <li>失败时回退 world-space voxel hit / sky；不得拉伸边缘 texel。</li>
+        <li>debug view 区分 <code>screen-hit</code>、<code>voxel-fallback</code>、<code>sky-fallback</code>、<code>rejected-depth</code>。</li>
+      </ul>
+    </section>
+
+    <section id="ddgi">
+      <h2>DDGI：保持 radiance 与 distance 的方向语义一致</h2>
+      <p>
+        DDGI 一条 probe ray 同时写原始方向上的 radiance sample 和 signed hit distance；后者会过滤成 moments
+        并参与 receiver visibility。如果 probe ray 在 Glass 内真实折弯，却把折线路径末端距离写回原方向，
+        visibility 就会把错误路径当成原方向 blocker。现有论文与 RTXGI 没有为这种做法提供 contract。
+      </p>
+      <div class="callout decision-line">
+        <strong>首版策略：</strong>主视图 Glass 做真实折射；DDGI probe Glass 做同方向低频 transmission，
+        累计界面 Fresnel 与 Beer，但保持 ray direction 不变。distance 记录该原方向的 first opaque hit 或 far。
+      </div>
+
+      <pre>direction = original_probe_direction
+throughput = 1
+
+for transitions along direction:
+  Air -&gt; Glass: throughput *= (1 - Fresnel)
+  Glass segment: throughput *= Beer(sigma_a, distance)
+  Glass -&gt; Air: throughput *= (1 - Fresnel)
+  Opaque hit:
+    radiance = throughput * shade_opaque_hit()
+    distance = straight_distance_to_opaque
+  Miss:
+    radiance = throughput * sky(direction)
+    distance = far</pre>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>DDGI 子系统</th><th>Glass 首版语义</th><th>必须联动的实现</th></tr></thead>
+          <tbody>
+            <tr><td>Probe radiance trace</td><td>同方向穿透，累计 Fresnel/Beer。</td><td><code>ddgi_probe_trace.slang</code> 不再把 Glass 当 opaque shading hit。</td></tr>
+            <tr><td>Moment distance</td><td>first opaque 或 far；不记录 Glass front。</td><td>与 probe radiance 使用同一 traversal event stream。</td></tr>
+            <tr><td>Exact visibility</td><td>Glass 是 non-blocker。</td><td>visibility pack 由 semantic bit 构建，而不是 raw non-empty。</td></tr>
+            <tr><td>Empty-block acceleration</td><td>block 只在含 visibility blocker 时 occupied。</td><td>否则 coarse skip 会把 Glass 偷偷恢复为 opaque。</td></tr>
+            <tr><td>Probe relocation</td><td>Glass 仍为 solid。</td><td>避免 probe 落入当前没有 medium state 的玻璃体内。</td></tr>
+            <tr><td>Probe classification</td><td>使用 relocation/opaque-aware fixed-ray semantics。</td><td>Glass wall 两侧单独 capture actual position、clearance、valid count。</td></tr>
+            <tr><td>Glass surface shading</td><td>不作 tinted Lambertian receiver。</td><td>专用 Glass resolve 负责 specular appearance；DDGI 只作低频 fallback。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Revision / temporal policy</h3>
+      <ul>
+        <li>放置/删除 Glass、改变 <code>blocks_ddgi_visibility</code>：geometry revision，重建 semantic visibility bits，并触发 relocation/recovery。</li>
+        <li>只改变 IOR、attenuation color/distance：radiance/material revision；visibility history 原则上可保留。</li>
+        <li>Opaque ↔ Dielectric 改类：geometry + radiance 都更新。</li>
+        <li>immutable DDGI lighting snapshot 必须包含 Glass material revision，禁止一次 sweep 混用两套 optical 参数。</li>
+        <li>Glass topology 可能打开远距离可见性；首版宁可 global transport refresh，不要未经证明地假设局部 edit bounds 足够。</li>
+      </ul>
+
+      <h3>Direct sun 与 local lights</h3>
+      <div class="grid two">
+        <div class="card">
+          <strong>Direct sun v1</strong>
+          <p>Glass 不写 terrain opaque VSM depth，明确“无 Glass shadow / 无 caustics”。后续若需要 colored shadow，增加独立 light-space RGB optical-transmittance；不能把它命名为 caustics。</p>
+        </div>
+        <div class="card">
+          <strong>Local lights</strong>
+          <p>把已有 finite-segment binary visibility 收敛到 <code>trace_segment_transmittance()</code>：Opaque 返回 0，Glass 累积 RGB Fresnel/Beer，无 blocker 保留 T。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="delivery">
+      <h2>分阶段实施计划</h2>
+      <p>每个阶段都先通过自己的 gate 并提交，再开始下一阶段；不把 schema、query、pass 重排和 DDGI 一次塞进一个不可审查的大改。</p>
+      <div class="grid two">
+        <div class="card phase">
+          <h3><span class="phase-no">0</span> Material / schema seam</h3>
+          <p><strong>交付：</strong>Glass ID 9；<code>VoxelMaterial</code>；stats 16；soil-state canonicalization；inventory/particle/acoustic/collision/water/support/emissive policies；schema 2 writer + schema 1/2 reader。</p>
+          <p><strong>Gate：</strong>ID 8 Emissive 不回归；old fixtures byte-identical load；Glass high nibble 非法状态被拒绝或规范化；旧 binary 不会静默误读新存档。</p>
+          <p><strong>主要文件：</strong><code>voxel_types.slang</code>、<code>builder/plain</code>、<code>terrain_persistence.rs</code>、backpack/particles/acoustics。</p>
+        </div>
+        <div class="card phase">
+          <h3><span class="phase-no">1</span> SceneQuery + voxel-only dielectric</h3>
+          <p><strong>交付：</strong>dense transition DDA；camera-inside；first opaque + GlassFront；exact Fresnel/Snell/TIR/Beer；top-K path；CPU reference。</p>
+          <p><strong>Gate：</strong>single slab、connected cells、air gap、opaque contact、chunk seam、corner tie、TIR 两侧与 Beer 单调性全通过；默认场景 exhaustion=0。</p>
+          <p><strong>主要文件：</strong>新增 <code>scene_query.slang</code>/<code>voxel_medium_walk.slang</code>；小幅接入 <code>tracer.slang</code>。</p>
+        </div>
+        <div class="card phase">
+          <h3><span class="phase-no">2</span> Opaque-first hybrid composition</h3>
+          <p><strong>交付：</strong><code>UnifiedOpaqueHDR</code> ping-pong；opaque provenance/depth；独立 Glass resolve；screen validity；voxel/sky fallback；debug views。</p>
+          <p><strong>Gate：</strong>Glass 后 flora 不被 prefill 剔除；Glass 前 foreground 保持；edge/disocclusion/resize/cut 稳定；无 read-write feedback；HDR highlights 不早裁。</p>
+          <p><strong>主要文件：</strong><code>composition*.slang</code>、<code>tracer/mod.rs</code>、extent resources/descriptors、perf scopes。</p>
+        </div>
+        <div class="card phase">
+          <h3><span class="phase-no">3</span> DDGI / shadows / temporal hardening</h3>
+          <p><strong>交付：</strong>semantic DDGI visibility bits；straight-through probe Glass；relocation tests；local RGB transmittance；sun policy；material revision/recovery。</p>
+          <p><strong>Gate：</strong>窗两侧 radiance/distance capture；visibility bits 与 probe trace 无冲突；relocation deterministic；optical edits 收敛且不重建无关 geometry。</p>
+          <p><strong>主要文件：</strong><code>ddgi_probe_trace</code>、visibility pack/DDA、relocation/classification、local lighting、shadow path。</p>
+        </div>
+        <div class="card phase">
+          <h3><span class="phase-no">4</span> Performance / release hardening</h3>
+          <p><strong>交付：</strong>0/10/25/50% coverage scenarios；GPU scopes/counters；memory report；forced fallback screenshots；documented product limitations。</p>
+          <p><strong>Gate：</strong>Glass OFF 满足现有 regression budgets；Glass ON 使用同 GPU、camera、resolution、DDGI-ready state 做 A/B/B/A；non-finite/validation/exhaustion 直接 RED。</p>
+          <p><strong>备注：</strong>25% coverage +1.0 ms median / +1.5 ms p95 只是首轮规划目标，不是实测或 ship budget。</p>
+        </div>
+        <div class="card warn">
+          <h3>首三个可审查提交</h3>
+          <ol>
+            <li><strong>ABI commit：</strong>ID 9 + material semantics + schema/tests；渲染图像不变。</li>
+            <li><strong>Query commit：</strong>DDA + CPU reference + debug-only interface capture；不接 production resolve。</li>
+            <li><strong>Visual slice commit：</strong>voxel-only Glass resolve + fixed scenes；raster fallback 与 DDGI 保持 feature flag 后续进入。</li>
+          </ol>
+          <p>这样每一步都能独立回滚、bisect、review 和测量。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="validation">
+      <h2>验收矩阵与性能门槛</h2>
+      <h3>几何 / 光学 reference scenes</h3>
+      <div class="grid three">
+        <div class="card"><strong>Slab angles</strong><br>正入射、30°、60°、grazing；exit 与 path length 对 CPU double reference。</div>
+        <div class="card"><strong>Topology</strong><br>2+ connected Glass 无内部 Fresnel；一 cell air gap 产生四个真实 interfaces。</div>
+        <div class="card"><strong>Inside / boundary</strong><br>camera inside、Glass 紧贴 opaque、chunk seam、world boundary、edge/corner tie。</div>
+        <div class="card"><strong>TIR</strong><br>临界角两侧；无折射解时只走 reflection，能量与 event counter 正确。</div>
+        <div class="card"><strong>Absorption</strong><br>attenuation 对 world path length 单调；斜路径颜色比正路径更深。</div>
+        <div class="card"><strong>Budget</strong><br>同一 camera/scene 重复运行完全确定；默认 authored scenes exhaustion 为 0。</div>
+      </div>
+
+      <h3>Instrumentation</h3>
+      <ul>
+        <li>GPU scopes：<code>glass.resolve</code>、<code>glass.screen_trace</code>、<code>glass.voxel_query</code>、<code>glass.direct_transmittance</code>。</li>
+        <li>Frame counters：Glass pixels、screen-hit/fallback ratio、DDA steps median/p95/max、interfaces、active paths、TIR、cutoff、exhaustion。</li>
+        <li>DDGI counters：Glass segments/rays、opaque/miss distance、semantic-bit rebuild bytes/time、recovery epochs、mixed revision。</li>
+        <li>Memory：所有新增 HDR/event buffers 的 bytes、lifetime、aliasing opportunity。</li>
+        <li>Debug：GlassFront depth/face normal/material、opaque depth provenance、screen validity、fallback reason、DDGI semantic occupancy。</li>
+      </ul>
+      <p>
+        1080p 下一个 RGBA16F target 约 15.8 MiB；两个 full-resolution R32 event planes 合计也约 15.8 MiB。
+        这些是格式体积估算，不是必须常驻的设计。优先测 half/packed metadata、lifetime aliasing 与 0% Glass fast path。
+      </p>
+
+      <h3>仓库标准验证梯度</h3>
+      <pre>cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --tail-latest-log 200</pre>
+      <p>
+        performance 必须用 release 固定场景；默认 <code>render-steady</code> 先守住现有 2%/2%/3%/3%
+        scopes budgets。Glass 场景用 10%、25%、50% 固定 screen coverage 做 order-reversed A,B,B,A，
+        同时报 median 与 p95。debug build、unit test 或单张最终 RGB 都不是性能证据。
+      </p>
+    </section>
+
+    <section id="risks">
+      <h2>主要风险、决策与停止线</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>风险</th><th>症状</th><th>控制</th><th>停止线</th></tr></thead>
+          <tbody>
+            <tr><td>语义分叉</td><td>probe 看穿，exact visibility 却阻挡；local/sun 行为不同。</td><td><code>VoxelMaterial</code> policy + shared query + cross-consumer tests。</td><td>任何 consumer 仍以 raw non-empty 隐式决定 Glass。</td></tr>
+            <tr><td>Raster visibility 缺失</td><td>屏幕边缘拉伸、离屏 flora 消失。</td><td>validated sample + provenance debug + voxel/sky fallback。</td><td>文档或 UI 宣称“完整 secondary visibility”。</td></tr>
+            <tr><td>Depth prefill 错序</td><td>Glass 后 opaque object 从未被 rasterized。</td><td>first opaque depth 驱动 prefill；GlassFront 独立输出。</td><td>Glass front 进入 opaque terrain depth。</td></tr>
+            <tr><td>无界路径成本</td><td>TIR/多界面时 p95 爆炸。</td><td>deterministic top-K、query/event budget、exhaustion counter。</td><td>默认 authored scenes 出现非零 exhaustion。</td></tr>
+            <tr><td>存档静默误读</td><td>旧 binary 把 Glass 当未知/其他材质继续加载。</td><td>schema 2 writer + dual reader + compatibility fixtures。</td><td>新文件仍写 schema 1 却含 ID 9。</td></tr>
+            <tr><td>DDGI temporal 污染</td><td>参数编辑后 ghost、mixed revision、错误 publication。</td><td>material revision 入 immutable snapshot；按变更类别失效 history。</td><td>一次 sweep 混用两套 Glass optical 参数。</td></tr>
+            <tr><td>带宽回归</td><td>无 Glass 场景也分配/清空 full-res targets。</td><td>0% fast path、lazy resources、lifetime aliasing、release capture。</td><td>Glass OFF 超出现有 perf gate。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>明确否决的方案</h3>
+      <ul>
+        <li><strong>硬件 RT/TLAS/BLAS/ray query：</strong>已超出技术选型，不列作“以后兜底”。</li>
+        <li><strong>Glass = alpha blend：</strong>没有 exit、路径长度、TIR 或正确 secondary visibility。</li>
+        <li><strong>只复用 Contree surface hit 猜厚度：</strong>surface shell 不包含连续 medium 内部 truth。</li>
+        <li><strong>直接启用 terrarium Glass：</strong>是 analytic/prototype path，当前不可达且不具备 voxel topology semantics。</li>
+        <li><strong>让 DDGI probe ray 真折射并写原方向 moments：</strong>radiance/distance 方向 contract 不一致。</li>
+        <li><strong>用 OIT 解决 secondary visibility：</strong>OIT 只排序 current-view fragments。</li>
+      </ul>
+    </section>
+
+    <section id="sources">
+      <h2>证据与进一步阅读</h2>
+      <p>
+        详细逐条研究、不可推导边界与 pinned source 链接见
+        <a href="glass_voxel_software_rt_external_research.md">外部 production research</a>；早期全量架构审计见
+        <a href="glass_voxel_material_research.md">Glass voxel material research</a>。
+      </p>
+      <div class="grid two">
+        <div class="card">
+          <h3>一手外部来源</h3>
+          <ul class="source-list">
+            <li>Epic Games：<a href="https://dev.epicgames.com/documentation/unreal-engine/lumen-technical-details-in-unreal-engine?lang=en-US">Lumen Technical Details</a> 与 <a href="https://dev.epicgames.com/documentation/unreal-engine/lumen-performance-guide-for-unreal-engine?lang=en-US">Performance Guide</a>。</li>
+            <li>Godot：<a href="https://docs.godotengine.org/en/4.4/tutorials/3d/global_illumination/using_sdfgi.html">SDFGI docs</a> 与 pinned integration/direct-light shaders。</li>
+            <li>Majercik et al.：<a href="https://jcgt.org/published/0008/02/01/">DDGI 2019</a>、<a href="https://jcgt.org/published/0010/02/01/">Scaling DDGI for Production 2021</a>。</li>
+            <li>NVIDIA：<a href="https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/main/docs/DDGIVolume.md">RTXGI-DDGI volume reference</a> 与 pinned probe trace/storage source。</li>
+            <li>PBRT v4：<a href="https://www.pbr-book.org/4ed/Reflection_Models/Specular_Reflection_and_Transmission">Specular Reflection and Transmission</a>、<a href="https://www.pbr-book.org/4ed/Reflection_Models/Dielectric_BSDF">Dielectric BSDF</a>、<a href="https://pbr-book.org/4ed/Volume_Scattering/Transmittance">Transmittance</a>。</li>
+            <li>Khronos：<a href="https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_transmission/README.md">KHR_materials_transmission</a>、<a href="https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_volume/README.md">KHR_materials_volume</a>、<a href="https://docs.vulkan.org/samples/latest/samples/api/oit_linked_lists/README.html">Vulkan PPLL OIT</a>。</li>
+            <li>Amanatides &amp; Woo：<a href="https://doi.org/10.2312/egtp.19871000">A Fast Voxel Traversal Algorithm for Ray Tracing</a>。</li>
+            <li>Walter et al.：<a href="https://www.cs.cornell.edu/~srm/publications/EGSR07-btdf.pdf">Microfacet Models for Refraction through Rough Surfaces</a>。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>本地代码证据入口</h3>
+          <ul class="source-list">
+            <li><a href="../shader/slang/voxel_types.slang"><code>shader/slang/voxel_types.slang</code></a> — material IDs。</li>
+            <li><a href="../src/terrain_persistence.rs"><code>src/terrain_persistence.rs</code></a> — format/schema 与 fixtures。</li>
+            <li><a href="../shader/slang/scene_marching.slang"><code>scene_marching.slang</code></a> / <a href="../shader/slang/surface_extraction.slang"><code>surface_extraction.slang</code></a> — first-hit surface shell。</li>
+            <li><a href="../shader/slang/tracer.slang"><code>tracer.slang</code></a> — atlas/Contree query resources。</li>
+            <li><a href="../shader/slang/composition.slang"><code>composition.slang</code></a> / <a href="../shader/slang/composition_scene.slang"><code>composition_scene.slang</code></a> — current one-layer resolve。</li>
+            <li><a href="../shader/slang/ddgi_probe_trace.slang"><code>ddgi_probe_trace.slang</code></a> — radiance/hit-distance production。</li>
+            <li><a href="../shader/slang/ddgi_voxel_visibility_pack.slang"><code>ddgi_voxel_visibility_pack.slang</code></a> / <a href="../shader/slang/ddgi_probe_relocate.slang"><code>ddgi_probe_relocate.slang</code></a> — binary occupancy 与 relocation。</li>
+            <li><a href="../shader/slang/local_lighting.slang"><code>local_lighting.slang</code></a> / <a href="../shader/slang/tracer_shadow.slang"><code>tracer_shadow.slang</code></a> — finite-segment local visibility 与 direct terrain shadow。</li>
+            <li><a href="../config/perf_scenarios.toml"><code>config/perf_scenarios.toml</code></a> / <a href="performance-benchmarking.md"><code>docs/performance-benchmarking.md</code></a> — release A/B gates。</li>
+          </ul>
+        </div>
+      </div>
+      <p class="muted">
+        证据分级：外部链接用于证明算法、表示或 production pattern；项目结论来自当前 checkout 的代码与运行日志；
+        +1.0/+1.5 ms 仅为尚未实测的规划目标。本文不把任何第三方引擎的存在当作本项目已经完成 Glass 的证据。
+      </p>
+    </section>
+  </main>
+
+  <footer class="shell">
+    Re: Flora Glass voxel implementation guide · generated from live repository audit and primary-source research · 2026-08-27
+  </footer>
+</body>
+</html>

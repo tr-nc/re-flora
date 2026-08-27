@@ -5,6 +5,10 @@
 审计基线：`0b607897bd2cf41bcc1ad686a379f5cabde710ba`
 主线复审：2026-08-27，合入 `main@400794afca0b8d7dd3fbf44e2804a53354cca29f`
 
+> 面向实施的中文 HTML 指南：[`glass_voxel_software_rt_implementation_guide.html`](glass_voxel_software_rt_implementation_guide.html)。
+> 外部引擎、论文、DDGI 与 pinned source 的逐条调研：
+> [`glass_voxel_software_rt_external_research.md`](glass_voxel_software_rt_external_research.md)。
+
 > 2026-08-27 技术选型：不采用 Vulkan/DXR 硬件光追、BLAS/TLAS 或 ray query。目标路线固定为
 > 当前 raster + compute/software ray tracing。文中硬件 ray-query 内容只保留为被否决方案的能力
 > 边界，不属于实施路线。
