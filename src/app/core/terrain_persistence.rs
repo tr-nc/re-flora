@@ -5,6 +5,9 @@ use crate::terrain_persistence::{
 };
 use std::path::Path;
 
+const GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON: &str =
+    "Glass voxel experiment cannot be persisted";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TerrainPersistenceStatus {
     Ready,
@@ -29,6 +32,7 @@ pub(super) struct TerrainPersistenceRuntime {
     startup_load_requested: bool,
     startup_save_path: Option<String>,
     snapshot_path: String,
+    disabled_reason: Option<&'static str>,
     status: TerrainPersistenceStatus,
     simulation_gate: TerrainSimulationGate,
 }
@@ -63,6 +67,9 @@ impl TerrainPersistenceRuntime {
                 .clone()
                 .or_else(|| options.terrain_save_path.clone())
                 .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
+            disabled_reason: options
+                .glass_voxel_test_scene
+                .then_some(GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON),
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,
         })
@@ -85,11 +92,15 @@ impl TerrainPersistenceRuntime {
     }
 
     pub(super) fn can_start_operation(&self) -> bool {
-        self.status == TerrainPersistenceStatus::Ready
+        self.disabled_reason.is_none()
+            && self.status == TerrainPersistenceStatus::Ready
             && self.simulation_gate == TerrainSimulationGate::Running
     }
 
     pub(super) fn status_label(&self) -> String {
+        if let Some(reason) = self.disabled_reason {
+            return format!("Disabled: {reason}");
+        }
         match &self.status {
             TerrainPersistenceStatus::Ready => match self.simulation_gate {
                 TerrainSimulationGate::Running => "Ready".to_owned(),
@@ -416,9 +427,29 @@ mod tests {
             startup_load_requested: false,
             startup_save_path: None,
             snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
+            disabled_reason: None,
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,
         }
+    }
+
+    #[test]
+    fn glass_voxel_experiment_disables_runtime_persistence_without_freezing_the_world() {
+        let options = crate::AppOptions::try_from_arg_strings(vec![
+            "re-flora".to_owned(),
+            "--glass-voxel-test-scene".to_owned(),
+        ])
+        .unwrap();
+        let mut runtime = TerrainPersistenceRuntime::from_options(&options).unwrap();
+
+        assert!(!runtime.can_start_operation());
+        assert!(!runtime.begin_save());
+        assert!(runtime.allows_world_updates());
+        assert!(runtime.allows_water_simulation());
+        assert_eq!(
+            runtime.status_label(),
+            "Disabled: Glass voxel experiment cannot be persisted",
+        );
     }
 
     #[test]

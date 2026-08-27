@@ -32,6 +32,7 @@ pub enum FootstepSurface {
     Stone,
     Wood,
     Stucco,
+    Glass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

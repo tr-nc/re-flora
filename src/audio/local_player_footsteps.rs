@@ -1594,6 +1594,7 @@ mod tests {
             FootstepSurface::Stone,
             FootstepSurface::Wood,
             FootstepSurface::Stucco,
+            FootstepSurface::Glass,
         ] {
             footstep.surface = surface;
             assert_eq!(bank.path_for(&footstep), fallback);

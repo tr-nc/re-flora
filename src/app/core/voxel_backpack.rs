@@ -2,6 +2,7 @@ use crate::builder::{
     ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE,
     VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
+use crate::voxel_material::{material_for, VoxelMaterialMode, VoxelSurfaceClass};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BackpackVoxel {
@@ -102,8 +103,17 @@ impl VoxelBackpack {
         *count = count.saturating_add(amount);
     }
 
-    pub(super) fn deposit_removed(&mut self, stats: &ChunkModifyStats) {
+    pub(super) fn deposit_removed(
+        &mut self,
+        stats: &ChunkModifyStats,
+        material_mode: VoxelMaterialMode,
+    ) {
         for voxel in BackpackVoxel::ALL {
+            if material_for(voxel.voxel_type(), material_mode).surface_class
+                == VoxelSurfaceClass::Dielectric
+            {
+                continue;
+            }
             self.deposit(voxel, stats.count_removed(voxel.voxel_type()));
         }
     }
@@ -125,8 +135,10 @@ impl VoxelBackpack {
 mod tests {
     use super::{BackpackVoxel, VoxelBackpack};
     use crate::builder::{
-        ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_ROCK, VOXEL_TYPE_STUCCO,
+        ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+        VOXEL_TYPE_STUCCO,
     };
+    use crate::voxel_material::VoxelMaterialMode;
 
     #[test]
     fn deposits_and_withdrawals_are_saturating() {
@@ -149,7 +161,7 @@ mod tests {
         stats.removed_counts[VOXEL_TYPE_EMISSIVE as usize] = 11;
         let mut backpack = VoxelBackpack::default();
 
-        backpack.deposit_removed(&stats);
+        backpack.deposit_removed(&stats, VoxelMaterialMode::Standard);
 
         assert_eq!(backpack.count(BackpackVoxel::Dirt), 3);
         assert_eq!(backpack.count(BackpackVoxel::Stucco), 5);
@@ -169,5 +181,19 @@ mod tests {
             BackpackVoxel::Emissive.color_rgb(),
             crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8
         );
+    }
+
+    #[test]
+    fn experimental_glass_is_not_harvested_as_sand_inventory() {
+        let mut stats = ChunkModifyStats::default();
+        stats.removed_counts[VOXEL_TYPE_SAND as usize] = 4;
+
+        let mut standard = VoxelBackpack::default();
+        standard.deposit_removed(&stats, VoxelMaterialMode::Standard);
+        assert_eq!(standard.count(BackpackVoxel::Sand), 4);
+
+        let mut experiment = VoxelBackpack::default();
+        experiment.deposit_removed(&stats, VoxelMaterialMode::GlassExperiment);
+        assert_eq!(experiment.count(BackpackVoxel::Sand), 0);
     }
 }

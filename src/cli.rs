@@ -304,6 +304,8 @@ pub struct AppOptions {
     pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
+    /// Build the isolated experimental Glass voxel scene (Sand ID 3 is reinterpreted here only).
+    pub glass_voxel_test_scene: bool,
     /// Build the authored house scene on freshly generated terrain.
     pub house_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -366,7 +368,7 @@ impl AppOptions {
         Self::try_from_arg_strings(args).unwrap_or_else(|err| panic!("{err}"))
     }
 
-    fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
+    pub(crate) fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
         let parse_f32_after = |flag: &str| -> Option<f32> {
             args.iter()
                 .position(|a| a == flag)
@@ -573,6 +575,7 @@ impl AppOptions {
         let hybrid_transparency_test_scene = args
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
+        let glass_voxel_test_scene = args.iter().any(|arg| arg == "--glass-voxel-test-scene");
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
         let foliage_shadow_bench_requested = frame_stability_bench
@@ -583,6 +586,19 @@ impl AppOptions {
             .any(|arg| arg == "--canopy-audio-budget-diagnostic");
         let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
             || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+        if glass_voxel_test_scene
+            && (terrain_load_path.is_some()
+                || terrain_save_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || water_edit_soak
+                || foliage_shadow_bench_requested
+                || canopy_audio_diagnostic)
+        {
+            return Err("Do not combine --glass-voxel-test-scene with terrain persistence, another fixed scene, or another benchmark".to_owned());
+        }
         if canopy_audio_diagnostic
             && (terrain_load_path.is_some()
                 || water_experience
@@ -748,6 +764,7 @@ impl AppOptions {
             ddgi_debug_view,
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene,
+            glass_voxel_test_scene,
             house_scene,
             environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels,
@@ -1089,6 +1106,7 @@ Options:
                               for terrain receiver experiments (default: {})
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
+  --glass-voxel-test-scene   Build the isolated experimental Glass voxel scene
   --house-scene               Build the terrain-integrated Hobbit hill house
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
@@ -1209,6 +1227,7 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
+        assert!(!options.glass_voxel_test_scene);
         assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
@@ -1594,6 +1613,35 @@ mod tests {
         let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
 
         assert!(options.hybrid_transparency_test_scene);
+    }
+
+    #[test]
+    fn parses_dedicated_glass_voxel_test_scene() {
+        let options = parse(&["re-flora", "--glass-voxel-test-scene"]);
+
+        assert!(options.glass_voxel_test_scene);
+    }
+
+    #[test]
+    fn glass_voxel_scene_rejects_persistence_and_competing_fixed_scenes() {
+        for incompatible_args in [
+            vec!["--terrain-load", "target/input.rflterrain"],
+            vec!["--terrain-save", "target/output.rflterrain"],
+            vec!["--environment-lighting-test-scene", "donor"],
+            vec!["--hybrid-transparency-test-scene"],
+            vec!["--house-scene"],
+            vec!["--water-experience"],
+        ] {
+            let mut args = vec!["re-flora", "--glass-voxel-test-scene"];
+            args.extend(incompatible_args);
+            let error =
+                AppOptions::try_from_arg_strings(args.into_iter().map(str::to_owned).collect())
+                    .unwrap_err();
+            assert!(
+                error.contains("Do not combine --glass-voxel-test-scene"),
+                "unexpected error: {error}",
+            );
+        }
     }
 
     #[test]

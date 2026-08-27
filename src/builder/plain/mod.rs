@@ -2293,7 +2293,27 @@ impl PlainBuilder {
         cuboids: &[Cuboid],
         fill_voxel_type: u32,
     ) -> Result<()> {
-        self.chunk_modify_cuboids_with_voxel_type_impl(bvh_nodes, cuboids, fill_voxel_type)
+        self.chunk_modify_cuboids_with_voxel_type_and_state(
+            bvh_nodes,
+            cuboids,
+            fill_voxel_type,
+            false,
+        )
+    }
+
+    pub fn chunk_modify_cuboids_with_voxel_type_and_state(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        cuboids: &[Cuboid],
+        fill_voxel_type: u32,
+        clear_fill_voxel_state: bool,
+    ) -> Result<()> {
+        self.chunk_modify_cuboids_with_voxel_type_impl(
+            bvh_nodes,
+            cuboids,
+            fill_voxel_type,
+            clear_fill_voxel_state,
+        )
     }
 
     pub fn chunk_modify_spheres_with_voxel_type(
@@ -2313,6 +2333,7 @@ impl PlainBuilder {
             fill_voxel_type,
             None,
             PRIMITIVE_KIND_SPHERE,
+            false,
             false,
             None,
             None,
@@ -2359,6 +2380,7 @@ impl PlainBuilder {
             fill_voxel_type,
             None,
             PRIMITIVE_KIND_TORUS,
+            false,
             false,
             None,
             None,
@@ -2413,6 +2435,7 @@ impl PlainBuilder {
             target_voxel_type,
             PRIMITIVE_KIND_SPHERE,
             true,
+            false,
             max_write_count,
             max_removed_counts,
         )?;
@@ -2588,6 +2611,7 @@ impl PlainBuilder {
             target_voxel_type,
             PRIMITIVE_KIND_ROUND_CONE,
             false,
+            false,
             None,
             None,
         )?;
@@ -2628,6 +2652,7 @@ impl PlainBuilder {
         bvh_nodes: &[BvhNode],
         cuboids: &[Cuboid],
         fill_voxel_type: u32,
+        clear_fill_voxel_state: bool,
     ) -> Result<()> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
@@ -2641,6 +2666,7 @@ impl PlainBuilder {
             None,
             PRIMITIVE_KIND_CUBOID,
             false,
+            clear_fill_voxel_state,
             None,
             None,
         )?;
@@ -3256,6 +3282,7 @@ fn update_chunk_modify_info(
     target_voxel_type: Option<u32>,
     primitive_kind: u32,
     surface_only: bool,
+    clear_fill_voxel_state: bool,
     max_write_count: Option<u32>,
     max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
 ) -> Result<()> {
@@ -3268,6 +3295,7 @@ fn update_chunk_modify_info(
         primitive_kind,
         surface_only: if surface_only { 1 } else { 0 },
         max_write_count: max_write_count.unwrap_or(0),
+        clear_fill_voxel_state: if clear_fill_voxel_state { 1 } else { 0 },
         max_removed_counts_0_3: max_removed_counts[..4].try_into().unwrap(),
         max_removed_counts_4_7: max_removed_counts[4..8].try_into().unwrap(),
         max_removed_counts_8_11: [max_removed_counts[8], u32::MAX, u32::MAX, u32::MAX],

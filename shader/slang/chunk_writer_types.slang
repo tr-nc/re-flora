@@ -67,6 +67,7 @@ public struct U_ChunkModifyInfo
     public uint primitive_kind;
     public uint surface_only;
     public uint max_write_count;
+    public uint clear_fill_voxel_state;
     public uint4 max_removed_counts_0_3;
     public uint4 max_removed_counts_4_7;
     public uint4 max_removed_counts_8_11;

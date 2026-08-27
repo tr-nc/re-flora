@@ -208,6 +208,7 @@ impl FencePostPlacementService {
                 bvh_nodes,
                 cuboids,
                 voxel_type,
+                atlas_state_write: Default::default(),
             },
             rebuild_bound,
         }
@@ -238,6 +239,7 @@ impl CubePlacementService {
                 bvh_nodes,
                 cuboids,
                 voxel_type: edit.voxel_type,
+                atlas_state_write: Default::default(),
             },
             rebuild_bound,
         }

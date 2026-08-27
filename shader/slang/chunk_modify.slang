@@ -120,6 +120,10 @@ uint loadVoxelType(int3 position)
 
 uint atlasDataForFill(uint oldVoxelData, uint fillVoxelType)
 {
+    if (chunk_modify_info.clear_fill_voxel_state != 0u)
+    {
+        return packVoxelAtlasData(fillVoxelType, 0u, 0u);
+    }
     uint oldVoxelType = voxelTypeFromAtlasData(oldVoxelData);
     if ((fillVoxelType == VOXEL_TYPE_DIRT ||
          fillVoxelType == VOXEL_TYPE_SAND) &&

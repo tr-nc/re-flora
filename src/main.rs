@@ -26,6 +26,7 @@ mod terrain_persistence;
 mod tracer;
 mod tree_gen;
 mod util;
+mod voxel_material;
 mod wind;
 mod window;
 

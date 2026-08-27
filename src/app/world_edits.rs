@@ -69,6 +69,13 @@ pub(crate) struct TerrainBrushEdit {
     pub(crate) radius: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum VoxelAtlasStateWrite {
+    #[default]
+    MaterialDefault,
+    Clear,
+}
+
 impl TerrainBrushEdit {
     pub(crate) fn from_previous_center(
         previous_center: Option<Vec3>,
@@ -94,6 +101,7 @@ pub(crate) enum VoxelEdit {
         bvh_nodes: Vec<BvhNode>,
         cuboids: Vec<Cuboid>,
         voxel_type: u32,
+        atlas_state_write: VoxelAtlasStateWrite,
     },
     #[allow(dead_code)]
     StampSpheres {

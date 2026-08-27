@@ -550,6 +550,8 @@ pub struct ChunkModifyInfo {
     pub primitive_kind: u32,
     pub surface_only: u32,
     pub max_write_count: u32,
+    pub clear_fill_voxel_state: u32,
+    pub _pad1: [u8; 12],
     pub max_removed_counts_0_3: [u32; 4],
     pub max_removed_counts_4_7: [u32; 4],
     pub max_removed_counts_8_11: [u32; 4],
