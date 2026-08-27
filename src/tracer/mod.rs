@@ -30,9 +30,17 @@ use flora_frame_plan::{
     TreeFoliageKind, TreeFoliageMainConfig,
 };
 
+mod leaf_shadow_proxy;
+use leaf_shadow_proxy::build_leaf_shadow_proxies;
+
 mod direct_sun_shadow_runtime;
-use direct_sun_shadow_runtime::DirectSunShadowRuntime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
+use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
+
+mod local_light_visibility_diagnostic;
+use local_light_visibility_diagnostic::{
+    LocalLightVisibilityDiagnostic, LocalLightVisibilityDiagnosticEvidence,
+};
 
 pub mod tree_preview_mesh;
 
@@ -62,6 +70,7 @@ const LEAF_INSTANCE_TYPE: u32 = crate::flora::species::TREE_LEAF_RENDER_SPECIES_
 const APPLE_INSTANCE_TYPE: u32 = crate::flora::species::APPLE_RENDER_SPECIES_INDEX;
 const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
+pub(crate) const ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT: u32 = 5;
 pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 const FLORA_LIGHTING_CACHE_OFFSET_BITS: u32 = 22;
@@ -79,8 +88,8 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
+    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
     DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
@@ -98,6 +107,12 @@ use crate::gameplay::{
 };
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
+use crate::lighting::{
+    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
+    LocalLightOverflowReason, LocalLightSnapshot, ProviderId, EMISSIVE_VOXEL_COLOR_SRGB,
+    EMISSIVE_VOXEL_SURFACE_RADIANCE, LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS,
+    LOCAL_LIGHT_GPU_CAPACITY,
+};
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::TimeInfo;
@@ -125,6 +140,76 @@ fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<
             build_token.spacing_voxels(),
         )
     });
+}
+
+fn local_light_impact_voxel_bound(
+    bound: LocalLightInfluenceBound,
+    voxels_per_world_unit: UVec3,
+    world_extent_voxels: UVec3,
+) -> UAabb3 {
+    let scale = voxels_per_world_unit.as_vec3();
+    let extent = world_extent_voxels.as_vec3();
+    let min = (bound.min() * scale).floor().clamp(Vec3::ZERO, extent);
+    let max = (bound.max() * scale).ceil().clamp(Vec3::ZERO, extent);
+    UAabb3::new(min.as_uvec3(), max.as_uvec3())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiLocalLightGpuEvidence {
+    pub field: DdgiFieldIdentity,
+    pub local_source_revision: u64,
+    pub local_light_count: u32,
+    pub sampled_probe_count: u32,
+    pub expected_probe_count: u32,
+    pub totals: DdgiLocalLightTraceTotals,
+    pub emissive_surface_hits: u64,
+    pub emissive_surface_radiance_luma_q8: u64,
+}
+
+impl DdgiLocalLightGpuEvidence {
+    fn new(
+        field: DdgiFieldIdentity,
+        local_source_revision: u64,
+        local_light_count: u32,
+        expected_probe_count: u32,
+    ) -> Self {
+        Self {
+            field,
+            local_source_revision,
+            local_light_count,
+            sampled_probe_count: 0,
+            expected_probe_count,
+            totals: DdgiLocalLightTraceTotals::default(),
+            emissive_surface_hits: 0,
+            emissive_surface_radiance_luma_q8: 0,
+        }
+    }
+
+    fn accumulate(&mut self, batch: DdgiRayBatch, stats: DdgiTraceStats) {
+        assert_eq!(self.field, batch.logical());
+        self.sampled_probe_count += batch.probe_count;
+        assert!(self.sampled_probe_count <= self.expected_probe_count);
+        self.totals.accumulate(stats);
+        self.emissive_surface_hits += u64::from(stats.emissive_surface_hits);
+        self.emissive_surface_radiance_luma_q8 +=
+            u64::from(stats.emissive_surface_radiance_luma_q8);
+    }
+
+    pub fn is_complete(self) -> bool {
+        self.sampled_probe_count == self.expected_probe_count
+    }
+
+    pub fn matches_classified_field(self, classified: DdgiFieldIdentity) -> bool {
+        let sampled = self.field.field();
+        let classified_source = classified.source();
+        let classified_key = classified.field();
+        sampled.serial() == classified_key.serial()
+            && sampled.geometry_revision() == classified_key.geometry_revision()
+            && sampled.radiance_revision() == classified_key.radiance_revision()
+            && sampled.spacing_voxels() == classified_key.spacing_voxels()
+            && sampled.update_epoch() == classified_key.update_epoch()
+            && self.field.source() == classified_source
+    }
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -570,14 +655,17 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 
 fn flora_lighting_cache_dispatch_enabled(
     raster_flora_ddgi_lighting: bool,
+    local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    raster_flora_ddgi_lighting && required_entries > 0
+    (raster_flora_ddgi_lighting || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
 mod flora_lighting_cache_location_tests {
     use super::*;
+    use crate::ddgi::{DdgiFieldKey, DdgiFieldState};
+    use crate::lighting::{LocalLight, LocalLightRegistry, PointLight};
 
     #[test]
     fn cache_location_packs_offset_voxel_count_and_lod_without_overlap() {
@@ -598,10 +686,60 @@ mod flora_lighting_cache_location_tests {
     }
 
     #[test]
-    fn cache_dispatch_requires_ddgi_mode_and_visible_flora() {
-        assert!(flora_lighting_cache_dispatch_enabled(true, 1));
-        assert!(!flora_lighting_cache_dispatch_enabled(true, 0));
-        assert!(!flora_lighting_cache_dispatch_enabled(false, 1));
+    fn cache_dispatch_requires_environment_or_local_lighting_and_visible_flora() {
+        assert!(flora_lighting_cache_dispatch_enabled(true, false, 1));
+        assert!(flora_lighting_cache_dispatch_enabled(false, true, 1));
+        assert!(!flora_lighting_cache_dispatch_enabled(true, true, 0));
+        assert!(!flora_lighting_cache_dispatch_enabled(false, false, 1));
+    }
+
+    #[test]
+    fn point_light_gpu_values_stay_in_world_units_and_priority_scales_each_axis_once() {
+        let mut domain = LocalLightRegistry::default();
+        domain.add(LocalLight::Point(
+            PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let gpu = LocalLightGpuSnapshot::from_authoritative(
+            &domain.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        );
+        assert_eq!(gpu.lights[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(gpu.lights[0].range, 0.5);
+        assert_eq!(gpu.lights[0].source_radius, 0.05);
+
+        let world_bound = gpu.payload().influence_bound().unwrap();
+        let voxel_bound = local_light_impact_voxel_bound(
+            world_bound,
+            UVec3::new(256, 128, 64),
+            UVec3::splat(1_024),
+        );
+        assert_eq!(voxel_bound.min(), UVec3::new(128, 192, 160));
+        assert_eq!(voxel_bound.max(), UVec3::new(384, 320, 224));
+    }
+
+    #[test]
+    fn gpu_sweep_identity_accepts_only_the_final_state_classification_change() {
+        let source = DdgiFieldKey::new(8, 4, 2, 32, DdgiFieldState::Converging, 6).unwrap();
+        let sampled = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(9, 4, 2, 32, DdgiFieldState::Converging, 7).unwrap(),
+            Some(source),
+        )
+        .unwrap();
+        let classified = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(9, 4, 2, 32, DdgiFieldState::Converged, 7).unwrap(),
+            Some(source),
+        )
+        .unwrap();
+        let evidence = DdgiLocalLightGpuEvidence::new(sampled, 1, 1, 4_913);
+
+        assert!(evidence.matches_classified_field(classified));
+        let different_epoch = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(10, 4, 2, 32, DdgiFieldState::Converged, 8).unwrap(),
+            Some(sampled.field()),
+        )
+        .unwrap();
+        assert!(!evidence.matches_classified_field(different_epoch));
     }
 
     #[test]
@@ -625,6 +763,14 @@ struct TreeRenderInstanceData {
     leaf_local_pos: IVec3,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TreeShadowRenderInstanceData {
+    world_pos: UVec3,
+    leaf_local_pos: IVec3,
+    billboard_size_voxels: f32,
+    opacity_layer_count: f32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TracerDesc {
     pub scaling_factor: f32,
@@ -637,6 +783,7 @@ pub struct TracerDesc {
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
+    pub ddgi_local_light_trace_diagnostics_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -701,10 +848,17 @@ struct PreparedTreeFoliageBatch<'a> {
     descriptors: PreparedDrawDescriptors,
 }
 
-fn tree_foliage_instance<'a>(
-    surface_resources: &'a SurfaceResources,
+#[derive(Clone, Copy)]
+enum TreeFoliageInstanceStream {
+    Visible,
+    Shadow,
+}
+
+fn tree_foliage_instance(
+    surface_resources: &SurfaceResources,
     batch: TreeFoliageBatch,
-) -> &'a TreeLeavesInstance {
+    stream: TreeFoliageInstanceStream,
+) -> &TreeLeavesInstance {
     let instances = match batch.kind() {
         TreeFoliageKind::Leaves => &surface_resources.instances.leaves_instances,
         TreeFoliageKind::Apples => &surface_resources.instances.apple_instances,
@@ -716,10 +870,18 @@ fn tree_foliage_instance<'a>(
             batch.tree_id(),
         )
     });
+    let actual_instance_count = match stream {
+        TreeFoliageInstanceStream::Visible => instance.resources.instances_len,
+        TreeFoliageInstanceStream::Shadow => instance.resources.shadow_instances_len,
+    };
     assert_eq!(
-        instance.resources.instances_len,
+        actual_instance_count,
         batch.instance_count(),
-        "tree foliage frame batch {:?} tree {} instance count changed after planning",
+        "tree foliage {:?} stream batch {:?} tree {} instance count changed after planning",
+        match stream {
+            TreeFoliageInstanceStream::Visible => "visible",
+            TreeFoliageInstanceStream::Shadow => "shadow",
+        },
         batch.kind(),
         batch.tree_id(),
     );
@@ -758,8 +920,17 @@ pub struct Tracer {
     ddgi_history_retention: f32,
     prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
+    ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
+    ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
+    local_light_live_revision: Option<u64>,
+    local_light_live_payload: Option<crate::lighting::LocalLightGpuPayload>,
+    local_light_uploaded_source_revision: Option<u64>,
+    local_light_uploaded_registry_revision: Option<u64>,
+    local_light_live_count: u32,
+    local_light_live_overflow: Vec<LocalLightOverflow>,
+    local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -813,6 +984,12 @@ impl Tracer {
             &*self.resources.uniforms.post_processing_info,
             &*self.resources.shadow.shadow_camera_info,
             &*self.resources.wind.wind_sources,
+            &*self.resources.local_lighting.local_light_info,
+            &*self.resources.local_lighting.local_lights,
+            &*self
+                .resources
+                .local_lighting
+                .local_light_visibility_diagnostic_info,
         ];
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
@@ -886,8 +1063,7 @@ impl Tracer {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
             },
-            spatial_sound_manager.clone(),
-        )?;
+        );
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
@@ -908,6 +1084,7 @@ impl Tracer {
             chunk_bound,
             render_extent,
             screen_extent,
+            desc.environment_irradiance_capture_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
@@ -1076,8 +1253,17 @@ impl Tracer {
             ddgi_history_retention: 0.99,
             prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
+            ddgi_local_light_gpu_evidence_accumulating: None,
+            ddgi_local_light_gpu_evidence_complete: None,
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
+            local_light_live_revision: None,
+            local_light_live_payload: None,
+            local_light_uploaded_source_revision: None,
+            local_light_uploaded_registry_revision: None,
+            local_light_live_count: 0,
+            local_light_live_overflow: Vec::new(),
+            local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -1213,7 +1399,22 @@ impl Tracer {
         self.ddgi_runtime
             .volumes_mut()
             .builder_mut()
-            .begin_scheduled_work(work, runtime_work.local_refresh_voxel_bound())?;
+            .begin_scheduled_work(
+                work,
+                runtime_work.local_refresh_voxel_bound(),
+                runtime_work.radiance_history_policy(),
+                runtime_work.probe_priority(),
+            )?;
+        if let Some(priority) = runtime_work.probe_priority() {
+            log::debug!(
+                "[DDGI][PRIORITY] latched reason={:?} voxel_min={:?} voxel_max={:?} field_serial={} revision={}",
+                priority.reason(),
+                priority.voxel_bound().min(),
+                priority.voxel_bound().max(),
+                destination.serial(),
+                destination.radiance_revision(),
+            );
+        }
         if work.kind() == DdgiScheduledWorkKind::GeometryUpdate {
             if let Some((dirty_probes, preserved_probes)) = self
                 .ddgi_runtime
@@ -1245,8 +1446,9 @@ impl Tracer {
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
+        let lighting = self.ddgi_runtime.lighting_diagnostics();
         log::debug!(
-            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?}",
+            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} in_flight_revision={:?} revision_lag={} coalesced_revisions={} mixed_in_flight={}",
             work.kind(),
             destination.serial(),
             destination.geometry_revision(),
@@ -1255,6 +1457,13 @@ impl Tracer {
             destination.state(),
             destination.update_epoch(),
             work.destination().source(),
+            lighting.latest_transport_revision,
+            lighting.latest_source_live_revision,
+            lighting.scheduler_published_revision,
+            lighting.in_flight_revision,
+            lighting.scheduler_revision_lag(),
+            lighting.coalesced_revisions,
+            lighting.has_mixed_in_flight_revision,
         );
         Ok(true)
     }
@@ -1428,6 +1637,160 @@ impl Tracer {
 
     pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
         self.ddgi_runtime.volumes().builder().radiance_snapshot()
+    }
+
+    pub(crate) fn local_light_live_state(&self) -> (Option<u64>, u32) {
+        (
+            self.local_light_uploaded_source_revision,
+            self.local_light_live_count,
+        )
+    }
+
+    pub(crate) fn local_light_revision_observability(
+        &self,
+    ) -> (Option<u64>, Option<u64>, Option<u64>) {
+        (
+            self.local_light_uploaded_source_revision,
+            self.local_light_uploaded_registry_revision,
+            self.local_light_live_revision,
+        )
+    }
+
+    pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {
+        (
+            self.environment_lighting.revision_lag(),
+            self.environment_lighting.coalesced_live_revisions(),
+        )
+    }
+
+    pub(crate) fn local_light_overflow_evidence(&self) -> &[LocalLightOverflow] {
+        &self.local_light_live_overflow
+    }
+
+    pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
+        self.ddgi_runtime.lighting_diagnostics()
+    }
+
+    pub(crate) fn ddgi_local_light_gpu_evidence(&self) -> Option<DdgiLocalLightGpuEvidence> {
+        self.ddgi_local_light_gpu_evidence_complete
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_local_light_visibility_diagnostic(
+        &mut self,
+        geometry_revision: u32,
+        source_revision: u64,
+        light_id: LightId,
+        receiver_position: Vec3,
+        receiver_normal: Vec3,
+        ray_origin_offset_world: f32,
+    ) -> Result<u32> {
+        self.local_light_visibility_diagnostic.request(
+            &self.resources.local_lighting,
+            geometry_revision,
+            source_revision,
+            light_id,
+            receiver_position,
+            receiver_normal,
+            ray_origin_offset_world,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_local_light_aggregate_visibility_diagnostic(
+        &mut self,
+        geometry_revision: u32,
+        source_revision: u64,
+        receiver_position: Vec3,
+        receiver_normal: Vec3,
+        ray_origin_offset_world: f32,
+    ) -> Result<u32> {
+        self.local_light_visibility_diagnostic.request_aggregate(
+            &self.resources.local_lighting,
+            geometry_revision,
+            source_revision,
+            receiver_position,
+            receiver_normal,
+            ray_origin_offset_world,
+        )
+    }
+
+    pub(crate) fn local_light_visibility_diagnostic_evidence(
+        &self,
+    ) -> Option<LocalLightVisibilityDiagnosticEvidence> {
+        self.local_light_visibility_diagnostic.published()
+    }
+
+    fn observe_ddgi_local_light_gpu_evidence(
+        &mut self,
+        batch: DdgiRayBatch,
+        stats: DdgiTraceStats,
+        expected_probe_count: u32,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> Result<()> {
+        if snapshot.local_lights.info.flags & LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS == 0 {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            snapshot.local_lights.info.transport_revision == batch.radiance_revision(),
+            "DDGI local-light diagnostics observed transport revision {} for batch revision {}",
+            snapshot.local_lights.info.transport_revision,
+            batch.radiance_revision(),
+        );
+        if self
+            .ddgi_local_light_gpu_evidence_accumulating
+            .is_none_or(|evidence| evidence.field != batch.logical())
+        {
+            self.ddgi_local_light_gpu_evidence_accumulating = Some(DdgiLocalLightGpuEvidence::new(
+                batch.logical(),
+                snapshot.local_lights.source_revision(),
+                snapshot.local_lights.count(),
+                expected_probe_count,
+            ));
+        }
+        let evidence = self
+            .ddgi_local_light_gpu_evidence_accumulating
+            .as_mut()
+            .expect("DDGI local-light diagnostics accumulator must exist");
+        anyhow::ensure!(
+            evidence.local_source_revision == snapshot.local_lights.source_revision()
+                && evidence.local_light_count == snapshot.local_lights.count(),
+            "DDGI local-light diagnostic sweep mixed immutable snapshots",
+        );
+        evidence.accumulate(batch, stats);
+        if evidence.is_complete() {
+            let semantic_identity_changed =
+                self.ddgi_local_light_gpu_evidence_complete
+                    .is_none_or(|previous| {
+                        previous.field.field().geometry_revision()
+                            != evidence.field.field().geometry_revision()
+                            || previous.field.field().radiance_revision()
+                                != evidence.field.field().radiance_revision()
+                            || previous.local_source_revision != evidence.local_source_revision
+                            || previous.local_light_count != evidence.local_light_count
+                    });
+            if semantic_identity_changed {
+                log::info!(
+                    "[DDGI][LOCAL_LIGHT_GPU_EVIDENCE] complete field_serial={} geometry_revision={} radiance_revision={} update_epoch={} source_revision={} light_count={} probes={} candidates={} visible={} occluded={} irradiance_luma_q8={} irradiance_luma={:.6} emissive_surface_hits={} emissive_surface_radiance_luma_q8={}",
+                    evidence.field.field().serial(),
+                    evidence.field.field().geometry_revision(),
+                    evidence.field.field().radiance_revision(),
+                    evidence.field.field().update_epoch(),
+                    evidence.local_source_revision,
+                    evidence.local_light_count,
+                    evidence.sampled_probe_count,
+                    evidence.totals.candidates,
+                    evidence.totals.visible,
+                    evidence.totals.occluded,
+                    evidence.totals.irradiance_luma_q8,
+                    evidence.totals.irradiance_luma(),
+                    evidence.emissive_surface_hits,
+                    evidence.emissive_surface_radiance_luma_q8,
+                );
+            }
+            self.ddgi_local_light_gpu_evidence_complete = Some(*evidence);
+        }
+        Ok(())
     }
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
@@ -1627,6 +1990,7 @@ impl Tracer {
             self.allocator.clone(),
             render_extent,
             screen_extent,
+            self.desc.environment_irradiance_capture_enabled,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -2058,6 +2422,12 @@ impl Tracer {
             "ddgi_transport_query_info",
             &ddgi_volume.ddgi_transport_query_info
         );
+        write_buffer!(
+            trace,
+            "ddgi_local_light_info",
+            &ddgi_volume.ddgi_local_light_info
+        );
+        write_buffer!(trace, "ddgi_local_lights", &ddgi_volume.ddgi_local_lights);
 
         let source_irradiance = inherited_source
             .and_then(DdgiVolume::published_irradiance_atlas)
@@ -2517,6 +2887,7 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
+        local_lights: &LocalLightSnapshot,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         dither_strength_lsb: f32,
@@ -2614,11 +2985,97 @@ impl Tracer {
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
         self.promote_ready_ddgi_staging();
+        let provisional_local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+            local_lights,
+            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            0,
+        );
+        let provisional_payload = provisional_local_light_gpu.payload();
+        let selection_changed = self.local_light_live_payload.map_or_else(
+            || provisional_payload.count() > 0,
+            |previous| !previous.selection_eq(provisional_payload),
+        );
+        let live_revision = if selection_changed {
+            self.local_light_live_revision
+                .unwrap_or(0)
+                .wrapping_add(1)
+                .max(1)
+        } else {
+            self.local_light_live_revision.unwrap_or(0)
+        };
+        let local_light_gpu = provisional_local_light_gpu
+            .with_live_revision(live_revision)
+            .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+            } else {
+                0
+            });
+        let metadata_changed = self.local_light_uploaded_source_revision
+            != Some(local_lights.source_revision())
+            || self.local_light_uploaded_registry_revision
+                != Some(local_lights.registry_revision());
+        if selection_changed || metadata_changed {
+            self.resources
+                .local_lighting
+                .local_light_info
+                .fill_uniform(&local_light_gpu.info)?;
+            if selection_changed {
+                self.resources
+                    .local_lighting
+                    .local_lights
+                    .fill(&local_light_gpu.lights)?;
+            }
+            self.local_light_live_revision = Some(live_revision);
+            self.local_light_live_payload = Some(local_light_gpu.payload());
+            self.local_light_uploaded_source_revision = Some(local_lights.source_revision());
+            self.local_light_uploaded_registry_revision = Some(local_lights.registry_revision());
+            self.local_light_live_count = local_light_gpu.info.count;
+            log::info!(
+                "[LOCAL_LIGHT][LIVE] source_revision={} registry_revision={} live_gpu_revision={} count={} capacity={} overflow_count={} selection_changed={} direct_upload=true",
+                local_lights.source_revision(),
+                local_lights.registry_revision(),
+                live_revision,
+                local_light_gpu.info.count,
+                local_light_gpu.info.capacity,
+                local_light_gpu.info.overflow_count,
+                selection_changed,
+            );
+            let mut overflow_groups =
+                std::collections::BTreeMap::<(ProviderId, LocalLightOverflowReason), usize>::new();
+            for overflow in &local_light_gpu.overflow {
+                *overflow_groups
+                    .entry((overflow.source.provider(), overflow.reason))
+                    .or_insert(0usize) += 1;
+            }
+            for ((provider, reason), count) in overflow_groups {
+                log::info!(
+                    "[LOCAL_LIGHT][OVERFLOW] source_revision={} provider={} reason={} count={} explicit=true",
+                    local_lights.source_revision(),
+                    provider.get(),
+                    reason.label(),
+                    count,
+                );
+            }
+            self.local_light_live_overflow = local_light_gpu.overflow.clone();
+        }
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
+        let ddgi_world_extent = self
+            .ddgi_runtime
+            .volumes()
+            .status()
+            .active()
+            .grid
+            .world_extent_voxels();
+        let camera_voxel = (self.camera.position() * self.desc.voxel_dim_per_chunk.as_vec3())
+            .clamp(Vec3::ZERO, ddgi_world_extent.as_vec3())
+            .round()
+            .as_uvec3();
+        self.ddgi_runtime
+            .observe_camera_probe_priority(UAabb3::new(camera_voxel, camera_voxel));
         BufferUpdater::update_camera_info(
             &mut self.resources.uniforms.camera_info,
             view_mat,
@@ -2627,6 +3084,15 @@ impl Tracer {
 
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
+        let shadow_light_space_change = self.direct_sun_shadows.observe_sun_direction(sun_dir);
+        if shadow_light_space_change != DirectSunShadowLightSpaceChange::Unchanged {
+            log::debug!(
+                "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
+                shadow_light_space_change,
+                self.direct_sun_shadows.light_space_revision(),
+                sun_dir.normalize(),
+            );
+        }
         if self
             .direct_sun_shadows
             .camera_update_required(update_shadow_map)
@@ -2681,6 +3147,8 @@ impl Tracer {
             voxel_oak_wood_color,
             voxel_rock_color,
             voxel_color_variance,
+            EMISSIVE_VOXEL_COLOR_SRGB,
+            EMISSIVE_VOXEL_SURFACE_RADIANCE,
         )?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,
@@ -2771,21 +3239,105 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        let environment_lighting = self.environment_lighting.update(DdgiRadianceSnapshot {
-            sun_direction: sun_dir,
-            sun_color,
-            sun_luminance,
-            terrain_ray_origin_offset_world,
-            ddgi_receiver_visibility_bias_world,
-            voxel_palette: DdgiVoxelPaletteSnapshot {
-                dirt_color: voxel_dirt_color,
-                sand_color: voxel_sand_color,
-                cherry_wood_color: voxel_cherry_wood_color,
-                oak_wood_color: voxel_oak_wood_color,
-                rock_color: voxel_rock_color,
-                hash_color_variance: voxel_color_variance,
+        let environment_lighting = self.environment_lighting.update(
+            DdgiRadianceSnapshot {
+                sun_direction: sun_dir,
+                sun_color,
+                sun_luminance,
+                terrain_ray_origin_offset_world,
+                ddgi_receiver_visibility_bias_world,
+                voxel_palette: DdgiVoxelPaletteSnapshot {
+                    dirt_color: voxel_dirt_color,
+                    sand_color: voxel_sand_color,
+                    cherry_wood_color: voxel_cherry_wood_color,
+                    oak_wood_color: voxel_oak_wood_color,
+                    rock_color: voxel_rock_color,
+                    hash_color_variance: voxel_color_variance,
+                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
+                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
+                },
+                local_lights: local_light_gpu.payload(),
             },
-        });
+            time_info.time_since_start_duration(),
+        );
+        if environment_lighting.transport_published {
+            log::info!(
+                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
+                environment_lighting.live.revision,
+                environment_lighting.transport.revision,
+                environment_lighting.transport.source_live_revision,
+                environment_lighting.revision_lag(),
+                environment_lighting.coalesced_live_revisions,
+                environment_lighting.transport.published_at.as_millis(),
+                environment_lighting
+                    .transport_age(time_info.time_since_start_duration())
+                    .as_millis(),
+                environment_lighting.transport.change.reason,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_angle_radians
+                    .to_degrees(),
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_color_relative,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .sun_luminance_relative,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .non_solar_changed,
+                environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .local_lights_changed,
+                environment_lighting
+                    .transport
+                    .snapshot
+                    .local_lights
+                    .source_revision(),
+                environment_lighting.transport.snapshot.local_lights.count(),
+                environment_lighting.transport.snapshot.sun_direction,
+                environment_lighting.transport.snapshot.sun_color,
+                environment_lighting.transport.snapshot.sun_luminance,
+            );
+            if environment_lighting
+                .transport
+                .change
+                .delta
+                .local_lights_changed
+            {
+                let impact = environment_lighting
+                    .transport
+                    .change
+                    .delta
+                    .local_light_impact_bound
+                    .map(|bound| {
+                        local_light_impact_voxel_bound(
+                            bound,
+                            self.desc.voxel_dim_per_chunk,
+                            self.ddgi_runtime
+                                .volumes()
+                                .status()
+                                .active()
+                                .grid
+                                .world_extent_voxels(),
+                        )
+                    });
+                self.ddgi_runtime.observe_lighting_impact_probe_priority(
+                    environment_lighting.transport.revision,
+                    impact,
+                );
+            }
+        }
         let ddgi_status = self.ddgi_runtime.volumes().status().active();
         let ddgi_geometry_revision = self
             .ddgi_voxel_visibility
@@ -2797,7 +3349,7 @@ impl Tracer {
         let ddgi_consumer_invalidation_voxel_bound = None;
         BufferUpdater::update_shading_info(
             &self.resources,
-            environment_lighting,
+            environment_lighting.transport,
             ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
@@ -2811,7 +3363,7 @@ impl Tracer {
             ddgi_consumer_invalidation_voxel_bound,
         )?;
         self.ddgi_runtime
-            .observe_authored_lighting(environment_lighting);
+            .observe_authored_lighting(environment_lighting.transport);
 
         BufferUpdater::update_starlight_info(
             &self.resources,
@@ -2881,6 +3433,8 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
+        self.local_light_visibility_diagnostic
+            .resolve_readback(&self.resources.local_lighting)?;
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
             let stats = self
                 .ddgi_runtime
@@ -2947,12 +3501,15 @@ impl Tracer {
                 let filtered_probe_count = volume.status().filtered_probe_count;
                 let probe_count = volume.status().grid.probe_count();
                 let build_token = volume.status().build_token;
+                let radiance_snapshot = volume
+                    .radiance_snapshot()
+                    .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
                 if filtered_probe_count == batch.probe_count
                     || filtered_probe_count == probe_count
-                    || filtered_probe_count % 1_024 == 0
+                    || filtered_probe_count.is_multiple_of(1_024)
                 {
                     log::debug!(
-                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
+                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
                         batch.first_probe_index,
                         batch.probe_count,
                         crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -2963,6 +3520,12 @@ impl Tracer {
                         stats.frontface_hits,
                         stats.backface_hits,
                         stats.non_finite_records,
+                        stats.local_light_candidates,
+                        stats.local_light_visible,
+                        stats.local_light_occluded,
+                        stats.local_light_irradiance_luma_q8,
+                        stats.emissive_surface_hits,
+                        stats.emissive_surface_radiance_luma_q8,
                         batch.geometry_revision(),
                         build_token.map(DdgiBuildToken::serial),
                         batch.radiance_revision(),
@@ -2971,6 +3534,12 @@ impl Tracer {
                         batch.source(),
                     );
                 }
+                self.observe_ddgi_local_light_gpu_evidence(
+                    batch,
+                    stats,
+                    probe_count,
+                    radiance_snapshot,
+                )?;
                 let outcome = self
                     .ddgi_runtime
                     .volumes_mut()
@@ -3015,7 +3584,7 @@ impl Tracer {
                         let status = self.ddgi_runtime.volumes().builder().status();
                         let key = identity.field();
                         log::debug!(
-                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
+                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} max_rgb_value={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
                             build_token.map(DdgiBuildToken::serial),
                             key.geometry_revision(),
                             key.radiance_revision(),
@@ -3027,6 +3596,7 @@ impl Tracer {
                             batch.destination_label(),
                             atlas_stats.max_absolute_rgb_delta,
                             atlas_stats.max_relative_rgb_delta,
+                            atlas_stats.max_rgb_value,
                             atlas_stats.non_finite_count,
                             atlas_stats.negative_rgb_texel_count,
                             atlas_stats.valid_texel_count,
@@ -3091,6 +3661,23 @@ impl Tracer {
                                         "DDGI scheduler rejected validated completion: {error:?}"
                                     )
                                 })?;
+                            let lighting = self.ddgi_runtime.lighting_diagnostics();
+                            log::debug!(
+                                "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
+                                field.field().serial(),
+                                field.field().geometry_revision(),
+                                field.field().radiance_revision(),
+                                field.field().update_epoch(),
+                                work.kind(),
+                                lighting.latest_transport_revision,
+                                lighting.latest_source_live_revision,
+                                lighting.scheduler_published_revision,
+                                lighting.scheduler_revision_lag(),
+                                lighting.coalesced_revisions,
+                                atlas_stats.max_absolute_rgb_delta,
+                                atlas_stats.max_relative_rgb_delta,
+                                lighting.has_mixed_in_flight_revision,
+                            );
                             if self.ddgi_runtime.volumes().builder_is_active() {
                                 let descriptor_generation = self.next_descriptor_generation();
                                 let descriptor_retirements = {
@@ -3168,6 +3755,19 @@ impl Tracer {
             .volumes()
             .builder()
             .record_cpu_buffer_writes(cmdbuf);
+
+        if self.local_light_visibility_diagnostic.has_queued() {
+            let diagnostic = &mut self.local_light_visibility_diagnostic;
+            let resources = &self.resources.local_lighting;
+            let pipeline = &self.compute_pipelines.local_light_visibility_diagnostic_ppl;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "local_light.fixed_visibility_diagnostic",
+                || diagnostic.record(resources, pipeline, cmdbuf),
+            );
+        }
 
         if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
             let revision = lighting.revision;
@@ -3258,6 +3858,43 @@ impl Tracer {
             );
         }
 
+        if self
+            .ddgi_runtime
+            .frame_plan()
+            .visibility_preservation_needed
+        {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.visibility_preserve",
+                || {
+                    self.ddgi_runtime
+                        .volumes()
+                        .builder()
+                        .record_visibility_preservation(cmdbuf)
+                },
+            );
+            self.ddgi_runtime.mark_visibility_preserved();
+            log::debug!(
+                "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
+                self.ddgi_runtime
+                    .volumes()
+                    .status()
+                    .builder()
+                    .scheduled_work
+                    .expect("visibility preservation requires scheduled work")
+                    .destination()
+                    .field()
+                    .geometry_revision(),
+                self.ddgi_runtime
+                    .volumes()
+                    .status()
+                    .builder()
+                    .radiance_revision,
+            );
+        }
+
         let ddgi_frame_plan = self.ddgi_runtime.frame_plan();
         let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
         if let Some(batch) = ddgi_ray_batch {
@@ -3334,10 +3971,10 @@ impl Tracer {
             let status = self.ddgi_runtime.volumes().status().builder();
             if status.filtered_probe_count == batch.probe_count
                 || status.filtered_probe_count == status.grid.probe_count()
-                || status.filtered_probe_count % 1_024 == 0
+                || status.filtered_probe_count.is_multiple_of(1_024)
             {
                 log::debug!(
-                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
+                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} priority={:?} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3351,6 +3988,7 @@ impl Tracer {
                     batch.update_epoch(),
                     batch.source(),
                     batch.destination_label(),
+                    batch.probe_priority().map(|priority| priority.reason()),
                     batch.irradiance_history_retention(self.ddgi_history_retention),
                     batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),
@@ -3380,7 +4018,7 @@ impl Tracer {
 
         if render_flags.enable_flora
             && render_flags.enable_leaves
-            && render_flags.enable_shadows
+            && render_flags.enable_leaf_shadows
             && update_shadow_map
         {
             Self::with_gpu_scope(
@@ -4149,6 +4787,7 @@ impl Tracer {
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_flora_ddgi_lighting,
+            self.local_light_live_count > 0,
             required_lighting_cache_entries,
         ) {
             self.flora_lighting_cache.ensure_capacity(
@@ -4244,7 +4883,11 @@ impl Tracer {
                     .iter()
                     .filter(|batch| batch.kind() == TreeFoliageKind::Leaves)
                 {
-                    let tree_instance = tree_foliage_instance(surface_resources, batch);
+                    let tree_instance = tree_foliage_instance(
+                        surface_resources,
+                        batch,
+                        TreeFoliageInstanceStream::Visible,
+                    );
                     let instance_count = batch.instance_count();
                     let mut push_constant = flora_push_constant(
                         time,
@@ -4331,7 +4974,7 @@ impl Tracer {
                                 "flora_lighting_cache",
                                 DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
                                     Some(buffer) => buffer.as_ref(),
-                                    None => &*instances.resource.instances_buf,
+                                    None => &instances.resource.instances_buf,
                                 }),
                             ),
                         ],
@@ -4345,7 +4988,11 @@ impl Tracer {
             .iter()
             .copied()
             .map(|batch| {
-                let instance = tree_foliage_instance(surface_resources, batch);
+                let instance = tree_foliage_instance(
+                    surface_resources,
+                    batch,
+                    TreeFoliageInstanceStream::Visible,
+                );
                 let pipeline = match batch.lod_state() {
                     LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
                     LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
@@ -4362,7 +5009,7 @@ impl Tracer {
                                 "flora_lighting_cache",
                                 DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
                                     Some(buffer) => buffer.as_ref(),
-                                    None => &*instance.resources.instances_buf,
+                                    None => &instance.resources.instances_buf,
                                 }),
                             ),
                         ],
@@ -5104,7 +5751,7 @@ impl Tracer {
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
                     bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
+                    instance_count: instance.resources.shadow_instances_len,
                 }),
             surface_resources
                 .instances
@@ -5113,7 +5760,7 @@ impl Tracer {
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
                     bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
+                    instance_count: instance.resources.shadow_instances_len,
                 }),
         );
         let prepared_tree_foliage_batches = tree_foliage_frame_plan
@@ -5121,13 +5768,17 @@ impl Tracer {
             .iter()
             .copied()
             .map(|batch| {
-                let instance = tree_foliage_instance(surface_resources, batch);
+                let instance = tree_foliage_instance(
+                    surface_resources,
+                    batch,
+                    TreeFoliageInstanceStream::Shadow,
+                );
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
                         cmdbuf,
                         &[(
-                            "tree_leaf_instances",
-                            DescriptorResource::Buffer(&instance.resources.instances_buf),
+                            "tree_leaf_shadow_instances",
+                            DescriptorResource::Buffer(&instance.resources.shadow_instances_buf),
                         )],
                     )
                     .unwrap_or_else(|error| {
@@ -5204,7 +5855,7 @@ impl Tracer {
             for prepared in prepared_batches {
                 let batch = prepared.batch;
                 assert_eq!(
-                    prepared.instance.resources.instances_len,
+                    prepared.instance.resources.shadow_instances_len,
                     batch.instance_count(),
                     "foliage shadow batch {:?} tree {} instance count changed before draw",
                     batch.kind(),
@@ -5982,10 +6633,6 @@ impl Tracer {
         self.camera.vectors()
     }
 
-    pub fn set_footstep_volume_gain(&mut self, volume_gain: f32) {
-        self.camera.set_footstep_volume_gain(volume_gain);
-    }
-
     pub fn update_fly_camera(&mut self, frame_delta_time: f32) {
         self.camera.update_transform_fly_mode(frame_delta_time);
         self.spatial_sound_manager
@@ -5996,25 +6643,36 @@ impl Tracer {
     pub fn prepare_walk_camera_movement(
         &mut self,
         frame_delta_time: f32,
+        sim_time_seconds: f64,
     ) -> crate::gameplay::camera::PlayerWalkMovementRequest {
-        self.camera.prepare_walk_movement(frame_delta_time)
+        self.camera
+            .prepare_walk_movement(frame_delta_time, sim_time_seconds)
     }
 
     pub fn apply_walk_camera_movement(
         &mut self,
         frame_delta_time: f32,
+        sim_time_seconds: f64,
         request: crate::gameplay::camera::PlayerWalkMovementRequest,
         result: crate::gameplay::camera::PlayerWalkMovementResult,
     ) {
         self.camera
-            .apply_walk_movement(frame_delta_time, request, result);
+            .apply_walk_movement(frame_delta_time, sim_time_seconds, request, result);
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
     }
 
+    pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
+        self.camera.take_footstep_events()
+    }
+
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {
         self.sprinkler_resources.upload(instances)
+    }
+
+    pub(crate) fn sprinkler_instance_count(&self) -> u32 {
+        self.sprinkler_resources.instance_count
     }
 
     pub fn upload_irrigation_pipes(&mut self, data: &IrrigationPipeRenderData) -> Result<()> {
@@ -6233,10 +6891,11 @@ impl Tracer {
         &self,
         tree_id: u32,
         instances: &[TreeRenderInstanceData],
+        shadow_instances: &[TreeShadowRenderInstanceData],
         aabb_margin: f32,
         span_label: &str,
     ) -> Result<TreeLeavesInstance> {
-        use crate::builder::TreeLeafInstance;
+        use crate::builder::{TreeLeafInstance, TreeLeafShadowInstance};
 
         let mut instances_data = Vec::with_capacity(instances.len());
         let chunk_world_offset = instances
@@ -6257,6 +6916,25 @@ impl Tracer {
                 span_label,
             );
         }
+        if let Some(max_shadow_pos) = shadow_instances
+            .iter()
+            .map(|instance| instance.world_pos)
+            .reduce(UVec3::max)
+        {
+            let min_shadow_pos = shadow_instances
+                .iter()
+                .map(|instance| instance.world_pos)
+                .reduce(UVec3::min)
+                .expect("non-empty shadow instances must have a minimum");
+            anyhow::ensure!(
+                min_shadow_pos.cmpge(chunk_world_offset).all()
+                    && (max_shadow_pos - chunk_world_offset)
+                        .cmplt(UVec3::splat(1024))
+                        .all(),
+                "{} shadow instance span exceeds packed 10-bit local-position range",
+                span_label,
+            );
+        }
         let pack_local_pos = |world_pos: UVec3| -> u32 {
             let local_pos = world_pos - chunk_world_offset;
             (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
@@ -6269,6 +6947,19 @@ impl Tracer {
                 )?,
             });
         }
+        let shadow_instances_data = shadow_instances
+            .iter()
+            .map(|instance| {
+                Ok(TreeLeafShadowInstance {
+                    packed_local_pos: pack_local_pos(instance.world_pos),
+                    packed_leaf_local_pos: Self::pack_tree_leaf_voxel_local_pos(
+                        instance.leaf_local_pos,
+                    )?,
+                    billboard_size_voxels: instance.billboard_size_voxels,
+                    opacity_layer_count: instance.opacity_layer_count,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let scaled_positions = instances
             .iter()
@@ -6291,6 +6982,7 @@ impl Tracer {
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             instances.len() as u64,
+            shadow_instances.len() as u64,
         );
 
         if !instances_data.is_empty() {
@@ -6301,6 +6993,15 @@ impl Tracer {
             tree_instance.resources.instances_len = instances_data.len() as u32;
         } else {
             tree_instance.resources.instances_len = 0;
+        }
+        if !shadow_instances_data.is_empty() {
+            tree_instance
+                .resources
+                .shadow_instances_buf
+                .fill(&shadow_instances_data)?;
+            tree_instance.resources.shadow_instances_len = shadow_instances_data.len() as u32;
+        } else {
+            tree_instance.resources.shadow_instances_len = 0;
         }
 
         Ok(tree_instance)
@@ -6326,8 +7027,42 @@ impl Tracer {
                 leaf_local_pos,
             })
             .collect::<Vec<_>>();
-        let tree_leaves_instance =
-            self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
+        let leaf_shadow_proxies = build_leaf_shadow_proxies(&leaf_voxel_instances)?;
+        let coarse_proxy_count = leaf_shadow_proxies
+            .iter()
+            .filter(|proxy| {
+                proxy.billboard_size_voxels
+                    == leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS as f32
+            })
+            .count();
+        let refined_proxy_count = leaf_shadow_proxies.len() - coarse_proxy_count;
+        let shadow_instances = leaf_shadow_proxies
+            .iter()
+            .map(|proxy| TreeShadowRenderInstanceData {
+                world_pos: proxy.world_pos,
+                leaf_local_pos: proxy.leaf_local_pos,
+                billboard_size_voxels: proxy.billboard_size_voxels,
+                opacity_layer_count: proxy.opacity_layer_count,
+            })
+            .collect::<Vec<_>>();
+        log::info!(
+            "[LEAF_SHADOW_PROXY] tree={} sources={} proxies={} ratio={:.3} coarse_proxies={} refined_proxies={} coarse_cell_voxels={} fine_cell_voxels={} optical_area_preserved=true",
+            tree_id,
+            leaf_voxel_instances.len(),
+            shadow_instances.len(),
+            shadow_instances.len() as f32 / leaf_voxel_instances.len().max(1) as f32,
+            coarse_proxy_count,
+            refined_proxy_count,
+            leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
+            leaf_shadow_proxy::LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
+        );
+        let tree_leaves_instance = self.build_tree_render_instances(
+            tree_id,
+            &leaf_voxel_instances,
+            &shadow_instances,
+            0.2,
+            "tree leaf",
+        )?;
         let retired = surface_resources
             .instances
             .leaves_instances
@@ -6358,8 +7093,22 @@ impl Tracer {
                 ),
             })
             .collect::<Vec<_>>();
-        let tree_apple_instance =
-            self.build_tree_render_instances(tree_id, &apple_instances, 0.08, "tree apple")?;
+        let apple_shadow_instances = apple_instances
+            .iter()
+            .map(|instance| TreeShadowRenderInstanceData {
+                world_pos: instance.world_pos,
+                leaf_local_pos: instance.leaf_local_pos,
+                billboard_size_voxels: leaf_shadow_proxy::SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS,
+                opacity_layer_count: 1.0,
+            })
+            .collect::<Vec<_>>();
+        let tree_apple_instance = self.build_tree_render_instances(
+            tree_id,
+            &apple_instances,
+            &apple_shadow_instances,
+            0.08,
+            "tree apple",
+        )?;
         let retired = surface_resources
             .instances
             .apple_instances

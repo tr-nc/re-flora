@@ -4,8 +4,8 @@ mod resources;
 pub use resources::*;
 
 use super::plain::{
-    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
-    VOXEL_TYPE_STUCCO,
+    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_OAK_WOOD,
+    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
@@ -21,7 +21,7 @@ use petalsonic::{
 };
 use re_flora_terrain_collider::{
     export_contree_voxel_types, ContreeCpuChunkCache as CpuChunkCache,
-    ContreeCpuNode as CpuContreeNode,
+    ContreeCpuNode as CpuContreeNode, ContreeSparseVoxelError,
 };
 use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
@@ -144,6 +144,29 @@ pub struct ContreeCpuRayQuerySnapshot {
 
 pub type ContreeCpuVoxelSourceSnapshot = ContreeCpuRayQuerySnapshot;
 
+#[cfg(test)]
+pub(crate) fn test_cpu_voxel_source_snapshot(
+    chunk_dim: UVec3,
+    voxel_dim_per_chunk: UVec3,
+    present_chunks: &[UVec3],
+    caches: &[(UVec3, Arc<re_flora_terrain_collider::ContreeCpuChunkCache>)],
+    revisions: &[(UVec3, u64)],
+    unfinished_chunks: &[UVec3],
+) -> ContreeCpuVoxelSourceSnapshot {
+    let mut cpu_scene_chunks = vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize];
+    for &chunk_idx in present_chunks {
+        cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)] = Some(chunk_idx);
+    }
+    ContreeCpuRayQuerySnapshot {
+        chunk_dim,
+        voxel_dim_per_chunk,
+        cpu_scene_chunks,
+        cpu_chunk_caches: caches.iter().cloned().collect(),
+        cpu_chunk_source_revisions: revisions.iter().copied().collect(),
+        unfinished_cpu_chunk_caches: unfinished_chunks.iter().copied().collect(),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContreeCpuVoxelSourceDependency {
     pub chunk_idx: UVec3,
@@ -174,6 +197,28 @@ pub struct ContreeCpuVoxelBlockNotReady {
 pub enum ContreeCpuVoxelBlockExport {
     Ready(ContreeCpuVoxelBlock),
     NotReady(ContreeCpuVoxelBlockNotReady),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContreeCpuSparseVoxelExport {
+    Ready {
+        dependency: ContreeCpuVoxelSourceDependency,
+        world_voxels: Vec<UVec3>,
+    },
+    NotReady {
+        dependency: ContreeCpuVoxelSourceDependency,
+    },
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ContreeCpuSparseVoxelExportError {
+    #[error("chunk {chunk_idx:?} is outside chunk grid {chunk_dim:?}")]
+    ChunkOutOfBounds { chunk_idx: UVec3, chunk_dim: UVec3 },
+    #[error("malformed immutable Contree cache for chunk {chunk_idx:?}: {cache_error:?}")]
+    MalformedCache {
+        chunk_idx: UVec3,
+        cache_error: ContreeSparseVoxelError,
+    },
 }
 
 #[derive(Clone, Copy, Debug, thiserror::Error, PartialEq, Eq)]
@@ -225,6 +270,59 @@ impl ContreeCpuRayQuerySnapshot {
             &self.cpu_chunk_source_revisions,
             chunk_idx,
         )
+    }
+
+    /// Returns all surface voxels of one material type by traversing allocated Contree leaves.
+    /// The result and dependency belong to this immutable snapshot and are safe to process away
+    /// from the render thread; callers must still compare the dependency before publication.
+    pub fn export_chunk_voxels_matching_type(
+        &self,
+        chunk_idx: UVec3,
+        wanted_voxel_type: u32,
+    ) -> std::result::Result<ContreeCpuSparseVoxelExport, ContreeCpuSparseVoxelExportError> {
+        let dependency = self.chunk_source_dependency(chunk_idx).ok_or(
+            ContreeCpuSparseVoxelExportError::ChunkOutOfBounds {
+                chunk_idx,
+                chunk_dim: self.chunk_dim,
+            },
+        )?;
+        if !dependency.is_present {
+            return Ok(ContreeCpuSparseVoxelExport::Ready {
+                dependency,
+                world_voxels: Vec::new(),
+            });
+        }
+        let Some(cache) = self.cpu_chunk_caches.get(&chunk_idx) else {
+            return Ok(ContreeCpuSparseVoxelExport::NotReady { dependency });
+        };
+        if self.unfinished_cpu_chunk_caches.contains(&chunk_idx) {
+            return Ok(ContreeCpuSparseVoxelExport::NotReady { dependency });
+        }
+        let world_voxels = cache
+            .voxels_matching_type(
+                self.voxel_dim_per_chunk,
+                crate::builder::VOXEL_TYPE_MASK as u32,
+                wanted_voxel_type,
+            )
+            .map_err(
+                |cache_error| ContreeCpuSparseVoxelExportError::MalformedCache {
+                    chunk_idx,
+                    cache_error,
+                },
+            )?;
+        Ok(ContreeCpuSparseVoxelExport::Ready {
+            dependency,
+            world_voxels,
+        })
+    }
+
+    pub fn is_chunk_voxel_cache_ready(&self, dependency: ContreeCpuVoxelSourceDependency) -> bool {
+        self.chunk_source_dependency(dependency.chunk_idx) == Some(dependency)
+            && (!dependency.is_present
+                || (!self
+                    .unfinished_cpu_chunk_caches
+                    .contains(&dependency.chunk_idx)
+                    && self.cpu_chunk_caches.contains_key(&dependency.chunk_idx)))
     }
 
     pub fn export_voxel_block(
@@ -1206,6 +1304,13 @@ impl ContreeBuilder {
 
     pub fn cpu_chunk_cache_jobs_idle(&self) -> bool {
         self.cpu_chunk_cache_jobs_are_idle()
+    }
+
+    pub fn cpu_chunk_cache_pending_len(&self) -> usize {
+        self.cpu_chunk_cache_queue.len()
+            + self.cpu_chunk_cache_queue.active_len()
+            + usize::from(self.active_cpu_chunk_cache_job.is_some())
+            + usize::from(self.cpu_chunk_cache_decode_inflight)
     }
 
     #[allow(dead_code)]
@@ -2212,6 +2317,84 @@ mod tests {
     }
 
     #[test]
+    fn sparse_voxel_export_is_deterministic_revision_bound_and_explicit_on_failure() {
+        let chunk = UVec3::ZERO;
+        let cache = leaf_cache(
+            chunk,
+            &[
+                (UVec3::new(3, 3, 3), 8),
+                (UVec3::new(0, 2, 0), 8),
+                (UVec3::new(1, 0, 0), 7),
+                (UVec3::ZERO, 8),
+            ],
+        );
+        let snapshot = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[chunk],
+            &[(chunk, cache)],
+            &[(chunk, 12)],
+            &[],
+        );
+
+        assert_eq!(
+            snapshot
+                .export_chunk_voxels_matching_type(chunk, VOXEL_TYPE_EMISSIVE)
+                .unwrap(),
+            ContreeCpuSparseVoxelExport::Ready {
+                dependency: ContreeCpuVoxelSourceDependency {
+                    chunk_idx: chunk,
+                    source_revision: Some(12),
+                    is_present: true,
+                },
+                world_voxels: vec![UVec3::ZERO, UVec3::new(0, 2, 0), UVec3::new(3, 3, 3),],
+            }
+        );
+
+        let unfinished = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[chunk],
+            &[],
+            &[(chunk, 13)],
+            &[chunk],
+        );
+        assert_eq!(
+            unfinished
+                .export_chunk_voxels_matching_type(chunk, VOXEL_TYPE_EMISSIVE)
+                .unwrap(),
+            ContreeCpuSparseVoxelExport::NotReady {
+                dependency: ContreeCpuVoxelSourceDependency {
+                    chunk_idx: chunk,
+                    source_revision: Some(13),
+                    is_present: true,
+                }
+            }
+        );
+
+        assert!(matches!(
+            snapshot.export_chunk_voxels_matching_type(UVec3::X, VOXEL_TYPE_EMISSIVE),
+            Err(ContreeCpuSparseVoxelExportError::ChunkOutOfBounds { .. })
+        ));
+        let shallow_cache = leaf_cache(chunk, &[(UVec3::ZERO, 8)]);
+        let malformed = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(256),
+            &[chunk],
+            &[(chunk, shallow_cache)],
+            &[(chunk, 14)],
+            &[],
+        );
+        assert!(matches!(
+            malformed.export_chunk_voxels_matching_type(chunk, VOXEL_TYPE_EMISSIVE),
+            Err(ContreeCpuSparseVoxelExportError::MalformedCache {
+                cache_error: ContreeSparseVoxelError::UnexpectedLeafDepth { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn empty_scene_chunk_is_ready_but_present_missing_cache_is_not_ready() {
         let chunk = UVec3::ZERO;
         let empty_snapshot =
@@ -2389,6 +2572,7 @@ mod tests {
         let cherry = acoustic_material_for_voxel(VOXEL_TYPE_CHERRY_WOOD);
         let oak = acoustic_material_for_voxel(VOXEL_TYPE_OAK_WOOD);
         let rock = acoustic_material_for_voxel(VOXEL_TYPE_ROCK);
+        let emissive = acoustic_material_for_voxel(VOXEL_TYPE_EMISSIVE);
 
         assert!(sand.absorption[2] > dirt.absorption[2]);
         assert!(dirt.scattering > stucco.scattering);
@@ -2397,7 +2581,13 @@ mod tests {
             .iter()
             .all(|coefficient| *coefficient <= 0.05));
         assert_eq!(cherry, oak);
+        assert_eq!(emissive, stucco);
         assert_ne!(stucco, AcousticMaterial::default());
+        assert_eq!(
+            acoustic_material_label_for_transmission(cherry.transmission),
+            Some("wood")
+        );
+        assert_eq!(acoustic_material_label_for_transmission([1.0; 3]), None);
     }
 }
 
@@ -2497,7 +2687,7 @@ fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
             scattering: 0.90,
             transmission: [0.035, 0.015, 0.005],
         },
-        VOXEL_TYPE_STUCCO => AcousticMaterial {
+        VOXEL_TYPE_STUCCO | VOXEL_TYPE_EMISSIVE => AcousticMaterial {
             absorption: [0.04, 0.06, 0.08],
             scattering: 0.30,
             transmission: [0.015, 0.008, 0.004],
@@ -2514,6 +2704,25 @@ fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
         },
         _ => AcousticMaterial::default(),
     }
+}
+
+/// Names a Re: Flora-owned acoustic material from the exact transmission value returned by
+/// PetalSonic sample telemetry. The material catalog remains authoritative at the content seam.
+pub(crate) fn acoustic_material_label_for_transmission(
+    transmission: [f32; 3],
+) -> Option<&'static str> {
+    [
+        ("dirt", VOXEL_TYPE_DIRT),
+        ("sand", VOXEL_TYPE_SAND),
+        ("stucco", VOXEL_TYPE_STUCCO),
+        ("wood", VOXEL_TYPE_CHERRY_WOOD),
+        ("rock", VOXEL_TYPE_ROCK),
+    ]
+    .into_iter()
+    .find_map(|(label, voxel_type)| {
+        (acoustic_material_for_voxel(voxel_type).transmission == transmission).then_some(label)
+    })
+    .or_else(|| (AcousticMaterial::default().transmission == transmission).then_some("default"))
 }
 
 fn estimate_terrain_hit_normal(

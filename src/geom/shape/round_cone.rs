@@ -42,6 +42,54 @@ impl RoundCone {
         self.center_b += offset;
     }
 
+    /// Signed distance to the same capped round-cone volume stamped by the tree shader.
+    /// Negative values are inside wood and positive values are outside it.
+    pub fn signed_distance(&self, point: Vec3) -> f32 {
+        let direction = self.center_b - self.center_a;
+        let length_squared = direction.length_squared();
+        let radius_difference = self.radius_a - self.radius_b;
+
+        // When one endpoint sphere contains the other, the enclosing round cone collapses to
+        // their union. Handling this explicitly also avoids the shader formula's divisions by a
+        // zero-length axis in geometry fixtures.
+        if length_squared <= radius_difference * radius_difference || length_squared <= f32::EPSILON
+        {
+            return (point.distance(self.center_a) - self.radius_a)
+                .min(point.distance(self.center_b) - self.radius_b);
+        }
+
+        let a_squared = length_squared - radius_difference * radius_difference;
+        let inverse_length_squared = length_squared.recip();
+        let from_a = point - self.center_a;
+        let y = from_a.dot(direction);
+        let z = y - length_squared;
+        let x_vector = from_a * length_squared - direction * y;
+        let x_squared = x_vector.length_squared();
+        let y_squared = y * y * length_squared;
+        let z_squared = z * z * length_squared;
+        let sign = |value: f32| {
+            if value > 0.0 {
+                1.0
+            } else if value < 0.0 {
+                -1.0
+            } else {
+                0.0
+            }
+        };
+        let k = sign(radius_difference) * radius_difference * radius_difference * x_squared;
+
+        if sign(z) * a_squared * z_squared > k {
+            return (x_squared + z_squared).sqrt() * inverse_length_squared - self.radius_b;
+        }
+        if sign(y) * a_squared * y_squared < k {
+            return (x_squared + y_squared).sqrt() * inverse_length_squared - self.radius_a;
+        }
+
+        (x_squared * a_squared * inverse_length_squared).sqrt() * inverse_length_squared
+            + y * radius_difference * inverse_length_squared
+            - self.radius_a
+    }
+
     #[allow(dead_code)]
     pub fn scale(&mut self, scale: Vec3) {
         self.radius_a *= scale.x;
@@ -68,5 +116,19 @@ impl RoundCone {
 
         // union of the two
         aabb_a.union(&aabb_b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signed_distance_matches_a_capped_cylinder() {
+        let cone = RoundCone::new(1.0, Vec3::ZERO, 1.0, Vec3::Y * 2.0);
+
+        assert!((cone.signed_distance(Vec3::new(0.0, 1.0, 0.0)) + 1.0).abs() < 1.0e-5);
+        assert!((cone.signed_distance(Vec3::new(2.0, 1.0, 0.0)) - 1.0).abs() < 1.0e-5);
+        assert!((cone.signed_distance(Vec3::new(0.0, -2.0, 0.0)) - 1.0).abs() < 1.0e-5);
     }
 }

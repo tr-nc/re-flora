@@ -170,6 +170,8 @@ public struct U_VoxelColors
     public float3 oak_wood_color;
     public float3 rock_color;
     public float hash_color_variance;
+    public float3 emissive_color;
+    public float emissive_radiance;
 };
 
 public struct U_TerrainEditPreview

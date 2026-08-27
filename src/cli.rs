@@ -10,9 +10,27 @@ pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
 
 const SCREENSHOT_USAGE: &str = "Expected `--screenshot <preset> <path> --screenshot-delay <sec>`.";
 const DENOISER_BENCH_USAGE: &str = "Expected `--denoiser-bench <preset> <report.toml>`.";
+const FOLIAGE_SHADOW_BENCH_USAGE: &str = "Expected `--foliage-shadow-bench <report.toml>`.";
 
 pub const DEFAULT_DENOISER_BENCH_WARMUP_FRAMES: u32 = 90;
 pub const DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES: u32 = 64;
+pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_WARMUP_FRAMES: u32 = 600;
+pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES: u32 = 180;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DenoiserBenchScene {
+    CameraSnapshot,
+    FoliageShadow,
+}
+
+impl DenoiserBenchScene {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CameraSnapshot => "camera-snapshot",
+            Self::FoliageShadow => "foliage-shadow",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
@@ -34,6 +52,44 @@ pub enum MonitorScorePreference {
     Lowest,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerrainConnectivityBenchMode {
+    Existing,
+    Correct,
+    Bounded,
+    Manual,
+}
+
+impl TerrainConnectivityBenchMode {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "existing" => Some(Self::Existing),
+            "correct" => Some(Self::Correct),
+            "bounded" => Some(Self::Bounded),
+            "manual" => Some(Self::Manual),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Existing => "existing",
+            Self::Correct => "correct",
+            Self::Bounded => "bounded",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerrainConnectivityBenchOptions {
+    pub mode: TerrainConnectivityBenchMode,
+    pub available_particles: usize,
+    pub warmup_frames: u32,
+    pub observe_frames: u32,
+    pub voxel_budget: usize,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EnvironmentLightingTestCase {
     #[default]
@@ -44,6 +100,11 @@ pub enum EnvironmentLightingTestCase {
     Donor,
     Dogleg,
     RadianceChanges,
+    PointLightChanges,
+    VoxelEmissiveChanges,
+    RasterEmitterChanges,
+    MultiSourceStress,
+    LocalLightScaling,
     DensityChanges,
     TerrainEdits,
     TerrainEditsInflight,
@@ -61,6 +122,11 @@ impl EnvironmentLightingTestCase {
             "donor" => Some(Self::Donor),
             "dogleg" => Some(Self::Dogleg),
             "radiance-changes" => Some(Self::RadianceChanges),
+            "point-light-changes" => Some(Self::PointLightChanges),
+            "voxel-emissive-changes" => Some(Self::VoxelEmissiveChanges),
+            "raster-emitter-changes" => Some(Self::RasterEmitterChanges),
+            "multi-source-stress" => Some(Self::MultiSourceStress),
+            "local-light-scaling" => Some(Self::LocalLightScaling),
             "density-changes" => Some(Self::DensityChanges),
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
@@ -79,6 +145,11 @@ impl EnvironmentLightingTestCase {
             Self::Donor => "donor",
             Self::Dogleg => "dogleg",
             Self::RadianceChanges => "radiance-changes",
+            Self::PointLightChanges => "point-light-changes",
+            Self::VoxelEmissiveChanges => "voxel-emissive-changes",
+            Self::RasterEmitterChanges => "raster-emitter-changes",
+            Self::MultiSourceStress => "multi-source-stress",
+            Self::LocalLightScaling => "local-light-scaling",
             Self::DensityChanges => "density-changes",
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
@@ -139,10 +210,18 @@ pub struct AppOptions {
     pub hidden: bool,
     /// Start with global audio output muted while keeping audio processing active.
     pub mute: bool,
+    /// Emit opt-in, machine-parseable per-tree and per-canopy-sample audio telemetry.
+    pub canopy_audio_telemetry: bool,
+    /// Run the fixed tree/wind/listener trajectory used for canopy audio diagnosis.
+    pub canopy_audio_diagnostic: bool,
+    /// Add deterministic surrounding trees and constrain the Petal acoustic solve budget.
+    pub canopy_audio_budget_diagnostic: bool,
     /// Select an audio output device by case-insensitive substring match.
     pub audio_output_device: Option<String>,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
+    /// Disable only leaf-opacity shadow production while retaining terrain/VSM shadows.
+    pub no_leaf_shadows: bool,
     /// Disable god ray pass.
     pub no_god_rays: bool,
     /// Disable lens flare passes.
@@ -241,6 +320,8 @@ pub struct AppOptions {
     pub authored_flora_bench: bool,
     /// Number of authored flora benchmark paint samples.
     pub authored_flora_bench_samples: u32,
+    /// Run the deterministic 437,205-voxel detached-terrain release benchmark.
+    pub terrain_connectivity_bench: Option<TerrainConnectivityBenchOptions>,
     /// Print the per-worktree run log directory and exit successfully.
     pub print_log_dir: bool,
     /// Print the latest run log path and exit successfully.
@@ -257,6 +338,7 @@ pub struct DenoiserBenchOptions {
     pub warmup_frames: u32,
     pub capture_frames: u32,
     pub camera_motion: bool,
+    pub scene: DenoiserBenchScene,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -439,9 +521,28 @@ impl AppOptions {
         };
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
+        let foliage_shadow_bench = parse_foliage_shadow_bench_request(&args, &parse_u32_after)?;
+        if denoiser_bench.is_some() && foliage_shadow_bench.is_some() {
+            return Err(format!(
+                "Do not combine --denoiser-bench with --foliage-shadow-bench. {DENOISER_BENCH_USAGE} {FOLIAGE_SHADOW_BENCH_USAGE}"
+            ));
+        }
+        let frame_stability_bench = denoiser_bench
+            .as_ref()
+            .map(|(_, options)| options.clone())
+            .or(foliage_shadow_bench);
         if screenshot.is_some() && denoiser_bench.is_some() {
             return Err(format!(
                 "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
+            ));
+        }
+        if screenshot.is_some()
+            && frame_stability_bench
+                .as_ref()
+                .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+        {
+            return Err(format!(
+                "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
         }
         let camera_snapshot = if let Some(screenshot) = &screenshot {
@@ -474,6 +575,26 @@ impl AppOptions {
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
+        let foliage_shadow_bench_requested = frame_stability_bench
+            .as_ref()
+            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow);
+        let canopy_audio_budget_diagnostic = args
+            .iter()
+            .any(|arg| arg == "--canopy-audio-budget-diagnostic");
+        let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
+            || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+        if canopy_audio_diagnostic
+            && (terrain_load_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || screenshot_options.is_some()
+                || denoiser_bench.is_some()
+                || camera_snapshot.is_some())
+        {
+            return Err("Do not combine --canopy-audio-diagnostic with another fixed scene, terrain load, screenshot, denoiser benchmark, or camera snapshot".to_owned());
+        }
         if water_experience
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
@@ -507,21 +628,83 @@ impl AppOptions {
                     .to_owned(),
             );
         }
+        if foliage_shadow_bench_requested
+            && (terrain_load_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || water_edit_soak
+                || camera_snapshot.is_some()
+                || args.iter().any(|arg| arg == "--no-flora"))
+        {
+            return Err("Do not combine --foliage-shadow-bench with another fixed scene, terrain load, camera snapshot, water edit soak, or --no-flora".to_owned());
+        }
 
         let tail_latest_log = args
             .iter()
             .any(|a| a == "--tail-latest-log")
             .then(|| parse_u32_after("--tail-latest-log").unwrap_or(200) as usize);
 
+        let terrain_connectivity_bench_mode = parse_required_string_after(
+            "--terrain-connectivity-bench",
+            "existing, correct, bounded, or manual",
+        )?;
+        let terrain_connectivity_bench = terrain_connectivity_bench_mode
+            .map(|value| {
+                TerrainConnectivityBenchMode::from_cli_value(&value).ok_or_else(|| {
+                    format!(
+                        "Invalid --terrain-connectivity-bench '{value}'. Expected existing, correct, bounded, or manual."
+                    )
+                })
+            })
+            .transpose()?
+            .map(|mode| TerrainConnectivityBenchOptions {
+                mode,
+                available_particles: parse_u32_after(
+                    "--terrain-connectivity-bench-available-particles",
+                )
+                .unwrap_or(16_384)
+                .min(16_384) as usize,
+                warmup_frames: parse_u32_after("--terrain-connectivity-bench-warmup-frames")
+                    .unwrap_or(DEFAULT_TERRAIN_CONNECTIVITY_BENCH_WARMUP_FRAMES),
+                observe_frames: parse_u32_after("--terrain-connectivity-bench-observe-frames")
+                    .unwrap_or(DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES)
+                    .max(1),
+                voxel_budget: parse_u32_after("--terrain-connectivity-bench-voxel-budget")
+                    .unwrap_or(16_384)
+                    .max(1) as usize,
+            });
+        if terrain_connectivity_bench.is_none()
+            && args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--terrain-connectivity-bench-available-particles"
+                        | "--terrain-connectivity-bench-warmup-frames"
+                        | "--terrain-connectivity-bench-observe-frames"
+                        | "--terrain-connectivity-bench-voxel-budget"
+                )
+            })
+        {
+            return Err(
+                "Terrain connectivity benchmark options require --terrain-connectivity-bench"
+                    .to_owned(),
+            );
+        }
+
         Ok(Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
             mute: args.iter().any(|a| a == "--mute"),
+            canopy_audio_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
+            canopy_audio_diagnostic,
+            canopy_audio_budget_diagnostic,
             audio_output_device: parse_required_string_after(
                 "--audio-output-device",
                 "an output device name substring",
             )?,
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
+            no_leaf_shadows: args.iter().any(|a| a == "--no-leaf-shadows"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
@@ -535,7 +718,7 @@ impl AppOptions {
             terrain_load_path,
             terrain_save_path,
             camera_snapshot,
-            denoiser_bench: denoiser_bench.map(|(_, options)| options),
+            denoiser_bench: frame_stability_bench,
             list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             egui_texture_lifecycle_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
@@ -576,6 +759,7 @@ impl AppOptions {
             authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
             authored_flora_bench_samples: parse_u32_after("--authored-flora-bench-samples")
                 .unwrap_or(25),
+            terrain_connectivity_bench,
             print_log_dir: args.iter().any(|a| a == "--print-log-dir"),
             latest_log: args.iter().any(|a| a == "--latest-log"),
             tail_latest_log,
@@ -620,8 +804,42 @@ fn parse_denoiser_bench_request(
             camera_motion: args
                 .iter()
                 .any(|arg| arg == "--denoiser-bench-camera-motion"),
+            scene: DenoiserBenchScene::CameraSnapshot,
         },
     )))
+}
+
+fn parse_foliage_shadow_bench_request(
+    args: &[String],
+    parse_u32_after: &impl Fn(&str) -> Option<u32>,
+) -> Result<Option<DenoiserBenchOptions>, String> {
+    let Some(index) = args.iter().position(|arg| arg == "--foliage-shadow-bench") else {
+        if args.iter().any(|arg| {
+            arg == "--foliage-shadow-bench-warmup-frames" || arg == "--foliage-shadow-bench-frames"
+        }) {
+            return Err(format!(
+                "Foliage shadow benchmark frame options require --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
+            ));
+        }
+        return Ok(None);
+    };
+
+    let report_path = required_denoiser_bench_arg(args, index + 1, "report path")?;
+    let warmup_frames = parse_u32_after("--foliage-shadow-bench-warmup-frames")
+        .unwrap_or(DEFAULT_DENOISER_BENCH_WARMUP_FRAMES);
+    let capture_frames = parse_u32_after("--foliage-shadow-bench-frames")
+        .unwrap_or(DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES);
+    if capture_frames < 2 {
+        return Err("--foliage-shadow-bench-frames must be at least 2".to_owned());
+    }
+
+    Ok(Some(DenoiserBenchOptions {
+        report_path,
+        warmup_frames,
+        capture_frames,
+        camera_motion: false,
+        scene: DenoiserBenchScene::FoliageShadow,
+    }))
 }
 
 fn parse_environment_lighting_test_scene(
@@ -648,7 +866,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -792,9 +1010,14 @@ Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
   --hidden                    Run hidden while preserving render/swapchain path; audio output remains enabled unless --mute is set
   --mute                      Start with global audio output muted while keeping audio processing active
+  --canopy-audio-telemetry    Log opt-in per-tree and per-canopy-sample acoustic telemetry at 10 Hz
+  --canopy-audio-diagnostic   Run the fixed tree, wind, forward/hold/reverse listener trajectory and enable canopy telemetry
+  --canopy-audio-budget-diagnostic
+                              Run the same trajectory with five fixed trees and a two-extent acoustic budget
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
   --no-shadows                Disable shadow rendering passes
+  --no-leaf-shadows           Disable leaf-opacity shadows while retaining terrain/VSM shadows
   --no-god-rays               Disable god ray pass
   --no-lens-flare             Disable lens flare passes
   --no-tracer                 Disable main tracer pass
@@ -816,6 +1039,12 @@ Options:
   --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
   --denoiser-bench-camera-motion
                               Apply deterministic camera motion and retain up to four review keyframes
+  --foliage-shadow-bench <report.toml>
+                              Run the fixed-tree, fixed-camera receiver stability benchmark
+  --foliage-shadow-bench-warmup-frames <N>
+                              Frames discarded before foliage-shadow capture (default: 90)
+  --foliage-shadow-bench-frames <N>
+                              Foliage-shadow frames captured, at least 2 (default: 64)
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -841,7 +1070,9 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
                               Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
-                              radiance-changes, density-changes, terrain-edits,
+                              radiance-changes, point-light-changes, voxel-emissive-changes,
+                              raster-emitter-changes, multi-source-stress, local-light-scaling,
+                              density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
@@ -870,6 +1101,16 @@ Options:
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)
+  --terrain-connectivity-bench <existing|correct|bounded|manual>
+                              Run the 437,205-voxel release benchmark or manual scene
+  --terrain-connectivity-bench-available-particles <N>
+                              Set actual free particle slots at release (default/max: 16384)
+  --terrain-connectivity-bench-warmup-frames <N>
+                              Settled frames before release (default: 600)
+  --terrain-connectivity-bench-observe-frames <N>
+                              Frames retained after release (default: 180)
+  --terrain-connectivity-bench-voxel-budget <N>
+                              Per-frame topology voxel budget in bounded mode (default: 16384)
   --print-log-dir             Print the per-worktree run log directory and exit
   --latest-log                Print the latest run log path and exit
   --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
@@ -886,6 +1127,7 @@ Examples:
   re-flora --no-shadows
   re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
   re-flora --hidden --mute --windowed --denoiser-bench player-default target/denoiser.toml
+  re-flora --hidden --mute --windowed --foliage-shadow-bench target/foliage-shadow.toml
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
@@ -906,6 +1148,7 @@ Examples:
 #[derive(Clone, Debug)]
 pub struct RenderFlags {
     pub enable_shadows: bool,
+    pub enable_leaf_shadows: bool,
     pub enable_god_rays: bool,
     pub enable_lens_flare: bool,
     pub enable_tracer: bool,
@@ -919,6 +1162,7 @@ impl From<&AppOptions> for RenderFlags {
     fn from(options: &AppOptions) -> Self {
         Self {
             enable_shadows: !options.no_shadows,
+            enable_leaf_shadows: !options.no_shadows && !options.no_leaf_shadows,
             enable_god_rays: !options.no_god_rays,
             enable_lens_flare: !options.no_lens_flare,
             enable_tracer: !options.no_tracer,
@@ -946,7 +1190,10 @@ mod tests {
         assert!(!options.windowed);
         assert!(!options.hidden);
         assert!(!options.mute);
+        assert!(!options.canopy_audio_telemetry);
+        assert!(!options.canopy_audio_diagnostic);
         assert!(options.audio_output_device.is_none());
+        assert!(!options.no_leaf_shadows);
         assert!(!options.perf);
         assert!(!options.water_experience);
         assert!(options.present_mode.is_none());
@@ -984,7 +1231,56 @@ mod tests {
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 25);
+        assert!(options.terrain_connectivity_bench.is_none());
         assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_terrain_connectivity_bench_options() {
+        let options = parse(&[
+            "re-flora",
+            "--terrain-connectivity-bench",
+            "correct",
+            "--terrain-connectivity-bench-available-particles",
+            "8192",
+            "--terrain-connectivity-bench-warmup-frames",
+            "120",
+            "--terrain-connectivity-bench-observe-frames",
+            "45",
+        ]);
+
+        assert_eq!(
+            options.terrain_connectivity_bench,
+            Some(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Correct,
+                available_particles: 8192,
+                warmup_frames: 120,
+                observe_frames: 45,
+                voxel_budget: 16_384,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_manual_terrain_connectivity_scene() {
+        let options = parse(&[
+            "re-flora",
+            "--terrain-connectivity-bench",
+            "manual",
+            "--terrain-connectivity-bench-warmup-frames",
+            "0",
+        ]);
+
+        assert_eq!(
+            options.terrain_connectivity_bench,
+            Some(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Manual,
+                available_particles: 16_384,
+                warmup_frames: 0,
+                observe_frames: DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES,
+                voxel_budget: 16_384,
+            })
+        );
     }
 
     #[test]
@@ -1013,6 +1309,45 @@ mod tests {
     }
 
     #[test]
+    fn parses_fixed_canopy_audio_diagnostic() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--canopy-audio-diagnostic",
+        ]);
+
+        assert!(options.canopy_audio_diagnostic);
+        assert!(!options.canopy_audio_telemetry);
+    }
+
+    #[test]
+    fn parses_fixed_canopy_audio_budget_diagnostic() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--canopy-audio-budget-diagnostic",
+        ]);
+
+        assert!(options.canopy_audio_diagnostic);
+        assert!(options.canopy_audio_budget_diagnostic);
+    }
+
+    #[test]
+    fn fixed_canopy_audio_diagnostic_rejects_competing_scene() {
+        let error = AppOptions::try_from_arg_strings(
+            ["re-flora", "--canopy-audio-diagnostic", "--house-scene"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Do not combine --canopy-audio-diagnostic"));
+    }
+
+    #[test]
     fn parses_environment_lighting_test_scene() {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
@@ -1034,6 +1369,26 @@ mod tests {
             (
                 "radiance-changes",
                 EnvironmentLightingTestCase::RadianceChanges,
+            ),
+            (
+                "point-light-changes",
+                EnvironmentLightingTestCase::PointLightChanges,
+            ),
+            (
+                "voxel-emissive-changes",
+                EnvironmentLightingTestCase::VoxelEmissiveChanges,
+            ),
+            (
+                "raster-emitter-changes",
+                EnvironmentLightingTestCase::RasterEmitterChanges,
+            ),
+            (
+                "multi-source-stress",
+                EnvironmentLightingTestCase::MultiSourceStress,
+            ),
+            (
+                "local-light-scaling",
+                EnvironmentLightingTestCase::LocalLightScaling,
             ),
             (
                 "density-changes",
@@ -1068,7 +1423,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 
@@ -1361,6 +1716,7 @@ mod tests {
             "re-flora",
             "--hidden",
             "--mute",
+            "--canopy-audio-telemetry",
             "--auto-exit",
             "4",
             "--audio-output-device",
@@ -1393,6 +1749,7 @@ mod tests {
 
         assert!(options.hidden);
         assert!(options.mute);
+        assert!(options.canopy_audio_telemetry);
         assert_eq!(options.audio_output_device.as_deref(), Some("KA3"));
         assert!(options.perf);
         assert_eq!(options.auto_exit_delay, Some(4.0));
@@ -1570,6 +1927,52 @@ mod tests {
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
         assert!(benchmark.camera_motion);
+        assert_eq!(benchmark.scene, DenoiserBenchScene::CameraSnapshot);
+    }
+
+    #[test]
+    fn parses_foliage_shadow_benchmark_without_camera_snapshot() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--foliage-shadow-bench",
+            "target/foliage-shadow.toml",
+            "--foliage-shadow-bench-warmup-frames",
+            "12",
+            "--foliage-shadow-bench-frames",
+            "8",
+        ]);
+
+        assert!(options.camera_snapshot.is_none());
+        let benchmark = options.denoiser_bench.unwrap();
+        assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
+        assert_eq!(benchmark.warmup_frames, 12);
+        assert_eq!(benchmark.capture_frames, 8);
+        assert!(!benchmark.camera_motion);
+        assert_eq!(benchmark.scene, DenoiserBenchScene::FoliageShadow);
+    }
+
+    #[test]
+    fn leaf_shadow_control_preserves_other_shadow_passes() {
+        let options = parse(&["re-flora", "--no-leaf-shadows"]);
+        let flags = RenderFlags::from(&options);
+        assert!(flags.enable_shadows);
+        assert!(!flags.enable_leaf_shadows);
+        assert!(flags.enable_leaves);
+    }
+
+    #[test]
+    fn foliage_shadow_benchmark_rejects_no_flora() {
+        let panic = std::panic::catch_unwind(|| {
+            parse(&[
+                "re-flora",
+                "--foliage-shadow-bench",
+                "target/foliage-shadow.toml",
+                "--no-flora",
+            ])
+        })
+        .expect_err("foliage benchmark without flora should panic");
+        assert!(panic_message(panic).contains("--no-flora"));
     }
 
     #[test]

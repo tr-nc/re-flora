@@ -50,6 +50,9 @@ impl App {
             .context("discard active Contree CPU-cache GPU readback")?;
 
         log::info!("[SHUTDOWN] phase=join_dependent_workers");
+        if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
+            runtime.shutdown();
+        }
         self.contree_builder.shutdown_cpu_chunk_cache_worker();
 
         log::info!("[SHUTDOWN] phase=wait_device_idle");

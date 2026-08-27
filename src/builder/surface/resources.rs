@@ -17,14 +17,19 @@ pub const MAX_FLORA_INSTANCES_PER_SPECIES: u32 = 40_000;
 
 pub type Instance = crate::generated::gpu_structs::ManualFloraInstances;
 pub type TreeLeafInstance = crate::generated::gpu_structs::TreeLeafInstances;
+pub type TreeLeafShadowInstance = crate::generated::gpu_structs::TreeLeafShadowInstances;
 
 pub struct InstanceResource {
     pub instances_buf: Resource<Buffer>,
 }
 
 pub struct TreeLeafInstanceResource {
+    // Visible geometry and shadow proxies deliberately use separate streams: coarsening shadow
+    // bandwidth must not change visible foliage geometry, LOD, or its compact instance stride.
     pub instances_buf: Resource<Buffer>,
     pub instances_len: u32,
+    pub shadow_instances_buf: Resource<Buffer>,
+    pub shadow_instances_len: u32,
 }
 
 impl InstanceResource {
@@ -49,11 +54,16 @@ impl InstanceResource {
 }
 
 impl TreeLeafInstanceResource {
-    pub fn new(device: Device, allocator: Allocator, max_instances: u64) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        max_instances: u64,
+        max_shadow_instances: u64,
+    ) -> Self {
         let instance_size = std::mem::size_of::<TreeLeafInstance>();
         let instances_buf = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::VERTEX_BUFFER
                     | vk::BufferUsageFlags::STORAGE_BUFFER
@@ -62,10 +72,22 @@ impl TreeLeafInstanceResource {
             MemoryLocation::CpuToGpu,
             instance_size as u64 * max_instances,
         );
+        let shadow_instance_size = std::mem::size_of::<TreeLeafShadowInstance>();
+        let shadow_instances_buf = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::CpuToGpu,
+            shadow_instance_size as u64 * max_shadow_instances,
+        );
 
         Self {
             instances_buf: Resource::new(instances_buf),
             instances_len: 0,
+            shadow_instances_buf: Resource::new(shadow_instances_buf),
+            shadow_instances_len: 0,
         }
     }
 }
@@ -84,8 +106,14 @@ impl TreeLeavesInstance {
         device: Device,
         allocator: Allocator,
         max_instances: u64,
+        max_shadow_instances: u64,
     ) -> Self {
-        let resources = TreeLeafInstanceResource::new(device, allocator, max_instances.max(1));
+        let resources = TreeLeafInstanceResource::new(
+            device,
+            allocator,
+            max_instances.max(1),
+            max_shadow_instances.max(1),
+        );
         Self {
             aabb,
             chunk_world_offset,

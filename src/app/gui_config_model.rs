@@ -211,8 +211,10 @@ mod tests {
 
     #[test]
     fn tree_gui_config_round_trip_preserves_all_tree_fields() {
-        let mut desc = TreeDesc::default();
-        desc.size = 17.25;
+        let mut desc = TreeDesc {
+            size: 17.25,
+            ..Default::default()
+        };
         desc.branching.initial_length = 63.0;
         desc.leaf_density = 0.123;
         desc.fruit_swing_speed = 4.5;

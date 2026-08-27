@@ -434,12 +434,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
-        id: "audio_ray_tracing_enabled",
-        kind: "bool",
-        label: "Environmental Acoustics",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
         id: "audio_ray_tracing_quality_percent",
         kind: "uint",
         label: "Environmental Acoustics Quality (%)",
@@ -1524,7 +1518,6 @@ pub struct GuiAdjustables {
     pub tree_rustle_leaf_body: crate::gui_adjustables::FloatParam,
     pub tree_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub tree_rustle_brightness: crate::gui_adjustables::FloatParam,
-    pub audio_ray_tracing_enabled: crate::gui_adjustables::BoolParam,
     pub audio_ray_tracing_quality_percent: crate::gui_adjustables::UintParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
@@ -1775,7 +1768,6 @@ impl GuiAdjustables {
         let mut tree_rustle_leaf_body_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut audio_ray_tracing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut audio_ray_tracing_quality_percent_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -2399,11 +2391,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_rustle_brightness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "audio_ray_tracing_enabled" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            audio_ray_tracing_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "audio_ray_tracing_quality_percent" => {
@@ -3611,7 +3598,6 @@ impl GuiAdjustables {
             tree_rustle_leaf_body: tree_rustle_leaf_body_field.expect("Missing parameter: tree_rustle_leaf_body"),
             tree_rustle_crackle: tree_rustle_crackle_field.expect("Missing parameter: tree_rustle_crackle"),
             tree_rustle_brightness: tree_rustle_brightness_field.expect("Missing parameter: tree_rustle_brightness"),
-            audio_ray_tracing_enabled: audio_ray_tracing_enabled_field.expect("Missing parameter: audio_ray_tracing_enabled"),
             audio_ray_tracing_quality_percent: audio_ray_tracing_quality_percent_field.expect("Missing parameter: audio_ray_tracing_quality_percent"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
@@ -4031,7 +4017,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&adjustables.wind_source_3_muted),
-        "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
@@ -4316,7 +4301,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&mut adjustables.wind_source_3_muted),
-        "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),

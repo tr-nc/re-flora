@@ -97,8 +97,8 @@ pub struct EditRemovalSample {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EditStats {
-    pub removed_counts: [u32; 8],
-    pub added_counts: [u32; 8],
+    pub removed_counts: [u32; 9],
+    pub added_counts: [u32; 9],
 }
 
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).
@@ -129,6 +129,30 @@ pub struct LevelDispatchIndirect {
     pub dispatch_x: u32,
     pub dispatch_y: u32,
     pub dispatch_z: u32,
+}
+
+/// Auto-generated from `B_LocalLightVisibilityDiagnosticResult` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightVisibilityDiagnosticResult {
+    pub abi_version: u32,
+    pub request_serial: u32,
+    pub geometry_revision: u32,
+    pub mode: u32,
+    pub identity_matches: u32,
+    pub selected_light_index: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub light_id_slot: u32,
+    pub light_id_generation: u32,
+    pub candidates: u32,
+    pub visible: u32,
+    pub occluded: u32,
+    pub irradiance_luma_q8: u32,
+    pub _pad0: [u8; 8],
+    pub irradiance: [f32; 4],
+    pub receiver_position_and_origin_offset: [f32; 4],
+    pub receiver_normal_and_reserved: [f32; 4],
 }
 
 /// Auto-generated from `B_MakeSurfaceResult` (native Slang source of truth).
@@ -258,6 +282,23 @@ pub struct TreeLeafInstances {
     pub packed_leaf_local_pos: u32,
 }
 
+/// Auto-generated from `B_TreeLeafLightingCache` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafLightingCache {
+    pub irradiance: [u32; 0],
+}
+
+/// Auto-generated from `B_TreeLeafShadowInstances` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafShadowInstances {
+    pub packed_local_pos: u32,
+    pub packed_leaf_local_pos: u32,
+    pub billboard_size_voxels: f32,
+    pub opacity_layer_count: f32,
+}
+
 /// Auto-generated from `B_VoxelPropertySampleResult` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -370,6 +411,19 @@ pub struct PushConstantLeafShadowTemporal {
     pub temporal_alpha: f32,
     pub reset_history: u32,
     pub _pad0: [u8; 8],
+}
+
+/// Auto-generated from `PushConstantLeaves` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantLeaves {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantLeavesShadow` (native Slang source of truth).
@@ -498,6 +552,7 @@ pub struct ChunkModifyInfo {
     pub max_write_count: u32,
     pub max_removed_counts_0_3: [u32; 4],
     pub max_removed_counts_4_7: [u32; 4],
+    pub max_removed_counts_8_11: [u32; 4],
 }
 
 /// Auto-generated from `U_ChunkSolidSampleInfo` (native Slang source of truth).
@@ -554,6 +609,8 @@ pub struct DdgiRadianceVoxelPalette {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+    pub emissive_color: [f32; 3],
+    pub emissive_radiance: f32,
 }
 
 /// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).
@@ -760,6 +817,57 @@ pub struct InstancesToOccupancyInfo {
     pub _pad2: [u8; 8],
 }
 
+/// Auto-generated from `U_LightGpu` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LightGpu {
+    pub abi_version: u32,
+    pub kind: u32,
+    pub stable_id_slot: u32,
+    pub stable_id_generation: u32,
+    pub position: [f32; 3],
+    pub range: f32,
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub direction: [f32; 3],
+    pub source_radius: f32,
+    pub shape_params: [f32; 4],
+}
+
+/// Auto-generated from `U_LocalLightInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightInfo {
+    pub abi_version: u32,
+    pub count: u32,
+    pub capacity: u32,
+    pub overflow_count: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub registry_revision_low: u32,
+    pub registry_revision_high: u32,
+    pub live_revision_low: u32,
+    pub live_revision_high: u32,
+    pub transport_revision: u32,
+    pub flags: u32,
+}
+
+/// Auto-generated from `U_LocalLightVisibilityDiagnosticInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LocalLightVisibilityDiagnosticInfo {
+    pub abi_version: u32,
+    pub request_serial: u32,
+    pub geometry_revision: u32,
+    pub source_revision_low: u32,
+    pub source_revision_high: u32,
+    pub light_id_slot: u32,
+    pub light_id_generation: u32,
+    pub mode: u32,
+    pub receiver_position_and_origin_offset: [f32; 4],
+    pub receiver_normal_and_reserved: [f32; 4],
+}
+
 /// Auto-generated from `U_MakeSurfaceInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -938,6 +1046,8 @@ pub struct VoxelColors {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+    pub emissive_color: [f32; 3],
+    pub emissive_radiance: f32,
 }
 
 /// Auto-generated from `U_VoxelPropertySampleInfo` (native Slang source of truth).

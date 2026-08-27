@@ -7,6 +7,7 @@ import flora_noise;
 import flora_shadow;
 import flora_types;
 import hash;
+import local_lighting;
 import sunlight;
 import terrain_edit_preview;
 import tracer_types;
@@ -42,6 +43,7 @@ struct B_FloraVoxelInfos
 [[vk::binding(14, 0)]]
 readonly GLSLShaderStorageBuffer<B_FloraVoxelInfos, Std430DataLayout>
     flora_voxel_infos;
+[[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
@@ -317,12 +319,18 @@ public PreparedFloraVertex prepareFloraVertex(
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
     result.voxel_position = result.anchor_position + 0.5 * FLORA_SCALING_FACTOR;
+    float3 restLeafShadowReceiverPosition =
+        (posedVoxelLocalPosition + spawnPose.translation_voxels) *
+        FLORA_SCALING_FACTOR + instancePosition + 0.5 * FLORA_SCALING_FACTOR;
+    float3 leafShadowReceiverPosition = result.is_grass
+        ? restLeafShadowReceiverPosition
+        : result.voxel_position;
     result.shading_normal = float3(voxelLocalPosition);
-    StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadow(
+    StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadowAtLeafReceiver(
         gui_input, sun_info, shadow_camera_info,
         shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
         leaf_shadow_mask_tex, cloud_shadow_tex,
-        result.voxel_position, result.shading_normal);
+        result.voxel_position, leafShadowReceiverPosition, result.shading_normal);
     result.sun_transmittance = shadowSample.sun_transmittance;
     result.shadow_weight = shadowSample.weight;
     return result;
@@ -480,7 +488,18 @@ public float4 projectFloraPosition(float3 worldPosition)
 
 public bool rasterFloraUsesDdgiLighting()
 {
+    return rasterFloraDdgiLightingEnabled() ||
+        localLightCount(local_light_info) > 0u;
+}
+
+public bool rasterFloraDdgiLightingEnabled()
+{
     return gui_input.raster_flora_ddgi_lighting != 0u;
+}
+
+public U_LocalLightInfo floraLocalLightInfo()
+{
+    return local_light_info;
 }
 
 public float3 shadeLegacyRasterFloraVertex(
@@ -506,6 +525,11 @@ public float3 sampleFloraEnvironment(float3 voxelPosition, float3 shadingNormal)
 {
     return sampleDiffuseEnvironment(
         gui_input, shading_info, voxelPosition, shadingNormal);
+}
+
+public float floraTerrainRayOriginOffsetWorld()
+{
+    return gui_input.terrain_ray_origin_offset_world;
 }
 
 public float3 shadeFloraVertexWithEnvironment(

@@ -1,6 +1,11 @@
 use crate::{
     flora::species,
+    generated::gpu_structs::{
+        LightGpu, LocalLightInfo, LocalLightVisibilityDiagnosticInfo,
+        LocalLightVisibilityDiagnosticResult,
+    },
     geom::UAabb3,
+    lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY},
     particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
     resource::Resource,
     tracer::{
@@ -898,6 +903,92 @@ pub struct TerrainQueryResources {
 }
 
 #[derive(ResourceContainer)]
+pub struct LocalLightingResources {
+    pub local_light_info: Resource<Buffer>,
+    pub local_lights: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_info: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_result: Resource<Buffer>,
+    pub local_light_visibility_diagnostic_readback: Resource<Buffer>,
+}
+
+impl LocalLightingResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        let local_light_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<LocalLightInfo>() as u64,
+        );
+        local_light_info
+            .fill_uniform(&LocalLightInfo {
+                abi_version: LOCAL_LIGHT_GPU_ABI_VERSION,
+                count: 0,
+                capacity: LOCAL_LIGHT_GPU_CAPACITY as u32,
+                overflow_count: 0,
+                source_revision_low: 0,
+                source_revision_high: 0,
+                registry_revision_low: 0,
+                registry_revision_high: 0,
+                live_revision_low: 0,
+                live_revision_high: 0,
+                transport_revision: 0,
+                flags: 0,
+            })
+            .expect("initial local-light info upload must fit");
+        let local_lights = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (LOCAL_LIGHT_GPU_CAPACITY * std::mem::size_of::<LightGpu>()) as u64,
+        );
+        local_lights
+            .fill(&[LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY])
+            .expect("initial local-light data upload must fit");
+        let local_light_visibility_diagnostic_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticInfo>() as u64,
+        );
+        local_light_visibility_diagnostic_info
+            .fill_uniform(&LocalLightVisibilityDiagnosticInfo::zeroed())
+            .expect("initial local-light visibility diagnostic input must fit");
+        let local_light_visibility_diagnostic_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+            ),
+            MemoryLocation::GpuOnly,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticResult>() as u64,
+        );
+        let local_light_visibility_diagnostic_readback = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            std::mem::size_of::<LocalLightVisibilityDiagnosticResult>() as u64,
+        );
+        Self {
+            local_light_info: Resource::new(local_light_info),
+            local_lights: Resource::new(local_lights),
+            local_light_visibility_diagnostic_info: Resource::new(
+                local_light_visibility_diagnostic_info,
+            ),
+            local_light_visibility_diagnostic_result: Resource::new(
+                local_light_visibility_diagnostic_result,
+            ),
+            local_light_visibility_diagnostic_readback: Resource::new(
+                local_light_visibility_diagnostic_readback,
+            ),
+        }
+    }
+}
+
+#[derive(ResourceContainer)]
 pub struct TracerTextureResources {
     pub sun_sprite_tex: Resource<Texture>,
     pub particle_lod_tex_lut: Resource<Texture>,
@@ -1310,6 +1401,8 @@ pub struct TracerResources {
     #[resource(nested)]
     pub terrain_query: TerrainQueryResources,
     #[resource(nested)]
+    pub local_lighting: LocalLightingResources,
+    #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
     #[resource(nested)]
@@ -1333,6 +1426,7 @@ impl TracerResources {
         chunk_bound: UAabb3,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
         shadow_map_extent: Extent2D,
         cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
@@ -1373,6 +1467,7 @@ impl TracerResources {
                 terrain_query_sm,
                 max_terrain_queries,
             ),
+            local_lighting: LocalLightingResources::new(device.clone(), allocator.clone()),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
             meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(
@@ -1380,6 +1475,7 @@ impl TracerResources {
                 allocator.clone(),
                 rendering_extent,
                 screen_extent,
+                environment_irradiance_capture_enabled,
             ),
         }
     }
@@ -1390,10 +1486,17 @@ impl TracerResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
     ) -> ExtentDependentResources {
         std::mem::replace(
             &mut self.extent_dependent_resources,
-            ExtentDependentResources::new(device, allocator, rendering_extent, screen_extent),
+            ExtentDependentResources::new(
+                device,
+                allocator,
+                rendering_extent,
+                screen_extent,
+                environment_irradiance_capture_enabled,
+            ),
         )
     }
 

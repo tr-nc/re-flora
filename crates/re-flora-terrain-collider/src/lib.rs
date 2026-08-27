@@ -19,6 +19,16 @@ pub struct ContreeCpuChunkCache {
     pub leaves: Vec<u32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContreeSparseVoxelError {
+    InvalidVoxelDimension(UVec3),
+    MissingNode { address: usize },
+    MissingLeaf { address: usize },
+    UnexpectedLeafDepth { actual: u32, expected: u32 },
+    UnexpectedNodeDepth { actual: u32, expected: u32 },
+    CoordinateOverflow,
+}
+
 impl ContreeCpuChunkCache {
     pub fn voxel_type_at(&self, point: Vec3, voxel_type_mask: u32) -> u8 {
         if self.nodes.is_empty() {
@@ -59,6 +69,171 @@ impl ContreeCpuChunkCache {
 
         0
     }
+
+    /// Traverses only allocated Contree nodes/leaves and returns matching surface voxels in
+    /// deterministic world-voxel order. This avoids probing every coordinate in a dense chunk.
+    pub fn voxels_matching_type(
+        &self,
+        voxel_dim_per_chunk: UVec3,
+        voxel_type_mask: u32,
+        wanted_voxel_type: u32,
+    ) -> Result<Vec<UVec3>, ContreeSparseVoxelError> {
+        let levels = contree_levels_for_voxel_dim(voxel_dim_per_chunk)?;
+        if self.nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let chunk_origin = UVec3::new(
+            self.chunk_idx
+                .x
+                .checked_mul(voxel_dim_per_chunk.x)
+                .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+            self.chunk_idx
+                .y
+                .checked_mul(voxel_dim_per_chunk.y)
+                .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+            self.chunk_idx
+                .z
+                .checked_mul(voxel_dim_per_chunk.z)
+                .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+        );
+        let mut matches = Vec::new();
+        collect_matching_contree_voxels(
+            self,
+            0,
+            0,
+            UVec3::ZERO,
+            levels,
+            chunk_origin,
+            voxel_type_mask,
+            wanted_voxel_type & voxel_type_mask,
+            &mut matches,
+        )?;
+        matches.sort_unstable_by_key(|voxel| voxel.to_array());
+        Ok(matches)
+    }
+}
+
+fn contree_levels_for_voxel_dim(
+    voxel_dim_per_chunk: UVec3,
+) -> Result<u32, ContreeSparseVoxelError> {
+    if voxel_dim_per_chunk.cmpeq(UVec3::ZERO).any()
+        || voxel_dim_per_chunk.x != voxel_dim_per_chunk.y
+        || voxel_dim_per_chunk.x != voxel_dim_per_chunk.z
+    {
+        return Err(ContreeSparseVoxelError::InvalidVoxelDimension(
+            voxel_dim_per_chunk,
+        ));
+    }
+    let mut dim = voxel_dim_per_chunk.x;
+    let mut levels = 0;
+    while dim > 1 {
+        if !dim.is_multiple_of(4) {
+            return Err(ContreeSparseVoxelError::InvalidVoxelDimension(
+                voxel_dim_per_chunk,
+            ));
+        }
+        dim /= 4;
+        levels += 1;
+    }
+    if levels == 0 {
+        return Err(ContreeSparseVoxelError::InvalidVoxelDimension(
+            voxel_dim_per_chunk,
+        ));
+    }
+    Ok(levels)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_matching_contree_voxels(
+    cache: &ContreeCpuChunkCache,
+    node_address: usize,
+    depth: u32,
+    prefix: UVec3,
+    expected_levels: u32,
+    chunk_origin: UVec3,
+    voxel_type_mask: u32,
+    wanted_voxel_type: u32,
+    matches: &mut Vec<UVec3>,
+) -> Result<(), ContreeSparseVoxelError> {
+    let node = cache
+        .nodes
+        .get(node_address)
+        .copied()
+        .ok_or(ContreeSparseVoxelError::MissingNode {
+            address: node_address,
+        })?;
+    let children_are_leaves = node.packed_0 & 1 != 0;
+    let child_base = (node.packed_0 >> 1) as usize;
+    for child_index in 0..64 {
+        if !contree_child_mask_test(node, child_index) {
+            continue;
+        }
+        let child_rank = contree_child_mask_bitcount_below(node, child_index) as usize;
+        let child_address = child_base + child_rank;
+        let digit = UVec3::new(
+            child_index % 4,
+            child_index / 16,
+            (child_index / 4) % 4,
+        );
+        let child_prefix = prefix * 4 + digit;
+        let child_depth = depth + 1;
+        if children_are_leaves {
+            if child_depth != expected_levels {
+                return Err(ContreeSparseVoxelError::UnexpectedLeafDepth {
+                    actual: child_depth,
+                    expected: expected_levels,
+                });
+            }
+            let voxel = *cache
+                .leaves
+                .get(child_address)
+                .ok_or(ContreeSparseVoxelError::MissingLeaf {
+                    address: child_address,
+                })?;
+            if voxel & voxel_type_mask == wanted_voxel_type {
+                matches.push(checked_world_voxel(chunk_origin, child_prefix)?);
+            }
+        } else {
+            if child_depth >= expected_levels {
+                return Err(ContreeSparseVoxelError::UnexpectedNodeDepth {
+                    actual: child_depth,
+                    expected: expected_levels,
+                });
+            }
+            collect_matching_contree_voxels(
+                cache,
+                child_address,
+                child_depth,
+                child_prefix,
+                expected_levels,
+                chunk_origin,
+                voxel_type_mask,
+                wanted_voxel_type,
+                matches,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn checked_world_voxel(
+    chunk_origin: UVec3,
+    local_voxel: UVec3,
+) -> Result<UVec3, ContreeSparseVoxelError> {
+    Ok(UVec3::new(
+        chunk_origin
+            .x
+            .checked_add(local_voxel.x)
+            .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+        chunk_origin
+            .y
+            .checked_add(local_voxel.y)
+            .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+        chunk_origin
+            .z
+            .checked_add(local_voxel.z)
+            .ok_or(ContreeSparseVoxelError::CoordinateOverflow)?,
+    ))
 }
 
 /// Samples a dense x-fastest voxel block from immutable Contree CPU caches.
@@ -320,6 +495,173 @@ fn neighbor_step_distance(offset: IVec3, cell_size: Vec3) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn one_voxel_contree(local_voxel: UVec3, voxel_type: u32) -> ContreeCpuChunkCache {
+        let digits = [
+            UVec3::new(local_voxel.x / 64, local_voxel.y / 64, local_voxel.z / 64),
+            UVec3::new(
+                (local_voxel.x / 16) % 4,
+                (local_voxel.y / 16) % 4,
+                (local_voxel.z / 16) % 4,
+            ),
+            UVec3::new(
+                (local_voxel.x / 4) % 4,
+                (local_voxel.y / 4) % 4,
+                (local_voxel.z / 4) % 4,
+            ),
+            local_voxel % 4,
+        ];
+        let child = |digit: UVec3| digit.x + digit.z * 4 + digit.y * 16;
+        let mask = |index: u32| {
+            if index < 32 {
+                (1 << index, 0)
+            } else {
+                (0, 1 << (index - 32))
+            }
+        };
+        let mut nodes = Vec::new();
+        for (depth, digit) in digits.iter().take(3).enumerate() {
+            let (child_mask_lo, child_mask_hi) = mask(child(*digit));
+            nodes.push(ContreeCpuNode {
+                packed_0: ((depth as u32 + 1) << 1),
+                child_mask_lo,
+                child_mask_hi,
+            });
+        }
+        let (child_mask_lo, child_mask_hi) = mask(child(digits[3]));
+        nodes.push(ContreeCpuNode {
+            packed_0: 1,
+            child_mask_lo,
+            child_mask_hi,
+        });
+        ContreeCpuChunkCache {
+            chunk_idx: UVec3::new(2, 1, 3),
+            nodes,
+            leaves: vec![voxel_type],
+        }
+    }
+
+    fn multi_leaf_root_contree() -> ContreeCpuChunkCache {
+        let child_mask_lo = (1 << 0) | (1 << 1);
+        let child_mask_hi = (1 << (32 - 32)) | (1 << (63 - 32));
+        ContreeCpuChunkCache {
+            chunk_idx: UVec3::new(2, 1, 3),
+            nodes: vec![ContreeCpuNode {
+                packed_0: 1,
+                child_mask_lo,
+                child_mask_hi,
+            }],
+            // Packed child order is 0, 1, 32, 63.
+            leaves: vec![8, 7, 8, 8],
+        }
+    }
+
+    #[test]
+    fn sparse_type_iteration_recovers_exact_world_voxel_without_dense_sampling() {
+        let cache = one_voxel_contree(UVec3::new(129, 34, 255), 8);
+
+        let voxels = cache
+            .voxels_matching_type(UVec3::splat(256), 0x0f, 8)
+            .unwrap();
+
+        assert_eq!(voxels, vec![UVec3::new(641, 290, 1023)]);
+        assert!(cache
+            .voxels_matching_type(UVec3::splat(256), 0x0f, 7)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn sparse_multi_leaf_lo_hi_masks_equal_the_existing_point_query_oracle() {
+        let cache = multi_leaf_root_contree();
+        let voxel_dim = UVec3::splat(4);
+
+        let sparse = cache
+            .voxels_matching_type(voxel_dim, 0x0f, 8)
+            .unwrap();
+        let mut oracle = Vec::new();
+        for z in 0..voxel_dim.z {
+            for y in 0..voxel_dim.y {
+                for x in 0..voxel_dim.x {
+                    let local_voxel = UVec3::new(x, y, z);
+                    let point = cache.chunk_idx.as_vec3()
+                        + (local_voxel.as_vec3() + Vec3::splat(0.5)) / voxel_dim.as_vec3();
+                    if cache.voxel_type_at(point, 0x0f) == 8 {
+                        oracle.push(cache.chunk_idx * voxel_dim + local_voxel);
+                    }
+                }
+            }
+        }
+        oracle.sort_unstable_by_key(|voxel| voxel.to_array());
+
+        assert_eq!(sparse, oracle);
+        assert_eq!(
+            sparse,
+            vec![
+                UVec3::new(8, 4, 12),
+                UVec3::new(8, 6, 12),
+                UVec3::new(11, 7, 15),
+            ]
+        );
+        assert_eq!(
+            cache
+                .voxels_matching_type(voxel_dim, 0x0f, 8)
+                .unwrap(),
+            sparse,
+            "world-coordinate order must be stable across calls"
+        );
+    }
+
+    #[test]
+    fn sparse_type_iteration_rejects_non_base_four_or_malformed_trees() {
+        let cache = one_voxel_contree(UVec3::ZERO, 8);
+        assert_eq!(
+            cache.voxels_matching_type(UVec3::splat(128), 0x0f, 8),
+            Err(ContreeSparseVoxelError::InvalidVoxelDimension(
+                UVec3::splat(128)
+            ))
+        );
+
+        let mut malformed = cache;
+        malformed.nodes[2].packed_0 = 200 << 1;
+        assert!(matches!(
+            malformed.voxels_matching_type(UVec3::splat(256), 0x0f, 8),
+            Err(ContreeSparseVoxelError::MissingNode { .. })
+        ));
+
+        let mut missing_leaf = multi_leaf_root_contree();
+        missing_leaf.leaves.truncate(3);
+        assert_eq!(
+            missing_leaf.voxels_matching_type(UVec3::splat(4), 0x0f, 8),
+            Err(ContreeSparseVoxelError::MissingLeaf { address: 3 })
+        );
+
+        let mut early_leaf = one_voxel_contree(UVec3::ZERO, 8);
+        early_leaf.nodes[0].packed_0 = 1;
+        early_leaf.leaves = vec![8];
+        assert_eq!(
+            early_leaf.voxels_matching_type(UVec3::splat(256), 0x0f, 8),
+            Err(ContreeSparseVoxelError::UnexpectedLeafDepth {
+                actual: 1,
+                expected: 4,
+            })
+        );
+
+        let mut node_beyond_voxel_depth = one_voxel_contree(UVec3::ZERO, 8);
+        node_beyond_voxel_depth.nodes[3].packed_0 = 0;
+        assert_eq!(
+            node_beyond_voxel_depth.voxels_matching_type(UVec3::splat(256), 0x0f, 8),
+            Err(ContreeSparseVoxelError::UnexpectedNodeDepth {
+                actual: 4,
+                expected: 4,
+            })
+        );
+
+        assert_eq!(
+            checked_world_voxel(UVec3::new(u32::MAX, 0, 0), UVec3::X),
+            Err(ContreeSparseVoxelError::CoordinateOverflow)
+        );
+    }
 
     #[test]
     fn signed_distance_marks_solid_negative_and_empty_positive() {

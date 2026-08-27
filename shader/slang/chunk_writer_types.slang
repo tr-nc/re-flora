@@ -1,6 +1,6 @@
 module chunk_writer_types;
 
-public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 8u;
+public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 9u;
 public static const uint EDIT_REMOVAL_SAMPLE_COUNT = 50u;
 
 public struct B_EditStats
@@ -69,6 +69,7 @@ public struct U_ChunkModifyInfo
     public uint max_write_count;
     public uint4 max_removed_counts_0_3;
     public uint4 max_removed_counts_4_7;
+    public uint4 max_removed_counts_8_11;
 };
 
 public struct B_BvhNodes

@@ -1,3 +1,4 @@
+use super::terrain_connectivity::bench::TerrainConnectivityBench;
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
@@ -23,6 +24,27 @@ const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
 const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
+
+fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
+    match voxel_type {
+        crate::builder::VOXEL_TYPE_DIRT => super::voxel_backpack::BackpackVoxel::Dirt.color_rgb(),
+        crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
+            super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_OAK_WOOD => {
+            super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_SAND => super::voxel_backpack::BackpackVoxel::Sand.color_rgb(),
+        crate::builder::VOXEL_TYPE_STUCCO => {
+            super::voxel_backpack::BackpackVoxel::Stucco.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_ROCK => super::voxel_backpack::BackpackVoxel::Rock.color_rgb(),
+        crate::builder::VOXEL_TYPE_EMISSIVE => {
+            super::voxel_backpack::BackpackVoxel::Emissive.color_rgb()
+        }
+        _ => [210, 190, 140],
+    }
+}
 
 fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> ParticleSpawn {
     let hash = world_voxel.x.wrapping_mul(73_856_093)
@@ -193,27 +215,7 @@ impl App {
             }
         }
 
-        let color_rgb = match voxel_type {
-            crate::builder::VOXEL_TYPE_DIRT => {
-                super::voxel_backpack::BackpackVoxel::Dirt.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
-                super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_OAK_WOOD => {
-                super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_SAND => {
-                super::voxel_backpack::BackpackVoxel::Sand.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_STUCCO => {
-                super::voxel_backpack::BackpackVoxel::Stucco.color_rgb()
-            }
-            crate::builder::VOXEL_TYPE_ROCK => {
-                super::voxel_backpack::BackpackVoxel::Rock.color_rgb()
-            }
-            _ => [210, 190, 140],
-        };
+        let color_rgb = terrain_harvest_rgb_for_voxel(voxel_type);
 
         Vec4::new(
             srgb_to_linear(color_rgb[0]),
@@ -488,39 +490,47 @@ impl App {
 
         let total_start = Instant::now();
         let setup_start = Instant::now();
-        self.butterfly_emitter_desc =
-            Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
-        for emitter in &mut self.butterfly_emitters {
-            emitter.apply_desc(&self.butterfly_emitter_desc);
+        let diagnostic_capacity_isolation = self
+            .terrain_connectivity_bench
+            .as_ref()
+            .is_some_and(TerrainConnectivityBench::active);
+        if !diagnostic_capacity_isolation {
+            self.butterfly_emitter_desc =
+                Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
+            for emitter in &mut self.butterfly_emitters {
+                emitter.apply_desc(&self.butterfly_emitter_desc);
+            }
+            self.ensure_butterfly_emitter();
+            self.refresh_butterfly_spawn_sources(dt);
         }
-        self.ensure_butterfly_emitter();
-        self.refresh_butterfly_spawn_sources(dt);
         let wind_time = self.time_info.time_since_start();
         self.particle_system
             .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
         let emit_start = Instant::now();
-        Self::drive_emitters(
-            &mut self.butterfly_emitters,
-            &mut self.particle_system,
-            dt,
-            wind_time,
-        );
-        self.trees.advance_leaf_emitters(
-            &mut self.particle_system,
-            dt,
-            wind_time,
-            self.render_flags.enable_leaves,
-        );
-        let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
-        self.sprinklers.advance_particles(
-            &mut self.particle_system,
-            dt,
-            wind_time,
-            self.world_clock.flora_tick(),
-            world_tick_seconds,
-        );
+        if !diagnostic_capacity_isolation {
+            Self::drive_emitters(
+                &mut self.butterfly_emitters,
+                &mut self.particle_system,
+                dt,
+                wind_time,
+            );
+            self.trees.advance_leaf_emitters(
+                &mut self.particle_system,
+                dt,
+                wind_time,
+                self.render_flags.enable_leaves,
+            );
+            let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
+            self.sprinklers.advance_particles(
+                &mut self.particle_system,
+                dt,
+                wind_time,
+                self.world_clock.flora_tick(),
+                world_tick_seconds,
+            );
+        }
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
@@ -873,5 +883,13 @@ mod tests {
         assert!(spawn.gravity_factor > 0.0);
         assert!(spawn.despawn_on_lifetime);
         assert!(spawn.despawn_below_ground);
+    }
+
+    #[test]
+    fn emissive_harvest_particles_use_the_backpack_material_color() {
+        assert_eq!(
+            terrain_harvest_rgb_for_voxel(crate::builder::VOXEL_TYPE_EMISSIVE),
+            crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8,
+        );
     }
 }

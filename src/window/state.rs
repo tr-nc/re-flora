@@ -300,13 +300,12 @@ impl WindowState {
     /// via native NSCursor APIs; on other platforms it uses winit.
     pub fn set_cursor_visibility(&mut self, cursor_visible: bool) {
         self.desc.cursor_visible = cursor_visible;
-        if !self.desc.visible {
-            return;
-        }
         // On macOS, visibility is managed by grab_and_hide / release_and_show.
         // On other platforms, fall back to winit.
         #[cfg(not(target_os = "macos"))]
-        self.window.set_cursor_visible(cursor_visible);
+        if self.desc.visible {
+            self.window.set_cursor_visible(cursor_visible);
+        }
     }
 
     /// Toggles the cursor grab, this is the only way to change the cursor grab, do not change it directly, otherwise the internal state will be out of sync.
@@ -360,11 +359,8 @@ impl WindowState {
     /// No-op on macOS (native APIs handle grab state persistently).
     /// Retained for API compatibility.
     pub fn maintain_cursor_grab(&mut self) {
-        if !self.desc.visible {
-            return;
-        }
         #[cfg(not(target_os = "macos"))]
-        if self.cursor_grab_pending {
+        if self.desc.visible && self.cursor_grab_pending {
             self.apply_cursor_grab();
         }
     }

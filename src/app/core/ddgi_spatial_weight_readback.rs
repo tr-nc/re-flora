@@ -210,9 +210,13 @@ impl DdgiSpatialWeightReadbackRuntime {
             "layout=receiver;probe_meta;actual_position_and_position_weight;nominal_position_and_surface_side_weight;irradiance_and_moment_visibility;visibility_and_support;candidate_exact_weights_current_nominal_wrap_nominal_wrap;exact_result;consumer_result;exact_summary;consumer_summary"
         )?;
 
-        for receiver_index in 0..DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT {
+        for (receiver_index, pixel) in DDGI_SPATIAL_WEIGHT_READBACK_PIXELS
+            .iter()
+            .copied()
+            .enumerate()
+            .take(DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT)
+        {
             let receiver_base = receiver_index * DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_RECEIVER;
-            let pixel = DDGI_SPATIAL_WEIGHT_READBACK_PIXELS[receiver_index];
             writeln!(
                 file,
                 "receiver={receiver_index} tracer_pixel={},{} screen_reference_pixel={},{}",

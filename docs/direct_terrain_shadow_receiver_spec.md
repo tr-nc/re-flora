@@ -1,6 +1,13 @@
 # Direct Terrain-Shadow Receiver Fix Specification
 
-Status: `ready-for-agent` (2026-08-05)
+Status: `superseded` (2026-08-26)
+
+This historical specification selected a continuous direct-terrain receiver to address a different
+DDGI seam reproduction. It is superseded by
+[`voxel_shadow_subvoxel_diagnosis.md`](voxel_shadow_subvoxel_diagnosis.md): the newer product
+invariant requires filtered terrain direct-sun transmittance to be constant within one marcher
+voxel. The DDGI hybrid receiver remains unchanged; only the terrain VSM receiver is canonicalized,
+while leaf and cloud receivers remain continuous.
 
 Accepted reproduction: commit `890bf98364f7d638eeebb9246973c1fe7fdcbe95`
 

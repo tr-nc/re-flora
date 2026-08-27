@@ -100,6 +100,7 @@ pub struct FloraSpeciesDesc {
 }
 
 impl FloraSpeciesDesc {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         key: &'static str,
         display_name: &'static str,
@@ -343,6 +344,20 @@ mod tests {
         assert!(flora_shader.contains("min(competitionFactor, environmentFactor)"));
         assert!(flora_shader.contains("gui_input.flora_growth_override_enabled != 0u"));
         assert!(flora_shader.contains("clamp(gui_input.flora_growth_override, 0.0, 1.0)"));
+    }
+
+    #[test]
+    fn grass_leaf_shadow_receiver_is_rest_anchored_without_freezing_other_terms() {
+        let flora_shader = include_str!("../../shader/slang/flora_vertex.slang");
+        assert!(flora_shader.contains("restLeafShadowReceiverPosition"));
+        assert!(flora_shader.contains("sampleStylizedVoxelShadowAtLeafReceiver"));
+
+        let shadow_shader = include_str!("../../shader/slang/flora_shadow.slang");
+        assert!(shadow_shader.contains("float3 leafReceiverCenter"));
+        assert!(shadow_shader.contains("float4 worldPosition = float4(voxelCenter, 1.0)"));
+        assert!(
+            shadow_shader.contains("float4 leafReceiverPosition = float4(leafReceiverCenter, 1.0)")
+        );
     }
 
     #[test]

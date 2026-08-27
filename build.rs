@@ -687,6 +687,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/ddgi/octahedral_gutter.comp",
     "shader/ddgi/probe_relocate.comp",
     "shader/ddgi/probe_trace.comp",
+    "shader/lighting/local_light_visibility_diagnostic.comp",
     "shader/ddgi/irradiance_filter.comp",
     "shader/ddgi/visibility_filter.comp",
     "shader/ddgi/irradiance_gutter.comp",
@@ -694,6 +695,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/ddgi/atlas_reduce.comp",
     "shader/ddgi/voxel_visibility_pack.comp",
     "shader/ddgi/voxel_visibility_blocks.comp",
+    "shader/lighting/local_light_abi.comp",
     "shader/tracer/tracer.comp",
     "shader/tracer/tracer_shadow.comp",
     "shader/tracer/leaf_shadow_temporal.comp",
@@ -709,6 +711,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/foliage/flora.vert",
     "shader/foliage/flora_lighting_cache.comp",
     "shader/foliage/flora_lod.vert",
+    "shader/foliage/leaves.vert",
     "shader/foliage/leaves_shadow.vert",
 ];
 

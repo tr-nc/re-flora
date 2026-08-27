@@ -3,14 +3,20 @@
 状态：调研与目标架构建议；不包含实现
 日期：2026-08-23
 审计基线：`0b607897bd2cf41bcc1ad686a379f5cabde710ba`
+主线复审：2026-08-27，合入 `main@400794afca0b8d7dd3fbf44e2804a53354cca29f`
+
+> 2026-08-27 技术选型：不采用 Vulkan/DXR 硬件光追、BLAS/TLAS 或 ray query。目标路线固定为
+> 当前 raster + compute/software ray tracing。文中硬件 ray-query 内容只保留为被否决方案的能力
+> 边界，不属于实施路线。
 
 ## 结论
 
 在当前世界中加入“厚度为一个体素、可反射和折射的玻璃”**可行，但不属于好加的材质开关**。
 
-- **编码和存档容易**：权威 atlas 的低 4 bit 能表达 16 个 type，当前只使用
-  `0, 2..7`，因此不扩大每体素 1 byte 就能加入 `Glass = 8`。但编辑统计数组当前只有
-  8 项，存档 schema 也必须升级，不能只增加一个 shader 常量。
+- **编码和存档容易**：权威 atlas 的低 4 bit 能表达 16 个 type，当前使用
+  `0, 2..8`，其中主线已把 ID 8 分配给 Emissive；因此 Glass 的下一个可用 ID 是 9，仍不需要扩大
+  每体素 1 byte。编辑统计数组当前有 9 项，加入 Glass 时至少需要 10 项，建议直接扩到 16；存档
+  schema 是否升级必须按透明材质的旧版本误读风险明确决策，不能只增加一个 shader 常量。
 - **纯体素玻璃中等偏难**：现有 Contree 只保存 active surface leaf，`marchScene` 也只返回
   第一个表面命中。它足以加速找入射面，却不能可靠找连续玻璃的出射面。最干净的做法是
   “Contree 找第一个界面 + 权威 `chunk_atlas` dense DDA 穿越介质 + 再回到场景查询”。
@@ -25,15 +31,15 @@
   写另一个 HDR target；体素反射/折射用世界空间查询，raster 内容先用完整 opaque scene 的
   screen-space 采样，离屏/被遮挡 raster 内容以体素/天空回退。这个 hybrid 有明确近似边界，
   能落地但不是统一正确解。
-- **完整统一解成本高**：只有把相关 voxel、flora、objects 纳入一个可查询的世界空间结构（例如
-  Vulkan TLAS/ray query），才可能看见离屏或被遮挡的 raster 几何。当前 device 没有启用
-  `VK_KHR_acceleration_structure` / `VK_KHR_ray_query`，动态植被又会增加 AS 更新与材质求值成本，
-  不宜作为第一阶段。
+- **选择的正确性边界**：在不建设硬件 TLAS/ray-query 场景的前提下，软件 voxel query 能正确处理
+  voxel 世界的离屏/被遮挡内容；raster flora/objects 的 secondary visibility 只能做 screen-space
+  近似并在缺失时回退到 voxel/sky，不能宣称为统一正确解。这是已接受的产品边界，不再把硬件 RT
+  列作后续实施阶段。
 
 以一位熟悉本渲染器的工程师估算：可演示的 voxel-only 厚玻璃约 **1.5–2.5 周**；推荐的可发布
 hybrid（含存档、opaque composition 重排、raster 近似、阴影/DDGI 一致性与验证）约
-**3–6 工程周**。统一 ray-query 场景是在此之外的 **4–8+ 工程周**项目。这里的工时是设计量级，
-不是排期承诺；GPU 性能必须按仓库约定以固定场景 release-mode 实测。
+**3–6 工程周**。这里的工时是设计量级，不是排期承诺；GPU 性能必须按仓库约定以固定场景
+release-mode 实测，硬件 ray-query 路线不计入计划。
 
 ## 范围与正确性目标
 
@@ -74,19 +80,21 @@ CPU 侧在 `src/builder/plain/mod.rs` 以 `VOXEL_TYPE_MASK`、`VOXEL_MOISTURE_MA
 | 5 | Cherry wood | 已用 |
 | 6 | Oak wood | 已用 |
 | 7 | Rock | 已用 |
-| 8..15 | 未定义 | 可编码 |
+| 8 | Emissive | 已用（2026-08-27 主线） |
+| 9..15 | 未定义 | 可编码 |
 
-因此 byte 宽度**无需改变**。建议分配 `Glass = 8`，而不是回填 ID 1：schema v1 最初加入时
+因此 byte 宽度**无需改变**。建议分配 `Glass = 9`，而不是回填 ID 1：schema v1 最初加入时
 ID 1 就已经空着（`938cbe5156babd02f63b1d3a11dc6117d03368ca` 同时引入
 `src/terrain_persistence.rs`，该提交的 `shader/slang/voxel_types.slang` 已使用 `0, 2, 3,
-5, 6, 7`）。保留历史空洞比为了少改一处统计常量而复用它更清楚，ID 8 也能让“旧 schema
-的 ID 范围”和新材质的出现点一目了然。
+5, 6, 7`）。主线随后把 ID 8 分配给 Emissive；保留历史空洞并顺序使用 ID 9，比回填 ID 1 更
+清楚。
 
 但 type nibble 的容量不等于系统已经支持 16 种材质：
 
 - `src/builder/plain/mod.rs::EDIT_STATS_VOXEL_TYPE_COUNT` 与
-  `shader/slang/chunk_writer_types.slang::EDIT_STATS_VOXEL_TYPE_COUNT` 都是 8；若用 ID 8，统计
-  buffer 至少要扩到 9，建议直接扩到 16，令数组容量与编码域一致。
+  `shader/slang/chunk_writer_types.slang::EDIT_STATS_VOXEL_TYPE_COUNT` 目前都是 9；若用 ID 9，统计
+  buffer 至少要扩到 10，建议直接扩到 16，令数组容量与编码域一致。现有
+  `max_removed_counts_8_11` 已提供第二个四项 ABI 槽，但 readback 数组和有效计数仍需同步扩大。
 - `shader/slang/surface_extraction.slang::isSolid` 将任何非零 type 当 solid；
   `isOccluded` 只看六邻域 occupancy。这会让玻璃参与几何遮挡，却不会自动赋予透明语义。
 - terrain connectivity、CPU occupancy/collision 与其他“非零即实心”的调用点会把玻璃当实体。
@@ -122,8 +130,9 @@ byte 不变；但旧程序也会接受新存档，并把未知的 Glass byte 当
 
 1. 二进制容器布局不变，因此 `TERRAIN_FORMAT_VERSION` 仍可为 1；writer 改写
    `voxel_schema_id = 2`。
-2. reader 支持 schema 1 和 schema 2 两个 adapter：schema 1 只接受旧的已知 ID 并逐 byte
-   映射到相同的新 ID；schema 2 接受 Glass = 8，并验证 type 与该 type 允许的 state bits。
+2. reader 支持 schema 1 和 schema 2 两个 adapter：schema 1 接受当前主线已有 ID（含
+   Emissive = 8）并逐 byte 映射到相同 ID；schema 2 接受 Glass = 9，并验证 type 与该 type 允许的
+   state bits。
 3. 当前 schema 1 文件不需要重采样，也不需要改 payload；载入新程序后首次保存自然写 schema 2。
 4. 老程序看到 schema 2 会按既有 `validate()` 逻辑拒绝，而不是误解释玻璃。这是有意且安全的
    forward-compatibility 边界。
@@ -191,8 +200,8 @@ buffer-device-address features，并且**没有启用**
 `VK_KHR_acceleration_structure`、
 `VK_KHR_ray_query` 及其 feature structs，生产 shader 也没有 `rayQueryEXT` 路径。
 
-所以不能把 `rtx/` 目录当作“已有硬件 RT，只差调用”。若采用 ray query，必须先做 feature/extension
-协商、设备兼容策略、AS 生命周期和真正的场景 adapter。
+所以不能把 `rtx/` 目录当作“已有硬件 RT，只差调用”。本项目已明确不采用这条路线；这些辅助类型
+不应进入 Glass 实施依赖，也不应为它预留生产 interface。
 
 ## 当前 raster、composition、depth 与 post-processing
 
@@ -354,10 +363,10 @@ trace_radiance_branch(ray, policy) -> bounded radiance result
 trace_sun_transmittance(ray, policy) -> RGB transmittance
 ```
 
-其 implementation 内部组合 Contree adapter（快速 entry/opaque surface）、dense atlas DDA adapter
-（material transition/几何法线/距离）以及未来可选的 TLAS adapter。调用者不应知道 entry 用哪个
-结构、epsilon 如何推进或连续同介质如何合并。测试通过同一 interface 喂 authored atlas，断言事件
-序列和颜色结果；DDA/Contree 之间的替换 seam 留在 implementation 内部。
+其 implementation 内部组合 Contree adapter（快速 entry/opaque surface）与 dense atlas DDA adapter
+（material transition/几何法线/距离）。调用者不应知道 entry 用哪个结构、epsilon 如何推进或连续
+同介质如何合并。测试通过同一 interface 喂 authored atlas，断言事件序列和颜色结果；
+DDA/Contree 之间的 seam 留在 implementation 内部，不为已否决的 TLAS 建立假想 interface。
 
 **删除测试**：若删除它，primary、reflection、refraction、shadow、DDGI 会分别复制 traversal、
 medium state 与 epsilon 规则，正是本改动最大的长期风险。当前只有 voxel adapter 时不必公开一个
@@ -422,7 +431,7 @@ alpha blending 不是厚介质。Khronos transmission 规范明确区分 coverag
 | Depth peeling | 每 pass 剥一层；N pass 得到当前视图最多 N 个排序 fragment layers，能做更准确的 alpha composite | 成本约随层数/重画增长；原始方法针对 non-refractive transparency，不自动生成折射 ray 或体积距离 | 只看当前相机实际 rasterized 的 layers；**不能**看视锥外内容（[Everitt 2001](https://developer.download.nvidia.com/assets/gamedev/docs/order_independent_transparency.pdf)） |
 | per-pixel linked-list OIT | 保存当前视图所有/有界 fragments 后排序，层信息比单 RGBA/depth 完整 | 内存上限、overflow、同步与带宽；仍只是 primary-view fragments，不是 secondary-ray scene | **不能**；Khronos sample 也把它定义为 OIT fragment capture（[Vulkan OIT sample](https://docs.vulkan.org/samples/latest/samples/api/oit_linked_lists/README.html)） |
 | 当前 custom voxel secondary trace | 可查询视锥外、被 raster 前景遮挡的 **voxel terrain/sky**；dense atlas 可给真正 exit/thickness | 看不到未进入结构的 flora/objects；Contree-only 又缺介质内部 | 对 voxel **能**，对 raster **不能** |
-| Vulkan ray query + unified TLAS | graphics/compute shader 可在 raster primary 之后发 secondary query；若几何在 TLAS 中，可看离屏/被遮挡几何 | 必须建设 BLAS/TLAS、更新动态 flora、提供 hit material/shading；兼容/性能成本高；voxel AABB 仍需自定义 intersection 或 mesh | 对已纳入 TLAS 的几何 **能**（[VK_KHR_ray_query](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_ray_query.html)、[Vulkan AS spec](https://docs.vulkan.org/spec/latest/chapters/accelstructures.html)） |
+| Vulkan ray query + unified TLAS（已否决） | 若建设完整场景结构，理论上可查询离屏/被遮挡 raster geometry | 与既定软件光追路线冲突，且必须建设 BLAS/TLAS、动态 flora 更新和 hit shading；不进入实施 | 不适用；仅作方案边界对照（[VK_KHR_ray_query](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_ray_query.html)、[Vulkan AS spec](https://docs.vulkan.org/spec/latest/chapters/accelstructures.html)） |
 | 推荐 hybrid | voxel 介质 world-space 正确；完整 opaque raster 可在 screen-space 折射；缺失时有 voxel/sky fallback | raster secondary visibility 仍是近似；透明 raster 多层必须限制或另加 OIT/layers | voxel **能**；raster 仅当前完整 opaque screen **能**，离屏/被遮挡 **不能** |
 
 结论：WBOIT/depth peeling 解决的是 raster transparency ordering，不是厚玻璃的 secondary visibility。
@@ -544,18 +553,12 @@ Gate：Glass edit 后所有 derived revisions 收敛；无一条 DDGI/shadow con
 规则；透明 raster 的受支持排序写进测试/文档。若产品要求“玻璃前后多层水滴都正确”，此 phase
 必须升级为 depth peeling/PPLL 等独立项目，工时另计。
 
-### 可选 Phase 4：统一 ray-query scene（额外 4–8+ 周）
+### 不进入路线：统一硬件 ray-query scene
 
-目标：反射/折射能查询纳入结构的离屏/被遮挡 raster geometry。
-
-范围包括 device capability negotiation、fallback tier、voxel AABB/mesh BLAS、flora/object BLAS、
-TLAS instance/update、wind/deformation 策略、hit material lookup、shader ray-query adapter、build/update
-同步和 release GPU measurement。Vulkan ray query 可从任意 graphics/compute shader 启动 traversal，
-但应用仍负责 AS 的构建、更新与同步；这正是它比 screen-space 更通用也更昂贵的原因
-（[VK_KHR_ray_query](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_ray_query.html)、
-[Vulkan acceleration structures](https://docs.vulkan.org/spec/latest/chapters/accelstructures.html)）。
-
-没有测得 consumer GPU/driver 覆盖率与动态更新成本前，不推荐让它阻塞 Phase 0–3。
+用户已明确否决 Vulkan/DXR 硬件 RT、BLAS/TLAS 和 ray query。Phase 0–3 的 interface、资源生命周期、
+测试与工期不得依赖该路线，也不为假想的未来 adapter 增加抽象。由此接受的产品边界是：voxel
+secondary visibility 由现有软件场景查询负责；raster geometry 仅保证当前完整 opaque screen 中的
+近似，离屏或被遮挡内容稳定回退到 voxel/sky。
 
 ## 风险与性能预算
 
@@ -621,7 +624,7 @@ smoke，并检查同 worktree 的 run log。性能判断另跑足够长的固定
    direct shadow 采用声明式阶段近似，不包含 caustics。
 
 采用 `VoxelMaterial` + `SceneQuery` 两个深 Module、opaque-first + glass-resolve 的 pass seam，可以让
-首版在不承诺统一 path tracing 的前提下落地，也给未来 TLAS adapter 留出真实的替换位置。相反，
+首版在 raster + 软件光追的既定架构内落地，并把 screen-space raster fallback 的限制保持显式。相反，
 若直接在 `tracer.slang`、每个 shadow/DDGI shader 和现有 `composition.slang` 各加 `if glass`，编码
 虽然一天内可见，之后会在存档、exit traversal、raster depth 与 lighting 中同时失真，不能称为
 完成了“一体素厚、有反射和折射的玻璃材质”。

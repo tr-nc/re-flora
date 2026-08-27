@@ -14,6 +14,7 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
     if (voxelType == VOXEL_TYPE_OAK_WOOD) return colors.oak_wood_color;
     if (voxelType == VOXEL_TYPE_ROCK) return colors.rock_color;
+    if (voxelType == VOXEL_TYPE_EMISSIVE) return colors.emissive_color;
     return float3(0.0);
 }
 
@@ -45,6 +46,13 @@ public float3 voxelColorByTypeAndHash(U_VoxelColors colors, uint voxelType, uint
         voxelType, hashId);
 }
 
+public float3 voxelSurfaceEmission(U_VoxelColors colors, uint voxelType)
+{
+    return voxelType == VOXEL_TYPE_EMISSIVE
+        ? srgbToLinear(colors.emissive_color) * colors.emissive_radiance
+        : float3(0.0);
+}
+
 float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
                                 uint voxelType)
 {
@@ -54,7 +62,16 @@ float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
     if (voxelType == VOXEL_TYPE_OAK_WOOD) return colors.oak_wood_color;
     if (voxelType == VOXEL_TYPE_ROCK) return colors.rock_color;
+    if (voxelType == VOXEL_TYPE_EMISSIVE) return colors.emissive_color;
     return float3(0.0);
+}
+
+public float3 ddgiVoxelSurfaceEmission(U_DdgiRadianceVoxelPalette colors,
+                                       uint voxelType)
+{
+    return voxelType == VOXEL_TYPE_EMISSIVE
+        ? srgbToLinear(colors.emissive_color) * colors.emissive_radiance
+        : float3(0.0);
 }
 
 public float3 ddgiVoxelColorByTypeAndHash(

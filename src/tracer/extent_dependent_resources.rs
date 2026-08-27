@@ -46,6 +46,7 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
     ) -> Self {
         let gfx_depth_tex =
             Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
@@ -57,6 +58,7 @@ impl ExtentDependentResources {
             device.clone(),
             allocator.clone(),
             rendering_extent,
+            environment_irradiance_capture_enabled,
         );
         let ddgi_spatial_weight_readback =
             Self::create_ddgi_spatial_weight_readback(device.clone(), allocator.clone());
@@ -168,11 +170,16 @@ impl ExtentDependentResources {
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
+        enabled: bool,
     ) -> Buffer {
-        let byte_count = u64::from(rendering_extent.width)
-            * u64::from(rendering_extent.height)
+        let captured_pixel_count = if enabled {
+            u64::from(rendering_extent.width) * u64::from(rendering_extent.height)
+        } else {
+            1
+        };
+        let byte_count = captured_pixel_count
             * std::mem::size_of::<[f32; 4]>() as u64
-            * 3;
+            * u64::from(super::ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT);
         Buffer::new_sized(
             device,
             allocator,

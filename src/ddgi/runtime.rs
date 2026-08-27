@@ -1,13 +1,14 @@
-use crate::environment_lighting::EnvironmentLightingState;
+use crate::environment_lighting::{DdgiRadianceHistoryPolicy, EnvironmentLightingState};
 use crate::geom::UAabb3;
 use anyhow::Result;
 
 use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRayBatch, DdgiRefreshState,
-    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError,
-    DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiProbePriority,
+    DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork,
+    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh, DdgiTransportScheduler,
+    DdgiVolumeGrid, DdgiVolumeStage,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,17 +39,45 @@ impl DdgiRuntimeVolumeBuild {
 pub(crate) struct DdgiRuntimeWork {
     scheduled: DdgiScheduledWork,
     authored_lighting: EnvironmentLightingState,
+    radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
     local_refresh_voxel_bound: Option<UAabb3>,
+    probe_priority: Option<DdgiProbePriority>,
 }
 
 /// Logical DDGI work selected for one frame. The runtime owns sequencing decisions; the tracer
 /// only records the Vulkan passes described by this plan and reports completion back here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiFramePlan {
     pub global_sky_needs_update: bool,
     pub relocation_terrain_revision: Option<u32>,
+    pub visibility_preservation_needed: bool,
     pub ray_batch: Option<DdgiRayBatch>,
     pub iteration_will_complete: bool,
+}
+
+/// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
+/// harnesses. Physical atlas status remains separately available through `DdgiRuntimeStatus`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DdgiLightingDiagnostics {
+    pub latest_transport_revision: Option<u32>,
+    pub latest_source_live_revision: Option<u64>,
+    pub scheduler_published_revision: Option<u32>,
+    pub in_flight_revision: Option<u32>,
+    pub coalesced_revisions: u64,
+    pub has_mixed_in_flight_revision: bool,
+}
+
+impl DdgiLightingDiagnostics {
+    pub fn scheduler_revision_lag(self) -> u32 {
+        match (
+            self.latest_transport_revision,
+            self.scheduler_published_revision,
+        ) {
+            (Some(latest), Some(published)) => latest.saturating_sub(published),
+            (Some(latest), None) => latest,
+            _ => 0,
+        }
+    }
 }
 
 impl DdgiRuntimeWork {
@@ -60,8 +89,16 @@ impl DdgiRuntimeWork {
         self.authored_lighting
     }
 
+    pub(crate) fn radiance_history_policy(self) -> Option<DdgiRadianceHistoryPolicy> {
+        self.radiance_history_policy
+    }
+
     pub(crate) fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
         self.local_refresh_voxel_bound
+    }
+
+    pub(crate) fn probe_priority(self) -> Option<DdgiProbePriority> {
+        self.probe_priority
     }
 }
 
@@ -81,6 +118,14 @@ pub(crate) struct DdgiRuntime {
     transport_scheduler: DdgiTransportScheduler,
     live_authored_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
+    published_authored_lighting: Option<EnvironmentLightingState>,
+    resident_active_field: Option<DdgiFieldIdentity>,
+    resident_active_authored_lighting: Option<EnvironmentLightingState>,
+    completed_staging_authored_lighting:
+        Option<(DdgiBuildToken, DdgiFieldIdentity, EnvironmentLightingState)>,
+    coalesced_radiance_revisions: u64,
+    camera_probe_priority: Option<UAabb3>,
+    lighting_impact_probe_priority: Option<(u32, UAabb3)>,
     capture_enabled: bool,
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
@@ -100,6 +145,13 @@ impl DdgiRuntime {
             transport_scheduler: DdgiTransportScheduler::new(),
             live_authored_lighting: None,
             in_flight_authored_lighting: None,
+            published_authored_lighting: None,
+            resident_active_field: None,
+            resident_active_authored_lighting: None,
+            completed_staging_authored_lighting: None,
+            coalesced_radiance_revisions: 0,
+            camera_probe_priority: None,
+            lighting_impact_probe_priority: None,
             capture_enabled: false,
             capture_target: DdgiCaptureTarget::default(),
             capture_batch_order: DdgiBatchOrder::default(),
@@ -179,6 +231,10 @@ impl DdgiRuntime {
             lighting.revision, 0,
             "Authored Environment Lighting revisions must be nonzero"
         );
+        assert_eq!(
+            lighting.snapshot.local_lights.info.transport_revision, lighting.revision,
+            "DDGI local-light payload must be frozen to its authored transport revision",
+        );
         if let Some(current) = self.live_authored_lighting {
             if current.revision == lighting.revision {
                 assert_eq!(
@@ -189,8 +245,39 @@ impl DdgiRuntime {
                 return;
             }
         }
+        let previous_latest = self.transport_scheduler.latest_radiance_revision();
+        let in_flight_revision = self
+            .transport_scheduler
+            .in_flight()
+            .map(|work| work.destination().field().radiance_revision());
+        let published_revision = self
+            .transport_scheduler
+            .published()
+            .map(|field| field.field().radiance_revision());
+        if previous_latest.is_some()
+            && previous_latest != Some(lighting.revision)
+            && previous_latest != in_flight_revision
+            && previous_latest != published_revision
+        {
+            self.coalesced_radiance_revisions = self.coalesced_radiance_revisions.saturating_add(1);
+        }
         self.live_authored_lighting = Some(lighting);
         self.transport_scheduler.observe_radiance(lighting.revision);
+    }
+
+    pub(crate) fn observe_camera_probe_priority(&mut self, voxel_bound: UAabb3) {
+        self.camera_probe_priority = Some(voxel_bound);
+    }
+
+    /// Phase 2 local lights can publish their conservative DDGI influence bound through this seam.
+    /// `None` clears the previous influence when no movable light affects the volume.
+    #[allow(dead_code)]
+    pub(crate) fn observe_lighting_impact_probe_priority(
+        &mut self,
+        radiance_revision: u32,
+        voxel_bound: Option<UAabb3>,
+    ) {
+        self.lighting_impact_probe_priority = voxel_bound.map(|bound| (radiance_revision, bound));
     }
 
     pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
@@ -236,14 +323,12 @@ impl DdgiRuntime {
     }
 
     fn request_geometry_transport(&mut self, token: DdgiBuildToken) {
-        let transport_source = match self.volumes.as_ref() {
-            // Installed physical residency is authoritative: the logical scheduler may currently
-            // publish a private staging candidate that active descriptors cannot read.
-            Some(volumes) => volumes.status().active().published_field,
-            // Resource-independent scheduler tests intentionally run without Vulkan volumes.
-            None => self.transport_scheduler.published(),
-        }
-        .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
+        // Physical active residency is authoritative: the logical scheduler may currently publish
+        // a private staging candidate that active descriptors cannot read. Runtime-owned identity
+        // keeps that distinction testable without Vulkan resources.
+        let transport_source = self
+            .resident_active_field
+            .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
         let preempted = self.transport_scheduler.request_geometry_from(
             token.terrain_revision(),
             token.spacing_voxels(),
@@ -291,13 +376,54 @@ impl DdgiRuntime {
             "DDGI transport work revision does not match live Authored Environment Lighting",
         );
         self.in_flight_authored_lighting = Some(authored_lighting);
+        let radiance_history_policy = scheduled.transport_source().and_then(|source| {
+            (source.field().radiance_revision()
+                != scheduled.destination().field().radiance_revision())
+            .then(|| {
+                let source_revision = source.field().radiance_revision();
+                let source_lighting = [
+                    self.resident_active_authored_lighting,
+                    self.published_authored_lighting,
+                ]
+                .into_iter()
+                .flatten()
+                .find(|lighting| lighting.revision == source_revision)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "DDGI has no immutable authored lighting for scheduled source revision {}",
+                        source_revision,
+                    )
+                });
+                DdgiRadianceHistoryPolicy::between(source_lighting, authored_lighting)
+            })
+        });
         let local_refresh_voxel_bound = (scheduled.kind() == DdgiScheduledWorkKind::GeometryUpdate)
             .then(|| self.terrain_refresh.invalidation_voxel_bound())
             .flatten();
+        let lighting_impact_priority = self
+            .lighting_impact_probe_priority
+            .filter(|(revision, _)| {
+                *revision == scheduled.destination().field().radiance_revision()
+            })
+            .map(|(_, bound)| {
+                DdgiProbePriority::new(bound, DdgiProbePriorityReason::LightingImpact)
+            });
+        if lighting_impact_priority.is_some() {
+            self.lighting_impact_probe_priority = None;
+        }
+        let probe_priority = local_refresh_voxel_bound
+            .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::TerrainEdit))
+            .or(lighting_impact_priority)
+            .or_else(|| {
+                self.camera_probe_priority
+                    .map(|bound| DdgiProbePriority::new(bound, DdgiProbePriorityReason::Camera))
+            });
         Some(DdgiRuntimeWork {
             scheduled,
             authored_lighting,
+            radiance_history_policy,
             local_refresh_voxel_bound,
+            probe_priority,
         })
     }
 
@@ -332,8 +458,13 @@ impl DdgiRuntime {
         let published = self
             .transport_scheduler
             .complete_in_flight(work, published)?;
+        self.published_authored_lighting = Some(lighting);
         if self.active_build_token == Some(build_token) {
+            self.resident_active_field = Some(published);
+            self.resident_active_authored_lighting = Some(lighting);
             self.active_ready = true;
+        } else {
+            self.completed_staging_authored_lighting = Some((build_token, published, lighting));
         }
         Ok(published)
     }
@@ -343,7 +474,16 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn finish_obsolete_volume_build(&mut self, token: DdgiBuildToken) -> bool {
-        self.terrain_refresh.finish_obsolete_candidate(token)
+        if !self.terrain_refresh.finish_obsolete_candidate(token) {
+            return false;
+        }
+        if self
+            .completed_staging_authored_lighting
+            .is_some_and(|(candidate, _, _)| candidate == token)
+        {
+            self.completed_staging_authored_lighting = None;
+        }
+        true
     }
 
     pub(crate) fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
@@ -357,6 +497,16 @@ impl DdgiRuntime {
         .expect("promoted DDGI token must retain a supported Volume grid");
         self.active_build_token = Some(token);
         self.active_ready = true;
+        let (candidate_token, field, lighting) = self
+            .completed_staging_authored_lighting
+            .take()
+            .expect("promoted DDGI staging token must retain its immutable authored lighting");
+        assert_eq!(
+            candidate_token, token,
+            "promoted DDGI token and completed staging lighting diverged"
+        );
+        self.resident_active_field = Some(field);
+        self.resident_active_authored_lighting = Some(lighting);
         if self
             .capture_checkpoint
             .is_some_and(|checkpoint| checkpoint.build_token == token)
@@ -439,6 +589,29 @@ impl DdgiRuntime {
         self.transport_scheduler.latest_radiance_revision()
     }
 
+    pub(crate) fn lighting_diagnostics(&self) -> DdgiLightingDiagnostics {
+        let in_flight_revision = self
+            .transport_scheduler
+            .in_flight()
+            .map(|work| work.destination().field().radiance_revision());
+        let authored_in_flight_revision = self
+            .in_flight_authored_lighting
+            .map(|lighting| lighting.revision);
+        DdgiLightingDiagnostics {
+            latest_transport_revision: self.transport_scheduler.latest_radiance_revision(),
+            latest_source_live_revision: self
+                .live_authored_lighting
+                .map(|lighting| lighting.source_live_revision),
+            scheduler_published_revision: self
+                .transport_scheduler
+                .published()
+                .map(|field| field.field().radiance_revision()),
+            in_flight_revision,
+            coalesced_revisions: self.coalesced_radiance_revisions,
+            has_mixed_in_flight_revision: in_flight_revision != authored_in_flight_revision,
+        }
+    }
+
     pub(crate) fn live_authored_lighting(&self) -> Option<EnvironmentLightingState> {
         self.live_authored_lighting
     }
@@ -455,6 +628,7 @@ impl DdgiRuntime {
         DdgiFramePlan {
             global_sky_needs_update: builder.global_sky_needs_update(),
             relocation_terrain_revision: builder.pending_relocation_terrain_revision(),
+            visibility_preservation_needed: builder.visibility_preservation_needed(),
             iteration_will_complete: ray_batch
                 .is_some_and(|batch| builder.iteration_will_complete(batch)),
             ray_batch,
@@ -471,6 +645,10 @@ impl DdgiRuntime {
         self.volumes_mut()
             .builder_mut()
             .mark_relocated(terrain_revision)
+    }
+
+    pub(crate) fn mark_visibility_preserved(&mut self) {
+        self.volumes_mut().builder_mut().mark_visibility_preserved();
     }
 
     pub(crate) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
@@ -530,6 +708,7 @@ pub struct DdgiRuntimeVolumeStatus {
     pub radiance_revision: Option<u32>,
     pub relocated_terrain_revision: Option<u32>,
     pub filtered_probe_count: u32,
+    pub probe_priority: Option<DdgiProbePriority>,
 }
 
 impl DdgiRuntimeVolumeStatus {
@@ -555,6 +734,7 @@ impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
             radiance_revision: status.radiance_revision,
             relocated_terrain_revision: status.relocated_terrain_revision,
             filtered_probe_count: status.filtered_probe_count,
+            probe_priority: status.probe_priority,
         }
     }
 }
@@ -571,6 +751,7 @@ pub struct DdgiRuntimeStatus {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 enum DdgiRuntimeState {
     Active {
         active: DdgiRuntimeVolumeStatus,
@@ -780,6 +961,10 @@ mod tests {
     };
     use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
     use crate::geom::UAabb3;
+    use crate::lighting::{
+        LocalLight, LocalLightBudget, LocalLightGpuPayload, LocalLightGpuSnapshot,
+        LocalLightRegistry, PointLight,
+    };
     use glam::{UVec3, Vec3};
 
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
@@ -801,6 +986,9 @@ mod tests {
     fn lighting(revision: u32, sun_luminance: f32) -> EnvironmentLightingState {
         EnvironmentLightingState {
             revision,
+            source_live_revision: u64::from(revision),
+            published_at: std::time::Duration::from_millis(u64::from(revision) * 10),
+            change: crate::environment_lighting::DdgiRadianceChange::default(),
             snapshot: DdgiRadianceSnapshot {
                 sun_direction: Vec3::Y,
                 sun_color: Vec3::new(1.0, 0.9, 0.8),
@@ -814,7 +1002,10 @@ mod tests {
                     oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
                     rock_color: Vec3::splat(0.4),
                     hash_color_variance: 0.5,
+                    emissive_color: Vec3::new(1.0, 0.36, 0.08),
+                    emissive_radiance: 4.0,
                 },
+                local_lights: LocalLightGpuPayload::empty(0).with_transport_revision(revision),
             },
         }
     }
@@ -865,6 +1056,7 @@ mod tests {
             relocated_terrain_revision: Some(geometry_revision),
             active_ray_batch: None,
             filtered_probe_count: 2048,
+            probe_priority: None,
             promotion_ready: true,
         }
     }
@@ -1035,6 +1227,45 @@ mod tests {
     }
 
     #[test]
+    fn superseded_geometry_keeps_resident_lighting_for_the_replacement_source() {
+        let (mut runtime, _, resident) = initialized_runtime();
+        let r2 = lighting(2, 2.0);
+        runtime.observe_authored_lighting(r2);
+
+        assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
+        let obsolete_token = runtime.claim_volume_build().unwrap().token();
+        let obsolete_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            obsolete_work.scheduled().destination().source(),
+            Some(resident.field())
+        );
+
+        assert!(runtime.observe_visible_terrain(9, edit_bound(200, 220)));
+        runtime
+            .complete_transport_work(
+                obsolete_work.scheduled(),
+                obsolete_work.scheduled().destination(),
+                obsolete_token,
+            )
+            .unwrap();
+        assert!(runtime.finish_obsolete_volume_build(obsolete_token));
+
+        let replacement_token = runtime.claim_volume_build().unwrap().token();
+        assert_eq!(replacement_token.terrain_revision(), 9);
+        let replacement = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            replacement.scheduled().destination().source(),
+            Some(resident.field()),
+            "replacement geometry must inherit the physically resident field, not obsolete staging"
+        );
+        assert_eq!(replacement.authored_lighting().snapshot, r2.snapshot);
+        let history = replacement
+            .radiance_history_policy()
+            .expect("resident r1 to live r2 must retain an explicit radiance history policy");
+        assert_eq!(history.elapsed, std::time::Duration::from_millis(10));
+    }
+
+    #[test]
     fn density_request_uses_the_active_geometry_and_requested_spacing() {
         let (mut runtime, active_token, _) = initialized_runtime();
         runtime.request_density_rebuild(32);
@@ -1054,7 +1285,17 @@ mod tests {
     #[test]
     fn radiance_observations_coalesce_without_mutating_the_in_flight_snapshot() {
         let (mut runtime, active_token, _) = initialized_runtime();
-        let r2 = lighting(2, 2.0);
+        let mut lights = LocalLightRegistry::default();
+        let id = lights.add(LocalLight::Point(
+            PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let mut r2 = lighting(2, 2.0);
+        r2.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            2,
+        )
+        .payload();
         runtime.observe_authored_lighting(r2);
         let r2_work = runtime.claim_transport_work().unwrap();
         assert_eq!(
@@ -1068,12 +1309,35 @@ mod tests {
         assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot);
 
         runtime.observe_authored_lighting(lighting(3, 3.0));
-        let r4 = lighting(4, 4.0);
+        lights.remove(id).unwrap();
+        let mut r4 = lighting(4, 4.0);
+        r4.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            4,
+        )
+        .payload();
         runtime.observe_authored_lighting(r4);
+        let pending = runtime.lighting_diagnostics();
         assert_eq!(runtime.latest_radiance_revision(), Some(4));
+        assert_eq!(pending.latest_transport_revision, Some(4));
+        assert_eq!(pending.scheduler_published_revision, Some(1));
+        assert_eq!(pending.in_flight_revision, Some(2));
+        assert_eq!(pending.coalesced_revisions, 1);
+        assert_eq!(pending.scheduler_revision_lag(), 3);
+        assert!(!pending.has_mixed_in_flight_revision);
         assert_eq!(
             runtime.in_flight_authored_lighting().unwrap().snapshot,
             r2.snapshot,
+        );
+        assert_eq!(
+            runtime
+                .in_flight_authored_lighting()
+                .unwrap()
+                .snapshot
+                .local_lights
+                .count(),
+            1
         );
 
         let r2_scheduled = r2_work.scheduled();
@@ -1081,14 +1345,79 @@ mod tests {
             .complete_transport_work(r2_scheduled, r2_scheduled.destination(), active_token)
             .unwrap();
         let latest = runtime.claim_transport_work().unwrap();
+        let claimed = runtime.lighting_diagnostics();
         assert_eq!(
             latest.scheduled().destination().field().radiance_revision(),
             4
         );
+        assert_eq!(claimed.scheduler_published_revision, Some(2));
+        assert_eq!(claimed.in_flight_revision, Some(4));
+        assert_eq!(claimed.scheduler_revision_lag(), 2);
+        assert!(!claimed.has_mixed_in_flight_revision);
         assert_eq!(latest.authored_lighting().snapshot, r4.snapshot);
+        assert_eq!(latest.authored_lighting().snapshot.local_lights.count(), 0);
         assert_eq!(
             latest.scheduled().destination().source(),
             Some(r2_scheduled.destination().field())
+        );
+    }
+
+    #[test]
+    fn radiance_work_derives_history_from_the_actual_published_source() {
+        let (mut runtime, _, _) = initialized_runtime();
+        let mut continuous = lighting(2, 1.0);
+        continuous.published_at = std::time::Duration::from_millis(210);
+        continuous.snapshot.sun_direction =
+            glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
+        runtime.observe_authored_lighting(continuous);
+
+        let work = runtime.claim_transport_work().unwrap();
+        let history = work
+            .radiance_history_policy()
+            .expect("radiance update must name its temporal policy");
+        assert_eq!(history.elapsed, std::time::Duration::from_millis(200));
+        assert_eq!(
+            history.change.reason,
+            crate::environment_lighting::DdgiRadianceChangeReason::ContinuousSun
+        );
+        assert!(!history.resets_history());
+        assert!(history.retention(0.99) > 0.0);
+    }
+
+    #[test]
+    fn transport_work_latches_impact_then_camera_priority_without_changing_sweep_scope() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let camera = edit_bound(32, 32);
+        let impact = edit_bound(256, 288);
+        runtime.observe_camera_probe_priority(camera);
+        runtime.observe_authored_lighting(lighting(2, 2.0));
+        runtime.observe_lighting_impact_probe_priority(2, Some(impact));
+
+        let impact_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            impact_work.probe_priority(),
+            Some(DdgiProbePriority::new(
+                impact,
+                DdgiProbePriorityReason::LightingImpact
+            ))
+        );
+        runtime
+            .complete_transport_work(
+                impact_work.scheduled(),
+                impact_work.scheduled().destination(),
+                active_token,
+            )
+            .unwrap();
+
+        runtime.observe_authored_lighting(lighting(3, 3.0));
+        runtime.observe_lighting_impact_probe_priority(3, None);
+        let camera_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            camera_work.probe_priority(),
+            Some(DdgiProbePriority::new(
+                camera,
+                DdgiProbePriorityReason::Camera
+            ))
         );
     }
 }

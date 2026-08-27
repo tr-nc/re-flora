@@ -14,6 +14,7 @@ mod gameplay;
 #[path = "auto-generated/mod.rs"]
 mod generated;
 mod geom;
+mod lighting;
 #[macro_use]
 mod gui_adjustables;
 mod particles;
@@ -30,8 +31,9 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    AppOptions, DenoiserBenchOptions, EnvironmentLightingTestCase, MonitorScorePreference,
-    PresentModePreference, RenderFlags, ScreenshotOptions, WaterProfilePreference,
+    AppOptions, DenoiserBenchOptions, DenoiserBenchScene, EnvironmentLightingTestCase,
+    MonitorScorePreference, PresentModePreference, RenderFlags, ScreenshotOptions,
+    WaterProfilePreference,
 };
 use env_logger::{Env, Target};
 use std::{

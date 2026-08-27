@@ -365,7 +365,7 @@ label = "Wind Source 2 Active"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "wind_source_1_direction_deg"
@@ -396,7 +396,7 @@ label = "Wind Source 2 Pattern Scale"
 type = "Float"
 
 [section.param.data]
-value = 8
+value = 1.5
 min = 0.05
 max = 8
 
@@ -440,7 +440,7 @@ label = "Wind Source 2 Gain"
 type = "Float"
 
 [section.param.data]
-value = 6.5
+value = 2.15
 min = 0
 max = 8
 
@@ -792,23 +792,10 @@ min = 0
 max = 1
 
 [[section.param]]
-id = "audio_ray_tracing_enabled"
-kind = "bool"
-label = "Environmental Acoustics"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "audio_ray_tracing_quality_percent"
 kind = "uint"
 label = "Environmental Acoustics Quality (%)"
 type = "Uint"
-
-[section.param.enabled_if]
-param = "audio_ray_tracing_enabled"
-equals = true
 
 [section.param.data]
 value = 100

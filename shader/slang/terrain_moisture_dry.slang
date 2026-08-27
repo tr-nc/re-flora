@@ -140,8 +140,11 @@ float directShadowExposure(float3 worldPosition,
                            uint sourceMask,
                            uint availableMask)
 {
+    float4 receiverPosition = float4(worldPosition, 1.0);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(worldPosition, 1.0),
+        receiverPosition,
+        receiverPosition,
+        receiverPosition,
         int3(0),
         sourceMask,
         DIRECT_TERRAIN_SHADOW_VSM,
