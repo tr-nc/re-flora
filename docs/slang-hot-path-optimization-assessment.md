@@ -211,7 +211,8 @@ Required evidence includes output hashes or image comparisons, Vulkan validation
 
 ## References
 
-- Existing project evidence: `docs/slang-poc.md` and `docs/slang-validation-plan.md`
+- Existing project evidence: [`slang-validation-plan.md`](slang-validation-plan.md) and the completed
+  migration record at [`003e535d`](https://github.com/tr-nc/re-flora/blob/003e535dc26bf877c6dd5c3e643b4c2d5549a9aa/docs/slang-poc.md)
 - Slang pointers: <https://docs.shader-slang.org/en/latest/external/slang/docs/user-guide/03-convenience-features.html#pointers-limited>
 - SPIR-V global pointers: <https://docs.shader-slang.org/en/latest/external/slang/docs/user-guide/a2-01-spirv-target-specific.html#global-memory-pointers>
 - Slang link-time specialization: <https://shader-slang.org/slang/user-guide/link-time-specialization>

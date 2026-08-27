@@ -1,6 +1,6 @@
 # Terrain Persistence and Reload v1
 
-Status: ready for implementation
+Status: implemented; schema 1 remains current (re-audited 2026-08-28)
 
 Tracking issue: [#65](https://github.com/tr-nc/re-flora/issues/65)
 
@@ -8,9 +8,9 @@ Decisions finalized: 2026-08-05
 
 ## Problem Statement
 
-Re: Flora terrain edits currently live only in the running process. A player or developer cannot
-save the authoritative voxel world, restart the app, reload the same data deterministically, and
-continue digging, filling, smoothing, or changing materials.
+Before this implementation, Re: Flora terrain edits lived only in the running process. The current
+path saves the authoritative voxel world and rebuilds its derived consumers after reload so a player
+or developer can continue digging, filling, smoothing, or changing materials deterministically.
 
 Persisting a derived representation would be incorrect. Surface output, Contree data, scene
 indirection, colliders, acceleration structures, water terrain caches, and DDGI state are

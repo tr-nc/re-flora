@@ -16,7 +16,7 @@ and the zero/nonzero safety class, but uses the exact surface hit only for nomin
 surface-side spatial weights. Two clean-start exact-irradiance captures report zero narrow
 steps; the real cached Final view changed from ten steps to one isolated peak and is GREEN.
 Full transport, correctness, runtime-edit, and lifecycle acceptance completed with zero
-failures. See [`ddgi_probe_seam_fix_plan.md`](../../ddgi_probe_seam_fix_plan.md) for the final
+failures. See the completed fix record at [`fc30f14a`](https://github.com/tr-nc/re-flora/blob/fc30f14ac6dc83b49206c8bf4430806c7fd3ebb3/docs/ddgi_probe_seam_fix_plan.md) for the final
 metrics, performance cost, and validation record, and
 [`ddgi_probe_direct_sun_path.md`](ddgi_probe_direct_sun_path.md) for why explicit sun lighting
 on a Probe hit is intended bounced indirect lighting.

@@ -217,7 +217,7 @@
       存档、碰撞和编辑语义保持一致。
     </p>
     <div class="meta">
-      <span class="pill"><strong>日期</strong> 2026-08-27</span>
+      <span class="pill"><strong>日期</strong> 2026-08-28</span>
       <span class="pill"><strong>主线基线</strong> <code>400794af</code></span>
       <span class="pill"><strong>研究分支</strong> <code>agent/glass-voxel-research</code></span>
       <span class="pill"><strong>状态</strong> 设计与实施指导，不含生产实现</span>
@@ -267,7 +267,8 @@
           <strong>承诺</strong>
           <ul>
             <li>Air + 一种均匀 smooth Glass。</li>
-            <li>Glass 使用 voxel ID <code>9</code>。</li>
+            <li>实验阶段复用 <code>VOXEL_TYPE_SAND</code>（ID 3），不占新编码。</li>
+            <li>只在专用 Glass test scene / feature flag 下启用，不进入普通 Sand 内容或正式存档。</li>
             <li>精确 entry/exit、Snell、dielectric Fresnel、TIR。</li>
             <li>按实际世界空间路径长度做 Beer-Lambert。</li>
             <li>face-connected 同材质 Glass 是连续 medium。</li>
@@ -314,15 +315,15 @@
           <tbody>
             <tr>
               <td>体素编码</td>
-              <td>低 4 bit 表示 type；ID 8 已是 Emissive；edit stats 容量为 9。</td>
+              <td>低 4 bit 表示 type；ID 3 已命名为 Sand，当前默认 terrain generator 只生成 Dirt/Rock。</td>
               <td><span class="tag partial">部分</span></td>
-              <td>Glass 必须使用 ID 9；统计至少扩到 10，建议直接覆盖 16 个 type。</td>
+              <td>实验复用 Sand ID 3，不扩 edit stats；正式上线前再决定是否分配独立 ID。</td>
             </tr>
             <tr>
               <td>存档</td>
-              <td>每 voxel 1 byte，format/schema 均为 1；新程序可 round-trip 新 nibble，但旧 binary 会接受并误解。</td>
+              <td>每 voxel 1 byte，format/schema 均为 1；实验不引入新 nibble，也不把实验 Glass 写入正式存档。</td>
               <td><span class="tag partial">风险</span></td>
-              <td>建议 writer 升 schema 2、reader 支持 1/2；旧 binary 对新文件必须明确拒绝。</td>
+              <td>实验阶段不改 schema；专用 test scene 必须可重建且禁止保存。正式兼容策略延后到 ship gate。</td>
             </tr>
             <tr>
               <td>Contree</td>
@@ -456,7 +457,7 @@
       <h3>深模块 1：<code>VoxelMaterial</code></h3>
       <p>用一份权威声明生成或校验 Rust/Slang mirror，取代散落的 <code>type != Empty</code> 与 per-type if 链：</p>
       <pre>VoxelMaterial {
-  id: 9,
+  id: VOXEL_TYPE_SAND, // 3, experiment only
   surface_class: Dielectric,
   collision_solid: true,
   water_solid: true,
@@ -469,9 +470,18 @@
   optical: { ior, sigma_a_rgb, roughness: 0 }
 }</pre>
       <p>
-        Glass voxel 的 moisture/fertility 高 nibble 必须规范为 0。IOR、attenuation color/distance 与未来 roughness
-        属于 material table，不占 per-voxel soil-state bits。ID 8 的 Emissive collector 必须保持 exact-ID 行为。
+        实验 flag 关闭时，ID 3 保持 Sand 的现有 soil、smoothing、footstep、backpack、acoustic 和 material
+        行为；开启时才由专用实验 policy 把 ID 3 解释为 dielectric。实验场景不得运行会放置 Sand 的
+        environment-lighting donor case，也不得写入正式 save。Glass voxel 的 moisture/fertility 高 nibble
+        必须规范为 0。IOR、attenuation color/distance 与未来 roughness 属于 material table，不占 per-voxel
+        soil-state bits。ID 8 的 Emissive collector 必须保持 exact-ID 行为。
       </p>
+      <div class="callout">
+        <strong>为什么实验复用 Sand：</strong>当前默认 terrain 初始化只产出 Dirt 与 Rock，Sand 没有默认 authored
+        content；复用 ID 3 因而不需要新增 material ID、扩 edit stats 或升级 schema。但 Sand 并非代码层死类型：
+        soil/moisture、smoothing、footstep、backpack、acoustics 和部分测试仍识别它，所以 feature-OFF 回归和
+        test-scene 隔离是硬 gate，不能把这次实验解释为正式重命名 Sand。
+      </div>
 
       <h3>深模块 2：<code>SceneQuery</code></h3>
       <pre>trace_first_surface(ray, mask)
@@ -619,12 +629,12 @@ for transitions along direction:
 
     <section id="delivery">
       <h2>分阶段实施计划</h2>
-      <p>每个阶段都先通过自己的 gate 并提交，再开始下一阶段；不把 schema、query、pass 重排和 DDGI 一次塞进一个不可审查的大改。</p>
+      <p>每个阶段都先通过自己的 gate 并提交，再开始下一阶段；实验不改 schema，不把 material policy、query、pass 重排和 DDGI 一次塞进一个不可审查的大改。</p>
       <div class="grid two">
         <div class="card phase">
-          <h3><span class="phase-no">0</span> Material / schema seam</h3>
-          <p><strong>交付：</strong>Glass ID 9；<code>VoxelMaterial</code>；stats 16；soil-state canonicalization；inventory/particle/acoustic/collision/water/support/emissive policies；schema 2 writer + schema 1/2 reader。</p>
-          <p><strong>Gate：</strong>ID 8 Emissive 不回归；old fixtures byte-identical load；Glass high nibble 非法状态被拒绝或规范化；旧 binary 不会静默误读新存档。</p>
+          <h3><span class="phase-no">0</span> Experimental material policy</h3>
+          <p><strong>交付：</strong>在专用 feature/test scene 下把 Sand ID 3 解释为 Glass；不新增 ID、不扩 stats、不升 schema；明确普通 Sand consumer 隔离、save 禁止和 soil-state canonicalization。</p>
+          <p><strong>Gate：</strong>feature OFF 时 Sand/soil/smoothing/footstep/backpack/acoustic 行为不变；feature ON 只能进入可重建 test scene；ID 8 Emissive provider 与全部旧 persistence fixtures 不回归。</p>
           <p><strong>主要文件：</strong><code>voxel_types.slang</code>、<code>builder/plain</code>、<code>terrain_persistence.rs</code>、backpack/particles/acoustics。</p>
         </div>
         <div class="card phase">
@@ -654,7 +664,7 @@ for transitions along direction:
         <div class="card warn">
           <h3>首三个可审查提交</h3>
           <ol>
-            <li><strong>ABI commit：</strong>ID 9 + material semantics + schema/tests；渲染图像不变。</li>
+            <li><strong>Policy commit：</strong>Sand ID 3 的实验解释、普通 Sand 隔离、不保存 guard 与 tests；feature OFF 图像不变。</li>
             <li><strong>Query commit：</strong>DDA + CPU reference + debug-only interface capture；不接 production resolve。</li>
             <li><strong>Visual slice commit：</strong>voxel-only Glass resolve + fixed scenes；raster fallback 与 DDGI 保持 feature flag 后续进入。</li>
           </ol>
@@ -711,7 +721,7 @@ cargo run --release -- --tail-latest-log 200</pre>
             <tr><td>Raster visibility 缺失</td><td>屏幕边缘拉伸、离屏 flora 消失。</td><td>validated sample + provenance debug + voxel/sky fallback。</td><td>文档或 UI 宣称“完整 secondary visibility”。</td></tr>
             <tr><td>Depth prefill 错序</td><td>Glass 后 opaque object 从未被 rasterized。</td><td>first opaque depth 驱动 prefill；GlassFront 独立输出。</td><td>Glass front 进入 opaque terrain depth。</td></tr>
             <tr><td>无界路径成本</td><td>TIR/多界面时 p95 爆炸。</td><td>deterministic top-K、query/event budget、exhaustion counter。</td><td>默认 authored scenes 出现非零 exhaustion。</td></tr>
-            <tr><td>存档静默误读</td><td>旧 binary 把 Glass 当未知/其他材质继续加载。</td><td>schema 2 writer + dual reader + compatibility fixtures。</td><td>新文件仍写 schema 1 却含 ID 9。</td></tr>
+            <tr><td>实验语义泄漏</td><td>普通 Sand、soil/smoothing 或 save 被当成 Glass。</td><td>专用 feature/test scene、Sand consumer 隔离、save fail-closed、feature-OFF fixtures。</td><td>任何正式存档含实验 Glass，或正常路径中的 ID 3 改变行为。</td></tr>
             <tr><td>DDGI temporal 污染</td><td>参数编辑后 ghost、mixed revision、错误 publication。</td><td>material revision 入 immutable snapshot；按变更类别失效 history。</td><td>一次 sweep 混用两套 Glass optical 参数。</td></tr>
             <tr><td>带宽回归</td><td>无 Glass 场景也分配/清空 full-res targets。</td><td>0% fast path、lazy resources、lifetime aliasing、release capture。</td><td>Glass OFF 超出现有 perf gate。</td></tr>
           </tbody>
@@ -732,9 +742,10 @@ cargo run --release -- --tail-latest-log 200</pre>
     <section id="sources">
       <h2>证据与进一步阅读</h2>
       <p>
-        详细逐条研究、不可推导边界与 pinned source 链接见
-        <a href="glass_voxel_software_rt_external_research.md">外部 production research</a>；早期全量架构审计见
-        <a href="glass_voxel_material_research.md">Glass voxel material research</a>。
+        本文已经吸收当前代码审计、production pattern、不可推导边界与一手来源。为避免完成后的研究稿继续
+        堆积在 <code>docs/</code> 根目录，早期 Markdown 调研已从工作树移除；其完整历史仍可用
+        <code>git show 3e951267:docs/glass_voxel_software_rt_external_research.md</code> 与
+        <code>git show bf2d5f6b:docs/glass_voxel_material_research.md</code> 审计。
       </p>
       <div class="grid two">
         <div class="card">
@@ -773,7 +784,7 @@ cargo run --release -- --tail-latest-log 200</pre>
   </main>
 
   <footer class="shell">
-    Re: Flora Glass voxel implementation guide · generated from live repository audit and primary-source research · 2026-08-27
+    Re: Flora Glass voxel implementation guide · generated from live repository audit and primary-source research · updated 2026-08-28
   </footer>
 </body>
 </html>

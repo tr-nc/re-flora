@@ -41,7 +41,7 @@ terrain 可以向场中贡献太阳/天空反弹与多次 diffuse 传播，terra
 
 **【事实】RTX 3060 Ti 上三个匹配的 release hidden `terrain-edits-closed` 样本产生六次完整更新：edit 到 e0 promotion 为 `31-36 ms`、median `34.5 ms`，旧两阶段日志的两次为 `87/88 ms`；静态 portal 在 e63 后没有新的 scheduler claim。这个结果证明当前生命周期响应更快且会休眠，但旧基线只有两个观测，不能外推成通用帧性能结论。** 见 [`docs/ddgi_transport_acceptance.md`](ddgi_transport_acceptance.md)。
 
-**【事实】仓库里较早、匹配的 local environment probe 测量显示：spacing 32 的 steady `frame.render` median 为 6.146 ms、`tracer.render` median 为 4.339 ms，旧 global-SH bridge 的平均值约 5.325/2.977 ms，即 position-dependent visibility 当时约增加 1.24/1.26 ms；但该测量发生在现有 multi-bounce transport、cache 与 lifecycle 继续演化以前，不能当作当前性能基线。** 见 [`docs/local_environment_probe_plan.md`](local_environment_probe_plan.md)。
+**【事实】仓库里较早、匹配的 local environment probe 测量显示：spacing 32 的 steady `frame.render` median 为 6.146 ms、`tracer.render` median 为 4.339 ms，旧 global-SH bridge 的平均值约 5.325/2.977 ms，即 position-dependent visibility 当时约增加 1.24/1.26 ms；但该测量发生在现有 multi-bounce transport、cache 与 lifecycle 继续演化以前，不能当作当前性能基线。** 历史测量保留在 Git 提交 [`fc30f14a`](https://github.com/tr-nc/re-flora/blob/fc30f14ac6dc83b49206c8bf4430806c7fd3ebb3/docs/local_environment_probe_plan.md)。
 
 **【推断】当前主要问题不是算法没有 terrain bounce 或 temporal sampling，而是 production scheduling 仍不够细：** full-precision 双 atlas、所有 probes 等额工作、full-volume terrain rebuild 和 128-epoch 全场 budget 仍偏重。下一步应测量 raw variability、per-probe activity 与局部 invalidation，而不是继续增加历史长度。
 

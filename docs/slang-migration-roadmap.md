@@ -2,7 +2,9 @@
 
 The shader migration is complete. Native Slang is the only shader source language in the repository and the only compiler path used by normal, release, and `--no-default-features` builds.
 
-Historical migration measurements and frontend comparisons remain in [`slang-poc.md`](slang-poc.md). The active validation policy is in [`slang-validation-plan.md`](slang-validation-plan.md).
+Historical migration measurements and frontend comparisons remain in Git history at
+[`003e535d`](https://github.com/tr-nc/re-flora/blob/003e535dc26bf877c6dd5c3e643b4c2d5549a9aa/docs/slang-poc.md).
+The active validation policy is in [`slang-validation-plan.md`](slang-validation-plan.md).
 
 ## Source layout
 
