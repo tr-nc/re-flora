@@ -52,6 +52,36 @@ pub enum MonitorScorePreference {
     Lowest,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlassDebugView {
+    #[default]
+    Final,
+    GlassFront,
+    OpaqueProvenance,
+    ScreenValidity,
+}
+
+impl GlassDebugView {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "final" => Some(Self::Final),
+            "glass-front" => Some(Self::GlassFront),
+            "opaque-provenance" => Some(Self::OpaqueProvenance),
+            "screen-validity" => Some(Self::ScreenValidity),
+            _ => None,
+        }
+    }
+
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Final => 0,
+            Self::GlassFront => 1,
+            Self::OpaqueProvenance => 2,
+            Self::ScreenValidity => 3,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TerrainConnectivityBenchMode {
     Existing,
@@ -306,6 +336,8 @@ pub struct AppOptions {
     pub hybrid_transparency_test_scene: bool,
     /// Build the isolated experimental Glass voxel scene (Sand ID 3 is reinterpreted here only).
     pub glass_voxel_test_scene: bool,
+    /// Select a diagnostic visualization for the experimental Glass resolve.
+    pub glass_debug_view: GlassDebugView,
     /// Build the authored house scene on freshly generated terrain.
     pub house_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -576,6 +608,22 @@ impl AppOptions {
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let glass_voxel_test_scene = args.iter().any(|arg| arg == "--glass-voxel-test-scene");
+        let glass_debug_view = match parse_required_string_after(
+            "--glass-debug-view",
+            "one of: final, glass-front, opaque-provenance, screen-validity",
+        )? {
+            Some(value) => GlassDebugView::from_cli_value(&value).ok_or_else(|| {
+                format!(
+                    "Invalid --glass-debug-view '{value}'. Expected one of: final, glass-front, opaque-provenance, screen-validity."
+                )
+            })?,
+            None => GlassDebugView::Final,
+        };
+        if glass_debug_view != GlassDebugView::Final && !glass_voxel_test_scene {
+            return Err(
+                "Non-final --glass-debug-view requires --glass-voxel-test-scene".to_owned(),
+            );
+        }
         let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
         let foliage_shadow_bench_requested = frame_stability_bench
@@ -765,6 +813,7 @@ impl AppOptions {
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene,
             glass_voxel_test_scene,
+            glass_debug_view,
             house_scene,
             environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels,
@@ -1107,6 +1156,7 @@ Options:
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --glass-voxel-test-scene   Build the isolated experimental Glass voxel scene
+  --glass-debug-view <view>  Experimental view: final, glass-front, opaque-provenance, screen-validity
   --house-scene               Build the terrain-integrated Hobbit hill house
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
@@ -1620,6 +1670,27 @@ mod tests {
         let options = parse(&["re-flora", "--glass-voxel-test-scene"]);
 
         assert!(options.glass_voxel_test_scene);
+        assert_eq!(options.glass_debug_view, GlassDebugView::Final);
+    }
+
+    #[test]
+    fn glass_debug_views_are_typed_and_require_the_dedicated_scene() {
+        let options = parse(&[
+            "re-flora",
+            "--glass-voxel-test-scene",
+            "--glass-debug-view",
+            "screen-validity",
+        ]);
+        assert_eq!(options.glass_debug_view, GlassDebugView::ScreenValidity);
+
+        let error = AppOptions::try_from_arg_strings(
+            ["re-flora", "--glass-debug-view", "glass-front"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        )
+        .unwrap_err();
+        assert!(error.contains("requires --glass-voxel-test-scene"));
     }
 
     #[test]

@@ -13,7 +13,7 @@ public static const uint SCENE_QUERY_MAX_ACTIVE_PATHS = 4u;
 public static const uint SCENE_QUERY_MAX_INTERFACE_EVENTS = 8u;
 public static const uint SCENE_QUERY_MAX_SCENE_QUERIES = 8u;
 public static const uint SCENE_QUERY_MAX_DDA_STEPS = 2048u;
-public static const float SCENE_QUERY_THROUGHPUT_CUTOFF = 1.0e-3;
+public static const float SCENE_QUERY_THROUGHPUT_CUTOFF = 1.0e-2;
 
 static const float SCENE_QUERY_DIRECTION_EPSILON = 1.0e-20;
 static const float SCENE_QUERY_TIE_EPSILON = 1.0e-5;
@@ -72,7 +72,7 @@ SceneQueryEvent makeSceneQueryEvent()
     return result;
 }
 
-ScenePrimaryQuery makeScenePrimaryQuery()
+public ScenePrimaryQuery makeScenePrimaryQuery()
 {
     ScenePrimaryQuery result;
     result.has_glass_front = 0u;

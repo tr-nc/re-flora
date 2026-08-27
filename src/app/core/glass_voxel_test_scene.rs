@@ -105,6 +105,15 @@ fn scene_plan() -> Result<WorldEditPlan> {
 
 fn sentinel_mesh() -> GeometryPreviewMesh {
     let mut mesh = GeometryPreviewMesh::default();
+    // This narrow amber bar sits in front of slab A. It is deliberately raster-only:
+    // the Glass resolve must keep it opaque instead of replacing it with a refracted
+    // sample from behind the GlassFront depth.
+    append_box(
+        &mut mesh,
+        Vec3::new(1.19, 0.48, 1.22),
+        Vec3::new(1.23, 1.08, 1.26),
+        Vec4::new(4.0, 0.55, 0.025, 1.0),
+    );
     append_box(
         &mut mesh,
         Vec3::new(0.86, 0.42, 0.66),
@@ -322,6 +331,41 @@ impl App {
                 {
                     return;
                 }
+                let glass_debug = self
+                    .tracer
+                    .capture_glass_debug_summary()
+                    .unwrap_or_else(|err| {
+                        panic!("[GLASS_VOXEL_TEST] debug readback failed: {err:#}")
+                    });
+                assert!(
+                    glass_debug.raster_screen_hit_pixels > 0,
+                    "[GLASS_VOXEL_TEST] Glass never resolved raster geometry behind it"
+                );
+                assert!(
+                    glass_debug.foreground_pixels > 0,
+                    "[GLASS_VOXEL_TEST] foreground raster sentinel was not preserved"
+                );
+                assert_eq!(
+                    glass_debug.exhaustion_pixels, 0,
+                    "[GLASS_VOXEL_TEST] authored scene exhausted a Glass path budget"
+                );
+                log::info!(
+                    "[GLASS_VOXEL_TEST][FRAME] extent={}x{} glass_pixels={} foreground_pixels={} screen_hit_pixels={} raster_screen_hit_pixels={} fallback_pixels={} query_budget_fallback_pixels={} exhaustion_pixels={} scene_queries_max={} interfaces_max={} dda_steps_median={} dda_steps_p95={} dda_steps_max={}",
+                    glass_debug.extent.width,
+                    glass_debug.extent.height,
+                    glass_debug.glass_pixels,
+                    glass_debug.foreground_pixels,
+                    glass_debug.screen_hit_pixels,
+                    glass_debug.raster_screen_hit_pixels,
+                    glass_debug.fallback_pixels,
+                    glass_debug.query_budget_fallback_pixels,
+                    glass_debug.exhaustion_pixels,
+                    glass_debug.scene_queries_max,
+                    glass_debug.interfaces_max,
+                    glass_debug.dda_steps_median,
+                    glass_debug.dda_steps_p95,
+                    glass_debug.dda_steps_max,
+                );
                 log::info!(
                     "[GLASS_VOXEL_TEST] ready revision={} acceptance=canonical-id3-isolated-scene",
                     terrain_revision,

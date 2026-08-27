@@ -12,6 +12,19 @@ fov_deg = 55.0
 fly_mode = true
 
 [[snapshots]]
+name = "glass-voxel-test"
+description = "Deterministic camera for the isolated Glass voxel acceptance scene"
+position = [
+    1.25,
+    0.92,
+    1.82,
+]
+yaw_deg = 0.0
+pitch_deg = -6.07246
+fov_deg = 55.0
+fly_mode = true
+
+[[snapshots]]
 name = "bright-pix"
 description = ""
 position = [

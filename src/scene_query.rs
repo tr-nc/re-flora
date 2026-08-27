@@ -91,7 +91,7 @@ impl Default for PathBudget {
             max_interface_events: 8,
             max_scene_queries: 8,
             max_dda_steps_per_query: 2_048,
-            throughput_cutoff: 1.0e-3,
+            throughput_cutoff: 1.0e-2,
         }
     }
 }
@@ -105,6 +105,7 @@ pub(crate) struct QueryDiagnostics {
     pub tir_events: u32,
     pub throughput_cutoffs: u32,
     pub top_k_pruned: u32,
+    pub query_budget_fallbacks: u32,
     pub budget_exhaustions: u32,
 }
 
@@ -391,8 +392,9 @@ impl DenseVoxelScene {
                 continue;
             }
             if result.diagnostics.scene_queries >= budget.max_scene_queries {
-                result.diagnostics.budget_exhaustions += 1;
-                break;
+                result.radiance += path.throughput * sky_radiance;
+                result.diagnostics.query_budget_fallbacks += 1;
+                continue;
             }
             result.diagnostics.scene_queries += 1;
             let walk = self.walk_voxel_media(
@@ -991,6 +993,28 @@ mod tests {
         assert!(expected.diagnostics.peak_active_paths <= 4);
         assert!(expected.radiance.cmpgt(DVec3::ZERO).all());
         assert!(expected.radiance.cmple(DVec3::ONE).all());
+    }
+
+    #[test]
+    fn scene_query_cap_uses_declared_sky_fallback_without_exhaustion() {
+        let scene = scene_x(&[
+            VOXEL_TYPE_EMPTY as u8,
+            VOXEL_TYPE_SAND as u8,
+            VOXEL_TYPE_EMPTY as u8,
+        ]);
+        let result = scene.trace_radiance(
+            ray_x(0.5),
+            PathBudget {
+                max_scene_queries: 1,
+                ..PathBudget::default()
+            },
+            DVec3::ONE,
+            DVec3::ZERO,
+        );
+
+        assert!(result.diagnostics.query_budget_fallbacks >= 1);
+        assert_eq!(result.diagnostics.budget_exhaustions, 0);
+        assert!(result.radiance.cmpgt(DVec3::ZERO).all());
     }
 
     #[test]

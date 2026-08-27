@@ -1242,6 +1242,8 @@ impl App {
                             | EnvironmentLightingTestCase::LocalLightScaling
                     )
                 ),
+                glass_experiment_enabled: options.glass_voxel_test_scene,
+                glass_debug_view: options.glass_debug_view.as_u32(),
             },
             spatial_sound_manager.clone(),
         )?;

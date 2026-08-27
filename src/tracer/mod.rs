@@ -126,7 +126,7 @@ use re_flora_vkn::{
     FrameExtentGeneration, FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler,
     GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDescriptorGeneration,
     PreparedDrawDescriptors, PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout,
-    Viewport, VulkanContext,
+    TextureRegion, Viewport, VulkanContext,
 };
 use std::time::Instant;
 
@@ -802,6 +802,8 @@ pub struct TracerDesc {
     pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
+    pub glass_experiment_enabled: bool,
+    pub glass_debug_view: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -974,6 +976,23 @@ pub struct Tracer {
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GlassDebugSummary {
+    pub extent: Extent2D,
+    pub glass_pixels: usize,
+    pub foreground_pixels: usize,
+    pub screen_hit_pixels: usize,
+    pub raster_screen_hit_pixels: usize,
+    pub fallback_pixels: usize,
+    pub query_budget_fallback_pixels: usize,
+    pub exhaustion_pixels: usize,
+    pub scene_queries_max: u32,
+    pub interfaces_max: u32,
+    pub dda_steps_median: u32,
+    pub dda_steps_p95: u32,
+    pub dda_steps_max: u32,
 }
 
 impl Drop for Tracer {
@@ -2191,6 +2210,7 @@ impl Tracer {
             &tracer_resources,
         );
         update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.glass_resolve_ppl, &all_resources);
         update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
             &tracer_resources,
@@ -3377,6 +3397,8 @@ impl Tracer {
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
+            self.desc.glass_experiment_enabled,
+            self.desc.glass_debug_view,
             ddgi_receiver_visibility_bias_world,
             ddgi_consumer_invalidation_voxel_bound,
         )?;
@@ -4472,6 +4494,15 @@ impl Tracer {
             "composition.pass",
             || self.record_composition_pass(cmdbuf),
         );
+        if self.desc.glass_experiment_enabled {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "glass.resolve",
+                || self.record_glass_resolve_pass(cmdbuf),
+            );
+        }
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
                 gpu_profiler_frame_slot,
@@ -6366,6 +6397,26 @@ impl Tracer {
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
+        self.resources
+            .extent_dependent_resources
+            .glass_front_depth_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+            );
+        self.resources
+            .extent_dependent_resources
+            .glass_front_data_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
+            );
     }
 
     fn record_god_ray_pass(&self, cmdbuf: &CommandBuffer) {
@@ -6464,6 +6515,19 @@ impl Tracer {
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.composition_ppl.record(
+            cmdbuf,
+            self.resources
+                .extent_dependent_resources
+                .composited_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
+        );
+    }
+
+    fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines.glass_resolve_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -7279,6 +7343,88 @@ impl Tracer {
     ) -> Result<TerrainRayHitSample> {
         let samples = self.query_terrain_rays_batch_with_validity(&[ray])?;
         Ok(samples[0])
+    }
+
+    /// Reads the experimental per-pixel Glass diagnostics after a settled frame. This is used
+    /// only by the dedicated test scene, never by the normal render loop.
+    pub(crate) fn capture_glass_debug_summary(&mut self) -> Result<GlassDebugSummary> {
+        let texture = self
+            .resources
+            .extent_dependent_resources
+            .glass_debug_tex
+            .get_image();
+        let extent = texture
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .context("Glass debug plane must be two-dimensional")?;
+        let byte_count = u64::from(extent.width) * u64::from(extent.height) * 4;
+        let mut readback = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            re_flora_vkn::MemoryLocation::GpuToCpu,
+            byte_count,
+        );
+        texture.copy_image_to_buffer(
+            &mut readback,
+            &self.vulkan_ctx.get_general_queue(),
+            self.vulkan_ctx.command_pool(),
+            TextureLayout::GENERAL,
+            0,
+            TextureRegion {
+                offset: [0, 0, 0],
+                extent: Extent3D::new(extent.width, extent.height, 1),
+            },
+        );
+        let bytes = readback.read_back()?;
+        anyhow::ensure!(
+            bytes.len() == byte_count as usize,
+            "Glass debug readback returned {} bytes, expected {byte_count}",
+            bytes.len(),
+        );
+
+        let mut summary = GlassDebugSummary {
+            extent,
+            glass_pixels: 0,
+            foreground_pixels: 0,
+            screen_hit_pixels: 0,
+            raster_screen_hit_pixels: 0,
+            fallback_pixels: 0,
+            query_budget_fallback_pixels: 0,
+            exhaustion_pixels: 0,
+            scene_queries_max: 0,
+            interfaces_max: 0,
+            dda_steps_median: 0,
+            dda_steps_p95: 0,
+            dda_steps_max: 0,
+        };
+        let mut dda_steps = Vec::new();
+        for item in bytes.chunks_exact(4) {
+            let packed = u32::from_ne_bytes(item.try_into().expect("u32-sized Glass debug item"));
+            let reason = packed & 0x0f;
+            if reason == 0 {
+                continue;
+            }
+            summary.glass_pixels += 1;
+            summary.foreground_pixels += usize::from(reason == 7);
+            summary.screen_hit_pixels += usize::from(reason == 1);
+            summary.raster_screen_hit_pixels += usize::from((packed & (1_u32 << 31)) != 0);
+            summary.fallback_pixels += usize::from(matches!(reason, 2..=6 | 9));
+            summary.query_budget_fallback_pixels += usize::from(reason == 9);
+            summary.exhaustion_pixels += usize::from(reason == 8);
+            summary.interfaces_max = summary.interfaces_max.max((packed >> 4) & 0xff);
+            summary.scene_queries_max = summary.scene_queries_max.max((packed >> 12) & 0x0f);
+            dda_steps.push((packed >> 17) & 0x3fff);
+        }
+        dda_steps.sort_unstable();
+        if let Some(maximum) = dda_steps.last().copied() {
+            summary.dda_steps_median = dda_steps[dda_steps.len() / 2];
+            summary.dda_steps_p95 =
+                dda_steps[(dda_steps.len() * 95 / 100).min(dda_steps.len() - 1)];
+            summary.dda_steps_max = maximum;
+        }
+        Ok(summary)
     }
 
     /// Debug-only GPU capture of the ordered dense-atlas material transitions along one straight

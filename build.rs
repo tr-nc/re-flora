@@ -703,6 +703,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/tracer/vsm_blur_h.comp",
     "shader/tracer/vsm_blur_v.comp",
     "shader/tracer/composition.comp",
+    "shader/tracer/glass_resolve.comp",
     "shader/tracer/god_ray.comp",
     "shader/tracer/post_processing.comp",
     "shader/tracer/player_collider.comp",

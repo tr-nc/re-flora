@@ -21,6 +21,8 @@ pub struct ExtentDependentResources {
     pub gfx_depth_tex: Resource<Texture>,
     pub compute_depth_tex: Resource<Texture>,
     pub compute_output_tex: Resource<Texture>,
+    pub glass_front_depth_tex: Resource<Texture>,
+    pub glass_front_data_tex: Resource<Texture>,
     pub environment_irradiance_capture: Resource<Buffer>,
     pub ddgi_spatial_weight_readback: Resource<Buffer>,
     pub gfx_output_tex: Resource<Texture>,
@@ -37,6 +39,10 @@ pub struct ExtentDependentResources {
     pub cloud_output_tex: Resource<Texture>,
     pub screen_output_tex: Resource<Texture>,
     pub screenshot_output_tex: Resource<Texture>,
+    pub unified_opaque_hdr_tex: Resource<Texture>,
+    pub unified_opaque_depth_tex: Resource<Texture>,
+    pub opaque_provenance_tex: Resource<Texture>,
+    pub glass_debug_tex: Resource<Texture>,
     pub composited_tex: Resource<Texture>,
 }
 
@@ -54,6 +60,10 @@ impl ExtentDependentResources {
             Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
         let compute_output_tex =
             Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let glass_front_depth_tex =
+            Self::create_r32_float_tex(device.clone(), allocator.clone(), rendering_extent, false);
+        let glass_front_data_tex =
+            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, false);
         let environment_irradiance_capture = Self::create_environment_irradiance_capture(
             device.clone(),
             allocator.clone(),
@@ -90,12 +100,22 @@ impl ExtentDependentResources {
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
         let screenshot_output_tex =
             Self::create_screenshot_output_tex(device.clone(), allocator.clone(), rendering_extent);
-        let composited_tex = Self::create_composited_tex(device, allocator, rendering_extent);
+        let unified_opaque_hdr_tex =
+            Self::create_hdr_tex(device.clone(), allocator.clone(), rendering_extent);
+        let unified_opaque_depth_tex =
+            Self::create_r32_float_tex(device.clone(), allocator.clone(), rendering_extent, false);
+        let opaque_provenance_tex =
+            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, false);
+        let glass_debug_tex =
+            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, true);
+        let composited_tex = Self::create_hdr_tex(device, allocator, rendering_extent);
 
         Self {
             gfx_depth_tex: Resource::new(gfx_depth_tex),
             compute_depth_tex: Resource::new(compute_depth_tex),
             compute_output_tex: Resource::new(compute_output_tex),
+            glass_front_depth_tex: Resource::new(glass_front_depth_tex),
+            glass_front_data_tex: Resource::new(glass_front_data_tex),
             environment_irradiance_capture: Resource::new(environment_irradiance_capture),
             ddgi_spatial_weight_readback: Resource::new(ddgi_spatial_weight_readback),
             gfx_output_tex: Resource::new(gfx_output_tex),
@@ -112,6 +132,10 @@ impl ExtentDependentResources {
             cloud_output_tex: Resource::new(cloud_output_tex),
             screen_output_tex: Resource::new(screen_output_tex),
             screenshot_output_tex: Resource::new(screenshot_output_tex),
+            unified_opaque_hdr_tex: Resource::new(unified_opaque_hdr_tex),
+            unified_opaque_depth_tex: Resource::new(unified_opaque_depth_tex),
+            opaque_provenance_tex: Resource::new(opaque_provenance_tex),
+            glass_debug_tex: Resource::new(glass_debug_tex),
             composited_tex: Resource::new(composited_tex),
         }
     }
@@ -139,15 +163,7 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
-            format: vk::Format::R32_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
+        Self::create_r32_float_tex(device, allocator, rendering_extent, false)
     }
 
     fn create_compute_output_tex(
@@ -155,10 +171,48 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
+        Self::create_r32_uint_tex(device, allocator, rendering_extent, false)
+    }
+
+    fn create_r32_float_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        transfer_src: bool,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R32_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | if transfer_src {
+                    vk::ImageUsageFlags::TRANSFER_SRC
+                } else {
+                    vk::ImageUsageFlags::empty()
+                },
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_r32_uint_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        transfer_src: bool,
+    ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
             format: vk::Format::R32_UINT,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | if transfer_src {
+                    vk::ImageUsageFlags::TRANSFER_SRC
+                } else {
+                    vk::ImageUsageFlags::empty()
+                },
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
@@ -206,7 +260,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
-            format: vk::Format::R8G8B8A8_UNORM,
+            format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT
                 | vk::ImageUsageFlags::TRANSFER_DST,
@@ -347,11 +401,7 @@ impl ExtentDependentResources {
         Texture::new(device, allocator, &tex_desc, &Default::default())
     }
 
-    fn create_composited_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
+    fn create_hdr_tex(device: Device, allocator: Allocator, rendering_extent: Extent2D) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
             format: vk::Format::R16G16B16A16_SFLOAT,
@@ -360,7 +410,12 @@ impl ExtentDependentResources {
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 }
 

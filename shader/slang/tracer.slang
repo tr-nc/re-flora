@@ -7,6 +7,7 @@ import marching_result;
 import noise_tex;
 import packer;
 import ray;
+import scene_query;
 import scene_marching;
 import skylight;
 import terrain_edit_preview;
@@ -43,6 +44,10 @@ readonly RWTexture3D<uint> chunk_atlas;
 RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> compute_depth_tex;
+[[vk::binding(3, 1)]] [[vk::image_format("r32f")]]
+RWTexture2D<float> glass_front_depth_tex;
+[[vk::binding(4, 1)]] [[vk::image_format("r32ui")]]
+RWTexture2D<uint> glass_front_data_tex;
 
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> environment_irradiance_capture;
@@ -319,6 +324,51 @@ float depthFromWorldPosition(float3 worldPosition)
     return ndc.z / ndc.w;
 }
 
+MarchingResult emptyMarchingResult()
+{
+    MarchingResult result;
+    result.iteration_count = 0u;
+    result.is_hit = false;
+    result.position = float3(0.0);
+    result.center_position = float3(0.0);
+    result.distance = 1.0e10;
+    result.normal = float3(0.0);
+    result.voxel_type = 0u;
+    result.hash_id = 0u;
+    result.voxel_address = 0u;
+    return result;
+}
+
+MarchingResult marchingResultFromOpaqueEvent(SceneQueryEvent event, Ray ray)
+{
+    MarchingResult result = emptyMarchingResult();
+    if (event.kind != SCENE_QUERY_EVENT_OPAQUE) return result;
+    result.iteration_count = event.dda_steps;
+    result.is_hit = true;
+    result.position = event.position;
+    result.center_position = (float3(event.to_cell) + 0.5) / 256.0;
+    result.distance = length(event.position - ray.origin);
+    result.normal = event.incident_face_normal;
+    result.voxel_type = event.to_voxel_type;
+    uint3 cell = uint3(max(event.to_cell, int3(0)));
+    result.hash_id = (cell.x * 73856093u ^ cell.y * 19349663u ^
+                      cell.z * 83492791u) & VOXEL_HASH_MASK;
+    return result;
+}
+
+uint packGlassFrontData(ScenePrimaryQuery query)
+{
+    if (query.has_glass_front == 0u) return query.exhausted << 16u;
+    SceneQueryEvent event = query.glass_front;
+    uint normalPositive = any(event.incident_face_normal > 0.5) ? 1u : 0u;
+    return 1u |
+        ((event.tied_axes & 0x07u) << 1u) |
+        (normalPositive << 4u) |
+        ((event.from_voxel_type & 0x0fu) << 8u) |
+        ((event.to_voxel_type & 0x0fu) << 12u) |
+        ((query.exhausted & 1u) << 16u);
+}
+
 uint ddgiSpatialWeightReadbackReceiver(uint2 pixel)
 {
     if (all(pixel == uint2(824u, 370u))) return 0u;
@@ -441,7 +491,8 @@ void getPixelColor(out float3 color, out float depth,
                    out float4 environmentCaptureWorld,
                    out float4 environmentCaptureReceiver,
                    out float4 environmentCaptureDirectSunShadows, Ray ray,
-                   float2 screenUv, int3 seed, uint localInvocationIndex)
+                   float2 screenUv, int3 seed, uint localInvocationIndex,
+                   MarchingResult result)
 {
     terrainHit = 0.0;
     environmentCaptureIrradiance = float3(0.0);
@@ -467,7 +518,6 @@ void getPixelColor(out float3 color, out float depth,
         return;
     }
 
-    MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
     if (!result.is_hit)
     {
         depth = 1.0;
@@ -565,6 +615,26 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
+    ScenePrimaryQuery glassPrimary = makeScenePrimaryQuery();
+    MarchingResult primaryResult;
+    if (shading_info.glass_experiment_enabled != 0u)
+    {
+        glassPrimary = tracePrimaryVoxelSurfaces(
+            chunk_atlas, ray.origin, ray.direction, 256.0, true);
+        primaryResult = marchingResultFromOpaqueEvent(glassPrimary.opaque_hit, ray);
+        glass_front_depth_tex[dispatchThreadId.xy] =
+            glassPrimary.has_glass_front != 0u
+                ? depthFromWorldPosition(glassPrimary.glass_front.position)
+                : 1.0;
+        glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(glassPrimary);
+    }
+    else
+    {
+        primaryResult = generalSceneMarching(ray, localInvocationIndex);
+        glass_front_depth_tex[dispatchThreadId.xy] = 1.0;
+        glass_front_data_tex[dispatchThreadId.xy] = 0u;
+    }
+
     float3 color;
     float3 environmentIrradiance;
     float3 environmentCaptureIrradiance;
@@ -579,7 +649,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
                   environmentCaptureWorld, environmentCaptureReceiver,
                   environmentCaptureDirectSunShadows,
                   ray, screenUv, seed,
-                  localInvocationIndex);
+                  localInvocationIndex, primaryResult);
 
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_SPATIAL_WEIGHT_READBACK)
     {

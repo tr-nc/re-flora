@@ -190,6 +190,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/glass_resolve.comp",
+        source_path: "shader/slang/glass_resolve.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/terrain_depth_prefill.vert",
         source_path: "shader/slang/terrain_depth_prefill.vert.slang",
         module_path: "shader/slang",

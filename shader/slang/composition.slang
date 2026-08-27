@@ -1,5 +1,6 @@
 import clouds;
 import color;
+import composition_camera_effects;
 import composition_cloud_reflection;
 import composition_scene;
 import composition_terrarium_glass;
@@ -31,48 +32,17 @@ RWTexture2D<float4> composited_tex;
 readonly RWTexture2D<float4> lens_flare_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
 [[vk::binding(15, 0)]] Sampler2D cloud_output_tex;
+[[vk::binding(16, 0)]] [[vk::image_format("rgba16f")]]
+RWTexture2D<float4> unified_opaque_hdr_tex;
+[[vk::binding(17, 0)]] [[vk::image_format("r32f")]]
+RWTexture2D<float> unified_opaque_depth_tex;
+[[vk::binding(18, 0)]] [[vk::image_format("r32ui")]]
+RWTexture2D<uint> opaque_provenance_tex;
 
-float3 sampleLensFlare(float2 screenUv)
-{
-    uint width;
-    uint height;
-    lens_flare_output_tex.GetDimensions(width, height);
-    int2 size = int2(width, height);
-    float2 texel = screenUv * float2(size) - float2(0.5);
-    int2 base = int2(floor(texel));
-    float2 fraction = frac(texel);
-    int2 maximum = size - int2(1);
-    int2 c00 = clamp(base, int2(0), maximum);
-    int2 c10 = clamp(base + int2(1, 0), int2(0), maximum);
-    int2 c01 = clamp(base + int2(0, 1), int2(0), maximum);
-    int2 c11 = clamp(base + int2(1, 1), int2(0), maximum);
-    float3 top = lerp(lens_flare_output_tex[c00].rgb,
-                      lens_flare_output_tex[c10].rgb, fraction.x);
-    float3 bottom = lerp(lens_flare_output_tex[c01].rgb,
-                         lens_flare_output_tex[c11].rgb, fraction.x);
-    return lerp(top, bottom, fraction.y);
-}
-
-float sampleGodRay(float2 screenUv)
-{
-    uint width;
-    uint height;
-    god_ray_output_tex.GetDimensions(width, height);
-    int2 size = int2(width, height);
-    float2 texel = screenUv * float2(size) - float2(0.5);
-    int2 base = int2(floor(texel));
-    float2 fraction = frac(texel);
-    int2 maximum = size - int2(1);
-    int2 c00 = clamp(base, int2(0), maximum);
-    int2 c10 = clamp(base + int2(1, 0), int2(0), maximum);
-    int2 c01 = clamp(base + int2(0, 1), int2(0), maximum);
-    int2 c11 = clamp(base + int2(1, 1), int2(0), maximum);
-    float top = lerp(god_ray_output_tex[c00], god_ray_output_tex[c10],
-                     fraction.x);
-    float bottom = lerp(god_ray_output_tex[c01], god_ray_output_tex[c11],
-                        fraction.x);
-    return lerp(top, bottom, fraction.y);
-}
+static const uint OPAQUE_PROVENANCE_VOXEL = 1u;
+static const uint OPAQUE_PROVENANCE_RASTER = 2u;
+static const uint OPAQUE_PROVENANCE_SKY = 3u;
+static const uint OPAQUE_PROVENANCE_UNSUPPORTED_RASTER = 4u;
 
 [numthreads(8, 8, 1)]
 [shader("compute")]
@@ -95,10 +65,36 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
         gui_input, sun_info, camera_info, starlight_info,
         sun_sprite_tex, cloud_output_tex);
-    finalColor += sampleLensFlare(screenUv);
+
+    if (shading_info.glass_experiment_enabled != 0u)
+    {
+        bool hasRaster = rasterColor.a > 0.0 && rasterDepth < 1.0;
+        bool hasVoxel = computeDepth < 1.0;
+        bool rasterIsNearest = hasRaster && (!hasVoxel || rasterDepth <= computeDepth);
+        uint provenance = OPAQUE_PROVENANCE_SKY;
+        float opaqueDepth = 1.0;
+        if (rasterIsNearest)
+        {
+            opaqueDepth = rasterDepth;
+            provenance = rasterColor.a >= 0.999
+                ? OPAQUE_PROVENANCE_RASTER
+                : OPAQUE_PROVENANCE_UNSUPPORTED_RASTER;
+        }
+        else if (hasVoxel)
+        {
+            opaqueDepth = computeDepth;
+            provenance = OPAQUE_PROVENANCE_VOXEL;
+        }
+        unified_opaque_hdr_tex[coordinate] = float4(finalColor, 1.0);
+        unified_opaque_depth_tex[coordinate] = opaqueDepth;
+        opaque_provenance_tex[coordinate] = provenance;
+        return;
+    }
+
+    finalColor += sampleLensFlare(screenUv, lens_flare_output_tex);
 
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);
-    float godRayWeight = sampleGodRay(screenUv) * god_ray_info.weight;
+    float godRayWeight = sampleGodRay(screenUv, god_ray_output_tex) * god_ray_info.weight;
     godRayWeight *= sunVisibility;
     float3 godRayColor = srgbToLinear(god_ray_info.color);
     finalColor = lerp(finalColor, godRayColor, godRayWeight);

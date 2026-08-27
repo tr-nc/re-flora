@@ -162,6 +162,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let glass_resolve_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/glass_resolve.comp",
+            "main",
+        )
+        .unwrap();
         let terrain_depth_prefill_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/terrain_depth_prefill.vert",
@@ -410,6 +416,7 @@ impl PipelineBuilder {
             god_ray_sm,
             god_ray_temporal_sm,
             composition_sm,
+            glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
             cloud_sm,
@@ -655,6 +662,12 @@ impl PipelineBuilder {
         );
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
+        let glass_resolve_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.glass_resolve_sm,
+            pool,
+            &[resources, plain_builder_resources],
+        );
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
         let cloud_shadow_ppl =
             ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
@@ -724,6 +737,7 @@ impl PipelineBuilder {
             lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
             composition_ppl,
+            glass_resolve_ppl,
             player_collider_ppl,
             terrain_query_ppl,
             wind_volume_ppl,
@@ -1221,6 +1235,7 @@ pub struct ShaderModules {
     pub god_ray_sm: ShaderModule,
     pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
+    pub glass_resolve_sm: ShaderModule,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
@@ -1290,6 +1305,7 @@ pub struct ComputePipelines {
     pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
     pub composition_ppl: ComputePipeline,
+    pub glass_resolve_ppl: ComputePipeline,
     pub player_collider_ppl: ComputePipeline,
     pub terrain_query_ppl: ComputePipeline,
     pub wind_volume_ppl: ComputePipeline,

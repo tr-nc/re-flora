@@ -56,6 +56,8 @@ impl BufferUpdater {
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
         ddgi_terrain_hard_origin: u32,
+        glass_experiment_enabled: bool,
+        glass_debug_view: u32,
         ddgi_receiver_visibility_bias_world: f32,
         ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
@@ -86,6 +88,8 @@ impl BufferUpdater {
             ddgi_debug_view,
             ddgi_terrain_hard_origin,
             ddgi_invalidation_enabled,
+            glass_experiment_enabled: u32::from(glass_experiment_enabled),
+            glass_debug_view,
             ddgi_invalidation_world_min,
             ddgi_invalidation_world_max,
             ..ShadingInfo::zeroed()
