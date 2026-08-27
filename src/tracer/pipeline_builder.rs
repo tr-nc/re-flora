@@ -628,7 +628,12 @@ impl PipelineBuilder {
             device,
             &shader_modules.terrain_query_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
 
         let wind_volume_ppl =

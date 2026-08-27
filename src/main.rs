@@ -21,6 +21,7 @@ mod particles;
 mod procedual_placer;
 mod resource;
 mod run_log;
+mod scene_query;
 #[allow(dead_code)]
 mod terrain_persistence;
 mod tracer;

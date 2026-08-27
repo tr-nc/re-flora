@@ -456,6 +456,24 @@ pub struct TerrainRayHitSample {
     pub is_valid: bool,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum GlassSceneQueryEventKind {
+    Interface,
+    Opaque,
+    Miss,
+    StepBudget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GlassSceneQueryCaptureEvent {
+    pub(crate) kind: GlassSceneQueryEventKind,
+    pub(crate) position: Vec3,
+    pub(crate) from_voxel_type: u32,
+    pub(crate) to_voxel_type: u32,
+    pub(crate) tied_axes: u8,
+    pub(crate) dda_steps: u32,
+}
+
 fn srgb_to_linear_channel(channel: f32) -> f32 {
     if channel <= 0.04045 {
         channel / 12.92
@@ -7261,5 +7279,116 @@ impl Tracer {
     ) -> Result<TerrainRayHitSample> {
         let samples = self.query_terrain_rays_batch_with_validity(&[ray])?;
         Ok(samples[0])
+    }
+
+    /// Debug-only GPU capture of the ordered dense-atlas material transitions along one straight
+    /// ray. Production terrain queries retain their Contree path and never enable this mode.
+    pub(crate) fn capture_glass_scene_query_events(
+        &mut self,
+        ray: TerrainRayQuery,
+    ) -> Result<Vec<GlassSceneQueryCaptureEvent>> {
+        let direction = ray.direction.normalize_or_zero();
+        anyhow::ensure!(
+            direction != Vec3::ZERO,
+            "Glass scene-query capture ray is zero"
+        );
+        let mut origin = ray.origin;
+        let mut events = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let event =
+                self.capture_next_glass_scene_query_event(TerrainRayQuery { origin, direction })?;
+            events.push(event);
+            match event.kind {
+                GlassSceneQueryEventKind::Interface => {
+                    origin = event.position + direction * (1.0e-4 / 256.0);
+                }
+                GlassSceneQueryEventKind::Opaque | GlassSceneQueryEventKind::Miss => {
+                    return Ok(events);
+                }
+                GlassSceneQueryEventKind::StepBudget => {
+                    anyhow::bail!(
+                        "Glass scene-query GPU capture exhausted DDA steps after {} events",
+                        events.len(),
+                    );
+                }
+            }
+        }
+        anyhow::bail!("Glass scene-query GPU capture exhausted its 8-event budget")
+    }
+
+    fn capture_next_glass_scene_query_event(
+        &mut self,
+        ray: TerrainRayQuery,
+    ) -> Result<GlassSceneQueryCaptureEvent> {
+        self.resources
+            .terrain_query
+            .terrain_query_count
+            .fill_uniform(&crate::generated::gpu_structs::TerrainQueryCount {
+                valid_query_count: 1,
+                ..bytemuck::Zeroable::zeroed()
+            })?;
+        self.resources.terrain_query.terrain_query_info.fill(&[
+            ray.origin.x,
+            ray.origin.y,
+            ray.origin.z,
+            1.0,
+            ray.direction.x,
+            ray.direction.y,
+            ray.direction.z,
+            0.0,
+        ])?;
+
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_count,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_info,
+                    BufferUse::HostWrite,
+                );
+                self.compute_pipelines.terrain_query_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(1, 1, 1),
+                    None,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_result,
+                    BufferUse::HostRead,
+                );
+            },
+        );
+
+        let raw_data = self
+            .resources
+            .terrain_query
+            .terrain_query_result
+            .read_back()
+            .context("read Glass scene-query GPU capture")?;
+        let values: &[f32] = bytemuck::cast_slice(&raw_data);
+        anyhow::ensure!(
+            values.len() >= 4,
+            "Glass scene-query GPU result is truncated"
+        );
+        let packed = values[3].to_bits();
+        let kind = match packed & 0x0f {
+            1 => GlassSceneQueryEventKind::Interface,
+            2 => GlassSceneQueryEventKind::Opaque,
+            3 => GlassSceneQueryEventKind::Miss,
+            4 => GlassSceneQueryEventKind::StepBudget,
+            value => anyhow::bail!("Glass scene-query GPU returned invalid event kind {value}"),
+        };
+        Ok(GlassSceneQueryCaptureEvent {
+            kind,
+            position: Vec3::new(values[0], values[1], values[2]),
+            from_voxel_type: (packed >> 4) & 0x0f,
+            to_voxel_type: (packed >> 8) & 0x0f,
+            tied_axes: ((packed >> 12) & 0x07) as u8,
+            dda_steps: (packed >> 15) & 0x0fff,
+        })
     }
 }

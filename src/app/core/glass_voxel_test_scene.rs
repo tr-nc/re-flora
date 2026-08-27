@@ -2,7 +2,7 @@ use super::App;
 use crate::app::world_edits::{BuildEdit, VoxelAtlasStateWrite, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
-use crate::tracer::{append_box, GeometryPreviewMesh};
+use crate::tracer::{append_box, GeometryPreviewMesh, GlassSceneQueryEventKind, TerrainRayQuery};
 use crate::voxel_material::{
     canonicalize_atlas_data, material_for, DirectShadowPolicy, LocalShadowPolicy,
     VoxelMaterialMode, VoxelSurfaceClass,
@@ -29,6 +29,8 @@ const GLASS_SLAB_B_MIN: UVec3 = UVec3::new(344, 96, 264);
 const GLASS_SLAB_B_MAX: UVec3 = UVec3::new(408, 272, 296);
 const REBUILD_MIN: UVec3 = UVec3::new(184, 56, 120);
 const REBUILD_MAX: UVec3 = UVec3::new(456, 360, 456);
+const GPU_CAPTURE_ORIGIN: Vec3 = Vec3::new(1.0, 0.75, 1.5);
+const GPU_CAPTURE_DIRECTION: Vec3 = Vec3::NEG_Z;
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 1.72);
 
@@ -198,6 +200,54 @@ impl App {
         Ok(glass_count)
     }
 
+    fn validate_gpu_scene_query_capture(&mut self) -> Result<()> {
+        let events = self
+            .tracer
+            .capture_glass_scene_query_events(TerrainRayQuery {
+                origin: GPU_CAPTURE_ORIGIN,
+                direction: GPU_CAPTURE_DIRECTION,
+            })?;
+        anyhow::ensure!(events.len() == 3, "expected 3 GPU events, got {events:?}");
+        let expected = [
+            (
+                GlassSceneQueryEventKind::Interface,
+                VOXEL_TYPE_EMPTY,
+                VOXEL_TYPE_SAND,
+                GLASS_SLAB_A_MAX.z as f32 / 256.0,
+            ),
+            (
+                GlassSceneQueryEventKind::Interface,
+                VOXEL_TYPE_SAND,
+                VOXEL_TYPE_EMPTY,
+                GLASS_SLAB_A_MIN.z as f32 / 256.0,
+            ),
+            (
+                GlassSceneQueryEventKind::Opaque,
+                VOXEL_TYPE_EMPTY,
+                VOXEL_TYPE_ROCK,
+                BACK_WALL_MAX.z as f32 / 256.0,
+            ),
+        ];
+        for (event, (kind, from_voxel_type, to_voxel_type, position_z)) in
+            events.iter().zip(expected)
+        {
+            anyhow::ensure!(
+                event.kind == kind
+                    && event.from_voxel_type == from_voxel_type
+                    && event.to_voxel_type == to_voxel_type
+                    && event.tied_axes == 0b100
+                    && (event.position.z - position_z).abs() <= 1.0e-6,
+                "GPU SceneQuery differs from the deterministic reference: {event:?} expected kind={kind:?} from={from_voxel_type} to={to_voxel_type} z={position_z}",
+            );
+        }
+        log::info!(
+            "[GLASS_VOXEL_TEST][SCENE_QUERY] gpu_reference_match=true events={} dda_steps={:?} sequence=air-glass,glass-air,air-opaque",
+            events.len(),
+            events.iter().map(|event| event.dda_steps).collect::<Vec<_>>(),
+        );
+        Ok(())
+    }
+
     pub(super) fn process_glass_voxel_test_scene(&mut self) {
         let Some(phase) = self
             .glass_voxel_test_scene
@@ -236,6 +286,10 @@ impl App {
                     .observe_initial_published_terrain_for_ddgi()
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] DDGI visibility publication failed: {err:#}")
+                    });
+                self.validate_gpu_scene_query_capture()
+                    .unwrap_or_else(|err| {
+                        panic!("[GLASS_VOXEL_TEST] GPU SceneQuery validation failed: {err:#}")
                     });
                 log::info!(
                     "[GLASS_VOXEL_TEST] terrain published revision={} canonical_glass_voxels={} settling_frames={}",
