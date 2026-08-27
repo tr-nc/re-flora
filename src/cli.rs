@@ -82,6 +82,36 @@ impl GlassDebugView {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlassCoverage {
+    Zero,
+    Ten,
+    TwentyFive,
+    #[default]
+    Fifty,
+}
+
+impl GlassCoverage {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "0" => Some(Self::Zero),
+            "10" => Some(Self::Ten),
+            "25" => Some(Self::TwentyFive),
+            "50" => Some(Self::Fifty),
+            _ => None,
+        }
+    }
+
+    pub fn percent(self) -> u32 {
+        match self {
+            Self::Zero => 0,
+            Self::Ten => 10,
+            Self::TwentyFive => 25,
+            Self::Fifty => 50,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TerrainConnectivityBenchMode {
     Existing,
@@ -336,6 +366,8 @@ pub struct AppOptions {
     pub hybrid_transparency_test_scene: bool,
     /// Build the isolated experimental Glass voxel scene (Sand ID 3 is reinterpreted here only).
     pub glass_voxel_test_scene: bool,
+    /// Select the fixed target screen-coverage workload for the Glass test scene.
+    pub glass_coverage: GlassCoverage,
     /// Select a diagnostic visualization for the experimental Glass resolve.
     pub glass_debug_view: GlassDebugView,
     /// Build the authored house scene on freshly generated terrain.
@@ -579,7 +611,7 @@ impl AppOptions {
                 "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
         }
-        let camera_snapshot = if let Some(screenshot) = &screenshot {
+        let mut camera_snapshot = if let Some(screenshot) = &screenshot {
             if args.iter().any(|a| a == "--camera-snapshot") {
                 return Err(format!(
                     "Do not combine --camera-snapshot with --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
@@ -608,6 +640,25 @@ impl AppOptions {
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
         let glass_voxel_test_scene = args.iter().any(|arg| arg == "--glass-voxel-test-scene");
+        if screenshot.is_some() && camera_snapshot.as_deref() == Some("glass-test-scene") {
+            if !glass_voxel_test_scene {
+                return Err(
+                    "Screenshot preset 'glass-test-scene' requires --glass-voxel-test-scene"
+                        .to_owned(),
+                );
+            }
+            camera_snapshot = None;
+        }
+        let glass_coverage =
+            match parse_required_string_after("--glass-coverage", "one of: 0, 10, 25, 50")? {
+                Some(value) => GlassCoverage::from_cli_value(&value).ok_or_else(|| {
+                    format!("Invalid --glass-coverage '{value}'. Expected one of: 0, 10, 25, 50.")
+                })?,
+                None => GlassCoverage::default(),
+            };
+        if args.iter().any(|arg| arg == "--glass-coverage") && !glass_voxel_test_scene {
+            return Err("--glass-coverage requires --glass-voxel-test-scene".to_owned());
+        }
         let glass_debug_view = match parse_required_string_after(
             "--glass-debug-view",
             "one of: final, glass-front, opaque-provenance, screen-validity",
@@ -813,6 +864,7 @@ impl AppOptions {
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene,
             glass_voxel_test_scene,
+            glass_coverage,
             glass_debug_view,
             house_scene,
             environment_probe_spacing_voxels,
@@ -1156,7 +1208,9 @@ Options:
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --glass-voxel-test-scene   Build the isolated experimental Glass voxel scene
+  --glass-coverage <percent> Select fixed target screen coverage: 0, 10, 25, or 50 (default: 50)
   --glass-debug-view <view>  Experimental view: final, glass-front, opaque-provenance, screen-validity
+                              Use screenshot preset 'glass-test-scene' to retain its fixed camera
   --house-scene               Build the terrain-integrated Hobbit hill house
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
@@ -1278,6 +1332,7 @@ mod tests {
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
         assert!(!options.glass_voxel_test_scene);
+        assert_eq!(options.glass_coverage, GlassCoverage::Fifty);
         assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
@@ -1670,7 +1725,41 @@ mod tests {
         let options = parse(&["re-flora", "--glass-voxel-test-scene"]);
 
         assert!(options.glass_voxel_test_scene);
+        assert_eq!(options.glass_coverage, GlassCoverage::Fifty);
         assert_eq!(options.glass_debug_view, GlassDebugView::Final);
+    }
+
+    #[test]
+    fn glass_coverage_is_typed_and_requires_the_dedicated_scene() {
+        for (value, expected) in [
+            ("0", GlassCoverage::Zero),
+            ("10", GlassCoverage::Ten),
+            ("25", GlassCoverage::TwentyFive),
+            ("50", GlassCoverage::Fifty),
+        ] {
+            let options = parse(&[
+                "re-flora",
+                "--glass-voxel-test-scene",
+                "--glass-coverage",
+                value,
+            ]);
+            assert_eq!(options.glass_coverage, expected);
+        }
+
+        for args in [
+            vec!["re-flora", "--glass-coverage", "25"],
+            vec![
+                "re-flora",
+                "--glass-voxel-test-scene",
+                "--glass-coverage",
+                "30",
+            ],
+        ] {
+            assert!(AppOptions::try_from_arg_strings(
+                args.into_iter().map(str::to_owned).collect()
+            )
+            .is_err());
+        }
     }
 
     #[test]
@@ -1688,6 +1777,38 @@ mod tests {
                 .iter()
                 .map(|arg| (*arg).to_owned())
                 .collect(),
+        )
+        .unwrap_err();
+        assert!(error.contains("requires --glass-voxel-test-scene"));
+    }
+
+    #[test]
+    fn glass_screenshot_preset_retains_the_test_scenes_fixed_camera() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--glass-voxel-test-scene",
+            "--screenshot",
+            "glass-test-scene",
+            "target/glass.png",
+            "--screenshot-delay",
+            "2",
+        ]);
+        assert!(options.screenshot.is_some());
+        assert!(options.camera_snapshot.is_none());
+
+        let error = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--screenshot",
+                "glass-test-scene",
+                "target/glass.png",
+                "--screenshot-delay",
+                "2",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
         )
         .unwrap_err();
         assert!(error.contains("requires --glass-voxel-test-scene"));

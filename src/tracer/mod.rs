@@ -1012,6 +1012,11 @@ pub(crate) struct GlassDebugSummary {
     pub dda_steps_median: u32,
     pub dda_steps_p95: u32,
     pub dda_steps_max: u32,
+    pub peak_active_paths: u32,
+    pub tir_events: usize,
+    pub throughput_cutoffs: usize,
+    pub top_k_pruned: usize,
+    pub nonfinite_pixels: usize,
 }
 
 impl Drop for Tracer {
@@ -1141,6 +1146,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             desc.environment_irradiance_capture_enabled,
+            desc.glass_experiment_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
@@ -2053,6 +2059,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             self.desc.environment_irradiance_capture_enabled,
+            self.desc.glass_experiment_enabled,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -7392,7 +7399,7 @@ impl Tracer {
             .extent
             .as_extent_2d()
             .context("Glass debug plane must be two-dimensional")?;
-        let byte_count = u64::from(extent.width) * u64::from(extent.height) * 4;
+        let byte_count = u64::from(extent.width) * u64::from(extent.height) * 8;
         let mut readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -7432,10 +7439,21 @@ impl Tracer {
             dda_steps_median: 0,
             dda_steps_p95: 0,
             dda_steps_max: 0,
+            peak_active_paths: 0,
+            tir_events: 0,
+            throughput_cutoffs: 0,
+            top_k_pruned: 0,
+            nonfinite_pixels: 0,
         };
         let mut dda_steps = Vec::new();
-        for item in bytes.chunks_exact(4) {
-            let packed = u32::from_ne_bytes(item.try_into().expect("u32-sized Glass debug item"));
+        for item in bytes.chunks_exact(8) {
+            let packed =
+                u32::from_ne_bytes(item[..4].try_into().expect("u32-sized Glass debug item"));
+            let packed_path = u32::from_ne_bytes(
+                item[4..]
+                    .try_into()
+                    .expect("u32-sized Glass path debug item"),
+            );
             let reason = packed & 0x0f;
             if reason == 0 {
                 continue;
@@ -7450,6 +7468,11 @@ impl Tracer {
             summary.interfaces_max = summary.interfaces_max.max((packed >> 4) & 0xff);
             summary.scene_queries_max = summary.scene_queries_max.max((packed >> 12) & 0x0f);
             dda_steps.push((packed >> 17) & 0x3fff);
+            summary.peak_active_paths = summary.peak_active_paths.max(packed_path & 0x0f);
+            summary.tir_events += ((packed_path >> 4) & 0xff) as usize;
+            summary.throughput_cutoffs += ((packed_path >> 12) & 0xff) as usize;
+            summary.top_k_pruned += ((packed_path >> 20) & 0xff) as usize;
+            summary.nonfinite_pixels += ((packed_path >> 28) & 1) as usize;
         }
         dda_steps.sort_unstable();
         if let Some(maximum) = dda_steps.last().copied() {

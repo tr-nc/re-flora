@@ -34,8 +34,8 @@ readonly RWTexture2D<float> god_ray_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
 [[vk::binding(15, 0)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> composited_tex;
-[[vk::binding(16, 0)]] [[vk::image_format("r32ui")]]
-RWTexture2D<uint> glass_debug_tex;
+[[vk::binding(16, 0)]] [[vk::image_format("rg32ui")]]
+RWTexture2D<uint2> glass_debug_tex;
 
 static const uint OPAQUE_PROVENANCE_VOXEL = 1u;
 static const uint OPAQUE_PROVENANCE_RASTER = 2u;
@@ -226,22 +226,149 @@ void insertGlassPath(inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
     result.top_k_pruned += 1u;
 }
 
-GlassResolveResult traceGlassRadiance(Ray cameraRay, float glassFrontDepth)
+SceneQueryEvent unpackGlassFrontEvent(uint packed, float2 screenUv,
+                                      float glassFrontDepth, Ray cameraRay)
+{
+    SceneQueryEvent event;
+    event.kind = SCENE_QUERY_EVENT_INTERFACE;
+    event.position = projectScreenUvToWorld(
+        screenUv, glassFrontDepth, camera_info.view_proj_mat_inv);
+    event.tied_axes = (packed >> 1u) & 0x07u;
+    int3 rayStep = int3(sign(cameraRay.direction));
+    int3 crossedStep = int3(
+        (event.tied_axes & 1u) != 0u ? rayStep.x : 0,
+        (event.tied_axes & 2u) != 0u ? rayStep.y : 0,
+        (event.tied_axes & 4u) != 0u ? rayStep.z : 0);
+    event.incident_face_normal = normalize(-float3(crossedStep));
+    event.to_cell = int3(floor(
+        event.position * 256.0 + float3(crossedStep) * 0.25));
+    event.from_cell = event.to_cell - crossedStep;
+    float selectedDirection = 0.0;
+    float exactDistance = 0.0;
+    if (crossedStep.x != 0)
+    {
+        float boundary = float(crossedStep.x > 0
+            ? event.to_cell.x : event.from_cell.x) / 256.0;
+        selectedDirection = abs(cameraRay.direction.x);
+        exactDistance = (boundary - cameraRay.origin.x) / cameraRay.direction.x;
+    }
+    if (crossedStep.y != 0 && abs(cameraRay.direction.y) > selectedDirection)
+    {
+        float boundary = float(crossedStep.y > 0
+            ? event.to_cell.y : event.from_cell.y) / 256.0;
+        selectedDirection = abs(cameraRay.direction.y);
+        exactDistance = (boundary - cameraRay.origin.y) / cameraRay.direction.y;
+    }
+    if (crossedStep.z != 0 && abs(cameraRay.direction.z) > selectedDirection)
+    {
+        float boundary = float(crossedStep.z > 0
+            ? event.to_cell.z : event.from_cell.z) / 256.0;
+        exactDistance = (boundary - cameraRay.origin.z) / cameraRay.direction.z;
+    }
+    event.position = cameraRay.origin + cameraRay.direction * exactDistance;
+    event.to_cell = int3(floor(
+        event.position * 256.0 + float3(crossedStep) * 0.25));
+    event.from_cell = event.to_cell - crossedStep;
+    // Depth unprojection can land a few ULPs to either side of the voxel plane. Snap only
+    // crossed axes back to their exact integer boundary before applying the cell-directed bias.
+    if (crossedStep.x != 0)
+        event.position.x = float(crossedStep.x > 0
+            ? event.to_cell.x : event.from_cell.x) / 256.0;
+    if (crossedStep.y != 0)
+        event.position.y = float(crossedStep.y > 0
+            ? event.to_cell.y : event.from_cell.y) / 256.0;
+    if (crossedStep.z != 0)
+        event.position.z = float(crossedStep.z > 0
+            ? event.to_cell.z : event.from_cell.z) / 256.0;
+    event.from_voxel_type = (packed >> 8u) & 0x0fu;
+    event.to_voxel_type = (packed >> 12u) & 0x0fu;
+    event.medium_distance_world = length(event.position - cameraRay.origin);
+    event.dda_steps = 0u;
+    return event;
+}
+
+void spawnGlassInterfacePaths(
+    SceneQueryEvent event, GlassActivePath path,
+    inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
+    inout GlassResolveResult result, inout uint nextSerial)
+{
+    result.interfaces += 1u;
+    if (result.interfaces > SCENE_QUERY_MAX_INTERFACE_EVENTS)
+    {
+        result.exhausted = 1u;
+        result.fallback_reason = GLASS_FALLBACK_EXHAUSTED;
+        return;
+    }
+    VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, true);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    float fresnel = sceneQueryDielectricFresnel(
+        path.direction, event.incident_face_normal,
+        fromMaterial.ior, toMaterial.ior);
+    float3 reflectedDirection = normalize(reflect(
+        path.direction, event.incident_face_normal));
+    GlassActivePath reflected = emptyGlassPath();
+    reflected.origin = sceneQueryOffsetAcrossInterface(event, false, 256.0);
+    reflected.direction = reflectedDirection;
+    reflected.throughput = path.throughput * fresnel;
+    reflected.serial = nextSerial++;
+    reflected.active = 1u;
+    reflected.screen_candidate = 0u;
+
+    float3 transmittedDirection;
+    if (sceneQueryRefractDielectric(
+            path.direction, event.incident_face_normal,
+            fromMaterial.ior, toMaterial.ior, transmittedDirection))
+    {
+        GlassActivePath transmitted = emptyGlassPath();
+        transmitted.origin = sceneQueryOffsetAcrossInterface(event, true, 256.0);
+        transmitted.direction = transmittedDirection;
+        transmitted.throughput = path.throughput * (1.0 - fresnel);
+        transmitted.serial = nextSerial++;
+        transmitted.active = 1u;
+        transmitted.screen_candidate = path.screen_candidate;
+        insertGlassPath(paths, transmitted, result);
+    }
+    else
+    {
+        result.tir_events += 1u;
+        reflected.throughput = path.throughput;
+    }
+    insertGlassPath(paths, reflected, result);
+}
+
+GlassResolveResult traceGlassRadiance(Ray cameraRay, float2 screenUv,
+                                      float glassFrontDepth, uint glassFrontData)
 {
     GlassResolveResult result = emptyGlassResolveResult();
     GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS];
     [unroll]
     for (uint index = 0u; index < SCENE_QUERY_MAX_ACTIVE_PATHS; ++index)
         paths[index] = emptyGlassPath();
-    paths[0].origin = cameraRay.origin;
-    paths[0].direction = normalize(cameraRay.direction);
-    paths[0].throughput = float3(1.0);
-    paths[0].active = 1u;
-    paths[0].screen_candidate = 1u;
-    result.peak_active_paths = 1u;
+    GlassActivePath cameraPath = emptyGlassPath();
+    cameraPath.origin = cameraRay.origin;
+    cameraPath.direction = normalize(cameraRay.direction);
+    cameraPath.throughput = float3(1.0);
+    cameraPath.active = 1u;
+    cameraPath.screen_candidate = 1u;
     uint nextSerial = 1u;
 
-    for (uint queryIndex = 0u; queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES; ++queryIndex)
+    SceneQueryEvent frontEvent = unpackGlassFrontEvent(
+        glassFrontData, screenUv, glassFrontDepth, cameraRay);
+    // The front event was produced by the primary pass and is reused here without another DDA.
+    // It still consumes one slot in the cross-pass path budget.
+    result.scene_queries = 1u;
+    VoxelMaterial frontMedium = voxelMaterial(
+        frontEvent.from_voxel_type, true);
+    if (frontMedium.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
+    {
+        cameraPath.throughput *= sceneQueryBeerLambert(
+            sceneQueryAbsorptionCoefficient(frontMedium),
+            frontEvent.medium_distance_world);
+    }
+    spawnGlassInterfacePaths(
+        frontEvent, cameraPath, paths, result, nextSerial);
+
+    for (uint queryIndex = 1u; queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES; ++queryIndex)
     {
         int selectedIndex = -1;
         float selectedLuminance = -1.0;
@@ -310,47 +437,8 @@ GlassResolveResult traceGlassRadiance(Ray cameraRay, float glassFrontDepth)
             continue;
         }
 
-        result.interfaces += 1u;
-        if (result.interfaces > SCENE_QUERY_MAX_INTERFACE_EVENTS)
-        {
-            result.exhausted = 1u;
-            result.fallback_reason = GLASS_FALLBACK_EXHAUSTED;
-            continue;
-        }
-        VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
-        float fresnel = sceneQueryDielectricFresnel(
-            path.direction, event.incident_face_normal,
-            fromMaterial.ior, toMaterial.ior);
-        float3 reflectedDirection = normalize(reflect(
-            path.direction, event.incident_face_normal));
-        GlassActivePath reflected = emptyGlassPath();
-        reflected.origin = sceneQueryOffsetAcrossInterface(event, false, 256.0);
-        reflected.direction = reflectedDirection;
-        reflected.throughput = path.throughput * fresnel;
-        reflected.serial = nextSerial++;
-        reflected.active = 1u;
-        reflected.screen_candidate = 0u;
-
-        float3 transmittedDirection;
-        if (sceneQueryRefractDielectric(
-                path.direction, event.incident_face_normal,
-                fromMaterial.ior, toMaterial.ior, transmittedDirection))
-        {
-            GlassActivePath transmitted = emptyGlassPath();
-            transmitted.origin = sceneQueryOffsetAcrossInterface(event, true, 256.0);
-            transmitted.direction = transmittedDirection;
-            transmitted.throughput = path.throughput * (1.0 - fresnel);
-            transmitted.serial = nextSerial++;
-            transmitted.active = 1u;
-            transmitted.screen_candidate = path.screen_candidate;
-            insertGlassPath(paths, transmitted, result);
-        }
-        else
-        {
-            result.tir_events += 1u;
-            reflected.throughput = path.throughput;
-        }
-        insertGlassPath(paths, reflected, result);
+        spawnGlassInterfacePaths(
+            event, path, paths, result, nextSerial);
     }
 
     // The fixed query cap has a defined, world-safe residual fallback. True DDA/interface
@@ -438,7 +526,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         else
         {
             Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
-            result = traceGlassRadiance(ray, frontDepth);
+            result = traceGlassRadiance(ray, screenUv, frontDepth, frontData);
             resolvedColor = result.radiance;
             reason = result.fallback_reason;
         }
@@ -450,7 +538,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ((result.exhausted & 1u) << 16u) |
         ((min(result.dda_steps, 0x3fffu) & 0x3fffu) << 17u) |
         ((result.raster_screen_hits != 0u ? 1u : 0u) << 31u);
-    glass_debug_tex[coordinate] = packedDebug;
+    uint packedPathDebug =
+        (min(result.peak_active_paths, 0x0fu) & 0x0fu) |
+        ((min(result.tir_events, 0xffu) & 0xffu) << 4u) |
+        ((min(result.throughput_cutoffs, 0xffu) & 0xffu) << 12u) |
+        ((min(result.top_k_pruned, 0xffu) & 0xffu) << 20u) |
+        ((any(isnan(resolvedColor)) || any(isinf(resolvedColor)) ? 1u : 0u) << 28u);
 
     if (shading_info.glass_debug_view == 1u)
         resolvedColor = glassFrontDebugColor(frontData);
@@ -460,5 +553,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         resolvedColor = screenValidityDebugColor(reason);
     else
         resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);
+    glass_debug_tex[coordinate] = uint2(packedDebug, packedPathDebug);
     composited_tex[coordinate] = float4(resolvedColor, 1.0);
 }

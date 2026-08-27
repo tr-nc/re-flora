@@ -8,12 +8,23 @@ use re_flora_vkn::{
 use resource_container_derive::ResourceContainer;
 
 const LENS_FLARE_DOWNSAMPLE_FACTOR: u32 = 2;
+const GLASS_RESOURCE_BYTES_PER_PIXEL: u64 = 32;
 
 fn lens_flare_extent(rendering_extent: Extent2D) -> Extent2D {
     Extent2D::new(
         (rendering_extent.width / LENS_FLARE_DOWNSAMPLE_FACTOR).max(1),
         (rendering_extent.height / LENS_FLARE_DOWNSAMPLE_FACTOR).max(1),
     )
+}
+
+fn glass_resource_extent(rendering_extent: Extent2D, enabled: bool) -> Extent2D {
+    if enabled {
+        rendering_extent
+    } else {
+        // The texture wrapper infers a 1D view when height is one. Keep the smallest true 2D
+        // extent so reflected RWTexture2D descriptors remain Vulkan-compatible.
+        Extent2D::new(2, 2)
+    }
 }
 
 #[derive(ResourceContainer)]
@@ -53,7 +64,9 @@ impl ExtentDependentResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         environment_irradiance_capture_enabled: bool,
+        glass_experiment_enabled: bool,
     ) -> Self {
+        let glass_extent = glass_resource_extent(rendering_extent, glass_experiment_enabled);
         let gfx_depth_tex =
             Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
         let compute_depth_tex =
@@ -61,9 +74,9 @@ impl ExtentDependentResources {
         let compute_output_tex =
             Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let glass_front_depth_tex =
-            Self::create_r32_float_tex(device.clone(), allocator.clone(), rendering_extent, false);
+            Self::create_r32_float_tex(device.clone(), allocator.clone(), glass_extent, false);
         let glass_front_data_tex =
-            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, false);
+            Self::create_r32_uint_tex(device.clone(), allocator.clone(), glass_extent, false);
         let environment_irradiance_capture = Self::create_environment_irradiance_capture(
             device.clone(),
             allocator.clone(),
@@ -101,14 +114,27 @@ impl ExtentDependentResources {
         let screenshot_output_tex =
             Self::create_screenshot_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let unified_opaque_hdr_tex =
-            Self::create_hdr_tex(device.clone(), allocator.clone(), rendering_extent);
+            Self::create_hdr_tex(device.clone(), allocator.clone(), glass_extent);
         let unified_opaque_depth_tex =
-            Self::create_r32_float_tex(device.clone(), allocator.clone(), rendering_extent, false);
+            Self::create_r32_float_tex(device.clone(), allocator.clone(), glass_extent, false);
         let opaque_provenance_tex =
-            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, false);
+            Self::create_r32_uint_tex(device.clone(), allocator.clone(), glass_extent, false);
         let glass_debug_tex =
-            Self::create_r32_uint_tex(device.clone(), allocator.clone(), rendering_extent, true);
+            Self::create_rg32_uint_tex(device.clone(), allocator.clone(), glass_extent, true);
         let composited_tex = Self::create_hdr_tex(device, allocator, rendering_extent);
+
+        let glass_resource_bytes = u64::from(glass_extent.width)
+            * u64::from(glass_extent.height)
+            * GLASS_RESOURCE_BYTES_PER_PIXEL;
+        log::info!(
+            "[GLASS][RESOURCES] enabled={} extent={}x{} bytes={} mib={:.2} feature_off_placeholder={}",
+            glass_experiment_enabled,
+            glass_extent.width,
+            glass_extent.height,
+            glass_resource_bytes,
+            glass_resource_bytes as f64 / (1024.0 * 1024.0),
+            !glass_experiment_enabled,
+        );
 
         Self {
             gfx_depth_tex: Resource::new(gfx_depth_tex),
@@ -206,6 +232,29 @@ impl ExtentDependentResources {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
             format: vk::Format::R32_UINT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | if transfer_src {
+                    vk::ImageUsageFlags::TRANSFER_SRC
+                } else {
+                    vk::ImageUsageFlags::empty()
+                },
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_rg32_uint_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+        transfer_src: bool,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: rendering_extent.into(),
+            format: vk::Format::R32G32_UINT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
                 | if transfer_src {
@@ -430,5 +479,12 @@ mod tests {
             Extent2D::new(960, 540)
         );
         assert_eq!(lens_flare_extent(Extent2D::new(1, 1)), Extent2D::new(1, 1));
+    }
+
+    #[test]
+    fn glass_resources_use_full_extent_only_when_the_experiment_is_enabled() {
+        let extent = Extent2D::new(960, 540);
+        assert_eq!(glass_resource_extent(extent, true), extent);
+        assert_eq!(glass_resource_extent(extent, false), Extent2D::new(2, 2));
     }
 }

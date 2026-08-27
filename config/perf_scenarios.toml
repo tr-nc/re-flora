@@ -84,6 +84,146 @@ key = "composition.pass"
 min_samples = 120
 budget_percent = 3.0
 
+[scenario.glass-coverage-0]
+description = "Experimental Glass software-RT fixed scene with 0% measured screen coverage"
+args = ["--hidden", "--mute", "--perf", "--glass-voxel-test-scene", "--glass-coverage", "0", "--auto-exit", "20"]
+env = {}
+warmup_frame = 240
+required_markers = ["[GLASS_VOXEL_TEST][FRAME]", "[PERF][GPU_FRAME_SCOPE]"]
+
+[[scenario.glass-coverage-0.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-0.metric]]
+name = "tracer.render"
+source = "gpu_scope"
+key = "tracer.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-0.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-0.metric]]
+name = "glass.resolve"
+source = "gpu_scope"
+key = "glass.resolve"
+min_samples = 20
+budget_percent = 5.0
+
+[scenario.glass-coverage-10]
+description = "Experimental Glass software-RT fixed scene with 10% measured screen coverage"
+args = ["--hidden", "--mute", "--perf", "--glass-voxel-test-scene", "--glass-coverage", "10", "--auto-exit", "20"]
+env = {}
+warmup_frame = 240
+required_markers = ["[GLASS_VOXEL_TEST][FRAME]", "[PERF][GPU_FRAME_SCOPE]"]
+
+[[scenario.glass-coverage-10.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-10.metric]]
+name = "tracer.render"
+source = "gpu_scope"
+key = "tracer.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-10.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-10.metric]]
+name = "glass.resolve"
+source = "gpu_scope"
+key = "glass.resolve"
+min_samples = 20
+budget_percent = 5.0
+
+[scenario.glass-coverage-25]
+description = "Experimental Glass software-RT fixed scene with 25% measured screen coverage"
+args = ["--hidden", "--mute", "--perf", "--glass-voxel-test-scene", "--glass-coverage", "25", "--auto-exit", "20"]
+env = {}
+warmup_frame = 240
+required_markers = ["[GLASS_VOXEL_TEST][FRAME]", "[PERF][GPU_FRAME_SCOPE]"]
+
+[[scenario.glass-coverage-25.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-25.metric]]
+name = "tracer.render"
+source = "gpu_scope"
+key = "tracer.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-25.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-25.metric]]
+name = "glass.resolve"
+source = "gpu_scope"
+key = "glass.resolve"
+min_samples = 20
+budget_percent = 5.0
+
+[scenario.glass-coverage-50]
+description = "Experimental Glass software-RT fixed scene with 50% measured screen coverage"
+args = ["--hidden", "--mute", "--perf", "--glass-voxel-test-scene", "--glass-coverage", "50", "--auto-exit", "20"]
+env = {}
+warmup_frame = 240
+required_markers = ["[GLASS_VOXEL_TEST][FRAME]", "[PERF][GPU_FRAME_SCOPE]"]
+
+[[scenario.glass-coverage-50.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-50.metric]]
+name = "tracer.render"
+source = "gpu_scope"
+key = "tracer.render"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-50.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 20
+budget_percent = 5.0
+
+[[scenario.glass-coverage-50.metric]]
+name = "glass.resolve"
+source = "gpu_scope"
+key = "glass.resolve"
+min_samples = 20
+budget_percent = 5.0
+
 [scenario.surface-rebuild]
 description = "Deterministic tree replacement with surface construction pass timings"
 args = ["--hidden", "--mute", "--perf", "--tree-bench", "--tree-bench-samples", "10"]

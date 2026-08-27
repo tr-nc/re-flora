@@ -1,6 +1,7 @@
 use super::App;
 use crate::app::world_edits::{BuildEdit, VoxelAtlasStateWrite, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
+use crate::cli::GlassCoverage;
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::{append_box, GeometryPreviewMesh, GlassSceneQueryEventKind, TerrainRayQuery};
 use crate::voxel_material::{
@@ -23,14 +24,17 @@ const FLOOR_MIN: UVec3 = UVec3::new(192, 64, 128);
 const FLOOR_MAX: UVec3 = UVec3::new(448, 88, 448);
 const BACK_WALL_MIN: UVec3 = UVec3::new(192, 88, 140);
 const BACK_WALL_MAX: UVec3 = UVec3::new(448, 320, 164);
+const GLASS_SLAB_10_MIN: UVec3 = UVec3::new(248, 144, 274);
+const GLASS_SLAB_10_MAX: UVec3 = UVec3::new(312, 240, 282);
 const GLASS_SLAB_A_MIN: UVec3 = UVec3::new(224, 96, 274);
 const GLASS_SLAB_A_MAX: UVec3 = UVec3::new(320, 304, 282);
-const GLASS_SLAB_B_MIN: UVec3 = UVec3::new(344, 96, 264);
-const GLASS_SLAB_B_MAX: UVec3 = UVec3::new(408, 272, 296);
+const GLASS_SLAB_B_MIN: UVec3 = UVec3::new(336, 92, 264);
+const GLASS_SLAB_B_MAX: UVec3 = UVec3::new(416, 300, 296);
 const REBUILD_MIN: UVec3 = UVec3::new(184, 56, 120);
 const REBUILD_MAX: UVec3 = UVec3::new(456, 360, 456);
 const GPU_CAPTURE_ORIGIN: Vec3 = Vec3::new(1.0, 0.75, 1.5);
 const GPU_CAPTURE_DIRECTION: Vec3 = Vec3::NEG_Z;
+const GPU_CAPTURE_GLASS_CELL: UVec3 = UVec3::new(256, 192, 278);
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 1.72);
 
@@ -47,12 +51,14 @@ enum TestScenePhase {
 #[derive(Debug)]
 pub(super) struct GlassVoxelTestScene {
     phase: TestScenePhase,
+    coverage: GlassCoverage,
 }
 
 impl GlassVoxelTestScene {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(coverage: GlassCoverage) -> Self {
         Self {
             phase: TestScenePhase::Pending,
+            coverage,
         }
     }
 
@@ -82,20 +88,30 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
-fn scene_plan() -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
-        voxel_edits: vec![
-            stamp_cuboids(vec![cuboid(CLEAR_MIN, CLEAR_MAX)], VOXEL_TYPE_EMPTY)?,
-            stamp_cuboids(vec![cuboid(FLOOR_MIN, FLOOR_MAX)], VOXEL_TYPE_ROCK)?,
-            stamp_cuboids(vec![cuboid(BACK_WALL_MIN, BACK_WALL_MAX)], VOXEL_TYPE_ROCK)?,
-            stamp_cuboids(
-                vec![
-                    cuboid(GLASS_SLAB_A_MIN, GLASS_SLAB_A_MAX),
-                    cuboid(GLASS_SLAB_B_MIN, GLASS_SLAB_B_MAX),
-                ],
-                VOXEL_TYPE_SAND,
-            )?,
+fn glass_cuboids(coverage: GlassCoverage) -> Vec<Cuboid> {
+    match coverage {
+        GlassCoverage::Zero => Vec::new(),
+        GlassCoverage::Ten => vec![cuboid(GLASS_SLAB_10_MIN, GLASS_SLAB_10_MAX)],
+        GlassCoverage::TwentyFive => vec![cuboid(GLASS_SLAB_A_MIN, GLASS_SLAB_A_MAX)],
+        GlassCoverage::Fifty => vec![
+            cuboid(GLASS_SLAB_A_MIN, GLASS_SLAB_A_MAX),
+            cuboid(GLASS_SLAB_B_MIN, GLASS_SLAB_B_MAX),
         ],
+    }
+}
+
+fn scene_plan(coverage: GlassCoverage) -> Result<WorldEditPlan> {
+    let mut voxel_edits = vec![
+        stamp_cuboids(vec![cuboid(CLEAR_MIN, CLEAR_MAX)], VOXEL_TYPE_EMPTY)?,
+        stamp_cuboids(vec![cuboid(FLOOR_MIN, FLOOR_MAX)], VOXEL_TYPE_ROCK)?,
+        stamp_cuboids(vec![cuboid(BACK_WALL_MIN, BACK_WALL_MAX)], VOXEL_TYPE_ROCK)?,
+    ];
+    let glass = glass_cuboids(coverage);
+    if !glass.is_empty() {
+        voxel_edits.push(stamp_cuboids(glass, VOXEL_TYPE_SAND)?);
+    }
+    Ok(WorldEditPlan {
+        voxel_edits,
         build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
             REBUILD_MIN,
             REBUILD_MAX,
@@ -163,6 +179,11 @@ fn validate_glass_policy() -> Result<()> {
 impl App {
     pub(super) fn configure_glass_voxel_test_scene(&mut self) -> Result<()> {
         validate_glass_policy()?;
+        let coverage = self
+            .glass_voxel_test_scene
+            .as_ref()
+            .context("Glass voxel scene configuration lost its runtime state")?
+            .coverage;
         self.set_manual_time_of_day(TEST_TIME_OF_DAY);
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
         self.camera_control.set_orbit_focus(CAMERA_TARGET);
@@ -175,7 +196,8 @@ impl App {
             .upload_debug_geometry_preview(&sentinel_mesh(), Vec3::ZERO, Vec4::ONE)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
-            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
+            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 target_coverage_percent={} camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
+            coverage.percent(),
             CAMERA_POSITION.x,
             CAMERA_POSITION.y,
             CAMERA_POSITION.z,
@@ -186,7 +208,7 @@ impl App {
         Ok(())
     }
 
-    fn validate_glass_voxel_atlas_state(&mut self) -> Result<usize> {
+    fn validate_glass_voxel_atlas_state(&mut self, coverage: GlassCoverage) -> Result<usize> {
         let bytes = self
             .plain_builder
             .read_chunk_atlas_region(CLEAR_MIN, CLEAR_MAX - CLEAR_MIN)?;
@@ -202,10 +224,16 @@ impl App {
                 "experimental Glass voxel retained soil-state bits: {voxel_data:#04x}"
             );
         }
-        anyhow::ensure!(
-            glass_count > 0,
-            "Glass voxel test scene authored no Glass voxels"
-        );
+        match coverage {
+            GlassCoverage::Zero => anyhow::ensure!(
+                glass_count == 0,
+                "0% Glass workload unexpectedly authored {glass_count} Glass voxels"
+            ),
+            _ => anyhow::ensure!(
+                glass_count > 0,
+                "Glass voxel test scene authored no Glass voxels"
+            ),
+        }
         Ok(glass_count)
     }
 
@@ -283,7 +311,7 @@ impl App {
         );
 
         let occupancy = self.tracer.capture_ddgi_semantic_occupancy(&[
-            GLASS_SLAB_A_MIN + UVec3::ONE,
+            GPU_CAPTURE_GLASS_CELL,
             BACK_WALL_MIN + UVec3::ONE,
         ])?;
         anyhow::ensure!(
@@ -329,7 +357,12 @@ impl App {
                 if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
                     return;
                 }
-                match scene_plan()
+                let coverage = self
+                    .glass_voxel_test_scene
+                    .as_ref()
+                    .expect("Glass voxel test scene state disappeared")
+                    .coverage;
+                match scene_plan(coverage)
                     .context("compile deterministic Glass voxel test scene")
                     .and_then(|plan| self.execute_edit_plan(plan))
                 {
@@ -341,8 +374,13 @@ impl App {
                 }
             }
             TestScenePhase::TerrainPublished => {
+                let coverage = self
+                    .glass_voxel_test_scene
+                    .as_ref()
+                    .expect("Glass voxel test scene state disappeared")
+                    .coverage;
                 let glass_count = self
-                    .validate_glass_voxel_atlas_state()
+                    .validate_glass_voxel_atlas_state(coverage)
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] atlas validation failed: {err:#}")
                     });
@@ -351,17 +389,20 @@ impl App {
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] DDGI visibility publication failed: {err:#}")
                     });
-                self.validate_gpu_scene_query_capture()
-                    .unwrap_or_else(|err| {
-                        panic!("[GLASS_VOXEL_TEST] GPU SceneQuery validation failed: {err:#}")
-                    });
-                self.validate_gpu_transport_policy_capture(terrain_revision)
-                    .unwrap_or_else(|err| {
-                        panic!("[GLASS_VOXEL_TEST] GPU transport validation failed: {err:#}")
-                    });
+                if coverage != GlassCoverage::Zero {
+                    self.validate_gpu_scene_query_capture()
+                        .unwrap_or_else(|err| {
+                            panic!("[GLASS_VOXEL_TEST] GPU SceneQuery validation failed: {err:#}")
+                        });
+                    self.validate_gpu_transport_policy_capture(terrain_revision)
+                        .unwrap_or_else(|err| {
+                            panic!("[GLASS_VOXEL_TEST] GPU transport validation failed: {err:#}")
+                        });
+                }
                 log::info!(
-                    "[GLASS_VOXEL_TEST] terrain published revision={} canonical_glass_voxels={} settling_frames={}",
+                    "[GLASS_VOXEL_TEST] terrain published revision={} target_coverage_percent={} canonical_glass_voxels={} settling_frames={}",
                     terrain_revision,
+                    coverage.percent(),
                     glass_count,
                     SETTLE_FRAMES,
                 );
@@ -396,20 +437,56 @@ impl App {
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] debug readback failed: {err:#}")
                     });
+                let coverage = self
+                    .glass_voxel_test_scene
+                    .as_ref()
+                    .expect("Glass voxel test scene state disappeared")
+                    .coverage;
+                let pixel_count = usize::try_from(glass_debug.extent.width)
+                    .unwrap()
+                    .saturating_mul(usize::try_from(glass_debug.extent.height).unwrap());
+                let actual_coverage_percent = if pixel_count == 0 {
+                    0.0
+                } else {
+                    glass_debug.glass_pixels as f64 * 100.0 / pixel_count as f64
+                };
+                let (minimum_coverage, maximum_coverage) = match coverage {
+                    GlassCoverage::Zero => (0.0, 0.0),
+                    GlassCoverage::Ten => (6.0, 14.0),
+                    GlassCoverage::TwentyFive => (18.0, 32.0),
+                    GlassCoverage::Fifty => (38.0, 58.0),
+                };
                 assert!(
-                    glass_debug.raster_screen_hit_pixels > 0,
-                    "[GLASS_VOXEL_TEST] Glass never resolved raster geometry behind it"
+                    actual_coverage_percent >= minimum_coverage
+                        && actual_coverage_percent <= maximum_coverage,
+                    "[GLASS_VOXEL_TEST] target {}% workload measured {:.2}% outside {:.1}%..={:.1}%",
+                    coverage.percent(),
+                    actual_coverage_percent,
+                    minimum_coverage,
+                    maximum_coverage,
                 );
-                assert!(
-                    glass_debug.foreground_pixels > 0,
-                    "[GLASS_VOXEL_TEST] foreground raster sentinel was not preserved"
-                );
+                if coverage != GlassCoverage::Zero {
+                    assert!(
+                        glass_debug.raster_screen_hit_pixels > 0,
+                        "[GLASS_VOXEL_TEST] Glass never resolved raster geometry behind it"
+                    );
+                    assert!(
+                        glass_debug.foreground_pixels > 0,
+                        "[GLASS_VOXEL_TEST] foreground raster sentinel was not preserved"
+                    );
+                }
                 assert_eq!(
                     glass_debug.exhaustion_pixels, 0,
                     "[GLASS_VOXEL_TEST] authored scene exhausted a Glass path budget"
                 );
+                assert_eq!(
+                    glass_debug.nonfinite_pixels, 0,
+                    "[GLASS_VOXEL_TEST] authored scene produced non-finite Glass radiance"
+                );
                 log::info!(
-                    "[GLASS_VOXEL_TEST][FRAME] extent={}x{} glass_pixels={} foreground_pixels={} screen_hit_pixels={} raster_screen_hit_pixels={} fallback_pixels={} query_budget_fallback_pixels={} exhaustion_pixels={} scene_queries_max={} interfaces_max={} dda_steps_median={} dda_steps_p95={} dda_steps_max={}",
+                    "[GLASS_VOXEL_TEST][FRAME] target_coverage_percent={} actual_coverage_percent={:.3} extent={}x{} glass_pixels={} foreground_pixels={} screen_hit_pixels={} raster_screen_hit_pixels={} fallback_pixels={} query_budget_fallback_pixels={} exhaustion_pixels={} nonfinite_pixels={} scene_queries_max={} interfaces_max={} dda_steps_median={} dda_steps_p95={} dda_steps_max={} peak_active_paths={} tir_events={} throughput_cutoffs={} top_k_pruned={}",
+                    coverage.percent(),
+                    actual_coverage_percent,
                     glass_debug.extent.width,
                     glass_debug.extent.height,
                     glass_debug.glass_pixels,
@@ -419,11 +496,16 @@ impl App {
                     glass_debug.fallback_pixels,
                     glass_debug.query_budget_fallback_pixels,
                     glass_debug.exhaustion_pixels,
+                    glass_debug.nonfinite_pixels,
                     glass_debug.scene_queries_max,
                     glass_debug.interfaces_max,
                     glass_debug.dda_steps_median,
                     glass_debug.dda_steps_p95,
                     glass_debug.dda_steps_max,
+                    glass_debug.peak_active_paths,
+                    glass_debug.tir_events,
+                    glass_debug.throughput_cutoffs,
+                    glass_debug.top_k_pruned,
                 );
                 log::info!(
                     "[GLASS_VOXEL_TEST] ready revision={} acceptance=canonical-id3-isolated-scene",
@@ -448,24 +530,31 @@ mod tests {
     use crate::builder::VOXEL_TYPE_SAND;
 
     #[test]
-    fn scene_plan_authors_only_canonical_sand_for_experimental_glass() {
-        let plan = scene_plan().unwrap();
-        let glass_edits = plan
-            .voxel_edits
-            .iter()
-            .filter_map(|edit| match edit {
-                VoxelEdit::StampCuboids {
-                    voxel_type,
-                    atlas_state_write,
-                    ..
-                } if *voxel_type == VOXEL_TYPE_SAND => Some(*atlas_state_write),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+    fn coverage_scene_plans_author_only_canonical_sand_for_experimental_glass() {
+        for coverage in [
+            GlassCoverage::Zero,
+            GlassCoverage::Ten,
+            GlassCoverage::TwentyFive,
+            GlassCoverage::Fifty,
+        ] {
+            let plan = scene_plan(coverage).unwrap();
+            let glass_edits = plan
+                .voxel_edits
+                .iter()
+                .filter_map(|edit| match edit {
+                    VoxelEdit::StampCuboids {
+                        voxel_type,
+                        atlas_state_write,
+                        ..
+                    } if *voxel_type == VOXEL_TYPE_SAND => Some(*atlas_state_write),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
 
-        assert!(!glass_edits.is_empty());
-        assert!(glass_edits
-            .iter()
-            .all(|policy| *policy == VoxelAtlasStateWrite::Clear));
+            assert_eq!(glass_edits.is_empty(), coverage == GlassCoverage::Zero);
+            assert!(glass_edits
+                .iter()
+                .all(|policy| *policy == VoxelAtlasStateWrite::Clear));
+        }
     }
 }

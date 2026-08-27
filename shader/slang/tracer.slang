@@ -17,6 +17,7 @@ import tracer_shadowing;
 import tracer_types;
 import transform;
 import voxel_data;
+import voxel_material;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
@@ -603,21 +604,40 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     MarchingResult primaryResult;
     if (shading_info.glass_experiment_enabled != 0u)
     {
-        glassPrimary = tracePrimaryVoxelSurfaces(
-            chunk_atlas, ray.origin, ray.direction, 256.0, true);
-        primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
-            glassPrimary.opaque_hit, ray.origin);
-        glass_front_depth_tex[dispatchThreadId.xy] =
-            glassPrimary.has_glass_front != 0u
-                ? depthFromWorldPosition(glassPrimary.glass_front.position)
-                : 1.0;
-        glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(glassPrimary);
+        // The Contree remains the cheap primary visibility accelerator. Dense DDA is only
+        // required when its first surface is experimental Glass (or the camera starts inside
+        // Glass), which preserves exact entry/exit truth without taxing every background pixel.
+        MarchingResult acceleratedPrimary = generalSceneMarching(
+            ray, localInvocationIndex);
+        uint originVoxelType = sceneQueryVoxelTypeAtWorld(
+            chunk_atlas, ray.origin, 256.0);
+        bool cameraInsideGlass = voxelMaterial(
+            originVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+        bool acceleratedHitGlass = acceleratedPrimary.is_hit && voxelMaterial(
+            acceleratedPrimary.voxel_type, true).surface_class ==
+                VOXEL_SURFACE_CLASS_DIELECTRIC;
+        if (cameraInsideGlass || acceleratedHitGlass)
+        {
+            glassPrimary = tracePrimaryVoxelSurfaces(
+                chunk_atlas, ray.origin, ray.direction, 256.0, true);
+            primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
+                glassPrimary.opaque_hit, ray.origin);
+            glass_front_depth_tex[dispatchThreadId.xy] =
+                glassPrimary.has_glass_front != 0u
+                    ? depthFromWorldPosition(glassPrimary.glass_front.position)
+                    : 1.0;
+            glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(glassPrimary);
+        }
+        else
+        {
+            primaryResult = acceleratedPrimary;
+            glass_front_depth_tex[dispatchThreadId.xy] = 1.0;
+            glass_front_data_tex[dispatchThreadId.xy] = 0u;
+        }
     }
     else
     {
         primaryResult = generalSceneMarching(ray, localInvocationIndex);
-        glass_front_depth_tex[dispatchThreadId.xy] = 1.0;
-        glass_front_data_tex[dispatchThreadId.xy] = 0u;
     }
 
     float3 color;

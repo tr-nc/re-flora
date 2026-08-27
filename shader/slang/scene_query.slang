@@ -143,6 +143,19 @@ uint sceneQueryVoxelType(readonly RWTexture3D<uint> denseAtlas,
     return voxelTypeFromAtlasData(denseAtlas[uint3(cell)]);
 }
 
+public uint sceneQueryVoxelTypeAtWorld(
+    readonly RWTexture3D<uint> denseAtlas,
+    float3 worldPosition,
+    float worldToVoxelScale)
+{
+    uint width;
+    uint height;
+    uint depth;
+    denseAtlas.GetDimensions(width, height, depth);
+    int3 cell = int3(floor(worldPosition * worldToVoxelScale));
+    return sceneQueryVoxelType(denseAtlas, cell, uint3(width, height, depth));
+}
+
 bool sceneQuerySameMedium(VoxelMaterial left, uint leftVoxelType,
                           VoxelMaterial right, uint rightVoxelType)
 {
