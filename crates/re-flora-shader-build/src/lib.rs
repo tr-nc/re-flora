@@ -652,6 +652,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/tracer_glass.comp",
+        source_path: "shader/slang/tracer_glass.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/tracer_shadow.comp",
         source_path: "shader/slang/tracer_shadow.slang",
         module_path: "shader/slang",

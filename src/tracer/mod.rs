@@ -876,6 +876,7 @@ pub struct DirectSunShadowResources<'a> {
 struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
     tracer: PreparedDescriptorGeneration,
+    tracer_glass: PreparedDescriptorGeneration,
     flora_lighting_cache: PreparedDescriptorGeneration,
     tree_leaf_lighting_cache: PreparedDescriptorGeneration,
     graphics: Vec<PreparedDescriptorGeneration>,
@@ -2197,6 +2198,7 @@ impl Tracer {
             plain_builder_resources,
         );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_glass_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -2718,6 +2720,11 @@ impl Tracer {
                 .tracer_ppl
                 .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
                 .expect("DDGI consumer tracer descriptor preparation failed"),
+            tracer_glass: self
+                .compute_pipelines
+                .tracer_glass_ppl
+                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
+                .expect("DDGI consumer Glass tracer descriptor preparation failed"),
             flora_lighting_cache: self
                 .compute_pipelines
                 .flora_lighting_cache_ppl
@@ -2765,7 +2772,7 @@ impl Tracer {
             graphics_pipelines.len(),
             "DDGI consumer descriptor preparation pipeline order changed"
         );
-        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
+        let mut retirements = Vec::with_capacity(4 + graphics_pipelines.len());
         retirements.push(
             self.compute_pipelines
                 .tracer_ppl
@@ -2773,6 +2780,15 @@ impl Tracer {
                     "ddgi.consumer.descriptors",
                     generation,
                     prepared.tracer,
+                ),
+        );
+        retirements.push(
+            self.compute_pipelines
+                .tracer_glass_ppl
+                .publish_prepared_descriptors(
+                    "ddgi.consumer.descriptors",
+                    generation,
+                    prepared.tracer_glass,
                 ),
         );
         retirements.push(
@@ -6405,7 +6421,12 @@ impl Tracer {
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.tracer_ppl.record(
+        let pipeline = if self.desc.glass_experiment_enabled {
+            &self.compute_pipelines.tracer_glass_ppl
+        } else {
+            &self.compute_pipelines.tracer_ppl
+        };
+        pipeline.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources

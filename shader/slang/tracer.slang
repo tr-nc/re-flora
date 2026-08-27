@@ -19,6 +19,10 @@ import transform;
 import voxel_data;
 import voxel_material;
 
+#ifndef RE_FLORA_GLASS_PRIMARY
+#define RE_FLORA_GLASS_PRIMARY 0
+#endif
+
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
@@ -45,10 +49,12 @@ readonly RWTexture3D<uint> chunk_atlas;
 RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> compute_depth_tex;
+#if RE_FLORA_GLASS_PRIMARY
 [[vk::binding(3, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> glass_front_depth_tex;
 [[vk::binding(4, 1)]] [[vk::image_format("r32ui")]]
 RWTexture2D<uint> glass_front_data_tex;
+#endif
 
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> environment_irradiance_capture;
@@ -341,6 +347,7 @@ float depthFromWorldPosition(float3 worldPosition)
     return ndc.z / ndc.w;
 }
 
+#if RE_FLORA_GLASS_PRIMARY
 uint packGlassFrontData(ScenePrimaryQuery query)
 {
     if (query.has_glass_front == 0u) return query.exhausted << 16u;
@@ -353,6 +360,7 @@ uint packGlassFrontData(ScenePrimaryQuery query)
         ((event.to_voxel_type & 0x0fu) << 12u) |
         ((query.exhausted & 1u) << 16u);
 }
+#endif
 
 uint ddgiSpatialWeightReadbackReceiver(uint2 pixel)
 {
@@ -600,10 +608,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
-    ScenePrimaryQuery glassPrimary = makeScenePrimaryQuery();
     MarchingResult primaryResult;
-    if (shading_info.glass_experiment_enabled != 0u)
+#if RE_FLORA_GLASS_PRIMARY
     {
+        ScenePrimaryQuery glassPrimary = makeScenePrimaryQuery();
         // The Contree remains the cheap primary visibility accelerator. Dense DDA is only
         // required when its first surface is experimental Glass (or the camera starts inside
         // Glass), which preserves exact entry/exit truth without taxing every background pixel.
@@ -635,10 +643,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
             glass_front_data_tex[dispatchThreadId.xy] = 0u;
         }
     }
-    else
+#else
     {
         primaryResult = generalSceneMarching(ray, localInvocationIndex);
     }
+#endif
 
     float3 color;
     float3 environmentIrradiance;

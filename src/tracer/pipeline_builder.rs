@@ -20,6 +20,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tracer_glass_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/tracer_glass.comp",
+            "main",
+        )
+        .unwrap();
         let ddgi_global_sky_filter_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/ddgi/global_sky_filter.comp",
@@ -394,6 +400,7 @@ impl PipelineBuilder {
 
         Ok(ShaderModules {
             tracer_sm,
+            tracer_glass_sm,
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
@@ -601,6 +608,19 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let tracer_glass_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.tracer_glass_sm,
+            pool,
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                ddgi_volume,
+                ddgi_voxel_visibility,
+            ],
+        );
 
         let tracer_shadow_ppl = ComputePipeline::new(
             device,
@@ -732,6 +752,7 @@ impl PipelineBuilder {
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
+            tracer_glass_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
             leaf_shadow_temporal_ppl,
@@ -1225,6 +1246,7 @@ impl PipelineBuilder {
 
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
+    pub tracer_glass_sm: ShaderModule,
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
@@ -1300,6 +1322,7 @@ pub struct ComputePipelines {
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
+    pub tracer_glass_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
     pub leaf_shadow_temporal_ppl: ComputePipeline,
