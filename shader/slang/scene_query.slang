@@ -19,7 +19,7 @@ public static const uint SCENE_STRAIGHT_TRANSPORT_MAX_QUERIES = 16u;
 public static const float SCENE_QUERY_THROUGHPUT_CUTOFF = 1.0e-2;
 
 static const float SCENE_QUERY_DIRECTION_EPSILON = 1.0e-20;
-static const float SCENE_QUERY_TIE_EPSILON = 1.0e-5;
+static const uint SCENE_QUERY_TIE_MAX_ULPS = 1u;
 static const float SCENE_QUERY_VOXEL_BIAS = 1.0e-4;
 
 public struct SceneQueryEvent
@@ -205,13 +205,28 @@ bool sceneQueryClipAxis(float origin, float direction, float dimension,
     return entry <= exit;
 }
 
+bool sceneQueryTraversalDistanceTie(float left, float right)
+{
+    if (left == right) return true;
+    if (left < 0.0 || right < 0.0 ||
+        isnan(left) || isnan(right) || isinf(left) || isinf(right))
+    {
+        return false;
+    }
+    uint leftBits = asuint(left);
+    uint rightBits = asuint(right);
+    uint ulps = leftBits > rightBits
+        ? leftBits - rightBits
+        : rightBits - leftBits;
+    return ulps <= SCENE_QUERY_TIE_MAX_ULPS;
+}
+
 uint sceneQueryCrossingMask(float3 next, float crossing)
 {
-    float tolerance = SCENE_QUERY_TIE_EPSILON * max(abs(crossing), 1.0);
     uint mask = 0u;
-    if (abs(next.x - crossing) <= tolerance) mask |= 1u;
-    if (abs(next.y - crossing) <= tolerance) mask |= 2u;
-    if (abs(next.z - crossing) <= tolerance) mask |= 4u;
+    if (sceneQueryTraversalDistanceTie(next.x, crossing)) mask |= 1u;
+    if (sceneQueryTraversalDistanceTie(next.y, crossing)) mask |= 2u;
+    if (sceneQueryTraversalDistanceTie(next.z, crossing)) mask |= 4u;
     return mask;
 }
 
@@ -338,7 +353,7 @@ public SceneQueryEvent walkVoxelMediaToNextEvent(
         uint tiedAxes = sceneQueryCrossingMask(next, crossing);
         float3 incidentNormal = sceneQueryIncidentNormal(tiedAxes, stepDirection);
         float3 position = originWorld + direction * crossing;
-        if (crossing >= exit - SCENE_QUERY_TIE_EPSILON)
+        if (crossing >= exit || sceneQueryTraversalDistanceTie(crossing, exit))
         {
             result.kind = currentMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
                 ? SCENE_QUERY_EVENT_INTERFACE
