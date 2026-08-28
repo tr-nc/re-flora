@@ -2,10 +2,11 @@
 
 ## Status
 
-The staged experimental implementation is complete through Phase 4 at commit
-`2872ee635f0dc85fe0496de3beb94d7440075d12`. Correctness, isolation, Vulkan validation,
-fallback, bounded-work, and feature-OFF regression gates pass. The 25% coverage planning
-performance target does not pass, so this remains an isolated experiment and is not
+The staged experimental implementation is complete through Phase 4 and includes the
+secondary-visibility stabilization through commit
+`dce8bb6b`. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
+visual regression, and feature-OFF gates pass. The original 25% coverage planning target
+against feature OFF still does not pass, so this remains an isolated experiment and is not
 ship-ready.
 
 The protected architecture and implementation guide remains the source of truth:
@@ -70,6 +71,50 @@ Times below are B-minus-A deltas in milliseconds (median / p95).
 The guide labels +1.0 ms median / +1.5 ms p95 at 25% as a first planning target, not a ship
 budget. The isolated `glass.resolve` scope alone exceeds both values, and total frame overhead
 also exceeds them. This is the remaining release blocker.
+
+## Secondary-visibility stabilization
+
+Three user-authored camera snapshots exposed failures outside the original fixed camera:
+
+- `t1`: at long distance, only 544 of 7,509 visible Glass pixels reused valid opaque
+  radiance; 6,965 pixels fell back, making the pane appear gray or black. A deterministic
+  projected-segment depth walk raises valid screen hits to 5,609 and reduces fallback to
+  1,900. The pane retains refracted scene color instead of collapsing to the simplified
+  voxel fallback.
+- `t2`: the previous `1e-5` relative GPU DDA tie band merged distinct grid-plane crossings.
+  In a fixed interior `glass-front` ROI, 2,480 output pixels reported a non-primary axis and
+  the wrong event was amplified into one-voxel color blocks. ULP-bounded tie classification
+  leaves 60 edge/corner output pixels (15 internal samples) and removes the visible outliers.
+  Query-budget fallback also falls from 740 pixels to zero in this view.
+- `t3`: the upper half of the amber raster sentinel lay on a voxel-DDA miss path, so resolving
+  only the final opaque voxel could never see it. Applying the same projected-segment query to
+  both opaque and miss terminals restores 14,062 amber pixels in the fixed upper ROI; raster
+  screen hits rise from 3,309 to 7,729 and the bar is continuous.
+
+The screen walk is deterministic, bounded to 256 projected pixels, and runs once per cached
+visible Glass voxel. It visits the projected segment in path order, accepts raster geometry
+at the first depth-interval overlap, and permits a voxel terminal only in the final interval.
+There is no jitter or temporal random choice. The one-normal/one-final-color-per-voxel
+invariant remains intact.
+
+Two independent Release capture rounds produced identical T1, T2, and T3 counters and image
+checks. Every capture reported zero path exhaustion and zero non-finite pixels. Evidence is
+under `target/glass-t123-final-regression/`.
+
+The incremental Release A,B,B,A comparison isolates the projected-segment change at
+`dce8bb6b` from the ULP DDA baseline at `eac9b447`. Each pooled side has 59 post-warm-up
+samples on the RTX 3060 Ti fixed 25% Glass workload:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 18.396 / 18.601 ms | 18.050 / 18.339 ms | -1.88% / -1.41% | pass |
+| `tracer.render` | 9.479 / 9.603 ms | 9.352 / 9.480 ms | -1.34% / -1.27% | pass |
+| `tracer.pass` | 3.633 / 3.668 ms | 3.636 / 3.673 ms | +0.08% / +0.14% | pass |
+| `glass.resolve` | 4.643 / 4.746 ms | 4.520 / 4.634 ms | -2.65% / -2.36% | pass |
+
+All four existing 5% incremental gates pass. The comparison is recorded at
+`target/perf-screen-trace-ab/reports/comparison.json`. This does not supersede the overall
+feature-OFF planning-budget failure above.
 
 Feature OFF was separately compared against pre-Glass commit
 `d820d3d7dbe10cb6cfb61438b0bbfd4381d59956` with the standard `render-steady` A,B,B,A gate.
@@ -142,6 +187,14 @@ python scripts/perf_suite.py run glass-coverage-25 \
 - Normal feature-OFF hidden release run and Glass 25% resize-lifecycle hidden release run:
   pass, clean shutdown, no Vulkan validation error, device loss, panic, non-finite Glass pixel,
   or Glass exhaustion.
+- Post-stabilization `cargo fmt --check` and `cargo check`: pass; 102 native Slang shaders
+  precompiled.
+- Post-stabilization Rust suite with only the documented dirty-snapshot PATT fixture filtered:
+  677 passed, 1 ignored; Python suite: 83 passed.
+- Two repeated hidden Release T1/T2/T3 capture rounds: deterministic counters, zero
+  exhaustion, zero non-finite pixels.
+- Post-stabilization feature-OFF hidden Release smoke: 2x2 Glass placeholders only, clean
+  shutdown, and no Glass resolve scope or runtime error.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root
