@@ -1599,9 +1599,12 @@ impl App {
             hybrid_transparency_test_scene: options
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
-            glass_voxel_test_scene: options
-                .glass_voxel_test_scene
-                .then(|| glass_voxel_test_scene::GlassVoxelTestScene::new(options.glass_coverage)),
+            glass_voxel_test_scene: options.glass_voxel_test_scene.then(|| {
+                glass_voxel_test_scene::GlassVoxelTestScene::new(
+                    options.glass_coverage,
+                    options.camera_snapshot.is_none(),
+                )
+            }),
             house_scene_requested: options.house_scene,
             visible_terrain_revision: 0,
             shutdown_started: false,

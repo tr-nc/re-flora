@@ -52,13 +52,15 @@ enum TestScenePhase {
 pub(super) struct GlassVoxelTestScene {
     phase: TestScenePhase,
     coverage: GlassCoverage,
+    validate_fixed_camera_frame: bool,
 }
 
 impl GlassVoxelTestScene {
-    pub(super) fn new(coverage: GlassCoverage) -> Self {
+    pub(super) fn new(coverage: GlassCoverage, validate_fixed_camera_frame: bool) -> Self {
         Self {
             phase: TestScenePhase::Pending,
             coverage,
+            validate_fixed_camera_frame,
         }
     }
 
@@ -437,11 +439,11 @@ impl App {
                     .unwrap_or_else(|err| {
                         panic!("[GLASS_VOXEL_TEST] debug readback failed: {err:#}")
                     });
-                let coverage = self
+                let (coverage, validate_fixed_camera_frame) = self
                     .glass_voxel_test_scene
                     .as_ref()
-                    .expect("Glass voxel test scene state disappeared")
-                    .coverage;
+                    .map(|scene| (scene.coverage, scene.validate_fixed_camera_frame))
+                    .expect("Glass voxel test scene state disappeared");
                 let pixel_count = usize::try_from(glass_debug.extent.width)
                     .unwrap()
                     .saturating_mul(usize::try_from(glass_debug.extent.height).unwrap());
@@ -456,24 +458,26 @@ impl App {
                     GlassCoverage::TwentyFive => (18.0, 32.0),
                     GlassCoverage::Fifty => (38.0, 58.0),
                 };
-                assert!(
-                    actual_coverage_percent >= minimum_coverage
-                        && actual_coverage_percent <= maximum_coverage,
-                    "[GLASS_VOXEL_TEST] target {}% workload measured {:.2}% outside {:.1}%..={:.1}%",
-                    coverage.percent(),
-                    actual_coverage_percent,
-                    minimum_coverage,
-                    maximum_coverage,
-                );
-                if coverage != GlassCoverage::Zero {
+                if validate_fixed_camera_frame {
                     assert!(
-                        glass_debug.raster_screen_hit_pixels > 0,
-                        "[GLASS_VOXEL_TEST] Glass never resolved raster geometry behind it"
+                        actual_coverage_percent >= minimum_coverage
+                            && actual_coverage_percent <= maximum_coverage,
+                        "[GLASS_VOXEL_TEST] target {}% workload measured {:.2}% outside {:.1}%..={:.1}%",
+                        coverage.percent(),
+                        actual_coverage_percent,
+                        minimum_coverage,
+                        maximum_coverage,
                     );
-                    assert!(
-                        glass_debug.foreground_pixels > 0,
-                        "[GLASS_VOXEL_TEST] foreground raster sentinel was not preserved"
-                    );
+                    if coverage != GlassCoverage::Zero {
+                        assert!(
+                            glass_debug.raster_screen_hit_pixels > 0,
+                            "[GLASS_VOXEL_TEST] Glass never resolved raster geometry behind it"
+                        );
+                        assert!(
+                            glass_debug.foreground_pixels > 0,
+                            "[GLASS_VOXEL_TEST] foreground raster sentinel was not preserved"
+                        );
+                    }
                 }
                 assert_eq!(
                     glass_debug.exhaustion_pixels, 0,
@@ -484,9 +488,10 @@ impl App {
                     "[GLASS_VOXEL_TEST] authored scene produced non-finite Glass radiance"
                 );
                 log::info!(
-                    "[GLASS_VOXEL_TEST][FRAME] target_coverage_percent={} actual_coverage_percent={:.3} extent={}x{} glass_pixels={} foreground_pixels={} screen_hit_pixels={} raster_screen_hit_pixels={} fallback_pixels={} query_budget_fallback_pixels={} exhaustion_pixels={} nonfinite_pixels={} scene_queries_max={} interfaces_max={} dda_steps_median={} dda_steps_p95={} dda_steps_max={} peak_active_paths={} tir_events={} throughput_cutoffs={} top_k_pruned={}",
+                    "[GLASS_VOXEL_TEST][FRAME] target_coverage_percent={} actual_coverage_percent={:.3} fixed_camera_validation={} extent={}x{} glass_pixels={} foreground_pixels={} screen_hit_pixels={} raster_screen_hit_pixels={} fallback_pixels={} query_budget_fallback_pixels={} exhaustion_pixels={} nonfinite_pixels={} scene_queries_max={} interfaces_max={} dda_steps_median={} dda_steps_p95={} dda_steps_max={} peak_active_paths={} tir_events={} throughput_cutoffs={} top_k_pruned={}",
                     coverage.percent(),
                     actual_coverage_percent,
+                    validate_fixed_camera_frame,
                     glass_debug.extent.width,
                     glass_debug.extent.height,
                     glass_debug.glass_pixels,
@@ -556,5 +561,14 @@ mod tests {
                 .iter()
                 .all(|policy| *policy == VoxelAtlasStateWrite::Clear));
         }
+    }
+
+    #[test]
+    fn explicit_camera_snapshot_disables_fixed_camera_frame_validation() {
+        let fixed = GlassVoxelTestScene::new(GlassCoverage::TwentyFive, true);
+        let custom = GlassVoxelTestScene::new(GlassCoverage::TwentyFive, false);
+
+        assert!(fixed.validate_fixed_camera_frame);
+        assert!(!custom.validate_fixed_camera_frame);
     }
 }
