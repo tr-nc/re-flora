@@ -72,6 +72,7 @@ static const uint GLASS_FALLBACK_EXHAUSTED = 8u;
 static const uint GLASS_FALLBACK_QUERY_BUDGET = 9u;
 
 static const float GLASS_DEPTH_TOLERANCE = 0.003;
+static const uint GLASS_SCREEN_TRACE_MAX_STEPS = 256u;
 static const uint GLASS_VOXEL_CACHE_BUILD_PASS = 0u;
 static const uint GLASS_VOXEL_CACHE_SHADE_PASS = 1u;
 static const uint GLASS_VOXEL_CACHE_RESOLVE_PASS = 2u;
@@ -287,32 +288,144 @@ bool validateGlassTerminalCoordinate(
     return true;
 }
 
-float3 sampleGlassTerminalRadiance(
-    SceneQueryEvent event, uint screenCandidate,
-    out uint fallbackReason, out uint terminalProvenance)
+bool projectGlassWorldToScreen(
+    float3 position, uint2 extent,
+    out float2 uv, out float2 pixel, out float depth)
 {
-    fallbackReason = GLASS_FALLBACK_VOXEL;
-    terminalProvenance = 0u;
-    if (screenCandidate == 0u) return glassVoxelFallback(event);
-
-    float4 clip = mul(camera_info.view_proj_mat, float4(event.position, 1.0));
+    float4 clip = mul(camera_info.view_proj_mat, float4(position, 1.0));
     if (clip.w <= 0.0)
     {
-        fallbackReason = GLASS_FALLBACK_OFFSCREEN;
-        return glassVoxelFallback(event);
+        uv = float2(0.0);
+        pixel = float2(0.0);
+        depth = 1.0;
+        return false;
     }
-    float2 uv = clip.xy / clip.w * 0.5 + 0.5;
-    if (any(uv <= float2(0.0)) || any(uv >= float2(1.0)))
+    uv = clip.xy / clip.w * 0.5 + 0.5;
+    pixel = uv * float2(extent);
+    depth = clip.z / clip.w;
+    return all(uv > float2(0.0)) && all(uv < float2(1.0));
+}
+
+bool traceGlassOpaqueScreenSegment(
+    float3 segmentOrigin, SceneQueryEvent terminalEvent,
+    uint2 extent, out float2 hitUv, out uint hitProvenance)
+{
+    float2 startUv;
+    float2 startPixel;
+    float startDepth;
+    float2 endUv;
+    float2 endPixel;
+    float endDepth;
+    if (!projectGlassWorldToScreen(
+            segmentOrigin, extent, startUv, startPixel, startDepth) ||
+        !projectGlassWorldToScreen(
+            terminalEvent.position, extent, endUv, endPixel, endDepth))
     {
-        fallbackReason = GLASS_FALLBACK_OFFSCREEN;
-        return glassVoxelFallback(event);
+        hitUv = endUv;
+        hitProvenance = 0u;
+        return false;
     }
+
+    // Walk the projected segment in screen order. Each iteration owns one contiguous
+    // pixel-sized ray-depth interval, so thin raster geometry cannot fall between sparse
+    // world-space samples. NDC depth is linear along the projected line.
+    float2 pixelDelta = endPixel - startPixel;
+    float projectedLength = max(abs(pixelDelta.x), abs(pixelDelta.y));
+    uint stepCount = clamp(
+        uint(ceil(projectedLength)), 1u, GLASS_SCREEN_TRACE_MAX_STEPS);
+    [loop]
+    for (uint stepIndex = 0u;
+         stepIndex < GLASS_SCREEN_TRACE_MAX_STEPS;
+         ++stepIndex)
+    {
+        if (stepIndex >= stepCount) break;
+        float intervalStart = float(stepIndex) / float(stepCount);
+        float intervalEnd = float(stepIndex + 1u) / float(stepCount);
+        float intervalCenter = (intervalStart + intervalEnd) * 0.5;
+        float2 samplePixel = lerp(startPixel, endPixel, intervalCenter);
+        int2 coordinate = clamp(
+            int2(floor(samplePixel)), int2(0), int2(extent) - int2(1));
+        uint provenance = opaque_provenance_tex[coordinate];
+        bool finalInterval = stepIndex + 1u == stepCount;
+        if (provenance != OPAQUE_PROVENANCE_RASTER &&
+            !(finalInterval &&
+              terminalEvent.kind == SCENE_QUERY_EVENT_OPAQUE &&
+              provenance == OPAQUE_PROVENANCE_VOXEL))
+        {
+            continue;
+        }
+
+        float rayDepthStart = lerp(startDepth, endDepth, intervalStart);
+        float rayDepthEnd = lerp(startDepth, endDepth, intervalEnd);
+        float rayDepthMin = min(rayDepthStart, rayDepthEnd);
+        float rayDepthMax = max(rayDepthStart, rayDepthEnd);
+        float sampledDepth = unified_opaque_depth_tex[coordinate];
+        if (sampledDepth < rayDepthMin - GLASS_DEPTH_TOLERANCE ||
+            sampledDepth > rayDepthMax + GLASS_DEPTH_TOLERANCE)
+        {
+            continue;
+        }
+        if (provenance == OPAQUE_PROVENANCE_VOXEL &&
+            !glassTerminalIsBehindLocalFront(coordinate, sampledDepth))
+        {
+            continue;
+        }
+
+        hitUv = (float2(coordinate) + 0.5) / float2(extent);
+        hitProvenance = provenance;
+        return true;
+    }
+
+    hitUv = endUv;
+    hitProvenance = 0u;
+    return false;
+}
+
+float3 sampleGlassTerminalRadiance(
+    SceneQueryEvent event, uint screenCandidate,
+    float3 segmentOrigin, float3 segmentDirection,
+    out uint fallbackReason, out uint terminalProvenance)
+{
+    bool opaqueTerminal = event.kind == SCENE_QUERY_EVENT_OPAQUE;
+    fallbackReason = opaqueTerminal
+        ? GLASS_FALLBACK_VOXEL
+        : GLASS_FALLBACK_SKY;
+    terminalProvenance = 0u;
+    if (screenCandidate == 0u)
+        return opaqueTerminal
+            ? glassVoxelFallback(event)
+            : glassSky(segmentDirection);
 
     uint width;
     uint height;
     unified_opaque_depth_tex.GetDimensions(width, height);
+    uint2 extent = uint2(width, height);
+    float2 uv;
+    float2 terminalPixel;
+    float hitDepth;
+    if (!projectGlassWorldToScreen(
+            event.position, extent, uv, terminalPixel, hitDepth))
+    {
+        fallbackReason = GLASS_FALLBACK_OFFSCREEN;
+        return opaqueTerminal
+            ? glassVoxelFallback(event)
+            : glassSky(segmentDirection);
+    }
+
+    float2 segmentHitUv;
+    uint segmentHitProvenance;
+    if (traceGlassOpaqueScreenSegment(
+            segmentOrigin, event, extent,
+            segmentHitUv, segmentHitProvenance))
+    {
+        fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
+        terminalProvenance = segmentHitProvenance;
+        return unified_opaque_hdr_tex.SampleLevel(segmentHitUv, 0.0).rgb;
+    }
+
+    if (!opaqueTerminal) return glassSky(segmentDirection);
+
     int2 coordinate = int2(uv * float2(width, height));
-    float hitDepth = clip.z / clip.w;
     uint provenance;
     uint rejectionReason;
     if (validateGlassTerminalCoordinate(
@@ -555,25 +668,20 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
             continue;
         }
 
-        if (event.kind == SCENE_QUERY_EVENT_OPAQUE)
+        if (event.kind == SCENE_QUERY_EVENT_OPAQUE ||
+            event.kind == SCENE_QUERY_EVENT_MISS)
         {
             uint fallbackReason;
             uint terminalProvenance;
             float3 terminal = sampleGlassTerminalRadiance(
-                event, path.screen_candidate, fallbackReason, terminalProvenance);
+                event, path.screen_candidate, path.origin, path.direction,
+                fallbackReason, terminalProvenance);
             result.radiance += path.throughput * terminal;
             if (terminalProvenance == OPAQUE_PROVENANCE_RASTER)
                 result.raster_screen_hits += 1u;
             if (fallbackReason == GLASS_FALLBACK_SCREEN_HIT ||
                 result.fallback_reason == GLASS_FALLBACK_NONE)
                 result.fallback_reason = fallbackReason;
-            continue;
-        }
-        if (event.kind == SCENE_QUERY_EVENT_MISS)
-        {
-            result.radiance += path.throughput * glassSky(path.direction);
-            if (result.fallback_reason == GLASS_FALLBACK_NONE)
-                result.fallback_reason = GLASS_FALLBACK_SKY;
             continue;
         }
         if (event.kind != SCENE_QUERY_EVENT_INTERFACE)
