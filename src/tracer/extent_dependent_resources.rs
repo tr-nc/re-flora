@@ -9,6 +9,11 @@ use resource_container_derive::ResourceContainer;
 
 const LENS_FLARE_DOWNSAMPLE_FACTOR: u32 = 2;
 const GLASS_RESOURCE_BYTES_PER_PIXEL: u64 = 32;
+pub(crate) const GLASS_VOXEL_CACHE_CAPACITY: u32 = 1 << 18;
+pub(crate) const GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY: u64 = 16;
+const GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY: u64 = 16;
+const GLASS_VOXEL_CACHE_ACTIVE_SLOT_BYTES_PER_ENTRY: u64 = 4;
+pub(crate) const GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES: u64 = 4;
 
 fn lens_flare_extent(rendering_extent: Extent2D) -> Extent2D {
     Extent2D::new(
@@ -24,6 +29,14 @@ fn glass_resource_extent(rendering_extent: Extent2D, enabled: bool) -> Extent2D 
         // The texture wrapper infers a 1D view when height is one. Keep the smallest true 2D
         // extent so reflected RWTexture2D descriptors remain Vulkan-compatible.
         Extent2D::new(2, 2)
+    }
+}
+
+fn glass_voxel_cache_capacity(enabled: bool) -> u32 {
+    if enabled {
+        GLASS_VOXEL_CACHE_CAPACITY
+    } else {
+        1
     }
 }
 
@@ -54,6 +67,10 @@ pub struct ExtentDependentResources {
     pub unified_opaque_depth_tex: Resource<Texture>,
     pub opaque_provenance_tex: Resource<Texture>,
     pub glass_debug_tex: Resource<Texture>,
+    pub glass_voxel_cache_metadata: Resource<Buffer>,
+    pub glass_voxel_cache_radiance: Resource<Buffer>,
+    pub glass_voxel_cache_active_slots: Resource<Buffer>,
+    pub glass_voxel_cache_active_count: Resource<Buffer>,
     pub composited_tex: Resource<Texture>,
 }
 
@@ -121,18 +138,56 @@ impl ExtentDependentResources {
             Self::create_r32_uint_tex(device.clone(), allocator.clone(), glass_extent, false);
         let glass_debug_tex =
             Self::create_rg32_uint_tex(device.clone(), allocator.clone(), glass_extent, true);
+        let glass_voxel_cache_capacity = glass_voxel_cache_capacity(glass_experiment_enabled);
+        let glass_voxel_cache_metadata = Self::create_glass_voxel_cache_buffer(
+            device.clone(),
+            allocator.clone(),
+            glass_voxel_cache_capacity,
+            GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY,
+            true,
+        );
+        let glass_voxel_cache_radiance = Self::create_glass_voxel_cache_buffer(
+            device.clone(),
+            allocator.clone(),
+            glass_voxel_cache_capacity,
+            GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY,
+            false,
+        );
+        let glass_voxel_cache_active_slots = Self::create_glass_voxel_cache_buffer(
+            device.clone(),
+            allocator.clone(),
+            glass_voxel_cache_capacity,
+            GLASS_VOXEL_CACHE_ACTIVE_SLOT_BYTES_PER_ENTRY,
+            false,
+        );
+        let glass_voxel_cache_active_count = Self::create_glass_voxel_cache_buffer(
+            device.clone(),
+            allocator.clone(),
+            1,
+            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
+            true,
+        );
         let composited_tex = Self::create_hdr_tex(device, allocator, rendering_extent);
 
-        let glass_resource_bytes = u64::from(glass_extent.width)
+        let glass_image_bytes = u64::from(glass_extent.width)
             * u64::from(glass_extent.height)
             * GLASS_RESOURCE_BYTES_PER_PIXEL;
+        let glass_cache_bytes = u64::from(glass_voxel_cache_capacity)
+            * (GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY
+                + GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY
+                + GLASS_VOXEL_CACHE_ACTIVE_SLOT_BYTES_PER_ENTRY)
+            + GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES;
+        let glass_resource_bytes = glass_image_bytes + glass_cache_bytes;
         log::info!(
-            "[GLASS][RESOURCES] enabled={} extent={}x{} bytes={} mib={:.2} feature_off_placeholder={}",
+            "[GLASS][RESOURCES] enabled={} extent={}x{} bytes={} mib={:.2} image_bytes={} cache_entries={} cache_bytes={} feature_off_placeholder={}",
             glass_experiment_enabled,
             glass_extent.width,
             glass_extent.height,
             glass_resource_bytes,
             glass_resource_bytes as f64 / (1024.0 * 1024.0),
+            glass_image_bytes,
+            glass_voxel_cache_capacity,
+            glass_cache_bytes,
             !glass_experiment_enabled,
         );
 
@@ -162,8 +217,35 @@ impl ExtentDependentResources {
             unified_opaque_depth_tex: Resource::new(unified_opaque_depth_tex),
             opaque_provenance_tex: Resource::new(opaque_provenance_tex),
             glass_debug_tex: Resource::new(glass_debug_tex),
+            glass_voxel_cache_metadata: Resource::new(glass_voxel_cache_metadata),
+            glass_voxel_cache_radiance: Resource::new(glass_voxel_cache_radiance),
+            glass_voxel_cache_active_slots: Resource::new(glass_voxel_cache_active_slots),
+            glass_voxel_cache_active_count: Resource::new(glass_voxel_cache_active_count),
             composited_tex: Resource::new(composited_tex),
         }
+    }
+
+    fn create_glass_voxel_cache_buffer(
+        device: Device,
+        allocator: Allocator,
+        capacity: u32,
+        bytes_per_entry: u64,
+        transfer_dst: bool,
+    ) -> Buffer {
+        Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER
+                    | if transfer_dst {
+                        vk::BufferUsageFlags::TRANSFER_DST
+                    } else {
+                        vk::BufferUsageFlags::empty()
+                    },
+            ),
+            MemoryLocation::GpuOnly,
+            u64::from(capacity) * bytes_per_entry,
+        )
     }
 
     fn create_gfx_depth_tex(
@@ -486,5 +568,12 @@ mod tests {
         let extent = Extent2D::new(960, 540);
         assert_eq!(glass_resource_extent(extent, true), extent);
         assert_eq!(glass_resource_extent(extent, false), Extent2D::new(2, 2));
+    }
+
+    #[test]
+    fn glass_voxel_cache_is_large_only_for_the_isolated_experiment() {
+        assert_eq!(glass_voxel_cache_capacity(true), GLASS_VOXEL_CACHE_CAPACITY);
+        assert_eq!(glass_voxel_cache_capacity(false), 1);
+        assert!(GLASS_VOXEL_CACHE_CAPACITY.is_power_of_two());
     }
 }

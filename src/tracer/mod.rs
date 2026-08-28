@@ -105,7 +105,9 @@ use crate::environment_probes::{
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
-use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
+use crate::generated::gpu_structs::{
+    PushConstantFlora, PushConstantGlassResolve, PushConstantLeafShadowTemporal,
+};
 use crate::geom::UAabb3;
 use crate::lighting::{
     LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
@@ -317,6 +319,10 @@ struct GlassPushConstants {
     box_min_near_alpha: [f32; 4],
     box_max_far_alpha: [f32; 4],
 }
+
+const GLASS_VOXEL_CACHE_BUILD_PASS: u32 = 0;
+const GLASS_VOXEL_CACHE_SHADE_PASS: u32 = 1;
+const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 2;
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
@@ -6589,16 +6595,45 @@ impl Tracer {
     }
 
     fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.glass_resolve_ppl.record(
+        let resources = &self.resources.extent_dependent_resources;
+        resources.glass_voxel_cache_metadata.record_fill(
             cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .composited_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
+            0,
+            u64::from(GLASS_VOXEL_CACHE_CAPACITY) * GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY,
+            0,
         );
+        resources.glass_voxel_cache_active_count.record_fill(
+            cmdbuf,
+            0,
+            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
+            0,
+        );
+        let extent = resources.composited_tex.get_image().get_desc().extent;
+        // Build a cell-key table from visible Glass pixels, shade its dense unique-cell list,
+        // then composite cached transport back to pixels. Reflected resource tracking inserts
+        // the transfer/compute and compute/compute barriers between these ordered dispatches.
+        for pass in [GLASS_VOXEL_CACHE_BUILD_PASS, GLASS_VOXEL_CACHE_RESOLVE_PASS] {
+            let push = PushConstantGlassResolve {
+                pass,
+                ..bytemuck::Zeroable::zeroed()
+            };
+            self.compute_pipelines.glass_resolve_ppl.record(
+                cmdbuf,
+                extent,
+                Some(bytemuck::bytes_of(&push)),
+            );
+            if pass == GLASS_VOXEL_CACHE_BUILD_PASS {
+                let push = PushConstantGlassResolve {
+                    pass: GLASS_VOXEL_CACHE_SHADE_PASS,
+                    ..bytemuck::Zeroable::zeroed()
+                };
+                self.compute_pipelines.glass_resolve_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
+                    Some(bytemuck::bytes_of(&push)),
+                );
+            }
+        }
     }
 
     fn record_lens_flare_pass(&self, cmdbuf: &CommandBuffer) {

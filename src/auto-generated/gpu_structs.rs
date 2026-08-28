@@ -376,6 +376,14 @@ pub struct PushConstantFloraLod {
     pub height_light_color_rgb10: [u32; 12],
 }
 
+/// Auto-generated from `PushConstantGlassResolve` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantGlassResolve {
+    pub pass: u32,
+    pub _pad0: [u8; 12],
+}
+
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

@@ -36,6 +36,25 @@ readonly RWTexture2D<float> god_ray_output_tex;
 RWTexture2D<float4> composited_tex;
 [[vk::binding(16, 0)]] [[vk::image_format("rg32ui")]]
 RWTexture2D<uint2> glass_debug_tex;
+// Metadata is an open-addressed cell-key table. z/w hold packed diagnostics; w bit 31 is
+// published last as the shade-ready marker. The separate active-slot list turns sparse hash
+// entries into a dense transport workload.
+[[vk::binding(17, 0)]]
+RWStructuredBuffer<uint4> glass_voxel_cache_metadata;
+[[vk::binding(18, 0)]]
+RWStructuredBuffer<float4> glass_voxel_cache_radiance;
+[[vk::binding(19, 0)]]
+RWStructuredBuffer<uint> glass_voxel_cache_active_slots;
+[[vk::binding(20, 0)]]
+RWStructuredBuffer<uint> glass_voxel_cache_active_count;
+
+struct GlassVoxelCachePushConstants
+{
+    uint pass;
+};
+
+[[vk::push_constant]]
+ConstantBuffer<GlassVoxelCachePushConstants> glass_voxel_cache_push;
 
 static const uint OPAQUE_PROVENANCE_VOXEL = 1u;
 static const uint OPAQUE_PROVENANCE_RASTER = 2u;
@@ -53,6 +72,14 @@ static const uint GLASS_FALLBACK_EXHAUSTED = 8u;
 static const uint GLASS_FALLBACK_QUERY_BUDGET = 9u;
 
 static const float GLASS_DEPTH_TOLERANCE = 0.003;
+static const uint GLASS_VOXEL_CACHE_BUILD_PASS = 0u;
+static const uint GLASS_VOXEL_CACHE_SHADE_PASS = 1u;
+static const uint GLASS_VOXEL_CACHE_RESOLVE_PASS = 2u;
+static const uint GLASS_VOXEL_CACHE_CAPACITY = 1u << 18u;
+static const uint GLASS_VOXEL_CACHE_MASK = GLASS_VOXEL_CACHE_CAPACITY - 1u;
+static const uint GLASS_VOXEL_CACHE_MAX_PROBES = 32u;
+static const uint GLASS_VOXEL_COORD_BITS = 10u;
+static const uint GLASS_VOXEL_COORD_MASK = (1u << GLASS_VOXEL_COORD_BITS) - 1u;
 
 struct GlassActivePath
 {
@@ -106,6 +133,91 @@ GlassResolveResult emptyGlassResolveResult()
     result.fallback_reason = GLASS_FALLBACK_NONE;
     result.raster_screen_hits = 0u;
     return result;
+}
+
+uint glassVoxelCellKey(int3 cell)
+{
+    if (any(cell < int3(0)) || any(cell > int3(GLASS_VOXEL_COORD_MASK))) return 0u;
+    uint3 coordinate = uint3(cell);
+    uint packed = coordinate.x |
+        (coordinate.y << GLASS_VOXEL_COORD_BITS) |
+        (coordinate.z << (GLASS_VOXEL_COORD_BITS * 2u));
+    return packed + 1u;
+}
+
+int3 glassVoxelCellFromKey(uint key)
+{
+    uint packed = key - 1u;
+    return int3(
+        packed & GLASS_VOXEL_COORD_MASK,
+        (packed >> GLASS_VOXEL_COORD_BITS) & GLASS_VOXEL_COORD_MASK,
+        (packed >> (GLASS_VOXEL_COORD_BITS * 2u)) & GLASS_VOXEL_COORD_MASK);
+}
+
+int3 glassInterfaceVoxelCell(SceneQueryEvent event)
+{
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    return toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
+        ? event.to_cell
+        : event.from_cell;
+}
+
+uint glassVoxelCacheHash(uint key)
+{
+    uint hash = key;
+    hash ^= hash >> 16u;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15u;
+    hash *= 0x846ca68bu;
+    hash ^= hash >> 16u;
+    return hash;
+}
+
+bool glassVoxelCacheSlot(uint key, bool insert, out uint slot, out bool inserted)
+{
+    inserted = false;
+    if (key == 0u)
+    {
+        slot = 0u;
+        return false;
+    }
+    uint firstSlot = glassVoxelCacheHash(key) & GLASS_VOXEL_CACHE_MASK;
+    [loop]
+    for (uint probe = 0u; probe < GLASS_VOXEL_CACHE_MAX_PROBES; ++probe)
+    {
+        slot = (firstSlot + probe) & GLASS_VOXEL_CACHE_MASK;
+        uint observedKey = glass_voxel_cache_metadata[slot].x;
+        if (observedKey == key) return true;
+        if (observedKey == 0u && !insert) return false;
+        if (observedKey != 0u) continue;
+        InterlockedCompareExchange(
+            glass_voxel_cache_metadata[slot].x, 0u, key, observedKey);
+        if (observedKey == 0u)
+        {
+            inserted = true;
+            return true;
+        }
+        if (observedKey == key) return true;
+    }
+    slot = 0u;
+    return false;
+}
+
+uint2 packGlassDiagnostics(GlassResolveResult result, float3 resolvedColor)
+{
+    uint packedDebug = (result.fallback_reason & 0x0fu) |
+        ((min(result.interfaces, 0xffu) & 0xffu) << 4u) |
+        ((min(result.scene_queries, 0x0fu) & 0x0fu) << 12u) |
+        ((result.exhausted & 1u) << 16u) |
+        ((min(result.dda_steps, 0x3fffu) & 0x3fffu) << 17u) |
+        ((result.raster_screen_hits != 0u ? 1u : 0u) << 31u);
+    uint packedPathDebug =
+        (min(result.peak_active_paths, 0x0fu) & 0x0fu) |
+        ((min(result.tir_events, 0xffu) & 0xffu) << 4u) |
+        ((min(result.throughput_cutoffs, 0xffu) & 0xffu) << 12u) |
+        ((min(result.top_k_pruned, 0xffu) & 0xffu) << 20u) |
+        ((any(isnan(resolvedColor)) || any(isinf(resolvedColor)) ? 1u : 0u) << 28u);
+    return uint2(packedDebug, packedPathDebug);
 }
 
 float glassPathLuminance(float3 throughput)
@@ -336,8 +448,9 @@ void spawnGlassInterfacePaths(
     insertGlassPath(paths, reflected, result);
 }
 
-GlassResolveResult traceGlassRadiance(Ray cameraRay, float2 screenUv,
-                                      float glassFrontDepth, uint glassFrontData)
+GlassResolveResult traceGlassRadianceFromFrontEvent(
+    Ray cameraRay, float2 screenUv, float glassFrontDepth,
+    SceneQueryEvent frontEvent)
 {
     GlassResolveResult result = emptyGlassResolveResult();
     GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS];
@@ -352,8 +465,6 @@ GlassResolveResult traceGlassRadiance(Ray cameraRay, float2 screenUv,
     cameraPath.screen_candidate = 1u;
     uint nextSerial = 1u;
 
-    SceneQueryEvent frontEvent = unpackGlassFrontEvent(
-        glassFrontData, screenUv, glassFrontDepth, cameraRay);
     // The front event was produced by the primary pass and is reused here without another DDA.
     // It still consumes one slot in the cross-pass path budget.
     result.scene_queries = 1u;
@@ -497,17 +608,96 @@ float3 applyGlassCameraEffects(float3 color, float2 screenUv)
     return lerp(color, godRayColor, godRayWeight);
 }
 
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void buildGlassVoxelCache(uint2 pixel, uint2 extent)
 {
-    uint width;
-    uint height;
-    composited_tex.GetDimensions(width, height);
-    if (any(dispatchThreadId.xy >= uint2(width, height))) return;
-    int2 coordinate = int2(dispatchThreadId.xy);
-    float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) /
-                      float2(width, height);
+    int2 coordinate = int2(pixel);
+    uint frontData = glass_front_data_tex[coordinate];
+    if ((frontData & 1u) == 0u) return;
+    float frontDepth = glass_front_depth_tex[coordinate];
+    float opaqueDepth = unified_opaque_depth_tex[coordinate];
+    if (opaqueDepth + GLASS_DEPTH_TOLERANCE < frontDepth) return;
+
+    float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
+    Ray cameraRay = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
+    SceneQueryEvent frontEvent = unpackGlassFrontEvent(
+        frontData, screenUv, frontDepth, cameraRay);
+    // Every visible pixel contributes only its authoritative front Glass cell. Concurrent
+    // pixels that see the same cell converge on one hash slot and one active-list entry.
+    uint key = glassVoxelCellKey(glassInterfaceVoxelCell(frontEvent));
+    uint slot;
+    bool inserted;
+    if (!glassVoxelCacheSlot(key, true, slot, inserted)) return;
+    if (inserted)
+    {
+        uint activeIndex;
+        InterlockedAdd(glass_voxel_cache_active_count[0], 1u, activeIndex);
+        if (activeIndex < GLASS_VOXEL_CACHE_CAPACITY)
+            glass_voxel_cache_active_slots[activeIndex] = slot;
+    }
+}
+
+void shadeGlassVoxelCache(uint activeIndex)
+{
+    if (activeIndex >= min(
+            glass_voxel_cache_active_count[0], GLASS_VOXEL_CACHE_CAPACITY)) return;
+    uint slot = glass_voxel_cache_active_slots[activeIndex];
+    uint key = glass_voxel_cache_metadata[slot].x;
+    if (key == 0u) return;
+
+    int3 glassCell = glassVoxelCellFromKey(key);
+    float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
+    // One camera-to-center ray defines one geometric DDA normal and one transport color for the
+    // entire visible voxel. This is the deliberate one-normal/one-color-per-voxel invariant.
+    Ray representativeRay;
+    representativeRay.origin = camera_info.pos.xyz;
+    representativeRay.direction = normalize(cellCenter - representativeRay.origin);
+    representativeRay.inverse_direction = 1.0 / representativeRay.direction;
+
+    SceneQueryEvent frontEvent = walkVoxelMediaToNextEvent(
+        chunk_atlas, representativeRay.origin, representativeRay.direction,
+        256.0, true, SCENE_QUERY_MAX_DDA_STEPS);
+    GlassResolveResult result = emptyGlassResolveResult();
+    if (frontEvent.kind == SCENE_QUERY_EVENT_INTERFACE)
+    {
+        float4 clip = mul(
+            camera_info.view_proj_mat, float4(frontEvent.position, 1.0));
+        if (clip.w > 0.0)
+        {
+            float2 screenUv = clip.xy / clip.w * 0.5 + 0.5;
+            float frontDepth = clip.z / clip.w;
+            result = traceGlassRadianceFromFrontEvent(
+                representativeRay, screenUv, frontDepth, frontEvent);
+        }
+        else
+        {
+            result.radiance = glassSky(representativeRay.direction);
+            result.fallback_reason = GLASS_FALLBACK_OFFSCREEN;
+        }
+    }
+    else if (frontEvent.kind == SCENE_QUERY_EVENT_MISS)
+    {
+        result.radiance = glassSky(representativeRay.direction);
+        result.fallback_reason = GLASS_FALLBACK_SKY;
+    }
+    else
+    {
+        result.radiance = glassSky(representativeRay.direction);
+        result.exhausted = frontEvent.kind == SCENE_QUERY_EVENT_STEP_BUDGET ? 1u : 0u;
+        result.fallback_reason = result.exhausted != 0u
+            ? GLASS_FALLBACK_EXHAUSTED
+            : GLASS_FALLBACK_SKY;
+    }
+
+    glass_voxel_cache_radiance[slot] = float4(result.radiance, 1.0);
+    uint2 diagnostics = packGlassDiagnostics(result, result.radiance);
+    glass_voxel_cache_metadata[slot].z = diagnostics.x;
+    glass_voxel_cache_metadata[slot].w = diagnostics.y | (1u << 31u);
+}
+
+void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
+{
+    int2 coordinate = int2(pixel);
+    float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
     float3 opaqueColor = unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
     uint frontData = glass_front_data_tex[coordinate];
     float frontDepth = glass_front_depth_tex[coordinate];
@@ -517,33 +707,56 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint reason = GLASS_FALLBACK_NONE;
     GlassResolveResult result = emptyGlassResolveResult();
     float3 resolvedColor = opaqueColor;
+    uint2 diagnostics = uint2(0u);
+    bool usedCachedDiagnostics = false;
     if ((frontData & 1u) != 0u)
     {
         if (opaqueDepth + GLASS_DEPTH_TOLERANCE < frontDepth)
         {
             reason = GLASS_FALLBACK_FOREGROUND;
+            result.fallback_reason = reason;
         }
         else
         {
             Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
-            result = traceGlassRadiance(ray, screenUv, frontDepth, frontData);
-            resolvedColor = result.radiance;
-            reason = result.fallback_reason;
+            SceneQueryEvent frontEvent = unpackGlassFrontEvent(
+                frontData, screenUv, frontDepth, ray);
+            uint key = glassVoxelCellKey(glassInterfaceVoxelCell(frontEvent));
+            uint slot;
+            bool ignoredInserted;
+            if (glassVoxelCacheSlot(key, false, slot, ignoredInserted))
+            {
+                uint2 cachedDiagnostics = glass_voxel_cache_metadata[slot].zw;
+                if ((cachedDiagnostics.y & (1u << 31u)) != 0u)
+                {
+                    resolvedColor = glass_voxel_cache_radiance[slot].rgb;
+                    diagnostics = uint2(
+                        cachedDiagnostics.x, cachedDiagnostics.y & ~(1u << 31u));
+                    reason = diagnostics.x & 0x0fu;
+                    usedCachedDiagnostics = true;
+                }
+                else
+                {
+                    // A missing ready marker is fail-correct: retain the old exact per-pixel
+                    // transport instead of consuming stale radiance from a prior frame.
+                    result = traceGlassRadianceFromFrontEvent(
+                        ray, screenUv, frontDepth, frontEvent);
+                    resolvedColor = result.radiance;
+                    reason = result.fallback_reason;
+                }
+            }
+            else
+            {
+                result = traceGlassRadianceFromFrontEvent(
+                    ray, screenUv, frontDepth, frontEvent);
+                resolvedColor = result.radiance;
+                reason = result.fallback_reason;
+            }
         }
     }
 
-    uint packedDebug = (reason & 0x0fu) |
-        ((min(result.interfaces, 0xffu) & 0xffu) << 4u) |
-        ((min(result.scene_queries, 0x0fu) & 0x0fu) << 12u) |
-        ((result.exhausted & 1u) << 16u) |
-        ((min(result.dda_steps, 0x3fffu) & 0x3fffu) << 17u) |
-        ((result.raster_screen_hits != 0u ? 1u : 0u) << 31u);
-    uint packedPathDebug =
-        (min(result.peak_active_paths, 0x0fu) & 0x0fu) |
-        ((min(result.tir_events, 0xffu) & 0xffu) << 4u) |
-        ((min(result.throughput_cutoffs, 0xffu) & 0xffu) << 12u) |
-        ((min(result.top_k_pruned, 0xffu) & 0xffu) << 20u) |
-        ((any(isnan(resolvedColor)) || any(isinf(resolvedColor)) ? 1u : 0u) << 28u);
+    if (!usedCachedDiagnostics)
+        diagnostics = packGlassDiagnostics(result, resolvedColor);
 
     if (shading_info.glass_debug_view == 1u)
         resolvedColor = glassFrontDebugColor(frontData);
@@ -553,6 +766,28 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         resolvedColor = screenValidityDebugColor(reason);
     else
         resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);
-    glass_debug_tex[coordinate] = uint2(packedDebug, packedPathDebug);
+    glass_debug_tex[coordinate] = diagnostics;
     composited_tex[coordinate] = float4(resolvedColor, 1.0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_SHADE_PASS)
+    {
+        shadeGlassVoxelCache(dispatchThreadId.x);
+        return;
+    }
+    uint width;
+    uint height;
+    composited_tex.GetDimensions(width, height);
+    if (any(dispatchThreadId.xy >= uint2(width, height))) return;
+    uint2 extent = uint2(width, height);
+    if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_BUILD_PASS)
+    {
+        buildGlassVoxelCache(dispatchThreadId.xy, extent);
+        return;
+    }
+    resolveGlassVoxelPixel(dispatchThreadId.xy, extent);
 }
