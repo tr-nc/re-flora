@@ -80,6 +80,10 @@ static const uint GLASS_VOXEL_CACHE_MASK = GLASS_VOXEL_CACHE_CAPACITY - 1u;
 static const uint GLASS_VOXEL_CACHE_MAX_PROBES = 32u;
 static const uint GLASS_VOXEL_COORD_BITS = 10u;
 static const uint GLASS_VOXEL_COORD_MASK = (1u << GLASS_VOXEL_COORD_BITS) - 1u;
+// Two-point Gauss-Legendre abscissa over the normalized [-0.5, 0.5] voxel face.
+static const float GLASS_VOXEL_FACE_SAMPLE_OFFSET = 0.2886751346 / 256.0;
+static const float GLASS_VOXEL_FACE_HALF_EXTENT = 0.5 / 256.0;
+static const float GLASS_VOXEL_QUADRATURE_MIN_FOOTPRINT_PIXELS = 1.0;
 
 struct GlassActivePath
 {
@@ -568,6 +572,126 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
     return result;
 }
 
+uint glassFallbackPriority(uint reason)
+{
+    if (reason == GLASS_FALLBACK_EXHAUSTED) return 9u;
+    if (reason == GLASS_FALLBACK_QUERY_BUDGET) return 8u;
+    if (reason == GLASS_FALLBACK_REJECTED_DEPTH ||
+        reason == GLASS_FALLBACK_REJECTED_PROVENANCE) return 7u;
+    if (reason == GLASS_FALLBACK_OFFSCREEN) return 6u;
+    if (reason == GLASS_FALLBACK_VOXEL) return 5u;
+    if (reason == GLASS_FALLBACK_SKY) return 4u;
+    if (reason == GLASS_FALLBACK_SCREEN_HIT) return 3u;
+    return reason == GLASS_FALLBACK_FOREGROUND ? 2u : 0u;
+}
+
+void accumulateGlassResolveSample(
+    GlassResolveResult sample, inout GlassResolveResult aggregate)
+{
+    aggregate.radiance += sample.radiance;
+    aggregate.scene_queries = max(aggregate.scene_queries, sample.scene_queries);
+    aggregate.dda_steps += sample.dda_steps;
+    aggregate.interfaces = max(aggregate.interfaces, sample.interfaces);
+    aggregate.peak_active_paths = max(
+        aggregate.peak_active_paths, sample.peak_active_paths);
+    aggregate.tir_events += sample.tir_events;
+    aggregate.throughput_cutoffs += sample.throughput_cutoffs;
+    aggregate.top_k_pruned += sample.top_k_pruned;
+    aggregate.exhausted |= sample.exhausted;
+    aggregate.raster_screen_hits += sample.raster_screen_hits;
+    if (glassFallbackPriority(sample.fallback_reason) >
+        glassFallbackPriority(aggregate.fallback_reason))
+    {
+        aggregate.fallback_reason = sample.fallback_reason;
+    }
+}
+
+void averageGlassResolveSamples(
+    uint sampleCount, inout GlassResolveResult aggregate)
+{
+    aggregate.radiance /= float(sampleCount);
+    aggregate.dda_steps = (aggregate.dda_steps + sampleCount / 2u) / sampleCount;
+    aggregate.tir_events = (aggregate.tir_events + sampleCount / 2u) / sampleCount;
+    aggregate.throughput_cutoffs =
+        (aggregate.throughput_cutoffs + sampleCount / 2u) / sampleCount;
+    aggregate.top_k_pruned =
+        (aggregate.top_k_pruned + sampleCount / 2u) / sampleCount;
+}
+
+uint glassInterfaceAxis(SceneQueryEvent event)
+{
+    uint axes = event.tied_axes & 0x07u;
+    if ((axes & 1u) != 0u) return 0u;
+    if ((axes & 2u) != 0u) return 1u;
+    return 2u;
+}
+
+void glassInterfaceFaceFrame(
+    int3 glassCell, SceneQueryEvent event,
+    out float3 faceCenter, out float3 tangentU, out float3 tangentV)
+{
+    uint axis = glassInterfaceAxis(event);
+    tangentU = axis == 0u ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    tangentV = axis == 2u ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    float glassSide = toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
+        ? 1.0 : -1.0;
+    float3 axisNormal = float3(0.0);
+    axisNormal[axis] = sign(event.incident_face_normal[axis]) * glassSide;
+    faceCenter = (float3(glassCell) + 0.5) / 256.0 +
+        axisNormal * GLASS_VOXEL_FACE_HALF_EXTENT;
+}
+
+float2 projectGlassPointToUv(float3 position)
+{
+    float4 clip = mul(camera_info.view_proj_mat, float4(position, 1.0));
+    return clip.xy / clip.w * 0.5 + 0.5;
+}
+
+bool glassVoxelNeedsFaceQuadrature(
+    float3 faceCenter, float3 tangentU, float3 tangentV,
+    SceneQueryEvent event, uint2 extent)
+{
+    // Edge/corner events do not own a single rectangular face to integrate.
+    if (countbits(event.tied_axes & 0x07u) != 1u) return false;
+    float2 uMin = projectGlassPointToUv(
+        faceCenter - tangentU * GLASS_VOXEL_FACE_HALF_EXTENT);
+    float2 uMax = projectGlassPointToUv(
+        faceCenter + tangentU * GLASS_VOXEL_FACE_HALF_EXTENT);
+    float2 vMin = projectGlassPointToUv(
+        faceCenter - tangentV * GLASS_VOXEL_FACE_HALF_EXTENT);
+    float2 vMax = projectGlassPointToUv(
+        faceCenter + tangentV * GLASS_VOXEL_FACE_HALF_EXTENT);
+    float footprintPixels = max(
+        length((uMax - uMin) * float2(extent)),
+        length((vMax - vMin) * float2(extent)));
+    return footprintPixels > GLASS_VOXEL_QUADRATURE_MIN_FOOTPRINT_PIXELS;
+}
+
+GlassResolveResult traceGlassFrontSample(
+    float3 samplePosition, SceneQueryEvent frontEvent)
+{
+    Ray sampleRay;
+    sampleRay.origin = camera_info.pos.xyz;
+    sampleRay.direction = normalize(samplePosition - sampleRay.origin);
+    sampleRay.inverse_direction = 1.0 / sampleRay.direction;
+    frontEvent.position = samplePosition;
+    frontEvent.medium_distance_world = length(samplePosition - sampleRay.origin);
+    float4 clip = mul(
+        camera_info.view_proj_mat, float4(samplePosition, 1.0));
+    if (clip.w <= 0.0)
+    {
+        GlassResolveResult result = emptyGlassResolveResult();
+        result.radiance = glassSky(sampleRay.direction);
+        result.fallback_reason = GLASS_FALLBACK_OFFSCREEN;
+        return result;
+    }
+    float2 screenUv = clip.xy / clip.w * 0.5 + 0.5;
+    float frontDepth = clip.z / clip.w;
+    return traceGlassRadianceFromFrontEvent(
+        sampleRay, screenUv, frontDepth, frontEvent);
+}
+
 float3 glassFrontDebugColor(uint packed)
 {
     if ((packed & 1u) == 0u) return float3(0.0);
@@ -643,6 +767,10 @@ void shadeGlassVoxelCache(uint activeIndex)
     uint slot = glass_voxel_cache_active_slots[activeIndex];
     uint key = glass_voxel_cache_metadata[slot].x;
     if (key == 0u) return;
+    uint width;
+    uint height;
+    composited_tex.GetDimensions(width, height);
+    uint2 extent = uint2(width, height);
 
     int3 glassCell = glassVoxelCellFromKey(key);
     float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
@@ -659,19 +787,34 @@ void shadeGlassVoxelCache(uint activeIndex)
     GlassResolveResult result = emptyGlassResolveResult();
     if (frontEvent.kind == SCENE_QUERY_EVENT_INTERFACE)
     {
-        float4 clip = mul(
-            camera_info.view_proj_mat, float4(frontEvent.position, 1.0));
-        if (clip.w > 0.0)
+        float3 faceCenter;
+        float3 tangentU;
+        float3 tangentV;
+        glassInterfaceFaceFrame(
+            glassCell, frontEvent, faceCenter, tangentU, tangentV);
+        if (glassVoxelNeedsFaceQuadrature(
+                faceCenter, tangentU, tangentV, frontEvent,
+                extent))
         {
-            float2 screenUv = clip.xy / clip.w * 0.5 + 0.5;
-            float frontDepth = clip.z / clip.w;
-            result = traceGlassRadianceFromFrontEvent(
-                representativeRay, screenUv, frontDepth, frontEvent);
+            // The opposite diagonal samples are deterministic. Each sample still splits both
+            // Fresnel branches; their mean remains one normal and one cached color per voxel.
+            [unroll]
+            for (uint sampleIndex = 0u; sampleIndex < 2u; ++sampleIndex)
+            {
+                float u = sampleIndex != 0u ? 1.0 : -1.0;
+                float v = u;
+                float3 samplePosition = faceCenter +
+                    (tangentU * u + tangentV * v) *
+                    GLASS_VOXEL_FACE_SAMPLE_OFFSET;
+                GlassResolveResult sample = traceGlassFrontSample(
+                    samplePosition, frontEvent);
+                accumulateGlassResolveSample(sample, result);
+            }
+            averageGlassResolveSamples(2u, result);
         }
         else
         {
-            result.radiance = glassSky(representativeRay.direction);
-            result.fallback_reason = GLASS_FALLBACK_OFFSCREEN;
+            result = traceGlassFrontSample(frontEvent.position, frontEvent);
         }
     }
     else if (frontEvent.kind == SCENE_QUERY_EVENT_MISS)
