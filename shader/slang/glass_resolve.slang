@@ -250,8 +250,45 @@ float3 glassVoxelFallback(SceneQueryEvent event)
     return ambient + direct + voxelSurfaceEmission(voxel_colors, event.to_voxel_type);
 }
 
+bool glassTerminalIsBehindLocalFront(int2 coordinate, float terminalDepth)
+{
+    // Refraction moves the terminal to another screen coordinate. Comparing it
+    // with the source pixel's front depth rejects valid samples at oblique views.
+    uint localFrontData = glass_front_data_tex[coordinate];
+    if ((localFrontData & 1u) == 0u) return true;
+    float localFrontDepth = glass_front_depth_tex[coordinate];
+    return terminalDepth > localFrontDepth + GLASS_DEPTH_TOLERANCE;
+}
+
+bool validateGlassTerminalCoordinate(
+    int2 coordinate, float hitDepth, out uint provenance,
+    out uint rejectionReason)
+{
+    float sampledDepth = unified_opaque_depth_tex[coordinate];
+    provenance = opaque_provenance_tex[coordinate];
+    if (provenance != OPAQUE_PROVENANCE_VOXEL &&
+        provenance != OPAQUE_PROVENANCE_RASTER)
+    {
+        rejectionReason = GLASS_FALLBACK_REJECTED_PROVENANCE;
+        return false;
+    }
+    // Raster-only geometry is absent from the voxel DDA and may legitimately
+    // terminate the refracted ray before its world-space voxel endpoint.
+    bool terminalDepthMatches = provenance == OPAQUE_PROVENANCE_RASTER
+        ? sampledDepth <= hitDepth + GLASS_DEPTH_TOLERANCE
+        : abs(sampledDepth - hitDepth) <= GLASS_DEPTH_TOLERANCE;
+    if (!glassTerminalIsBehindLocalFront(coordinate, sampledDepth) ||
+        !terminalDepthMatches)
+    {
+        rejectionReason = GLASS_FALLBACK_REJECTED_DEPTH;
+        return false;
+    }
+    rejectionReason = GLASS_FALLBACK_NONE;
+    return true;
+}
+
 float3 sampleGlassTerminalRadiance(
-    SceneQueryEvent event, uint screenCandidate, float glassFrontDepth,
+    SceneQueryEvent event, uint screenCandidate,
     out uint fallbackReason, out uint terminalProvenance)
 {
     fallbackReason = GLASS_FALLBACK_VOXEL;
@@ -275,24 +312,19 @@ float3 sampleGlassTerminalRadiance(
     uint height;
     unified_opaque_depth_tex.GetDimensions(width, height);
     int2 coordinate = int2(uv * float2(width, height));
-    float sampledDepth = unified_opaque_depth_tex[coordinate];
     float hitDepth = clip.z / clip.w;
-    if (sampledDepth <= glassFrontDepth + GLASS_DEPTH_TOLERANCE ||
-        abs(sampledDepth - hitDepth) > GLASS_DEPTH_TOLERANCE)
+    uint provenance;
+    uint rejectionReason;
+    if (validateGlassTerminalCoordinate(
+            coordinate, hitDepth, provenance, rejectionReason))
     {
-        fallbackReason = GLASS_FALLBACK_REJECTED_DEPTH;
-        return glassVoxelFallback(event);
+        fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
+        terminalProvenance = provenance;
+        return unified_opaque_hdr_tex.SampleLevel(uv, 0.0).rgb;
     }
-    uint provenance = opaque_provenance_tex[coordinate];
-    if (provenance != OPAQUE_PROVENANCE_VOXEL &&
-        provenance != OPAQUE_PROVENANCE_RASTER)
-    {
-        fallbackReason = GLASS_FALLBACK_REJECTED_PROVENANCE;
-        return glassVoxelFallback(event);
-    }
-    fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
-    terminalProvenance = provenance;
-    return unified_opaque_hdr_tex.SampleLevel(uv, 0.0).rgb;
+
+    fallbackReason = rejectionReason;
+    return glassVoxelFallback(event);
 }
 
 void insertGlassPath(inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
@@ -528,8 +560,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
             uint fallbackReason;
             uint terminalProvenance;
             float3 terminal = sampleGlassTerminalRadiance(
-                event, path.screen_candidate, glassFrontDepth,
-                fallbackReason, terminalProvenance);
+                event, path.screen_candidate, fallbackReason, terminalProvenance);
             result.radiance += path.throughput * terminal;
             if (terminalProvenance == OPAQUE_PROVENANCE_RASTER)
                 result.raster_screen_hits += 1u;
