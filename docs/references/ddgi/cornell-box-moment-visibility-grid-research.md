@@ -281,7 +281,7 @@ are not literature claims.
   abrupt directional-visibility field revealed the probe lattice; the then-used
   exponent `8`, two-voxel bias, `0.05` floor, and omission of small-weight crush
   produced a smooth wall in that older pipeline
-  ([historical experiment](../../local_environment_probe_plan.md#L681)). This is
+  ([historical experiment at `fc30f14a`](https://github.com/tr-nc/re-flora/blob/fc30f14ac6dc83b49206c8bf4430806c7fd3ebb3/docs/local_environment_probe_plan.md#L681)). This is
   local regression history, not proof that those old constants remain correct
   for the current renderer.
 

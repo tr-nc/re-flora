@@ -66,6 +66,7 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
         bvh_nodes,
         cuboids,
         voxel_type,
+        atlas_state_write: Default::default(),
     })
 }
 

@@ -1,6 +1,6 @@
 import ddgi_types;
 import voxel_data;
-import voxel_types;
+import voxel_material;
 
 static const uint DDGI_RELOCATION_WORKGROUP_SIZE = 64u;
 static const uint DDGI_INVALID_DISTANCE = 0xffffffffu;
@@ -26,6 +26,8 @@ struct DdgiProbeRelocationPushConstants
     uint spacing_voxels;
     float3 voxels_per_world_unit;
     uint terrain_revision;
+    uint glass_experiment_enabled;
+    uint3 padding;
 };
 
 [[vk::push_constant]]
@@ -45,16 +47,18 @@ bool voxelIsInside(int3 position, int3 dimensions)
     return all(position >= int3(0)) && all(position < dimensions);
 }
 
-bool voxelIsEmpty(int3 position, int3 dimensions)
+bool voxelAllowsProbe(int3 position, int3 dimensions)
 {
-    return voxelIsInside(position, dimensions) &&
-           voxelTypeFromAtlasData(chunk_atlas[uint3(position)]) ==
-               VOXEL_TYPE_EMPTY;
+    if (!voxelIsInside(position, dimensions)) return false;
+    uint voxelType = voxelTypeFromAtlasData(chunk_atlas[uint3(position)]);
+    VoxelMaterial material = voxelMaterial(
+        voxelType, pc.glass_experiment_enabled != 0u);
+    return (material.flags & VOXEL_MATERIAL_FLAG_PROBE_RELOCATION_SOLID) == 0u;
 }
 
 uint candidateClearance(int3 position, int3 dimensions)
 {
-    if (!voxelIsEmpty(position, dimensions)) return 0u;
+    if (!voxelAllowsProbe(position, dimensions)) return 0u;
 
     // The first ring is deliberately conservative: every face, edge, and corner
     // neighbour must be empty. This is the explicit relocation safety cage.
@@ -65,7 +69,7 @@ uint candidateClearance(int3 position, int3 dimensions)
             for (int x = -1; x <= 1; ++x)
             {
                 if ((x != 0 || y != 0 || z != 0) &&
-                    !voxelIsEmpty(position + int3(x, y, z), dimensions))
+                    !voxelAllowsProbe(position + int3(x, y, z), dimensions))
                 {
                     return 0u;
                 }
@@ -85,7 +89,7 @@ uint candidateClearance(int3 position, int3 dimensions)
         [unroll]
         for (uint axis = 0u; axis < 6u; ++axis)
         {
-            if (!voxelIsEmpty(position + AXES[axis] * int(distance),
+            if (!voxelAllowsProbe(position + AXES[axis] * int(distance),
                               dimensions))
             {
                 return clearance;

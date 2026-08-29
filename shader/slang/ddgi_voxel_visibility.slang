@@ -20,13 +20,24 @@ bool ddgiVoxelCoordinateInside(int3 coordinate, uint3 dimensions)
     return all(coordinate >= int3(0)) && all(coordinate < int3(dimensions));
 }
 
-bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
+public bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
 {
     if (!ddgiVoxelCoordinateInside(coordinate, dimensions)) return true;
     uint3 voxel = uint3(coordinate);
     uint word = ddgi_voxel_visibility_bits[
         uint3(voxel.x >> 5u, voxel.y, voxel.z)];
     return (word & (1u << (voxel.x & 31u))) != 0u;
+}
+
+public bool ddgiPublishedVoxelIsOccupied(int3 coordinate,
+                                         out uint geometryRevision,
+                                         out uint glassMaterialRevision)
+{
+    U_DdgiVoxelVisibilityInfo info = ddgi_voxel_visibility_info;
+    geometryRevision = info.geometry_revision;
+    glassMaterialRevision = info.glass_material_revision;
+    return info.ready != 0u &&
+        ddgiVoxelIsOccupied(coordinate, info.voxel_dimensions);
 }
 
 int3 ddgiVoxelBlockCoordinate(int3 coordinate)

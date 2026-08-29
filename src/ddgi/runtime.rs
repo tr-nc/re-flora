@@ -995,6 +995,8 @@ mod tests {
                 sun_luminance,
                 terrain_ray_origin_offset_world: 0.005,
                 ddgi_receiver_visibility_bias_world: 0.001,
+                glass_experiment_enabled: false,
+                glass_material_revision: 0,
                 voxel_palette: DdgiVoxelPaletteSnapshot {
                     dirt_color: Vec3::new(0.1, 0.2, 0.3),
                     sand_color: Vec3::new(0.4, 0.5, 0.6),

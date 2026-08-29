@@ -14,11 +14,15 @@ python scripts/perf_suite.py run render-steady \
 
 The command builds `re-flora` in release mode unless `--binary` points to an existing release binary. Every build uses the complete native Slang shader inventory.
 
-Available initial scenarios:
+Available scenarios:
 
 - `render-steady`: fixed camera and settled GPU frame scopes;
 - `surface-rebuild`: deterministic tree replacement with detailed surface timing;
-- `tree-replace`: deterministic end-to-end construction timing.
+- `tree-replace`: deterministic end-to-end construction timing;
+- `glass-coverage-0`, `glass-coverage-10`, `glass-coverage-25`, and
+  `glass-coverage-50`: the fixed experimental Glass scene at measured screen-coverage
+  workloads. These require the dedicated `--glass-voxel-test-scene` path and never
+  reinterpret Sand in an ordinary world.
 
 Each run creates `<name>.json` and `<name>.log`. The report includes commit/dirty state, host, selected GPU, binary, command, raw samples, median, p95, standard deviation, variance, range, and matched construction workload where applicable. A run fails if required markers are absent, a configured metric has too few samples, or fatal/validation diagnostics appear.
 
@@ -52,6 +56,12 @@ python scripts/perf_suite.py run-ab render-steady \
 ```
 
 `run-ab` executes the scenario in the requested order, writes one report per run, pools A and B samples, and writes `comparison.json`. The default `A,B,B,A` order reduces thermal and temporal bias.
+
+Glass coverage comparisons use different named scenarios on the two sides, so record the
+four runs explicitly in A,B,B,A order and pool the two reports per side. For example, compare
+`glass-coverage-0` against `glass-coverage-25` with two `run` invocations for each scenario,
+then calculate/report both median and p95 deltas from the pooled raw samples. Keep the binary,
+GPU, camera, resolution, DDGI-ready state, warm-up, and duration identical.
 
 ## Adding a scenario or metric
 

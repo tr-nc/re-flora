@@ -46,6 +46,25 @@ fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
     }
 }
 
+fn harvest_distribution(
+    stats: &ChunkModifyStats,
+    material_mode: crate::voxel_material::VoxelMaterialMode,
+) -> (u32, Vec<(u32, u32)>) {
+    let mut removed_total = 0u32;
+    let mut removed_types = Vec::new();
+    for (voxel_type, count) in stats.removed_counts.iter().copied().enumerate() {
+        if count == 0
+            || crate::voxel_material::material_for(voxel_type as u32, material_mode).surface_class
+                == crate::voxel_material::VoxelSurfaceClass::Dielectric
+        {
+            continue;
+        }
+        removed_total = removed_total.saturating_add(count);
+        removed_types.push((voxel_type as u32, removed_total));
+    }
+    (removed_total, removed_types)
+}
+
 fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> ParticleSpawn {
     let hash = world_voxel.x.wrapping_mul(73_856_093)
         ^ world_voxel.y.wrapping_mul(19_349_663)
@@ -257,10 +276,8 @@ impl App {
             return;
         }
 
-        let mut removed_total = 0u32;
-        for count in stats.removed_counts {
-            removed_total = removed_total.saturating_add(count);
-        }
+        let (removed_total, removed_types) =
+            harvest_distribution(stats, self.voxel_material_mode());
         if removed_total == 0 {
             return;
         }
@@ -274,19 +291,6 @@ impl App {
             .terrain_harvest_flyback_speed
             .value
             .max(0.05);
-
-        let mut removed_types = Vec::new();
-        let mut cumulative = 0u32;
-        for (voxel_type, count) in stats.removed_counts.iter().enumerate() {
-            if *count == 0 {
-                continue;
-            }
-            cumulative = cumulative.saturating_add(*count);
-            removed_types.push((voxel_type as u32, cumulative));
-        }
-        if removed_types.is_empty() {
-            return;
-        }
 
         for i in 0..spawn_count {
             let base_pos = if sampled_positions_world.is_empty() {
@@ -891,5 +895,24 @@ mod tests {
             terrain_harvest_rgb_for_voxel(crate::builder::VOXEL_TYPE_EMISSIVE),
             crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8,
         );
+    }
+
+    #[test]
+    fn experimental_glass_does_not_spawn_sand_harvest_particles() {
+        let mut stats = ChunkModifyStats::default();
+        stats.removed_counts[crate::builder::VOXEL_TYPE_SAND as usize] = 4;
+        stats.removed_counts[crate::builder::VOXEL_TYPE_EMISSIVE as usize] = 2;
+
+        let (standard_total, standard_types) =
+            harvest_distribution(&stats, crate::voxel_material::VoxelMaterialMode::Standard);
+        assert_eq!(standard_total, 6);
+        assert_eq!(standard_types, vec![(3, 4), (8, 6)]);
+
+        let (experiment_total, experiment_types) = harvest_distribution(
+            &stats,
+            crate::voxel_material::VoxelMaterialMode::GlassExperiment,
+        );
+        assert_eq!(experiment_total, 2);
+        assert_eq!(experiment_types, vec![(8, 2)]);
     }
 }

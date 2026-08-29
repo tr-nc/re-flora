@@ -20,6 +20,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tracer_glass_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/tracer_glass.comp",
+            "main",
+        )
+        .unwrap();
         let ddgi_global_sky_filter_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/ddgi/global_sky_filter.comp",
@@ -159,6 +165,12 @@ impl PipelineBuilder {
         let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/composition.comp",
+            "main",
+        )
+        .unwrap();
+        let glass_resolve_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/glass_resolve.comp",
             "main",
         )
         .unwrap();
@@ -388,6 +400,7 @@ impl PipelineBuilder {
 
         Ok(ShaderModules {
             tracer_sm,
+            tracer_glass_sm,
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
@@ -410,6 +423,7 @@ impl PipelineBuilder {
             god_ray_sm,
             god_ray_temporal_sm,
             composition_sm,
+            glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
             cloud_sm,
@@ -487,6 +501,7 @@ impl PipelineBuilder {
                 resources,
                 contree_builder_resources,
                 scene_accel_resources,
+                plain_builder_resources,
                 ddgi_volume,
                 ddgi_voxel_visibility,
             ],
@@ -495,7 +510,12 @@ impl PipelineBuilder {
             device,
             &shader_modules.local_light_visibility_diagnostic_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
         let ddgi_irradiance_filter_ppl = ComputePipeline::new(
             device,
@@ -588,12 +608,30 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let tracer_glass_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.tracer_glass_sm,
+            pool,
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                ddgi_volume,
+                ddgi_voxel_visibility,
+            ],
+        );
 
         let tracer_shadow_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_shadow_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
 
         let shadow_depth_copy_ppl = ComputePipeline::new(
@@ -628,7 +666,13 @@ impl PipelineBuilder {
             device,
             &shader_modules.terrain_query_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                ddgi_voxel_visibility,
+            ],
         );
 
         let wind_volume_ppl =
@@ -650,6 +694,12 @@ impl PipelineBuilder {
         );
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
+        let glass_resolve_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.glass_resolve_sm,
+            pool,
+            &[resources, plain_builder_resources],
+        );
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
         let cloud_shadow_ppl =
             ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
@@ -702,6 +752,7 @@ impl PipelineBuilder {
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
+            tracer_glass_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
             leaf_shadow_temporal_ppl,
@@ -719,6 +770,7 @@ impl PipelineBuilder {
             lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
             composition_ppl,
+            glass_resolve_ppl,
             player_collider_ppl,
             terrain_query_ppl,
             wind_volume_ppl,
@@ -1194,6 +1246,7 @@ impl PipelineBuilder {
 
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
+    pub tracer_glass_sm: ShaderModule,
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
@@ -1216,6 +1269,7 @@ pub struct ShaderModules {
     pub god_ray_sm: ShaderModule,
     pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
+    pub glass_resolve_sm: ShaderModule,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
@@ -1268,6 +1322,7 @@ pub struct ComputePipelines {
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
+    pub tracer_glass_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
     pub leaf_shadow_temporal_ppl: ComputePipeline,
@@ -1285,6 +1340,7 @@ pub struct ComputePipelines {
     pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
     pub composition_ppl: ComputePipeline,
+    pub glass_resolve_ppl: ComputePipeline,
     pub player_collider_ppl: ComputePipeline,
     pub terrain_query_ppl: ComputePipeline,
     pub wind_volume_ppl: ComputePipeline,

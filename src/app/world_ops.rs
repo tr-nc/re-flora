@@ -1,5 +1,5 @@
 use crate::app::physical_visible_terrain::{PhysicalTerrainBuilders, PhysicalTerrainPublication};
-use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelAtlasStateWrite, VoxelEdit, WorldEditPlan};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
 };
@@ -37,11 +37,17 @@ pub(crate) fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit
             bvh_nodes,
             cuboids,
             voxel_type,
+            atlas_state_write,
         } => {
             if voxel_type == VOXEL_TYPE_CHERRY_WOOD {
                 plain_builder.chunk_modify_cuboids(&bvh_nodes, &cuboids)
             } else {
-                plain_builder.chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &cuboids, voxel_type)
+                plain_builder.chunk_modify_cuboids_with_voxel_type_and_state(
+                    &bvh_nodes,
+                    &cuboids,
+                    voxel_type,
+                    atlas_state_write == VoxelAtlasStateWrite::Clear,
+                )
             }
         }
         VoxelEdit::StampSpheres {

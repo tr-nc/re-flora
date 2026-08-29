@@ -388,7 +388,11 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        if self.water_experience_scene.is_some() {
+        if self.glass_voxel_test_scene.is_some() {
+            log::info!(
+                "[GLASS_VOXEL_TEST] procedural tuning tree suppressed inside the isolated scene"
+            );
+        } else if self.water_experience_scene.is_some() {
             log::info!(
                 "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
             );
@@ -423,6 +427,7 @@ impl App {
         self.enqueue_startup_water_terrain_collider_rebuilds();
         if self.environment_lighting_test_scene.is_none()
             && self.hybrid_transparency_test_scene.is_none()
+            && self.glass_voxel_test_scene.is_none()
         {
             self.observe_initial_published_terrain_for_ddgi()
                 .unwrap_or_else(|err| {

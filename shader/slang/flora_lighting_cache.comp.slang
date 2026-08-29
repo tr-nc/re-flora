@@ -1,5 +1,6 @@
 import contree_node;
 import flora_lighting_cache;
+import flora_lighting_resources;
 import flora_types;
 import flora_vertex;
 import surface_flora_vertex;
@@ -79,7 +80,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         irradiance += evaluateVoxelVisibleLocalLightIrradiance(
             floraLocalLightInfo(), local_lights, contree_node_data,
-            contree_leaf_data, scene_tex, prepared.voxel_position,
+            contree_leaf_data, scene_tex, chunk_atlas,
+            shading_info.glass_experiment_enabled != 0u, prepared.voxel_position,
             prepared.shading_normal,
             floraTerrainRayOriginOffsetWorld(), dispatchThreadId.x);
     }

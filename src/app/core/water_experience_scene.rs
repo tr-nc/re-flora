@@ -74,6 +74,7 @@ fn cuboid_edit(min_ws: Vec3, max_ws: Vec3, voxel_type: u32) -> Result<VoxelEdit>
         bvh_nodes,
         cuboids: vec![cuboid],
         voxel_type,
+        atlas_state_write: Default::default(),
     })
 }
 

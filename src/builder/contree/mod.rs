@@ -105,6 +105,7 @@ pub struct ContreeBuilder {
     cpu_chunk_cache_worker: Option<thread::JoinHandle<()>>,
     acoustic_scene_version: u64,
     acoustic_query_snapshot: Arc<ContreeAcousticSnapshot>,
+    voxel_material_mode: crate::voxel_material::VoxelMaterialMode,
 }
 
 struct ContreeAcousticSnapshot {
@@ -116,6 +117,7 @@ struct ContreeRayQueryState {
     voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+    voxel_material_mode: crate::voxel_material::VoxelMaterialMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -896,6 +898,7 @@ impl ContreeBuilder {
         voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
         leaf_pool_size_in_bytes: u64,
+        voxel_material_mode: crate::voxel_material::VoxelMaterialMode,
     ) -> Self {
         assert!(
             voxel_dim_per_chunk.x == voxel_dim_per_chunk.y
@@ -1035,6 +1038,7 @@ impl ContreeBuilder {
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
+            voxel_material_mode,
         });
         let acoustic_query_snapshot = Arc::new(ContreeAcousticSnapshot {
             state: initial_ray_query_state,
@@ -1075,6 +1079,7 @@ impl ContreeBuilder {
             cpu_chunk_cache_worker: Some(cpu_chunk_cache_worker),
             acoustic_scene_version: 1,
             acoustic_query_snapshot,
+            voxel_material_mode,
         }
     }
 
@@ -1963,6 +1968,7 @@ impl ContreeBuilder {
                 voxel_dim_per_chunk: self.voxel_dim_per_chunk,
                 cpu_scene_chunks: self.cpu_scene_chunks.clone(),
                 cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+                voxel_material_mode: self.voxel_material_mode,
             }),
         });
     }
@@ -2224,6 +2230,20 @@ mod tests {
         present_chunks: &[UVec3],
         caches: &[(UVec3, Arc<CpuChunkCache>)],
     ) -> ContreeAcousticSnapshot {
+        acoustic_snapshot_with_mode(
+            chunk_dim,
+            present_chunks,
+            caches,
+            crate::voxel_material::VoxelMaterialMode::Standard,
+        )
+    }
+
+    fn acoustic_snapshot_with_mode(
+        chunk_dim: UVec3,
+        present_chunks: &[UVec3],
+        caches: &[(UVec3, Arc<CpuChunkCache>)],
+        voxel_material_mode: crate::voxel_material::VoxelMaterialMode,
+    ) -> ContreeAcousticSnapshot {
         let mut cpu_scene_chunks = vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize];
         for &chunk_idx in present_chunks {
             cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)] = Some(chunk_idx);
@@ -2234,6 +2254,7 @@ mod tests {
                 voxel_dim_per_chunk: UVec3::splat(4),
                 cpu_scene_chunks,
                 cpu_chunk_caches: caches.iter().cloned().collect(),
+                voxel_material_mode,
             }),
         }
     }
@@ -2557,7 +2578,13 @@ mod tests {
         old_snapshot.trace_closest_hit_batch(&rays, &[0.0], &[0.06], &mut old_closest_hits);
         let hit = old_closest_hits[0].expect("the old snapshot should retain the rock voxel");
         assert!((0.04..=0.06).contains(&hit.distance));
-        assert_eq!(hit.material, acoustic_material_for_voxel(VOXEL_TYPE_ROCK));
+        assert_eq!(
+            hit.material,
+            acoustic_material_for_voxel(
+                VOXEL_TYPE_ROCK,
+                crate::voxel_material::VoxelMaterialMode::Standard,
+            )
+        );
 
         let mut old_any_hits_again = [false];
         old_snapshot.trace_any_hit_batch(&rays, &[0.0], &[0.06], &mut old_any_hits_again);
@@ -2566,13 +2593,14 @@ mod tests {
 
     #[test]
     fn acoustic_materials_follow_voxel_categories() {
-        let dirt = acoustic_material_for_voxel(VOXEL_TYPE_DIRT);
-        let sand = acoustic_material_for_voxel(VOXEL_TYPE_SAND);
-        let stucco = acoustic_material_for_voxel(VOXEL_TYPE_STUCCO);
-        let cherry = acoustic_material_for_voxel(VOXEL_TYPE_CHERRY_WOOD);
-        let oak = acoustic_material_for_voxel(VOXEL_TYPE_OAK_WOOD);
-        let rock = acoustic_material_for_voxel(VOXEL_TYPE_ROCK);
-        let emissive = acoustic_material_for_voxel(VOXEL_TYPE_EMISSIVE);
+        let standard = crate::voxel_material::VoxelMaterialMode::Standard;
+        let dirt = acoustic_material_for_voxel(VOXEL_TYPE_DIRT, standard);
+        let sand = acoustic_material_for_voxel(VOXEL_TYPE_SAND, standard);
+        let stucco = acoustic_material_for_voxel(VOXEL_TYPE_STUCCO, standard);
+        let cherry = acoustic_material_for_voxel(VOXEL_TYPE_CHERRY_WOOD, standard);
+        let oak = acoustic_material_for_voxel(VOXEL_TYPE_OAK_WOOD, standard);
+        let rock = acoustic_material_for_voxel(VOXEL_TYPE_ROCK, standard);
+        let emissive = acoustic_material_for_voxel(VOXEL_TYPE_EMISSIVE, standard);
 
         assert!(sand.absorption[2] > dirt.absorption[2]);
         assert!(dirt.scattering > stucco.scattering);
@@ -2588,6 +2616,62 @@ mod tests {
             Some("wood")
         );
         assert_eq!(acoustic_material_label_for_transmission([1.0; 3]), None);
+    }
+
+    #[test]
+    fn glass_experiment_changes_only_sand_acoustic_semantics() {
+        let sand = acoustic_material_for_voxel(
+            VOXEL_TYPE_SAND,
+            crate::voxel_material::VoxelMaterialMode::Standard,
+        );
+        let glass = acoustic_material_for_voxel(
+            VOXEL_TYPE_SAND,
+            crate::voxel_material::VoxelMaterialMode::GlassExperiment,
+        );
+        assert!(glass.scattering < sand.scattering);
+        assert!(glass.transmission[0] > sand.transmission[0]);
+
+        for voxel_type in [VOXEL_TYPE_ROCK, VOXEL_TYPE_EMISSIVE] {
+            assert_eq!(
+                acoustic_material_for_voxel(
+                    voxel_type,
+                    crate::voxel_material::VoxelMaterialMode::GlassExperiment,
+                ),
+                acoustic_material_for_voxel(
+                    voxel_type,
+                    crate::voxel_material::VoxelMaterialMode::Standard,
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn glass_experiment_acoustic_snapshot_reports_sand_as_glass() {
+        let chunk = UVec3::ZERO;
+        let sand_cache = leaf_cache(chunk, &[(UVec3::new(1, 1, 1), VOXEL_TYPE_SAND)]);
+        let snapshot = acoustic_snapshot_with_mode(
+            UVec3::ONE,
+            &[chunk],
+            &[(chunk, sand_cache)],
+            crate::voxel_material::VoxelMaterialMode::GlassExperiment,
+        );
+        let rays = [AcousticRay {
+            origin: PetalVec3::new(0.20, 0.375, 0.375),
+            direction: PetalVec3::new(1.0, 0.0, 0.0),
+        }];
+        let mut hits = [None];
+
+        snapshot.trace_closest_hit_batch(&rays, &[0.0], &[0.06], &mut hits);
+
+        assert_eq!(
+            hits[0]
+                .expect("the ray should hit experimental Glass")
+                .material,
+            acoustic_material_for_voxel(
+                VOXEL_TYPE_SAND,
+                crate::voxel_material::VoxelMaterialMode::GlassExperiment,
+            ),
+        );
     }
 }
 
@@ -2668,14 +2752,26 @@ fn query_terrain_closest_hit(
     Some(AcousticHit {
         distance: start_distance + hit_distance,
         normal: PetalVec3::new(normal.x, normal.y, normal.z),
-        material: acoustic_material_for_voxel(hit.voxel_type),
+        material: acoustic_material_for_voxel(hit.voxel_type, state.voxel_material_mode),
     })
 }
 
 /// Broad acoustic categories for Re: Flora's editable voxel materials. Values are normalized
 /// low/mid/high coefficients and intentionally live at the game-content boundary; PetalSonic owns
 /// propagation and DSP, while Re: Flora owns the semantic meaning of its material identifiers.
-fn acoustic_material_for_voxel(voxel_type: u32) -> AcousticMaterial {
+fn acoustic_material_for_voxel(
+    voxel_type: u32,
+    material_mode: crate::voxel_material::VoxelMaterialMode,
+) -> AcousticMaterial {
+    if crate::voxel_material::material_for(voxel_type, material_mode).surface_class
+        == crate::voxel_material::VoxelSurfaceClass::Dielectric
+    {
+        return AcousticMaterial {
+            absorption: [0.03, 0.04, 0.06],
+            scattering: 0.08,
+            transmission: [0.60, 0.68, 0.74],
+        };
+    }
     match voxel_type {
         VOXEL_TYPE_DIRT => AcousticMaterial {
             absorption: [0.12, 0.32, 0.60],
@@ -2720,7 +2816,13 @@ pub(crate) fn acoustic_material_label_for_transmission(
     ]
     .into_iter()
     .find_map(|(label, voxel_type)| {
-        (acoustic_material_for_voxel(voxel_type).transmission == transmission).then_some(label)
+        (acoustic_material_for_voxel(
+            voxel_type,
+            crate::voxel_material::VoxelMaterialMode::Standard,
+        )
+        .transmission
+            == transmission)
+            .then_some(label)
     })
     .or_else(|| (AcousticMaterial::default().transmission == transmission).then_some("default"))
 }

@@ -7,6 +7,7 @@ import marching_result;
 import noise_tex;
 import packer;
 import ray;
+import scene_query;
 import scene_marching;
 import skylight;
 import terrain_edit_preview;
@@ -16,6 +17,11 @@ import tracer_shadowing;
 import tracer_types;
 import transform;
 import voxel_data;
+import voxel_material;
+
+#ifndef RE_FLORA_GLASS_PRIMARY
+#define RE_FLORA_GLASS_PRIMARY 0
+#endif
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
@@ -43,6 +49,12 @@ readonly RWTexture3D<uint> chunk_atlas;
 RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> compute_depth_tex;
+#if RE_FLORA_GLASS_PRIMARY
+[[vk::binding(3, 1)]] [[vk::image_format("r32f")]]
+RWTexture2D<float> glass_front_depth_tex;
+[[vk::binding(4, 1)]] [[vk::image_format("r32ui")]]
+RWTexture2D<uint> glass_front_data_tex;
+#endif
 
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> environment_irradiance_capture;
@@ -207,7 +219,8 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     }
     float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
         local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, surfacePosition, normal,
+        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
+        surfacePosition, normal,
         gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
     return (sunIrradiance + localIrradiance) * albedo;
 }
@@ -235,9 +248,23 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         float cosine = max(0.0, dot(shadowRay.direction, receiver.normal));
         if (cosine > 0.0)
         {
-            MarchingResult shadowHit = generalSceneMarching(shadowRay,
-                                                             localInvocationIndex);
-            float visibility = shadowHit.is_hit ? 0.0 : 1.0;
+            float visibility;
+            if (shading_info.glass_experiment_enabled != 0u)
+            {
+                SceneStraightTransport transport = traceVoxelStraightTransport(
+                    chunk_atlas, shadowRay.origin, shadowRay.direction,
+                    256.0, true);
+                visibility = transport.exhausted != 0u ||
+                    transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
+                    ? 0.0
+                    : 1.0;
+            }
+            else
+            {
+                MarchingResult shadowHit = generalSceneMarching(
+                    shadowRay, localInvocationIndex);
+                visibility = shadowHit.is_hit ? 0.0 : 1.0;
+            }
             sunIrradiance = sun_info.sun_color * sun_info.sun_luminance *
                 cosine * visibility;
         }
@@ -246,7 +273,8 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         receiver.center_position, receiver.normal);
     float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
         local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, receiverPosition, receiver.normal,
+        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
+        receiverPosition, receiver.normal,
         gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
     return sunIrradiance + localIrradiance;
 }
@@ -318,6 +346,21 @@ float depthFromWorldPosition(float3 worldPosition)
     float4 ndc = mul(camera_info.view_proj_mat, float4(worldPosition, 1.0));
     return ndc.z / ndc.w;
 }
+
+#if RE_FLORA_GLASS_PRIMARY
+uint packGlassFrontData(ScenePrimaryQuery query)
+{
+    if (query.has_glass_front == 0u) return query.exhausted << 16u;
+    SceneQueryEvent event = query.glass_front;
+    uint normalPositive = any(event.incident_face_normal > 0.5) ? 1u : 0u;
+    return 1u |
+        ((event.tied_axes & 0x07u) << 1u) |
+        (normalPositive << 4u) |
+        ((event.from_voxel_type & 0x0fu) << 8u) |
+        ((event.to_voxel_type & 0x0fu) << 12u) |
+        ((query.exhausted & 1u) << 16u);
+}
+#endif
 
 uint ddgiSpatialWeightReadbackReceiver(uint2 pixel)
 {
@@ -441,7 +484,8 @@ void getPixelColor(out float3 color, out float depth,
                    out float4 environmentCaptureWorld,
                    out float4 environmentCaptureReceiver,
                    out float4 environmentCaptureDirectSunShadows, Ray ray,
-                   float2 screenUv, int3 seed, uint localInvocationIndex)
+                   float2 screenUv, int3 seed, uint localInvocationIndex,
+                   MarchingResult result)
 {
     terrainHit = 0.0;
     environmentCaptureIrradiance = float3(0.0);
@@ -467,7 +511,6 @@ void getPixelColor(out float3 color, out float depth,
         return;
     }
 
-    MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
     if (!result.is_hit)
     {
         depth = 1.0;
@@ -565,6 +608,47 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
+    MarchingResult primaryResult;
+#if RE_FLORA_GLASS_PRIMARY
+    {
+        ScenePrimaryQuery glassPrimary = makeScenePrimaryQuery();
+        // The Contree remains the cheap primary visibility accelerator. Dense DDA is only
+        // required when its first surface is experimental Glass (or the camera starts inside
+        // Glass), which preserves exact entry/exit truth without taxing every background pixel.
+        MarchingResult acceleratedPrimary = generalSceneMarching(
+            ray, localInvocationIndex);
+        uint originVoxelType = sceneQueryVoxelTypeAtWorld(
+            chunk_atlas, ray.origin, 256.0);
+        bool cameraInsideGlass = voxelMaterial(
+            originVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+        bool acceleratedHitGlass = acceleratedPrimary.is_hit && voxelMaterial(
+            acceleratedPrimary.voxel_type, true).surface_class ==
+                VOXEL_SURFACE_CLASS_DIELECTRIC;
+        if (cameraInsideGlass || acceleratedHitGlass)
+        {
+            glassPrimary = tracePrimaryVoxelSurfaces(
+                chunk_atlas, ray.origin, ray.direction, 256.0, true);
+            primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
+                glassPrimary.opaque_hit, ray.origin);
+            glass_front_depth_tex[dispatchThreadId.xy] =
+                glassPrimary.has_glass_front != 0u
+                    ? depthFromWorldPosition(glassPrimary.glass_front.position)
+                    : 1.0;
+            glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(glassPrimary);
+        }
+        else
+        {
+            primaryResult = acceleratedPrimary;
+            glass_front_depth_tex[dispatchThreadId.xy] = 1.0;
+            glass_front_data_tex[dispatchThreadId.xy] = 0u;
+        }
+    }
+#else
+    {
+        primaryResult = generalSceneMarching(ray, localInvocationIndex);
+    }
+#endif
+
     float3 color;
     float3 environmentIrradiance;
     float3 environmentCaptureIrradiance;
@@ -579,7 +663,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
                   environmentCaptureWorld, environmentCaptureReceiver,
                   environmentCaptureDirectSunShadows,
                   ray, screenUv, seed,
-                  localInvocationIndex);
+                  localInvocationIndex, primaryResult);
 
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_SPATIAL_WEIGHT_READBACK)
     {

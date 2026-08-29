@@ -71,7 +71,11 @@ public struct U_DdgiTransportQueryInfo
     public uint irradiance_tile_columns;
     public uint visibility_tile_columns;
     public uint geometry_revision;
-    public uint padding;
+    public uint glass_experiment_enabled;
+    public uint glass_material_revision;
+    public uint glass_padding_0;
+    public uint glass_padding_1;
+    public uint glass_padding_2;
 };
 
 // Exact authoritative voxel occupancy published for DDGI query visibility. X is packed into
@@ -90,4 +94,7 @@ public struct U_DdgiVoxelVisibilityInfo
     public uint4 update_word_dimensions;
     public uint4 update_block_offset;
     public uint4 update_block_dimensions;
+    public uint glass_experiment_enabled;
+    public uint glass_material_revision;
+    public uint2 padding;
 };

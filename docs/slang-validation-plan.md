@@ -1,6 +1,8 @@
 # Native Slang validation plan
 
-Native Slang is the sole production shader source. This document defines the current acceptance gate; the completed mixed-frontend migration experiments are preserved in [`slang-poc.md`](slang-poc.md).
+Native Slang is the sole production shader source. This document defines the current acceptance gate;
+the completed mixed-frontend experiment remains available in Git history at
+[`003e535d`](https://github.com/tr-nc/re-flora/blob/003e535dc26bf877c6dd5c3e643b4c2d5549a9aa/docs/slang-poc.md).
 
 ## Inventory and ownership
 

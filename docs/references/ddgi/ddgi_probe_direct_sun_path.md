@@ -5,7 +5,7 @@
 源码基线：`f9d783d8`（`agent/ddgi-sun-research`）
 
 状态：研究完成；生产修复与最终验收见 `41a89a6f` 和
-[`ddgi_probe_seam_fix_plan.md`](../../ddgi_probe_seam_fix_plan.md)
+the completed seam-fix record at [`fc30f14a`](https://github.com/tr-nc/re-flora/blob/fc30f14ac6dc83b49206c8bf4430806c7fd3ebb3/docs/ddgi_probe_seam_fix_plan.md)
 
 ## 结论先行
 
@@ -268,7 +268,7 @@ field：
 | `raw-cage-irradiance` | GREEN，1 band，ratio `0.089716` | raw local atlas 本身没有同样的内部层带 |
 
 来源：[`ddgi_probe_seam_research.md`](ddgi_probe_seam_research.md) 与
-[`ddgi_probe_seam_fix_plan.md`](../../ddgi_probe_seam_fix_plan.md)。
+the completed seam-fix record at [`fc30f14a`](https://github.com/tr-nc/re-flora/blob/fc30f14ac6dc83b49206c8bf4430806c7fd3ebb3/docs/ddgi_probe_seam_fix_plan.md)。
 
 后续 terminal readback 又确认：固定 cell face 两侧八个 Probe 都 valid/trustworthy、visibility
 均为 1、无 rejection；但旧 relocation-aware 聚合权重从约 `0.477975` 跳到 `0.523814`。

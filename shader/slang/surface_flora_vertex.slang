@@ -2,10 +2,7 @@ module surface_flora_vertex;
 
 import flora_types;
 import flora_vertex;
-
-[[vk::binding(15, 0)]]
-[[vk::image_format("r8ui")]]
-readonly RWTexture3D<uint> chunk_atlas;
+import flora_lighting_resources;
 
 struct B_GrassGrowthPotentialLevels
 {

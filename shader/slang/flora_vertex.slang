@@ -14,7 +14,7 @@ import tracer_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
-[[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
+public [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 [[vk::binding(5, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;

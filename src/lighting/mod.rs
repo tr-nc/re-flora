@@ -921,6 +921,37 @@ mod tests {
     }
 
     #[test]
+    fn glass_transport_consumers_follow_the_shared_semantic_policy() {
+        let visibility = include_str!("../../shader/slang/ddgi_voxel_visibility_pack.slang");
+        assert!(visibility.contains("voxelMaterial("));
+        assert!(visibility.contains("VOXEL_MATERIAL_FLAG_BLOCKS_DDGI_VISIBILITY"));
+
+        let relocation = include_str!("../../shader/slang/ddgi_probe_relocate.slang");
+        assert!(relocation.contains("VOXEL_MATERIAL_FLAG_PROBE_RELOCATION_SOLID"));
+
+        let local = include_str!("../../shader/slang/local_lighting.slang");
+        assert!(local.contains("traceVoxelStraightTransport("));
+        assert!(local.contains("sample.irradiance * transmittance"));
+
+        let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
+        assert!(ddgi.contains("ddgiTraceScene("));
+        assert!(ddgi.contains("transportTransmittance"));
+        let direct_sun = ddgi
+            .split_once("float ddgiExactTerrainSunVisibility(")
+            .expect("DDGI must keep direct-sun visibility explicit")
+            .1
+            .split_once("float3 ddgiTransportHitRadiance(")
+            .expect("DDGI direct-sun policy must remain isolated")
+            .0;
+        assert!(direct_sun.contains("traceVoxelStraightTransport("));
+        assert!(!direct_sun.contains("transport.transmittance"));
+
+        let shadow = include_str!("../../shader/slang/tracer_shadow.slang");
+        assert!(shadow.contains("tracePrimaryVoxelSurfaces("));
+        assert!(shadow.contains("glass_experiment_enabled"));
+    }
+
+    #[test]
     fn emissive_voxel_material_adds_surface_radiance_in_terrain_path_and_ddgi() {
         let types = include_str!("../../shader/slang/voxel_types.slang");
         assert!(types.contains("VOXEL_TYPE_EMISSIVE = 8u"));

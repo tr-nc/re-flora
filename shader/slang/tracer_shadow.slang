@@ -2,6 +2,7 @@ import contree_marching;
 import contree_node;
 import marching_result;
 import ray;
+import scene_query;
 import scene_marching;
 import tracer_types;
 import voxel_types;
@@ -28,6 +29,11 @@ RWTexture2D<float> shadow_map_tex;
 [[vk::binding(5, 0)]]
 ConstantBuffer<U_GuiInput> gui_input;
 
+[[vk::binding(6, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
+
+[[vk::binding(7, 0)]] [[vk::image_format("r8ui")]]
+readonly RWTexture3D<uint> chunk_atlas;
+
 bool isTerrainVoxel(uint voxelType)
 {
     return voxelType == VOXEL_TYPE_DIRT ||
@@ -38,9 +44,20 @@ bool isTerrainVoxel(uint voxelType)
 
 float tracePixelDepth(Ray ray, uint localInvocationIndex)
 {
-    MarchingResult result = marchScene(
-        contree_node_data, contree_leaf_data, scene_tex, ray.origin, ray.direction,
-        ray.inverse_direction, localInvocationIndex);
+    MarchingResult result;
+    if (shading_info.glass_experiment_enabled != 0u)
+    {
+        ScenePrimaryQuery query = tracePrimaryVoxelSurfaces(
+            chunk_atlas, ray.origin, ray.direction, 256.0, true);
+        result = sceneQueryMarchingResultFromOpaqueEvent(
+            query.opaque_hit, ray.origin);
+    }
+    else
+    {
+        result = marchScene(
+            contree_node_data, contree_leaf_data, scene_tex, ray.origin,
+            ray.direction, ray.inverse_direction, localInvocationIndex);
+    }
     if (!result.is_hit)
     {
         return 1.0;

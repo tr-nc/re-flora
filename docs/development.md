@@ -82,8 +82,12 @@ performance evidence. See [Performance Benchmarking](./performance-benchmarking.
 - [Technical References](./references.md) — rendering and simulation references
 - [Camera Snapshots](./camera_snapshots.md) — repeatable capture commands
 
-Technical progress documents record implementation evidence. They do not override the canonical game
-direction or reorder product priorities.
+Repository documentation should describe a current user workflow, a durable architecture or contract,
+an active investigation with an unclosed acceptance gate, or reproducible evidence used by automation.
+Use GitHub Issues for transient task tracking. When implementation closes a plan, delete the progress
+journal or distill only its still-current contract; Git history remains the audit trail. A zero-reference
+document is not automatically obsolete, but completed or superseded documents should not remain in the
+root merely as archives.
 
 ## Release Packages
 

@@ -105,7 +105,9 @@ use crate::environment_probes::{
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
-use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
+use crate::generated::gpu_structs::{
+    PushConstantFlora, PushConstantGlassResolve, PushConstantLeafShadowTemporal,
+};
 use crate::geom::UAabb3;
 use crate::lighting::{
     LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
@@ -126,7 +128,7 @@ use re_flora_vkn::{
     FrameExtentGeneration, FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler,
     GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDescriptorGeneration,
     PreparedDrawDescriptors, PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout,
-    Viewport, VulkanContext,
+    TextureRegion, Viewport, VulkanContext,
 };
 use std::time::Instant;
 
@@ -233,6 +235,8 @@ struct DdgiProbeRelocationPushConstants {
     spacing_voxels: u32,
     voxels_per_world_unit: [f32; 3],
     terrain_revision: u32,
+    glass_experiment_enabled: u32,
+    _padding: [u32; 3],
 }
 
 #[repr(C)]
@@ -315,6 +319,13 @@ struct GlassPushConstants {
     box_min_near_alpha: [f32; 4],
     box_max_far_alpha: [f32; 4],
 }
+
+const GLASS_VOXEL_CACHE_BUILD_PASS: u32 = 0;
+const GLASS_VOXEL_CACHE_SHADE_PASS: u32 = 1;
+const GLASS_VOXEL_CACHE_CLASSIFY_PASS: u32 = 2;
+const GLASS_EXACT_PIXEL_BUILD_PASS: u32 = 3;
+const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 4;
+const GLASS_EXACT_PIXEL_RESOLVE_PASS: u32 = 5;
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
@@ -454,6 +465,41 @@ fn should_render_grass_species(species_index: usize, grass_render_mode: u32) -> 
 pub struct TerrainRayHitSample {
     pub position: Vec3,
     pub is_valid: bool,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum GlassSceneQueryEventKind {
+    Interface,
+    Opaque,
+    Miss,
+    StepBudget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GlassSceneQueryCaptureEvent {
+    pub(crate) kind: GlassSceneQueryEventKind,
+    pub(crate) position: Vec3,
+    pub(crate) from_voxel_type: u32,
+    pub(crate) to_voxel_type: u32,
+    pub(crate) tied_axes: u8,
+    pub(crate) dda_steps: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GlassStraightTransportCapture {
+    pub(crate) terminal: GlassSceneQueryEventKind,
+    pub(crate) transmittance: Vec3,
+    pub(crate) interfaces: u32,
+    pub(crate) scene_queries: u32,
+    pub(crate) dda_steps: u32,
+    pub(crate) exhausted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdgiSemanticOccupancyCapture {
+    pub(crate) occupied: bool,
+    pub(crate) geometry_revision: u32,
+    pub(crate) glass_material_revision: u32,
 }
 
 fn srgb_to_linear_channel(channel: f32) -> f32 {
@@ -784,6 +830,8 @@ pub struct TracerDesc {
     pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
+    pub glass_experiment_enabled: bool,
+    pub glass_debug_view: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -837,6 +885,7 @@ pub struct DirectSunShadowResources<'a> {
 struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
     tracer: PreparedDescriptorGeneration,
+    tracer_glass: PreparedDescriptorGeneration,
     flora_lighting_cache: PreparedDescriptorGeneration,
     tree_leaf_lighting_cache: PreparedDescriptorGeneration,
     graphics: Vec<PreparedDescriptorGeneration>,
@@ -956,6 +1005,28 @@ pub struct Tracer {
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GlassDebugSummary {
+    pub extent: Extent2D,
+    pub glass_pixels: usize,
+    pub foreground_pixels: usize,
+    pub screen_hit_pixels: usize,
+    pub raster_screen_hit_pixels: usize,
+    pub fallback_pixels: usize,
+    pub query_budget_fallback_pixels: usize,
+    pub exhaustion_pixels: usize,
+    pub scene_queries_max: u32,
+    pub interfaces_max: u32,
+    pub dda_steps_median: u32,
+    pub dda_steps_p95: u32,
+    pub dda_steps_max: u32,
+    pub peak_active_paths: u32,
+    pub tir_events: usize,
+    pub throughput_cutoffs: usize,
+    pub top_k_pruned: usize,
+    pub nonfinite_pixels: usize,
 }
 
 impl Drop for Tracer {
@@ -1085,6 +1156,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             desc.environment_irradiance_capture_enabled,
+            desc.glass_experiment_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
@@ -1133,6 +1205,12 @@ impl Tracer {
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
             desc.voxel_dim_per_chunk,
+            desc.glass_experiment_enabled,
+            if desc.glass_experiment_enabled {
+                crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
+            } else {
+                0
+            },
             &shader_modules.ddgi_voxel_visibility_pack_sm,
         )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
@@ -1991,6 +2069,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             self.desc.environment_irradiance_capture_enabled,
+            self.desc.glass_experiment_enabled,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -2128,6 +2207,7 @@ impl Tracer {
             plain_builder_resources,
         );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
+        update_compute_fn(&self.compute_pipelines.tracer_glass_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -2173,6 +2253,7 @@ impl Tracer {
             &tracer_resources,
         );
         update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.glass_resolve_ppl, &all_resources);
         update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
             &tracer_resources,
@@ -2260,6 +2341,7 @@ impl Tracer {
                 &self.resources,
                 contree_builder_resources,
                 scene_accel_resources,
+                plain_builder_resources,
                 ddgi_builder,
                 &self.ddgi_voxel_visibility,
             ],
@@ -2647,6 +2729,11 @@ impl Tracer {
                 .tracer_ppl
                 .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
                 .expect("DDGI consumer tracer descriptor preparation failed"),
+            tracer_glass: self
+                .compute_pipelines
+                .tracer_glass_ppl
+                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
+                .expect("DDGI consumer Glass tracer descriptor preparation failed"),
             flora_lighting_cache: self
                 .compute_pipelines
                 .flora_lighting_cache_ppl
@@ -2694,7 +2781,7 @@ impl Tracer {
             graphics_pipelines.len(),
             "DDGI consumer descriptor preparation pipeline order changed"
         );
-        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
+        let mut retirements = Vec::with_capacity(4 + graphics_pipelines.len());
         retirements.push(
             self.compute_pipelines
                 .tracer_ppl
@@ -2702,6 +2789,15 @@ impl Tracer {
                     "ddgi.consumer.descriptors",
                     generation,
                     prepared.tracer,
+                ),
+        );
+        retirements.push(
+            self.compute_pipelines
+                .tracer_glass_ppl
+                .publish_prepared_descriptors(
+                    "ddgi.consumer.descriptors",
+                    generation,
+                    prepared.tracer_glass,
                 ),
         );
         retirements.push(
@@ -3246,6 +3342,12 @@ impl Tracer {
                 sun_luminance,
                 terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
+                glass_experiment_enabled: self.desc.glass_experiment_enabled,
+                glass_material_revision: if self.desc.glass_experiment_enabled {
+                    crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
+                } else {
+                    0
+                },
                 voxel_palette: DdgiVoxelPaletteSnapshot {
                     dirt_color: voxel_dirt_color,
                     sand_color: voxel_sand_color,
@@ -3359,6 +3461,8 @@ impl Tracer {
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
+            self.desc.glass_experiment_enabled,
+            self.desc.glass_debug_view,
             ddgi_receiver_visibility_bias_world,
             ddgi_consumer_invalidation_voxel_bound,
         )?;
@@ -4454,6 +4558,15 @@ impl Tracer {
             "composition.pass",
             || self.record_composition_pass(cmdbuf),
         );
+        if self.desc.glass_experiment_enabled {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "glass.resolve",
+                || self.record_glass_resolve_pass(cmdbuf),
+            );
+        }
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
                 gpu_profiler_frame_slot,
@@ -5975,6 +6088,8 @@ impl Tracer {
             spacing_voxels: grid.spacing_voxels(),
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk.as_vec3().to_array(),
             terrain_revision,
+            glass_experiment_enabled: u32::from(self.desc.glass_experiment_enabled),
+            _padding: [0; 3],
         };
         self.compute_pipelines.ddgi_probe_relocate_ppl.record(
             cmdbuf,
@@ -6315,7 +6430,12 @@ impl Tracer {
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.tracer_ppl.record(
+        let pipeline = if self.desc.glass_experiment_enabled {
+            &self.compute_pipelines.tracer_glass_ppl
+        } else {
+            &self.compute_pipelines.tracer_ppl
+        };
+        pipeline.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6347,6 +6467,26 @@ impl Tracer {
                 Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+            );
+        self.resources
+            .extent_dependent_resources
+            .glass_front_depth_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+            );
+        self.resources
+            .extent_dependent_resources
+            .glass_front_data_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::UInt([0, 0, 0, 0])),
             );
     }
 
@@ -6455,6 +6595,74 @@ impl Tracer {
                 .extent,
             None,
         );
+    }
+
+    fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
+        let resources = &self.resources.extent_dependent_resources;
+        resources.glass_voxel_cache_metadata.record_fill(
+            cmdbuf,
+            0,
+            u64::from(GLASS_VOXEL_CACHE_CAPACITY) * GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY,
+            0,
+        );
+        resources.glass_voxel_cache_active_count.record_fill(
+            cmdbuf,
+            0,
+            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
+            0,
+        );
+        let extent = resources.composited_tex.get_image().get_desc().extent;
+        // Build a cell-key table from visible Glass pixels, then shade and classify its dense
+        // unique-cell list once. Reflected resource tracking inserts barriers between these
+        // ordered dispatches.
+        for (pass, dispatch_extent) in [
+            (GLASS_VOXEL_CACHE_BUILD_PASS, extent),
+            (
+                GLASS_VOXEL_CACHE_SHADE_PASS,
+                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
+            ),
+            (
+                GLASS_VOXEL_CACHE_CLASSIFY_PASS,
+                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
+            ),
+        ] {
+            let push = PushConstantGlassResolve {
+                pass,
+                ..bytemuck::Zeroable::zeroed()
+            };
+            self.compute_pipelines.glass_resolve_ppl.record(
+                cmdbuf,
+                dispatch_extent,
+                Some(bytemuck::bytes_of(&push)),
+            );
+        }
+
+        // The cell list is no longer needed. Reuse it to compact sparse exact-boundary pixels,
+        // keeping the normal cached resolve free of divergent software-ray-tracing branches.
+        resources.glass_voxel_cache_active_count.record_fill(
+            cmdbuf,
+            0,
+            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
+            0,
+        );
+        for (pass, dispatch_extent) in [
+            (GLASS_EXACT_PIXEL_BUILD_PASS, extent),
+            (GLASS_VOXEL_CACHE_RESOLVE_PASS, extent),
+            (
+                GLASS_EXACT_PIXEL_RESOLVE_PASS,
+                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
+            ),
+        ] {
+            let push = PushConstantGlassResolve {
+                pass,
+                ..bytemuck::Zeroable::zeroed()
+            };
+            self.compute_pipelines.glass_resolve_ppl.record(
+                cmdbuf,
+                dispatch_extent,
+                Some(bytemuck::bytes_of(&push)),
+            );
+        }
     }
 
     fn record_lens_flare_pass(&self, cmdbuf: &CommandBuffer) {
@@ -7261,5 +7469,323 @@ impl Tracer {
     ) -> Result<TerrainRayHitSample> {
         let samples = self.query_terrain_rays_batch_with_validity(&[ray])?;
         Ok(samples[0])
+    }
+
+    /// Reads the experimental per-pixel Glass diagnostics after a settled frame. This is used
+    /// only by the dedicated test scene, never by the normal render loop.
+    pub(crate) fn capture_glass_debug_summary(&mut self) -> Result<GlassDebugSummary> {
+        let texture = self
+            .resources
+            .extent_dependent_resources
+            .glass_debug_tex
+            .get_image();
+        let extent = texture
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .context("Glass debug plane must be two-dimensional")?;
+        let byte_count = u64::from(extent.width) * u64::from(extent.height) * 8;
+        let mut readback = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            re_flora_vkn::MemoryLocation::GpuToCpu,
+            byte_count,
+        );
+        texture.copy_image_to_buffer(
+            &mut readback,
+            &self.vulkan_ctx.get_general_queue(),
+            self.vulkan_ctx.command_pool(),
+            TextureLayout::GENERAL,
+            0,
+            TextureRegion {
+                offset: [0, 0, 0],
+                extent: Extent3D::new(extent.width, extent.height, 1),
+            },
+        );
+        let bytes = readback.read_back()?;
+        anyhow::ensure!(
+            bytes.len() == byte_count as usize,
+            "Glass debug readback returned {} bytes, expected {byte_count}",
+            bytes.len(),
+        );
+
+        let mut summary = GlassDebugSummary {
+            extent,
+            glass_pixels: 0,
+            foreground_pixels: 0,
+            screen_hit_pixels: 0,
+            raster_screen_hit_pixels: 0,
+            fallback_pixels: 0,
+            query_budget_fallback_pixels: 0,
+            exhaustion_pixels: 0,
+            scene_queries_max: 0,
+            interfaces_max: 0,
+            dda_steps_median: 0,
+            dda_steps_p95: 0,
+            dda_steps_max: 0,
+            peak_active_paths: 0,
+            tir_events: 0,
+            throughput_cutoffs: 0,
+            top_k_pruned: 0,
+            nonfinite_pixels: 0,
+        };
+        let mut dda_steps = Vec::new();
+        for item in bytes.chunks_exact(8) {
+            let packed =
+                u32::from_ne_bytes(item[..4].try_into().expect("u32-sized Glass debug item"));
+            let packed_path = u32::from_ne_bytes(
+                item[4..]
+                    .try_into()
+                    .expect("u32-sized Glass path debug item"),
+            );
+            let reason = packed & 0x0f;
+            if reason == 0 {
+                continue;
+            }
+            summary.glass_pixels += 1;
+            summary.foreground_pixels += usize::from(reason == 7);
+            summary.screen_hit_pixels += usize::from(reason == 1);
+            summary.raster_screen_hit_pixels += usize::from((packed & (1_u32 << 31)) != 0);
+            summary.fallback_pixels += usize::from(matches!(reason, 2..=6 | 9));
+            summary.query_budget_fallback_pixels += usize::from(reason == 9);
+            summary.exhaustion_pixels += usize::from(reason == 8);
+            summary.interfaces_max = summary.interfaces_max.max((packed >> 4) & 0xff);
+            summary.scene_queries_max = summary.scene_queries_max.max((packed >> 12) & 0x0f);
+            dda_steps.push((packed >> 17) & 0x3fff);
+            summary.peak_active_paths = summary.peak_active_paths.max(packed_path & 0x0f);
+            summary.tir_events += ((packed_path >> 4) & 0xff) as usize;
+            summary.throughput_cutoffs += ((packed_path >> 12) & 0xff) as usize;
+            summary.top_k_pruned += ((packed_path >> 20) & 0xff) as usize;
+            summary.nonfinite_pixels += ((packed_path >> 28) & 1) as usize;
+        }
+        dda_steps.sort_unstable();
+        if let Some(maximum) = dda_steps.last().copied() {
+            summary.dda_steps_median = dda_steps[dda_steps.len() / 2];
+            summary.dda_steps_p95 =
+                dda_steps[(dda_steps.len() * 95 / 100).min(dda_steps.len() - 1)];
+            summary.dda_steps_max = maximum;
+        }
+        Ok(summary)
+    }
+
+    /// Debug-only GPU capture of the ordered dense-atlas material transitions along one straight
+    /// ray. Production terrain queries retain their Contree path and never enable this mode.
+    pub(crate) fn capture_glass_scene_query_events(
+        &mut self,
+        ray: TerrainRayQuery,
+    ) -> Result<Vec<GlassSceneQueryCaptureEvent>> {
+        let direction = ray.direction.normalize_or_zero();
+        anyhow::ensure!(
+            direction != Vec3::ZERO,
+            "Glass scene-query capture ray is zero"
+        );
+        let mut origin = ray.origin;
+        let mut events = Vec::with_capacity(8);
+        for _ in 0..8 {
+            let event =
+                self.capture_next_glass_scene_query_event(TerrainRayQuery { origin, direction })?;
+            events.push(event);
+            match event.kind {
+                GlassSceneQueryEventKind::Interface => {
+                    let crossed_axes = Vec3::new(
+                        if event.tied_axes & 0b001 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        if event.tied_axes & 0b010 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        if event.tied_axes & 0b100 != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    );
+                    origin = event.position + crossed_axes * direction.signum() * (1.0e-4 / 256.0);
+                }
+                GlassSceneQueryEventKind::Opaque | GlassSceneQueryEventKind::Miss => {
+                    return Ok(events);
+                }
+                GlassSceneQueryEventKind::StepBudget => {
+                    anyhow::bail!(
+                        "Glass scene-query GPU capture exhausted DDA steps after {} events",
+                        events.len(),
+                    );
+                }
+            }
+        }
+        anyhow::bail!("Glass scene-query GPU capture exhausted its 8-event budget")
+    }
+
+    pub(crate) fn capture_glass_straight_transport(
+        &mut self,
+        ray: TerrainRayQuery,
+        max_distance_world: f32,
+    ) -> Result<GlassStraightTransportCapture> {
+        anyhow::ensure!(
+            ray.direction.normalize_or_zero() != Vec3::ZERO
+                && max_distance_world.is_finite()
+                && max_distance_world > 0.0,
+            "Glass straight-transport capture requires a finite ray and distance"
+        );
+        let values = self.capture_terrain_query_debug_rows(&[[
+            ray.origin.x,
+            ray.origin.y,
+            ray.origin.z,
+            2.0,
+            ray.direction.x,
+            ray.direction.y,
+            ray.direction.z,
+            max_distance_world,
+        ]])?[0];
+        let packed = values[3].to_bits();
+        let terminal = match packed & 0x0f {
+            1 => GlassSceneQueryEventKind::Interface,
+            2 => GlassSceneQueryEventKind::Opaque,
+            3 => GlassSceneQueryEventKind::Miss,
+            4 => GlassSceneQueryEventKind::StepBudget,
+            value => anyhow::bail!(
+                "Glass straight-transport GPU capture returned invalid terminal kind {value}"
+            ),
+        };
+        Ok(GlassStraightTransportCapture {
+            terminal,
+            transmittance: Vec3::new(values[0], values[1], values[2]),
+            interfaces: (packed >> 4) & 0xff,
+            scene_queries: (packed >> 12) & 0xff,
+            exhausted: ((packed >> 20) & 1) != 0,
+            dda_steps: (packed >> 21) & 0x07ff,
+        })
+    }
+
+    pub(crate) fn capture_ddgi_semantic_occupancy(
+        &mut self,
+        voxel_coordinates: &[UVec3],
+    ) -> Result<Vec<DdgiSemanticOccupancyCapture>> {
+        anyhow::ensure!(
+            !voxel_coordinates.is_empty() && voxel_coordinates.len() <= MAX_TERRAIN_QUERIES,
+            "DDGI semantic occupancy capture count is out of range"
+        );
+        let rows = voxel_coordinates
+            .iter()
+            .map(|coordinate| {
+                [
+                    coordinate.x as f32,
+                    coordinate.y as f32,
+                    coordinate.z as f32,
+                    3.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            })
+            .collect::<Vec<_>>();
+        Ok(self
+            .capture_terrain_query_debug_rows(&rows)?
+            .into_iter()
+            .map(|values| DdgiSemanticOccupancyCapture {
+                occupied: values[0] >= 0.5,
+                geometry_revision: values[1] as u32,
+                glass_material_revision: values[2] as u32,
+            })
+            .collect())
+    }
+
+    fn capture_terrain_query_debug_rows(&mut self, rows: &[[f32; 8]]) -> Result<Vec<[f32; 4]>> {
+        anyhow::ensure!(
+            !rows.is_empty() && rows.len() <= MAX_TERRAIN_QUERIES,
+            "terrain-query debug capture count is out of range"
+        );
+        let query_count = rows.len() as u32;
+        self.resources
+            .terrain_query
+            .terrain_query_count
+            .fill_uniform(&crate::generated::gpu_structs::TerrainQueryCount {
+                valid_query_count: query_count,
+                ..bytemuck::Zeroable::zeroed()
+            })?;
+        let row_values = rows.iter().flatten().copied().collect::<Vec<_>>();
+        self.resources
+            .terrain_query
+            .terrain_query_info
+            .fill(&row_values)?;
+
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_count,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_info,
+                    BufferUse::HostWrite,
+                );
+                self.compute_pipelines.terrain_query_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(query_count, 1, 1),
+                    None,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_result,
+                    BufferUse::HostRead,
+                );
+            },
+        );
+
+        let raw_data = self
+            .resources
+            .terrain_query
+            .terrain_query_result
+            .read_back()
+            .context("read terrain-query debug GPU capture")?;
+        let values: &[f32] = bytemuck::cast_slice(&raw_data);
+        anyhow::ensure!(
+            values.len() >= rows.len() * 4,
+            "terrain-query debug GPU result is truncated"
+        );
+        Ok(values[..rows.len() * 4]
+            .chunks_exact(4)
+            .map(|item| [item[0], item[1], item[2], item[3]])
+            .collect())
+    }
+
+    fn capture_next_glass_scene_query_event(
+        &mut self,
+        ray: TerrainRayQuery,
+    ) -> Result<GlassSceneQueryCaptureEvent> {
+        let values = self.capture_terrain_query_debug_rows(&[[
+            ray.origin.x,
+            ray.origin.y,
+            ray.origin.z,
+            1.0,
+            ray.direction.x,
+            ray.direction.y,
+            ray.direction.z,
+            0.0,
+        ]])?[0];
+        let packed = values[3].to_bits();
+        let kind = match packed & 0x0f {
+            1 => GlassSceneQueryEventKind::Interface,
+            2 => GlassSceneQueryEventKind::Opaque,
+            3 => GlassSceneQueryEventKind::Miss,
+            4 => GlassSceneQueryEventKind::StepBudget,
+            value => anyhow::bail!("Glass scene-query GPU returned invalid event kind {value}"),
+        };
+        Ok(GlassSceneQueryCaptureEvent {
+            kind,
+            position: Vec3::new(values[0], values[1], values[2]),
+            from_voxel_type: (packed >> 4) & 0x0f,
+            to_voxel_type: (packed >> 8) & 0x0f,
+            tied_axes: ((packed >> 12) & 0x07) as u8,
+            dda_steps: (packed >> 15) & 0x0fff,
+        })
     }
 }

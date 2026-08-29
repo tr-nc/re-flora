@@ -80,6 +80,7 @@ impl App {
 
     pub(super) fn terrain_edit_pointer_available(&self) -> bool {
         !self.blocking_panel_open()
+            && self.glass_voxel_test_scene.is_none()
             && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
     }
 
@@ -710,7 +711,9 @@ impl App {
                             return;
                         }
 
-                        self.voxel_backpack.deposit_removed(&readback.stats);
+                        let material_mode = self.voxel_material_mode();
+                        self.voxel_backpack
+                            .deposit_removed(&readback.stats, material_mode);
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
