@@ -3,11 +3,11 @@
 ## Status
 
 The staged experimental implementation is complete through Phase 4 and includes the
-distance-invariant secondary-visibility stabilization through commit
-`8c5f8c96`. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
-visual regression, and feature-OFF gates pass. The original 25% coverage planning target
-against feature OFF still does not pass, so this remains an isolated experiment and is not
-ship-ready.
+distance-invariant secondary-visibility stabilization through commit `8c5f8c96` and raster
+silhouette stabilization through commit `ff51a38a`. Correctness, isolation, Vulkan validation,
+fallback, bounded-work, targeted visual regression, and feature-OFF gates pass. The original
+25% coverage planning target against feature OFF still does not pass, so this remains an
+isolated experiment and is not ship-ready.
 
 The protected architecture and implementation guide remains the source of truth:
 `docs/glass_voxel_software_rt_implementation_guide.html`. This report records measured
@@ -208,20 +208,80 @@ All existing 5% incremental gates pass. The fixed 25% acceptance capture measure
 non-finite pixels. Evidence is under `target/perf-glass-moire-ab/` and
 `target/glass-moore-diagnosis/`.
 
+## Raster silhouette stabilization
+
+The user-authored `test` snapshot isolated two independent failures:
+
+- The amber raster pole leaked into validated Rock terminal pixels. Depth and provenance were
+  checked at one integer coordinate, but HDR was then read through linear `SampleLevel`, which
+  blended an unvalidated neighboring pole texel. Both accepted terminal paths now use exact
+  integer `Load`; raster geometry is accepted only by the ordered projected-segment walk.
+- A sharp colored raster silhouette was expanded to the whole nearest Glass cache cell. One
+  normal and one complete transport color per voxel cannot itself represent a resolvable
+  secondary-visibility edge inside that voxel.
+
+The retained design keeps the complete one-normal/one-color cache for smooth and subpixel cells.
+A cell-level pass marks only same-face neighbors whose raster-hit state differs, whose cached HDR
+delta is at least 0.25, and whose projected face is at least one internal pixel. A pixel then
+qualifies only on the wrong side of the cached raster state and within six internal pixels of an
+eight-direction raster provenance boundary. Six is the smallest validated radius: four leaves
+eight visible protrusion events in `test`.
+
+Qualified pixels are compacted into the cache's now-dead active-slot list and resolved by a
+separate dispatch, avoiding divergent full-path work in the ordinary cached resolve. The cache
+stores the complete transport plus its unique all-transmitted screen-candidate contribution.
+Boundary pixels recompute only that contribution and compose
+`complete - cached transmitted + exact transmitted`; cached reflected Fresnel branches and
+Beer-Lambert transport remain intact. This is still compute/software DDA and introduces no
+hardware ray tracing, acceleration structure, ray query, material ID, stats, or persistence
+schema.
+
+The deterministic image analyzer reports:
+
+| Capture | Amber ghost pixels | Colored-edge outward jumps | Jump pixels | Result |
+|---|---:|---:|---:|---|
+| pre-fix baseline | 192 | 13 | 116 | fail |
+| final Release A | 0 | 0 | 0 | pass |
+| final Release B | 0 | 0 | 0 | pass |
+
+The two complete PNGs are not byte-identical because the time-delayed captures observe different
+DDGI/environment/UI temporal states; the two fixed artifact regions and their integer counters are
+identical. Evidence is under `target/glass-test-diagnosis/`.
+
+An RTX 3060 Ti Release A,B,B,A comparison used the fixed 25% Glass workload, a 22-second run,
+frame-240 warm-up, and 48/46/46/47 post-warm-up samples in A/B/B/A order:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | 5% incremental gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 17.695 / 19.499 ms | 17.971 / 19.458 ms | +1.56% / -0.21% | pass |
+| `tracer.render` | 9.394 / 10.498 ms | 9.807 / 10.581 ms | +4.40% / +0.79% | pass |
+| `tracer.pass` | 3.650 / 4.689 ms | 3.645 / 4.433 ms | -0.14% / -5.46% | pass |
+| `glass.resolve` | 4.515 / 4.994 ms | 4.950 / 5.331 ms | +9.63% / +6.75% | fail |
+
+The whole-frame and whole-tracer gates pass; the aggregate local Glass scope adds 0.435 ms median
+and remains above a 5% local-pass target. Evidence is at
+`target/perf-glass-test-edge-ab-v20/comparison.json`.
+
+The final 50% hidden Release smoke measured 50.480% coverage and 201,919 Glass pixels, with CPU/GPU
+scene-query and transport references matching, zero exhausted pixels, and zero non-finite pixels.
+Feature OFF retained a 184-byte placeholder allocation and completed without errors. Logs are
+`target/re-flora-logs/re-flora-20260829-154559.769-206548.log` and
+`target/re-flora-logs/re-flora-20260829-154542.082-206473.log`.
+
 ## Memory and lifetime
 
-At 800x500, enabled Glass extent resources total 12,800,000 bytes (12.21 MiB), or 32 bytes per
-internal pixel:
+At 800x500, enabled Glass extent resources total 26,431,492 bytes (25.21 MiB):
 
 | Resource group | Format bytes/pixel | Bytes | Lifetime and alias opportunity |
 |---|---:|---:|---|
 | `GlassFront` depth + packed event | 4 + 4 | 3,200,000 | Written by Glass tracer, consumed by resolve; dead afterward. Packing/precision reduction is possible after measurement. |
 | Unified opaque HDR + depth + provenance | 8 + 4 + 4 | 6,400,000 | Written by composition and consumed by resolve. It overlaps `GlassFront`, so same-frame aliasing is not currently valid. |
 | Glass debug counters | 8 | 3,200,000 | Written by resolve and read only by acceptance capture. A non-diagnostic build can remove or lazily allocate it. |
+| Cell metadata, two transport values, and reused active list | n/a | 13,631,492 | Experiment-only fixed-capacity cache. The second float4 adds 4 MiB for exact primary-transmission replacement; the active list is reused for compacted boundary pixels after cell classification. |
 
-Feature OFF allocates only 2x2 true-2D placeholders for these six images: 128 bytes total. It
-does not allocate or clear full-resolution Glass targets, and it does not record the Glass
-resolve pass.
+Feature OFF allocates 2x2 true-2D placeholders for the six images plus one-entry cache buffers:
+184 bytes total. It does not allocate or clear full-resolution Glass targets, and it does not
+record the Glass resolve pass.
 
 ## Artifacts and reproducibility
 
