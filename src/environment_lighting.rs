@@ -403,11 +403,11 @@ impl AuthoredEnvironmentLightingFact {
 /// revision-to-snapshot identity used by in-flight DDGI work.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EnvironmentLightingState {
-    pub revision: u32,
-    pub source_live_revision: u64,
-    pub published_at: Duration,
-    pub snapshot: DdgiRadianceSnapshot,
-    pub change: DdgiRadianceChange,
+    revision: u32,
+    source_live_revision: u64,
+    published_at: Duration,
+    snapshot: DdgiRadianceSnapshot,
+    change: DdgiRadianceChange,
     authored_identity: DdgiRadianceIdentity,
 }
 
@@ -415,9 +415,10 @@ impl EnvironmentLightingState {
     pub(crate) fn freeze(
         revision: u32,
         authored: AuthoredEnvironmentLightingFact,
-        snapshot: DdgiRadianceSnapshot,
         change: DdgiRadianceChange,
     ) -> Self {
+        let mut snapshot = authored.snapshot();
+        snapshot.local_lights = snapshot.local_lights.with_transport_revision(revision);
         Self {
             revision,
             source_live_revision: authored.revision,
@@ -426,6 +427,26 @@ impl EnvironmentLightingState {
             change,
             authored_identity: authored.identity,
         }
+    }
+
+    pub(crate) fn snapshot(self) -> DdgiRadianceSnapshot {
+        self.snapshot
+    }
+
+    pub(crate) fn revision(self) -> u32 {
+        self.revision
+    }
+
+    pub(crate) fn source_live_revision(self) -> u64 {
+        self.source_live_revision
+    }
+
+    pub(crate) fn published_at(self) -> Duration {
+        self.published_at
+    }
+
+    pub(crate) fn change(self) -> DdgiRadianceChange {
+        self.change
     }
 
     fn change_from(self, previous: Self) -> DdgiRadianceChange {
@@ -441,7 +462,7 @@ impl EnvironmentLightingState {
     fn for_test(revision: u32, published_at: Duration, snapshot: DdgiRadianceSnapshot) -> Self {
         let authored =
             AuthoredEnvironmentLightingFact::for_test(u64::from(revision), published_at, snapshot);
-        Self::freeze(revision, authored, snapshot, DdgiRadianceChange::default())
+        Self::freeze(revision, authored, DdgiRadianceChange::default())
     }
 }
 
@@ -718,9 +739,13 @@ mod tests {
         let retention = policy.retention(0.99);
         assert!(retention > 0.0 && retention < 0.99);
 
-        let mut larger = destination;
-        larger.published_at += Duration::from_millis(200);
-        larger.snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let mut larger_snapshot = destination.snapshot();
+        larger_snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let larger = transport(
+            3,
+            destination.published_at + Duration::from_millis(200),
+            larger_snapshot,
+        );
         let larger_policy = DdgiRadianceHistoryPolicy::between(destination, larger);
         assert!(larger_policy.retention(0.99) < retention);
     }
@@ -733,6 +758,23 @@ mod tests {
         let destination = transport(2, Duration::from_millis(1), changed);
         let policy = DdgiRadianceHistoryPolicy::between(source, destination);
 
+        assert!(policy.resets_history());
+        assert_eq!(policy.retention(0.99), 0.0);
+    }
+
+    #[test]
+    fn frozen_transport_cannot_hide_a_material_change_from_history_classification() {
+        let source = transport(1, Duration::ZERO, snapshot());
+        let mut destination_snapshot = source.snapshot();
+        destination_snapshot.voxel_palette.rock_color.x += 0.1;
+        let destination = transport(2, Duration::from_millis(1), destination_snapshot);
+
+        let policy = DdgiRadianceHistoryPolicy::between(source, destination);
+
+        assert_eq!(
+            policy.change.reason,
+            DdgiRadianceChangeReason::TransportInputStep
+        );
         assert!(policy.resets_history());
         assert_eq!(policy.retention(0.99), 0.0);
     }

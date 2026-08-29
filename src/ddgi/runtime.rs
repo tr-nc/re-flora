@@ -150,11 +150,11 @@ impl DdgiLightingObservation {
     pub fn revision_lag(self, authored: AuthoredEnvironmentLightingFact) -> u64 {
         authored
             .revision
-            .saturating_sub(self.transport.source_live_revision)
+            .saturating_sub(self.transport.source_live_revision())
     }
 
     pub fn transport_age(self, now: Duration) -> Duration {
-        now.saturating_sub(self.transport.published_at)
+        now.saturating_sub(self.transport.published_at())
     }
 }
 
@@ -405,7 +405,9 @@ impl DdgiRuntime {
         }
 
         let publication_due = self.latest_transport_lighting.is_some_and(|transport| {
-            authored.observed_at.saturating_sub(transport.published_at)
+            authored
+                .observed_at
+                .saturating_sub(transport.published_at())
                 >= DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL
         });
         if !transport_published && publication_due && self.pending_authored_fact.is_some() {
@@ -434,16 +436,8 @@ impl DdgiRuntime {
         change: DdgiRadianceChange,
     ) {
         self.current_transport_revision = self.current_transport_revision.wrapping_add(1).max(1);
-        let mut snapshot = authored.snapshot();
-        snapshot.local_lights = snapshot
-            .local_lights
-            .with_transport_revision(self.current_transport_revision);
-        let lighting = EnvironmentLightingState::freeze(
-            self.current_transport_revision,
-            authored,
-            snapshot,
-            change,
-        );
+        let lighting =
+            EnvironmentLightingState::freeze(self.current_transport_revision, authored, change);
         self.pending_authored_fact = None;
 
         let previous_latest = self.transport_scheduler.latest_radiance_revision();
@@ -456,14 +450,15 @@ impl DdgiRuntime {
             .published()
             .map(|field| field.field().radiance_revision());
         if previous_latest.is_some()
-            && previous_latest != Some(lighting.revision)
+            && previous_latest != Some(lighting.revision())
             && previous_latest != in_flight_revision
             && previous_latest != published_revision
         {
             self.coalesced_radiance_revisions = self.coalesced_radiance_revisions.saturating_add(1);
         }
         self.latest_transport_lighting = Some(lighting);
-        self.transport_scheduler.observe_radiance(lighting.revision);
+        self.transport_scheduler
+            .observe_radiance(lighting.revision());
     }
 
     pub(crate) fn observe_camera_probe_priority(&mut self, voxel_bound: UAabb3) {
@@ -593,7 +588,7 @@ impl DdgiRuntime {
                 .take()
                 .expect("preempted DDGI work must retain its immutable authored lighting");
             assert_eq!(
-                lighting.revision,
+                lighting.revision(),
                 preempted.destination().field().radiance_revision(),
                 "preempted DDGI work and authored lighting revision diverged",
             );
@@ -613,7 +608,7 @@ impl DdgiRuntime {
             .latest_transport_lighting
             .expect("DDGI transport work requires an Authored Environment Lighting observation");
         assert_eq!(
-            authored_lighting.revision,
+            authored_lighting.revision(),
             scheduled.destination().field().radiance_revision(),
             "DDGI transport work revision does not match live Authored Environment Lighting",
         );
@@ -629,7 +624,7 @@ impl DdgiRuntime {
                 ]
                 .into_iter()
                 .flatten()
-                .find(|lighting| lighting.revision == source_revision)
+                .find(|lighting| lighting.revision() == source_revision)
                 .unwrap_or_else(|| {
                     panic!(
                         "DDGI has no immutable authored lighting for scheduled source revision {}",
@@ -706,7 +701,7 @@ impl DdgiRuntime {
             .take()
             .expect("completed DDGI work must retain its immutable authored lighting");
         assert_eq!(
-            lighting.revision,
+            lighting.revision(),
             work.destination().field().radiance_revision(),
             "completed DDGI work and authored lighting revision diverged",
         );
@@ -853,7 +848,7 @@ impl DdgiRuntime {
         self.latest_authored_fact.map_or(0, |authored| {
             authored.revision.saturating_sub(
                 self.latest_transport_lighting
-                    .map_or(0, |transport| transport.source_live_revision),
+                    .map_or(0, |transport| transport.source_live_revision()),
             )
         })
     }
@@ -869,12 +864,12 @@ impl DdgiRuntime {
             .map(|work| work.destination().field().radiance_revision());
         let authored_in_flight_revision = self
             .in_flight_authored_lighting
-            .map(|lighting| lighting.revision);
+            .map(|lighting| lighting.revision());
         DdgiLightingDiagnostics {
             latest_transport_revision: self.transport_scheduler.latest_radiance_revision(),
             latest_source_live_revision: self
                 .latest_transport_lighting
-                .map(|lighting| lighting.source_live_revision),
+                .map(|lighting| lighting.source_live_revision()),
             scheduler_published_revision: self
                 .transport_scheduler
                 .published()
@@ -903,11 +898,11 @@ impl DdgiRuntime {
         let builder = self.volumes().builder();
         let lighting_to_latch = self
             .in_flight_authored_lighting
-            .filter(|lighting| builder.should_latch_radiance_snapshot(lighting.revision));
+            .filter(|lighting| builder.should_latch_radiance_snapshot(lighting.revision()));
         if let Some(lighting) = lighting_to_latch {
             self.volumes_mut()
                 .builder_mut()
-                .latch_radiance_snapshot(lighting.revision, lighting.snapshot)?;
+                .latch_radiance_snapshot(lighting.revision(), lighting.snapshot())?;
         }
 
         let builder = self.volumes().builder();
@@ -1742,7 +1737,7 @@ mod tests {
             Some(resident.field()),
             "replacement geometry must inherit the physically resident field, not obsolete staging"
         );
-        assert_eq!(replacement.authored_lighting().snapshot, r2.snapshot());
+        assert_eq!(replacement.authored_lighting().snapshot(), r2.snapshot());
         let history = replacement
             .radiance_history_policy()
             .expect("resident r1 to live r2 must retain an explicit radiance history policy");
@@ -1792,11 +1787,11 @@ mod tests {
         let published = runtime.observe_authored_lighting(latest);
 
         assert!(published.transport_published);
-        assert_eq!(published.transport.revision, 2);
-        assert_eq!(published.transport.source_live_revision, 5);
-        assert_eq!(published.transport.snapshot, latest.snapshot());
+        assert_eq!(published.transport.revision(), 2);
+        assert_eq!(published.transport.source_live_revision(), 5);
+        assert_eq!(published.transport.snapshot(), latest.snapshot());
         assert_eq!(
-            published.transport.change.reason,
+            published.transport.change().reason,
             DdgiRadianceChangeReason::ContinuousSun
         );
         assert_eq!(published.coalesced_live_revisions, 3);
@@ -1851,13 +1846,16 @@ mod tests {
         let published = runtime.observe_authored_lighting(changed);
 
         assert!(published.transport_published);
-        assert_eq!(published.transport.revision, initial.transport.revision + 1);
-        assert_eq!(published.transport.source_live_revision, changed.revision);
         assert_eq!(
-            published.transport.change.reason,
+            published.transport.revision(),
+            initial.transport.revision() + 1
+        );
+        assert_eq!(published.transport.source_live_revision(), changed.revision);
+        assert_eq!(
+            published.transport.change().reason,
             DdgiRadianceChangeReason::TransportInputStep
         );
-        assert!(published.transport.change.resets_irradiance_history());
+        assert!(published.transport.change().resets_irradiance_history());
     }
 
     #[test]
@@ -1878,16 +1876,16 @@ mod tests {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = runtime.observe_authored_lighting(lighting(1, 1.0));
-        assert_eq!(initial.transport.revision, 1);
+        assert_eq!(initial.transport.revision(), 1);
 
         let mut snapshot = lighting_snapshot(1.0);
         snapshot.sun_direction = Vec3::Z;
         let large_sun_step = lighting_at(2, Duration::from_millis(20), snapshot);
         let large_sun_step = runtime.observe_authored_lighting(large_sun_step);
         assert!(large_sun_step.transport_published);
-        assert_eq!(large_sun_step.transport.revision, 2);
+        assert_eq!(large_sun_step.transport.revision(), 2);
         assert_eq!(
-            large_sun_step.transport.change.reason,
+            large_sun_step.transport.change().reason,
             DdgiRadianceChangeReason::LargeSunStep
         );
 
@@ -1895,9 +1893,9 @@ mod tests {
         let material_step = lighting_at(3, Duration::from_millis(30), snapshot);
         let material_step = runtime.observe_authored_lighting(material_step);
         assert!(material_step.transport_published);
-        assert_eq!(material_step.transport.revision, 3);
+        assert_eq!(material_step.transport.revision(), 3);
         assert_eq!(
-            material_step.transport.change.reason,
+            material_step.transport.change().reason,
             DdgiRadianceChangeReason::TransportInputStep
         );
     }
@@ -1909,7 +1907,7 @@ mod tests {
         let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial = runtime.observe_authored_lighting(initial);
         assert!(initial.transport_published);
-        assert_eq!(initial.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(initial.transport.snapshot().local_lights.count(), 0);
 
         let mut lights = LocalLightRegistry::default();
         let id = lights.add(LocalLight::Point(
@@ -1926,7 +1924,7 @@ mod tests {
         let pending = runtime.observe_authored_lighting(added);
         assert!(!pending.transport_published);
         assert_eq!(added.snapshot().local_lights.count(), 1);
-        assert_eq!(pending.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(pending.transport.snapshot().local_lights.count(), 0);
         assert_eq!(runtime.lighting_revision_lag(), 1);
 
         lights
@@ -1954,32 +1952,36 @@ mod tests {
         let moved = lighting_at(3, Duration::from_millis(2), moved_snapshot);
         let coalesced = runtime.observe_authored_lighting(moved);
         assert!(!coalesced.transport_published);
-        assert_eq!(coalesced.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(coalesced.transport.snapshot().local_lights.count(), 0);
         assert_eq!(coalesced.coalesced_live_revisions, 1);
         assert_eq!(runtime.lighting_revision_lag(), 2);
 
         let moved_at_cadence = lighting_at(3, Duration::from_millis(200), moved.snapshot());
         let published = runtime.observe_authored_lighting(moved_at_cadence);
         assert!(published.transport_published);
-        assert_eq!(published.transport.revision, 2);
-        assert_eq!(published.transport.source_live_revision, 3);
+        assert_eq!(published.transport.revision(), 2);
+        assert_eq!(published.transport.source_live_revision(), 3);
         assert_eq!(
-            published.transport.change.reason,
+            published.transport.change().reason,
             DdgiRadianceChangeReason::LocalLights
         );
-        assert_eq!(published.transport.snapshot.local_lights.count(), 1);
+        assert_eq!(published.transport.snapshot().local_lights.count(), 1);
         assert_eq!(
-            published.transport.snapshot.local_lights.source_revision(),
+            published
+                .transport
+                .snapshot()
+                .local_lights
+                .source_revision(),
             lights.snapshot().revision()
         );
         assert_eq!(
             published
                 .transport
-                .snapshot
+                .snapshot()
                 .local_lights
                 .info
                 .transport_revision,
-            published.transport.revision
+            published.transport.revision()
         );
         let addition_history =
             DdgiRadianceHistoryPolicy::between(initial.transport, published.transport);
@@ -2002,23 +2004,26 @@ mod tests {
         let removal_pending = runtime.observe_authored_lighting(removed);
         assert!(!removal_pending.transport_published);
         assert_eq!(removed.snapshot().local_lights.count(), 0);
-        assert_eq!(removal_pending.transport.snapshot.local_lights.count(), 1);
+        assert_eq!(removal_pending.transport.snapshot().local_lights.count(), 1);
         assert_eq!(runtime.lighting_revision_lag(), 1);
 
         let removed_at_cadence = lighting_at(4, Duration::from_millis(400), removed.snapshot());
         let removal_published = runtime.observe_authored_lighting(removed_at_cadence);
         assert!(removal_published.transport_published);
-        assert_eq!(removal_published.transport.revision, 3);
-        assert_eq!(removal_published.transport.source_live_revision, 4);
+        assert_eq!(removal_published.transport.revision(), 3);
+        assert_eq!(removal_published.transport.source_live_revision(), 4);
         assert_eq!(
-            removal_published.transport.change.reason,
+            removal_published.transport.change().reason,
             DdgiRadianceChangeReason::LocalLights
         );
-        assert_eq!(removal_published.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(
+            removal_published.transport.snapshot().local_lights.count(),
+            0
+        );
         assert_eq!(
             removal_published
                 .transport
-                .snapshot
+                .snapshot()
                 .local_lights
                 .source_revision(),
             lights.snapshot().revision()
@@ -2026,11 +2031,11 @@ mod tests {
         assert_eq!(
             removal_published
                 .transport
-                .snapshot
+                .snapshot()
                 .local_lights
                 .info
                 .transport_revision,
-            removal_published.transport.revision
+            removal_published.transport.revision()
         );
         let removal_history =
             DdgiRadianceHistoryPolicy::between(published.transport, removal_published.transport);
@@ -2067,7 +2072,7 @@ mod tests {
                 .radiance_revision(),
             2
         );
-        assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot());
+        assert_eq!(r2_work.authored_lighting().snapshot(), r2.snapshot());
 
         runtime.observe_authored_lighting(lighting(3, 3.0));
         lights.remove(id).unwrap();
@@ -2091,14 +2096,14 @@ mod tests {
         assert_eq!(pending.scheduler_revision_lag(), 2);
         assert!(!pending.has_mixed_in_flight_revision);
         assert_eq!(
-            runtime.in_flight_authored_lighting().unwrap().snapshot,
+            runtime.in_flight_authored_lighting().unwrap().snapshot(),
             r2.snapshot(),
         );
         assert_eq!(
             runtime
                 .in_flight_authored_lighting()
                 .unwrap()
-                .snapshot
+                .snapshot()
                 .local_lights
                 .count(),
             1
@@ -2118,8 +2123,11 @@ mod tests {
         assert_eq!(claimed.in_flight_revision, Some(3));
         assert_eq!(claimed.scheduler_revision_lag(), 1);
         assert!(!claimed.has_mixed_in_flight_revision);
-        assert_eq!(latest.authored_lighting().snapshot, r4.snapshot());
-        assert_eq!(latest.authored_lighting().snapshot.local_lights.count(), 0);
+        assert_eq!(latest.authored_lighting().snapshot(), r4.snapshot());
+        assert_eq!(
+            latest.authored_lighting().snapshot().local_lights.count(),
+            0
+        );
         assert_eq!(
             latest.scheduled().destination().source(),
             Some(r2_scheduled.destination().field())

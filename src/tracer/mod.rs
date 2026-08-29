@@ -1283,7 +1283,7 @@ impl Tracer {
         let work = runtime_work.scheduled();
         let destination = work.destination().field();
         assert_eq!(
-            runtime_work.authored_lighting().revision,
+            runtime_work.authored_lighting().revision(),
             destination.radiance_revision(),
             "DDGI transport work must retain the authored lighting revision it was scheduled with",
         );
@@ -1498,13 +1498,13 @@ impl Tracer {
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
         self.ddgi_runtime
             .latest_transport_lighting()
-            .map_or(0, |lighting| lighting.revision)
+            .map_or(0, |lighting| lighting.revision())
     }
 
     pub(crate) fn ddgi_live_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
         self.ddgi_runtime
             .latest_transport_lighting()
-            .map(|lighting| lighting.snapshot)
+            .map(|lighting| lighting.snapshot())
     }
 
     pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
@@ -2279,55 +2279,55 @@ impl Tracer {
             log::info!(
                 "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
                 authored_environment_lighting.revision,
-                ddgi_lighting.transport.revision,
-                ddgi_lighting.transport.source_live_revision,
+                ddgi_lighting.transport.revision(),
+                ddgi_lighting.transport.source_live_revision(),
                 ddgi_lighting.revision_lag(authored_environment_lighting),
                 ddgi_lighting.coalesced_live_revisions,
-                ddgi_lighting.transport.published_at.as_millis(),
+                ddgi_lighting.transport.published_at().as_millis(),
                 ddgi_lighting
                     .transport_age(time_info.time_since_start_duration())
                     .as_millis(),
-                ddgi_lighting.transport.change.reason,
+                ddgi_lighting.transport.change().reason,
                 ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_angle_radians
                     .to_degrees(),
                 ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_color_relative,
                 ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_luminance_relative,
                 ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .non_solar_changed,
                 ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .local_lights_changed,
                 ddgi_lighting
                     .transport
-                    .snapshot
+                    .snapshot()
                     .local_lights
                     .source_revision(),
-                ddgi_lighting.transport.snapshot.local_lights.count(),
-                ddgi_lighting.transport.snapshot.sun_direction,
-                ddgi_lighting.transport.snapshot.sun_color,
-                ddgi_lighting.transport.snapshot.sun_luminance,
+                ddgi_lighting.transport.snapshot().local_lights.count(),
+                ddgi_lighting.transport.snapshot().sun_direction,
+                ddgi_lighting.transport.snapshot().sun_color,
+                ddgi_lighting.transport.snapshot().sun_luminance,
             );
-            if ddgi_lighting.transport.change.delta.local_lights_changed {
+            if ddgi_lighting.transport.change().delta.local_lights_changed {
                 let impact = ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .local_light_impact_bound
                     .map(|bound| {
@@ -2342,7 +2342,7 @@ impl Tracer {
                         )
                     });
                 self.ddgi_runtime.observe_lighting_impact_probe_priority(
-                    ddgi_lighting.transport.revision,
+                    ddgi_lighting.transport.revision(),
                     impact,
                 );
             }

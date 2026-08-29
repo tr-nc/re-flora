@@ -72,7 +72,7 @@ impl BufferUpdater {
                 )
             });
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
-            environment_revision: environment.revision,
+            environment_revision: environment.revision(),
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
             environment_probe_visibility_bias_world: ddgi_receiver_visibility_bias_world,
