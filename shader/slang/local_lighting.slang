@@ -144,8 +144,6 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
     StructuredBuffer<ContreeNode> nodeData,
     StructuredBuffer<uint> leafData,
     readonly RWTexture3D<uint2> sceneTexture,
-    readonly RWTexture3D<uint> chunkAtlas,
-    bool glassExperimentEnabled,
     float3 receiverPosition,
     float3 receiverNormal,
     float rayOriginOffsetWorld,
@@ -177,34 +175,20 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
             return result;
         }
         float3 shadowDirection = shadowToLight / segmentLength;
+        MarchingResult shadowHit = marchScene(
+            nodeData, leafData, sceneTexture, shadowOrigin,
+            shadowDirection, 1.0 / shadowDirection,
+            localInvocationIndex);
         // A hit in the final source-radius sphere belongs to the emitter geometry itself. A hit
         // before that endpoint volume remains an independent blocker.
         float endpointStart = max(0.0, segmentLength - light.source_radius);
-        float3 transmittance = float3(1.0);
-        if (glassExperimentEnabled)
-        {
-            SceneStraightTransport transport = traceVoxelStraightTransport(
-                chunkAtlas, shadowOrigin, shadowDirection, endpointStart, true);
-            if (transport.exhausted != 0u ||
-                transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE)
-                transmittance = float3(0.0);
-            else
-                transmittance = transport.transmittance;
-        }
-        else
-        {
-            MarchingResult shadowHit = marchScene(
-                nodeData, leafData, sceneTexture, shadowOrigin,
-                shadowDirection, 1.0 / shadowDirection,
-                localInvocationIndex);
-            if (shadowHit.is_hit &&
-                shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) < endpointStart)
-                transmittance = float3(0.0);
-        }
-        if (any(transmittance > float3(0.0)))
+        float visibility = !shadowHit.is_hit ||
+            shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= endpointStart
+            ? 1.0 : 0.0;
+        if (visibility > 0.0)
         {
             result.visible += 1u;
-            result.irradiance += sample.irradiance * transmittance;
+            result.irradiance += sample.irradiance;
         }
         else
         {
@@ -225,8 +209,6 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     StructuredBuffer<ContreeNode> nodeData,
     StructuredBuffer<uint> leafData,
     readonly RWTexture3D<uint2> sceneTexture,
-    readonly RWTexture3D<uint> chunkAtlas,
-    bool glassExperimentEnabled,
     float3 receiverPosition,
     float3 receiverNormal,
     float rayOriginOffsetWorld,
@@ -243,9 +225,8 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLight(
     for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
     {
         LocalLightVoxelEvaluation lightResult = evaluateVoxelVisibleLocalLightAtIndex(
-            info, lights, nodeData, leafData, sceneTexture, chunkAtlas,
-            glassExperimentEnabled, receiverPosition, receiverNormal,
-            rayOriginOffsetWorld, localInvocationIndex, lightIndex);
+            info, lights, nodeData, leafData, sceneTexture, receiverPosition,
+            receiverNormal, rayOriginOffsetWorld, localInvocationIndex, lightIndex);
         result.irradiance += lightResult.irradiance;
         result.candidates += lightResult.candidates;
         result.visible += lightResult.visible;
@@ -261,15 +242,127 @@ public float3 evaluateVoxelVisibleLocalLightIrradiance(
     StructuredBuffer<ContreeNode> nodeData,
     StructuredBuffer<uint> leafData,
     readonly RWTexture3D<uint2> sceneTexture,
-    readonly RWTexture3D<uint> chunkAtlas,
-    bool glassExperimentEnabled,
     float3 receiverPosition,
     float3 receiverNormal,
     float rayOriginOffsetWorld,
     uint localInvocationIndex)
 {
     return evaluateVoxelVisibleLocalLight(
+        info, lights, nodeData, leafData, sceneTexture, receiverPosition,
+        receiverNormal, rayOriginOffsetWorld, localInvocationIndex).irradiance;
+}
+
+// Glass transport is a separate semantic entry point so feature-off shaders keep the legacy
+// visibility program and descriptor set exactly. Callers select this only in Glass-specialized
+// shader modules.
+public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    readonly RWTexture3D<uint> chunkAtlas,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex,
+    uint lightIndex)
+{
+    LocalLightVoxelEvaluation result;
+    result.irradiance = float3(0.0);
+    result.candidates = 0u;
+    result.visible = 0u;
+    result.occluded = 0u;
+    result.irradiance_luma_q8 = 0u;
+    if (lightIndex < localLightCount(info))
+    {
+        U_LightGpu light = lights[lightIndex];
+        LocalPointLightSample sample = evaluateUnshadowedPointLight(
+            light, receiverPosition, receiverNormal);
+        if (!any(sample.irradiance > float3(0.0))) return result;
+        result.candidates += 1u;
+
+        float3 shadowOrigin = terrainRayOriginFromSurface(
+            receiverPosition, receiverNormal, rayOriginOffsetWorld);
+        float3 shadowToLight = light.position - shadowOrigin;
+        float segmentLength = length(shadowToLight);
+        if (segmentLength <= light.source_radius)
+        {
+            result.visible += 1u;
+            result.irradiance += sample.irradiance;
+            return result;
+        }
+        float3 shadowDirection = shadowToLight / segmentLength;
+        float endpointStart = max(0.0, segmentLength - light.source_radius);
+        SceneStraightTransport transport = traceVoxelStraightTransport(
+            chunkAtlas, shadowOrigin, shadowDirection, endpointStart, true);
+        float3 transmittance = transport.exhausted != 0u ||
+            transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
+            ? float3(0.0) : transport.transmittance;
+        if (any(transmittance > float3(0.0)))
+        {
+            result.visible += 1u;
+            result.irradiance += sample.irradiance * transmittance;
+        }
+        else
+        {
+            result.occluded += 1u;
+        }
+    }
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
+    return result;
+}
+
+public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLight(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    readonly RWTexture3D<uint> chunkAtlas,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex)
+{
+    LocalLightVoxelEvaluation result;
+    result.irradiance = float3(0.0);
+    result.candidates = 0u;
+    result.visible = 0u;
+    result.occluded = 0u;
+    result.irradiance_luma_q8 = 0u;
+    uint count = localLightCount(info);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < count; ++lightIndex)
+    {
+        LocalLightVoxelEvaluation lightResult =
+            evaluateVoxelGlassVisibleLocalLightAtIndex(
+                info, lights, nodeData, leafData, sceneTexture, chunkAtlas,
+                receiverPosition, receiverNormal, rayOriginOffsetWorld,
+                localInvocationIndex, lightIndex);
+        result.irradiance += lightResult.irradiance;
+        result.candidates += lightResult.candidates;
+        result.visible += lightResult.visible;
+        result.occluded += lightResult.occluded;
+    }
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
+    return result;
+}
+
+public float3 evaluateVoxelGlassVisibleLocalLightIrradiance(
+    U_LocalLightInfo info,
+    StructuredBuffer<U_LightGpu> lights,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    readonly RWTexture3D<uint> chunkAtlas,
+    float3 receiverPosition,
+    float3 receiverNormal,
+    float rayOriginOffsetWorld,
+    uint localInvocationIndex)
+{
+    return evaluateVoxelGlassVisibleLocalLight(
         info, lights, nodeData, leafData, sceneTexture, chunkAtlas,
-        glassExperimentEnabled, receiverPosition, receiverNormal,
-        rayOriginOffsetWorld, localInvocationIndex).irradiance;
+        receiverPosition, receiverNormal, rayOriginOffsetWorld,
+        localInvocationIndex).irradiance;
 }

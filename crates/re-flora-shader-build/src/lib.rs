@@ -190,6 +190,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/composition_glass.comp",
+        source_path: "shader/slang/composition_glass.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/glass_resolve.comp",
         source_path: "shader/slang/glass_resolve.slang",
         module_path: "shader/slang",
@@ -268,8 +274,20 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/flora_lighting_cache_glass.comp",
+        source_path: "shader/slang/flora_lighting_cache_glass.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/tree_leaf_lighting_cache.comp",
         source_path: "shader/slang/tree_leaf_lighting_cache.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/foliage/tree_leaf_lighting_cache_glass.comp",
+        source_path: "shader/slang/tree_leaf_lighting_cache_glass.comp.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },
@@ -406,14 +424,32 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/probe_relocate_glass.comp",
+        source_path: "shader/slang/ddgi_probe_relocate_glass.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/ddgi/probe_trace.comp",
         source_path: "shader/slang/ddgi_probe_trace.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/probe_trace_glass.comp",
+        source_path: "shader/slang/ddgi_probe_trace_glass.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/lighting/local_light_visibility_diagnostic.comp",
         source_path: "shader/slang/local_light_visibility_diagnostic.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/lighting/local_light_visibility_diagnostic_glass.comp",
+        source_path: "shader/slang/local_light_visibility_diagnostic_glass.comp.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },
@@ -450,6 +486,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/ddgi/voxel_visibility_pack.comp",
         source_path: "shader/slang/ddgi_voxel_visibility_pack.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/voxel_visibility_pack_glass.comp",
+        source_path: "shader/slang/ddgi_voxel_visibility_pack_glass.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },
@@ -660,6 +702,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/tracer/tracer_shadow.comp",
         source_path: "shader/slang/tracer_shadow.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/tracer/tracer_shadow_glass.comp",
+        source_path: "shader/slang/tracer_shadow_glass.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },

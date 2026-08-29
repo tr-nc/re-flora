@@ -885,7 +885,6 @@ pub struct DirectSunShadowResources<'a> {
 struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
     tracer: PreparedDescriptorGeneration,
-    tracer_glass: PreparedDescriptorGeneration,
     flora_lighting_cache: PreparedDescriptorGeneration,
     tree_leaf_lighting_cache: PreparedDescriptorGeneration,
     graphics: Vec<PreparedDescriptorGeneration>,
@@ -1138,7 +1137,8 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx)?;
+        let shader_modules =
+            PipelineBuilder::create_shader_modules(&vulkan_ctx, desc.glass_experiment_enabled)?;
 
         let resources = TracerResources::new(
             &vulkan_ctx,
@@ -2207,7 +2207,6 @@ impl Tracer {
             plain_builder_resources,
         );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
-        update_compute_fn(&self.compute_pipelines.tracer_glass_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -2253,7 +2252,9 @@ impl Tracer {
             &tracer_resources,
         );
         update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.glass_resolve_ppl, &all_resources);
+        if let Some(pipeline) = &self.compute_pipelines.glass_resolve_ppl {
+            update_compute_fn(pipeline, &all_resources);
+        }
         update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
             &tracer_resources,
@@ -2729,11 +2730,6 @@ impl Tracer {
                 .tracer_ppl
                 .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
                 .expect("DDGI consumer tracer descriptor preparation failed"),
-            tracer_glass: self
-                .compute_pipelines
-                .tracer_glass_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
-                .expect("DDGI consumer Glass tracer descriptor preparation failed"),
             flora_lighting_cache: self
                 .compute_pipelines
                 .flora_lighting_cache_ppl
@@ -2781,7 +2777,7 @@ impl Tracer {
             graphics_pipelines.len(),
             "DDGI consumer descriptor preparation pipeline order changed"
         );
-        let mut retirements = Vec::with_capacity(4 + graphics_pipelines.len());
+        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
         retirements.push(
             self.compute_pipelines
                 .tracer_ppl
@@ -2789,15 +2785,6 @@ impl Tracer {
                     "ddgi.consumer.descriptors",
                     generation,
                     prepared.tracer,
-                ),
-        );
-        retirements.push(
-            self.compute_pipelines
-                .tracer_glass_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.tracer_glass,
                 ),
         );
         retirements.push(
@@ -6430,12 +6417,7 @@ impl Tracer {
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
-        let pipeline = if self.desc.glass_experiment_enabled {
-            &self.compute_pipelines.tracer_glass_ppl
-        } else {
-            &self.compute_pipelines.tracer_ppl
-        };
-        pipeline.record(
+        self.compute_pipelines.tracer_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6598,6 +6580,11 @@ impl Tracer {
     }
 
     fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
+        let pipeline = self
+            .compute_pipelines
+            .glass_resolve_ppl
+            .as_ref()
+            .expect("Glass resolve pipeline must exist when the experiment is enabled");
         let resources = &self.resources.extent_dependent_resources;
         resources.glass_voxel_cache_metadata.record_fill(
             cmdbuf,
@@ -6630,11 +6617,7 @@ impl Tracer {
                 pass,
                 ..bytemuck::Zeroable::zeroed()
             };
-            self.compute_pipelines.glass_resolve_ppl.record(
-                cmdbuf,
-                dispatch_extent,
-                Some(bytemuck::bytes_of(&push)),
-            );
+            pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
         }
 
         // The cell list is no longer needed. Reuse it to compact sparse exact-boundary pixels,
@@ -6657,11 +6640,7 @@ impl Tracer {
                 pass,
                 ..bytemuck::Zeroable::zeroed()
             };
-            self.compute_pipelines.glass_resolve_ppl.record(
-                cmdbuf,
-                dispatch_extent,
-                Some(bytemuck::bytes_of(&push)),
-            );
+            pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
         }
     }
 

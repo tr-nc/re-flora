@@ -13,16 +13,17 @@ use re_flora_vkn::{
 pub struct PipelineBuilder;
 
 impl PipelineBuilder {
-    pub fn create_shader_modules(vulkan_ctx: &VulkanContext) -> Result<ShaderModules> {
+    pub fn create_shader_modules(
+        vulkan_ctx: &VulkanContext,
+        glass_experiment_enabled: bool,
+    ) -> Result<ShaderModules> {
         let tracer_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/tracer/tracer.comp",
-            "main",
-        )
-        .unwrap();
-        let tracer_glass_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/tracer_glass.comp",
+            if glass_experiment_enabled {
+                "shader/tracer/tracer_glass.comp"
+            } else {
+                "shader/tracer/tracer.comp"
+            },
             "main",
         )
         .unwrap();
@@ -40,19 +41,31 @@ impl PipelineBuilder {
         .unwrap();
         let ddgi_probe_relocate_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/ddgi/probe_relocate.comp",
+            if glass_experiment_enabled {
+                "shader/ddgi/probe_relocate_glass.comp"
+            } else {
+                "shader/ddgi/probe_relocate.comp"
+            },
             "main",
         )
         .unwrap();
         let ddgi_probe_trace_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/ddgi/probe_trace.comp",
+            if glass_experiment_enabled {
+                "shader/ddgi/probe_trace_glass.comp"
+            } else {
+                "shader/ddgi/probe_trace.comp"
+            },
             "main",
         )
         .unwrap();
         let local_light_visibility_diagnostic_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/lighting/local_light_visibility_diagnostic.comp",
+            if glass_experiment_enabled {
+                "shader/lighting/local_light_visibility_diagnostic_glass.comp"
+            } else {
+                "shader/lighting/local_light_visibility_diagnostic.comp"
+            },
             "main",
         )
         .unwrap();
@@ -88,7 +101,11 @@ impl PipelineBuilder {
         .unwrap();
         let ddgi_voxel_visibility_pack_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/ddgi/voxel_visibility_pack.comp",
+            if glass_experiment_enabled {
+                "shader/ddgi/voxel_visibility_pack_glass.comp"
+            } else {
+                "shader/ddgi/voxel_visibility_pack.comp"
+            },
             "main",
         )
         .unwrap();
@@ -101,7 +118,11 @@ impl PipelineBuilder {
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/tracer/tracer_shadow.comp",
+            if glass_experiment_enabled {
+                "shader/tracer/tracer_shadow_glass.comp"
+            } else {
+                "shader/tracer/tracer_shadow.comp"
+            },
             "main",
         )
         .unwrap();
@@ -164,16 +185,22 @@ impl PipelineBuilder {
 
         let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/tracer/composition.comp",
+            if glass_experiment_enabled {
+                "shader/tracer/composition_glass.comp"
+            } else {
+                "shader/tracer/composition.comp"
+            },
             "main",
         )
         .unwrap();
-        let glass_resolve_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/glass_resolve.comp",
-            "main",
-        )
-        .unwrap();
+        let glass_resolve_sm = glass_experiment_enabled.then(|| {
+            ShaderModule::from_precompiled(
+                vulkan_ctx.device(),
+                "shader/tracer/glass_resolve.comp",
+                "main",
+            )
+            .unwrap()
+        });
         let terrain_depth_prefill_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/terrain_depth_prefill.vert",
@@ -283,13 +310,21 @@ impl PipelineBuilder {
         .unwrap();
         let flora_lighting_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/foliage/flora_lighting_cache.comp",
+            if glass_experiment_enabled {
+                "shader/foliage/flora_lighting_cache_glass.comp"
+            } else {
+                "shader/foliage/flora_lighting_cache.comp"
+            },
             "main",
         )
         .unwrap();
         let tree_leaf_lighting_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/foliage/tree_leaf_lighting_cache.comp",
+            if glass_experiment_enabled {
+                "shader/foliage/tree_leaf_lighting_cache_glass.comp"
+            } else {
+                "shader/foliage/tree_leaf_lighting_cache.comp"
+            },
             "main",
         )
         .unwrap();
@@ -400,7 +435,6 @@ impl PipelineBuilder {
 
         Ok(ShaderModules {
             tracer_sm,
-            tracer_glass_sm,
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
@@ -608,20 +642,6 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
-        let tracer_glass_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.tracer_glass_sm,
-            pool,
-            &[
-                resources,
-                contree_builder_resources,
-                scene_accel_resources,
-                plain_builder_resources,
-                ddgi_volume,
-                ddgi_voxel_visibility,
-            ],
-        );
-
         let tracer_shadow_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_shadow_sm,
@@ -694,12 +714,17 @@ impl PipelineBuilder {
         );
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
-        let glass_resolve_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.glass_resolve_sm,
-            pool,
-            &[resources, plain_builder_resources],
-        );
+        let glass_resolve_ppl = shader_modules
+            .glass_resolve_sm
+            .as_ref()
+            .map(|shader_module| {
+                ComputePipeline::new(
+                    device,
+                    shader_module,
+                    pool,
+                    &[resources, plain_builder_resources],
+                )
+            });
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
         let cloud_shadow_ppl =
             ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
@@ -752,7 +777,6 @@ impl PipelineBuilder {
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
-            tracer_glass_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
             leaf_shadow_temporal_ppl,
@@ -1246,7 +1270,6 @@ impl PipelineBuilder {
 
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
-    pub tracer_glass_sm: ShaderModule,
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
@@ -1269,7 +1292,7 @@ pub struct ShaderModules {
     pub god_ray_sm: ShaderModule,
     pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
-    pub glass_resolve_sm: ShaderModule,
+    pub glass_resolve_sm: Option<ShaderModule>,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
@@ -1322,7 +1345,6 @@ pub struct ComputePipelines {
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
-    pub tracer_glass_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
     pub leaf_shadow_temporal_ppl: ComputePipeline,
@@ -1340,7 +1362,7 @@ pub struct ComputePipelines {
     pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
     pub composition_ppl: ComputePipeline,
-    pub glass_resolve_ppl: ComputePipeline,
+    pub glass_resolve_ppl: Option<ComputePipeline>,
     pub player_collider_ppl: ComputePipeline,
     pub terrain_query_ppl: ComputePipeline,
     pub wind_volume_ppl: ComputePipeline,

@@ -320,6 +320,50 @@ no-Glass graph still records no Glass resolve work, so merging this guarded expe
 move ordinary worlds onto the Glass architecture. Evidence is at
 `target/perf-feature-off-glass-lod3/comparison.json`.
 
+## Feature-OFF pipeline isolation
+
+The earlier feature-OFF gate proved that the observed frame time was stable, but inspection of
+the compiled SPIR-V found that a runtime `glass_experiment_enabled == false` branch was not a
+strong enough architectural boundary. Several standard modules still contained Glass traversal,
+transport, and resource code even though those branches were never taken. Representative module
+sizes and structured branch counts against pre-Glass commit `d820d3d7` were:
+
+| Standard module | Pre-Glass bytes / branches | Runtime-guarded bytes / branches | Specialized OFF bytes / branches |
+|---|---:|---:|---:|
+| primary tracer | 451,664 / 1,686 | 555,344 / 2,226 | 451,792 / 1,686 |
+| shadow tracer | 23,152 / 39 | 40,464 / 129 | 23,152 / 39 |
+| composition | 28,740 / 44 | 31,068 / 49 | 28,740 / 44 |
+| DDGI probe trace | 111,652 / 371 | 178,808 / 698 | 112,056 / 371 |
+| flora lighting cache | 69,080 / 148 | 92,684 / 262 | 69,216 / 148 |
+| local-light diagnostic | 35,780 / 105 | 81,540 / 333 | 35,780 / 105 |
+
+The retained implementation compiles paired standard and Glass shader entry points from the same
+source, with the Glass transport included only behind a compile-time define. Startup selects
+exactly one variant for the primary and shadow tracers, composition, DDGI trace/relocation/voxel
+visibility, flora and tree lighting caches, and local-light diagnostics. Feature OFF does not
+create the Glass resolve shader module or compute pipeline and no longer creates a duplicate
+primary tracer pipeline or duplicate DDGI descriptor generation. The 184-byte shared-resource
+placeholder remains solely to keep the common resource bundle structurally valid; it creates no
+full-resolution image and records no Glass work.
+
+An uncontaminated RTX 3060 Ti `render-steady` Release A,B,B,A comparison used the pre-Glass
+`d820d3d7` binary as A and the specialized feature-OFF binary as B. All eleven configured median
+gates pass with 705 baseline and 704 candidate post-warm-up samples:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 1.624 / 2.053 ms | 1.627 / 2.068 ms | +0.18% / +0.71% | pass |
+| `frame.cpu_total` | 2.602 / 3.127 ms | 2.609 / 3.161 ms | +0.27% / +1.08% | pass |
+| `tracer.render` | 0.471 / 0.484 ms | 0.475 / 0.489 ms | +0.85% / +1.03% | pass |
+| `render.trace_record` | 0.244 / 0.276 ms | 0.244 / 0.277 ms | +0.00% / +0.36% | pass |
+| `composition.pass` | 0.034 / 0.035 ms | 0.034 / 0.035 ms | +0.00% / +0.00% | pass |
+
+Evidence is at `target/perf/glass-feature-off-specialized-abba/comparison.json`. A clean matched
+25% Glass Release pair also keeps all four incremental medians within the existing 5% gate:
+`frame.render` +1.07%, `glass.resolve` +0.12%, `tracer.pass` -0.25%, and
+`tracer.render` -0.57%. Evidence is at
+`target/perf/glass-specialization-coverage25-clean-pair.json`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 26,431,492 bytes (25.21 MiB):
@@ -373,15 +417,15 @@ python scripts/perf_suite.py run glass-coverage-25 \
 ## Final validation commands
 
 - `cargo fmt --check`: pass.
-- `cargo check`: pass; 102 native Slang shaders precompiled.
+- `cargo check`: pass; 110 native Slang shaders precompiled.
 - `cargo test -- --skip patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`:
-  pass (4 auxiliary binary tests plus 675 main tests, 1 ignored, and the one documented PATT
+  pass (4 auxiliary binary tests plus 677 main tests, 1 ignored, and the one documented PATT
   fixture filtered out).
 - `python -m unittest discover -s scripts/tests -p 'test_*.py'`: 83 passed.
 - Normal feature-OFF hidden release run and Glass 25% resize-lifecycle hidden release run:
   pass, clean shutdown, no Vulkan validation error, device loss, panic, non-finite Glass pixel,
   or Glass exhaustion.
-- Post-stabilization `cargo fmt --check` and `cargo check`: pass; 102 native Slang shaders
+- Post-stabilization `cargo fmt --check` and `cargo check`: pass; 110 native Slang shaders
   precompiled.
 - Post-stabilization Rust suite with only the documented dirty-snapshot PATT fixture filtered:
   677 passed, 1 ignored; Python suite: 83 passed.
@@ -396,6 +440,10 @@ python scripts/perf_suite.py run glass-coverage-25 \
   50% Glass hidden Release smoke measured 50.480% coverage and 201,919 Glass pixels with zero
   exhausted and zero non-finite pixels; both runs shut down cleanly without a Vulkan validation
   error, device loss, or panic.
+- Compile-time feature-OFF specialization: standard shader branch counts match the pre-Glass
+  modules, all eleven `render-steady` Release A,B,B,A gates pass, and the Glass resolve module and
+  pipeline are not created. Repeated specialized Release captures at
+  `target/glass-border-specialized/` retain both raster-disocclusion fixes.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root

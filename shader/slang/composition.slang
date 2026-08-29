@@ -11,6 +11,10 @@ import ray;
 import sunlight;
 import tracer_types;
 
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
@@ -32,6 +36,7 @@ RWTexture2D<float4> composited_tex;
 readonly RWTexture2D<float4> lens_flare_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
 [[vk::binding(15, 0)]] Sampler2D cloud_output_tex;
+#if RE_FLORA_GLASS_TRANSPORT
 [[vk::binding(16, 0)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> unified_opaque_hdr_tex;
 [[vk::binding(17, 0)]] [[vk::image_format("r32f")]]
@@ -43,6 +48,7 @@ static const uint OPAQUE_PROVENANCE_VOXEL = 1u;
 static const uint OPAQUE_PROVENANCE_RASTER = 2u;
 static const uint OPAQUE_PROVENANCE_SKY = 3u;
 static const uint OPAQUE_PROVENANCE_UNSUPPORTED_RASTER = 4u;
+#endif
 
 [numthreads(8, 8, 1)]
 [shader("compute")]
@@ -66,7 +72,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         gui_input, sun_info, camera_info, starlight_info,
         sun_sprite_tex, cloud_output_tex);
 
-    if (shading_info.glass_experiment_enabled != 0u)
+#if RE_FLORA_GLASS_TRANSPORT
     {
         bool hasRaster = rasterColor.a > 0.0 && rasterDepth < 1.0;
         bool hasVoxel = computeDepth < 1.0;
@@ -90,6 +96,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         opaque_provenance_tex[coordinate] = provenance;
         return;
     }
+#endif
 
     finalColor += sampleLensFlare(screenUv, lens_flare_output_tex);
 
