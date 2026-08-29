@@ -42,6 +42,12 @@ _Avoid_: campaign, narrative progression
 
 ## Environment Lighting
 
+**Authored Environment Lighting**:
+The normalized current-frame lighting fact whose live identity and revision are authoritative for
+immediate lighting observation. Transported lighting derives immutable snapshots from this fact on
+its own cadence without becoming a second live authority.
+_Avoid_: environment lighting cache, DDGI radiance state
+
 **DDGI Probe**:
 A directionless spatial sample that represents surrounding diffuse irradiance and visibility over
 the sphere.
