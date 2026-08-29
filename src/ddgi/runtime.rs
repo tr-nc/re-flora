@@ -1,6 +1,6 @@
 use crate::environment_lighting::{DdgiRadianceHistoryPolicy, EnvironmentLightingState};
 use crate::geom::UAabb3;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
@@ -106,12 +106,9 @@ impl DdgiRuntimeWork {
         self.authored_lighting
     }
 
+    #[cfg(test)]
     pub(crate) fn radiance_history_policy(self) -> Option<DdgiRadianceHistoryPolicy> {
         self.radiance_history_policy
-    }
-
-    pub(crate) fn local_refresh_voxel_bound(self) -> Option<UAabb3> {
-        self.local_refresh_voxel_bound
     }
 
     pub(crate) fn probe_priority(self) -> Option<DdgiProbePriority> {
@@ -343,6 +340,47 @@ impl DdgiRuntime {
         })
     }
 
+    /// Installs the physical allocation authorized by [`Self::claim_volume_build`] and performs
+    /// the complete builder-stage initialization transaction.
+    ///
+    /// Allocation remains concrete Vulkan work outside the runtime. The caller hands the finished
+    /// allocation back here and cannot assign tokens, select Active/Staging, or request stages.
+    pub(crate) fn install_volume_build(
+        &mut self,
+        build: DdgiRuntimeVolumeBuild,
+        staging: Option<DdgiVolume>,
+    ) -> Result<Option<DdgiVolume>> {
+        match build.target {
+            DdgiRuntimeVolumeTarget::Active => {
+                anyhow::ensure!(
+                    staging.is_none(),
+                    "initial DDGI build must use the installed Active allocation"
+                );
+                let builder = self.volumes_mut().builder_mut();
+                anyhow::ensure!(
+                    builder.status().build_token.is_none(),
+                    "initial DDGI Volume must not already have a build token"
+                );
+                builder.assign_build_token(build.token);
+                anyhow::ensure!(
+                    builder.request_initialization(build.token.terrain_revision()),
+                    "initial DDGI Volume must accept its authoritative terrain revision"
+                );
+                Ok(None)
+            }
+            DdgiRuntimeVolumeTarget::Staging => {
+                let mut staging =
+                    staging.context("staging DDGI build requires a new allocation")?;
+                staging.assign_build_token(build.token);
+                anyhow::ensure!(
+                    staging.request_initialization(build.token.terrain_revision()),
+                    "staging DDGI Volume must accept its authoritative terrain revision"
+                );
+                Ok(self.volumes_mut().prepare_staging(staging))
+            }
+        }
+    }
+
     fn request_geometry_transport(&mut self, token: DdgiBuildToken) {
         // Physical active residency is authoritative: the logical scheduler may currently publish
         // a private staging candidate that active descriptors cannot read. Runtime-owned identity
@@ -446,6 +484,28 @@ impl DdgiRuntime {
             local_refresh_voxel_bound,
             probe_priority,
         })
+    }
+
+    /// Claims and installs the next logical transport epoch into the physical builder.
+    pub(crate) fn begin_next_transport_work(&mut self) -> Result<Option<DdgiRuntimeWork>> {
+        let Some(work) = self.claim_transport_work() else {
+            return Ok(None);
+        };
+        let destination = work.scheduled.destination().field();
+        let builder = self.volumes_mut().builder_mut();
+        anyhow::ensure!(
+            builder.status().grid.spacing_voxels() == destination.spacing_voxels(),
+            "DDGI scheduler selected spacing {} for builder spacing {}",
+            destination.spacing_voxels(),
+            builder.status().grid.spacing_voxels(),
+        );
+        builder.begin_scheduled_work(
+            work.scheduled,
+            work.local_refresh_voxel_bound,
+            work.radiance_history_policy,
+            work.probe_priority,
+        )?;
+        Ok(Some(work))
     }
 
     pub(crate) fn validate_transport_completion(

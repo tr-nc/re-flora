@@ -94,11 +94,11 @@ use crate::builder::{
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
-    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
-    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
-    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiScheduledWorkKind, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiVolume, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -1305,8 +1305,9 @@ impl Tracer {
         self.drive_pending_ddgi_rebuild();
     }
 
-    fn prepare_ddgi_staging(&mut self, build_token: DdgiBuildToken) -> Result<()> {
-        let mut staging = DdgiVolume::new(
+    fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
+        let build_token = build.token();
+        let staging = DdgiVolume::new(
             &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
@@ -1314,8 +1315,6 @@ impl Tracer {
             self.desc.voxel_dim_per_chunk,
             self.desc.ddgi_batch_order,
         )?;
-        staging.assign_build_token(build_token);
-        staging.request_initialization(build_token.terrain_revision());
         if let Some(retired_token) = self
             .ddgi_runtime
             .volumes()
@@ -1333,11 +1332,15 @@ impl Tracer {
                 build_token.terrain_revision(),
             );
         }
-        // Builder descriptors move first. Active consumers keep sampling the complete volume until
-        // the replacement reaches Ready and is explicitly promoted on a later frame.
+        let retired_staging = self
+            .ddgi_runtime
+            .install_volume_build(build, Some(staging))?;
+        // Active consumers keep sampling the complete volume until the replacement reaches Ready
+        // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
+        let staging = self.ddgi_runtime.volumes().builder();
         let descriptor_retirements =
-            self.update_ddgi_builder_descriptors(&staging, None, descriptor_generation);
+            self.update_ddgi_builder_descriptors(staging, None, descriptor_generation);
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
@@ -1345,10 +1348,9 @@ impl Tracer {
         // writes and owner copies are paid during staging setup; promotion only swaps the already
         // complete sets into the active pipelines and schedules the old generation for retirement.
         self.prepared_ddgi_consumer_descriptors =
-            Some(self.stage_ddgi_consumer_descriptors(&staging));
+            Some(self.stage_ddgi_consumer_descriptors(staging));
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
-        let retired_staging = self.ddgi_runtime.volumes_mut().prepare_staging(staging);
         if let Some(retired_staging) = retired_staging {
             self.frame_retirement_sink.retire(FrameRetirement::new(
                 "ddgi.staging.volume",
@@ -1373,7 +1375,7 @@ impl Tracer {
     }
 
     fn start_next_ddgi_scheduled_work(&mut self) -> Result<bool> {
-        let Some(runtime_work) = self.ddgi_runtime.claim_transport_work() else {
+        let Some(runtime_work) = self.ddgi_runtime.begin_next_transport_work()? else {
             return Ok(false);
         };
         let work = runtime_work.scheduled();
@@ -1383,22 +1385,6 @@ impl Tracer {
             destination.radiance_revision(),
             "DDGI transport work must retain the authored lighting revision it was scheduled with",
         );
-        let status = self.ddgi_runtime.volumes().builder().status();
-        anyhow::ensure!(
-            status.grid.spacing_voxels() == destination.spacing_voxels(),
-            "DDGI scheduler selected spacing {} for builder spacing {}",
-            destination.spacing_voxels(),
-            status.grid.spacing_voxels(),
-        );
-        self.ddgi_runtime
-            .volumes_mut()
-            .builder_mut()
-            .begin_scheduled_work(
-                work,
-                runtime_work.local_refresh_voxel_bound(),
-                runtime_work.radiance_history_policy(),
-                runtime_work.probe_priority(),
-            )?;
         if let Some(priority) = runtime_work.probe_priority() {
             log::debug!(
                 "[DDGI][PRIORITY] latched reason={:?} voxel_min={:?} voxel_max={:?} field_serial={} revision={}",
@@ -1568,22 +1554,9 @@ impl Tracer {
         let build_token = build.token();
         match build.target() {
             DdgiRuntimeVolumeTarget::Active => {
-                let builder_status = self.ddgi_runtime.volumes().builder().status();
-                assert!(
-                    builder_status.build_token.is_none(),
-                    "initial DDGI Volume must not already have a build token"
-                );
                 self.ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .assign_build_token(build_token);
-                assert!(
-                    self.ddgi_runtime
-                        .volumes_mut()
-                        .builder_mut()
-                        .request_initialization(build_token.terrain_revision()),
-                    "initial DDGI Volume must accept its authoritative terrain revision"
-                );
+                    .install_volume_build(build, None)
+                    .expect("initial DDGI Volume installation must succeed");
                 let status = self.ddgi_runtime.volumes().status().builder();
                 log::info!(
                     "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
@@ -1594,7 +1567,7 @@ impl Tracer {
                 );
             }
             DdgiRuntimeVolumeTarget::Staging => {
-                let preparation = self.prepare_ddgi_staging(build_token);
+                let preparation = self.prepare_ddgi_staging(build);
                 require_ddgi_staging_preparation(build_token, preparation);
                 log::info!(
                     "[DDGI] rebuild started token_serial={} kind={:?} terrain_revision={} spacing_voxels={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
