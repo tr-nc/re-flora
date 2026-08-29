@@ -1,6 +1,14 @@
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 import ddgi_types;
 import voxel_data;
+#if RE_FLORA_GLASS_TRANSPORT
 import voxel_material;
+#else
+import voxel_types;
+#endif
 
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
@@ -31,9 +39,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             ? voxelTypeFromAtlasData(chunk_atlas[
                 uint3(x, wordCoordinate.y, wordCoordinate.z)])
             : 0u;
+#if RE_FLORA_GLASS_TRANSPORT
         VoxelMaterial material = voxelMaterial(
-            voxelType, info.glass_experiment_enabled != 0u);
+            voxelType, true);
         if ((material.flags & VOXEL_MATERIAL_FLAG_BLOCKS_DDGI_VISIBILITY) != 0u)
+#else
+        if (voxelType != VOXEL_TYPE_EMPTY)
+#endif
         {
             packed |= 1u << bit;
         }

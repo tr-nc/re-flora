@@ -2,7 +2,12 @@ import contree_marching;
 import contree_node;
 import marching_result;
 import ray;
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+#if RE_FLORA_GLASS_TRANSPORT
 import scene_query;
+#endif
 import scene_marching;
 import tracer_types;
 import voxel_types;
@@ -29,10 +34,10 @@ RWTexture2D<float> shadow_map_tex;
 [[vk::binding(5, 0)]]
 ConstantBuffer<U_GuiInput> gui_input;
 
-[[vk::binding(6, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
-
+#if RE_FLORA_GLASS_TRANSPORT
 [[vk::binding(7, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
+#endif
 
 bool isTerrainVoxel(uint voxelType)
 {
@@ -45,19 +50,20 @@ bool isTerrainVoxel(uint voxelType)
 float tracePixelDepth(Ray ray, uint localInvocationIndex)
 {
     MarchingResult result;
-    if (shading_info.glass_experiment_enabled != 0u)
+#if RE_FLORA_GLASS_TRANSPORT
     {
         ScenePrimaryQuery query = tracePrimaryVoxelSurfaces(
             chunk_atlas, ray.origin, ray.direction, 256.0, true);
         result = sceneQueryMarchingResultFromOpaqueEvent(
             query.opaque_hit, ray.origin);
     }
-    else
+#else
     {
         result = marchScene(
             contree_node_data, contree_leaf_data, scene_tex, ray.origin,
             ray.direction, ray.inverse_direction, localInvocationIndex);
     }
+#endif
     if (!result.is_hit)
     {
         return 1.0;

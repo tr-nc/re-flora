@@ -932,10 +932,14 @@ mod tests {
         let local = include_str!("../../shader/slang/local_lighting.slang");
         assert!(local.contains("traceVoxelStraightTransport("));
         assert!(local.contains("sample.irradiance * transmittance"));
+        assert!(local.contains("evaluateVoxelGlassVisibleLocalLight("));
 
         let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
-        assert!(ddgi.contains("ddgiTraceScene("));
+        assert!(ddgi.contains("ddgiTraceGlassScene("));
         assert!(ddgi.contains("transportTransmittance"));
+        assert!(ddgi.contains("#if RE_FLORA_GLASS_TRANSPORT"));
+        let ddgi_glass = include_str!("../../shader/slang/ddgi_probe_trace_glass.slang");
+        assert!(ddgi_glass.contains("#define RE_FLORA_GLASS_TRANSPORT 1"));
         let direct_sun = ddgi
             .split_once("float ddgiExactTerrainSunVisibility(")
             .expect("DDGI must keep direct-sun visibility explicit")
@@ -948,7 +952,24 @@ mod tests {
 
         let shadow = include_str!("../../shader/slang/tracer_shadow.slang");
         assert!(shadow.contains("tracePrimaryVoxelSurfaces("));
-        assert!(shadow.contains("glass_experiment_enabled"));
+        assert!(shadow.contains("#if RE_FLORA_GLASS_TRANSPORT"));
+        assert!(!shadow.contains("glass_experiment_enabled"));
+
+        let pipelines = include_str!("../tracer/pipeline_builder.rs");
+        for specialized_path in [
+            "shader/ddgi/probe_relocate_glass.comp",
+            "shader/ddgi/probe_trace_glass.comp",
+            "shader/ddgi/voxel_visibility_pack_glass.comp",
+            "shader/foliage/flora_lighting_cache_glass.comp",
+            "shader/foliage/tree_leaf_lighting_cache_glass.comp",
+            "shader/lighting/local_light_visibility_diagnostic_glass.comp",
+            "shader/tracer/composition_glass.comp",
+            "shader/tracer/tracer_glass.comp",
+            "shader/tracer/tracer_shadow_glass.comp",
+        ] {
+            assert!(pipelines.contains(specialized_path));
+        }
+        assert!(pipelines.contains("glass_experiment_enabled.then(||"));
     }
 
     #[test]

@@ -1,7 +1,10 @@
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 import contree_node;
 import local_lighting;
 import scene_marching;
-import tracer_types;
 
 public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_ABI_VERSION = 3u;
 public static const uint LOCAL_LIGHT_VISIBILITY_DIAGNOSTIC_SPECIFIC = 1u;
@@ -51,8 +54,9 @@ StructuredBuffer<U_LightGpu> local_lights;
 StructuredBuffer<ContreeNode> contree_node_data;
 StructuredBuffer<uint> contree_leaf_data;
 readonly RWTexture3D<uint2> scene_tex;
+#if RE_FLORA_GLASS_TRANSPORT
 readonly RWTexture3D<uint> chunk_atlas;
-ConstantBuffer<U_ShadingInfo> shading_info;
+#endif
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
@@ -99,13 +103,23 @@ void main()
         ? requestedLightIndex : 0xffffffffu;
     if (identityMatches && specificMode)
     {
+#if RE_FLORA_GLASS_TRANSPORT
+        LocalLightVoxelEvaluation evaluation =
+            evaluateVoxelGlassVisibleLocalLightAtIndex(
+                local_light_info, local_lights, contree_node_data,
+                contree_leaf_data, scene_tex, chunk_atlas,
+                info.receiver_position_and_origin_offset.xyz,
+                info.receiver_normal_and_reserved.xyz,
+                info.receiver_position_and_origin_offset.w, 0u,
+                requestedLightIndex);
+#else
         LocalLightVoxelEvaluation evaluation = evaluateVoxelVisibleLocalLightAtIndex(
             local_light_info, local_lights, contree_node_data, contree_leaf_data,
-            scene_tex, chunk_atlas,
-            shading_info.glass_experiment_enabled != 0u,
+            scene_tex,
             info.receiver_position_and_origin_offset.xyz,
             info.receiver_normal_and_reserved.xyz,
             info.receiver_position_and_origin_offset.w, 0u, requestedLightIndex);
+#endif
         result.candidates = evaluation.candidates;
         result.visible = evaluation.visible;
         result.occluded = evaluation.occluded;
@@ -114,13 +128,21 @@ void main()
     }
     else if (identityMatches && aggregateMode)
     {
-        LocalLightVoxelEvaluation evaluation = evaluateVoxelVisibleLocalLight(
+#if RE_FLORA_GLASS_TRANSPORT
+        LocalLightVoxelEvaluation evaluation = evaluateVoxelGlassVisibleLocalLight(
             local_light_info, local_lights, contree_node_data, contree_leaf_data,
             scene_tex, chunk_atlas,
-            shading_info.glass_experiment_enabled != 0u,
             info.receiver_position_and_origin_offset.xyz,
             info.receiver_normal_and_reserved.xyz,
             info.receiver_position_and_origin_offset.w, 0u);
+#else
+        LocalLightVoxelEvaluation evaluation = evaluateVoxelVisibleLocalLight(
+            local_light_info, local_lights, contree_node_data, contree_leaf_data,
+            scene_tex,
+            info.receiver_position_and_origin_offset.xyz,
+            info.receiver_normal_and_reserved.xyz,
+            info.receiver_position_and_origin_offset.w, 0u);
+#endif
         result.candidates = evaluation.candidates;
         result.visible = evaluation.visible;
         result.occluded = evaluation.occluded;

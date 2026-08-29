@@ -1,6 +1,12 @@
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 import contree_node;
 import flora_lighting_cache;
+#if RE_FLORA_GLASS_TRANSPORT
 import flora_lighting_resources;
+#endif
 import flora_types;
 import flora_vertex;
 import local_lighting;
@@ -55,12 +61,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             prepared.voxel_position, prepared.shading_normal);
     if (!prepared.should_trim)
     {
-        irradiance += evaluateVoxelVisibleLocalLightIrradiance(
+#if RE_FLORA_GLASS_TRANSPORT
+        irradiance += evaluateVoxelGlassVisibleLocalLightIrradiance(
             floraLocalLightInfo(), local_lights, contree_node_data,
-            contree_leaf_data, scene_tex, chunk_atlas,
-            shading_info.glass_experiment_enabled != 0u, prepared.voxel_position,
+            contree_leaf_data, scene_tex, chunk_atlas, prepared.voxel_position,
             prepared.shading_normal,
             floraTerrainRayOriginOffsetWorld(), localInstanceIndex);
+#else
+        irradiance += evaluateVoxelVisibleLocalLightIrradiance(
+            floraLocalLightInfo(), local_lights, contree_node_data,
+            contree_leaf_data, scene_tex, prepared.voxel_position,
+            prepared.shading_normal,
+            floraTerrainRayOriginOffsetWorld(), localInstanceIndex);
+#endif
     }
     flora_lighting_cache[
         floraLightingCacheIndex(floraPc, localInstanceIndex, 0u)] =

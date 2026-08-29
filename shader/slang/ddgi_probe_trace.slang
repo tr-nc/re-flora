@@ -1,3 +1,7 @@
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 import contree_node;
 import ddgi_config;
 import ddgi_query;
@@ -5,7 +9,9 @@ import ddgi_sampling;
 import ddgi_types;
 import marching_result;
 import local_lighting;
+#if RE_FLORA_GLASS_TRANSPORT
 import scene_query;
+#endif
 import scene_marching;
 import skylight;
 import terrain_ray_origin;
@@ -24,8 +30,10 @@ StructuredBuffer<uint> contree_leaf_data;
 [[vk::binding(9, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
 
+#if RE_FLORA_GLASS_TRANSPORT
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
+#endif
 
 [[vk::binding(25, 0)]]
 GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
@@ -86,25 +94,18 @@ void recordTraceStatValue(uint index, uint value)
     if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[index], value);
 }
 
-MarchingResult ddgiTraceScene(float3 origin, float3 direction,
-                              uint localInvocationIndex,
-                              out float3 transmittance,
-                              out uint transportExhausted)
+#if RE_FLORA_GLASS_TRANSPORT
+MarchingResult ddgiTraceGlassScene(float3 origin, float3 direction,
+                                   out float3 transmittance,
+                                   out uint transportExhausted)
 {
-    transmittance = float3(1.0);
-    transportExhausted = 0u;
-    if (ddgi_transport_query_info.glass_experiment_enabled == 0u)
-    {
-        return marchScene(
-            contree_node_data, contree_leaf_data, scene_tex,
-            origin, direction, 1.0 / direction, localInvocationIndex);
-    }
     SceneStraightTransport transport = traceVoxelStraightTransport(
         chunk_atlas, origin, direction, pc.far_distance_world, true);
     transmittance = transport.transmittance;
     transportExhausted = transport.exhausted;
     return sceneQueryMarchingResultFromOpaqueEvent(transport.terminal, origin);
 }
+#endif
 
 float ddgiExactTerrainSunVisibility(MarchingResult receiver,
                                     float3 sunDirection,
@@ -113,17 +114,19 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
     float3 origin = terrainRayOriginAlongNormal(
         receiver.center_position, receiver.normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
-    if (ddgi_transport_query_info.glass_experiment_enabled != 0u)
+#if RE_FLORA_GLASS_TRANSPORT
     {
         SceneStraightTransport transport = traceVoxelStraightTransport(
             chunk_atlas, origin, sunDirection, pc.far_distance_world, true);
         return transport.exhausted == 0u &&
             transport.terminal.kind != SCENE_QUERY_EVENT_OPAQUE ? 1.0 : 0.0;
     }
+#else
     MarchingResult shadowHit = marchScene(
         contree_node_data, contree_leaf_data, scene_tex,
         origin, sunDirection, 1.0 / sunDirection, localInvocationIndex);
     return shadowHit.is_hit ? 0.0 : 1.0;
+#endif
 }
 
 float3 ddgiTransportHitRadiance(MarchingResult result,
@@ -142,13 +145,21 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
-    LocalLightVoxelEvaluation localLight = evaluateVoxelVisibleLocalLight(
+#if RE_FLORA_GLASS_TRANSPORT
+    LocalLightVoxelEvaluation localLight = evaluateVoxelGlassVisibleLocalLight(
         ddgi_local_light_info, ddgi_local_lights, contree_node_data,
         contree_leaf_data, scene_tex, chunk_atlas,
-        ddgi_transport_query_info.glass_experiment_enabled != 0u,
         ddgiReceiverPosition, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world,
         localInvocationIndex);
+#else
+    LocalLightVoxelEvaluation localLight = evaluateVoxelVisibleLocalLight(
+        ddgi_local_light_info, ddgi_local_lights, contree_node_data,
+        contree_leaf_data, scene_tex,
+        ddgiReceiverPosition, normal,
+        ddgi_radiance_sun.terrain_ray_origin_offset_world,
+        localInvocationIndex);
+#endif
     directIrradiance += localLight.irradiance;
     if ((ddgi_local_light_info.flags &
          LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u)
@@ -233,17 +244,26 @@ void main(uint3 groupId : SV_GroupID,
         recordTraceStat(1u);
         float3 direction = ddgiEpochDirection(
             rayIndex, DDGI_RAYS_PER_PROBE, pc.epoch_rotation);
+#if RE_FLORA_GLASS_TRANSPORT
         float3 transportTransmittance;
         uint transportExhausted;
-        MarchingResult result = ddgiTraceScene(
+        MarchingResult result = ddgiTraceGlassScene(
             metadata.actual_position_and_clearance.xyz, direction,
-            localInvocationId.x, transportTransmittance, transportExhausted);
+            transportTransmittance, transportExhausted);
         if (transportExhausted != 0u) recordTraceStat(5u);
+#else
+        MarchingResult result = marchScene(
+            contree_node_data, contree_leaf_data, scene_tex,
+            metadata.actual_position_and_clearance.xyz, direction,
+            1.0 / direction, localInvocationId.x);
+#endif
         if (!result.is_hit)
         {
             rayRecord.xyz = getAuthoredSkyRadiance(
-                direction, normalize(ddgi_radiance_sun.direction)) *
-                transportTransmittance;
+                direction, normalize(ddgi_radiance_sun.direction));
+#if RE_FLORA_GLASS_TRANSPORT
+            rayRecord.xyz *= transportTransmittance;
+#endif
             recordTraceStat(2u);
         }
         else
@@ -254,8 +274,10 @@ void main(uint3 groupId : SV_GroupID,
             if (!backface)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
-                    result, localInvocationId.x, useHistory) *
-                    transportTransmittance;
+                    result, localInvocationId.x, useHistory);
+#if RE_FLORA_GLASS_TRANSPORT
+                rayRecord.xyz *= transportTransmittance;
+#endif
             }
             recordTraceStat(backface ? 4u : 3u);
         }

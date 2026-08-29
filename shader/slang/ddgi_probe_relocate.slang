@@ -1,6 +1,14 @@
+#ifndef RE_FLORA_GLASS_TRANSPORT
+#define RE_FLORA_GLASS_TRANSPORT 0
+#endif
+
 import ddgi_types;
 import voxel_data;
+#if RE_FLORA_GLASS_TRANSPORT
 import voxel_material;
+#else
+import voxel_types;
+#endif
 
 static const uint DDGI_RELOCATION_WORKGROUP_SIZE = 64u;
 static const uint DDGI_INVALID_DISTANCE = 0xffffffffu;
@@ -51,9 +59,13 @@ bool voxelAllowsProbe(int3 position, int3 dimensions)
 {
     if (!voxelIsInside(position, dimensions)) return false;
     uint voxelType = voxelTypeFromAtlasData(chunk_atlas[uint3(position)]);
+#if RE_FLORA_GLASS_TRANSPORT
     VoxelMaterial material = voxelMaterial(
-        voxelType, pc.glass_experiment_enabled != 0u);
+        voxelType, true);
     return (material.flags & VOXEL_MATERIAL_FLAG_PROBE_RELOCATION_SOLID) == 0u;
+#else
+    return voxelType == VOXEL_TYPE_EMPTY;
+#endif
 }
 
 uint candidateClearance(int3 position, int3 dimensions)

@@ -73,6 +73,23 @@ MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
                       localInvocationIndex);
 }
 
+float3 tracerVisibleLocalLightIrradiance(float3 receiverPosition,
+                                         float3 receiverNormal,
+                                         uint localInvocationIndex)
+{
+#if RE_FLORA_GLASS_PRIMARY
+    return evaluateVoxelGlassVisibleLocalLightIrradiance(
+        local_light_info, local_lights, contree_node_data, contree_leaf_data,
+        scene_tex, chunk_atlas, receiverPosition, receiverNormal,
+        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+#else
+    return evaluateVoxelVisibleLocalLightIrradiance(
+        local_light_info, local_lights, contree_node_data, contree_leaf_data,
+        scene_tex, receiverPosition, receiverNormal,
+        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+#endif
+}
+
 float3 sampleDiffuseBounce(int3 seed, float3 normal)
 {
     float3 localDirection = randomWeightedCosine(fast_weighted_cosine_bn, seed);
@@ -217,11 +234,8 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
             terrainLeafReceiverPosition, cloudReceiverPosition, normal,
             shadow) * cosine;
     }
-    float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
-        local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
-        surfacePosition, normal,
-        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+    float3 localIrradiance = tracerVisibleLocalLightIrradiance(
+        surfacePosition, normal, localInvocationIndex);
     return (sunIrradiance + localIrradiance) * albedo;
 }
 
@@ -249,7 +263,7 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         if (cosine > 0.0)
         {
             float visibility;
-            if (shading_info.glass_experiment_enabled != 0u)
+#if RE_FLORA_GLASS_PRIMARY
             {
                 SceneStraightTransport transport = traceVoxelStraightTransport(
                     chunk_atlas, shadowRay.origin, shadowRay.direction,
@@ -259,23 +273,21 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
                     ? 0.0
                     : 1.0;
             }
-            else
+#else
             {
                 MarchingResult shadowHit = generalSceneMarching(
                     shadowRay, localInvocationIndex);
                 visibility = shadowHit.is_hit ? 0.0 : 1.0;
             }
+#endif
             sunIrradiance = sun_info.sun_color * sun_info.sun_luminance *
                 cosine * visibility;
         }
     }
     float3 receiverPosition = terrainVoxelSurfacePositionAlongNormal(
         receiver.center_position, receiver.normal);
-    float3 localIrradiance = evaluateVoxelVisibleLocalLightIrradiance(
-        local_light_info, local_lights, contree_node_data, contree_leaf_data,
-        scene_tex, chunk_atlas, shading_info.glass_experiment_enabled != 0u,
-        receiverPosition, receiver.normal,
-        gui_input.terrain_ray_origin_offset_world, localInvocationIndex);
+    float3 localIrradiance = tracerVisibleLocalLightIrradiance(
+        receiverPosition, receiver.normal, localInvocationIndex);
     return sunIrradiance + localIrradiance;
 }
 
