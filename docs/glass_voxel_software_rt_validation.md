@@ -3,9 +3,10 @@
 ## Status
 
 The staged experimental implementation is complete through Phase 4 and includes the
-distance-invariant secondary-visibility stabilization through commit `8c5f8c96` and raster
-silhouette stabilization through commit `ff51a38a`. Correctness, isolation, Vulkan validation,
-fallback, bounded-work, targeted visual regression, and feature-OFF gates pass. The original
+distance-invariant secondary-visibility stabilization through commit `8c5f8c96`, raster
+silhouette stabilization through commit `ff51a38a`, and raster-disocclusion stabilization
+recorded below. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
+visual regression, and feature-OFF gates pass. The original
 25% coverage planning target against feature OFF still does not pass, so this remains an
 isolated experiment and is not ship-ready.
 
@@ -268,6 +269,57 @@ Feature OFF retained a 184-byte placeholder allocation and completed without err
 `target/re-flora-logs/re-flora-20260829-154559.769-206548.log` and
 `target/re-flora-logs/re-flora-20260829-154542.082-206473.log`.
 
+## Raster disocclusion and large-footprint cache stabilization
+
+The user-authored `border` and `border2` snapshots exposed two manifestations of the same
+visibility mismatch:
+
+- raster-only producers such as flora and preview geometry are present in unified opaque HDR,
+  depth, and provenance, but do not exist in the voxel `SceneQuery`; and
+- one cached primary-transmission result cannot represent screen-space disocclusions across a
+  close Glass voxel whose projected face spans several internal pixels.
+
+In `border`, a cached voxel terminal replaced an authoritatively visible raster texel beside the
+amber and colored blocks, producing a padding-like strip. In `border2`, cache sharing extended the
+same mismatch into a large triangular region that removed grass. Increasing screen-trace distance
+or raster hit thickness did not change either artifact. A diagnostic second raster depth peel also
+did not address the missing raster/voxel semantic link, so it was reverted rather than adding a
+new pass and another set of full-resolution images.
+
+The retained fix has two parts. Terminal resolution now preserves the source unified-opaque texel
+when depth proves that it is behind Glass and provenance proves that it came from a raster-only
+producer; this is a conservative visibility fallback, not an unvalidated color blend. Cache
+classification then uses projected screen footprint as an LOD: subpixel voxels keep one complete
+cached transport color, intermediate voxels use the existing raster-boundary correction, and
+voxels with a projected face radius of at least three internal pixels recompute only the primary
+transmitted branch per pixel. The cached one-normal result, reflected branches, Fresnel, and
+Beer-Lambert transport are retained in every tier.
+
+Two independent delayed Release captures for both snapshots preserve continuous grass/wall
+occlusion in `border2` and clean raster silhouettes in `border`. Evidence is under
+`target/glass-border-final/` as `border{,2}-lod3-{a,b}.png`. The fix adds no raster pass, image,
+material ID, stats field, persistence schema, or hardware-RT dependency. At the 800x450 internal
+snapshot extent, Glass resources remain 23.99 MiB.
+
+An RTX 3060 Ti Release A,B,B,A comparison against the pre-fix shader used the fixed 25% Glass
+workload. All incremental 5% gates pass:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 18.576 / 19.615 ms | 18.599 / 19.735 ms | +0.12% / +0.61% | pass |
+| `tracer.render` | 9.753 / 10.249 ms | 9.731 / 10.103 ms | -0.23% / -1.42% | pass |
+| `tracer.pass` | 3.631 / 3.668 ms | 3.624 / 3.672 ms | -0.18% / +0.13% | pass |
+| `glass.resolve` | 4.917 / 5.367 ms | 4.923 / 5.142 ms | +0.11% / -4.19% | pass |
+
+Evidence is at `target/perf-glass-border-lod3/comparison.json`.
+
+Feature OFF was separately exercised with the standard `render-steady` Release A,B,B,A gate.
+All eleven metrics pass; `frame.render` is unchanged at 1.631 ms median (+0.00%, +1.74% p95),
+and `tracer.render` changes from 0.475 to 0.476 ms median (+0.21%, +0.00% p95). The default
+no-Glass graph still records no Glass resolve work, so merging this guarded experiment does not
+move ordinary worlds onto the Glass architecture. Evidence is at
+`target/perf-feature-off-glass-lod3/comparison.json`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 26,431,492 bytes (25.21 MiB):
@@ -337,6 +389,13 @@ python scripts/perf_suite.py run glass-coverage-25 \
   exhaustion, zero non-finite pixels.
 - Post-stabilization feature-OFF hidden Release smoke: 2x2 Glass placeholders only, clean
   shutdown, and no Glass resolve scope or runtime error.
+- Raster-disocclusion stabilization: `cargo fmt --check`, `cargo check`, 677 focused Rust
+  tests plus four auxiliary binary tests, and all 83 Python tests pass. The documented PATT
+  dirty-snapshot fixture was the only filtered Rust test; one unrelated test remains ignored.
+- Final feature-OFF hidden Release smoke retained the 184-byte 2x2 placeholders. The final
+  50% Glass hidden Release smoke measured 50.480% coverage and 201,919 Glass pixels with zero
+  exhausted and zero non-finite pixels; both runs shut down cleanly without a Vulkan validation
+  error, device loss, or panic.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root
