@@ -12,6 +12,7 @@ on:
       - "scripts/check_latest_run_log.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
+      - "scripts/run_slang_tests.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
   push:
@@ -26,6 +27,7 @@ on:
       - "scripts/check_latest_run_log.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
+      - "scripts/run_slang_tests.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
 
@@ -120,6 +122,9 @@ jobs:
       - name: Check native Slang build
         run: cargo check --locked
 
+      - name: Run Slang CPU tests
+        run: python scripts/run_slang_tests.py
+
       - name: Audit production shader entry points
         run: python3 scripts/check_shader_manifest.py
 
@@ -176,6 +181,9 @@ jobs:
 
       - name: Check native Slang build
         run: cargo check --locked
+
+      - name: Run Slang CPU tests
+        run: python3 scripts/run_slang_tests.py
 
       - name: Audit production shader entry points
         run: python3 scripts/check_shader_manifest.py
