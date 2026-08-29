@@ -1,7 +1,7 @@
 use crate::audio::{
-    CanopyAcousticDescriptor, CanopyAudioLifecycle, CanopyAudioTelemetrySnapshot,
-    CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter, SpatialSoundManager,
-    TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+    CanopyAcousticDescriptor, CanopyAcousticObservation, CanopyAudioLifecycle,
+    CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter,
+    SpatialSoundManager, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
@@ -98,8 +98,12 @@ impl TreeAudioManager {
         self.emitter_adapter.set_telemetry_enabled(enabled);
     }
 
-    pub fn collect_canopy_acoustic_telemetry(&mut self) {
-        self.emitter_adapter.collect_acoustic_telemetry();
+    pub(crate) fn observe_canopy_acoustic_telemetry(
+        &mut self,
+        observations: Vec<CanopyAcousticObservation>,
+    ) {
+        self.emitter_adapter
+            .collect_acoustic_telemetry(observations);
     }
 
     pub fn canopy_telemetry_snapshot(&self) -> Option<CanopyAudioTelemetrySnapshot> {
