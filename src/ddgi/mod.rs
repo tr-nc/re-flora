@@ -66,7 +66,10 @@ pub use resources::{
     DdgiResourceBytes, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
     DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
-pub(crate) use runtime::{DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeTarget};
+pub(crate) use runtime::{
+    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiVolumePublication,
+};
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
 #[allow(unused_imports)]

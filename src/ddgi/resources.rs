@@ -854,6 +854,7 @@ pub(crate) struct DdgiVolumeStatus {
 }
 
 impl DdgiVolumeStatus {
+    #[cfg(test)]
     pub(crate) fn is_ready(self) -> bool {
         self.published_field.is_some()
     }
@@ -882,6 +883,7 @@ impl DdgiStatus {
         self.staging
     }
 
+    #[cfg(test)]
     pub(crate) fn builder(self) -> DdgiVolumeStatus {
         self.staging.unwrap_or(self.active)
     }
@@ -1683,6 +1685,56 @@ impl DdgiVolume {
         })
     }
 
+    /// Projects the batch that becomes recordable after this frame's preparation passes finish.
+    ///
+    /// The runtime snapshots the complete fixed DDGI frame sequence before Vulkan recording
+    /// starts. Relocation and visibility preservation may unblock a batch later in that same
+    /// sequence, so this projection deliberately ignores only those two preparation gates. It
+    /// does not advance physical state or relax the outstanding-readback and probe-count gates.
+    pub(crate) fn projected_ray_batch_after_preparation(&self) -> Option<DdgiRayBatch> {
+        if !matches!(
+            self.stage,
+            DdgiVolumeStage::RelocationPending
+                | DdgiVolumeStage::Relocated
+                | DdgiVolumeStage::Rebuilding
+        ) || self.active_ray_batch.is_some()
+            || self.filtered_probe_count >= self.grid.probe_count()
+        {
+            return None;
+        }
+        let resident = self.building_iteration?;
+        let priority_physical_ordinal = priority_probe_batch(
+            self.grid,
+            resident.probe_priority.map(DdgiProbePriority::voxel_bound),
+            DDGI_PROBE_BATCH_SIZE,
+        );
+        let (first_probe_index, probe_count) = ddgi_probe_batch_range(
+            self.grid.probe_count(),
+            DDGI_PROBE_BATCH_SIZE,
+            self.next_batch_ordinal,
+            self.batch_order,
+            priority_physical_ordinal,
+        )?;
+        Some(DdgiRayBatch {
+            first_probe_index,
+            probe_count,
+            resident,
+        })
+    }
+
+    pub(crate) fn projected_iteration_will_complete(&self, batch: DdgiRayBatch) -> bool {
+        assert_eq!(
+            self.projected_ray_batch_after_preparation(),
+            Some(batch),
+            "projected DDGI batch must remain the next physical batch"
+        );
+        iteration_completes_after_batch(
+            self.filtered_probe_count,
+            batch.probe_count,
+            self.grid.probe_count(),
+        )
+    }
+
     pub fn visibility_preservation_needed(&self) -> bool {
         self.building_iteration.is_some_and(|iteration| {
             DdgiRayBatch {
@@ -1717,18 +1769,6 @@ impl DdgiVolume {
     pub fn mark_visibility_preserved(&mut self) {
         assert!(self.visibility_preservation_needed());
         self.visibility_preserved_for_iteration = true;
-    }
-
-    pub fn iteration_will_complete(&self, batch: DdgiRayBatch) -> bool {
-        assert_eq!(self.next_ray_batch_to_trace(), Some(batch));
-        // Completion is authoritative volume progress, independent of the batch's atlas offset.
-        // A later reverse-order scheduler can change `first_probe_index` without changing this
-        // gate or accidentally running reduction before every probe has completed.
-        iteration_completes_after_batch(
-            self.filtered_probe_count,
-            batch.probe_count,
-            self.grid.probe_count(),
-        )
     }
 
     pub fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
