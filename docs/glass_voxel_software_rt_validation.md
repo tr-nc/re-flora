@@ -3,8 +3,8 @@
 ## Status
 
 The staged experimental implementation is complete through Phase 4 and includes the
-secondary-visibility stabilization through commit
-`dce8bb6b`. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
+distance-invariant secondary-visibility stabilization through commit
+`8c5f8c96`. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
 visual regression, and feature-OFF gates pass. The original 25% coverage planning target
 against feature OFF still does not pass, so this remains an isolated experiment and is not
 ship-ready.
@@ -125,6 +125,48 @@ All 11 configured metrics passed. Representative pooled results:
 | `frame.render` | 1.623 / 2.031 ms | 1.625 / 2.039 ms | +0.12% / +0.35% | 2% |
 | `tracer.render` | 0.472 / 0.476 ms | 0.475 / 0.480 ms | +0.64% / +0.84% | 2% |
 | `render.trace_record` | 0.241 / 0.267 ms | 0.243 / 0.268 ms | +0.83% / +0.37% | 3% |
+
+## Distance-invariant depth validation
+
+The `r1` and `r2` camera snapshots exposed a fixed-NDC-depth tolerance that changed physical
+meaning with camera distance. Commit `8c5f8c96` separates the two required operations:
+
+- front/behind ordering now uses strict four-ULP ordering on the shared R32F projection depth;
+- screen-ray hit thickness is reconstructed and compared in linear camera-space world units
+  (`2 / 256`), following the camera-space-Z contract used by the referenced screen-space ray
+  tracing algorithm.
+
+This is not a larger distance or work budget. The 256 projected-step and eight scene-query caps
+are unchanged. Single-variable diagnostics showed that 256 to 1,024 screen steps did not change
+`r2`; raising the query cap instead created interface-exhaustion failures.
+
+| Snapshot | Metric | Before | After |
+|---|---:|---:|---:|
+| `r1` | foreground pixels | 0 | 11,534 |
+| `r1` | screen hits | 118,167 | 127,584 |
+| `r1` | fallback pixels | 59,590 | 38,639 |
+| `r2` | rejected-depth pixels (diagnostic reason breakdown) | 28,127 | 7 |
+| `r2` | screen hits | 40,412 | 67,577 |
+| `r2` | fallback pixels | 48,049 | 17,802 |
+
+The amber foreground sentinel is complete at `r1`, while `r2` retains the colored raster
+objects instead of replacing them with gray simplified voxel fallback. Both final Release runs
+reported zero exhaustion and zero non-finite pixels. The fixed 25% acceptance camera also passed
+with 15,580 foreground pixels, 80,506 screen hits, zero query-budget fallback, zero exhaustion,
+and zero non-finite pixels.
+
+An RTX 3060 Ti Release A,B,B,A comparison used the fixed 25% Glass workload, a 30-second sample
+window, and 63 baseline versus 62 candidate post-warm-up samples:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 25.979 / 29.338 ms | 25.780 / 28.668 ms | -0.77% / -2.28% | pass |
+| `tracer.render` | 16.321 / 18.212 ms | 15.794 / 19.109 ms | -3.23% / +4.92% | pass |
+| `tracer.pass` | 9.657 / 11.683 ms | 8.911 / 12.210 ms | -7.73% / +4.52% | pass |
+| `glass.resolve` | 4.765 / 5.478 ms | 4.706 / 5.496 ms | -1.24% / +0.34% | pass |
+
+All existing 5% incremental gates pass. Evidence is under
+`target/perf-glass-depth-linear-ab-v4/` and `target/glass-r12-diagnosis/`.
 
 ## Memory and lifetime
 

@@ -23,6 +23,23 @@ or experiment statistics are proposed.
   rejected endpoints fall back to simplified voxel shading and make the distant pane look
   gray or black.
 
+### R1/R2 distance audit
+
+The later `r1` and `r2` snapshots exposed a second depth-unit error. Glass resolve used one
+fixed `0.003` NDC tolerance for three different jobs: foreground ordering, Glass-front versus
+terminal ordering, and screen-ray intersection thickness. Perspective depth is hyperbolic, so
+that fixed interval represents an increasingly large world-space slab with camera distance.
+
+- At `r1`, the raster-only amber sentinel is physically in front of Glass, but all 177,757
+  Glass pixels reported zero foreground pixels. The oversized NDC tolerance classified the
+  sentinel and Glass front as the same depth and allowed cached Glass radiance to overwrite it.
+- At `r2`, 28,127 of 88,461 Glass pixels reported rejected depth. Their valid secondary color
+  fell back to simplified voxel/sky shading, producing the reported gray appearance.
+- Raising the projected segment cap from 256 to 1,024 left the `r2` counters unchanged, so
+  projected traversal distance was not causal. Raising the scene-query cap from 8 to 16 did
+  not change the depth rejections and converted bounded residual paths into 3,325 interface
+  exhaustion pixels. Neither larger budget is a valid fix.
+
 ## Primary-source findings
 
 1. Amanatides and Woo traverse a uniform grid by repeatedly selecting the smallest next
@@ -38,7 +55,9 @@ or experiment statistics are proposed.
    Unit pixel stride is deterministic and contiguous; jitter is only suggested when using a
    larger stride to hide banding. Source: Morgan McGuire and Michael Mara,
    [Efficient GPU Screen-Space Ray Tracing](https://jcgt.org/published/0003/04/04/),
-   JCGT 3(4), 2014, including the authors' GLSL implementation.
+   JCGT 3(4), 2014, including the authors' GLSL implementation. The reference code compares
+   ray intervals and scene samples in camera-space Z and expresses `csZThickness` in that
+   linear space; it does not use a fixed NDC-depth thickness.
 3. AMD's production SSSR documentation uses a depth hierarchy to accelerate the same class
    of depth-buffer intersection and calls out confidence-based hit validation. That is a
    useful later optimization, but it requires a depth pyramid and multiple new lifecycle
@@ -66,6 +85,10 @@ or experiment statistics are proposed.
    second raster lifecycle for these acceptance cases.
 4. Keep explicit off-screen, missing-layer, query-budget, and voxel/sky fallbacks. Measure
    the new traversal in Release mode before considering a hierarchy or larger step budget.
+5. Treat front/back ordering as topology: require a strict ULP-bounded ordering between the
+   two R32F depths. Express only screen-ray intersection thickness in linear camera-space
+   world units. This prevents the tolerance from changing meaning with camera distance and
+   avoids adding traversal work.
 
 ## Acceptance and performance gates
 
