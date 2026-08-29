@@ -367,11 +367,7 @@ impl DdgiRuntime {
             .is_none_or(|current| current.revision != authored.revision);
         if let Some(current) = self.latest_authored_fact {
             if current.revision == authored.revision {
-                assert_eq!(
-                    current.snapshot, authored.snapshot,
-                    "Authored Environment Lighting reused live revision {} for a different fact",
-                    authored.revision
-                );
+                authored.assert_same_identity(current);
             }
         }
         self.latest_authored_fact = Some(authored);
@@ -390,12 +386,7 @@ impl DdgiRuntime {
             let current = self
                 .latest_transport_lighting
                 .expect("initialized DDGI lighting must retain its current transport");
-            if current.snapshot == authored.snapshot {
-                if self.pending_authored_fact.take().is_some() {
-                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
-                }
-            } else {
-                let change = DdgiRadianceChange::between(current.snapshot, authored.snapshot);
+            if let Some(change) = authored.change_from_transport(current) {
                 if change.resets_irradiance_history() {
                     if self.pending_authored_fact.take().is_some() {
                         self.coalesced_live_revisions =
@@ -404,6 +395,10 @@ impl DdgiRuntime {
                     self.freeze_transport(authored, change);
                     transport_published = true;
                 } else if self.pending_authored_fact.replace(authored).is_some() {
+                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
+                }
+            } else {
+                if self.pending_authored_fact.take().is_some() {
                     self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
                 }
             }
@@ -417,7 +412,9 @@ impl DdgiRuntime {
             let current = self
                 .latest_transport_lighting
                 .expect("pending DDGI lighting requires a current transport");
-            let change = DdgiRadianceChange::between(current.snapshot, authored.snapshot);
+            let change = authored
+                .change_from_transport(current)
+                .expect("pending DDGI lighting must differ from the current transport identity");
             self.freeze_transport(authored, change);
             transport_published = true;
         }
@@ -437,17 +434,16 @@ impl DdgiRuntime {
         change: DdgiRadianceChange,
     ) {
         self.current_transport_revision = self.current_transport_revision.wrapping_add(1).max(1);
-        let mut snapshot = authored.snapshot;
+        let mut snapshot = authored.snapshot();
         snapshot.local_lights = snapshot
             .local_lights
             .with_transport_revision(self.current_transport_revision);
-        let lighting = EnvironmentLightingState {
-            revision: self.current_transport_revision,
-            source_live_revision: authored.revision,
-            published_at: authored.observed_at,
+        let lighting = EnvironmentLightingState::freeze(
+            self.current_transport_revision,
+            authored,
             snapshot,
             change,
-        };
+        );
         self.pending_authored_fact = None;
 
         let previous_latest = self.transport_scheduler.latest_radiance_revision();
@@ -1382,7 +1378,8 @@ mod tests {
         DdgiVolumeGrid, DdgiVolumeStage,
     };
     use crate::environment_lighting::{
-        AuthoredEnvironmentLightingFact, DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot,
+        AuthoredEnvironmentLighting, AuthoredEnvironmentLightingFact,
+        AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot,
     };
     use crate::geom::UAabb3;
     use crate::lighting::{
@@ -1407,28 +1404,52 @@ mod tests {
         .unwrap()
     }
 
-    fn lighting(revision: u32, sun_luminance: f32) -> AuthoredEnvironmentLightingFact {
-        AuthoredEnvironmentLightingFact {
-            revision: u64::from(revision),
-            observed_at: std::time::Duration::from_millis(u64::from(revision) * 10),
-            snapshot: DdgiRadianceSnapshot {
-                sun_direction: Vec3::Y,
-                sun_color: Vec3::new(1.0, 0.9, 0.8),
-                sun_luminance,
-                terrain_ray_origin_offset_world: 0.005,
-                ddgi_receiver_visibility_bias_world: 0.001,
-                voxel_palette: DdgiVoxelPaletteSnapshot {
-                    dirt_color: Vec3::new(0.1, 0.2, 0.3),
-                    sand_color: Vec3::new(0.4, 0.5, 0.6),
-                    cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
-                    oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
-                    rock_color: Vec3::splat(0.4),
-                    hash_color_variance: 0.5,
-                    emissive_color: Vec3::new(1.0, 0.36, 0.08),
-                    emissive_radiance: 4.0,
-                },
-                local_lights: LocalLightGpuPayload::empty(0),
+    fn lighting_snapshot(sun_luminance: f32) -> DdgiRadianceSnapshot {
+        DdgiRadianceSnapshot {
+            sun_direction: Vec3::Y,
+            sun_color: Vec3::new(1.0, 0.9, 0.8),
+            sun_luminance,
+            terrain_ray_origin_offset_world: 0.005,
+            ddgi_receiver_visibility_bias_world: 0.001,
+            voxel_palette: DdgiVoxelPaletteSnapshot {
+                dirt_color: Vec3::new(0.1, 0.2, 0.3),
+                sand_color: Vec3::new(0.4, 0.5, 0.6),
+                cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
+                oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
+                rock_color: Vec3::splat(0.4),
+                hash_color_variance: 0.5,
+                emissive_color: Vec3::new(1.0, 0.36, 0.08),
+                emissive_radiance: 4.0,
             },
+            local_lights: LocalLightGpuPayload::empty(0),
+        }
+    }
+
+    fn lighting_at(
+        revision: u32,
+        observed_at: Duration,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> AuthoredEnvironmentLightingFact {
+        AuthoredEnvironmentLightingFact::for_test(u64::from(revision), observed_at, snapshot)
+    }
+
+    fn lighting(revision: u32, sun_luminance: f32) -> AuthoredEnvironmentLightingFact {
+        lighting_at(
+            revision,
+            Duration::from_millis(u64::from(revision) * 10),
+            lighting_snapshot(sun_luminance),
+        )
+    }
+
+    fn authored_input(snapshot: DdgiRadianceSnapshot) -> AuthoredEnvironmentLightingInput {
+        AuthoredEnvironmentLightingInput {
+            sun_direction: snapshot.sun_direction,
+            sun_color: snapshot.sun_color,
+            sun_luminance: snapshot.sun_luminance,
+            terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
+            ddgi_receiver_visibility_bias_world: snapshot.ddgi_receiver_visibility_bias_world,
+            voxel_palette: snapshot.voxel_palette,
+            local_lights: snapshot.local_lights,
         }
     }
 
@@ -1721,7 +1742,7 @@ mod tests {
             Some(resident.field()),
             "replacement geometry must inherit the physically resident field, not obsolete staging"
         );
-        assert_eq!(replacement.authored_lighting().snapshot, r2.snapshot);
+        assert_eq!(replacement.authored_lighting().snapshot, r2.snapshot());
         let history = replacement
             .radiance_history_policy()
             .expect("resident r1 to live r2 must retain an explicit radiance history policy");
@@ -1749,33 +1770,31 @@ mod tests {
     fn continuous_sun_changes_coalesce_to_the_latest_cadenced_transport() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
-        let mut initial = lighting(1, 1.0);
-        initial.observed_at = Duration::ZERO;
+        let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial_transport = runtime.observe_authored_lighting(initial);
         assert!(initial_transport.transport_published);
 
         for (revision, degrees, elapsed_ms) in
             [(2_u32, 1.0_f32, 50_u64), (3, 2.0, 100), (4, 3.0, 150)]
         {
-            let mut changed = lighting(revision, 1.0);
-            changed.observed_at = Duration::from_millis(elapsed_ms);
-            changed.snapshot.sun_direction =
-                glam::Quat::from_rotation_x(degrees.to_radians()) * Vec3::Y;
+            let mut snapshot = lighting_snapshot(1.0);
+            snapshot.sun_direction = glam::Quat::from_rotation_x(degrees.to_radians()) * Vec3::Y;
+            let changed = lighting_at(revision, Duration::from_millis(elapsed_ms), snapshot);
             let pending = runtime.observe_authored_lighting(changed);
             assert!(!pending.transport_published);
             assert_eq!(pending.transport, initial_transport.transport);
             assert_eq!(runtime.lighting_revision_lag(), u64::from(revision - 1));
         }
 
-        let mut latest = lighting(5, 1.0);
-        latest.observed_at = DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL;
-        latest.snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let mut snapshot = lighting_snapshot(1.0);
+        snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let latest = lighting_at(5, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL, snapshot);
         let published = runtime.observe_authored_lighting(latest);
 
         assert!(published.transport_published);
         assert_eq!(published.transport.revision, 2);
         assert_eq!(published.transport.source_live_revision, 5);
-        assert_eq!(published.transport.snapshot, latest.snapshot);
+        assert_eq!(published.transport.snapshot, latest.snapshot());
         assert_eq!(
             published.transport.change.reason,
             DdgiRadianceChangeReason::ContinuousSun
@@ -1785,14 +1804,85 @@ mod tests {
     }
 
     #[test]
-    fn transport_discontinuities_publish_immediately_and_own_the_transport_revision() {
+    fn metadata_only_local_light_observation_keeps_authored_revision_and_transport_stable() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let mut runtime = DdgiRuntime::new(grid);
+
+        let first = authored.observe(authored_input(lighting_snapshot(1.0)), Duration::ZERO);
+        let initial = runtime.observe_authored_lighting(first);
+        assert!(initial.transport_published);
+
+        let mut metadata_only = first.snapshot();
+        metadata_only.local_lights.info.source_revision_low = 7;
+        metadata_only.local_lights.info.registry_revision_low = 11;
+        metadata_only.local_lights.info.overflow_count = 1;
+        metadata_only.local_lights.info.transport_revision = 99;
+        let next = authored.observe(authored_input(metadata_only), Duration::from_millis(1));
+        assert_eq!(next.revision, first.revision);
+        assert_ne!(next.snapshot().local_lights, first.snapshot().local_lights);
+        assert_eq!(next.snapshot(), first.snapshot());
+        assert_ne!(
+            next.snapshot().local_lights.source_revision(),
+            first.snapshot().local_lights.source_revision()
+        );
+        assert_eq!(next.snapshot().local_lights.live_revision(), 0);
+
+        let unchanged = runtime.observe_authored_lighting(next);
+        assert!(!unchanged.transport_published);
+        assert_eq!(unchanged.transport, initial.transport);
+        assert_eq!(runtime.lighting_revision_lag(), 0);
+    }
+
+    #[test]
+    fn authored_sky_identity_change_is_an_immediate_transport_input_step() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let mut runtime = DdgiRuntime::new(grid);
+        let input = authored_input(lighting_snapshot(1.0));
+
+        let first = authored.observe_for_test_authored_sky(input, 41, Duration::ZERO);
+        let initial = runtime.observe_authored_lighting(first);
+        assert!(initial.transport_published);
+
+        let changed = authored.observe_for_test_authored_sky(input, 42, Duration::from_millis(1));
+        assert_eq!(changed.revision, first.revision + 1);
+        assert_eq!(changed.snapshot(), first.snapshot());
+        let published = runtime.observe_authored_lighting(changed);
+
+        assert!(published.transport_published);
+        assert_eq!(published.transport.revision, initial.transport.revision + 1);
+        assert_eq!(published.transport.source_live_revision, changed.revision);
+        assert_eq!(
+            published.transport.change.reason,
+            DdgiRadianceChangeReason::TransportInputStep
+        );
+        assert!(published.transport.change.resets_irradiance_history());
+    }
+
+    #[test]
+    #[should_panic(expected = "reused live revision 1 for a different identity")]
+    fn runtime_rejects_reused_live_revision_for_a_different_authoritative_identity() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+        runtime.observe_authored_lighting(lighting_at(
+            1,
+            Duration::from_millis(1),
+            lighting_snapshot(2.0),
+        ));
+    }
+
+    #[test]
+    fn large_sun_and_material_discontinuities_publish_immediately() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = runtime.observe_authored_lighting(lighting(1, 1.0));
         assert_eq!(initial.transport.revision, 1);
 
-        let mut large_sun_step = lighting(2, 1.0);
-        large_sun_step.snapshot.sun_direction = Vec3::Z;
+        let mut snapshot = lighting_snapshot(1.0);
+        snapshot.sun_direction = Vec3::Z;
+        let large_sun_step = lighting_at(2, Duration::from_millis(20), snapshot);
         let large_sun_step = runtime.observe_authored_lighting(large_sun_step);
         assert!(large_sun_step.transport_published);
         assert_eq!(large_sun_step.transport.revision, 2);
@@ -1801,9 +1891,8 @@ mod tests {
             DdgiRadianceChangeReason::LargeSunStep
         );
 
-        let mut material_step = lighting(3, 1.0);
-        material_step.snapshot.sun_direction = Vec3::Z;
-        material_step.snapshot.voxel_palette.rock_color.x += 0.01;
+        snapshot.voxel_palette.rock_color.x += 0.01;
+        let material_step = lighting_at(3, Duration::from_millis(30), snapshot);
         let material_step = runtime.observe_authored_lighting(material_step);
         assert!(material_step.transport_published);
         assert_eq!(material_step.transport.revision, 3);
@@ -1811,40 +1900,146 @@ mod tests {
             material_step.transport.change.reason,
             DdgiRadianceChangeReason::TransportInputStep
         );
+    }
+
+    #[test]
+    fn local_lights_are_cadenced_latest_wins_and_retain_history() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
+        let initial = runtime.observe_authored_lighting(initial);
+        assert!(initial.transport_published);
+        assert_eq!(initial.transport.snapshot.local_lights.count(), 0);
 
         let mut lights = LocalLightRegistry::default();
-        lights.add(LocalLight::Point(
-            PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        let id = lights.add(LocalLight::Point(
+            PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
         ));
-        let mut local_light_step = lighting(4, 1.0);
-        local_light_step.snapshot.sun_direction = Vec3::Z;
-        local_light_step.snapshot.voxel_palette = material_step.transport.snapshot.voxel_palette;
-        local_light_step.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+        let mut added_snapshot = lighting_snapshot(1.0);
+        added_snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
             &lights.snapshot(),
             LocalLightBudget::point_lights(1),
             0,
         )
         .payload();
-        let local_light_step = runtime.observe_authored_lighting(local_light_step);
-        assert!(local_light_step.transport_published);
-        assert_eq!(local_light_step.transport.revision, 4);
+        let added = lighting_at(2, Duration::from_millis(1), added_snapshot);
+        let pending = runtime.observe_authored_lighting(added);
+        assert!(!pending.transport_published);
+        assert_eq!(added.snapshot().local_lights.count(), 1);
+        assert_eq!(pending.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(runtime.lighting_revision_lag(), 1);
+
+        lights
+            .update(
+                id,
+                LocalLight::Point(
+                    PointLight::new(
+                        Vec3::new(2.0, 2.0, 3.0),
+                        Vec3::new(0.5, 0.75, 1.0),
+                        8.0,
+                        0.05,
+                        0.5,
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap();
+        let mut moved_snapshot = lighting_snapshot(1.0);
+        moved_snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        )
+        .payload();
+        let moved = lighting_at(3, Duration::from_millis(2), moved_snapshot);
+        let coalesced = runtime.observe_authored_lighting(moved);
+        assert!(!coalesced.transport_published);
+        assert_eq!(coalesced.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(coalesced.coalesced_live_revisions, 1);
+        assert_eq!(runtime.lighting_revision_lag(), 2);
+
+        let moved_at_cadence = lighting_at(3, Duration::from_millis(200), moved.snapshot());
+        let published = runtime.observe_authored_lighting(moved_at_cadence);
+        assert!(published.transport_published);
+        assert_eq!(published.transport.revision, 2);
+        assert_eq!(published.transport.source_live_revision, 3);
         assert_eq!(
-            local_light_step.transport.change.reason,
+            published.transport.change.reason,
             DdgiRadianceChangeReason::LocalLights
         );
-        assert!(local_light_step
-            .transport
-            .change
-            .resets_irradiance_history());
+        assert_eq!(published.transport.snapshot.local_lights.count(), 1);
         assert_eq!(
-            local_light_step
+            published.transport.snapshot.local_lights.source_revision(),
+            lights.snapshot().revision()
+        );
+        assert_eq!(
+            published
                 .transport
                 .snapshot
                 .local_lights
                 .info
                 .transport_revision,
-            local_light_step.transport.revision
+            published.transport.revision
         );
+        let addition_history =
+            DdgiRadianceHistoryPolicy::between(initial.transport, published.transport);
+        assert_eq!(
+            addition_history.change.reason,
+            DdgiRadianceChangeReason::LocalLights
+        );
+        assert!(!addition_history.resets_history());
+        assert!(addition_history.retention(0.99) > 0.0);
+
+        lights.remove(id).unwrap();
+        let mut removed_snapshot = lighting_snapshot(1.0);
+        removed_snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        )
+        .payload();
+        let removed = lighting_at(4, Duration::from_millis(201), removed_snapshot);
+        let removal_pending = runtime.observe_authored_lighting(removed);
+        assert!(!removal_pending.transport_published);
+        assert_eq!(removed.snapshot().local_lights.count(), 0);
+        assert_eq!(removal_pending.transport.snapshot.local_lights.count(), 1);
+        assert_eq!(runtime.lighting_revision_lag(), 1);
+
+        let removed_at_cadence = lighting_at(4, Duration::from_millis(400), removed.snapshot());
+        let removal_published = runtime.observe_authored_lighting(removed_at_cadence);
+        assert!(removal_published.transport_published);
+        assert_eq!(removal_published.transport.revision, 3);
+        assert_eq!(removal_published.transport.source_live_revision, 4);
+        assert_eq!(
+            removal_published.transport.change.reason,
+            DdgiRadianceChangeReason::LocalLights
+        );
+        assert_eq!(removal_published.transport.snapshot.local_lights.count(), 0);
+        assert_eq!(
+            removal_published
+                .transport
+                .snapshot
+                .local_lights
+                .source_revision(),
+            lights.snapshot().revision()
+        );
+        assert_eq!(
+            removal_published
+                .transport
+                .snapshot
+                .local_lights
+                .info
+                .transport_revision,
+            removal_published.transport.revision
+        );
+        let removal_history =
+            DdgiRadianceHistoryPolicy::between(published.transport, removal_published.transport);
+        assert_eq!(
+            removal_history.change.reason,
+            DdgiRadianceChangeReason::LocalLights
+        );
+        assert!(!removal_history.resets_history());
+        assert!(removal_history.retention(0.99) > 0.0);
     }
 
     #[test]
@@ -1854,13 +2049,14 @@ mod tests {
         let id = lights.add(LocalLight::Point(
             PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
         ));
-        let mut r2 = lighting(2, 2.0);
-        r2.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+        let mut r2_snapshot = lighting_snapshot(2.0);
+        r2_snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
             &lights.snapshot(),
             LocalLightBudget::point_lights(1),
             2,
         )
         .payload();
+        let r2 = lighting_at(2, Duration::from_millis(20), r2_snapshot);
         runtime.observe_authored_lighting(r2);
         let r2_work = runtime.claim_transport_work().unwrap();
         assert_eq!(
@@ -1871,29 +2067,32 @@ mod tests {
                 .radiance_revision(),
             2
         );
-        assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot);
+        assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot());
 
         runtime.observe_authored_lighting(lighting(3, 3.0));
         lights.remove(id).unwrap();
-        let mut r4 = lighting(4, 4.0);
-        r4.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+        let mut r4_snapshot = lighting_snapshot(4.0);
+        r4_snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
             &lights.snapshot(),
             LocalLightBudget::point_lights(1),
             4,
         )
         .payload();
+        let r4 = lighting_at(4, Duration::from_millis(40), r4_snapshot);
         runtime.observe_authored_lighting(r4);
         let pending = runtime.lighting_diagnostics();
-        assert_eq!(runtime.latest_radiance_revision(), Some(4));
-        assert_eq!(pending.latest_transport_revision, Some(4));
+        assert_eq!(runtime.latest_radiance_revision(), Some(3));
+        assert_eq!(pending.latest_transport_revision, Some(3));
+        assert_eq!(pending.latest_source_live_revision, Some(4));
         assert_eq!(pending.scheduler_published_revision, Some(1));
         assert_eq!(pending.in_flight_revision, Some(2));
-        assert_eq!(pending.coalesced_revisions, 1);
-        assert_eq!(pending.scheduler_revision_lag(), 3);
+        assert_eq!(pending.coalesced_revisions, 0);
+        assert_eq!(runtime.coalesced_live_revisions(), 1);
+        assert_eq!(pending.scheduler_revision_lag(), 2);
         assert!(!pending.has_mixed_in_flight_revision);
         assert_eq!(
             runtime.in_flight_authored_lighting().unwrap().snapshot,
-            r2.snapshot,
+            r2.snapshot(),
         );
         assert_eq!(
             runtime
@@ -1913,13 +2112,13 @@ mod tests {
         let claimed = runtime.lighting_diagnostics();
         assert_eq!(
             latest.scheduled().destination().field().radiance_revision(),
-            4
+            3
         );
         assert_eq!(claimed.scheduler_published_revision, Some(2));
-        assert_eq!(claimed.in_flight_revision, Some(4));
-        assert_eq!(claimed.scheduler_revision_lag(), 2);
+        assert_eq!(claimed.in_flight_revision, Some(3));
+        assert_eq!(claimed.scheduler_revision_lag(), 1);
         assert!(!claimed.has_mixed_in_flight_revision);
-        assert_eq!(latest.authored_lighting().snapshot, r4.snapshot);
+        assert_eq!(latest.authored_lighting().snapshot, r4.snapshot());
         assert_eq!(latest.authored_lighting().snapshot.local_lights.count(), 0);
         assert_eq!(
             latest.scheduled().destination().source(),
@@ -1930,10 +2129,10 @@ mod tests {
     #[test]
     fn radiance_work_derives_history_from_the_actual_published_source() {
         let (mut runtime, _, _) = initialized_runtime();
-        let mut continuous = lighting(2, 1.0);
-        continuous.observed_at = std::time::Duration::from_millis(210);
-        continuous.snapshot.sun_direction =
+        let mut continuous_snapshot = lighting_snapshot(1.0);
+        continuous_snapshot.sun_direction =
             glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
+        let continuous = lighting_at(2, Duration::from_millis(210), continuous_snapshot);
         runtime.observe_authored_lighting(continuous);
 
         let work = runtime.claim_transport_work().unwrap();

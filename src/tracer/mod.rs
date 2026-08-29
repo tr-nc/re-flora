@@ -2089,9 +2089,10 @@ impl Tracer {
             },
             time_info.time_since_start_duration(),
         );
-        let sun_dir = authored_environment_lighting.snapshot.sun_direction;
-        let sun_color = authored_environment_lighting.snapshot.sun_color;
-        let sun_luminance = authored_environment_lighting.snapshot.sun_luminance;
+        let authored_snapshot = authored_environment_lighting.snapshot();
+        let sun_dir = authored_snapshot.sun_direction;
+        let sun_color = authored_snapshot.sun_color;
+        let sun_luminance = authored_snapshot.sun_luminance;
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;

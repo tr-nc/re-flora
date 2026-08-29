@@ -232,9 +232,12 @@ pub(crate) struct DdgiRadianceChange {
 }
 
 impl DdgiRadianceChange {
-    pub fn between(previous: DdgiRadianceSnapshot, next: DdgiRadianceSnapshot) -> Self {
-        let previous_identity = previous.identity();
-        let next_identity = next.identity();
+    fn between_authored(
+        previous: DdgiRadianceSnapshot,
+        previous_identity: DdgiRadianceIdentity,
+        next: DdgiRadianceSnapshot,
+        next_identity: DdgiRadianceIdentity,
+    ) -> Self {
         let delta = DdgiRadianceDelta::between(
             previous,
             next,
@@ -258,7 +261,6 @@ impl DdgiRadianceChange {
             self.reason,
             DdgiRadianceChangeReason::Initial
                 | DdgiRadianceChangeReason::LargeSunStep
-                | DdgiRadianceChangeReason::LocalLights
                 | DdgiRadianceChangeReason::TransportInputStep
         )
     }
@@ -279,7 +281,7 @@ impl DdgiRadianceHistoryPolicy {
         destination: EnvironmentLightingState,
     ) -> Self {
         Self {
-            change: DdgiRadianceChange::between(source.snapshot, destination.snapshot),
+            change: destination.change_from(source),
             elapsed: destination.published_at.saturating_sub(source.published_at),
         }
     }
@@ -339,7 +341,59 @@ impl AuthoredEnvironmentLightingInput {
 pub(crate) struct AuthoredEnvironmentLightingFact {
     pub revision: u64,
     pub observed_at: Duration,
-    pub snapshot: DdgiRadianceSnapshot,
+    snapshot: DdgiRadianceSnapshot,
+    identity: DdgiRadianceIdentity,
+}
+
+impl AuthoredEnvironmentLightingFact {
+    fn new(
+        revision: u64,
+        observed_at: Duration,
+        snapshot: DdgiRadianceSnapshot,
+        identity: DdgiRadianceIdentity,
+    ) -> Self {
+        Self {
+            revision,
+            observed_at,
+            snapshot,
+            identity,
+        }
+    }
+
+    pub(crate) fn snapshot(self) -> DdgiRadianceSnapshot {
+        self.snapshot
+    }
+
+    pub(crate) fn assert_same_identity(self, previous: Self) {
+        assert_eq!(
+            self.identity, previous.identity,
+            "Authored Environment Lighting reused live revision {} for a different identity",
+            self.revision
+        );
+    }
+
+    pub(crate) fn change_from_transport(
+        self,
+        previous: EnvironmentLightingState,
+    ) -> Option<DdgiRadianceChange> {
+        (self.identity != previous.authored_identity).then(|| {
+            DdgiRadianceChange::between_authored(
+                previous.snapshot,
+                previous.authored_identity,
+                self.snapshot,
+                self.identity,
+            )
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        revision: u64,
+        observed_at: Duration,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> Self {
+        Self::new(revision, observed_at, snapshot, snapshot.identity())
+    }
 }
 
 /// One immutable, scheduler-facing DDGI transport snapshot.
@@ -354,6 +408,41 @@ pub(crate) struct EnvironmentLightingState {
     pub published_at: Duration,
     pub snapshot: DdgiRadianceSnapshot,
     pub change: DdgiRadianceChange,
+    authored_identity: DdgiRadianceIdentity,
+}
+
+impl EnvironmentLightingState {
+    pub(crate) fn freeze(
+        revision: u32,
+        authored: AuthoredEnvironmentLightingFact,
+        snapshot: DdgiRadianceSnapshot,
+        change: DdgiRadianceChange,
+    ) -> Self {
+        Self {
+            revision,
+            source_live_revision: authored.revision,
+            published_at: authored.observed_at,
+            snapshot,
+            change,
+            authored_identity: authored.identity,
+        }
+    }
+
+    fn change_from(self, previous: Self) -> DdgiRadianceChange {
+        DdgiRadianceChange::between_authored(
+            previous.snapshot,
+            previous.authored_identity,
+            self.snapshot,
+            self.authored_identity,
+        )
+    }
+
+    #[cfg(test)]
+    fn for_test(revision: u32, published_at: Duration, snapshot: DdgiRadianceSnapshot) -> Self {
+        let authored =
+            AuthoredEnvironmentLightingFact::for_test(u64::from(revision), published_at, snapshot);
+        Self::freeze(revision, authored, snapshot, DdgiRadianceChange::default())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -391,11 +480,22 @@ impl AuthoredEnvironmentLighting {
             self.current_live_revision = self.current_live_revision.wrapping_add(1).max(1);
             self.last_live_identity = Some(identity);
         }
-        AuthoredEnvironmentLightingFact {
-            revision: self.current_live_revision,
+        AuthoredEnvironmentLightingFact::new(
+            self.current_live_revision,
             observed_at,
             snapshot,
-        }
+            identity,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_for_test_authored_sky(
+        &mut self,
+        input: AuthoredEnvironmentLightingInput,
+        authored_sky_model_identity: u64,
+        observed_at: Duration,
+    ) -> AuthoredEnvironmentLightingFact {
+        self.observe_for_authored_sky(input, authored_sky_model_identity, observed_at)
     }
 }
 
@@ -450,13 +550,7 @@ mod tests {
         published_at: Duration,
         snapshot: DdgiRadianceSnapshot,
     ) -> EnvironmentLightingState {
-        EnvironmentLightingState {
-            revision,
-            source_live_revision: u64::from(revision),
-            published_at,
-            snapshot,
-            change: DdgiRadianceChange::default(),
-        }
+        EnvironmentLightingState::for_test(revision, published_at, snapshot)
     }
 
     fn sample_linear_probe_field(position_in_probe_cells: f64) -> f64 {
