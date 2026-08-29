@@ -1276,263 +1276,69 @@ pub struct PipelineTopology {
     frame_retirement_sink: FrameRetirementSink,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PipelineKind {
     Compute,
     Graphics,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PipelineKey {
-    DdgiGlobalSkyFilter,
-    DdgiOctahedralGutter,
-    DdgiProbeRelocate,
-    DdgiProbeTrace,
-    LocalLightVisibilityDiagnostic,
-    DdgiIrradianceFilter,
-    DdgiVisibilityFilter,
-    DdgiIrradianceGutter,
-    DdgiVisibilityGutter,
-    DdgiAtlasReduce,
-    DdgiVoxelVisibilityPack,
-    DdgiVoxelVisibilityBlocks,
+    Tracer,
     FloraLightingCache,
     TreeLeafLightingCache,
-    Tracer,
-    TracerShadow,
-    ShadowDepthCopy,
-    LeafShadowTemporal,
-    LeafShadowMask,
-    VsmCreation,
-    VsmBlurH,
-    VsmBlurV,
-    GodRay,
-    GodRayTemporal,
-    Cloud,
-    CloudShadow,
-    CloudShadowTemporal,
-    CloudTemporal,
-    LensFlare,
-    LensFlareTemporal,
-    LensFlareSunVisible,
-    Composition,
-    PlayerCollider,
-    TerrainQuery,
-    WindVolume,
-    PostProcessing,
-    TerrainDepthPrefill,
     Flora,
     FloraLod,
     Leaves,
     LeavesLod,
-    LeavesShadowLod,
     Sprinkler,
-    GeometryPreview,
-    EnvironmentProbeDepth,
-    EnvironmentProbeOverlay,
     DynamicFruit,
-    DynamicFruitShadow,
     Particle,
     WaterDroplet,
-    Glass,
+    EnvironmentProbeDepth,
+    EnvironmentProbeOverlay,
 }
 
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LifecycleMask(u8);
-
-#[cfg(test)]
-impl LifecycleMask {
-    const CONSTRUCTION: u8 = 1 << 0;
-    const RECORD: u8 = 1 << 1;
-    const EXTENT: u8 = 1 << 2;
-    const DDGI_BUILDER: u8 = 1 << 3;
-    const DDGI_CONSUMER: u8 = 1 << 4;
-
-    const fn new(extra: u8) -> Self {
-        Self(Self::CONSTRUCTION | Self::RECORD | extra)
-    }
-
-    const fn contains(self, lifecycle: u8) -> bool {
-        self.0 & lifecycle != 0
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PipelineLifecycleSpec {
+struct PreparedPipelineIdentity {
     key: PipelineKey,
     kind: PipelineKind,
-    lifecycle: LifecycleMask,
 }
 
-#[cfg(test)]
-macro_rules! spec {
-    ($key:ident, $kind:ident, $extra:expr) => {
-        PipelineLifecycleSpec {
-            key: PipelineKey::$key,
-            kind: PipelineKind::$kind,
-            lifecycle: LifecycleMask::new($extra),
+impl PreparedPipelineIdentity {
+    const fn compute(key: PipelineKey) -> Self {
+        Self {
+            key,
+            kind: PipelineKind::Compute,
         }
-    };
-}
+    }
 
-#[cfg(test)]
-const PIPELINE_LIFECYCLE: &[PipelineLifecycleSpec] = &[
-    spec!(
-        DdgiGlobalSkyFilter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiOctahedralGutter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiProbeRelocate,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiProbeTrace,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(LocalLightVisibilityDiagnostic, Compute, 0),
-    spec!(
-        DdgiIrradianceFilter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiVisibilityFilter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiIrradianceGutter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiVisibilityGutter,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(
-        DdgiAtlasReduce,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
-    ),
-    spec!(DdgiVoxelVisibilityPack, Compute, LifecycleMask::EXTENT),
-    spec!(DdgiVoxelVisibilityBlocks, Compute, LifecycleMask::EXTENT),
-    spec!(FloraLightingCache, Compute, LifecycleMask::DDGI_CONSUMER),
-    spec!(TreeLeafLightingCache, Compute, LifecycleMask::DDGI_CONSUMER),
-    spec!(
-        Tracer,
-        Compute,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(TracerShadow, Compute, LifecycleMask::EXTENT),
-    spec!(ShadowDepthCopy, Compute, LifecycleMask::EXTENT),
-    spec!(LeafShadowTemporal, Compute, 0),
-    spec!(LeafShadowMask, Compute, LifecycleMask::EXTENT),
-    spec!(VsmCreation, Compute, LifecycleMask::EXTENT),
-    spec!(VsmBlurH, Compute, LifecycleMask::EXTENT),
-    spec!(VsmBlurV, Compute, LifecycleMask::EXTENT),
-    spec!(GodRay, Compute, LifecycleMask::EXTENT),
-    spec!(GodRayTemporal, Compute, LifecycleMask::EXTENT),
-    spec!(Cloud, Compute, LifecycleMask::EXTENT),
-    spec!(CloudShadow, Compute, LifecycleMask::EXTENT),
-    spec!(CloudShadowTemporal, Compute, LifecycleMask::EXTENT),
-    spec!(CloudTemporal, Compute, LifecycleMask::EXTENT),
-    spec!(LensFlare, Compute, LifecycleMask::EXTENT),
-    spec!(LensFlareTemporal, Compute, LifecycleMask::EXTENT),
-    spec!(LensFlareSunVisible, Compute, LifecycleMask::EXTENT),
-    spec!(Composition, Compute, LifecycleMask::EXTENT),
-    spec!(PlayerCollider, Compute, LifecycleMask::EXTENT),
-    spec!(TerrainQuery, Compute, LifecycleMask::EXTENT),
-    spec!(WindVolume, Compute, LifecycleMask::EXTENT),
-    spec!(PostProcessing, Compute, LifecycleMask::EXTENT),
-    spec!(TerrainDepthPrefill, Graphics, LifecycleMask::EXTENT),
-    spec!(
-        Flora,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        FloraLod,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        Leaves,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        LeavesLod,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(LeavesShadowLod, Graphics, LifecycleMask::EXTENT),
-    spec!(
-        Sprinkler,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(GeometryPreview, Graphics, LifecycleMask::EXTENT),
-    spec!(
-        EnvironmentProbeDepth,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        EnvironmentProbeOverlay,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        DynamicFruit,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(DynamicFruitShadow, Graphics, 0),
-    spec!(
-        Particle,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(
-        WaterDroplet,
-        Graphics,
-        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
-    ),
-    spec!(Glass, Graphics, 0),
-];
+    const fn graphics(key: PipelineKey) -> Self {
+        Self {
+            key,
+            kind: PipelineKind::Graphics,
+        }
+    }
+
+    fn matches(self, expected_key: PipelineKey, expected_kind: PipelineKind) -> bool {
+        self == Self {
+            key: expected_key,
+            kind: expected_kind,
+        }
+    }
+}
 
 struct PreparedComputeGeneration {
-    key: PipelineKey,
+    identity: PreparedPipelineIdentity,
     descriptors: PreparedDescriptorGeneration,
 }
 
 struct PreparedGraphicsGeneration {
-    key: PipelineKey,
+    identity: PreparedPipelineIdentity,
     descriptors: PreparedDescriptorGeneration,
 }
 
-fn prepared_pair_matches(
-    expected_key: PipelineKey,
-    expected_kind: PipelineKind,
-    prepared_key: PipelineKey,
-    prepared_kind: PipelineKind,
-) -> bool {
-    (prepared_key, prepared_kind) == (expected_key, expected_kind)
-}
-
-/// A complete private descriptor generation for every pipeline that consumes a DDGI Volume.
+/// Typed descriptor generations for the topology's DDGI consumer publication.
 /// Named fields make preparation/publication pairing independent of list position.
 pub struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
@@ -2062,7 +1868,7 @@ impl PipelineTopology {
         let prepare_compute =
             |key: PipelineKey, pipeline: &ComputePipeline, error: &'static str| {
                 PreparedComputeGeneration {
-                    key,
+                    identity: PreparedPipelineIdentity::compute(key),
                     descriptors: pipeline
                         .prepare_descriptors(DescriptorUpdate::Named(&writes))
                         .expect(error),
@@ -2071,7 +1877,7 @@ impl PipelineTopology {
         let prepare_graphics =
             |key: PipelineKey, pipeline: &GraphicsPipeline, error: &'static str| {
                 PreparedGraphicsGeneration {
-                    key,
+                    identity: PreparedPipelineIdentity::graphics(key),
                     descriptors: pipeline
                         .prepare_descriptors(DescriptorUpdate::Named(&writes))
                         .expect(error),
@@ -2166,12 +1972,9 @@ impl PipelineTopology {
                                pipeline: &ComputePipeline,
                                prepared: PreparedComputeGeneration| {
             assert!(
-                prepared_pair_matches(
-                    expected_key,
-                    PipelineKind::Compute,
-                    prepared.key,
-                    PipelineKind::Compute,
-                ),
+                prepared
+                    .identity
+                    .matches(expected_key, PipelineKind::Compute),
                 "prepared compute generation must publish to its declared pipeline"
             );
             self.frame_retirement_sink
@@ -2186,12 +1989,9 @@ impl PipelineTopology {
              pipeline: &GraphicsPipeline,
              prepared: PreparedGraphicsGeneration| {
                 assert!(
-                    prepared_pair_matches(
-                        expected_key,
-                        PipelineKind::Graphics,
-                        prepared.key,
-                        PipelineKind::Graphics,
-                    ),
+                    prepared
+                        .identity
+                        .matches(expected_key, PipelineKind::Graphics),
                     "prepared graphics generation must publish to its declared pipeline"
                 );
                 self.frame_retirement_sink
@@ -2564,127 +2364,18 @@ impl GraphicsPipelines {
 
 #[cfg(test)]
 mod topology_tests {
-    use super::{
-        prepared_pair_matches, LifecycleMask, PipelineKey, PipelineKind, PIPELINE_LIFECYCLE,
-    };
-    use std::collections::HashSet;
-
-    fn family_keys(lifecycle: u8) -> HashSet<PipelineKey> {
-        PIPELINE_LIFECYCLE
-            .iter()
-            .filter(|spec| spec.lifecycle.contains(lifecycle))
-            .map(|spec| spec.key)
-            .collect()
-    }
+    use super::{PipelineKey, PipelineKind, PreparedPipelineIdentity};
 
     #[test]
-    fn pipeline_family_keys_are_unique() {
-        let keys = PIPELINE_LIFECYCLE
-            .iter()
-            .map(|spec| spec.key)
-            .collect::<HashSet<_>>();
-        assert_eq!(keys.len(), PIPELINE_LIFECYCLE.len());
-        assert_eq!(keys.len(), 51, "every concrete pipeline must have one key");
-    }
+    fn prepared_generation_identity_guards_key_and_pipeline_kind() {
+        let compute = PreparedPipelineIdentity::compute(PipelineKey::Tracer);
+        assert!(compute.matches(PipelineKey::Tracer, PipelineKind::Compute));
+        assert!(!compute.matches(PipelineKey::FloraLightingCache, PipelineKind::Compute));
+        assert!(!compute.matches(PipelineKey::Tracer, PipelineKind::Graphics));
 
-    #[test]
-    fn lifecycle_membership_is_complete() {
-        assert!(PIPELINE_LIFECYCLE
-            .iter()
-            .all(|spec| spec.lifecycle.contains(LifecycleMask::CONSTRUCTION)));
-        assert!(PIPELINE_LIFECYCLE
-            .iter()
-            .all(|spec| spec.lifecycle.contains(LifecycleMask::RECORD)));
-        assert_eq!(
-            PIPELINE_LIFECYCLE
-                .iter()
-                .filter(|spec| spec.kind == PipelineKind::Compute)
-                .count(),
-            36
-        );
-        assert_eq!(
-            PIPELINE_LIFECYCLE
-                .iter()
-                .filter(|spec| spec.kind == PipelineKind::Graphics)
-                .count(),
-            15
-        );
-        assert_eq!(family_keys(LifecycleMask::EXTENT).len(), 45);
-
-        let ddgi_builder = family_keys(LifecycleMask::DDGI_BUILDER);
-        assert_eq!(ddgi_builder.len(), 9);
-        assert_eq!(
-            ddgi_builder,
-            HashSet::from([
-                PipelineKey::DdgiGlobalSkyFilter,
-                PipelineKey::DdgiOctahedralGutter,
-                PipelineKey::DdgiProbeRelocate,
-                PipelineKey::DdgiProbeTrace,
-                PipelineKey::DdgiIrradianceFilter,
-                PipelineKey::DdgiVisibilityFilter,
-                PipelineKey::DdgiIrradianceGutter,
-                PipelineKey::DdgiVisibilityGutter,
-                PipelineKey::DdgiAtlasReduce,
-            ])
-        );
-
-        let ddgi_consumers = family_keys(LifecycleMask::DDGI_CONSUMER);
-        assert_eq!(ddgi_consumers.len(), 13);
-        assert_eq!(
-            ddgi_consumers,
-            HashSet::from([
-                PipelineKey::Tracer,
-                PipelineKey::FloraLightingCache,
-                PipelineKey::TreeLeafLightingCache,
-                PipelineKey::Flora,
-                PipelineKey::FloraLod,
-                PipelineKey::Leaves,
-                PipelineKey::LeavesLod,
-                PipelineKey::Sprinkler,
-                PipelineKey::DynamicFruit,
-                PipelineKey::Particle,
-                PipelineKey::WaterDroplet,
-                PipelineKey::EnvironmentProbeDepth,
-                PipelineKey::EnvironmentProbeOverlay,
-            ])
-        );
-
-        let glass = PIPELINE_LIFECYCLE
-            .iter()
-            .find(|spec| spec.key == PipelineKey::Glass)
-            .expect("Glass must remain an opaque topology member");
-        assert_eq!(
-            glass.lifecycle,
-            LifecycleMask::new(0),
-            "Glass keeps construction/record behavior without resize or DDGI membership"
-        );
-    }
-
-    #[test]
-    fn prepared_generation_is_paired_with_actual_pipeline_type() {
-        assert!(prepared_pair_matches(
-            PipelineKey::Tracer,
-            PipelineKind::Compute,
-            PipelineKey::Tracer,
-            PipelineKind::Compute,
-        ));
-        assert!(prepared_pair_matches(
-            PipelineKey::Flora,
-            PipelineKind::Graphics,
-            PipelineKey::Flora,
-            PipelineKind::Graphics,
-        ));
-        assert!(!prepared_pair_matches(
-            PipelineKey::Flora,
-            PipelineKind::Graphics,
-            PipelineKey::Leaves,
-            PipelineKind::Graphics,
-        ));
-        assert!(!prepared_pair_matches(
-            PipelineKey::Tracer,
-            PipelineKind::Compute,
-            PipelineKey::Tracer,
-            PipelineKind::Graphics,
-        ));
+        let graphics = PreparedPipelineIdentity::graphics(PipelineKey::Flora);
+        assert!(graphics.matches(PipelineKey::Flora, PipelineKind::Graphics));
+        assert!(!graphics.matches(PipelineKey::Leaves, PipelineKind::Graphics));
+        assert!(!graphics.matches(PipelineKey::Flora, PipelineKind::Compute));
     }
 }
