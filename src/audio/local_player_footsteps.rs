@@ -25,6 +25,38 @@ pub(crate) fn local_footstep_correlation_id(event_seq: u64) -> u64 {
         .expect("local footstep telemetry correlation ID overflowed")
 }
 
+pub(super) enum LocalFootstepFrameAction {
+    Acoustic(super::LocalFootstepAcousticObservation),
+    Voice(super::LocalFootstepVoiceObservation),
+    Lifecycle(PetalSonicEvent),
+    RetireCompletionDeadlines { sim_time_seconds: f64 },
+    FinalizeTelemetryDeadlines { sim_time_seconds: f64 },
+}
+
+/// Defines the closed ordering contract for one local-footstep observation cycle.
+///
+/// Voice and acoustic telemetry have already been demultiplexed by Re: Flora. PetalSonic
+/// lifecycle events remain independently drained only after those observations are applied, and
+/// deadline retirement remains last.
+pub(super) fn for_each_local_footstep_frame_action(
+    telemetry: LocalFootstepTelemetryObservations,
+    drain_lifecycle: impl FnOnce() -> Vec<PetalSonicEvent>,
+    sim_time_seconds: f64,
+    mut apply: impl FnMut(LocalFootstepFrameAction),
+) {
+    for observation in telemetry.acoustic {
+        apply(LocalFootstepFrameAction::Acoustic(observation));
+    }
+    for observation in telemetry.voice {
+        apply(LocalFootstepFrameAction::Voice(observation));
+    }
+    for event in drain_lifecycle() {
+        apply(LocalFootstepFrameAction::Lifecycle(event));
+    }
+    apply(LocalFootstepFrameAction::RetireCompletionDeadlines { sim_time_seconds });
+    apply(LocalFootstepFrameAction::FinalizeTelemetryDeadlines { sim_time_seconds });
+}
+
 fn local_footstep_event_seq(correlation_id: u64) -> Option<u64> {
     correlation_id.checked_sub(LOCAL_FOOTSTEP_CORRELATION_NAMESPACE)
 }
@@ -531,30 +563,42 @@ impl LocalPlayerFootstepAudio {
         telemetry: LocalFootstepTelemetryObservations,
     ) {
         self.retry_retiring_emitters();
-        for observation in telemetry.acoustic {
-            self.handle_acoustic_conclusion(observation.event_seq, observation.conclusion);
-        }
-        for observation in telemetry.voice {
-            self.handle_voice_telemetry(observation.event_seq, observation.event);
-        }
-        for event in self.spatial_sound_manager.drain_events() {
-            self.handle_petalsonic_event(event, sim_time_seconds);
-        }
-        for voice in self.active.take_expired(sim_time_seconds) {
-            log::warn!(
-                "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={} reason=completion_deadline_expired deadline={:.6} sim_time={:.6}",
-                voice.event_seq,
-                voice.completion_deadline_seconds,
-                sim_time_seconds,
-            );
-            self.begin_voice_retirement(
-                voice,
-                true,
-                "completion_deadline_expired",
-                sim_time_seconds,
-            );
-        }
-        self.finalize_concluding_voices(sim_time_seconds);
+        let spatial_sound_manager = self.spatial_sound_manager.clone();
+        for_each_local_footstep_frame_action(
+            telemetry,
+            || spatial_sound_manager.drain_events(),
+            sim_time_seconds,
+            |action| match action {
+                LocalFootstepFrameAction::Acoustic(observation) => {
+                    self.handle_acoustic_conclusion(observation.event_seq, observation.conclusion)
+                }
+                LocalFootstepFrameAction::Voice(observation) => {
+                    self.handle_voice_telemetry(observation.event_seq, observation.event);
+                }
+                LocalFootstepFrameAction::Lifecycle(event) => {
+                    self.handle_petalsonic_event(event, sim_time_seconds);
+                }
+                LocalFootstepFrameAction::RetireCompletionDeadlines { sim_time_seconds } => {
+                    for voice in self.active.take_expired(sim_time_seconds) {
+                        log::warn!(
+                            "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={} reason=completion_deadline_expired deadline={:.6} sim_time={:.6}",
+                            voice.event_seq,
+                            voice.completion_deadline_seconds,
+                            sim_time_seconds,
+                        );
+                        self.begin_voice_retirement(
+                            voice,
+                            true,
+                            "completion_deadline_expired",
+                            sim_time_seconds,
+                        );
+                    }
+                }
+                LocalFootstepFrameAction::FinalizeTelemetryDeadlines { sim_time_seconds } => {
+                    self.finalize_concluding_voices(sim_time_seconds);
+                }
+            },
+        );
     }
 
     pub(crate) fn prepare(

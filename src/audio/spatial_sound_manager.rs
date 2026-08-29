@@ -649,9 +649,9 @@ impl SpatialSoundManager {
     }
 
     pub(crate) fn drain_audio_telemetry(&self) -> AudioTelemetryObservations {
-        self.audio_telemetry_router.lock().unwrap().route(
-            self.world.drain_voice_telemetry(),
-            self.world.drain_acoustic_telemetry(),
+        self.audio_telemetry_router.lock().unwrap().drain_once(
+            || self.world.drain_voice_telemetry(),
+            || self.world.drain_acoustic_telemetry(),
         )
     }
 

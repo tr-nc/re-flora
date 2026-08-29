@@ -83,6 +83,18 @@ pub(crate) struct AudioTelemetryRouter {
 }
 
 impl AudioTelemetryRouter {
+    /// Drains each PetalSonic telemetry queue exactly once, then performs closed-set routing.
+    ///
+    /// Lifecycle events deliberately are not accepted here; their independent stream is owned by
+    /// the local-footstep frame observation cycle.
+    pub(crate) fn drain_once(
+        &mut self,
+        drain_voice: impl FnOnce() -> Vec<VoiceTelemetryEvent>,
+        drain_acoustic: impl FnOnce() -> Vec<AcousticTelemetryEvent>,
+    ) -> AudioTelemetryObservations {
+        self.route(drain_voice(), drain_acoustic())
+    }
+
     pub(crate) fn claim_canopy(
         &mut self,
         emitter: Emitter,
@@ -141,7 +153,7 @@ impl AudioTelemetryRouter {
         }
     }
 
-    pub(crate) fn route(
+    fn route(
         &mut self,
         voice_events: Vec<VoiceTelemetryEvent>,
         acoustic_events: Vec<AcousticTelemetryEvent>,
