@@ -42,6 +42,8 @@ RWTexture2D<uint2> glass_debug_tex;
 [[vk::binding(17, 0)]]
 RWStructuredBuffer<uint4> glass_voxel_cache_metadata;
 [[vk::binding(18, 0)]]
+// Two float4 values per cache slot: complete transport, then the all-transmitted
+// screen-candidate contribution that can be replaced at a raster silhouette.
 RWStructuredBuffer<float4> glass_voxel_cache_radiance;
 [[vk::binding(19, 0)]]
 RWStructuredBuffer<uint> glass_voxel_cache_active_slots;
@@ -79,12 +81,22 @@ static const uint GLASS_DEPTH_ORDER_ULPS = 4u;
 static const uint GLASS_SCREEN_TRACE_MAX_STEPS = 256u;
 static const uint GLASS_VOXEL_CACHE_BUILD_PASS = 0u;
 static const uint GLASS_VOXEL_CACHE_SHADE_PASS = 1u;
-static const uint GLASS_VOXEL_CACHE_RESOLVE_PASS = 2u;
+static const uint GLASS_VOXEL_CACHE_CLASSIFY_PASS = 2u;
+static const uint GLASS_EXACT_PIXEL_BUILD_PASS = 3u;
+static const uint GLASS_VOXEL_CACHE_RESOLVE_PASS = 4u;
+static const uint GLASS_EXACT_PIXEL_RESOLVE_PASS = 5u;
 static const uint GLASS_VOXEL_CACHE_CAPACITY = 1u << 18u;
 static const uint GLASS_VOXEL_CACHE_MASK = GLASS_VOXEL_CACHE_CAPACITY - 1u;
 static const uint GLASS_VOXEL_CACHE_MAX_PROBES = 32u;
 static const uint GLASS_VOXEL_COORD_BITS = 10u;
 static const uint GLASS_VOXEL_COORD_MASK = (1u << GLASS_VOXEL_COORD_BITS) - 1u;
+static const uint GLASS_CACHE_FACE_SIGNATURE_MASK = 0x0fu;
+static const uint GLASS_CACHE_DISCONTINUOUS_BIT = 1u << 31u;
+// Only visible transport discontinuities warrant the exact boundary path. Six internal
+// pixels is the smallest raster-neighborhood radius that covers the validated refractive
+// silhouette displacement; four pixels leaves stable protrusions in the test snapshot.
+static const float GLASS_CACHE_VISIBLE_RADIANCE_DELTA = 0.25;
+static const int GLASS_RASTER_BOUNDARY_RADIUS_PIXELS = 6;
 // Symmetric two-point prefilter positions along a voxel-face diagonal.
 static const float GLASS_VOXEL_FACE_SAMPLE_OFFSET = 0.2886751346 / 256.0;
 static const float GLASS_VOXEL_FACE_HALF_EXTENT = 0.5 / 256.0;
@@ -102,6 +114,7 @@ struct GlassActivePath
 struct GlassResolveResult
 {
     float3 radiance;
+    float3 primary_screen_contribution;
     uint scene_queries;
     uint dda_steps;
     uint interfaces;
@@ -130,6 +143,7 @@ GlassResolveResult emptyGlassResolveResult()
 {
     GlassResolveResult result;
     result.radiance = float3(0.0);
+    result.primary_screen_contribution = float3(0.0);
     result.scene_queries = 0u;
     result.dda_steps = 0u;
     result.interfaces = 0u;
@@ -211,6 +225,30 @@ bool glassVoxelCacheSlot(uint key, bool insert, out uint slot, out bool inserted
     return false;
 }
 
+uint glassInterfaceFaceSignature(SceneQueryEvent event)
+{
+    uint axes = event.tied_axes & 0x07u;
+    uint axis = (axes & 1u) != 0u ? 0u : ((axes & 2u) != 0u ? 1u : 2u);
+    return axes | ((event.incident_face_normal[axis] > 0.0 ? 1u : 0u) << 3u);
+}
+
+bool loadGlassVoxelCacheRadiance(
+    int3 cell, uint faceSignature, out float3 radiance,
+    out uint diagnostics)
+{
+    uint key = glassVoxelCellKey(cell);
+    uint slot;
+    bool ignoredInserted;
+    if (!glassVoxelCacheSlot(key, false, slot, ignoredInserted)) return false;
+    uint4 metadata = glass_voxel_cache_metadata[slot];
+    if ((metadata.w & (1u << 31u)) == 0u ||
+        (metadata.y & GLASS_CACHE_FACE_SIGNATURE_MASK) != faceSignature)
+        return false;
+    radiance = glass_voxel_cache_radiance[slot * 2u].rgb;
+    diagnostics = metadata.z;
+    return true;
+}
+
 uint2 packGlassDiagnostics(GlassResolveResult result, float3 resolvedColor)
 {
     uint packedDebug = (result.fallback_reason & 0x0fu) |
@@ -283,21 +321,17 @@ bool validateGlassTerminalCoordinate(
 {
     float sampledDepth = unified_opaque_depth_tex[coordinate];
     provenance = opaque_provenance_tex[coordinate];
-    if (provenance != OPAQUE_PROVENANCE_VOXEL &&
-        provenance != OPAQUE_PROVENANCE_RASTER)
+    // Raster geometry must be discovered by the ordered projected-segment walk above.
+    // Accepting it only at the arbitrary voxel terminal coordinate can skip a nearer raster hit.
+    if (provenance != OPAQUE_PROVENANCE_VOXEL)
     {
         rejectionReason = GLASS_FALLBACK_REJECTED_PROVENANCE;
         return false;
     }
-    // Raster-only geometry is absent from the voxel DDA and may legitimately
-    // terminate the refracted ray before its world-space voxel endpoint.
     float sampledCameraDepth = glassCameraDepthFromNdc(sampledDepth);
     float hitCameraDepth = glassCameraDepthFromNdc(hitDepth);
-    bool terminalDepthMatches = provenance == OPAQUE_PROVENANCE_RASTER
-        ? sampledCameraDepth <=
-            hitCameraDepth + GLASS_SCREEN_TRACE_THICKNESS_WORLD
-        : abs(sampledCameraDepth - hitCameraDepth) <=
-            GLASS_SCREEN_TRACE_THICKNESS_WORLD;
+    bool terminalDepthMatches = abs(sampledCameraDepth - hitCameraDepth) <=
+        GLASS_SCREEN_TRACE_THICKNESS_WORLD;
     if (!glassTerminalIsBehindLocalFront(coordinate, sampledDepth) ||
         !terminalDepthMatches)
     {
@@ -445,7 +479,10 @@ float3 sampleGlassTerminalRadiance(
     {
         fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
         terminalProvenance = segmentHitProvenance;
-        return unified_opaque_hdr_tex.SampleLevel(segmentHitUv, 0.0).rgb;
+        int2 segmentHitCoordinate = int2(segmentHitUv * float2(extent));
+        // Depth and provenance validated this integer texel. A filtered read would blend
+        // an unvalidated neighboring object across a silhouette.
+        return unified_opaque_hdr_tex.Load(int3(segmentHitCoordinate, 0)).rgb;
     }
 
     if (!opaqueTerminal) return glassSky(segmentDirection);
@@ -458,7 +495,7 @@ float3 sampleGlassTerminalRadiance(
     {
         fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
         terminalProvenance = provenance;
-        return unified_opaque_hdr_tex.SampleLevel(uv, 0.0).rgb;
+        return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
     }
 
     fallbackReason = rejectionReason;
@@ -702,6 +739,8 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
                 event, path.screen_candidate, path.origin, path.direction,
                 fallbackReason, terminalProvenance);
             result.radiance += path.throughput * terminal;
+            if (path.screen_candidate != 0u)
+                result.primary_screen_contribution += path.throughput * terminal;
             if (terminalProvenance == OPAQUE_PROVENANCE_RASTER)
                 result.raster_screen_hits += 1u;
             if (fallbackReason == GLASS_FALLBACK_SCREEN_HIT ||
@@ -728,12 +767,96 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
     {
         if (paths[index].active == 0u) continue;
         result.radiance += paths[index].throughput * glassSky(paths[index].direction);
+        if (paths[index].screen_candidate != 0u)
+        {
+            result.primary_screen_contribution +=
+                paths[index].throughput * glassSky(paths[index].direction);
+        }
         budgetFallbacks += 1u;
     }
     if (budgetFallbacks != 0u)
         result.fallback_reason = GLASS_FALLBACK_QUERY_BUDGET;
     if (result.exhausted != 0u) result.fallback_reason = GLASS_FALLBACK_EXHAUSTED;
     return result;
+}
+
+float3 traceGlassPrimaryScreenContributionFromFrontEvent(
+    Ray cameraRay, SceneQueryEvent frontEvent)
+{
+    // Reflected branches never retain screen_candidate. Recompute only the unique chain of
+    // transmitted branches whose raster terminal can vary inside one cached Glass voxel;
+    // the complete cached result continues to supply every reflected branch.
+    float3 throughput = float3(1.0);
+    VoxelMaterial frontMedium = voxelMaterial(
+        frontEvent.from_voxel_type, true);
+    if (frontMedium.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
+    {
+        throughput *= sceneQueryBeerLambert(
+            sceneQueryAbsorptionCoefficient(frontMedium),
+            frontEvent.medium_distance_world);
+    }
+
+    SceneQueryEvent interfaceEvent = frontEvent;
+    float3 direction = normalize(cameraRay.direction);
+    uint queriesUsed = 1u;
+    uint interfaces = 0u;
+    [loop]
+    while (interfaces < SCENE_QUERY_MAX_INTERFACE_EVENTS)
+    {
+        interfaces += 1u;
+        VoxelMaterial fromMaterial = voxelMaterial(
+            interfaceEvent.from_voxel_type, true);
+        VoxelMaterial toMaterial = voxelMaterial(
+            interfaceEvent.to_voxel_type, true);
+        float fresnel = sceneQueryDielectricFresnel(
+            direction, interfaceEvent.incident_face_normal,
+            fromMaterial.ior, toMaterial.ior);
+        float3 transmittedDirection;
+        if (!sceneQueryRefractDielectric(
+                direction, interfaceEvent.incident_face_normal,
+                fromMaterial.ior, toMaterial.ior, transmittedDirection))
+        {
+            return float3(0.0);
+        }
+        throughput *= 1.0 - fresnel;
+        if (glassPathLuminance(throughput) < SCENE_QUERY_THROUGHPUT_CUTOFF)
+            return float3(0.0);
+
+        float3 origin = sceneQueryOffsetAcrossInterface(
+            interfaceEvent, true, 256.0);
+        direction = normalize(transmittedDirection);
+        if (queriesUsed >= SCENE_QUERY_MAX_SCENE_QUERIES)
+            return throughput * glassSky(direction);
+
+        SceneQueryEvent event = walkVoxelMediaToNextEvent(
+            chunk_atlas, origin, direction, 256.0, true,
+            SCENE_QUERY_MAX_DDA_STEPS);
+        queriesUsed += 1u;
+        fromMaterial = voxelMaterial(event.from_voxel_type, true);
+        if (fromMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
+        {
+            throughput *= sceneQueryBeerLambert(
+                sceneQueryAbsorptionCoefficient(fromMaterial),
+                event.medium_distance_world);
+        }
+        if (glassPathLuminance(throughput) < SCENE_QUERY_THROUGHPUT_CUTOFF)
+            return float3(0.0);
+
+        if (event.kind == SCENE_QUERY_EVENT_OPAQUE ||
+            event.kind == SCENE_QUERY_EVENT_MISS)
+        {
+            uint fallbackReason;
+            uint terminalProvenance;
+            float3 terminal = sampleGlassTerminalRadiance(
+                event, 1u, origin, direction,
+                fallbackReason, terminalProvenance);
+            return throughput * terminal;
+        }
+        if (event.kind != SCENE_QUERY_EVENT_INTERFACE)
+            return float3(0.0);
+        interfaceEvent = event;
+    }
+    return float3(0.0);
 }
 
 uint glassFallbackPriority(uint reason)
@@ -753,6 +876,7 @@ void accumulateGlassResolveSample(
     GlassResolveResult sample, inout GlassResolveResult aggregate)
 {
     aggregate.radiance += sample.radiance;
+    aggregate.primary_screen_contribution += sample.primary_screen_contribution;
     aggregate.scene_queries = max(aggregate.scene_queries, sample.scene_queries);
     aggregate.dda_steps += sample.dda_steps;
     aggregate.interfaces = max(aggregate.interfaces, sample.interfaces);
@@ -774,6 +898,7 @@ void averageGlassResolveSamples(
     uint sampleCount, inout GlassResolveResult aggregate)
 {
     aggregate.radiance /= float(sampleCount);
+    aggregate.primary_screen_contribution /= float(sampleCount);
     aggregate.dda_steps = (aggregate.dda_steps + sampleCount / 2u) / sampleCount;
     aggregate.tir_events = (aggregate.tir_events + sampleCount / 2u) / sampleCount;
     aggregate.throughput_cutoffs =
@@ -966,13 +1091,174 @@ void shadeGlassVoxelCache(uint activeIndex)
             : GLASS_FALLBACK_SKY;
     }
 
-    glass_voxel_cache_radiance[slot] = float4(result.radiance, 1.0);
+    glass_voxel_cache_metadata[slot].y = frontEvent.kind == SCENE_QUERY_EVENT_INTERFACE
+        ? glassInterfaceFaceSignature(frontEvent)
+        : 0u;
+    glass_voxel_cache_radiance[slot * 2u] = float4(result.radiance, 1.0);
+    glass_voxel_cache_radiance[slot * 2u + 1u] =
+        float4(result.primary_screen_contribution, 1.0);
     uint2 diagnostics = packGlassDiagnostics(result, result.radiance);
     glass_voxel_cache_metadata[slot].z = diagnostics.x;
     glass_voxel_cache_metadata[slot].w = diagnostics.y | (1u << 31u);
 }
 
-void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
+bool glassVoxelTransportIsDiscontinuous(
+    int3 glassCell, uint faceSignature,
+    uint centerDiagnostics, float3 centerRadiance)
+{
+    uint axes = faceSignature & 0x07u;
+    if (countbits(axes) != 1u)
+        return false;
+
+    uint axis = (axes & 1u) != 0u ? 0u : ((axes & 2u) != 0u ? 1u : 2u);
+    int3 tangentU = axis == 0u ? int3(0, 1, 0) : int3(1, 0, 0);
+    int3 tangentV = axis == 2u ? int3(0, 1, 0) : int3(0, 0, 1);
+    [unroll]
+    for (uint neighborIndex = 0u; neighborIndex < 4u; ++neighborIndex)
+    {
+        int signValue = (neighborIndex & 1u) != 0u ? 1 : -1;
+        int3 offset = neighborIndex < 2u
+            ? tangentU * signValue
+            : tangentV * signValue;
+        float3 neighborRadiance;
+        uint neighborDiagnostics;
+        if (!loadGlassVoxelCacheRadiance(
+                glassCell + offset, faceSignature,
+                neighborRadiance, neighborDiagnostics))
+            continue;
+        uint centerRasterHit = centerDiagnostics >> 31u;
+        uint neighborRasterHit = neighborDiagnostics >> 31u;
+        if (centerRasterHit != neighborRasterHit)
+        {
+            float3 difference = abs(neighborRadiance - centerRadiance);
+            if (max(max(difference.x, difference.y), difference.z) >=
+                GLASS_CACHE_VISIBLE_RADIANCE_DELTA)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool glassVoxelFootprintIsResolvable(
+    int3 glassCell, uint faceSignature, uint2 extent)
+{
+    uint axes = faceSignature & 0x07u;
+    if (countbits(axes) != 1u) return false;
+    uint axis = (axes & 1u) != 0u ? 0u : ((axes & 2u) != 0u ? 1u : 2u);
+    float3 tangentU =
+        axis == 0u ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    float3 tangentV =
+        axis == 2u ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0);
+    float3 axisNormal = float3(0.0);
+    axisNormal[axis] = (faceSignature & 0x08u) != 0u ? 1.0 : -1.0;
+    float3 faceCenter = (float3(glassCell) + 0.5) / 256.0 +
+        axisNormal * GLASS_VOXEL_FACE_HALF_EXTENT;
+    float2 centerUv;
+    float2 centerPixel;
+    float centerDepth;
+    float2 uUv;
+    float2 uPixel;
+    float uDepth;
+    float2 vUv;
+    float2 vPixel;
+    float vDepth;
+    if (!projectGlassWorldToScreen(
+            faceCenter, extent, centerUv, centerPixel, centerDepth) ||
+        !projectGlassWorldToScreen(
+            faceCenter + tangentU / 256.0,
+            extent, uUv, uPixel, uDepth) ||
+        !projectGlassWorldToScreen(
+            faceCenter + tangentV / 256.0,
+            extent, vUv, vPixel, vDepth))
+    {
+        return false;
+    }
+    float footprintPixels = max(
+        length(uPixel - centerPixel), length(vPixel - centerPixel));
+    return footprintPixels >= 1.0;
+}
+
+void classifyGlassVoxelCache(uint activeIndex, uint2 extent)
+{
+    if (activeIndex >= min(
+            glass_voxel_cache_active_count[0], GLASS_VOXEL_CACHE_CAPACITY)) return;
+    uint slot = glass_voxel_cache_active_slots[activeIndex];
+    uint4 metadata = glass_voxel_cache_metadata[slot];
+    if (metadata.x == 0u || (metadata.w & (1u << 31u)) == 0u) return;
+    uint faceSignature = metadata.y & GLASS_CACHE_FACE_SIGNATURE_MASK;
+    int3 glassCell = glassVoxelCellFromKey(metadata.x);
+    float3 centerRadiance = glass_voxel_cache_radiance[slot * 2u].rgb;
+    if (glassVoxelTransportIsDiscontinuous(
+            glassCell, faceSignature, metadata.z, centerRadiance) &&
+        glassVoxelFootprintIsResolvable(
+            glassCell, faceSignature, extent))
+    {
+        glass_voxel_cache_metadata[slot].y =
+            metadata.y | GLASS_CACHE_DISCONTINUOUS_BIT;
+    }
+}
+
+bool glassPixelNeedsExactRasterBoundary(
+    int2 coordinate, uint2 extent, uint cachedDiagnostics)
+{
+    bool cachedRasterHit = (cachedDiagnostics >> 31u) != 0u;
+    bool localRaster =
+        opaque_provenance_tex[coordinate] == OPAQUE_PROVENANCE_RASTER;
+    if (localRaster == cachedRasterHit) return false;
+
+    int radius = GLASS_RASTER_BOUNDARY_RADIUS_PIXELS;
+    const int2 directions[8] = {
+        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1),
+        int2(-1, -1), int2(1, -1), int2(-1, 1), int2(1, 1)
+    };
+    [unroll]
+    for (uint index = 0u; index < 8u; ++index)
+    {
+        int2 neighbor = coordinate + directions[index] * radius;
+        if (any(neighbor < int2(0)) || any(neighbor >= int2(extent)))
+            continue;
+        bool neighborRaster =
+            opaque_provenance_tex[neighbor] == OPAQUE_PROVENANCE_RASTER;
+        if (neighborRaster != localRaster) return true;
+    }
+    return false;
+}
+
+void buildGlassExactPixelList(uint2 pixel, uint2 extent)
+{
+    int2 coordinate = int2(pixel);
+    uint frontData = glass_front_data_tex[coordinate];
+    if ((frontData & 1u) == 0u) return;
+    float frontDepth = glass_front_depth_tex[coordinate];
+    float opaqueDepth = unified_opaque_depth_tex[coordinate];
+    if (glassDepthPrecedes(opaqueDepth, frontDepth)) return;
+
+    float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
+    Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
+    SceneQueryEvent frontEvent = unpackGlassFrontEvent(
+        frontData, screenUv, frontDepth, ray);
+    uint key = glassVoxelCellKey(glassInterfaceVoxelCell(frontEvent));
+    uint slot;
+    bool ignoredInserted;
+    if (!glassVoxelCacheSlot(key, false, slot, ignoredInserted)) return;
+    uint4 metadata = glass_voxel_cache_metadata[slot];
+    if ((metadata.w & (1u << 31u)) == 0u ||
+        (metadata.y & GLASS_CACHE_DISCONTINUOUS_BIT) == 0u ||
+        !glassPixelNeedsExactRasterBoundary(coordinate, extent, metadata.z))
+    {
+        return;
+    }
+
+    uint activeIndex;
+    InterlockedAdd(glass_voxel_cache_active_count[0], 1u, activeIndex);
+    if (activeIndex < GLASS_VOXEL_CACHE_CAPACITY)
+        glass_voxel_cache_active_slots[activeIndex] =
+            pixel.y * extent.x + pixel.x;
+}
+
+void resolveGlassVoxelPixel(uint2 pixel, uint2 extent, bool forceExact)
 {
     int2 coordinate = int2(pixel);
     float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
@@ -1007,11 +1293,26 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
                 uint2 cachedDiagnostics = glass_voxel_cache_metadata[slot].zw;
                 if ((cachedDiagnostics.y & (1u << 31u)) != 0u)
                 {
-                    resolvedColor = glass_voxel_cache_radiance[slot].rgb;
+                    float3 cachedRadiance =
+                        glass_voxel_cache_radiance[slot * 2u].rgb;
+                    resolvedColor = cachedRadiance;
                     diagnostics = uint2(
-                        cachedDiagnostics.x, cachedDiagnostics.y & ~(1u << 31u));
+                        cachedDiagnostics.x,
+                        cachedDiagnostics.y & ~(1u << 31u));
                     reason = diagnostics.x & 0x0fu;
                     usedCachedDiagnostics = true;
+                    if (forceExact)
+                    {
+                        float3 cachedPrimaryScreen =
+                            glass_voxel_cache_radiance[slot * 2u + 1u].rgb;
+                        float3 exactPrimaryScreen =
+                            traceGlassPrimaryScreenContributionFromFrontEvent(
+                                ray, frontEvent);
+                        resolvedColor = max(
+                            float3(0.0),
+                            cachedRadiance - cachedPrimaryScreen +
+                                exactPrimaryScreen);
+                    }
                 }
                 else
                 {
@@ -1048,6 +1349,18 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
     composited_tex[coordinate] = float4(resolvedColor, 1.0);
 }
 
+void resolveGlassExactPixel(uint activeIndex, uint2 extent)
+{
+    if (activeIndex >= min(
+            glass_voxel_cache_active_count[0], GLASS_VOXEL_CACHE_CAPACITY)) return;
+    uint flattenedPixel = glass_voxel_cache_active_slots[activeIndex];
+    uint2 pixel = uint2(
+        flattenedPixel % extent.x,
+        flattenedPixel / extent.x);
+    if (any(pixel >= extent)) return;
+    resolveGlassVoxelPixel(pixel, extent, true);
+}
+
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -1060,12 +1373,27 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint width;
     uint height;
     composited_tex.GetDimensions(width, height);
-    if (any(dispatchThreadId.xy >= uint2(width, height))) return;
     uint2 extent = uint2(width, height);
+    if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_CLASSIFY_PASS)
+    {
+        classifyGlassVoxelCache(dispatchThreadId.x, extent);
+        return;
+    }
+    if (glass_voxel_cache_push.pass == GLASS_EXACT_PIXEL_RESOLVE_PASS)
+    {
+        resolveGlassExactPixel(dispatchThreadId.x, extent);
+        return;
+    }
+    if (any(dispatchThreadId.xy >= extent)) return;
     if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_BUILD_PASS)
     {
         buildGlassVoxelCache(dispatchThreadId.xy, extent);
         return;
     }
-    resolveGlassVoxelPixel(dispatchThreadId.xy, extent);
+    if (glass_voxel_cache_push.pass == GLASS_EXACT_PIXEL_BUILD_PASS)
+    {
+        buildGlassExactPixelList(dispatchThreadId.xy, extent);
+        return;
+    }
+    resolveGlassVoxelPixel(dispatchThreadId.xy, extent, false);
 }
