@@ -1,6 +1,10 @@
-use crate::environment_lighting::{DdgiRadianceHistoryPolicy, EnvironmentLightingState};
+use crate::environment_lighting::{
+    AuthoredEnvironmentLightingFact, DdgiRadianceChange, DdgiRadianceChangeReason,
+    DdgiRadianceDelta, DdgiRadianceHistoryPolicy, EnvironmentLightingState,
+};
 use crate::geom::UAabb3;
 use anyhow::{Context, Result};
+use std::time::Duration;
 
 use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
@@ -11,6 +15,8 @@ use super::{
     DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
     DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
 };
+
+const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DdgiRuntimeVolumeTarget {
@@ -133,6 +139,25 @@ impl DdgiLightingDiagnostics {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiLightingObservation {
+    pub transport: EnvironmentLightingState,
+    pub transport_published: bool,
+    pub coalesced_live_revisions: u64,
+}
+
+impl DdgiLightingObservation {
+    pub fn revision_lag(self, authored: AuthoredEnvironmentLightingFact) -> u64 {
+        authored
+            .revision
+            .saturating_sub(self.transport.source_live_revision)
+    }
+
+    pub fn transport_age(self, now: Duration) -> Duration {
+        now.saturating_sub(self.transport.published_at)
+    }
+}
+
 impl DdgiRuntimeWork {
     pub(crate) fn scheduled(self) -> DdgiScheduledWork {
         self.scheduled
@@ -166,13 +191,17 @@ pub(crate) struct DdgiRuntime {
     latest_visible_terrain_revision: Option<u32>,
     terrain_refresh: DdgiTerrainRefresh,
     transport_scheduler: DdgiTransportScheduler,
-    live_authored_lighting: Option<EnvironmentLightingState>,
+    latest_authored_fact: Option<AuthoredEnvironmentLightingFact>,
+    pending_authored_fact: Option<AuthoredEnvironmentLightingFact>,
+    current_transport_revision: u32,
+    latest_transport_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
     published_authored_lighting: Option<EnvironmentLightingState>,
     resident_active_field: Option<DdgiFieldIdentity>,
     resident_active_authored_lighting: Option<EnvironmentLightingState>,
     completed_staging_authored_lighting:
         Option<(DdgiBuildToken, DdgiFieldIdentity, EnvironmentLightingState)>,
+    coalesced_live_revisions: u64,
     coalesced_radiance_revisions: u64,
     camera_probe_priority: Option<UAabb3>,
     lighting_impact_probe_priority: Option<(u32, UAabb3)>,
@@ -195,12 +224,16 @@ impl DdgiRuntime {
             latest_visible_terrain_revision: None,
             terrain_refresh: DdgiTerrainRefresh::default(),
             transport_scheduler: DdgiTransportScheduler::new(),
-            live_authored_lighting: None,
+            latest_authored_fact: None,
+            pending_authored_fact: None,
+            current_transport_revision: 0,
+            latest_transport_lighting: None,
             in_flight_authored_lighting: None,
             published_authored_lighting: None,
             resident_active_field: None,
             resident_active_authored_lighting: None,
             completed_staging_authored_lighting: None,
+            coalesced_live_revisions: 0,
             coalesced_radiance_revisions: 0,
             camera_probe_priority: None,
             lighting_impact_probe_priority: None,
@@ -319,25 +352,104 @@ impl DdgiRuntime {
         true
     }
 
-    pub(crate) fn observe_authored_lighting(&mut self, lighting: EnvironmentLightingState) {
+    /// Observes the latest normalized fact and freezes DDGI transport only when its own cadence or
+    /// discontinuity policy requires it. Immediate consumers never read this transport snapshot.
+    pub(crate) fn observe_authored_lighting(
+        &mut self,
+        authored: AuthoredEnvironmentLightingFact,
+    ) -> DdgiLightingObservation {
         assert_ne!(
-            lighting.revision, 0,
-            "Authored Environment Lighting revisions must be nonzero"
+            authored.revision, 0,
+            "Authored Environment Lighting live revisions must be nonzero"
         );
-        assert_eq!(
-            lighting.snapshot.local_lights.info.transport_revision, lighting.revision,
-            "DDGI local-light payload must be frozen to its authored transport revision",
-        );
-        if let Some(current) = self.live_authored_lighting {
-            if current.revision == lighting.revision {
+        let authored_changed = self
+            .latest_authored_fact
+            .is_none_or(|current| current.revision != authored.revision);
+        if let Some(current) = self.latest_authored_fact {
+            if current.revision == authored.revision {
                 assert_eq!(
-                    current.snapshot, lighting.snapshot,
-                    "Authored Environment Lighting reused revision {} for a different snapshot",
-                    lighting.revision,
+                    current.snapshot, authored.snapshot,
+                    "Authored Environment Lighting reused live revision {} for a different fact",
+                    authored.revision
                 );
-                return;
             }
         }
+        self.latest_authored_fact = Some(authored);
+
+        let mut transport_published = false;
+        if self.latest_transport_lighting.is_none() {
+            self.freeze_transport(
+                authored,
+                DdgiRadianceChange {
+                    reason: DdgiRadianceChangeReason::Initial,
+                    delta: DdgiRadianceDelta::default(),
+                },
+            );
+            transport_published = true;
+        } else if authored_changed {
+            let current = self
+                .latest_transport_lighting
+                .expect("initialized DDGI lighting must retain its current transport");
+            if current.snapshot == authored.snapshot {
+                if self.pending_authored_fact.take().is_some() {
+                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
+                }
+            } else {
+                let change = DdgiRadianceChange::between(current.snapshot, authored.snapshot);
+                if change.resets_irradiance_history() {
+                    if self.pending_authored_fact.take().is_some() {
+                        self.coalesced_live_revisions =
+                            self.coalesced_live_revisions.saturating_add(1);
+                    }
+                    self.freeze_transport(authored, change);
+                    transport_published = true;
+                } else if self.pending_authored_fact.replace(authored).is_some() {
+                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
+                }
+            }
+        }
+
+        let publication_due = self.latest_transport_lighting.is_some_and(|transport| {
+            authored.observed_at.saturating_sub(transport.published_at)
+                >= DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL
+        });
+        if !transport_published && publication_due && self.pending_authored_fact.is_some() {
+            let current = self
+                .latest_transport_lighting
+                .expect("pending DDGI lighting requires a current transport");
+            let change = DdgiRadianceChange::between(current.snapshot, authored.snapshot);
+            self.freeze_transport(authored, change);
+            transport_published = true;
+        }
+
+        DdgiLightingObservation {
+            transport: self
+                .latest_transport_lighting
+                .expect("initial authored observation must freeze DDGI transport"),
+            transport_published,
+            coalesced_live_revisions: self.coalesced_live_revisions,
+        }
+    }
+
+    fn freeze_transport(
+        &mut self,
+        authored: AuthoredEnvironmentLightingFact,
+        change: DdgiRadianceChange,
+    ) {
+        self.current_transport_revision = self.current_transport_revision.wrapping_add(1).max(1);
+        let mut snapshot = authored.snapshot;
+        snapshot.local_lights = snapshot
+            .local_lights
+            .with_transport_revision(self.current_transport_revision);
+        let lighting = EnvironmentLightingState {
+            revision: self.current_transport_revision,
+            source_live_revision: authored.revision,
+            published_at: authored.observed_at,
+            snapshot,
+            change,
+        };
+        self.pending_authored_fact = None;
+
         let previous_latest = self.transport_scheduler.latest_radiance_revision();
         let in_flight_revision = self
             .transport_scheduler
@@ -354,7 +466,7 @@ impl DdgiRuntime {
         {
             self.coalesced_radiance_revisions = self.coalesced_radiance_revisions.saturating_add(1);
         }
-        self.live_authored_lighting = Some(lighting);
+        self.latest_transport_lighting = Some(lighting);
         self.transport_scheduler.observe_radiance(lighting.revision);
     }
 
@@ -502,7 +614,7 @@ impl DdgiRuntime {
             "DDGI runtime cannot replace an in-flight authored-lighting snapshot"
         );
         let authored_lighting = self
-            .live_authored_lighting
+            .latest_transport_lighting
             .expect("DDGI transport work requires an Authored Environment Lighting observation");
         assert_eq!(
             authored_lighting.revision,
@@ -741,6 +853,19 @@ impl DdgiRuntime {
         self.transport_scheduler.latest_radiance_revision()
     }
 
+    pub(crate) fn lighting_revision_lag(&self) -> u64 {
+        self.latest_authored_fact.map_or(0, |authored| {
+            authored.revision.saturating_sub(
+                self.latest_transport_lighting
+                    .map_or(0, |transport| transport.source_live_revision),
+            )
+        })
+    }
+
+    pub(crate) fn coalesced_live_revisions(&self) -> u64 {
+        self.coalesced_live_revisions
+    }
+
     pub(crate) fn lighting_diagnostics(&self) -> DdgiLightingDiagnostics {
         let in_flight_revision = self
             .transport_scheduler
@@ -752,7 +877,7 @@ impl DdgiRuntime {
         DdgiLightingDiagnostics {
             latest_transport_revision: self.transport_scheduler.latest_radiance_revision(),
             latest_source_live_revision: self
-                .live_authored_lighting
+                .latest_transport_lighting
                 .map(|lighting| lighting.source_live_revision),
             scheduler_published_revision: self
                 .transport_scheduler
@@ -764,8 +889,8 @@ impl DdgiRuntime {
         }
     }
 
-    pub(crate) fn live_authored_lighting(&self) -> Option<EnvironmentLightingState> {
-        self.live_authored_lighting
+    pub(crate) fn latest_transport_lighting(&self) -> Option<EnvironmentLightingState> {
+        self.latest_transport_lighting
     }
 
     #[cfg(test)]
@@ -1256,7 +1381,9 @@ mod tests {
         DdgiAtlasLayout, DdgiBuildKind, DdgiFieldKey, DdgiFieldState, DdgiResourceBytes,
         DdgiVolumeGrid, DdgiVolumeStage,
     };
-    use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
+    use crate::environment_lighting::{
+        AuthoredEnvironmentLightingFact, DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot,
+    };
     use crate::geom::UAabb3;
     use crate::lighting::{
         LocalLight, LocalLightBudget, LocalLightGpuPayload, LocalLightGpuSnapshot,
@@ -1280,12 +1407,10 @@ mod tests {
         .unwrap()
     }
 
-    fn lighting(revision: u32, sun_luminance: f32) -> EnvironmentLightingState {
-        EnvironmentLightingState {
-            revision,
-            source_live_revision: u64::from(revision),
-            published_at: std::time::Duration::from_millis(u64::from(revision) * 10),
-            change: crate::environment_lighting::DdgiRadianceChange::default(),
+    fn lighting(revision: u32, sun_luminance: f32) -> AuthoredEnvironmentLightingFact {
+        AuthoredEnvironmentLightingFact {
+            revision: u64::from(revision),
+            observed_at: std::time::Duration::from_millis(u64::from(revision) * 10),
             snapshot: DdgiRadianceSnapshot {
                 sun_direction: Vec3::Y,
                 sun_color: Vec3::new(1.0, 0.9, 0.8),
@@ -1302,7 +1427,7 @@ mod tests {
                     emissive_color: Vec3::new(1.0, 0.36, 0.08),
                     emissive_radiance: 4.0,
                 },
-                local_lights: LocalLightGpuPayload::empty(0).with_transport_revision(revision),
+                local_lights: LocalLightGpuPayload::empty(0),
             },
         }
     }
@@ -1621,6 +1746,108 @@ mod tests {
     }
 
     #[test]
+    fn continuous_sun_changes_coalesce_to_the_latest_cadenced_transport() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        let mut initial = lighting(1, 1.0);
+        initial.observed_at = Duration::ZERO;
+        let initial_transport = runtime.observe_authored_lighting(initial);
+        assert!(initial_transport.transport_published);
+
+        for (revision, degrees, elapsed_ms) in
+            [(2_u32, 1.0_f32, 50_u64), (3, 2.0, 100), (4, 3.0, 150)]
+        {
+            let mut changed = lighting(revision, 1.0);
+            changed.observed_at = Duration::from_millis(elapsed_ms);
+            changed.snapshot.sun_direction =
+                glam::Quat::from_rotation_x(degrees.to_radians()) * Vec3::Y;
+            let pending = runtime.observe_authored_lighting(changed);
+            assert!(!pending.transport_published);
+            assert_eq!(pending.transport, initial_transport.transport);
+            assert_eq!(runtime.lighting_revision_lag(), u64::from(revision - 1));
+        }
+
+        let mut latest = lighting(5, 1.0);
+        latest.observed_at = DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL;
+        latest.snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
+        let published = runtime.observe_authored_lighting(latest);
+
+        assert!(published.transport_published);
+        assert_eq!(published.transport.revision, 2);
+        assert_eq!(published.transport.source_live_revision, 5);
+        assert_eq!(published.transport.snapshot, latest.snapshot);
+        assert_eq!(
+            published.transport.change.reason,
+            DdgiRadianceChangeReason::ContinuousSun
+        );
+        assert_eq!(published.coalesced_live_revisions, 3);
+        assert_eq!(runtime.lighting_revision_lag(), 0);
+    }
+
+    #[test]
+    fn transport_discontinuities_publish_immediately_and_own_the_transport_revision() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        let initial = runtime.observe_authored_lighting(lighting(1, 1.0));
+        assert_eq!(initial.transport.revision, 1);
+
+        let mut large_sun_step = lighting(2, 1.0);
+        large_sun_step.snapshot.sun_direction = Vec3::Z;
+        let large_sun_step = runtime.observe_authored_lighting(large_sun_step);
+        assert!(large_sun_step.transport_published);
+        assert_eq!(large_sun_step.transport.revision, 2);
+        assert_eq!(
+            large_sun_step.transport.change.reason,
+            DdgiRadianceChangeReason::LargeSunStep
+        );
+
+        let mut material_step = lighting(3, 1.0);
+        material_step.snapshot.sun_direction = Vec3::Z;
+        material_step.snapshot.voxel_palette.rock_color.x += 0.01;
+        let material_step = runtime.observe_authored_lighting(material_step);
+        assert!(material_step.transport_published);
+        assert_eq!(material_step.transport.revision, 3);
+        assert_eq!(
+            material_step.transport.change.reason,
+            DdgiRadianceChangeReason::TransportInputStep
+        );
+
+        let mut lights = LocalLightRegistry::default();
+        lights.add(LocalLight::Point(
+            PointLight::new(Vec3::ONE, Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
+        ));
+        let mut local_light_step = lighting(4, 1.0);
+        local_light_step.snapshot.sun_direction = Vec3::Z;
+        local_light_step.snapshot.voxel_palette = material_step.transport.snapshot.voxel_palette;
+        local_light_step.snapshot.local_lights = LocalLightGpuSnapshot::from_authoritative(
+            &lights.snapshot(),
+            LocalLightBudget::point_lights(1),
+            0,
+        )
+        .payload();
+        let local_light_step = runtime.observe_authored_lighting(local_light_step);
+        assert!(local_light_step.transport_published);
+        assert_eq!(local_light_step.transport.revision, 4);
+        assert_eq!(
+            local_light_step.transport.change.reason,
+            DdgiRadianceChangeReason::LocalLights
+        );
+        assert!(local_light_step
+            .transport
+            .change
+            .resets_irradiance_history());
+        assert_eq!(
+            local_light_step
+                .transport
+                .snapshot
+                .local_lights
+                .info
+                .transport_revision,
+            local_light_step.transport.revision
+        );
+    }
+
+    #[test]
     fn radiance_observations_coalesce_without_mutating_the_in_flight_snapshot() {
         let (mut runtime, active_token, _) = initialized_runtime();
         let mut lights = LocalLightRegistry::default();
@@ -1704,7 +1931,7 @@ mod tests {
     fn radiance_work_derives_history_from_the_actual_published_source() {
         let (mut runtime, _, _) = initialized_runtime();
         let mut continuous = lighting(2, 1.0);
-        continuous.published_at = std::time::Duration::from_millis(210);
+        continuous.observed_at = std::time::Duration::from_millis(210);
         continuous.snapshot.sun_direction =
             glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
         runtime.observe_authored_lighting(continuous);

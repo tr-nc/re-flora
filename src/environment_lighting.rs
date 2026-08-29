@@ -10,7 +10,6 @@ use crate::lighting::{LocalLightGpuPayload, LocalLightInfluenceBound};
 pub(crate) const DDGI_AUTHORED_SKY_MODEL_IDENTITY: u64 = authored_sky_model_identity();
 const FNV1A64_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV1A64_PRIME: u64 = 0x100000001b3;
-pub(crate) const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
 const DDGI_LARGE_SUN_STEP_ANGLE_RADIANS: f32 = 5.0_f32.to_radians();
 const DDGI_LARGE_SUN_STEP_COLOR_RELATIVE: f32 = 0.25;
 const DDGI_LARGE_SUN_STEP_LUMINANCE_RELATIVE: f32 = 0.35;
@@ -163,8 +162,8 @@ impl DdgiRadianceDelta {
         non_solar_changed: bool,
         local_lights_changed: bool,
     ) -> Self {
-        let previous_direction = previous.sun_direction.normalize_or_zero();
-        let next_direction = next.sun_direction.normalize_or_zero();
+        let previous_direction = previous.sun_direction;
+        let next_direction = next.sun_direction;
         let sun_angle_radians = if previous_direction == Vec3::ZERO || next_direction == Vec3::ZERO
         {
             if previous_direction == next_direction {
@@ -259,6 +258,7 @@ impl DdgiRadianceChange {
             self.reason,
             DdgiRadianceChangeReason::Initial
                 | DdgiRadianceChangeReason::LargeSunStep
+                | DdgiRadianceChangeReason::LocalLights
                 | DdgiRadianceChangeReason::TransportInputStep
         )
     }
@@ -308,8 +308,35 @@ impl DdgiRadianceHistoryPolicy {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AuthoredEnvironmentLightingInput {
+    pub sun_direction: Vec3,
+    pub sun_color: Vec3,
+    pub sun_luminance: f32,
+    pub terrain_ray_origin_offset_world: f32,
+    pub ddgi_receiver_visibility_bias_world: f32,
+    pub voxel_palette: DdgiVoxelPaletteSnapshot,
+    pub local_lights: LocalLightGpuPayload,
+}
+
+impl AuthoredEnvironmentLightingInput {
+    fn normalize(self) -> DdgiRadianceSnapshot {
+        DdgiRadianceSnapshot {
+            sun_direction: self.sun_direction.normalize_or_zero(),
+            sun_color: self.sun_color,
+            sun_luminance: self.sun_luminance,
+            terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world,
+            ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world,
+            voxel_palette: self.voxel_palette,
+            local_lights: self.local_lights,
+        }
+    }
+}
+
+/// The normalized current-frame lighting fact consumed by immediate lighting and observed by
+/// downstream transports. Its revision identifies live authored values, never DDGI cadence.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct LiveEnvironmentLightingState {
+pub(crate) struct AuthoredEnvironmentLightingFact {
     pub revision: u64,
     pub observed_at: Duration,
     pub snapshot: DdgiRadianceSnapshot,
@@ -329,180 +356,52 @@ pub(crate) struct EnvironmentLightingState {
     pub change: DdgiRadianceChange,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct EnvironmentLightingUpdate {
-    pub live: LiveEnvironmentLightingState,
-    pub transport: EnvironmentLightingState,
-    pub transport_published: bool,
-    pub coalesced_live_revisions: u64,
-}
-
-impl EnvironmentLightingUpdate {
-    pub fn revision_lag(self) -> u64 {
-        self.live
-            .revision
-            .saturating_sub(self.transport.source_live_revision)
-    }
-
-    pub fn transport_age(self, now: Duration) -> Duration {
-        now.saturating_sub(self.transport.published_at)
-    }
-}
-
 #[derive(Debug, Default)]
-pub(crate) struct EnvironmentLightingCache {
+pub(crate) struct AuthoredEnvironmentLighting {
     current_live_revision: u64,
-    current_transport_revision: u32,
     last_live_identity: Option<DdgiRadianceIdentity>,
-    current_transport: Option<EnvironmentLightingState>,
-    current_transport_identity: Option<DdgiRadianceIdentity>,
-    pending_transport_identity: Option<DdgiRadianceIdentity>,
-    coalesced_live_revisions: u64,
     last_observed_at: Option<Duration>,
 }
 
-impl EnvironmentLightingCache {
-    pub(crate) fn revision_lag(&self) -> u64 {
-        self.current_transport.map_or(0, |transport| {
-            self.current_live_revision
-                .saturating_sub(transport.source_live_revision)
-        })
-    }
-
-    pub(crate) fn coalesced_live_revisions(&self) -> u64 {
-        self.coalesced_live_revisions
-    }
-
-    pub fn update(
+impl AuthoredEnvironmentLighting {
+    pub fn observe(
         &mut self,
-        mut snapshot: DdgiRadianceSnapshot,
+        input: AuthoredEnvironmentLightingInput,
         observed_at: Duration,
-    ) -> EnvironmentLightingUpdate {
-        self.update_for_authored_sky(&mut snapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY, observed_at)
+    ) -> AuthoredEnvironmentLightingFact {
+        self.observe_for_authored_sky(input, DDGI_AUTHORED_SKY_MODEL_IDENTITY, observed_at)
     }
 
-    fn update_for_authored_sky(
+    fn observe_for_authored_sky(
         &mut self,
-        snapshot: &mut DdgiRadianceSnapshot,
+        input: AuthoredEnvironmentLightingInput,
         authored_sky_model_identity: u64,
         observed_at: Duration,
-    ) -> EnvironmentLightingUpdate {
+    ) -> AuthoredEnvironmentLightingFact {
         assert!(
             self.last_observed_at
                 .is_none_or(|previous| observed_at >= previous),
             "Environment Lighting observations must use a monotonic clock"
         );
         self.last_observed_at = Some(observed_at);
-        snapshot.sun_direction = snapshot.sun_direction.normalize_or_zero();
+        let snapshot = input.normalize();
         let identity = snapshot.identity_for_authored_sky(authored_sky_model_identity);
         let live_changed = self.last_live_identity != Some(identity);
         if live_changed {
             self.current_live_revision = self.current_live_revision.wrapping_add(1).max(1);
             self.last_live_identity = Some(identity);
         }
-        let live = LiveEnvironmentLightingState {
+        AuthoredEnvironmentLightingFact {
             revision: self.current_live_revision,
             observed_at,
-            snapshot: *snapshot,
-        };
-        let mut transport_published = false;
-        if self.current_transport.is_none() {
-            self.publish_transport(
-                live,
-                identity,
-                DdgiRadianceChange {
-                    reason: DdgiRadianceChangeReason::Initial,
-                    delta: DdgiRadianceDelta::default(),
-                },
-            );
-            transport_published = true;
-        } else if live_changed {
-            if self.current_transport_identity == Some(identity) {
-                if self.pending_transport_identity.take().is_some() {
-                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
-                }
-            } else {
-                let change = self.classify_transport_change(live.snapshot, identity);
-                if change.resets_irradiance_history() {
-                    if self.pending_transport_identity.take().is_some() {
-                        self.coalesced_live_revisions =
-                            self.coalesced_live_revisions.saturating_add(1);
-                    }
-                    self.publish_transport(live, identity, change);
-                    transport_published = true;
-                } else if self.pending_transport_identity.replace(identity).is_some() {
-                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
-                }
-            }
-        }
-        let publication_due = self.current_transport.is_some_and(|transport| {
-            observed_at.saturating_sub(transport.published_at)
-                >= DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL
-        });
-        if !transport_published && publication_due && self.pending_transport_identity.is_some() {
-            let change = self.classify_transport_change(live.snapshot, identity);
-            self.publish_transport(live, identity, change);
-            transport_published = true;
-        }
-        EnvironmentLightingUpdate {
-            live,
-            transport: self
-                .current_transport
-                .expect("initial Environment Lighting observation must publish transport"),
-            transport_published,
-            coalesced_live_revisions: self.coalesced_live_revisions,
-        }
-    }
-
-    fn classify_transport_change(
-        &self,
-        snapshot: DdgiRadianceSnapshot,
-        identity: DdgiRadianceIdentity,
-    ) -> DdgiRadianceChange {
-        let current = self
-            .current_transport
-            .expect("transport change classification requires a current snapshot");
-        let current_identity = self
-            .current_transport_identity
-            .expect("transport change classification requires a current identity");
-        let mut change = DdgiRadianceChange::between(current.snapshot, snapshot);
-        if !current_identity.non_solar_eq(identity) {
-            change.delta.non_solar_changed = true;
-            change.reason = DdgiRadianceChangeReason::TransportInputStep;
-        }
-        change
-    }
-
-    fn publish_transport(
-        &mut self,
-        live: LiveEnvironmentLightingState,
-        identity: DdgiRadianceIdentity,
-        change: DdgiRadianceChange,
-    ) {
-        self.current_transport_revision = self.current_transport_revision.wrapping_add(1).max(1);
-        let mut snapshot = live.snapshot;
-        snapshot.local_lights = snapshot
-            .local_lights
-            .with_transport_revision(self.current_transport_revision);
-        self.current_transport = Some(EnvironmentLightingState {
-            revision: self.current_transport_revision,
-            source_live_revision: live.revision,
-            published_at: live.observed_at,
             snapshot,
-            change,
-        });
-        self.current_transport_identity = Some(identity);
-        self.pending_transport_identity = None;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lighting::{
-        LocalLight, LocalLightBudget, LocalLightGpuSnapshot, LocalLightRegistry, PointLight,
-    };
-
     fn gui_param<'a>(config: &'a toml::Value, id: &str) -> &'a toml::Value {
         config["section"]
             .as_array()
@@ -534,97 +433,30 @@ mod tests {
         }
     }
 
-    fn point_payload(domain: &LocalLightRegistry) -> crate::lighting::LocalLightGpuPayload {
-        LocalLightGpuSnapshot::from_authoritative(
-            &domain.snapshot(),
-            LocalLightBudget::point_lights(1),
-            0,
-        )
-        .payload()
+    fn input(value: DdgiRadianceSnapshot) -> AuthoredEnvironmentLightingInput {
+        AuthoredEnvironmentLightingInput {
+            sun_direction: value.sun_direction,
+            sun_color: value.sun_color,
+            sun_luminance: value.sun_luminance,
+            terrain_ray_origin_offset_world: value.terrain_ray_origin_offset_world,
+            ddgi_receiver_visibility_bias_world: value.ddgi_receiver_visibility_bias_world,
+            voxel_palette: value.voxel_palette,
+            local_lights: value.local_lights,
+        }
     }
 
-    #[test]
-    fn local_light_transport_is_rate_limited_latest_wins_and_keeps_live_separate() {
-        let mut cache = EnvironmentLightingCache::default();
-        let mut lights = LocalLightRegistry::default();
-        let mut initial = snapshot();
-        initial.local_lights = point_payload(&lights);
-        let first = cache.update(initial, Duration::ZERO);
-        assert!(first.transport_published);
-        assert_eq!(first.transport.snapshot.local_lights.count(), 0);
-
-        let id = lights.add(LocalLight::Point(
-            PointLight::new(Vec3::new(1.0, 2.0, 3.0), Vec3::ONE, 4.0, 0.05, 0.5).unwrap(),
-        ));
-        let mut added = snapshot();
-        added.local_lights = point_payload(&lights);
-        let pending = cache.update(added, Duration::from_millis(1));
-        assert!(!pending.transport_published);
-        assert_eq!(pending.live.snapshot.local_lights.count(), 1);
-        assert_eq!(pending.transport.snapshot.local_lights.count(), 0);
-
-        lights
-            .update(
-                id,
-                LocalLight::Point(
-                    PointLight::new(
-                        Vec3::new(2.0, 2.0, 3.0),
-                        Vec3::new(0.5, 0.75, 1.0),
-                        8.0,
-                        0.05,
-                        0.5,
-                    )
-                    .unwrap(),
-                ),
-            )
-            .unwrap();
-        let mut moved = snapshot();
-        moved.local_lights = point_payload(&lights);
-        let coalesced = cache.update(moved, Duration::from_millis(2));
-        assert!(!coalesced.transport_published);
-        assert_eq!(coalesced.transport.snapshot.local_lights.count(), 0);
-
-        let published = cache.update(moved, Duration::from_millis(200));
-        assert!(published.transport_published);
-        assert_eq!(
-            published.transport.change.reason,
-            DdgiRadianceChangeReason::LocalLights
-        );
-        assert_eq!(published.transport.snapshot.local_lights.count(), 1);
-        assert_eq!(
-            published.transport.snapshot.local_lights.source_revision(),
-            lights.snapshot().revision()
-        );
-        assert_eq!(
-            published
-                .transport
-                .snapshot
-                .local_lights
-                .info
-                .transport_revision,
-            published.transport.revision
-        );
-        assert_eq!(published.coalesced_live_revisions, 1);
-
-        lights.remove(id).unwrap();
-        let mut removed = snapshot();
-        removed.local_lights = point_payload(&lights);
-        let removal_pending = cache.update(removed, Duration::from_millis(201));
-        assert!(!removal_pending.transport_published);
-        assert_eq!(removal_pending.live.snapshot.local_lights.count(), 0);
-        assert_eq!(removal_pending.transport.snapshot.local_lights.count(), 1);
-
-        let removal_published = cache.update(removed, Duration::from_millis(400));
-        assert!(removal_published.transport_published);
-        assert_eq!(removal_published.transport.snapshot.local_lights.count(), 0);
-        assert_eq!(
-            removal_published
-                .transport
-                .snapshot
-                .local_lights
-                .source_revision(),
-            lights.snapshot().revision()
-        );
+    fn transport(
+        revision: u32,
+        published_at: Duration,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> EnvironmentLightingState {
+        EnvironmentLightingState {
+            revision,
+            source_live_revision: u64::from(revision),
+            published_at,
+            snapshot,
+            change: DdgiRadianceChange::default(),
+        }
     }
 
     fn sample_linear_probe_field(position_in_probe_cells: f64) -> f64 {
@@ -663,52 +495,33 @@ mod tests {
     }
 
     #[test]
-    fn cache_revision_is_stable_for_an_identical_radiance_snapshot() {
-        let mut cache = EnvironmentLightingCache::default();
-        let first = cache.update(snapshot(), std::time::Duration::ZERO);
-        let unchanged = cache.update(snapshot(), std::time::Duration::from_millis(16));
+    fn identical_authored_fact_keeps_live_revision_stable() {
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let first = authored.observe(input(snapshot()), Duration::ZERO);
+        let unchanged = authored.observe(input(snapshot()), Duration::from_millis(16));
 
-        assert_eq!(first.live.revision, 1);
-        assert_eq!(first.transport.revision, 1);
-        assert_eq!(first.transport.source_live_revision, 1);
-        assert!(first.transport_published);
-        assert_eq!(unchanged.live.revision, first.live.revision);
-        assert_eq!(unchanged.transport, first.transport);
-        assert!(!unchanged.transport_published);
-        assert_eq!(unchanged.revision_lag(), 0);
-        assert_eq!(
-            unchanged.transport_age(std::time::Duration::from_millis(16)),
-            std::time::Duration::from_millis(16)
-        );
+        assert_eq!(first.revision, 1);
+        assert_eq!(unchanged.revision, first.revision);
+        assert_eq!(unchanged.snapshot, first.snapshot);
+        assert_eq!(unchanged.observed_at, Duration::from_millis(16));
     }
 
     #[test]
-    fn live_and_transport_observability_names_the_exact_published_snapshot() {
-        let mut cache = EnvironmentLightingCache::default();
-        let first = cache.update(snapshot(), std::time::Duration::from_millis(10));
+    fn every_observation_returns_the_latest_normalized_fact() {
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let first = authored.observe(input(snapshot()), Duration::from_millis(10));
         let mut changed = snapshot();
         changed.sun_direction = Vec3::Z;
-        let second = cache.update(changed, std::time::Duration::from_millis(30));
+        let second = authored.observe(input(changed), Duration::from_millis(30));
 
-        assert_eq!(second.live.revision, 2);
-        assert_eq!(
-            second.live.observed_at,
-            std::time::Duration::from_millis(30)
-        );
-        assert_eq!(second.live.snapshot.sun_direction, Vec3::Z);
-        assert_eq!(second.transport.revision, first.transport.revision + 1);
-        assert_eq!(second.transport.source_live_revision, second.live.revision);
-        assert_eq!(
-            second.transport.published_at,
-            std::time::Duration::from_millis(30)
-        );
-        assert_eq!(second.transport.snapshot, second.live.snapshot);
-        assert_eq!(second.revision_lag(), 0);
-        assert!(second.transport_published);
+        assert_eq!(first.revision, 1);
+        assert_eq!(second.revision, 2);
+        assert_eq!(second.observed_at, Duration::from_millis(30));
+        assert_eq!(second.snapshot.sun_direction, Vec3::Z);
     }
 
     #[test]
-    fn cache_revision_covers_every_transport_radiance_input() {
+    fn live_revision_covers_every_authored_lighting_input() {
         let mut variants = Vec::new();
         let mut value = snapshot();
         value.sun_direction = Vec3::Z;
@@ -751,156 +564,58 @@ mod tests {
         variants.push(value);
 
         for changed in variants {
-            let mut cache = EnvironmentLightingCache::default();
-            let first = cache.update(snapshot(), std::time::Duration::ZERO);
-            let changed = cache.update(changed, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL);
-            assert_eq!(changed.transport.revision, first.transport.revision + 1);
+            let mut authored = AuthoredEnvironmentLighting::default();
+            let first = authored.observe(input(snapshot()), Duration::ZERO);
+            let changed = authored.observe(input(changed), Duration::from_millis(1));
+            assert_eq!(changed.revision, first.revision + 1);
         }
     }
 
     #[test]
-    fn cache_revision_covers_the_compiled_authored_sky_model() {
+    fn live_revision_covers_the_compiled_authored_sky_model() {
         assert_ne!(DDGI_AUTHORED_SKY_MODEL_IDENTITY, 0);
         assert_eq!(
             snapshot().identity().authored_sky_model_identity,
             DDGI_AUTHORED_SKY_MODEL_IDENTITY,
         );
 
-        let mut cache = EnvironmentLightingCache::default();
-        let mut value = snapshot();
-        let first = cache.update_for_authored_sky(
-            &mut value,
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let first = authored.observe_for_authored_sky(
+            input(snapshot()),
             DDGI_AUTHORED_SKY_MODEL_IDENTITY,
-            std::time::Duration::ZERO,
+            Duration::ZERO,
         );
-        let changed = cache.update_for_authored_sky(
-            &mut value,
+        let changed = authored.observe_for_authored_sky(
+            input(snapshot()),
             DDGI_AUTHORED_SKY_MODEL_IDENTITY.wrapping_add(1),
-            std::time::Duration::from_millis(1),
+            Duration::from_millis(1),
         );
 
-        assert_eq!(changed.transport.revision, first.transport.revision + 1);
-        assert_eq!(changed.transport.snapshot, first.transport.snapshot);
+        assert_eq!(changed.revision, first.revision + 1);
+        assert_eq!(changed.snapshot, first.snapshot);
     }
 
     #[test]
-    fn cache_identity_uses_the_normalized_sun_direction() {
-        let mut cache = EnvironmentLightingCache::default();
-        let first = cache.update(snapshot(), std::time::Duration::ZERO);
+    fn non_unit_sun_direction_is_normalized_once_for_live_identity() {
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let first = authored.observe(input(snapshot()), Duration::ZERO);
         let mut scaled = snapshot();
         scaled.sun_direction *= 10.0;
-        let unchanged = cache.update(scaled, std::time::Duration::from_millis(1));
+        let unchanged = authored.observe(input(scaled), Duration::from_millis(1));
 
-        assert_eq!(unchanged.transport.revision, first.transport.revision);
-        assert_eq!(unchanged.transport.snapshot.sun_direction, Vec3::Y);
-    }
-
-    #[test]
-    fn continuous_sun_changes_coalesce_into_rate_limited_latest_transport() {
-        let mut cache = EnvironmentLightingCache::default();
-        let initial = cache.update(snapshot(), std::time::Duration::ZERO);
-
-        for (step, elapsed_ms) in [(1.0_f32, 50_u64), (2.0, 100), (3.0, 150)] {
-            let mut changed = snapshot();
-            changed.sun_direction = glam::Quat::from_rotation_x(step.to_radians()) * Vec3::Y;
-            let pending = cache.update(changed, std::time::Duration::from_millis(elapsed_ms));
-            assert!(!pending.transport_published);
-            assert_eq!(pending.transport, initial.transport);
-            assert_eq!(pending.revision_lag(), step as u64);
-        }
-
-        let mut latest = snapshot();
-        latest.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
-        let published = cache.update(latest, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL);
-
-        assert!(published.transport_published);
-        assert_eq!(published.transport.revision, 2);
-        assert_eq!(published.transport.source_live_revision, 5);
-        assert_eq!(published.transport.snapshot, published.live.snapshot);
-        assert_eq!(
-            published.transport.change.reason,
-            DdgiRadianceChangeReason::ContinuousSun
-        );
-        assert!(published.transport.change.delta.sun_angle_radians > 0.06);
-        assert_eq!(published.coalesced_live_revisions, 3);
-        assert_eq!(published.revision_lag(), 0);
-    }
-
-    #[test]
-    fn large_sun_step_publishes_immediately_with_reset_policy() {
-        let mut cache = EnvironmentLightingCache::default();
-        let initial = cache.update(snapshot(), std::time::Duration::ZERO);
-        let mut changed = snapshot();
-        changed.sun_direction = Vec3::Z;
-        let stepped = cache.update(changed, std::time::Duration::from_millis(1));
-
-        assert!(stepped.transport_published);
-        assert_eq!(stepped.transport.revision, initial.transport.revision + 1);
-        assert_eq!(
-            stepped.transport.change.reason,
-            DdgiRadianceChangeReason::LargeSunStep
-        );
-        assert!(stepped.transport.change.resets_irradiance_history());
-    }
-
-    #[test]
-    fn pause_drains_one_pending_snapshot_and_resume_does_not_replay_old_revisions() {
-        let mut cache = EnvironmentLightingCache::default();
-        cache.update(snapshot(), std::time::Duration::ZERO);
-        let mut changed = snapshot();
-        changed.sun_direction = glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
-        let pending = cache.update(changed, std::time::Duration::from_millis(50));
-        assert!(!pending.transport_published);
-
-        let paused = cache.update(changed, std::time::Duration::from_millis(250));
-        assert!(paused.transport_published);
-        assert_eq!(paused.transport.source_live_revision, pending.live.revision);
-        let still_paused = cache.update(changed, std::time::Duration::from_secs(1));
-        assert!(!still_paused.transport_published);
-        assert_eq!(still_paused.transport, paused.transport);
-
-        let mut resumed = changed;
-        resumed.sun_direction = glam::Quat::from_rotation_x(2.0_f32.to_radians()) * Vec3::Y;
-        let resumed = cache.update(resumed, std::time::Duration::from_millis(1_010));
-        assert!(resumed.transport_published);
-        assert_eq!(resumed.transport.revision, paused.transport.revision + 1);
-        assert_eq!(
-            resumed.transport.source_live_revision,
-            resumed.live.revision
-        );
-    }
-
-    #[test]
-    fn non_solar_transport_change_is_an_immediate_discontinuity() {
-        let mut cache = EnvironmentLightingCache::default();
-        cache.update(snapshot(), std::time::Duration::ZERO);
-        let mut changed = snapshot();
-        changed.voxel_palette.rock_color.x += 0.01;
-        let changed = cache.update(changed, std::time::Duration::from_millis(1));
-
-        assert!(changed.transport_published);
-        assert_eq!(
-            changed.transport.change.reason,
-            DdgiRadianceChangeReason::TransportInputStep
-        );
-        assert!(changed.transport.change.delta.non_solar_changed);
-        assert!(changed.transport.change.resets_irradiance_history());
+        assert_eq!(unchanged.revision, first.revision);
+        assert_eq!(unchanged.snapshot.sun_direction, Vec3::Y);
     }
 
     #[test]
     fn continuous_history_retention_uses_source_time_and_change_magnitude() {
-        let mut cache = EnvironmentLightingCache::default();
-        let source = cache
-            .update(snapshot(), std::time::Duration::ZERO)
-            .transport;
+        let source = transport(1, Duration::ZERO, snapshot());
         let mut changed = snapshot();
         changed.sun_direction = glam::Quat::from_rotation_x(1.0_f32.to_radians()) * Vec3::Y;
-        let destination = cache
-            .update(changed, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL)
-            .transport;
+        let destination = transport(2, Duration::from_millis(200), changed);
         let policy = DdgiRadianceHistoryPolicy::between(source, destination);
 
-        assert_eq!(policy.elapsed, DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL);
+        assert_eq!(policy.elapsed, Duration::from_millis(200));
         assert_eq!(
             policy.change.reason,
             DdgiRadianceChangeReason::ContinuousSun
@@ -910,7 +625,7 @@ mod tests {
         assert!(retention > 0.0 && retention < 0.99);
 
         let mut larger = destination;
-        larger.published_at += DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL;
+        larger.published_at += Duration::from_millis(200);
         larger.snapshot.sun_direction = glam::Quat::from_rotation_x(4.0_f32.to_radians()) * Vec3::Y;
         let larger_policy = DdgiRadianceHistoryPolicy::between(destination, larger);
         assert!(larger_policy.retention(0.99) < retention);
@@ -918,15 +633,10 @@ mod tests {
 
     #[test]
     fn discontinuous_history_policy_is_an_explicit_zero_weight_reset() {
-        let mut cache = EnvironmentLightingCache::default();
-        let source = cache
-            .update(snapshot(), std::time::Duration::ZERO)
-            .transport;
+        let source = transport(1, Duration::ZERO, snapshot());
         let mut changed = snapshot();
         changed.sun_direction = Vec3::Z;
-        let destination = cache
-            .update(changed, std::time::Duration::from_millis(1))
-            .transport;
+        let destination = transport(2, Duration::from_millis(1), changed);
         let policy = DdgiRadianceHistoryPolicy::between(source, destination);
 
         assert!(policy.resets_history());

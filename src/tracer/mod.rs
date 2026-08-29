@@ -99,7 +99,8 @@ use crate::ddgi::{
     DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
-    DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
+    AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
+    DdgiVoxelPaletteSnapshot,
 };
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
@@ -901,7 +902,7 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
-    environment_lighting: EnvironmentLightingCache,
+    environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
@@ -1154,7 +1155,7 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
-            environment_lighting: EnvironmentLightingCache::default(),
+            environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
@@ -1496,13 +1497,13 @@ impl Tracer {
 
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
         self.ddgi_runtime
-            .live_authored_lighting()
+            .latest_transport_lighting()
             .map_or(0, |lighting| lighting.revision)
     }
 
     pub(crate) fn ddgi_live_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
         self.ddgi_runtime
-            .live_authored_lighting()
+            .latest_transport_lighting()
             .map(|lighting| lighting.snapshot)
     }
 
@@ -1516,8 +1517,8 @@ impl Tracer {
 
     pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {
         (
-            self.environment_lighting.revision_lag(),
-            self.environment_lighting.coalesced_live_revisions(),
+            self.ddgi_runtime.lighting_revision_lag(),
+            self.ddgi_runtime.coalesced_live_revisions(),
         )
     }
 
@@ -2067,6 +2068,30 @@ impl Tracer {
                 })?;
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
+        let authored_environment_lighting = self.environment_lighting.observe(
+            AuthoredEnvironmentLightingInput {
+                sun_direction: sun_dir,
+                sun_color,
+                sun_luminance,
+                terrain_ray_origin_offset_world,
+                ddgi_receiver_visibility_bias_world,
+                voxel_palette: DdgiVoxelPaletteSnapshot {
+                    dirt_color: voxel_dirt_color,
+                    sand_color: voxel_sand_color,
+                    cherry_wood_color: voxel_cherry_wood_color,
+                    oak_wood_color: voxel_oak_wood_color,
+                    rock_color: voxel_rock_color,
+                    hash_color_variance: voxel_color_variance,
+                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
+                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
+                },
+                local_lights: local_light_payload,
+            },
+            time_info.time_since_start_duration(),
+        );
+        let sun_dir = authored_environment_lighting.snapshot.sun_direction;
+        let sun_color = authored_environment_lighting.snapshot.sun_color;
+        let sun_luminance = authored_environment_lighting.snapshot.sun_luminance;
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
@@ -2097,7 +2122,7 @@ impl Tracer {
                 "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
                 shadow_light_space_change,
                 self.direct_sun_shadows.light_space_revision(),
-                sun_dir.normalize(),
+                sun_dir,
             );
         }
         if self
@@ -2246,83 +2271,60 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        let environment_lighting = self.environment_lighting.update(
-            DdgiRadianceSnapshot {
-                sun_direction: sun_dir,
-                sun_color,
-                sun_luminance,
-                terrain_ray_origin_offset_world,
-                ddgi_receiver_visibility_bias_world,
-                voxel_palette: DdgiVoxelPaletteSnapshot {
-                    dirt_color: voxel_dirt_color,
-                    sand_color: voxel_sand_color,
-                    cherry_wood_color: voxel_cherry_wood_color,
-                    oak_wood_color: voxel_oak_wood_color,
-                    rock_color: voxel_rock_color,
-                    hash_color_variance: voxel_color_variance,
-                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
-                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
-                },
-                local_lights: local_light_payload,
-            },
-            time_info.time_since_start_duration(),
-        );
-        if environment_lighting.transport_published {
+        let ddgi_lighting = self
+            .ddgi_runtime
+            .observe_authored_lighting(authored_environment_lighting);
+        if ddgi_lighting.transport_published {
             log::info!(
                 "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
-                environment_lighting.live.revision,
-                environment_lighting.transport.revision,
-                environment_lighting.transport.source_live_revision,
-                environment_lighting.revision_lag(),
-                environment_lighting.coalesced_live_revisions,
-                environment_lighting.transport.published_at.as_millis(),
-                environment_lighting
+                authored_environment_lighting.revision,
+                ddgi_lighting.transport.revision,
+                ddgi_lighting.transport.source_live_revision,
+                ddgi_lighting.revision_lag(authored_environment_lighting),
+                ddgi_lighting.coalesced_live_revisions,
+                ddgi_lighting.transport.published_at.as_millis(),
+                ddgi_lighting
                     .transport_age(time_info.time_since_start_duration())
                     .as_millis(),
-                environment_lighting.transport.change.reason,
-                environment_lighting
+                ddgi_lighting.transport.change.reason,
+                ddgi_lighting
                     .transport
                     .change
                     .delta
                     .sun_angle_radians
                     .to_degrees(),
-                environment_lighting
+                ddgi_lighting
                     .transport
                     .change
                     .delta
                     .sun_color_relative,
-                environment_lighting
+                ddgi_lighting
                     .transport
                     .change
                     .delta
                     .sun_luminance_relative,
-                environment_lighting
+                ddgi_lighting
                     .transport
                     .change
                     .delta
                     .non_solar_changed,
-                environment_lighting
+                ddgi_lighting
                     .transport
                     .change
                     .delta
                     .local_lights_changed,
-                environment_lighting
+                ddgi_lighting
                     .transport
                     .snapshot
                     .local_lights
                     .source_revision(),
-                environment_lighting.transport.snapshot.local_lights.count(),
-                environment_lighting.transport.snapshot.sun_direction,
-                environment_lighting.transport.snapshot.sun_color,
-                environment_lighting.transport.snapshot.sun_luminance,
+                ddgi_lighting.transport.snapshot.local_lights.count(),
+                ddgi_lighting.transport.snapshot.sun_direction,
+                ddgi_lighting.transport.snapshot.sun_color,
+                ddgi_lighting.transport.snapshot.sun_luminance,
             );
-            if environment_lighting
-                .transport
-                .change
-                .delta
-                .local_lights_changed
-            {
-                let impact = environment_lighting
+            if ddgi_lighting.transport.change.delta.local_lights_changed {
+                let impact = ddgi_lighting
                     .transport
                     .change
                     .delta
@@ -2339,7 +2341,7 @@ impl Tracer {
                         )
                     });
                 self.ddgi_runtime.observe_lighting_impact_probe_priority(
-                    environment_lighting.transport.revision,
+                    ddgi_lighting.transport.revision,
                     impact,
                 );
             }
@@ -2356,7 +2358,7 @@ impl Tracer {
         let ddgi_consumer_invalidation_voxel_bound = None;
         BufferUpdater::update_shading_info(
             &self.resources,
-            environment_lighting.transport,
+            ddgi_lighting.transport,
             ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
@@ -2369,9 +2371,6 @@ impl Tracer {
             ddgi_receiver_visibility_bias_world,
             ddgi_consumer_invalidation_voxel_bound,
         )?;
-        self.ddgi_runtime
-            .observe_authored_lighting(environment_lighting.transport);
-
         BufferUpdater::update_starlight_info(
             &self.resources,
             starlight_iterations,
