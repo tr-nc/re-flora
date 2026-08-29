@@ -42,6 +42,11 @@ use local_light_visibility_diagnostic::{
     LocalLightVisibilityDiagnostic, LocalLightVisibilityDiagnosticEvidence,
 };
 
+mod local_light_live_publication;
+use local_light_live_publication::{
+    LocalLightLiveObservation, LocalLightLivePublication, LocalLightLiveUpload,
+};
+
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -108,10 +113,9 @@ use crate::gameplay::{
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
 use crate::lighting::{
-    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
-    LocalLightOverflowReason, LocalLightSnapshot, ProviderId, EMISSIVE_VOXEL_COLOR_SRGB,
-    EMISSIVE_VOXEL_SURFACE_RADIANCE, LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS,
-    LOCAL_LIGHT_GPU_CAPACITY,
+    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
+    EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
+    LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
@@ -924,12 +928,7 @@ pub struct Tracer {
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
-    local_light_live_revision: Option<u64>,
-    local_light_live_payload: Option<crate::lighting::LocalLightGpuPayload>,
-    local_light_uploaded_source_revision: Option<u64>,
-    local_light_uploaded_registry_revision: Option<u64>,
-    local_light_live_count: u32,
-    local_light_live_overflow: Vec<LocalLightOverflow>,
+    local_light_live_publication: LocalLightLivePublication,
     local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
@@ -1257,12 +1256,7 @@ impl Tracer {
             ddgi_local_light_gpu_evidence_complete: None,
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
-            local_light_live_revision: None,
-            local_light_live_payload: None,
-            local_light_uploaded_source_revision: None,
-            local_light_uploaded_registry_revision: None,
-            local_light_live_count: 0,
-            local_light_live_overflow: Vec::new(),
+            local_light_live_publication: LocalLightLivePublication::default(),
             local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
@@ -1639,21 +1633,8 @@ impl Tracer {
         self.ddgi_runtime.volumes().builder().radiance_snapshot()
     }
 
-    pub(crate) fn local_light_live_state(&self) -> (Option<u64>, u32) {
-        (
-            self.local_light_uploaded_source_revision,
-            self.local_light_live_count,
-        )
-    }
-
-    pub(crate) fn local_light_revision_observability(
-        &self,
-    ) -> (Option<u64>, Option<u64>, Option<u64>) {
-        (
-            self.local_light_uploaded_source_revision,
-            self.local_light_uploaded_registry_revision,
-            self.local_light_live_revision,
-        )
+    pub(crate) fn local_light_live_observation(&self) -> LocalLightLiveObservation<'_> {
+        self.local_light_live_publication.observation()
     }
 
     pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {
@@ -1661,10 +1642,6 @@ impl Tracer {
             self.environment_lighting.revision_lag(),
             self.environment_lighting.coalesced_live_revisions(),
         )
-    }
-
-    pub(crate) fn local_light_overflow_evidence(&self) -> &[LocalLightOverflow] {
-        &self.local_light_live_overflow
     }
 
     pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
@@ -2985,79 +2962,28 @@ impl Tracer {
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
         self.promote_ready_ddgi_staging();
-        let provisional_local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+        let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
-        );
-        let provisional_payload = provisional_local_light_gpu.payload();
-        let selection_changed = self.local_light_live_payload.map_or_else(
-            || provisional_payload.count() > 0,
-            |previous| !previous.selection_eq(provisional_payload),
-        );
-        let live_revision = if selection_changed {
-            self.local_light_live_revision
-                .unwrap_or(0)
-                .wrapping_add(1)
-                .max(1)
+        )
+        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
         } else {
-            self.local_light_live_revision.unwrap_or(0)
-        };
-        let local_light_gpu = provisional_local_light_gpu
-            .with_live_revision(live_revision)
-            .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
-                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
-            } else {
-                0
-            });
-        let metadata_changed = self.local_light_uploaded_source_revision
-            != Some(local_lights.source_revision())
-            || self.local_light_uploaded_registry_revision
-                != Some(local_lights.registry_revision());
-        if selection_changed || metadata_changed {
-            self.resources
-                .local_lighting
-                .local_light_info
-                .fill_uniform(&local_light_gpu.info)?;
-            if selection_changed {
-                self.resources
-                    .local_lighting
-                    .local_lights
-                    .fill(&local_light_gpu.lights)?;
-            }
-            self.local_light_live_revision = Some(live_revision);
-            self.local_light_live_payload = Some(local_light_gpu.payload());
-            self.local_light_uploaded_source_revision = Some(local_lights.source_revision());
-            self.local_light_uploaded_registry_revision = Some(local_lights.registry_revision());
-            self.local_light_live_count = local_light_gpu.info.count;
-            log::info!(
-                "[LOCAL_LIGHT][LIVE] source_revision={} registry_revision={} live_gpu_revision={} count={} capacity={} overflow_count={} selection_changed={} direct_upload=true",
-                local_lights.source_revision(),
-                local_lights.registry_revision(),
-                live_revision,
-                local_light_gpu.info.count,
-                local_light_gpu.info.capacity,
-                local_light_gpu.info.overflow_count,
-                selection_changed,
-            );
-            let mut overflow_groups =
-                std::collections::BTreeMap::<(ProviderId, LocalLightOverflowReason), usize>::new();
-            for overflow in &local_light_gpu.overflow {
-                *overflow_groups
-                    .entry((overflow.source.provider(), overflow.reason))
-                    .or_insert(0usize) += 1;
-            }
-            for ((provider, reason), count) in overflow_groups {
-                log::info!(
-                    "[LOCAL_LIGHT][OVERFLOW] source_revision={} provider={} reason={} count={} explicit=true",
-                    local_lights.source_revision(),
-                    provider.get(),
-                    reason.label(),
-                    count,
-                );
-            }
-            self.local_light_live_overflow = local_light_gpu.overflow.clone();
-        }
+            0
+        });
+        let local_lighting = &self.resources.local_lighting;
+        let local_light_payload =
+            self.local_light_live_publication
+                .publish(local_light_gpu, |upload| match upload {
+                    LocalLightLiveUpload::Info { info } => {
+                        local_lighting.local_light_info.fill_uniform(info)
+                    }
+                    LocalLightLiveUpload::InfoAndLights { info, lights } => {
+                        local_lighting.local_light_info.fill_uniform(info)?;
+                        local_lighting.local_lights.fill(lights)
+                    }
+                })?;
         let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
         let view_mat = self.camera.get_view_mat();
@@ -3256,7 +3182,7 @@ impl Tracer {
                     emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
                     emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
                 },
-                local_lights: local_light_gpu.payload(),
+                local_lights: local_light_payload,
             },
             time_info.time_since_start_duration(),
         );
@@ -4787,7 +4713,7 @@ impl Tracer {
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_flora_ddgi_lighting,
-            self.local_light_live_count > 0,
+            self.local_light_live_publication.observation().count > 0,
             required_lighting_cache_entries,
         ) {
             self.flora_lighting_cache.ensure_capacity(

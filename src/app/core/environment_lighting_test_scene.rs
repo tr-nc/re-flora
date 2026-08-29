@@ -1573,13 +1573,14 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitThreeLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 3)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 3)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
                 }
                 assert_eq!(
-                    self.tracer.local_light_revision_observability().1,
+                    self.tracer.local_light_live_observation().registry_revision,
                     Some(state.expected_registry_revision)
                 );
                 assert!(
@@ -1793,13 +1794,14 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitSwapLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 3)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 3)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
                 }
                 assert_eq!(
-                    self.tracer.local_light_revision_observability().1,
+                    self.tracer.local_light_live_observation().registry_revision,
                     Some(state.expected_registry_revision)
                 );
                 let request = self
@@ -1872,7 +1874,8 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitAuthoredRemoveLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 2)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 2)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
@@ -1993,7 +1996,8 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitVoxelMoveLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 2)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 2)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
@@ -2067,7 +2071,7 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitOverflowLive => {
-                if self.tracer.local_light_live_state()
+                if self.tracer.local_light_live_observation().state()
                     != (
                         Some(state.expected_source_revision),
                         LOCAL_LIGHT_GPU_CAPACITY as u32,
@@ -2076,7 +2080,7 @@ impl App {
                 {
                     return None;
                 }
-                let overflow = self.tracer.local_light_overflow_evidence();
+                let overflow = self.tracer.local_light_live_observation().overflow;
                 assert_eq!(overflow.len(), 3);
                 assert_eq!(
                     overflow
@@ -2176,12 +2180,17 @@ impl App {
                 state
             }
             MultiSourceTestStage::AwaitFinalLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 0)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 0)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
                 }
-                assert!(self.tracer.local_light_overflow_evidence().is_empty());
+                assert!(self
+                    .tracer
+                    .local_light_live_observation()
+                    .overflow
+                    .is_empty());
                 let request = self
                     .tracer
                     .request_local_light_visibility_diagnostic(
@@ -2629,7 +2638,8 @@ impl App {
                     }
                 }
                 PointLightTestStage::AwaitAddLive => {
-                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    let (live_revision, live_count) =
+                        self.tracer.local_light_live_observation().state();
                     if live_revision != Some(expected_source_revision) {
                         return;
                     }
@@ -2723,7 +2733,7 @@ impl App {
                         return;
                     }
                     assert_eq!(
-                        self.tracer.local_light_live_state(),
+                        self.tracer.local_light_live_observation().state(),
                         (Some(expected_source_revision), 8)
                     );
                     let request_serial = self
@@ -2797,7 +2807,7 @@ impl App {
                         return;
                     }
                     assert_eq!(
-                        self.tracer.local_light_live_state(),
+                        self.tracer.local_light_live_observation().state(),
                         (Some(expected_source_revision), 8)
                     );
                     let request_serial = self
@@ -2959,7 +2969,9 @@ impl App {
                     }
                 }
                 PointLightTestStage::AwaitDiagnosticCleanupLive => {
-                    if self.tracer.local_light_live_state() != (Some(expected_source_revision), 1) {
+                    if self.tracer.local_light_live_observation().state()
+                        != (Some(expected_source_revision), 1)
+                    {
                         return;
                     }
                     assert!(self.time_info.total_frame_count() > mutation_frame);
@@ -3021,14 +3033,17 @@ impl App {
                         .as_ref()
                         .expect("point-light test scene must exist")
                         .point_light_expected_registry_revision;
-                    let revisions = self.tracer.local_light_revision_observability();
-                    assert_eq!(revisions.0, Some(expected_source_revision));
-                    assert_eq!(revisions.1, Some(expected_registry_revision));
+                    let observation = self.tracer.local_light_live_observation();
+                    assert_eq!(observation.source_revision, Some(expected_source_revision));
+                    assert_eq!(
+                        observation.registry_revision,
+                        Some(expected_registry_revision)
+                    );
                     log::info!(
                         "[POINT_LIGHT_ACCEPT] checkpoint=n-diagnostic-complete target_selected_index=1 target_energy_isolated=true overflow_identity_matches=false removed_selected_identity_matches=false source_revision={} registry_revision={:?} live_gpu_revision={:?} gpu_count=1 authoritative_count=1 mixed_in_flight=false",
                         expected_source_revision,
-                        revisions.1,
-                        revisions.2,
+                        observation.registry_revision,
+                        observation.live_revision,
                     );
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
@@ -3146,7 +3161,8 @@ impl App {
                     }
                 }
                 PointLightTestStage::AwaitMoveLive => {
-                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    let (live_revision, live_count) =
+                        self.tracer.local_light_live_observation().state();
                     if live_revision != Some(expected_source_revision) {
                         return;
                     }
@@ -3268,7 +3284,8 @@ impl App {
                     }
                 }
                 PointLightTestStage::AwaitPhotometricUpdateLive => {
-                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    let (live_revision, live_count) =
+                        self.tracer.local_light_live_observation().state();
                     if live_revision != Some(expected_source_revision) {
                         return;
                     }
@@ -3305,7 +3322,8 @@ impl App {
                     }
                 }
                 PointLightTestStage::AwaitRemoveLive => {
-                    let (live_revision, live_count) = self.tracer.local_light_live_state();
+                    let (live_revision, live_count) =
+                        self.tracer.local_light_live_observation().state();
                     if live_revision != Some(expected_source_revision) {
                         return;
                     }
@@ -3519,13 +3537,13 @@ impl App {
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
                 VoxelEmissiveTestStage::AwaitAddLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
                     }
                     assert_eq!(
-                        self.tracer.local_light_revision_observability().1,
+                        self.tracer.local_light_live_observation().registry_revision,
                         Some(state.expected_registry_revision)
                     );
                     assert!(
@@ -3740,7 +3758,7 @@ impl App {
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
                 VoxelEmissiveTestStage::AwaitAggregateLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
@@ -3852,13 +3870,13 @@ impl App {
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
                 VoxelEmissiveTestStage::AwaitMoveLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
                     }
                     assert_eq!(
-                        self.tracer.local_light_revision_observability().1,
+                        self.tracer.local_light_live_observation().registry_revision,
                         Some(state.expected_registry_revision)
                     );
                     assert!(
@@ -3982,7 +4000,7 @@ impl App {
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
                 VoxelEmissiveTestStage::AwaitRemoveLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 0)
                     {
                         return;
@@ -4118,7 +4136,10 @@ impl App {
                         active.relocated_terrain_revision,
                         Some(state.terrain_revision)
                     );
-                    assert_eq!(self.tracer.local_light_live_state(), (Some(0), 0));
+                    assert_eq!(
+                        self.tracer.local_light_live_observation().state(),
+                        (Some(0), 0)
+                    );
                     assert_eq!(self.sprinklers.len(), 0);
                     assert_eq!(self.tracer.sprinkler_instance_count(), 0);
                     assert_eq!(self.raster_entity_emitters.source_count(), 0);
@@ -4169,7 +4190,7 @@ impl App {
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
                 RasterEmitterTestStage::AwaitSpawnLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
@@ -4181,7 +4202,7 @@ impl App {
                     assert_eq!(self.tracer.sprinkler_instance_count(), 1);
                     assert_eq!(self.raster_entity_emitters.source_count(), 1);
                     assert_eq!(
-                        self.tracer.local_light_revision_observability().1,
+                        self.tracer.local_light_live_observation().registry_revision,
                         Some(state.expected_registry_revision)
                     );
                     assert!(
@@ -4328,7 +4349,7 @@ impl App {
                         return;
                     }
                     assert_eq!(
-                        self.tracer.local_light_live_state(),
+                        self.tracer.local_light_live_observation().state(),
                         (Some(state.expected_source_revision), 1)
                     );
                     assert_eq!(
@@ -4369,7 +4390,7 @@ impl App {
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
                 RasterEmitterTestStage::AwaitMoveLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
@@ -4482,7 +4503,7 @@ impl App {
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
                 RasterEmitterTestStage::AwaitPhotometricLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 1)
                     {
                         return;
@@ -4526,7 +4547,7 @@ impl App {
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
                 RasterEmitterTestStage::AwaitRemoveLive => {
-                    if self.tracer.local_light_live_state()
+                    if self.tracer.local_light_live_observation().state()
                         != (Some(state.expected_source_revision), 0)
                     {
                         return;

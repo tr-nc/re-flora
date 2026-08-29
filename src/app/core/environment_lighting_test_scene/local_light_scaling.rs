@@ -230,7 +230,7 @@ impl App {
                 state
             }
             LocalLightScalingStage::AwaitLive => {
-                if self.tracer.local_light_live_state()
+                if self.tracer.local_light_live_observation().state()
                     != (
                         Some(state.expected_source_revision),
                         state.requested_count() as u32,
@@ -240,10 +240,14 @@ impl App {
                     return None;
                 }
                 assert_eq!(
-                    self.tracer.local_light_revision_observability().1,
+                    self.tracer.local_light_live_observation().registry_revision,
                     Some(state.expected_registry_revision)
                 );
-                assert!(self.tracer.local_light_overflow_evidence().is_empty());
+                assert!(self
+                    .tracer
+                    .local_light_live_observation()
+                    .overflow
+                    .is_empty());
                 state.stage = LocalLightScalingStage::AwaitDdgiBuild;
                 state
             }
@@ -355,7 +359,8 @@ impl App {
                 }
             }
             LocalLightScalingStage::AwaitFinalLive => {
-                if self.tracer.local_light_live_state() != (Some(state.expected_source_revision), 0)
+                if self.tracer.local_light_live_observation().state()
+                    != (Some(state.expected_source_revision), 0)
                     || self.time_info.total_frame_count() <= state.mutation_frame
                 {
                     return None;
