@@ -1218,6 +1218,38 @@ mod tests {
             .0;
         assert!(exact_debug.contains("hardVisibilityWorldPosition"));
 
+        let readback = tracer
+            .split_once("void writeDdgiSpatialWeightReadback(")
+            .expect("spatial-weight readback route")
+            .1
+            .split_once("float3 ddgiTerrainDebugValue(")
+            .expect("terrain debug route follows readback")
+            .0;
+        assert!(readback.contains(
+            "float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(\n        result.center_position, ddgiReceiverPosition, result.normal);"
+        ));
+        assert!(readback.contains(
+            "writeDdgiSpatialWeightDiagnostics(\n        ddgi_spatial_weight_readback, receiverBase, shading_info,\n        ddgiReceiverPosition, result.normal, ddgiHardVisibilityOrigin);"
+        ));
+
+        let production = tracer
+            .split_once("void getPixelColor(")
+            .expect("production terrain route")
+            .1
+            .split_once("[shader(\"compute\")]")
+            .expect("compute entry follows production terrain route")
+            .0;
+        assert!(production.contains(
+            "float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(\n            result.center_position, ddgiReceiverPosition, result.normal);"
+        ));
+        assert_eq!(production.matches("ddgiTerrainDebugValue(").count(), 2);
+        assert!(production.contains(
+            "environmentIrradiance = ddgiTerrainDebugValue(\n            screenUv, ddgiReceiverPosition, result.position, result.normal,\n            ddgiHardVisibilityOrigin, consumerResult);"
+        ));
+        assert!(production.contains(
+            "environmentCaptureIrradiance = ddgiTerrainDebugValue(\n            screenUv, ddgiReceiverPosition, result.position, result.normal,\n            ddgiHardVisibilityOrigin, consumerResult);"
+        ));
+
         let exact_sun = include_str!("../shader/slang/ddgi_exact_sun_visibility.slang");
         assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
         assert!(exact_sun.contains("receiver.center_position, receiver.normal, originOffsetWorld"));
@@ -1252,6 +1284,27 @@ mod tests {
     #[test]
     fn ddgi_production_filters_route_shared_policy_owners() {
         // Temporary wiring gate. Runtime filter acceptance in R13 replaces this source check.
+        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
+            let retained = filter
+                .split_once("if (historyPolicy.retain_source)")
+                .expect("retained partition gate")
+                .1
+                .split_once("if (metadata.state_and_reserved.x")
+                .expect("metadata validation follows retained partition")
+                .0;
+            assert!(retained.contains(retained_copy));
+            assert_eq!(retained.matches("return;").count(), 1);
+
+            let blended = filter
+                .split_once("if (historyPolicy.blend_history)")
+                .expect("history blend gate")
+                .1
+                .split_once("store")
+                .expect("atlas store follows history blend")
+                .0;
+            assert!(blended.contains(history_blend));
+        }
+
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
 
@@ -1269,10 +1322,17 @@ mod tests {
             assert!(filter.contains(
                 "DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(\n        pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,\n        pc.local_refresh_enabled.y, pc.history_retention);"
             ));
-            assert!(filter.contains("if (historyPolicy.retain_source)"));
-            assert!(filter.contains("if (historyPolicy.blend_history)"));
-            assert!(filter.contains("historyPolicy.retention"));
         }
+        assert_history_usage(
+            visibility,
+            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
+            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
+        );
+        assert_history_usage(
+            irradiance,
+            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
+            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
+        );
         for forbidden in [
             "relativeChange",
             "relativeDarkening",
