@@ -64,7 +64,7 @@ use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
 use crate::app::physical_visible_terrain;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
-use crate::app::world_edits::{BuildEdit, WorldEditPlan};
+use crate::app::world_edits::{BuildEdit, WorldEditTransaction};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{
@@ -2032,18 +2032,21 @@ impl App {
         1.0 - (1.0 - alpha_60fps).powf(frame_scale)
     }
 
-    fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
+    fn execute_world_edit(
+        &mut self,
+        transaction: WorldEditTransaction,
+    ) -> Result<Option<crate::app::world_edits::WorldEditOutcome>> {
         anyhow::ensure!(
             self.terrain_persistence.allows_world_updates(),
             "terrain persistence is in fatal Error; restart is required"
         );
-        for edit in plan.voxel_edits {
-            world_ops::apply_voxel_edit(&mut self.plain_builder, edit)?;
-        }
-        if let Some(change) = VisibleTerrainChange::from_build_edits(plan.build_edits)? {
-            self.publish_visible_terrain(change)?;
-        }
-        Ok(())
+        let Some(mutation) = transaction.execute(&mut self.plain_builder, VOXEL_DIM_PER_CHUNK)?
+        else {
+            return Ok(None);
+        };
+        let change = VisibleTerrainChange::from_world_edit(mutation)?;
+        let completion = self.publish_visible_terrain(change)?;
+        Ok(Some(completion.into_world_edit_outcome()))
     }
 
     fn observe_initial_published_terrain_for_ddgi(&mut self) -> Result<u32> {

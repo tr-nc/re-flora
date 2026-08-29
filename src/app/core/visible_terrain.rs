@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::world_edits::{WorldEditMutation, WorldEditOutcome};
 use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
@@ -18,6 +19,7 @@ pub(super) struct VisibleTerrainChange {
     rebuild: VisibleTerrainRebuild,
     affected_voxels: UAabb3,
     terrain_changed: bool,
+    mutation_elapsed: Duration,
 }
 
 impl VisibleTerrainChange {
@@ -37,12 +39,16 @@ impl VisibleTerrainChange {
             rebuild: VisibleTerrainRebuild::BuildEdits(build_edits),
             affected_voxels,
             terrain_changed: true,
+            mutation_elapsed: Duration::ZERO,
         }))
     }
 
-    pub(super) fn tree_chunks(chunk_ids: Vec<UVec3>) -> Result<Self> {
-        Self::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(chunk_ids)])?
-            .context("tree publication requires at least one affected chunk")
+    pub(super) fn from_world_edit(mutation: WorldEditMutation) -> Result<Self> {
+        let (build_edits, mutation_elapsed) = mutation.into_parts();
+        let mut change = Self::from_build_edits(build_edits)?
+            .context("world edit mutation requires a visible terrain publication")?;
+        change.mutation_elapsed = mutation_elapsed;
+        Ok(change)
     }
 
     pub(super) fn preserving_flora(
@@ -54,6 +60,7 @@ impl VisibleTerrainChange {
             rebuild: VisibleTerrainRebuild::PreserveFlora { bound, flora_edit },
             affected_voxels: bound,
             terrain_changed,
+            mutation_elapsed: Duration::ZERO,
         }
     }
 
@@ -105,6 +112,15 @@ pub(super) struct VisibleTerrainCompletion {
     chunks: usize,
     visible_revision: u32,
     changed_revision: Option<u32>,
+    mutation_elapsed: Duration,
+}
+
+impl VisibleTerrainCompletion {
+    pub(super) fn into_world_edit_outcome(self) -> WorldEditOutcome {
+        WorldEditOutcome {
+            mutation_elapsed: self.mutation_elapsed,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,6 +172,7 @@ pub(super) struct VisibleTerrainPublication {
     chunk_count: usize,
     affected_voxels: UAabb3,
     terrain_changed: bool,
+    mutation_elapsed: Duration,
     changed_revision: Option<u32>,
     collider_total: usize,
     state: VisibleTerrainPublicationState,
@@ -203,6 +220,7 @@ impl VisibleTerrainPublication {
             chunk_ids.len(),
             change.affected_voxels,
             change.terrain_changed,
+            change.mutation_elapsed,
         ))
     }
 
@@ -223,6 +241,7 @@ impl VisibleTerrainPublication {
             chunk_count,
             affected_voxels,
             false,
+            Duration::ZERO,
         ))
     }
 
@@ -232,6 +251,7 @@ impl VisibleTerrainPublication {
         chunk_count: usize,
         affected_voxels: UAabb3,
         terrain_changed: bool,
+        mutation_elapsed: Duration,
     ) -> Self {
         debug_assert!(!physical.is_empty());
         Self {
@@ -242,6 +262,7 @@ impl VisibleTerrainPublication {
             chunk_count,
             affected_voxels,
             terrain_changed,
+            mutation_elapsed,
             changed_revision: None,
             collider_total: 0,
             state: VisibleTerrainPublicationState::Physical,
@@ -446,10 +467,12 @@ impl VisibleTerrainPublication {
         if let Some(completion) = self.completion {
             return completion;
         }
+        let publication_elapsed = self.started_at.elapsed();
         let completion = VisibleTerrainCompletion {
             chunks: self.chunk_count,
             visible_revision,
             changed_revision: self.changed_revision,
+            mutation_elapsed: self.mutation_elapsed,
         };
         self.completion = Some(completion);
         log::info!(
@@ -457,7 +480,7 @@ impl VisibleTerrainPublication {
             completion.chunks,
             self.terrain_changed,
             completion.changed_revision,
-            self.started_at.elapsed().as_secs_f64() * 1000.0,
+            publication_elapsed.as_secs_f64() * 1000.0,
         );
         completion
     }
@@ -550,14 +573,17 @@ impl VisibleTerrainPublicationHost for App {
 }
 
 impl App {
-    pub(super) fn publish_visible_terrain(&mut self, change: VisibleTerrainChange) -> Result<()> {
+    pub(super) fn publish_visible_terrain(
+        &mut self,
+        change: VisibleTerrainChange,
+    ) -> Result<VisibleTerrainCompletion> {
         let mut publication = VisibleTerrainPublication::edit(change)?;
-        publication.run_to_completion(self).unwrap_or_else(|err| {
+        let completion = publication.run_to_completion(self).unwrap_or_else(|err| {
             panic!(
                 "Visible Terrain Publication failed after entering non-rollbackable state: {err:#}"
             )
         });
-        Ok(())
+        Ok(completion)
     }
 }
 

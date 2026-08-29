@@ -1,8 +1,4 @@
-use crate::app::physical_visible_terrain::{PhysicalTerrainBuilders, PhysicalTerrainPublication};
-use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
-use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
-};
+use crate::builder::SurfaceBuilder;
 use crate::flora::species::{FloraPaintBrushSettings, FloraPaintSelection};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
@@ -17,78 +13,6 @@ pub(crate) struct FloraBrushEdit {
     pub(crate) radius: f32,
     pub(crate) tick: u32,
     pub(crate) spawn_time_ms: u32,
-}
-
-pub(crate) fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result<()> {
-    match edit {
-        VoxelEdit::ClearVoxelRegion(edit) => plain_builder.chunk_init(edit.offset, edit.dim),
-        VoxelEdit::StampRoundCones {
-            bvh_nodes,
-            round_cones,
-            voxel_type,
-        } => {
-            if voxel_type == VOXEL_TYPE_CHERRY_WOOD {
-                plain_builder.chunk_modify(&bvh_nodes, &round_cones)
-            } else {
-                plain_builder.chunk_modify_with_voxel_type(&bvh_nodes, &round_cones, voxel_type)
-            }
-        }
-        VoxelEdit::StampCuboids {
-            bvh_nodes,
-            cuboids,
-            voxel_type,
-        } => {
-            if voxel_type == VOXEL_TYPE_CHERRY_WOOD {
-                plain_builder.chunk_modify_cuboids(&bvh_nodes, &cuboids)
-            } else {
-                plain_builder.chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &cuboids, voxel_type)
-            }
-        }
-        VoxelEdit::StampSpheres {
-            bvh_nodes,
-            spheres,
-            voxel_type,
-        } => plain_builder.chunk_modify_spheres_with_voxel_type(&bvh_nodes, &spheres, voxel_type),
-        VoxelEdit::StampToruses {
-            bvh_nodes,
-            toruses,
-            voxel_type,
-        } => plain_builder.chunk_modify_toruses_with_voxel_type(&bvh_nodes, &toruses, voxel_type),
-        VoxelEdit::StampSurfaceSpheres {
-            bvh_nodes,
-            spheres,
-            voxel_type,
-        } => plain_builder
-            .chunk_modify_surface_spheres_with_voxel_type(
-                &bvh_nodes, &spheres, voxel_type, None, None, None,
-            )
-            .map(|_| ()),
-    }
-}
-
-pub(crate) fn execute_edit_plan_on_builders(
-    plain_builder: &mut PlainBuilder,
-    surface_builder: &mut SurfaceBuilder,
-    contree_builder: &mut ContreeBuilder,
-    scene_accel_builder: &mut SceneAccelBuilder,
-    voxel_dim_per_chunk: UVec3,
-    plan: WorldEditPlan,
-) -> Result<()> {
-    for edit in plan.voxel_edits {
-        apply_voxel_edit(plain_builder, edit)?;
-    }
-
-    for edit in plan.build_edits {
-        PhysicalTerrainPublication::from_build_edit(edit, voxel_dim_per_chunk)?.run_to_completion(
-            PhysicalTerrainBuilders::new(
-                &mut *surface_builder,
-                &mut *contree_builder,
-                &mut *scene_accel_builder,
-            ),
-        )?;
-    }
-
-    Ok(())
 }
 
 pub(crate) fn mesh_regenerate_flora_for_brush_edit(

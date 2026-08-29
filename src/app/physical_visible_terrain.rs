@@ -29,14 +29,6 @@ impl<'a> PhysicalTerrainBuilders<'a> {
             scene_accel_builder,
         }
     }
-
-    fn reborrow(&mut self) -> PhysicalTerrainBuilders<'_> {
-        PhysicalTerrainBuilders {
-            surface_builder: &mut *self.surface_builder,
-            contree_builder: &mut *self.contree_builder,
-            scene_accel_builder: &mut *self.scene_accel_builder,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -199,18 +191,6 @@ impl PhysicalTerrainPublication {
             self.state = PhysicalTerrainPublicationState::Failed;
         }
         result
-    }
-
-    pub(crate) fn run_to_completion(
-        &mut self,
-        mut builders: PhysicalTerrainBuilders<'_>,
-    ) -> Result<usize> {
-        loop {
-            match self.advance(builders.reborrow())? {
-                PhysicalTerrainPublicationProgress::Preparing { .. } => {}
-                PhysicalTerrainPublicationProgress::Published { chunks } => return Ok(chunks),
-            }
-        }
     }
 
     pub(crate) fn abort(&mut self, contree_builder: &mut ContreeBuilder) {

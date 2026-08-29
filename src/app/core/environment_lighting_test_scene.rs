@@ -1,6 +1,6 @@
 use super::placeables::{SprinklerPlacementTarget, SPRINKLER_HEAD_EMITTER_PART};
 use super::App;
-use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{TerrainRemovalEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
     DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason, DdgiRefreshState,
@@ -1051,7 +1051,7 @@ impl TestSceneGeometry {
         }
     }
 
-    fn compile(self) -> Result<WorldEditPlan> {
+    fn compile(self) -> Result<WorldEditTransaction> {
         let mut voxel_edits = Vec::new();
         if !self.cleared_test_scene.is_empty() {
             voxel_edits.push(stamp_cuboids(self.cleared_test_scene, VOXEL_TYPE_EMPTY)?);
@@ -1066,11 +1066,10 @@ impl TestSceneGeometry {
         if !self.emissive.is_empty() {
             voxel_edits.push(stamp_cuboids(self.emissive, VOXEL_TYPE_EMISSIVE)?);
         }
-        let build_edits = vec![BuildEdit::RebuildMesh(self.test_rebuild_bound)];
-        Ok(WorldEditPlan {
+        Ok(WorldEditTransaction::terrain_change(
             voxel_edits,
-            build_edits,
-        })
+            self.test_rebuild_bound,
+        ))
     }
 }
 
@@ -1085,36 +1084,47 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
-fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
-        voxel_edits: vec![stamp_cuboids(
+fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::terrain_change(
+        vec![stamp_cuboids(
             vec![Cuboid::from_min_max(SKYLIGHT_MIN, SKYLIGHT_MAX)],
             edit.voxel_type(),
         )?],
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
-            SKYLIGHT_MIN.as_uvec3(),
-            SKYLIGHT_MAX.as_uvec3(),
-        ))],
-    })
+        UAabb3::new(SKYLIGHT_MIN.as_uvec3(), SKYLIGHT_MAX.as_uvec3()),
+    ))
 }
 
-fn point_light_blocker_edit_plan(voxel_type: u32) -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
-        voxel_edits: vec![stamp_cuboids(
+fn point_light_blocker_edit_plan(voxel_type: u32) -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::terrain_change(
+        vec![stamp_cuboids(
             vec![Cuboid::from_min_max(
                 POINT_LIGHT_BLOCKER_MIN,
                 POINT_LIGHT_BLOCKER_MAX,
             )],
             voxel_type,
         )?],
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
+        UAabb3::new(
             POINT_LIGHT_BLOCKER_MIN.as_uvec3(),
             POINT_LIGHT_BLOCKER_MAX.as_uvec3(),
-        ))],
-    })
+        ),
+    ))
 }
 
-fn voxel_emissive_edit_plan(edits: &[(UVec3, UVec3, u32)]) -> Result<WorldEditPlan> {
+fn voxel_emissive_edit_plan(edits: &[(UVec3, UVec3, u32)]) -> Result<WorldEditTransaction> {
+    let bound = voxel_emissive_edit_bound(edits)?;
+    let voxel_edits = edits
+        .iter()
+        .map(|(min, max, voxel_type)| {
+            stamp_cuboids(
+                vec![Cuboid::from_min_max(min.as_vec3(), max.as_vec3())],
+                *voxel_type,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(WorldEditTransaction::terrain_change(voxel_edits, bound))
+}
+
+fn voxel_emissive_edit_bound(edits: &[(UVec3, UVec3, u32)]) -> Result<UAabb3> {
     let min = edits
         .iter()
         .map(|(min, _, _)| *min)
@@ -1125,19 +1135,7 @@ fn voxel_emissive_edit_plan(edits: &[(UVec3, UVec3, u32)]) -> Result<WorldEditPl
         .map(|(_, max, _)| *max)
         .reduce(UVec3::max)
         .expect("non-empty edit plan has a maximum");
-    let voxel_edits = edits
-        .iter()
-        .map(|(min, max, voxel_type)| {
-            stamp_cuboids(
-                vec![Cuboid::from_min_max(min.as_vec3(), max.as_vec3())],
-                *voxel_type,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(WorldEditPlan {
-        voxel_edits,
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(min, max))],
-    })
+    Ok(UAabb3::new(min, max))
 }
 
 fn voxel_emissive_record(snapshot: &LocalLightSnapshot, voxel: UVec3) -> Option<LocalLightRecord> {
@@ -2313,9 +2311,9 @@ impl App {
                 match TestSceneGeometry::build(case)
                     .compile()
                     .context("compile deterministic environment-lighting test scene")
-                    .and_then(|plan| self.execute_edit_plan(plan))
+                    .and_then(|transaction| self.execute_world_edit(transaction))
                 {
-                    Ok(()) => {
+                    Ok(_) => {
                         let rebuild_bound = test_rebuild_bound(case);
                         log::info!(
                             "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
@@ -5336,7 +5334,7 @@ impl App {
         edit: TerrainEdit,
         source_revision: u32,
     ) -> Result<u32> {
-        self.execute_edit_plan(
+        self.execute_world_edit(
             skylight_edit_plan(edit).with_context(|| format!("compile {} edit", edit.label()))?,
         )?;
         let target_revision = self.visible_terrain_revision;
@@ -5358,7 +5356,7 @@ impl App {
     }
 
     fn apply_point_light_blocker(&mut self, voxel_type: u32, source_revision: u32) -> Result<u32> {
-        self.execute_edit_plan(point_light_blocker_edit_plan(voxel_type)?)?;
+        self.execute_world_edit(point_light_blocker_edit_plan(voxel_type)?)?;
         let target_revision = self.visible_terrain_revision;
         anyhow::ensure!(
             target_revision != source_revision,
@@ -5388,12 +5386,9 @@ impl App {
         edits: &[(UVec3, UVec3, u32)],
         source_revision: u32,
     ) -> Result<u32> {
+        let bound = voxel_emissive_edit_bound(edits)?;
         let plan = voxel_emissive_edit_plan(edits)?;
-        let bound = match plan.build_edits[0] {
-            BuildEdit::RebuildMesh(bound) => bound,
-            _ => unreachable!("voxel-emissive edit helper only emits mesh rebuilds"),
-        };
-        self.execute_edit_plan(plan)?;
+        self.execute_world_edit(plan)?;
         let target_revision = self.visible_terrain_revision;
         anyhow::ensure!(
             target_revision != source_revision,
@@ -5480,6 +5475,59 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 mod tests {
     use super::*;
     use crate::ddgi::DdgiFieldKey;
+
+    #[test]
+    fn terrain_edit_transactions_change_the_authored_world_materials() {
+        let skylight_center = (SKYLIGHT_MIN + SKYLIGHT_MAX) * 0.5;
+        assert_eq!(
+            skylight_edit_plan(TerrainEdit::CloseSkylight)
+                .unwrap()
+                .planned_cuboid_voxel_type_at(skylight_center,),
+            Some(VOXEL_TYPE_ROCK),
+        );
+        assert_eq!(
+            skylight_edit_plan(TerrainEdit::ReopenSkylight)
+                .unwrap()
+                .planned_cuboid_voxel_type_at(skylight_center,),
+            Some(VOXEL_TYPE_EMPTY),
+        );
+
+        let blocker_center = (POINT_LIGHT_BLOCKER_MIN + POINT_LIGHT_BLOCKER_MAX) * 0.5;
+        for voxel_type in [VOXEL_TYPE_ROCK, VOXEL_TYPE_EMPTY] {
+            assert_eq!(
+                point_light_blocker_edit_plan(voxel_type)
+                    .unwrap()
+                    .planned_cuboid_voxel_type_at(blocker_center,),
+                Some(voxel_type),
+            );
+        }
+
+        let moved = voxel_emissive_edit_plan(&[
+            (
+                VOXEL_EMISSIVE_PRIMARY_MIN,
+                VOXEL_EMISSIVE_SECONDARY_MAX,
+                VOXEL_TYPE_EMPTY,
+            ),
+            (
+                VOXEL_EMISSIVE_MOVED_MIN,
+                VOXEL_EMISSIVE_MOVED_MAX,
+                VOXEL_TYPE_EMISSIVE,
+            ),
+        ])
+        .unwrap();
+        assert_eq!(
+            moved.planned_cuboid_voxel_type_at(
+                (VOXEL_EMISSIVE_PRIMARY_MIN.as_vec3() + VOXEL_EMISSIVE_PRIMARY_MAX.as_vec3()) * 0.5,
+            ),
+            Some(VOXEL_TYPE_EMPTY),
+        );
+        assert_eq!(
+            moved.planned_cuboid_voxel_type_at(
+                (VOXEL_EMISSIVE_MOVED_MIN.as_vec3() + VOXEL_EMISSIVE_MOVED_MAX.as_vec3()) * 0.5,
+            ),
+            Some(VOXEL_TYPE_EMISSIVE),
+        );
+    }
 
     #[test]
     fn radiance_epochs_use_exact_distinct_palette_values() {
@@ -5652,17 +5700,6 @@ mod tests {
             receiver_voxel.z >= POINT_LIGHT_BLOCKER_MIN.z
                 && receiver_voxel.z <= POINT_LIGHT_BLOCKER_MAX.z
         );
-        for voxel_type in [VOXEL_TYPE_ROCK, VOXEL_TYPE_EMPTY] {
-            let plan = point_light_blocker_edit_plan(voxel_type).unwrap();
-            assert_eq!(plan.voxel_edits.len(), 1);
-            assert_eq!(plan.build_edits.len(), 1);
-            assert!(matches!(
-                plan.build_edits[0],
-                BuildEdit::RebuildMesh(bound)
-                    if bound.min() == POINT_LIGHT_BLOCKER_MIN.as_uvec3()
-                        && bound.max() == POINT_LIGHT_BLOCKER_MAX.as_uvec3()
-            ));
-        }
     }
 
     #[test]
@@ -5686,12 +5723,12 @@ mod tests {
             EnvironmentLightingTestCase::TerrainEditsClosed,
         ] {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
-            assert!(!plan.voxel_edits.is_empty());
-            assert_eq!(plan.build_edits.len(), 1);
-            assert!(plan.build_edits.iter().all(|edit| match edit {
-                BuildEdit::RebuildMesh(bound) => bound.max().cmple(UVec3::splat(512)).all(),
-                _ => false,
-            }));
+            let affected = plan
+                .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                .unwrap()
+                .expect("runtime test scene must publish its world change");
+            assert!(affected.has_size());
+            assert!(affected.max().cmple(UVec3::splat(512)).all());
         }
     }
 
@@ -5944,16 +5981,15 @@ mod tests {
         let close = skylight_edit_plan(TerrainEdit::CloseSkylight).unwrap();
         let reopen = skylight_edit_plan(TerrainEdit::ReopenSkylight).unwrap();
 
-        assert_eq!(close.voxel_edits.len(), 1);
-        assert_eq!(reopen.voxel_edits.len(), 1);
         for plan in [close, reopen] {
-            assert_eq!(plan.build_edits.len(), 1);
-            assert!(matches!(
-                plan.build_edits[0],
-                BuildEdit::RebuildMesh(bound)
-                    if bound.min() == SKYLIGHT_MIN.as_uvec3()
-                        && bound.max() == SKYLIGHT_MAX.as_uvec3()
-            ));
+            assert_eq!(
+                plan.affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                    .unwrap(),
+                Some(UAabb3::new(
+                    SKYLIGHT_MIN.as_uvec3(),
+                    SKYLIGHT_MAX.as_uvec3(),
+                )),
+            );
         }
         assert_eq!(TerrainEdit::CloseSkylight.voxel_type(), VOXEL_TYPE_ROCK);
         assert_eq!(TerrainEdit::ReopenSkylight.voxel_type(), VOXEL_TYPE_EMPTY);
@@ -5964,7 +6000,7 @@ mod tests {
         let plan = TestSceneGeometry::build(EnvironmentLightingTestCase::PointLightChanges)
             .compile()
             .unwrap();
-        assert!(plan.voxel_edits.iter().any(|edit| matches!(
+        assert!(plan.voxel_edits().iter().any(|edit| matches!(
             edit,
             VoxelEdit::StampCuboids { voxel_type, .. }
                 if *voxel_type == crate::builder::VOXEL_TYPE_EMISSIVE
@@ -5979,12 +6015,14 @@ mod tests {
             VOXEL_TYPE_EMISSIVE,
         )])
         .expect("bounded voxel add plan must compile");
-        assert!(matches!(
-            add.build_edits.as_slice(),
-            [BuildEdit::RebuildMesh(bound)]
-                if bound.min() == VOXEL_EMISSIVE_PRIMARY_MIN
-                    && bound.max() == VOXEL_EMISSIVE_PRIMARY_MAX
-        ));
+        assert_eq!(
+            add.affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                .unwrap(),
+            Some(UAabb3::new(
+                VOXEL_EMISSIVE_PRIMARY_MIN,
+                VOXEL_EMISSIVE_PRIMARY_MAX,
+            )),
+        );
 
         let moved = voxel_emissive_edit_plan(&[
             (
@@ -5999,13 +6037,15 @@ mod tests {
             ),
         ])
         .expect("move plan must compile");
-        assert!(matches!(
-            moved.build_edits.as_slice(),
-            [BuildEdit::RebuildMesh(bound)]
-                if bound.min() == VOXEL_EMISSIVE_PRIMARY_MIN
-                    && bound.max() == VOXEL_EMISSIVE_MOVED_MAX
-        ));
-        assert_eq!(moved.voxel_edits.len(), 2);
+        assert_eq!(
+            moved
+                .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                .unwrap(),
+            Some(UAabb3::new(
+                VOXEL_EMISSIVE_PRIMARY_MIN,
+                VOXEL_EMISSIVE_MOVED_MAX,
+            )),
+        );
     }
 
     #[test]

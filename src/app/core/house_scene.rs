@@ -1,5 +1,5 @@
 use super::App;
-use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{
     voxel_type_from_atlas_byte, PlainBuilder, TerrainHillField, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMPTY,
     VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
@@ -190,7 +190,7 @@ fn door_cut_ratio(surface: SurfaceSampleReport) -> f32 {
     ROUND_DOOR_RADIUS * 2.0 / nominal_visible_cut_face_height(surface)
 }
 
-fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
+fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditTransaction> {
     let base_y = house_base_y(surface);
     let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
     let opening_base_y = base_y - FACADE_OPENING_DROP;
@@ -248,14 +248,11 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
         ));
     }
 
-    Ok(WorldEditPlan {
-        voxel_edits: vec![
-            stamp_toruses(frames, VOXEL_TYPE_OAK_WOOD)?,
-            stamp_cuboids(openings, VOXEL_TYPE_EMPTY)?,
-        ],
+    Ok(WorldEditTransaction::during_loading(vec![
+        stamp_toruses(frames, VOXEL_TYPE_OAK_WOOD)?,
+        stamp_cuboids(openings, VOXEL_TYPE_EMPTY)?,
         // Loading publishes every chunk after applying this plan.
-        build_edits: Vec::new(),
-    })
+    ]))
 }
 
 impl App {
@@ -268,7 +265,7 @@ impl App {
         );
         let hill = hobbit_hill(surface);
         let hill_bound = self.plain_builder.blend_terrain_hill(hill)?;
-        self.execute_edit_plan(house_plan(surface)?)?;
+        self.execute_world_edit(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
             "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} opening_drop={} window_frame_outward_offset={} hill_rise={} shell_thickness={} maximum_inflation={}",
@@ -340,13 +337,13 @@ mod tests {
     fn house_uses_cut_hill_with_round_door_windows_and_oak_frames() {
         let plan = house_plan(test_surface()).unwrap();
 
-        assert_eq!(plan.voxel_edits.len(), 2);
+        assert_eq!(plan.voxel_edits().len(), 2);
 
         let VoxelEdit::StampToruses {
             toruses: frames,
             voxel_type: frame_type,
             ..
-        } = &plan.voxel_edits[0]
+        } = &plan.voxel_edits()[0]
         else {
             panic!("expected torus frames");
         };
@@ -376,7 +373,7 @@ mod tests {
             cuboids: opening_slices,
             voxel_type: opening_type,
             ..
-        } = &plan.voxel_edits[1]
+        } = &plan.voxel_edits()[1]
         else {
             panic!("expected round opening slices");
         };
@@ -389,7 +386,7 @@ mod tests {
             .iter()
             .all(|slice| slice.max().z == HOUSE_MAX_Z + 1.0));
 
-        assert!(plan.voxel_edits.iter().all(|edit| !matches!(
+        assert!(plan.voxel_edits().iter().all(|edit| !matches!(
             edit,
             VoxelEdit::StampCuboids {
                 voxel_type: VOXEL_TYPE_ROCK,
