@@ -2,7 +2,8 @@ use super::App;
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::builder::GrassGrowthInfluence;
 use crate::lighting::{
-    LightId, RasterEmitterComponent, RasterEmitterKey, RasterEmitterPartId, RasterEntityId,
+    LightId, PreparedLocalLightSourcePublication, RasterEmitterComponent, RasterEmitterKey,
+    RasterEmitterPartId, RasterEntityEmitterChange, RasterEntityEmitterProvider, RasterEntityId,
     RASTER_ENTITY_LIGHT_PROVIDER_ID,
 };
 use crate::particles::{
@@ -44,6 +45,9 @@ const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
 const SPRINKLER_RASTER_ENTITY_NAMESPACE: u32 = 0x5350_524B;
 pub(super) const SPRINKLER_HEAD_EMITTER_PART: RasterEmitterPartId = RasterEmitterPartId::new(1);
 const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
+
+type PreparedRasterEmitterPublication =
+    PreparedLocalLightSourcePublication<RasterEntityEmitterProvider, RasterEntityEmitterChange>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum IrrigationNodeKind {
@@ -1080,48 +1084,33 @@ impl App {
         &self,
         entity: RasterEntityId,
         component: RasterEmitterComponent,
-    ) -> Result<(
-        crate::lighting::RasterEntityEmitterProvider,
-        crate::lighting::LocalLightRegistry,
-        crate::lighting::RasterEntityEmitterChange,
-        LightId,
-    )> {
-        let mut provider = self.raster_entity_emitters.clone();
-        let change = provider
-            .publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, component)])
+    ) -> Result<(PreparedRasterEmitterPublication, LightId)> {
+        let publication = self
+            .local_lights
+            .prepare_source_publication(&self.raster_entity_emitters, |provider| {
+                provider.publish_entity(entity, [(SPRINKLER_HEAD_EMITTER_PART, component)])
+            })
             .map_err(|err| anyhow!("raster emitter publication failed: {err:?}"))?;
-        let mut registry = self.local_lights.clone();
-        registry
-            .reconcile(provider.snapshot())
-            .map_err(|err| anyhow!("raster emitter reconcile failed: {err:?}"))?;
         let key = RasterEmitterKey::new(entity, SPRINKLER_HEAD_EMITTER_PART);
-        let light_id = registry
+        let light_id = publication
             .light_id(RASTER_ENTITY_LIGHT_PROVIDER_ID, key.source_key())
-            .ok_or_else(|| anyhow!("raster emitter reconcile omitted the published source"))?;
-        Ok((provider, registry, change, light_id))
+            .ok_or_else(|| anyhow!("raster emitter publication omitted the published source"))?;
+        Ok((publication, light_id))
     }
 
     fn stage_raster_emitter_removals(
         &self,
         entities: &[RasterEntityId],
-    ) -> Result<
-        Option<(
-            crate::lighting::RasterEntityEmitterProvider,
-            crate::lighting::LocalLightRegistry,
-        )>,
-    > {
+    ) -> Result<Option<PreparedRasterEmitterPublication>> {
         if entities.is_empty() {
             return Ok(None);
         }
-        let mut provider = self.raster_entity_emitters.clone();
-        provider
-            .remove_entities(entities.iter().copied())
-            .map_err(|err| anyhow!("raster emitter removal failed: {err:?}"))?;
-        let mut registry = self.local_lights.clone();
-        registry
-            .reconcile(provider.snapshot())
-            .map_err(|err| anyhow!("raster emitter removal reconcile failed: {err:?}"))?;
-        Ok(Some((provider, registry)))
+        self.local_lights
+            .prepare_source_publication(&self.raster_entity_emitters, |provider| {
+                provider.remove_entities(entities.iter().copied())
+            })
+            .map(Some)
+            .map_err(|err| anyhow!("raster emitter removal failed: {err:?}"))
     }
 
     pub(super) fn current_placeable_kind(&self) -> PlaceableKind {
@@ -1200,11 +1189,12 @@ impl App {
             return Err(effect_error);
         }
 
-        let removed_count = self.sprinklers.commit_removal(plan);
-        if let Some((provider, registry)) = staged_lights {
-            self.raster_entity_emitters = provider;
-            self.local_lights = registry;
+        if let Some(publication) = staged_lights {
+            publication
+                .commit(&mut self.raster_entity_emitters, &mut self.local_lights)
+                .map_err(|err| anyhow!("stale raster emitter removal publication: {err:?}"))?;
         }
+        let removed_count = self.sprinklers.commit_removal(plan);
         log::info!("Removed {} sprinkler(s) with terrain brush", removed_count);
         Ok(removed_count)
     }
@@ -1251,11 +1241,15 @@ impl App {
         let id = plan.id();
         let base_position = plan.base_position();
         let entity = plan.raster_entity_id();
-        self.sprinklers.commit_placement(plan);
-        let light_id = staged_lights.map(|(provider, registry, change, light_id)| {
-            self.raster_entity_emitters = provider;
-            self.local_lights = registry;
-            log::info!(
+        let light_id = match staged_lights {
+            Some((publication, light_id)) => {
+                let published = publication
+                    .commit(&mut self.raster_entity_emitters, &mut self.local_lights)
+                    .map_err(|err| {
+                        anyhow!("stale raster emitter placement publication: {err:?}")
+                    })?;
+                let change = published.change;
+                log::info!(
                 "[LOCAL_LIGHT][RASTER_PROVIDER] action=spawn entity={:?} part={} provider_source_revision={} provider_source_count={} registry_revision={} registry_source_revision={} light_slot={} light_generation={} surface_emissive_pixels=false",
                 entity,
                 SPRINKLER_HEAD_EMITTER_PART.get(),
@@ -1266,8 +1260,11 @@ impl App {
                 light_id.slot(),
                 light_id.generation(),
             );
-            light_id
-        });
+                Some(light_id)
+            }
+            None => None,
+        };
+        self.sprinklers.commit_placement(plan);
         log::info!("Placed sprinkler {} at {:?}", id, base_position);
         Ok((entity, light_id))
     }
@@ -1303,8 +1300,7 @@ impl App {
                 .ok_or_else(|| anyhow!("live raster emitter has no registry light: {entity:?}"));
         }
         let (_, staged_component) = plan.emitter_source();
-        let (provider, registry, change, light_id) =
-            self.stage_raster_emitter_upsert(entity, staged_component)?;
+        let (publication, light_id) = self.stage_raster_emitter_upsert(entity, staged_component)?;
         let previous_render_instances = self.sprinklers.render_instances();
         self.tracer.upload_sprinklers(&plan.render_instances)?;
         if let Err(effect_error) = self.surface_builder.upsert_external_grass_growth_influence(
@@ -1319,9 +1315,11 @@ impl App {
             }
             return Err(effect_error);
         }
+        let published = publication
+            .commit(&mut self.raster_entity_emitters, &mut self.local_lights)
+            .map_err(|err| anyhow!("stale raster emitter update publication: {err:?}"))?;
         self.sprinklers.commit_emitter_update(plan);
-        self.raster_entity_emitters = provider;
-        self.local_lights = registry;
+        let change = published.change;
         log::info!(
             "[LOCAL_LIGHT][RASTER_PROVIDER] action=update entity={:?} part={} provider_changed={} provider_source_revision={} provider_source_count={} registry_revision={} registry_source_revision={} light_slot={} light_generation={} surface_emissive_pixels=false",
             entity,
@@ -1369,9 +1367,10 @@ impl App {
             }
             return Err(effect_error);
         }
+        staged_lights
+            .commit(&mut self.raster_entity_emitters, &mut self.local_lights)
+            .map_err(|err| anyhow!("stale raster emitter despawn publication: {err:?}"))?;
         self.sprinklers.commit_removal(plan);
-        self.raster_entity_emitters = staged_lights.0;
-        self.local_lights = staged_lights.1;
         log::info!(
             "[LOCAL_LIGHT][RASTER_PROVIDER] action=despawn entity={:?} part={} provider_source_count={} registry_revision={} registry_source_revision={} removed_light_slot={} removed_light_generation={} surface_emissive_pixels=false",
             entity,
