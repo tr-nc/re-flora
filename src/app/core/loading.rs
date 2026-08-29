@@ -12,7 +12,7 @@ pub(super) enum LoadingPhase {
 pub(super) struct LoadingState {
     pub(super) chunk_indices: Vec<UVec3>,
     pub(super) terrain_snapshot_reader: Option<TerrainSnapshotReader>,
-    pub(super) physical_terrain_publication: physical_visible_terrain::PhysicalTerrainPublication,
+    pub(super) visible_terrain_publication: Option<visible_terrain::VisibleTerrainPublication>,
     pub(super) current: usize,
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
@@ -54,18 +54,22 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
-        let mut should_begin_world_collider_import = false;
-        let mut should_reconcile_loaded_terrain = false;
         let water_experience_requested = self.water_experience_scene.is_some();
         let house_scene_requested = self.house_scene_requested;
+        let phase = match self.loading_state.as_ref() {
+            Some(loading) if !loading.is_done() => loading.phase,
+            _ => return,
+        };
+
+        if matches!(phase, LoadingPhase::Building | LoadingPhase::Colliders) {
+            self.advance_loading_visible_terrain();
+            return;
+        }
+
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
         };
-
-        if loading.is_done() {
-            return;
-        }
 
         let total = loading.total();
         let current = loading.current + 1;
@@ -119,85 +123,7 @@ impl App {
                     loading.phase = LoadingPhase::Building;
                 }
             }
-            LoadingPhase::Building => {
-                loading.step_label = format!("Building {}/{}", current, total);
-
-                let progress = loading
-                    .physical_terrain_publication
-                    .advance(physical_visible_terrain::PhysicalTerrainBuilders::new(
-                        &mut self.surface_builder,
-                        &mut self.contree_builder,
-                        &mut self.scene_accel_builder,
-                    ))
-                    .unwrap_or_else(|err| {
-                        panic!("startup visible terrain publication failed: {err:#}")
-                    });
-
-                match progress {
-                    physical_visible_terrain::PhysicalTerrainPublicationProgress::Preparing {
-                        prepared_chunks,
-                        total_chunks,
-                    } => {
-                        debug_assert_eq!(total_chunks, total);
-                        loading.current = prepared_chunks;
-                        loading.step_label = format!("Building {prepared_chunks}/{total_chunks}");
-                    }
-                    physical_visible_terrain::PhysicalTerrainPublicationProgress::Published {
-                        chunks,
-                    } => {
-                        debug_assert_eq!(chunks, total);
-                        loading.current = chunks;
-                        should_reconcile_loaded_terrain = loading.terrain_snapshot_reader.is_some();
-                        should_begin_world_collider_import = true;
-                    }
-                }
-            }
-            LoadingPhase::Colliders => {
-                match self
-                    .terrain_physics
-                    .process_world_terrain_collider_import(&self.contree_builder)
-                {
-                    Ok((completed, total)) => {
-                        loading.current = completed;
-                        loading.collider_total = total;
-                        loading.step_label = format!("Colliders {completed}/{total}");
-                    }
-                    Err(err) => {
-                        log::error!("Failed to import global terrain colliders: {err:#}");
-                        loading.current = loading.collider_total;
-                    }
-                }
-            }
-        }
-
-        if should_reconcile_loaded_terrain {
-            self.reconcile_loaded_terrain_publication()
-                .unwrap_or_else(|err| {
-                    panic!("startup loaded-terrain connectivity reconciliation failed: {err:#}")
-                });
-        }
-        if should_begin_world_collider_import {
-            let result = self
-                .terrain_physics
-                .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK);
-            let loading = self
-                .loading_state
-                .as_mut()
-                .expect("loading state disappeared before collider import");
-            match result {
-                Ok(collider_total) => {
-                    loading.current = 0;
-                    loading.collider_total = collider_total;
-                    loading.phase = LoadingPhase::Colliders;
-                    loading.step_label = format!("Colliders 0/{collider_total}");
-                }
-                Err(err) => {
-                    log::error!("Failed to start global terrain collider import: {err:#}");
-                    loading.current = 1;
-                    loading.collider_total = 1;
-                    loading.phase = LoadingPhase::Colliders;
-                }
-            }
+            LoadingPhase::Building | LoadingPhase::Colliders => unreachable!(),
         }
 
         if should_apply_water_experience_terrain {
@@ -208,6 +134,54 @@ impl App {
             self.apply_house_scene()
                 .unwrap_or_else(|err| panic!("[HOUSE_SCENE] terrain setup failed: {err:#}"));
         }
+    }
+
+    fn advance_loading_visible_terrain(&mut self) {
+        let mut publication = self
+            .loading_state
+            .as_mut()
+            .expect("loading state disappeared before terrain publication")
+            .visible_terrain_publication
+            .take()
+            .expect("loading terrain publication is already being advanced");
+        let progress = publication
+            .advance(self)
+            .unwrap_or_else(|err| panic!("startup Visible Terrain Publication failed: {err:#}"));
+        let loading = self
+            .loading_state
+            .as_mut()
+            .expect("loading state disappeared after terrain publication advance");
+        match progress {
+            visible_terrain::VisibleTerrainPublicationProgress::Preparing {
+                prepared_chunks,
+                total_chunks,
+            } => {
+                loading.phase = LoadingPhase::Building;
+                loading.current = prepared_chunks;
+                loading.step_label = format!("Building {prepared_chunks}/{total_chunks}");
+            }
+            visible_terrain::VisibleTerrainPublicationProgress::ImportingColliders {
+                completed,
+                total,
+            } => {
+                loading.phase = LoadingPhase::Colliders;
+                loading.current = completed;
+                loading.collider_total = total;
+                loading.step_label = format!("Colliders {completed}/{total}");
+            }
+            visible_terrain::VisibleTerrainPublicationProgress::AwaitingStartupSettlement => {
+                loading.phase = LoadingPhase::Colliders;
+                loading.current = loading.collider_total;
+                loading.step_label = format!(
+                    "Colliders {}/{}",
+                    loading.collider_total, loading.collider_total
+                );
+            }
+            visible_terrain::VisibleTerrainPublicationProgress::Complete(_) => {
+                unreachable!("startup publication completes only after loading settlement")
+            }
+        }
+        loading.visible_terrain_publication = Some(publication);
     }
 
     pub(super) fn render_loading_frame(&mut self) {
@@ -380,20 +354,27 @@ impl App {
         }
 
         if is_done {
-            self.loading_state = None;
-            self.finalize_loading();
+            let mut publication = self
+                .loading_state
+                .take()
+                .and_then(|mut loading| loading.visible_terrain_publication.take())
+                .expect("completed loading must retain its Visible Terrain Publication");
+            self.finalize_loading(&mut publication);
         }
     }
 
-    pub(super) fn abort_loading_physical_publication(&mut self) {
+    pub(super) fn abort_loading_visible_terrain_publication(&mut self) {
         if let Some(loading) = self.loading_state.as_mut() {
-            loading
-                .physical_terrain_publication
-                .abort(&mut self.contree_builder);
+            if let Some(publication) = loading.visible_terrain_publication.as_mut() {
+                publication.abort(&mut self.contree_builder);
+            }
         }
     }
 
-    pub(super) fn finalize_loading(&mut self) {
+    pub(super) fn finalize_loading(
+        &mut self,
+        publication: &mut visible_terrain::VisibleTerrainPublication,
+    ) {
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
@@ -435,15 +416,9 @@ impl App {
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
         }
 
-        self.enqueue_startup_water_terrain_collider_rebuilds();
-        if self.environment_lighting_test_scene.is_none()
-            && self.hybrid_transparency_test_scene.is_none()
-        {
-            self.observe_initial_published_terrain_for_ddgi()
-                .unwrap_or_else(|err| {
-                    panic!("[DDGI] initial exact voxel visibility publication failed: {err:#}")
-                });
-        }
+        publication.complete_startup(self).unwrap_or_else(|err| {
+            panic!("startup Visible Terrain Publication completion failed: {err:#}")
+        });
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }

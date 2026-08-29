@@ -363,25 +363,9 @@ impl App {
                 terrain_chunk_ids(),
             )])?
             .context("snapshot replacement has no visible terrain chunks")?;
-        self.publish_visible_terrain(change)?;
-        self.reconcile_loaded_terrain_publication()?;
-
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        anyhow::ensure!(
-            self.contree_builder.cpu_chunk_cache_jobs_idle(),
-            "Contree CPU cache did not reach Ready after snapshot publication"
-        );
-        self.terrain_physics
-            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
-        loop {
-            let (completed, total) = self
-                .terrain_physics
-                .process_world_terrain_collider_import(&self.contree_builder)?;
-            if completed >= total {
-                break;
-            }
-        }
-        self.enqueue_startup_water_terrain_collider_rebuilds();
+        let mut publication =
+            visible_terrain::VisibleTerrainPublication::snapshot_replacement(change)?;
+        publication.run_to_completion(self)?;
         self.player_tools.cancel_continuous_hold();
         Ok(())
     }
