@@ -14,23 +14,53 @@ const ANALYSIS_HALO_VOXELS: u32 = 24;
 const MAX_ANALYSIS_VOXELS: u64 = 16 * 1024 * 1024;
 const CONNECTIVITY_TILE_DIM: u32 = 32;
 
+#[derive(Clone, Copy, Debug)]
+enum PendingTerrainConnectivity {
+    PlayerHold(UAabb3),
+    LoadedWorld,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum TerrainConnectivityRequest {
+    PlayerEdit { edited: UAabb3, block: UAabb3 },
+    LoadedWorld { world_dim: UVec3 },
+}
+
 #[derive(Default)]
 pub(super) struct TerrainConnectivityRuntime {
-    pending_edited_voxels_inclusive: Option<UAabb3>,
+    pending: Option<PendingTerrainConnectivity>,
 }
 
 impl TerrainConnectivityRuntime {
-    pub(super) fn record_edit(&mut self, edited_voxels_inclusive: UAabb3) {
-        self.pending_edited_voxels_inclusive = Some(
-            self.pending_edited_voxels_inclusive
-                .map_or(edited_voxels_inclusive, |pending| {
-                    pending.union_with(&edited_voxels_inclusive)
-                }),
-        );
+    fn observe_player_publication(
+        &mut self,
+        edited_voxels_inclusive: UAabb3,
+        continuous_hold_active: bool,
+    ) {
+        if !continuous_hold_active {
+            return;
+        }
+        self.pending = Some(match self.pending {
+            Some(PendingTerrainConnectivity::PlayerHold(pending)) => {
+                PendingTerrainConnectivity::PlayerHold(pending.union_with(&edited_voxels_inclusive))
+            }
+            Some(PendingTerrainConnectivity::LoadedWorld) => {
+                PendingTerrainConnectivity::LoadedWorld
+            }
+            None => PendingTerrainConnectivity::PlayerHold(edited_voxels_inclusive),
+        });
     }
 
-    fn take_edit_region(&mut self, world_dim: UVec3) -> Option<(UAabb3, UAabb3)> {
-        let inclusive = self.pending_edited_voxels_inclusive.take()?;
+    fn request_loaded_world_reconciliation(&mut self) {
+        // A complete authoritative replacement makes any earlier player-hold bound stale.
+        self.pending = Some(PendingTerrainConnectivity::LoadedWorld);
+    }
+
+    fn take_player_release(&mut self, world_dim: UVec3) -> Option<TerrainConnectivityRequest> {
+        let Some(PendingTerrainConnectivity::PlayerHold(inclusive)) = self.pending else {
+            return None;
+        };
+        self.pending = None;
         let edited_max_exclusive = inclusive.max().saturating_add(UVec3::ONE).min(world_dim);
         let edited = UAabb3::new(inclusive.min().min(world_dim), edited_max_exclusive);
         if edited.min().cmpge(edited.max()).any() {
@@ -42,7 +72,28 @@ impl TerrainConnectivityRuntime {
             edited.min().saturating_sub(halo),
             edited.max().saturating_add(halo).min(world_dim),
         );
-        Some((edited, block))
+        Some(TerrainConnectivityRequest::PlayerEdit { edited, block })
+    }
+
+    fn take_loaded_world(&mut self, world_dim: UVec3) -> Option<TerrainConnectivityRequest> {
+        if !matches!(self.pending, Some(PendingTerrainConnectivity::LoadedWorld)) {
+            return None;
+        }
+        self.pending = None;
+        Some(TerrainConnectivityRequest::LoadedWorld { world_dim })
+    }
+
+    fn restore(&mut self, request: TerrainConnectivityRequest) {
+        debug_assert!(self.pending.is_none());
+        self.pending = Some(match request {
+            TerrainConnectivityRequest::PlayerEdit { edited, .. } => {
+                let inclusive_max = edited.max().saturating_sub(UVec3::ONE);
+                PendingTerrainConnectivity::PlayerHold(UAabb3::new(edited.min(), inclusive_max))
+            }
+            TerrainConnectivityRequest::LoadedWorld { .. } => {
+                PendingTerrainConnectivity::LoadedWorld
+            }
+        });
     }
 }
 
@@ -65,6 +116,100 @@ fn select_components_for_particle_capacity(
         }
     }
     (selected_voxels, skipped_components)
+}
+
+fn select_detached_world_voxels(
+    atlas_voxels: &[u8],
+    world_dim: UVec3,
+    voxel_type_mask: u8,
+    particle_capacity: usize,
+) -> anyhow::Result<(Vec<(UVec3, u8)>, usize)> {
+    let expected_len =
+        usize::try_from(u64::from(world_dim.x) * u64::from(world_dim.y) * u64::from(world_dim.z))?;
+    anyhow::ensure!(
+        atlas_voxels.len() == expected_len,
+        "loaded-world connectivity atlas length {} does not match dimensions {:?} ({expected_len})",
+        atlas_voxels.len(),
+        world_dim,
+    );
+
+    let plane_len = usize::try_from(u64::from(world_dim.x) * u64::from(world_dim.y))?;
+    let row_len = world_dim.x as usize;
+    let mut classified = vec![false; expected_len];
+    let mut queue = VecDeque::new();
+    let mut selected_voxels = Vec::new();
+    let mut skipped_components = 0usize;
+
+    for seed in 0..expected_len {
+        if classified[seed] || atlas_voxels[seed] & voxel_type_mask == 0 {
+            continue;
+        }
+
+        classified[seed] = true;
+        queue.push_back(seed);
+        let remaining_capacity = particle_capacity.saturating_sub(selected_voxels.len());
+        let mut component = Vec::new();
+        let mut anchored = false;
+        let mut exceeds_capacity = false;
+
+        while let Some(index) = queue.pop_front() {
+            let z = index / plane_len;
+            let in_plane = index % plane_len;
+            let y = in_plane / row_len;
+            let x = in_plane % row_len;
+
+            if y == 0 {
+                anchored = true;
+                component.clear();
+            } else if !anchored && !exceeds_capacity {
+                if component.len() < remaining_capacity {
+                    component.push((
+                        UVec3::new(x as u32, y as u32, z as u32),
+                        atlas_voxels[index] & voxel_type_mask,
+                    ));
+                } else {
+                    exceeds_capacity = true;
+                    component.clear();
+                }
+            }
+
+            let mut enqueue = |neighbor: usize| {
+                if !classified[neighbor] && atlas_voxels[neighbor] & voxel_type_mask != 0 {
+                    classified[neighbor] = true;
+                    queue.push_back(neighbor);
+                }
+            };
+            if x > 0 {
+                enqueue(index - 1);
+            }
+            if x + 1 < row_len {
+                enqueue(index + 1);
+            }
+            if y > 0 {
+                enqueue(index - row_len);
+            }
+            if y + 1 < world_dim.y as usize {
+                enqueue(index + row_len);
+            }
+            if z > 0 {
+                enqueue(index - plane_len);
+            }
+            if z + 1 < world_dim.z as usize {
+                enqueue(index + plane_len);
+            }
+        }
+
+        if anchored {
+            continue;
+        }
+        if exceeds_capacity {
+            skipped_components += 1;
+        } else {
+            selected_voxels.extend(component);
+        }
+    }
+
+    Ok((selected_voxels, skipped_components))
 }
 
 struct AtlasVoxelReader<'a> {
@@ -128,11 +273,11 @@ fn connectivity_tile_origin(world_voxel: UVec3) -> UVec3 {
     (world_voxel / CONNECTIVITY_TILE_DIM) * CONNECTIVITY_TILE_DIM
 }
 
-fn clear_detached_voxels(
+fn prepare_detached_voxel_clear(
     plain_builder: &mut PlainBuilder,
     world_dim: UVec3,
     voxels: &[(UVec3, u8)],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<(UVec3, UVec3, Vec<u8>)>> {
     let mut by_tile = BTreeMap::<(u32, u32, u32), Vec<UVec3>>::new();
     for &(world_voxel, _) in voxels {
         let origin = connectivity_tile_origin(world_voxel);
@@ -155,79 +300,135 @@ fn clear_detached_voxels(
         dirty_tiles.push((origin, dim, data));
     }
 
-    for (origin, dim, data) in dirty_tiles {
-        plain_builder.write_chunk_atlas_region(origin, dim, &data)?;
-    }
-    Ok(())
+    Ok(dirty_tiles)
 }
 
 impl App {
-    pub(super) fn record_player_terrain_connectivity_edit(&mut self, bound: UAabb3) {
-        if self.player_tools.continuous_hold_active() {
-            self.terrain_connectivity.record_edit(bound);
-        }
+    pub(super) fn observe_player_terrain_publication_for_connectivity(&mut self, bound: UAabb3) {
+        self.terrain_connectivity
+            .observe_player_publication(bound, self.player_tools.continuous_hold_active());
     }
 
-    pub(super) fn resolve_detached_terrain_after_edit(&mut self) -> anyhow::Result<()> {
+    pub(super) fn finish_player_terrain_connectivity_hold(&mut self) -> anyhow::Result<()> {
         if bench::TerrainConnectivityBench::try_begin_manual_release(self)? {
             return Ok(());
         }
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-        let Some((edited, block)) = self.terrain_connectivity.take_edit_region(world_dim) else {
+        let Some(request) = self.terrain_connectivity.take_player_release(world_dim) else {
             return Ok(());
         };
-        let analysis_voxels = voxel_count(block);
-        if analysis_voxels > MAX_ANALYSIS_VOXELS {
-            log::warn!(
-                "[TERRAIN_CONNECTIVITY] skipped oversized release analysis edited={:?}..{:?} block={:?}..{:?} voxels={} budget={}",
-                edited.min(),
-                edited.max(),
-                block.min(),
-                block.max(),
-                analysis_voxels,
-                MAX_ANALYSIS_VOXELS,
-            );
-            return Ok(());
+        let result = self.reconcile_terrain_connectivity(request);
+        if result.is_err() {
+            self.terrain_connectivity.restore(request);
         }
+        result
+    }
 
+    pub(super) fn reconcile_loaded_terrain_publication(&mut self) -> anyhow::Result<()> {
+        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        self.terrain_connectivity
+            .request_loaded_world_reconciliation();
+        let request = self
+            .terrain_connectivity
+            .take_loaded_world(world_dim)
+            .expect("a loaded-world reconciliation request must be immediately available");
+        let result = self.reconcile_terrain_connectivity(request);
+        if result.is_err() {
+            self.terrain_connectivity.restore(request);
+        }
+        result
+    }
+
+    fn reconcile_terrain_connectivity(
+        &mut self,
+        request: TerrainConnectivityRequest,
+    ) -> anyhow::Result<()> {
         let started = Instant::now();
-        let atlas_voxels = self
-            .plain_builder
-            .read_chunk_atlas_region(block.min(), block.dimensions())?;
-        let candidate_region = UAabb3::new(
-            edited.min().saturating_sub(UVec3::ONE),
-            edited.max().saturating_add(UVec3::ONE).min(world_dim),
-        );
-        let available_particles = self.particle_system.available_capacity();
-        let components = {
-            let mut reader =
-                AtlasVoxelReader::new(&mut self.plain_builder, world_dim, block, &atlas_voxels);
-            detached_components_in_edit_region(
-                &atlas_voxels,
-                block,
-                candidate_region,
-                world_dim,
-                VOXEL_TYPE_MASK,
-                available_particles,
-                |world_voxel| reader.voxel_at(world_voxel),
-            )?
-        };
-        if components.is_empty() {
-            log::info!(
-                "[TERRAIN_CONNECTIVITY] release checked_voxels={} detached_components=0 elapsed_ms={:.2}",
-                analysis_voxels,
-                started.elapsed().as_secs_f64() * 1000.0,
-            );
-            return Ok(());
-        }
+        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        let (mode, analysis_voxels, selected_voxels, skipped_components) = match request {
+            TerrainConnectivityRequest::PlayerEdit { edited, block } => {
+                let analysis_voxels = voxel_count(block);
+                if analysis_voxels > MAX_ANALYSIS_VOXELS {
+                    log::warn!(
+                        "[TERRAIN_CONNECTIVITY] skipped oversized release analysis edited={:?}..{:?} block={:?}..{:?} voxels={} budget={}",
+                        edited.min(),
+                        edited.max(),
+                        block.min(),
+                        block.max(),
+                        analysis_voxels,
+                        MAX_ANALYSIS_VOXELS,
+                    );
+                    return Ok(());
+                }
 
-        let (selected_voxels, skipped_components) =
-            select_components_for_particle_capacity(components, available_particles);
+                let atlas_voxels = self
+                    .plain_builder
+                    .read_chunk_atlas_region(block.min(), block.dimensions())?;
+                let candidate_region = UAabb3::new(
+                    edited.min().saturating_sub(UVec3::ONE),
+                    edited.max().saturating_add(UVec3::ONE).min(world_dim),
+                );
+                let available_particles = self.particle_system.available_capacity();
+                let components = {
+                    let mut reader = AtlasVoxelReader::new(
+                        &mut self.plain_builder,
+                        world_dim,
+                        block,
+                        &atlas_voxels,
+                    );
+                    detached_components_in_edit_region(
+                        &atlas_voxels,
+                        block,
+                        candidate_region,
+                        world_dim,
+                        VOXEL_TYPE_MASK,
+                        available_particles,
+                        |world_voxel| reader.voxel_at(world_voxel),
+                    )?
+                };
+                let (selected_voxels, skipped_components) =
+                    select_components_for_particle_capacity(components, available_particles);
+                (
+                    "player-release",
+                    analysis_voxels,
+                    selected_voxels,
+                    skipped_components,
+                )
+            }
+            TerrainConnectivityRequest::LoadedWorld { world_dim } => {
+                let analysis_voxels =
+                    u64::from(world_dim.x) * u64::from(world_dim.y) * u64::from(world_dim.z);
+                let atlas_voxels = self
+                    .plain_builder
+                    .read_chunk_atlas_region(UVec3::ZERO, world_dim)?;
+                let (selected_voxels, skipped_components) = select_detached_world_voxels(
+                    &atlas_voxels,
+                    world_dim,
+                    VOXEL_TYPE_MASK,
+                    self.particle_system.available_capacity(),
+                )?;
+                (
+                    "loaded-world",
+                    analysis_voxels,
+                    selected_voxels,
+                    skipped_components,
+                )
+            }
+        };
+
         if selected_voxels.is_empty() {
-            log::warn!(
-                "[TERRAIN_CONNECTIVITY] preserved detached terrain because particle capacity is exhausted available={} skipped_components={}",
-                available_particles,
+            let level = if skipped_components == 0 {
+                log::Level::Info
+            } else {
+                log::Level::Warn
+            };
+            log::log!(
+                level,
+                "[TERRAIN_CONNECTIVITY] mode={} checked_voxels={} detached_voxels=0 skipped_components={} elapsed_ms={:.2}",
+                mode,
+                analysis_voxels,
                 skipped_components,
+                started.elapsed().as_secs_f64() * 1000.0,
             );
             return Ok(());
         }
@@ -238,28 +439,47 @@ impl App {
             detached_min = detached_min.min(world_voxel);
             detached_max = detached_max.max(world_voxel);
         }
-
-        clear_detached_voxels(&mut self.plain_builder, world_dim, &selected_voxels)?;
         let detached_bound = UAabb3::new(
             detached_min,
             detached_max.saturating_add(UVec3::ONE).min(world_dim),
         );
+        let dirty_tiles =
+            prepare_detached_voxel_clear(&mut self.plain_builder, world_dim, &selected_voxels)?;
         let change =
             VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
                 detached_bound,
             )])?
             .expect("detached terrain voxels always define a visible rebuild");
-        self.publish_visible_terrain(change)?;
+
+        // Everything above is preparation and may fail without changing authoritative terrain.
+        // The first atlas write enters a non-rollbackable commit: publication and particle count
+        // failures are terminal invariants rather than retryable errors.
+        for (origin, dim, data) in dirty_tiles {
+            self.plain_builder
+                .write_chunk_atlas_region(origin, dim, &data)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {err:#}"
+                    )
+                });
+        }
+        self.publish_visible_terrain(change).unwrap_or_else(|err| {
+            panic!(
+                "terrain connectivity Visible Terrain Publication failed after atlas commit: {err:#}"
+            )
+        });
 
         let spawned = self.spawn_detached_terrain_voxel_particles(&selected_voxels);
-        anyhow::ensure!(
-            spawned == selected_voxels.len(),
-            "detached terrain cleared {} voxels but spawned only {} particles",
+        assert_eq!(
+            spawned,
+            selected_voxels.len(),
+            "terrain connectivity cleared {} voxels but spawned only {} particles",
             selected_voxels.len(),
             spawned,
         );
         log::info!(
-            "[TERRAIN_CONNECTIVITY] release checked_voxels={} detached_voxels={} spawned_particles={} skipped_components={} elapsed_ms={:.2}",
+            "[TERRAIN_CONNECTIVITY] mode={} checked_voxels={} detached_voxels={} spawned_particles={} skipped_components={} elapsed_ms={:.2}",
+            mode,
             analysis_voxels,
             selected_voxels.len(),
             spawned,
@@ -673,17 +893,86 @@ mod tests {
     }
 
     #[test]
-    fn release_region_is_consumed_once_and_expands_by_the_analysis_halo() {
+    fn player_publications_defer_until_release_and_expand_by_the_analysis_halo() {
         let mut runtime = TerrainConnectivityRuntime::default();
-        runtime.record_edit(UAabb3::new(UVec3::new(20, 30, 40), UVec3::new(24, 34, 44)));
+        runtime.observe_player_publication(
+            UAabb3::new(UVec3::new(20, 30, 40), UVec3::new(24, 34, 44)),
+            true,
+        );
 
-        let (edited, block) = runtime.take_edit_region(UVec3::splat(128)).unwrap();
+        let TerrainConnectivityRequest::PlayerEdit { edited, block } =
+            runtime.take_player_release(UVec3::splat(128)).unwrap()
+        else {
+            panic!("player publication must create a player-edit request");
+        };
 
         assert_eq!(edited.min(), UVec3::new(20, 30, 40));
         assert_eq!(edited.max(), UVec3::new(25, 35, 45));
         assert_eq!(block.min(), UVec3::new(0, 6, 16));
         assert_eq!(block.max(), UVec3::new(49, 59, 69));
-        assert!(runtime.take_edit_region(UVec3::splat(128)).is_none());
+        assert!(runtime.take_player_release(UVec3::splat(128)).is_none());
+    }
+
+    #[test]
+    fn inactive_player_hold_does_not_schedule_reconciliation() {
+        let mut runtime = TerrainConnectivityRuntime::default();
+        runtime.observe_player_publication(UAabb3::new(UVec3::splat(4), UVec3::splat(8)), false);
+
+        assert!(runtime.take_player_release(UVec3::splat(32)).is_none());
+    }
+
+    #[test]
+    fn loaded_world_reconciliation_supersedes_player_work_and_bypasses_player_budget() {
+        let mut runtime = TerrainConnectivityRuntime::default();
+        runtime.observe_player_publication(UAabb3::new(UVec3::splat(4), UVec3::splat(8)), true);
+        runtime.request_loaded_world_reconciliation();
+
+        let world_dim = UVec3::splat(512);
+        assert!(
+            u64::from(world_dim.x) * u64::from(world_dim.y) * u64::from(world_dim.z)
+                > MAX_ANALYSIS_VOXELS
+        );
+        assert!(matches!(
+            runtime.take_loaded_world(world_dim),
+            Some(TerrainConnectivityRequest::LoadedWorld { world_dim: actual })
+                if actual == world_dim
+        ));
+        assert!(runtime.take_player_release(world_dim).is_none());
+    }
+
+    #[test]
+    fn loaded_world_scan_selects_only_complete_floating_components() {
+        let dim = UVec3::splat(6);
+        let mut voxels = vec![0; (dim.x * dim.y * dim.z) as usize];
+        let set = |voxels: &mut [u8], position: UVec3| {
+            voxels[index(dim, position)] = 1;
+        };
+        set(&mut voxels, UVec3::new(1, 0, 1));
+        set(&mut voxels, UVec3::new(1, 1, 1));
+        set(&mut voxels, UVec3::new(4, 3, 4));
+        set(&mut voxels, UVec3::new(4, 4, 4));
+
+        let (selected, skipped) = select_detached_world_voxels(&voxels, dim, 0x07, 2).unwrap();
+
+        assert_eq!(skipped, 0);
+        assert_eq!(
+            selected,
+            vec![(UVec3::new(4, 3, 4), 1), (UVec3::new(4, 4, 4), 1)]
+        );
+    }
+
+    #[test]
+    fn loaded_world_scan_preserves_a_component_that_does_not_fit_atomically() {
+        let dim = UVec3::splat(6);
+        let mut voxels = vec![0; (dim.x * dim.y * dim.z) as usize];
+        for y in 2..=4 {
+            voxels[index(dim, UVec3::new(3, y, 3))] = 1;
+        }
+
+        let (selected, skipped) = select_detached_world_voxels(&voxels, dim, 0x07, 2).unwrap();
+
+        assert!(selected.is_empty());
+        assert_eq!(skipped, 1);
     }
 
     #[test]

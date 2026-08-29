@@ -54,6 +54,8 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
+        let mut should_begin_world_collider_import = false;
+        let mut should_reconcile_loaded_terrain = false;
         let water_experience_requested = self.water_experience_scene.is_some();
         let house_scene_requested = self.house_scene_requested;
         let loading = match &mut self.loading_state {
@@ -145,25 +147,8 @@ impl App {
                     } => {
                         debug_assert_eq!(chunks, total);
                         loading.current = chunks;
-                        match self
-                            .terrain_physics
-                            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
-                        {
-                            Ok(collider_total) => {
-                                loading.current = 0;
-                                loading.collider_total = collider_total;
-                                loading.phase = LoadingPhase::Colliders;
-                                loading.step_label = format!("Colliders 0/{collider_total}");
-                            }
-                            Err(err) => {
-                                log::error!(
-                                    "Failed to start global terrain collider import: {err:#}"
-                                );
-                                loading.current = 1;
-                                loading.collider_total = 1;
-                                loading.phase = LoadingPhase::Colliders;
-                            }
-                        }
+                        should_reconcile_loaded_terrain = loading.terrain_snapshot_reader.is_some();
+                        should_begin_world_collider_import = true;
                     }
                 }
             }
@@ -181,6 +166,36 @@ impl App {
                         log::error!("Failed to import global terrain colliders: {err:#}");
                         loading.current = loading.collider_total;
                     }
+                }
+            }
+        }
+
+        if should_reconcile_loaded_terrain {
+            self.reconcile_loaded_terrain_publication()
+                .unwrap_or_else(|err| {
+                    panic!("startup loaded-terrain connectivity reconciliation failed: {err:#}")
+                });
+        }
+        if should_begin_world_collider_import {
+            let result = self
+                .terrain_physics
+                .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK);
+            let loading = self
+                .loading_state
+                .as_mut()
+                .expect("loading state disappeared before collider import");
+            match result {
+                Ok(collider_total) => {
+                    loading.current = 0;
+                    loading.collider_total = collider_total;
+                    loading.phase = LoadingPhase::Colliders;
+                    loading.step_label = format!("Colliders 0/{collider_total}");
+                }
+                Err(err) => {
+                    log::error!("Failed to start global terrain collider import: {err:#}");
+                    loading.current = 1;
+                    loading.collider_total = 1;
+                    loading.phase = LoadingPhase::Colliders;
                 }
             }
         }
