@@ -1357,7 +1357,7 @@ impl Tracer {
                 retired_staging,
             ));
         }
-        let status = self.ddgi_runtime.volumes().status();
+        let status = self.ddgi_runtime.status();
         log::info!(
             "[DDGI] staging prepared token_serial={} kind={:?} spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
             build_token.serial(),
@@ -1556,7 +1556,7 @@ impl Tracer {
                 self.ddgi_runtime
                     .install_volume_build(build, None)
                     .expect("initial DDGI Volume installation must succeed");
-                let status = self.ddgi_runtime.volumes().status().builder();
+                let status = self.ddgi_runtime.status().builder();
                 log::info!(
                     "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
                     build_token.terrain_revision(),
@@ -1751,11 +1751,11 @@ impl Tracer {
     }
 
     pub fn ddgi_ready(&self) -> bool {
-        self.ddgi_runtime.volumes().status().active().is_ready()
+        self.ddgi_runtime.status().active().is_ready()
     }
 
     pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
-        let status = self.ddgi_runtime.volumes().status().active();
+        let status = self.ddgi_runtime.status().active();
         status.is_ready() && status.relocated_terrain_revision == Some(revision)
     }
 
@@ -2714,7 +2714,7 @@ impl Tracer {
             .expect("promoted DDGI staging Volume must retire Active");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
-        let active = self.ddgi_runtime.volumes().status().active();
+        let active = self.ddgi_runtime.status().active();
         let published = active
             .published_field
             .expect("promoted staging volume must have a finite published field");
@@ -3194,7 +3194,6 @@ impl Tracer {
                             bound,
                             self.desc.voxel_dim_per_chunk,
                             self.ddgi_runtime
-                                .volumes()
                                 .status()
                                 .active()
                                 .grid
@@ -3207,7 +3206,8 @@ impl Tracer {
                 );
             }
         }
-        let ddgi_status = self.ddgi_runtime.volumes().status().active();
+        let ddgi_status = self.ddgi_runtime.status().active();
+        let ddgi_physical_status = self.ddgi_runtime.volumes().status().active();
         let ddgi_geometry_revision = self
             .ddgi_voxel_visibility
             .published_revision()
@@ -3224,8 +3224,8 @@ impl Tracer {
             self.ddgi_ready(),
             ddgi_geometry_revision,
             self.desc.environment_irradiance_capture_enabled,
-            ddgi_status.irradiance_layout.tile_grid().x,
-            ddgi_status.visibility_layout.tile_grid().x,
+            ddgi_physical_status.irradiance_layout.tile_grid().x,
+            ddgi_physical_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             ddgi_receiver_visibility_bias_world,
@@ -3669,7 +3669,7 @@ impl Tracer {
 
         self.ddgi_runtime
             .finish_frame_work(ddgi_frame_work, Ok(()))?;
-        let ddgi_status = self.ddgi_runtime.volumes().status().builder();
+        let ddgi_status = self.ddgi_runtime.status().builder();
         if ddgi_frame_plan.global_sky_needs_update {
             log::info!(
                 "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
@@ -3697,7 +3697,7 @@ impl Tracer {
             log::debug!(
                 "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
                 ddgi_status
-                    .scheduled_work
+                    .target_work
                     .expect("visibility preservation requires scheduled work")
                     .destination()
                     .field()
@@ -4913,7 +4913,7 @@ impl Tracer {
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
             if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
-                let active = self.ddgi_runtime.volumes().status().active();
+                let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())
                 }) {

@@ -854,6 +854,7 @@ pub(crate) struct DdgiVolumeStatus {
 }
 
 impl DdgiVolumeStatus {
+    #[cfg(test)]
     pub(crate) fn is_ready(self) -> bool {
         self.published_field.is_some()
     }
@@ -882,6 +883,7 @@ impl DdgiStatus {
         self.staging
     }
 
+    #[cfg(test)]
     pub(crate) fn builder(self) -> DdgiVolumeStatus {
         self.staging.unwrap_or(self.active)
     }
