@@ -7,8 +7,9 @@ use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiProbePriority,
     DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork,
-    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh, DdgiTransportScheduler,
-    DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh, DdgiTraceStats,
+    DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +70,41 @@ pub(crate) struct DdgiFrameWork {
 impl DdgiFrameWork {
     pub(crate) fn plan(self) -> DdgiFramePlan {
         self.plan
+    }
+}
+
+/// Typed result of reconciling one deferred physical batch completion.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiBatchCompletion {
+    pub batch: DdgiRayBatch,
+    pub stats: Option<DdgiTraceStats>,
+    pub radiance_snapshot: Option<crate::environment_lighting::DdgiRadianceSnapshot>,
+    pub probe_count: u32,
+    pub build_token: Option<DdgiBuildToken>,
+    pub status: DdgiRuntimeVolumeStatus,
+    pub atlas_validation: Option<DdgiAtlasValidationStats>,
+    pub published: Option<(DdgiScheduledWork, DdgiFieldIdentity)>,
+    pub capture_observed: bool,
+}
+
+impl DdgiBatchCompletion {
+    pub(crate) fn is_stale(self) -> bool {
+        self.stats.is_none()
+    }
+}
+
+/// Runtime authorization for disposing or publishing one complete Staging Volume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DdgiVolumePublication {
+    DiscardObsolete(DdgiBuildToken),
+    Promote(DdgiBuildToken),
+}
+
+impl DdgiVolumePublication {
+    pub(crate) fn token(self) -> DdgiBuildToken {
+        match self {
+            Self::DiscardObsolete(token) | Self::Promote(token) => token,
+        }
     }
 }
 
@@ -211,6 +247,45 @@ impl DdgiRuntime {
             "promoted DDGI token must still be coordinator-authoritative"
         );
         Ok(retired_active)
+    }
+
+    pub(crate) fn pending_volume_publication(&self) -> Option<DdgiVolumePublication> {
+        let status = self.volumes().status();
+        if !status.staging_is_ready() {
+            return None;
+        }
+        let token = status
+            .staging()
+            .and_then(|staging| staging.build_token)
+            .expect("every complete DDGI staging Volume must carry its build token");
+        Some(if self.terrain_refresh.token_can_promote(token) {
+            DdgiVolumePublication::Promote(token)
+        } else {
+            DdgiVolumePublication::DiscardObsolete(token)
+        })
+    }
+
+    /// Settles concrete descriptor publication and physical/logical Volume publication together.
+    pub(crate) fn finish_volume_publication(
+        &mut self,
+        publication: DdgiVolumePublication,
+        outcome: Result<()>,
+    ) -> Result<Option<DdgiVolume>> {
+        anyhow::ensure!(
+            self.pending_volume_publication() == Some(publication),
+            "stale or out-of-order DDGI Volume publication"
+        );
+        outcome?;
+        match publication {
+            DdgiVolumePublication::DiscardObsolete(token) => {
+                anyhow::ensure!(
+                    self.finish_obsolete_volume_build(token),
+                    "completed obsolete DDGI staging token must release the single update slot"
+                );
+                Ok(None)
+            }
+            DdgiVolumePublication::Promote(token) => self.promote_ready_volume(token).map(Some),
+        }
     }
 
     pub(crate) fn configure_capture(
@@ -508,15 +583,6 @@ impl DdgiRuntime {
         Ok(Some(work))
     }
 
-    pub(crate) fn validate_transport_completion(
-        &self,
-        work: DdgiScheduledWork,
-        published: DdgiFieldIdentity,
-    ) -> Result<(), DdgiSchedulerError> {
-        self.transport_scheduler
-            .validate_in_flight_completion(work, published)
-    }
-
     pub(crate) fn complete_transport_work(
         &mut self,
         work: DdgiScheduledWork,
@@ -550,6 +616,7 @@ impl DdgiRuntime {
         Ok(published)
     }
 
+    #[cfg(test)]
     pub(crate) fn token_can_promote(&self, token: DdgiBuildToken) -> bool {
         self.terrain_refresh.token_can_promote(token)
     }
@@ -597,7 +664,11 @@ impl DdgiRuntime {
         true
     }
 
-    pub(crate) fn status(&self, volumes: DdgiStatus) -> DdgiRuntimeStatus {
+    pub(crate) fn status(&self) -> DdgiRuntimeStatus {
+        self.status_from_physical(self.volumes().status())
+    }
+
+    fn status_from_physical(&self, volumes: DdgiStatus) -> DdgiRuntimeStatus {
         let capture_checkpoint = self.capture_checkpoint(volumes);
         DdgiRuntimeStatus::from_parts(volumes, self.terrain_refresh, capture_checkpoint)
     }
@@ -770,6 +841,121 @@ impl DdgiRuntime {
             builder.mark_ray_batch_filtered(batch);
         }
         Ok(())
+    }
+
+    /// Reconciles trace and optional full-atlas feedback as one physical completion transaction.
+    /// The caller observes the returned typed evidence but cannot advance Volume or scheduler state.
+    pub(crate) fn complete_pending_batch(
+        &mut self,
+        batch: DdgiRayBatch,
+    ) -> Result<DdgiBatchCompletion> {
+        let before = self.volumes().builder().status();
+        if !self.volumes().builder().pending_trace_stats_batch_is(batch) {
+            return Ok(DdgiBatchCompletion {
+                batch,
+                stats: None,
+                radiance_snapshot: None,
+                probe_count: before.grid.probe_count(),
+                build_token: before.build_token,
+                status: before.into(),
+                atlas_validation: None,
+                published: None,
+                capture_observed: false,
+            });
+        }
+
+        let stats = self
+            .volumes()
+            .builder()
+            .update_trace_stats_from_readback()?;
+        anyhow::ensure!(
+            stats.ray_records == batch.probe_count * DDGI_RAYS_PER_PROBE,
+            "DDGI trace produced {} records for a {}x{} batch",
+            stats.ray_records,
+            batch.probe_count,
+            DDGI_RAYS_PER_PROBE,
+        );
+        anyhow::ensure!(
+            stats.non_finite_records == 0,
+            "DDGI trace produced non-finite records: {stats:?}"
+        );
+        let radiance_snapshot = self
+            .volumes()
+            .builder()
+            .radiance_snapshot()
+            .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
+        let outcome = self
+            .volumes_mut()
+            .builder_mut()
+            .mark_trace_stats_verified(batch)?;
+        let mut atlas_validation = None;
+        let mut published = None;
+        let mut capture_observed = false;
+        if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
+            let stats = self
+                .volumes()
+                .builder()
+                .update_atlas_validation_from_readback()?;
+            let classified = self.volumes().builder().preview_validated_field(
+                identity,
+                stats,
+                DDGI_CONVERGENCE_POLICY,
+            )?;
+            let work = self
+                .volumes()
+                .builder()
+                .status()
+                .scheduled_work
+                .context("validated DDGI epoch must retain scheduled work")?;
+            self.transport_scheduler
+                .validate_in_flight_completion(work, classified)
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "DDGI scheduler rejected completion before publication: {error:?}"
+                    )
+                })?;
+            let validated = self.volumes_mut().builder_mut().mark_atlas_validated(
+                identity,
+                stats,
+                DDGI_CONVERGENCE_POLICY,
+            )?;
+            let (validated_work, field) = match validated {
+                DdgiValidatedIterationOutcome::Published { work, field, .. }
+                | DdgiValidatedIterationOutcome::Converged { work, field, .. } => (work, field),
+            };
+            anyhow::ensure!(
+                field == classified && validated_work == work,
+                "DDGI atlas classification changed during publication"
+            );
+            let build_token = before
+                .build_token
+                .context("validated DDGI field has no volume build token")?;
+            self.complete_transport_work(work, field, build_token)
+                .map_err(|error| {
+                    anyhow::anyhow!("DDGI scheduler rejected validated completion: {error:?}")
+                })?;
+            capture_observed = self.observe_capture_checkpoint(
+                build_token,
+                field,
+                stats,
+                DdgiCapturePublication::Published,
+            );
+            atlas_validation = Some(stats);
+            published = Some((work, field));
+        }
+
+        let after = self.volumes().builder().status();
+        Ok(DdgiBatchCompletion {
+            batch,
+            stats: Some(stats),
+            radiance_snapshot: Some(radiance_snapshot),
+            probe_count: after.grid.probe_count(),
+            build_token: after.build_token,
+            status: after.into(),
+            atlas_validation,
+            published,
+            capture_observed,
+        })
     }
 }
 
@@ -1176,7 +1362,7 @@ mod tests {
     fn terrain_probe_refresh_keeps_active_consumers_available_while_staging() {
         let (mut runtime, active_token, _) = initialized_runtime();
         let active = volume_status(Some(active_token), 7, 3, DdgiVolumeStage::Ready);
-        let active_only = runtime.status(DdgiStatus::new(active, None));
+        let active_only = runtime.status_from_physical(DdgiStatus::new(active, None));
         assert!(matches!(active_only.state, DdgiRuntimeState::Active { .. }));
         assert!(active_only.staging().is_none());
         assert_eq!(
@@ -1193,7 +1379,7 @@ mod tests {
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
         let token = runtime.claim_volume_build().unwrap().token();
         let staging = volume_status(Some(token), 8, 4, DdgiVolumeStage::Rebuilding);
-        let building = runtime.status(DdgiStatus::new(active, Some(staging)));
+        let building = runtime.status_from_physical(DdgiStatus::new(active, Some(staging)));
         assert!(matches!(building.state, DdgiRuntimeState::Staging { .. }));
         assert_eq!(building.staging_token(), Some(token));
         assert!(building
@@ -1222,7 +1408,7 @@ mod tests {
 
         let active = volume_status(Some(token), 7, 3, DdgiVolumeStage::Ready);
         let checkpoint = runtime
-            .status(DdgiStatus::new(active, None))
+            .status_from_physical(DdgiStatus::new(active, None))
             .capture_checkpoint()
             .expect("resident published field should expose the checkpoint");
         assert_eq!(checkpoint.field, captured_field);
@@ -1237,14 +1423,14 @@ mod tests {
             DdgiCapturePublication::Published,
         );
         let active_after_staging_checkpoint = runtime
-            .status(DdgiStatus::new(active, None))
+            .status_from_physical(DdgiStatus::new(active, None))
             .capture_checkpoint()
             .expect("staging capture evidence must not hide the resident active checkpoint");
         assert_eq!(active_after_staging_checkpoint.field, captured_field);
 
         let mismatched_active = volume_status(Some(wrong_token), 7, 3, DdgiVolumeStage::Ready);
         assert!(runtime
-            .status(DdgiStatus::new(mismatched_active, None))
+            .status_from_physical(DdgiStatus::new(mismatched_active, None))
             .capture_checkpoint()
             .is_none());
     }
@@ -1255,7 +1441,7 @@ mod tests {
         let (runtime, _, _) = initialized_runtime();
         let active = volume_status(None, 7, 3, DdgiVolumeStage::Ready);
         let staging = volume_status(None, 8, 4, DdgiVolumeStage::Rebuilding);
-        runtime.status(DdgiStatus::new(active, Some(staging)));
+        runtime.status_from_physical(DdgiStatus::new(active, Some(staging)));
     }
 
     #[test]

@@ -92,13 +92,13 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
-    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
-    DdgiScheduledWorkKind, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
+    DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
+    DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
+    DdgiTraceStats, DdgiVolume, DdgiVolumePublication, DdgiVolumes, DdgiVoxelVisibility,
+    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -121,7 +121,7 @@ use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::TimeInfo;
 use crate::wind::WindSource;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
@@ -1285,8 +1285,7 @@ impl Tracer {
     }
 
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
-        self.ddgi_runtime
-            .status(self.ddgi_runtime.volumes().status())
+        self.ddgi_runtime.status()
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
@@ -1744,39 +1743,11 @@ impl Tracer {
     }
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
-        self.ddgi_runtime
-            .status(self.ddgi_runtime.volumes().status())
-            .capture_checkpoint()
+        self.ddgi_runtime.status().capture_checkpoint()
     }
 
     pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {
         self.ddgi_runtime.capture_target()
-    }
-
-    fn observe_ddgi_capture_checkpoint(
-        &mut self,
-        build_token: DdgiBuildToken,
-        field: DdgiFieldIdentity,
-        validation: crate::ddgi::DdgiAtlasValidationStats,
-        publication: DdgiCapturePublication,
-    ) {
-        if !self.ddgi_runtime.observe_capture_checkpoint(
-            build_token,
-            field,
-            validation,
-            publication,
-        ) {
-            return;
-        }
-        log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} state={:?} update_epoch={} publication={:?}",
-            self.ddgi_runtime.capture_target().label(),
-            build_token.serial(),
-            field.field().serial(),
-            field.field().state(),
-            field.field().update_epoch(),
-            publication,
-        );
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -2692,15 +2663,11 @@ impl Tracer {
     }
 
     fn promote_ready_ddgi_staging(&mut self) {
-        let status = self.ddgi_runtime.volumes().status();
-        if !status.staging_is_ready() {
+        let Some(publication) = self.ddgi_runtime.pending_volume_publication() else {
             return;
-        }
-        let build_token = status
-            .staging()
-            .and_then(|staging| staging.build_token)
-            .expect("every DDGI staging volume must carry its build token");
-        if !self.ddgi_runtime.token_can_promote(build_token) {
+        };
+        let build_token = publication.token();
+        if matches!(publication, DdgiVolumePublication::DiscardObsolete(_)) {
             log::info!(
                 "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
                 build_token.serial(),
@@ -2709,9 +2676,13 @@ impl Tracer {
                 build_token.spacing_voxels(),
                 self.ddgi_runtime.refresh_state(),
             );
+            let retired = self
+                .ddgi_runtime
+                .finish_volume_publication(publication, Ok(()))
+                .expect("obsolete DDGI staging completion must settle");
             assert!(
-                self.ddgi_runtime.finish_obsolete_volume_build(build_token),
-                "completed obsolete DDGI staging token must release the single update slot"
+                retired.is_none(),
+                "obsolete DDGI staging must not retire Active"
             );
             self.prepared_ddgi_consumer_descriptors = None;
             return;
@@ -2736,12 +2707,11 @@ impl Tracer {
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
-        // DdgiRuntime::promote_ready_volume performs promote_staging(build_token) and the
-        // coordinator token promotion as one fail-fast transaction.
         let retired_active = self
             .ddgi_runtime
-            .promote_ready_volume(build_token)
-            .expect("ready DDGI staging volume must be promotable");
+            .finish_volume_publication(publication, Ok(()))
+            .expect("ready DDGI staging Volume publication must settle")
+            .expect("promoted DDGI staging Volume must retire Active");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         let active = self.ddgi_runtime.volumes().status().active();
@@ -3374,35 +3344,26 @@ impl Tracer {
         }
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let volume = self.ddgi_runtime.volumes().builder();
-            if !volume.pending_trace_stats_batch_is(batch) {
+            let completion = self.ddgi_runtime.complete_pending_batch(batch)?;
+            if completion.is_stale() {
                 log::warn!(
                     "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
-                    volume.status().build_token,
-                    volume.status().stage,
-                    volume.status().complete_field,
-                    volume.status().building_field,
-                    volume.status().radiance_revision,
+                    completion.status.build_token,
+                    completion.status.stage,
+                    completion.status.complete_field,
+                    completion.status.building_field,
+                    completion.status.radiance_revision,
                 );
             } else {
-                let stats = volume.update_trace_stats_from_readback()?;
-                anyhow::ensure!(
-                    stats.ray_records == batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
-                    "DDGI trace produced {} records for a {}x{} batch",
-                    stats.ray_records,
-                    batch.probe_count,
-                    crate::ddgi::DDGI_RAYS_PER_PROBE,
-                );
-                anyhow::ensure!(
-                    stats.non_finite_records == 0,
-                    "DDGI trace produced non-finite records: {stats:?}",
-                );
-                let filtered_probe_count = volume.status().filtered_probe_count;
-                let probe_count = volume.status().grid.probe_count();
-                let build_token = volume.status().build_token;
-                let radiance_snapshot = volume
-                    .radiance_snapshot()
-                    .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
+                let stats = completion
+                    .stats
+                    .expect("non-stale DDGI completion must contain trace statistics");
+                let filtered_probe_count = completion.status.filtered_probe_count;
+                let probe_count = completion.probe_count;
+                let build_token = completion.build_token;
+                let radiance_snapshot = completion
+                    .radiance_snapshot
+                    .expect("non-stale DDGI completion must retain its radiance snapshot");
                 if filtered_probe_count == batch.probe_count
                     || filtered_probe_count == probe_count
                     || filtered_probe_count.is_multiple_of(1_024)
@@ -3439,50 +3400,13 @@ impl Tracer {
                     probe_count,
                     radiance_snapshot,
                 )?;
-                let outcome = self
-                    .ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .mark_trace_stats_verified(batch)?;
-                match outcome {
-                    DdgiVerifiedBatchOutcome::Continue => {}
-                    DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) => {
-                        let atlas_stats = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .update_atlas_validation_from_readback()?;
-                        let classified_field = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .preview_validated_field(
-                                identity,
-                                atlas_stats,
-                                DDGI_CONVERGENCE_POLICY,
-                            )?;
-                        let work = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .status()
-                            .scheduled_work
-                            .expect("validated DDGI epoch must retain scheduled work");
-                        self.ddgi_runtime
-                            .validate_transport_completion(work, classified_field)
-                            .map_err(|error| {
-                                anyhow::anyhow!(
-                                    "DDGI scheduler rejected completion before publication: {error:?}"
-                                )
-                            })?;
-                        let validated = self
-                            .ddgi_runtime
-                            .volumes_mut()
-                            .builder_mut()
-                            .mark_atlas_validated(identity, atlas_stats, DDGI_CONVERGENCE_POLICY)?;
-                        let status = self.ddgi_runtime.volumes().builder().status();
-                        let key = identity.field();
-                        log::debug!(
+                if let Some(atlas_stats) = completion.atlas_validation {
+                    let (work, field) = completion
+                        .published
+                        .expect("validated DDGI atlas must publish one typed field");
+                    let status = completion.status;
+                    let key = field.field();
+                    log::debug!(
                             "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} max_rgb_value={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
                             build_token.map(DdgiBuildToken::serial),
                             key.geometry_revision(),
@@ -3490,7 +3414,7 @@ impl Tracer {
                             key.spacing_voxels(),
                             key.state(),
                             key.update_epoch(),
-                            identity.source(),
+                            field.source(),
                             batch.source_label(),
                             batch.destination_label(),
                             atlas_stats.max_absolute_rgb_delta,
@@ -3508,61 +3432,9 @@ impl Tracer {
                             status.stage,
                         );
 
-                        let completed = match validated {
-                            DdgiValidatedIterationOutcome::Published {
-                                work,
-                                field,
-                                consecutive_below_threshold,
-                            } => {
-                                let field_key = field.field();
-                                log::debug!(
-                                    "[DDGI] finite field published serial={} state={:?} update_epoch={} slot={} source={:?} consecutive_below={} ready=true partial_next_never_visible=true",
-                                    field_key.serial(),
-                                    field_key.state(),
-                                    field_key.update_epoch(),
-                                    batch.destination_label(),
-                                    field.source(),
-                                    consecutive_below_threshold,
-                                );
-                                Some((work, field))
-                            }
-                            DdgiValidatedIterationOutcome::Converged {
-                                work,
-                                field,
-                                reason,
-                            } => {
-                                log::info!(
-                                    "[DDGI] transport converged serial={} update_epoch={} slot={} source={:?} reason={:?} ready=true",
-                                    field.field().serial(),
-                                    field.field().update_epoch(),
-                                    batch.destination_label(),
-                                    field.source(),
-                                    reason,
-                                );
-                                Some((work, field))
-                            }
-                        };
-
-                        if let Some((_, field)) = completed {
-                            anyhow::ensure!(
-                                field == classified_field,
-                                "DDGI atlas classification changed during publication"
-                            );
-                        }
-
-                        if let Some((work, field)) = completed {
-                            let completed_build_token = build_token
-                                .context("validated DDGI field has no volume build token")?;
-                            self.ddgi_runtime
-                                .complete_transport_work(work, field, completed_build_token)
-                                .map_err(|error| {
-                                    anyhow::anyhow!(
-                                        "DDGI scheduler rejected validated completion: {error:?}"
-                                    )
-                                })?;
-                            let lighting = self.ddgi_runtime.lighting_diagnostics();
-                            log::debug!(
-                                "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
+                    let lighting = self.ddgi_runtime.lighting_diagnostics();
+                    log::debug!(
+                        "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
                                 field.field().serial(),
                                 field.field().geometry_revision(),
                                 field.field().radiance_revision(),
@@ -3575,28 +3447,37 @@ impl Tracer {
                                 lighting.coalesced_revisions,
                                 atlas_stats.max_absolute_rgb_delta,
                                 atlas_stats.max_relative_rgb_delta,
-                                lighting.has_mixed_in_flight_revision,
-                            );
-                            if self.ddgi_runtime.volumes().builder_is_active() {
-                                let descriptor_generation = self.next_descriptor_generation();
-                                let descriptor_retirements = {
-                                    let builder = self.ddgi_runtime.volumes().builder();
-                                    self.update_ddgi_consumer_descriptors(
-                                        builder,
-                                        descriptor_generation,
-                                    )
-                                };
-                                for retirement in descriptor_retirements {
-                                    self.frame_retirement_sink.retire(retirement);
-                                }
-                                let slot = self
-                                    .ddgi_runtime
-                                    .volumes()
-                                    .builder()
-                                    .published_irradiance_label()
-                                    .expect("validated DDGI field must be resident");
-                                let key = field.field();
-                                log::debug!(
+                        lighting.has_mixed_in_flight_revision,
+                    );
+                    if completion.capture_observed {
+                        log::info!(
+                            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} state={:?} update_epoch={} publication=Published",
+                            self.ddgi_runtime.capture_target().label(),
+                            build_token
+                                .expect("captured DDGI publication must retain a build token")
+                                .serial(),
+                            field.field().serial(),
+                            field.field().state(),
+                            field.field().update_epoch(),
+                        );
+                    }
+                    if self.ddgi_runtime.volumes().builder_is_active() {
+                        let descriptor_generation = self.next_descriptor_generation();
+                        let descriptor_retirements = {
+                            let builder = self.ddgi_runtime.volumes().builder();
+                            self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
+                        };
+                        for retirement in descriptor_retirements {
+                            self.frame_retirement_sink.retire(retirement);
+                        }
+                        let slot = self
+                            .ddgi_runtime
+                            .volumes()
+                            .builder()
+                            .published_irradiance_label()
+                            .expect("validated DDGI field must be resident");
+                        let key = field.field();
+                        log::debug!(
                                     "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
                                     slot,
                                     key.state(),
@@ -3607,7 +3488,7 @@ impl Tracer {
                                     key.spacing_voxels(),
                                     field.source(),
                                 );
-                                log::debug!(
+                        log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
                                     key.geometry_revision(),
                                     key.state(),
@@ -3615,14 +3496,6 @@ impl Tracer {
                                     key.radiance_revision(),
                                     slot,
                                 );
-                            }
-                            self.observe_ddgi_capture_checkpoint(
-                                completed_build_token,
-                                field,
-                                atlas_stats,
-                                DdgiCapturePublication::Published,
-                            );
-                        }
                     }
                 }
             }

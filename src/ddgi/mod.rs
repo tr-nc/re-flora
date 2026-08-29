@@ -68,6 +68,7 @@ pub use resources::{
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiVolumePublication,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
