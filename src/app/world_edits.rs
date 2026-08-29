@@ -150,6 +150,7 @@ pub(crate) struct WorldEditOutcome {
     pub(crate) affected_voxels: UAabb3,
     pub(crate) chunks: usize,
     pub(crate) terrain_changed: bool,
+    pub(crate) mutation_elapsed: Duration,
     pub(crate) publication_elapsed: Duration,
 }
 
@@ -219,9 +220,11 @@ impl WorldEditTransaction {
             }
         };
 
+        let mutation_started_at = Instant::now();
         for edit in voxel_edits {
             apply_voxel_edit(plain_builder, edit)?;
         }
+        let mutation_elapsed = mutation_started_at.elapsed();
 
         let Some((mut publication, affected_voxels)) = prepared_publication else {
             return Ok(None);
@@ -238,6 +241,7 @@ impl WorldEditTransaction {
             affected_voxels,
             chunks,
             terrain_changed: true,
+            mutation_elapsed,
             publication_elapsed: started_at.elapsed(),
         }))
     }

@@ -121,6 +121,7 @@ impl App {
             affected_voxels,
             chunks: chunk_ids.len(),
             terrain_changed,
+            mutation_elapsed: Duration::ZERO,
             publication_elapsed: started_at.elapsed(),
         })
     }
@@ -130,6 +131,7 @@ impl App {
             affected_voxels,
             chunks,
             terrain_changed,
+            mutation_elapsed: _,
             publication_elapsed,
         } = outcome;
 

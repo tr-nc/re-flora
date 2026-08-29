@@ -26,7 +26,7 @@ use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
 const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
@@ -1259,7 +1259,6 @@ impl App {
             let trunk_count = compiled.trunk_geometry.round_cones.len();
             let trunk_geometry = compiled.trunk_geometry.clone();
             trunk_voxel_edits.push(compiled.trunk_voxel_edit.clone());
-            let trunk_elapsed = Duration::ZERO;
             rebuild_regions.extend([record.bound, compiled.this_bound]);
             rebuild_chunk_ids
                 .extend(self.tree_rebuild_chunk_ids(record.bound, compiled.this_bound));
@@ -1268,7 +1267,6 @@ impl App {
                 record.mature_desc,
                 compiled,
                 compile_elapsed,
-                trunk_elapsed,
                 trunk_count,
                 trunk_geometry,
             ));
@@ -1277,21 +1275,17 @@ impl App {
         let mut seen = HashSet::new();
         rebuild_chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
         let rebuild_start = Instant::now();
-        self.execute_world_edit(WorldEditTransaction::tree_changes(
-            trunk_voxel_edits,
-            rebuild_regions,
-        ))?;
+        let outcome = self
+            .execute_world_edit(WorldEditTransaction::tree_changes(
+                trunk_voxel_edits,
+                rebuild_regions,
+            ))?
+            .expect("tree age batch always publishes its world change");
         let rebuild_elapsed = rebuild_start.elapsed();
+        let average_trunk_elapsed = outcome.mutation_elapsed / replacements.len() as u32;
 
-        for (
-            tree_id,
-            mature_desc,
-            compiled,
-            compile_elapsed,
-            trunk_elapsed,
-            trunk_count,
-            trunk_geometry,
-        ) in replacements
+        for (tree_id, mature_desc, compiled, compile_elapsed, trunk_count, trunk_geometry) in
+            replacements
         {
             self.finish_tree_placement(
                 tree_id,
@@ -1307,7 +1301,7 @@ impl App {
                 compiled.canopy_acoustic_descriptor.clone(),
                 total_start,
                 compile_elapsed,
-                trunk_elapsed,
+                average_trunk_elapsed,
                 rebuild_elapsed,
                 trunk_count,
                 false,
@@ -1382,10 +1376,12 @@ impl App {
 
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
-        self.execute_world_edit(WorldEditTransaction::tree_changes(
-            vec![compiled.trunk_voxel_edit],
-            vec![old_bound, compiled.this_bound],
-        ))?;
+        let outcome = self
+            .execute_world_edit(WorldEditTransaction::tree_changes(
+                vec![compiled.trunk_voxel_edit],
+                vec![old_bound, compiled.this_bound],
+            ))?
+            .expect("single-tree replacement always publishes its world change");
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -1406,7 +1402,7 @@ impl App {
             compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
-            Duration::ZERO,
+            outcome.mutation_elapsed,
             rebuild_elapsed,
             trunk_count,
             true,
@@ -1664,6 +1660,7 @@ impl App {
             vec![compiled.voxel_edit],
             compiled.rebuild_bound,
         ))
+        .map(|_| ())
     }
 
     #[allow(dead_code)]
@@ -1673,6 +1670,7 @@ impl App {
             vec![compiled.voxel_edit],
             compiled.rebuild_bound,
         ))
+        .map(|_| ())
     }
 
     pub(super) fn apply_surface_terrain_removal(
@@ -2324,10 +2322,12 @@ impl App {
             compiled.rebuild_bound,
             super::VOXEL_DIM_PER_CHUNK,
         );
-        self.execute_world_edit(WorldEditTransaction::tree_changes(
-            vec![compiled.trunk_voxel_edit],
-            vec![compiled.rebuild_bound],
-        ))?;
+        let outcome = self
+            .execute_world_edit(WorldEditTransaction::tree_changes(
+                vec![compiled.trunk_voxel_edit],
+                vec![compiled.rebuild_bound],
+            ))?
+            .expect("tree placement always publishes its world change");
         let rebuild_elapsed = rebuild_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
@@ -2350,7 +2350,7 @@ impl App {
             compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
-            Duration::ZERO,
+            outcome.mutation_elapsed,
             rebuild_elapsed,
             trunk_count,
             benchmark_gui_tree,

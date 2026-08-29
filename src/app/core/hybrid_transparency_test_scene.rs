@@ -172,7 +172,7 @@ impl App {
                     .context("compile deterministic hybrid transparency test scene")
                     .and_then(|transaction| self.execute_world_edit(transaction))
                 {
-                    Ok(()) => TestScenePhase::TerrainPublished,
+                    Ok(_) => TestScenePhase::TerrainPublished,
                     Err(err) => {
                         log::error!("[HYBRID_ALPHA_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed

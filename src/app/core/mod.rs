@@ -2033,7 +2033,10 @@ impl App {
         1.0 - (1.0 - alpha_60fps).powf(frame_scale)
     }
 
-    fn execute_world_edit(&mut self, transaction: WorldEditTransaction) -> Result<()> {
+    fn execute_world_edit(
+        &mut self,
+        transaction: WorldEditTransaction,
+    ) -> Result<Option<crate::app::world_edits::WorldEditOutcome>> {
         anyhow::ensure!(
             self.terrain_persistence.allows_world_updates(),
             "terrain persistence is in fatal Error; restart is required"
@@ -2047,10 +2050,10 @@ impl App {
             ),
             VOXEL_DIM_PER_CHUNK,
         )?;
-        if let Some(outcome) = outcome {
-            self.observe_world_edit_outcome(outcome)?;
+        if let Some(outcome) = outcome.as_ref() {
+            self.observe_world_edit_outcome(outcome.clone())?;
         }
-        Ok(())
+        Ok(outcome)
     }
 
     fn observe_initial_published_terrain_for_ddgi(&mut self) -> Result<u32> {

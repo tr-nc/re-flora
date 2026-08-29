@@ -2313,7 +2313,7 @@ impl App {
                     .context("compile deterministic environment-lighting test scene")
                     .and_then(|transaction| self.execute_world_edit(transaction))
                 {
-                    Ok(()) => {
+                    Ok(_) => {
                         let rebuild_bound = test_rebuild_bound(case);
                         log::info!(
                             "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
