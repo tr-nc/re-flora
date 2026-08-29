@@ -942,6 +942,17 @@ pub struct DdgiVolume {
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
+/// Immutable semantic resource view for one candidate consumer-visible DDGI field.
+#[derive(Clone, Copy)]
+pub(crate) struct DdgiConsumerResources<'a> {
+    pub build_token: DdgiBuildToken,
+    pub field: DdgiFieldIdentity,
+    pub probe_metadata: &'a Resource<Buffer>,
+    pub global_sky_irradiance: &'a Resource<Texture>,
+    pub irradiance_atlas: &'a Resource<Texture>,
+    pub visibility_atlas: &'a Resource<Texture>,
+}
+
 /// Owns the DDGI active/staging lifecycle.
 ///
 /// A staging volume is never returned by [`Self::active`]. Promotion is the only operation that
@@ -1997,6 +2008,45 @@ impl DdgiVolume {
         }
     }
 
+    pub(crate) fn candidate_consumer_resources(
+        &self,
+        identity: DdgiFieldIdentity,
+        classified: DdgiFieldIdentity,
+    ) -> Result<DdgiConsumerResources<'_>> {
+        let iteration = self
+            .building_iteration
+            .filter(|iteration| iteration.logical == identity)
+            .context("DDGI consumer candidate no longer matches the building iteration")?;
+        let build_token = self
+            .build_token
+            .context("DDGI consumer candidate has no build token")?;
+        Ok(DdgiConsumerResources {
+            build_token,
+            field: classified,
+            probe_metadata: &self.ddgi_probe_metadata,
+            global_sky_irradiance: self.global_sky_irradiance(iteration.destination.sky_slot),
+            irradiance_atlas: self.irradiance_atlas(iteration.destination.atlas_slot),
+            visibility_atlas: self.visibility_atlas(iteration.destination.atlas_slot),
+        })
+    }
+
+    pub(crate) fn published_consumer_resources(&self) -> Result<DdgiConsumerResources<'_>> {
+        let resident = self
+            .published_field
+            .context("DDGI Volume has no published consumer field")?;
+        let build_token = self
+            .build_token
+            .context("published DDGI consumer field has no build token")?;
+        Ok(DdgiConsumerResources {
+            build_token,
+            field: resident.logical,
+            probe_metadata: &self.ddgi_probe_metadata,
+            global_sky_irradiance: self.global_sky_irradiance(resident.sky_slot),
+            irradiance_atlas: self.irradiance_atlas(resident.atlas_slot),
+            visibility_atlas: self.visibility_atlas(resident.atlas_slot),
+        })
+    }
+
     pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
         self.published_field
             .map(|field| self.irradiance_atlas(field.atlas_slot))
@@ -2016,14 +2066,6 @@ impl DdgiVolume {
             self.building_iteration
                 .map(|iteration| iteration.destination.sky_slot)
                 .or_else(|| self.published_field.map(|field| field.sky_slot))
-                .unwrap_or(DdgiSkySlot::Sky0),
-        )
-    }
-
-    pub fn published_global_sky_irradiance(&self) -> &Resource<Texture> {
-        self.global_sky_irradiance(
-            self.published_field
-                .map(|field| field.sky_slot)
                 .unwrap_or(DdgiSkySlot::Sky0),
         )
     }

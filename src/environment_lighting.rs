@@ -805,34 +805,6 @@ mod tests {
     }
 
     #[test]
-    fn ddgi_ready_promotion_publishes_consumers_before_volume_swap() {
-        // TODO(R13): Replace this temporary source-order gate when DdgiRuntime owns a closure
-        // transaction that publishes consumer descriptors before committing the Volume swap.
-        let tracer_host = include_str!("tracer/mod.rs");
-        let ready_promotion = tracer_host
-            .split_once("fn promote_ready_ddgi_staging")
-            .expect("DDGI staging promotion must exist")
-            .1
-            .split_once("// Previous frames may still sample the active volume.")
-            .expect("ready DDGI publication branch must exist")
-            .1
-            .split_once("fn get_render_extent")
-            .expect("DDGI promotion function must end before render-extent helpers")
-            .0;
-        let descriptor_publication = ready_promotion
-            .find("self.pipeline_topology.publish_ddgi_consumers(")
-            .expect("ready promotion must publish prepared consumer descriptors");
-        let volume_swap = ready_promotion
-            .find("finish_volume_publication(publication, Ok(()))")
-            .expect("ready promotion must commit the runtime Volume publication");
-
-        assert!(
-            descriptor_publication < volume_swap,
-            "consumer descriptors must publish before the DDGI runtime swaps Active Volume"
-        );
-    }
-
-    #[test]
     fn path_tracing_reference_is_terrain_only_and_bypasses_ddgi() {
         let shared = include_str!("../shader/slang/environment_lighting.slang");
         let terrain = include_str!("../shader/slang/tracer.slang");

@@ -1,8 +1,8 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
-use crate::ddgi::{DdgiVolume, DdgiVoxelVisibility};
+use crate::ddgi::{DdgiConsumerResources, DdgiVolume, DdgiVoxelVisibility};
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool,
@@ -1276,90 +1276,157 @@ pub struct PipelineTopology {
     frame_retirement_sink: FrameRetirementSink,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PipelineKind {
-    Compute,
-    Graphics,
+macro_rules! declare_ddgi_consumer_registry {
+    ($( $key:ident => $kind:ident($($path:ident).+) ),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(usize)]
+        enum PipelineKey {
+            $( $key, )+
+            Count,
+        }
+
+        impl PipelineKey {
+            const COUNT: usize = Self::Count as usize;
+            const ALL: [Self; Self::COUNT] = [$( Self::$key, )+];
+        }
+
+        impl PipelineTopology {
+            fn ddgi_consumer(&self, key: PipelineKey) -> DdgiConsumerPipeline<'_> {
+                match key {
+                    $(
+                        PipelineKey::$key =>
+                            DdgiConsumerPipeline::$kind(key, &self.$($path).+),
+                    )+
+                    PipelineKey::Count =>
+                        unreachable!("registry sentinel is not a DDGI consumer"),
+                }
+            }
+        }
+    };
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PipelineKey {
-    Tracer,
-    FloraLightingCache,
-    TreeLeafLightingCache,
-    Flora,
-    FloraLod,
-    Leaves,
-    LeavesLod,
-    Sprinkler,
-    DynamicFruit,
-    Particle,
-    WaterDroplet,
-    EnvironmentProbeDepth,
-    EnvironmentProbeOverlay,
+declare_ddgi_consumer_registry! {
+    Tracer => Compute(compute.tracer_ppl),
+    FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
+    TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
+    Flora => Graphics(graphics.flora_ppl),
+    FloraLod => Graphics(graphics.flora_lod_ppl),
+    Leaves => Graphics(graphics.leaves_ppl),
+    LeavesLod => Graphics(graphics.leaves_lod_ppl),
+    Sprinkler => Graphics(graphics.sprinkler_ppl),
+    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
+    Particle => Graphics(graphics.particle_ppl),
+    WaterDroplet => Graphics(graphics.water_droplet_ppl),
+    EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
+    EnvironmentProbeOverlay => Graphics(graphics.environment_probe_visualization_overlay_ppl),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PreparedPipelineIdentity {
+fn validate_ddgi_consumer_registry(keys: &[PipelineKey]) -> Result<()> {
+    anyhow::ensure!(
+        keys.len() == PipelineKey::COUNT,
+        "DDGI consumer registry is incomplete"
+    );
+    let mut seen = [false; PipelineKey::COUNT];
+    for key in keys {
+        let index = *key as usize;
+        anyhow::ensure!(index < PipelineKey::COUNT, "invalid DDGI consumer key");
+        anyhow::ensure!(!seen[index], "duplicate DDGI consumer key: {key:?}");
+        seen[index] = true;
+    }
+    anyhow::ensure!(seen.into_iter().all(|present| present));
+    Ok(())
+}
+
+fn validate_prepared_ddgi_consumer_keys(
+    expected: &[PipelineKey],
+    prepared: &[PipelineKey],
+) -> Result<()> {
+    anyhow::ensure!(
+        prepared.len() == expected.len(),
+        "prepared DDGI consumer topology is incomplete"
+    );
+    for (expected, prepared) in expected.iter().zip(prepared) {
+        anyhow::ensure!(
+            prepared == expected,
+            "prepared DDGI consumer generation belongs to a different topology consumer"
+        );
+    }
+    Ok(())
+}
+
+fn allocate_generation_after_preflight(
+    next_generation: &mut u64,
+    preflight: impl FnOnce() -> Result<()>,
+) -> Result<u64> {
+    preflight()?;
+    let generation = *next_generation;
+    *next_generation = generation
+        .checked_add(1)
+        .context("tracer descriptor generation overflow")?;
+    Ok(generation)
+}
+
+struct PreparedDdgiConsumerGeneration {
     key: PipelineKey,
-    kind: PipelineKind,
-}
-
-impl PreparedPipelineIdentity {
-    const fn compute(key: PipelineKey) -> Self {
-        Self {
-            key,
-            kind: PipelineKind::Compute,
-        }
-    }
-
-    const fn graphics(key: PipelineKey) -> Self {
-        Self {
-            key,
-            kind: PipelineKind::Graphics,
-        }
-    }
-
-    fn matches(self, expected_key: PipelineKey, expected_kind: PipelineKind) -> bool {
-        self == Self {
-            key: expected_key,
-            kind: expected_kind,
-        }
-    }
-}
-
-struct PreparedComputeGeneration {
-    identity: PreparedPipelineIdentity,
     descriptors: PreparedDescriptorGeneration,
 }
 
-struct PreparedGraphicsGeneration {
-    identity: PreparedPipelineIdentity,
-    descriptors: PreparedDescriptorGeneration,
+#[derive(Clone, Copy)]
+enum DdgiConsumerPipeline<'a> {
+    Compute(PipelineKey, &'a ComputePipeline),
+    Graphics(PipelineKey, &'a GraphicsPipeline),
 }
 
-/// Typed descriptor generations for the topology's DDGI consumer publication.
-/// Named fields make preparation/publication pairing independent of list position.
-pub struct PreparedDdgiConsumerDescriptors {
-    token_serial: u64,
-    tracer: PreparedComputeGeneration,
-    flora_lighting_cache: PreparedComputeGeneration,
-    tree_leaf_lighting_cache: PreparedComputeGeneration,
-    flora: PreparedGraphicsGeneration,
-    flora_lod: PreparedGraphicsGeneration,
-    leaves: PreparedGraphicsGeneration,
-    leaves_lod: PreparedGraphicsGeneration,
-    sprinkler: PreparedGraphicsGeneration,
-    dynamic_fruit: PreparedGraphicsGeneration,
-    particle: PreparedGraphicsGeneration,
-    water_droplet: PreparedGraphicsGeneration,
-    environment_probe_depth: PreparedGraphicsGeneration,
-    environment_probe_overlay: PreparedGraphicsGeneration,
-}
+impl DdgiConsumerPipeline<'_> {
+    fn key(self) -> PipelineKey {
+        match self {
+            Self::Compute(key, _) | Self::Graphics(key, _) => key,
+        }
+    }
 
-impl PreparedDdgiConsumerDescriptors {
-    pub fn token_serial(&self) -> u64 {
-        self.token_serial
+    fn prepare(self, writes: &[DescriptorWrite<'_>]) -> Result<PreparedDdgiConsumerGeneration> {
+        let descriptors = match self {
+            Self::Compute(_, pipeline) => {
+                pipeline.prepare_descriptors(DescriptorUpdate::Named(writes))?
+            }
+            Self::Graphics(_, pipeline) => {
+                pipeline.prepare_descriptors(DescriptorUpdate::Named(writes))?
+            }
+        };
+        Ok(PreparedDdgiConsumerGeneration {
+            key: self.key(),
+            descriptors,
+        })
+    }
+
+    fn validate(self, prepared: &PreparedDdgiConsumerGeneration) -> Result<()> {
+        anyhow::ensure!(
+            prepared.key == self.key(),
+            "prepared DDGI consumer generation belongs to a different topology consumer"
+        );
+        match self {
+            Self::Compute(_, pipeline) => {
+                pipeline.validate_prepared_descriptors(&prepared.descriptors)
+            }
+            Self::Graphics(_, pipeline) => {
+                pipeline.validate_prepared_descriptors(&prepared.descriptors)
+            }
+        }
+    }
+
+    fn publish(self, generation: u64, prepared: PreparedDdgiConsumerGeneration) -> FrameRetirement {
+        match self {
+            Self::Compute(_, pipeline) => pipeline.publish_prepared_descriptors(
+                "ddgi.consumer.descriptors",
+                generation,
+                prepared.descriptors,
+            ),
+            Self::Graphics(_, pipeline) => pipeline.publish_prepared_descriptors(
+                "ddgi.consumer.descriptors",
+                generation,
+                prepared.descriptors,
+            ),
+        }
     }
 }
 
@@ -1841,238 +1908,82 @@ impl PipelineTopology {
         );
     }
 
-    pub fn prepare_ddgi_consumers(&self, volume: &DdgiVolume) -> PreparedDdgiConsumerDescriptors {
-        let irradiance_atlas = volume
-            .published_irradiance_atlas()
-            .unwrap_or(&volume.ddgi_irradiance_atlas);
-        let visibility_atlas = volume
-            .published_visibility_atlas()
-            .unwrap_or(&volume.ddgi_visibility_atlas);
+    /// The single owner registry for every pipeline that samples the consumer-visible DDGI Volume.
+    /// Preparation, preflight, and publication all resolve this same fixed sequence.
+    fn ddgi_consumers(&self) -> Result<Vec<DdgiConsumerPipeline<'_>>> {
+        validate_ddgi_consumer_registry(&PipelineKey::ALL)?;
+        Ok(PipelineKey::ALL
+            .into_iter()
+            .map(|key| self.ddgi_consumer(key))
+            .collect())
+    }
+
+    fn prepare_ddgi_consumers(
+        &self,
+        resources: DdgiConsumerResources<'_>,
+    ) -> Result<Vec<PreparedDdgiConsumerGeneration>> {
         let mut writes = vec![DescriptorWrite {
             name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&volume.ddgi_probe_metadata),
+            resource: DescriptorResource::Buffer(resources.probe_metadata),
         }];
         for (name, texture) in [
             (
                 "ddgi_global_sky_irradiance",
-                volume.published_global_sky_irradiance(),
+                resources.global_sky_irradiance,
             ),
-            ("ddgi_irradiance_atlas", irradiance_atlas),
-            ("ddgi_visibility_atlas", visibility_atlas),
+            ("ddgi_irradiance_atlas", resources.irradiance_atlas),
+            ("ddgi_visibility_atlas", resources.visibility_atlas),
         ] {
             writes.push(DescriptorWrite {
                 name,
                 resource: DescriptorResource::Texture(texture),
             });
         }
-        let prepare_compute =
-            |key: PipelineKey, pipeline: &ComputePipeline, error: &'static str| {
-                PreparedComputeGeneration {
-                    identity: PreparedPipelineIdentity::compute(key),
-                    descriptors: pipeline
-                        .prepare_descriptors(DescriptorUpdate::Named(&writes))
-                        .expect(error),
-                }
-            };
-        let prepare_graphics =
-            |key: PipelineKey, pipeline: &GraphicsPipeline, error: &'static str| {
-                PreparedGraphicsGeneration {
-                    identity: PreparedPipelineIdentity::graphics(key),
-                    descriptors: pipeline
-                        .prepare_descriptors(DescriptorUpdate::Named(&writes))
-                        .expect(error),
-                }
-            };
-
-        PreparedDdgiConsumerDescriptors {
-            token_serial: volume
-                .status()
-                .build_token
-                .expect("staged DDGI consumer descriptors require a build token")
-                .serial(),
-            tracer: prepare_compute(
-                PipelineKey::Tracer,
-                &self.compute.tracer_ppl,
-                "DDGI consumer tracer descriptor preparation failed",
-            ),
-            flora_lighting_cache: prepare_compute(
-                PipelineKey::FloraLightingCache,
-                &self.compute.flora_lighting_cache_ppl,
-                "DDGI consumer flora cache descriptor preparation failed",
-            ),
-            tree_leaf_lighting_cache: prepare_compute(
-                PipelineKey::TreeLeafLightingCache,
-                &self.compute.tree_leaf_lighting_cache_ppl,
-                "DDGI consumer tree-leaf cache descriptor preparation failed",
-            ),
-            flora: prepare_graphics(
-                PipelineKey::Flora,
-                &self.graphics.flora_ppl,
-                "DDGI consumer flora descriptor preparation failed",
-            ),
-            flora_lod: prepare_graphics(
-                PipelineKey::FloraLod,
-                &self.graphics.flora_lod_ppl,
-                "DDGI consumer flora LOD descriptor preparation failed",
-            ),
-            leaves: prepare_graphics(
-                PipelineKey::Leaves,
-                &self.graphics.leaves_ppl,
-                "DDGI consumer leaves descriptor preparation failed",
-            ),
-            leaves_lod: prepare_graphics(
-                PipelineKey::LeavesLod,
-                &self.graphics.leaves_lod_ppl,
-                "DDGI consumer leaves LOD descriptor preparation failed",
-            ),
-            sprinkler: prepare_graphics(
-                PipelineKey::Sprinkler,
-                &self.graphics.sprinkler_ppl,
-                "DDGI consumer sprinkler descriptor preparation failed",
-            ),
-            dynamic_fruit: prepare_graphics(
-                PipelineKey::DynamicFruit,
-                &self.graphics.dynamic_fruit_ppl,
-                "DDGI consumer fruit descriptor preparation failed",
-            ),
-            particle: prepare_graphics(
-                PipelineKey::Particle,
-                &self.graphics.particle_ppl,
-                "DDGI consumer particle descriptor preparation failed",
-            ),
-            water_droplet: prepare_graphics(
-                PipelineKey::WaterDroplet,
-                &self.graphics.water_droplet_ppl,
-                "DDGI consumer droplet descriptor preparation failed",
-            ),
-            environment_probe_depth: prepare_graphics(
-                PipelineKey::EnvironmentProbeDepth,
-                &self.graphics.environment_probe_visualization_depth_ppl,
-                "DDGI consumer probe-depth descriptor preparation failed",
-            ),
-            environment_probe_overlay: prepare_graphics(
-                PipelineKey::EnvironmentProbeOverlay,
-                &self.graphics.environment_probe_visualization_overlay_ppl,
-                "DDGI consumer probe-overlay descriptor preparation failed",
-            ),
-        }
+        self.ddgi_consumers()?
+            .into_iter()
+            .map(|pipeline| {
+                pipeline
+                    .prepare(&writes)
+                    .with_context(|| format!("prepare DDGI consumer {:?}", pipeline.key()))
+            })
+            .collect::<Result<Vec<_>>>()
     }
 
+    /// Fully preflights every topology-owned consumer before allocating a generation or making
+    /// the first descriptor generation visible. Publication after this boundary is infallible.
     pub fn publish_ddgi_consumers(
         &self,
-        expected_token_serial: u64,
-        generation: u64,
-        prepared: PreparedDdgiConsumerDescriptors,
-    ) {
-        assert_eq!(
-            prepared.token_serial, expected_token_serial,
-            "prepared DDGI consumer generation must match the promoted Volume"
+        resources: DdgiConsumerResources<'_>,
+        next_generation: &mut u64,
+    ) -> Result<u64> {
+        anyhow::ensure!(
+            resources.field.field().geometry_revision() == resources.build_token.terrain_revision()
+                && resources.field.field().spacing_voxels()
+                    == resources.build_token.spacing_voxels(),
+            "DDGI consumer resources do not match their build token"
         );
-        let publish_compute = |expected_key: PipelineKey,
-                               pipeline: &ComputePipeline,
-                               prepared: PreparedComputeGeneration| {
-            assert!(
-                prepared
-                    .identity
-                    .matches(expected_key, PipelineKind::Compute),
-                "prepared compute generation must publish to its declared pipeline"
-            );
+        let prepared = self.prepare_ddgi_consumers(resources)?;
+        let consumers = self.ddgi_consumers()?;
+        let expected_keys = consumers
+            .iter()
+            .map(|pipeline| pipeline.key())
+            .collect::<Vec<_>>();
+        let prepared_keys = prepared
+            .iter()
+            .map(|generation| generation.key)
+            .collect::<Vec<_>>();
+        let generation = allocate_generation_after_preflight(next_generation, || {
+            validate_prepared_ddgi_consumer_keys(&expected_keys, &prepared_keys)?;
+            for (pipeline, generation) in consumers.iter().copied().zip(&prepared) {
+                pipeline.validate(generation)?;
+            }
+            Ok(())
+        })?;
+        for (pipeline, prepared) in consumers.into_iter().zip(prepared) {
             self.frame_retirement_sink
-                .retire(pipeline.publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.descriptors,
-                ));
-        };
-        let publish_graphics =
-            |expected_key: PipelineKey,
-             pipeline: &GraphicsPipeline,
-             prepared: PreparedGraphicsGeneration| {
-                assert!(
-                    prepared
-                        .identity
-                        .matches(expected_key, PipelineKind::Graphics),
-                    "prepared graphics generation must publish to its declared pipeline"
-                );
-                self.frame_retirement_sink
-                    .retire(pipeline.publish_prepared_descriptors(
-                        "ddgi.consumer.descriptors",
-                        generation,
-                        prepared.descriptors,
-                    ));
-            };
-
-        publish_compute(
-            PipelineKey::Tracer,
-            &self.compute.tracer_ppl,
-            prepared.tracer,
-        );
-        publish_compute(
-            PipelineKey::FloraLightingCache,
-            &self.compute.flora_lighting_cache_ppl,
-            prepared.flora_lighting_cache,
-        );
-        publish_compute(
-            PipelineKey::TreeLeafLightingCache,
-            &self.compute.tree_leaf_lighting_cache_ppl,
-            prepared.tree_leaf_lighting_cache,
-        );
-        publish_graphics(PipelineKey::Flora, &self.graphics.flora_ppl, prepared.flora);
-        publish_graphics(
-            PipelineKey::FloraLod,
-            &self.graphics.flora_lod_ppl,
-            prepared.flora_lod,
-        );
-        publish_graphics(
-            PipelineKey::Leaves,
-            &self.graphics.leaves_ppl,
-            prepared.leaves,
-        );
-        publish_graphics(
-            PipelineKey::LeavesLod,
-            &self.graphics.leaves_lod_ppl,
-            prepared.leaves_lod,
-        );
-        publish_graphics(
-            PipelineKey::Sprinkler,
-            &self.graphics.sprinkler_ppl,
-            prepared.sprinkler,
-        );
-        publish_graphics(
-            PipelineKey::DynamicFruit,
-            &self.graphics.dynamic_fruit_ppl,
-            prepared.dynamic_fruit,
-        );
-        publish_graphics(
-            PipelineKey::Particle,
-            &self.graphics.particle_ppl,
-            prepared.particle,
-        );
-        publish_graphics(
-            PipelineKey::WaterDroplet,
-            &self.graphics.water_droplet_ppl,
-            prepared.water_droplet,
-        );
-        publish_graphics(
-            PipelineKey::EnvironmentProbeDepth,
-            &self.graphics.environment_probe_visualization_depth_ppl,
-            prepared.environment_probe_depth,
-        );
-        publish_graphics(
-            PipelineKey::EnvironmentProbeOverlay,
-            &self.graphics.environment_probe_visualization_overlay_ppl,
-            prepared.environment_probe_overlay,
-        );
-    }
-
-    pub fn update_ddgi_consumers(
-        &self,
-        expected_token_serial: u64,
-        volume: &DdgiVolume,
-        generation: u64,
-    ) {
-        let prepared = self.prepare_ddgi_consumers(volume);
-        self.publish_ddgi_consumers(expected_token_serial, generation, prepared);
+                .retire(pipeline.publish(generation, prepared));
+        }
+        Ok(generation)
     }
 }
 
@@ -2364,18 +2275,48 @@ impl GraphicsPipelines {
 
 #[cfg(test)]
 mod topology_tests {
-    use super::{PipelineKey, PipelineKind, PreparedPipelineIdentity};
+    use super::{
+        allocate_generation_after_preflight, validate_ddgi_consumer_registry,
+        validate_prepared_ddgi_consumer_keys, PipelineKey,
+    };
 
     #[test]
-    fn prepared_generation_identity_guards_key_and_pipeline_kind() {
-        let compute = PreparedPipelineIdentity::compute(PipelineKey::Tracer);
-        assert!(compute.matches(PipelineKey::Tracer, PipelineKind::Compute));
-        assert!(!compute.matches(PipelineKey::FloraLightingCache, PipelineKind::Compute));
-        assert!(!compute.matches(PipelineKey::Tracer, PipelineKind::Graphics));
+    fn ddgi_consumer_registry_is_complete_and_unique() {
+        validate_ddgi_consumer_registry(&PipelineKey::ALL).unwrap();
 
-        let graphics = PreparedPipelineIdentity::graphics(PipelineKey::Flora);
-        assert!(graphics.matches(PipelineKey::Flora, PipelineKind::Graphics));
-        assert!(!graphics.matches(PipelineKey::Leaves, PipelineKind::Graphics));
-        assert!(!graphics.matches(PipelineKey::Flora, PipelineKind::Compute));
+        let omitted = &PipelineKey::ALL[..PipelineKey::COUNT - 1];
+        assert!(validate_ddgi_consumer_registry(omitted).is_err());
+
+        let mut duplicate = PipelineKey::ALL;
+        duplicate[PipelineKey::COUNT - 1] = PipelineKey::Tracer;
+        assert!(validate_ddgi_consumer_registry(&duplicate).is_err());
+    }
+
+    #[test]
+    fn prepared_ddgi_consumer_keys_reject_omission_and_identity_corruption() {
+        validate_prepared_ddgi_consumer_keys(&PipelineKey::ALL, &PipelineKey::ALL).unwrap();
+
+        let omitted = &PipelineKey::ALL[..PipelineKey::COUNT - 1];
+        assert!(validate_prepared_ddgi_consumer_keys(&PipelineKey::ALL, omitted).is_err());
+
+        let mut corrupted = PipelineKey::ALL;
+        corrupted[4] = PipelineKey::Tracer;
+        assert!(validate_prepared_ddgi_consumer_keys(&PipelineKey::ALL, &corrupted).is_err());
+    }
+
+    #[test]
+    fn failed_consumer_preflight_consumes_no_generation_or_publication() {
+        let mut next_generation = 41;
+        let mut published = 0;
+        let result = allocate_generation_after_preflight(&mut next_generation, || {
+            anyhow::bail!("injected descriptor ownership failure")
+        });
+        if result.is_ok() {
+            published += PipelineKey::COUNT;
+        }
+
+        assert!(result.is_err());
+        assert_eq!(next_generation, 41);
+        assert_eq!(published, 0);
     }
 }

@@ -6,7 +6,9 @@ use crate::geom::UAabb3;
 use anyhow::{Context, Result};
 use std::time::Duration;
 
-use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
+use super::resources::{
+    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiProbePriority,
@@ -90,6 +92,7 @@ pub(crate) struct DdgiBatchCompletion {
     pub status: DdgiRuntimeVolumeStatus,
     pub atlas_validation: Option<DdgiAtlasValidationStats>,
     pub published: Option<(DdgiScheduledWork, DdgiFieldIdentity)>,
+    pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
 }
 
@@ -99,17 +102,47 @@ impl DdgiBatchCompletion {
     }
 }
 
-/// Runtime authorization for disposing or publishing one complete Staging Volume.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DdgiVolumePublication {
-    DiscardObsolete(DdgiBuildToken),
-    Promote(DdgiBuildToken),
+/// Result of one runtime-owned attempt to publish a complete Staging Volume.
+pub(crate) enum DdgiVolumePublishOutcome {
+    Idle,
+    DiscardedObsolete(DdgiBuildToken),
+    Published {
+        token: DdgiBuildToken,
+        retired_active: DdgiVolume,
+    },
 }
 
-impl DdgiVolumePublication {
-    pub(crate) fn token(self) -> DdgiBuildToken {
-        match self {
-            Self::DiscardObsolete(token) | Self::Promote(token) => token,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PublicationDisposition<T> {
+    Idle,
+    Discard(T),
+    Publish(T),
+}
+
+#[derive(Debug)]
+enum PublicationTransactionOutcome<T, R> {
+    Idle,
+    Discarded(T),
+    Published { candidate: T, committed: R },
+}
+
+fn execute_publication_transaction<S, T: Copy, P, R>(
+    state: &mut S,
+    disposition: PublicationDisposition<T>,
+    publish: impl FnOnce(&S, T) -> Result<P>,
+    commit: impl FnOnce(&mut S, T, P) -> R,
+) -> Result<PublicationTransactionOutcome<T, R>> {
+    match disposition {
+        PublicationDisposition::Idle => Ok(PublicationTransactionOutcome::Idle),
+        PublicationDisposition::Discard(candidate) => {
+            Ok(PublicationTransactionOutcome::Discarded(candidate))
+        }
+        PublicationDisposition::Publish(candidate) => {
+            let published = publish(state, candidate)?;
+            Ok(PublicationTransactionOutcome::Published {
+                candidate,
+                committed: commit(state, candidate, published),
+            })
         }
     }
 }
@@ -266,58 +299,68 @@ impl DdgiRuntime {
         );
     }
 
-    /// Atomically promotes the validated physical staging Volume and its logical token.
+    /// Publishes one complete Staging candidate as a synchronous transaction.
     ///
-    /// Descriptor publication remains the caller's frame-retirement concern, but the physical
-    /// active/staging swap and runtime coordinator promotion cannot be performed independently.
-    pub(crate) fn promote_ready_volume(
+    /// Idle and obsolete candidates never call `publish_consumers`. A promotable candidate is
+    /// fully checked before the closure receives its private Volume. If the closure fails, no
+    /// physical or logical runtime state changes. Once the closure succeeds, the preflighted swap
+    /// and logical promotion are fail-stop operations.
+    pub(crate) fn publish_ready_volume(
         &mut self,
-        build_token: DdgiBuildToken,
-    ) -> Result<DdgiVolume> {
-        let retired_active = self.volumes_mut().promote_staging(build_token)?;
-        assert!(
-            self.mark_promoted(build_token),
-            "promoted DDGI token must still be coordinator-authoritative"
-        );
-        Ok(retired_active)
-    }
-
-    pub(crate) fn pending_volume_publication(&self) -> Option<DdgiVolumePublication> {
+        publish_consumers: impl FnOnce(DdgiConsumerResources<'_>) -> Result<()>,
+    ) -> Result<DdgiVolumePublishOutcome> {
         let status = self.volumes().status();
-        if !status.staging_is_ready() {
-            return None;
-        }
-        let token = status
-            .staging()
-            .and_then(|staging| staging.build_token)
-            .expect("every complete DDGI staging Volume must carry its build token");
-        Some(if self.terrain_refresh.token_can_promote(token) {
-            DdgiVolumePublication::Promote(token)
+        let disposition = if !status.staging_is_ready() {
+            PublicationDisposition::Idle
         } else {
-            DdgiVolumePublication::DiscardObsolete(token)
-        })
-    }
-
-    /// Settles concrete descriptor publication and physical/logical Volume publication together.
-    pub(crate) fn finish_volume_publication(
-        &mut self,
-        publication: DdgiVolumePublication,
-        outcome: Result<()>,
-    ) -> Result<Option<DdgiVolume>> {
-        anyhow::ensure!(
-            self.pending_volume_publication() == Some(publication),
-            "stale or out-of-order DDGI Volume publication"
-        );
-        outcome?;
-        match publication {
-            DdgiVolumePublication::DiscardObsolete(token) => {
+            let token = status
+                .staging()
+                .and_then(|staging| staging.build_token)
+                .expect("every complete DDGI staging Volume must carry its build token");
+            if self.terrain_refresh.token_can_promote(token) {
+                PublicationDisposition::Publish(token)
+            } else {
+                PublicationDisposition::Discard(token)
+            }
+        };
+        let transaction = execute_publication_transaction(
+            self,
+            disposition,
+            |runtime, token| {
+                let resources = runtime.volumes().builder().published_consumer_resources()?;
+                assert_eq!(
+                    resources.build_token, token,
+                    "DDGI consumer resources must retain the runtime candidate token"
+                );
+                publish_consumers(resources)
+            },
+            |runtime, token, ()| {
+                let retired_active = runtime.volumes_mut().promote_staging(token).expect(
+                    "preflighted DDGI staging promotion must not fail after descriptor publication",
+                );
+                assert!(
+                    runtime.mark_promoted(token),
+                    "published DDGI token must remain coordinator-authoritative"
+                );
+                retired_active
+            },
+        )?;
+        match transaction {
+            PublicationTransactionOutcome::Idle => Ok(DdgiVolumePublishOutcome::Idle),
+            PublicationTransactionOutcome::Discarded(token) => {
                 anyhow::ensure!(
                     self.finish_obsolete_volume_build(token),
                     "completed obsolete DDGI staging token must release the single update slot"
                 );
-                Ok(None)
+                Ok(DdgiVolumePublishOutcome::DiscardedObsolete(token))
             }
-            DdgiVolumePublication::Promote(token) => self.promote_ready_volume(token).map(Some),
+            PublicationTransactionOutcome::Published {
+                candidate: token,
+                committed: retired_active,
+            } => Ok(DdgiVolumePublishOutcome::Published {
+                token,
+                retired_active,
+            }),
         }
     }
 
@@ -964,6 +1007,7 @@ impl DdgiRuntime {
     pub(crate) fn complete_pending_batch(
         &mut self,
         batch: DdgiRayBatch,
+        publish_consumers: impl FnOnce(DdgiConsumerResources<'_>) -> Result<u64>,
     ) -> Result<DdgiBatchCompletion> {
         let before = self.volumes().builder().status();
         if !self.volumes().builder().pending_trace_stats_batch_is(batch) {
@@ -976,6 +1020,7 @@ impl DdgiRuntime {
                 status: before.into(),
                 atlas_validation: None,
                 published: None,
+                consumer_descriptor_generation: None,
                 capture_observed: false,
             });
         }
@@ -1006,6 +1051,7 @@ impl DdgiRuntime {
             .mark_trace_stats_verified(batch)?;
         let mut atlas_validation = None;
         let mut published = None;
+        let mut consumer_descriptor_generation = None;
         let mut capture_observed = false;
         if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
             let stats = self
@@ -1030,32 +1076,104 @@ impl DdgiRuntime {
                         "DDGI scheduler rejected completion before publication: {error:?}"
                     )
                 })?;
-            let validated = self.volumes_mut().builder_mut().mark_atlas_validated(
-                identity,
-                stats,
-                DDGI_CONVERGENCE_POLICY,
-            )?;
-            let (validated_work, field) = match validated {
-                DdgiValidatedIterationOutcome::Published { work, field, .. }
-                | DdgiValidatedIterationOutcome::Converged { work, field, .. } => (work, field),
-            };
-            anyhow::ensure!(
-                field == classified && validated_work == work,
-                "DDGI atlas classification changed during publication"
-            );
             let build_token = before
                 .build_token
                 .context("validated DDGI field has no volume build token")?;
-            self.complete_transport_work(work, field, build_token)
-                .map_err(|error| {
-                    anyhow::anyhow!("DDGI scheduler rejected validated completion: {error:?}")
-                })?;
-            capture_observed = self.observe_capture_checkpoint(
-                build_token,
-                field,
-                stats,
-                DdgiCapturePublication::Published,
-            );
+            let (field, observed_capture) = if self.volumes().builder_is_active() {
+                let transaction = execute_publication_transaction(
+                    self,
+                    PublicationDisposition::Publish(build_token),
+                    |runtime, token| {
+                        let resources = runtime
+                            .volumes()
+                            .builder()
+                            .candidate_consumer_resources(identity, classified)?;
+                        assert_eq!(
+                            resources.build_token, token,
+                            "DDGI consumer resources must retain the active field candidate token"
+                        );
+                        publish_consumers(resources)
+                    },
+                    |runtime, token, generation| {
+                        let validated = runtime
+                            .volumes_mut()
+                            .builder_mut()
+                            .mark_atlas_validated(identity, stats, DDGI_CONVERGENCE_POLICY)
+                            .expect(
+                                "preflighted DDGI field publication must not fail after consumers publish",
+                            );
+                        let (validated_work, field) = match validated {
+                            DdgiValidatedIterationOutcome::Published { work, field, .. }
+                            | DdgiValidatedIterationOutcome::Converged { work, field, .. } => {
+                                (work, field)
+                            }
+                        };
+                        assert_eq!(
+                            field, classified,
+                            "DDGI atlas classification changed during publication"
+                        );
+                        assert_eq!(
+                            validated_work, work,
+                            "DDGI validated work changed during publication"
+                        );
+                        runtime
+                            .complete_transport_work(work, field, token)
+                            .expect(
+                                "validated DDGI scheduler completion must not fail after consumers publish",
+                            );
+                        let capture_observed = runtime.observe_capture_checkpoint(
+                            token,
+                            field,
+                            stats,
+                            DdgiCapturePublication::Published,
+                        );
+                        (field, capture_observed, generation)
+                    },
+                )?;
+                match transaction {
+                    PublicationTransactionOutcome::Published {
+                        committed: (field, capture_observed, generation),
+                        ..
+                    } => {
+                        consumer_descriptor_generation = Some(generation);
+                        (field, capture_observed)
+                    }
+                    PublicationTransactionOutcome::Idle
+                    | PublicationTransactionOutcome::Discarded(_) => {
+                        unreachable!("active DDGI field must execute a publication transaction")
+                    }
+                }
+            } else {
+                let validated = self.volumes_mut().builder_mut().mark_atlas_validated(
+                    identity,
+                    stats,
+                    DDGI_CONVERGENCE_POLICY,
+                )?;
+                let (validated_work, field) = match validated {
+                    DdgiValidatedIterationOutcome::Published { work, field, .. }
+                    | DdgiValidatedIterationOutcome::Converged { work, field, .. } => (work, field),
+                };
+                assert_eq!(
+                    field, classified,
+                    "private DDGI atlas classification changed during publication"
+                );
+                assert_eq!(
+                    validated_work, work,
+                    "private DDGI validated work changed during publication"
+                );
+                self.complete_transport_work(work, field, build_token)
+                    .expect(
+                    "validated private DDGI scheduler completion must not fail after field commit",
+                );
+                let capture_observed = self.observe_capture_checkpoint(
+                    build_token,
+                    field,
+                    stats,
+                    DdgiCapturePublication::Published,
+                );
+                (field, capture_observed)
+            };
+            capture_observed = observed_capture;
             atlas_validation = Some(stats);
             published = Some((work, field));
         }
@@ -1070,6 +1188,7 @@ impl DdgiRuntime {
             status: after.into(),
             atlas_validation,
             published,
+            consumer_descriptor_generation,
             capture_observed,
         })
     }
@@ -1397,6 +1516,122 @@ mod tests {
             None,
         )
         .unwrap()
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct FakePublicationState {
+        active: &'static str,
+        staging: &'static str,
+        logical: &'static str,
+        commit_calls: usize,
+    }
+
+    fn fake_publication_state() -> FakePublicationState {
+        FakePublicationState {
+            active: "old-active",
+            staging: "ready-staging",
+            logical: "old-logical",
+            commit_calls: 0,
+        }
+    }
+
+    #[test]
+    fn publication_transaction_idle_and_discard_call_neither_phase() {
+        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
+        for disposition in [
+            PublicationDisposition::Idle,
+            PublicationDisposition::Discard(token),
+        ] {
+            let mut state = fake_publication_state();
+            let publish_calls = std::cell::Cell::new(0);
+            execute_publication_transaction(
+                &mut state,
+                disposition,
+                |_, _| {
+                    publish_calls.set(publish_calls.get() + 1);
+                    Ok(())
+                },
+                |state, _, ()| state.commit_calls += 1,
+            )
+            .unwrap();
+            assert_eq!(publish_calls.get(), 0);
+            assert_eq!(state.commit_calls, 0);
+        }
+    }
+
+    #[test]
+    fn publication_transaction_error_preserves_state_and_skips_commit() {
+        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
+        let mut state = fake_publication_state();
+        let before = state.clone();
+        let publish_calls = std::cell::Cell::new(0);
+        let error = execute_publication_transaction(
+            &mut state,
+            PublicationDisposition::Publish(token),
+            |state, _| -> Result<()> {
+                assert_eq!(state.active, "old-active");
+                publish_calls.set(publish_calls.get() + 1);
+                anyhow::bail!("injected consumer preflight failure")
+            },
+            |state, _, ()| state.commit_calls += 1,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("injected consumer preflight failure"));
+        assert_eq!(state, before);
+        assert_eq!(state.commit_calls, 0);
+        assert_eq!(publish_calls.get(), 1);
+    }
+
+    #[test]
+    fn publication_transaction_publishes_once_before_commit_and_returns_old_active() {
+        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
+        let mut state = fake_publication_state();
+        let publish_calls = std::cell::Cell::new(0);
+        let generation = std::cell::Cell::new(41_u64);
+        let events = std::cell::RefCell::new(Vec::new());
+        let outcome = execute_publication_transaction(
+            &mut state,
+            PublicationDisposition::Publish(token),
+            |state, _| {
+                assert_eq!(state.active, "old-active");
+                assert_eq!(state.logical, "old-logical");
+                publish_calls.set(publish_calls.get() + 1);
+                events.borrow_mut().push("publish-consumers");
+                let published_generation = generation.get();
+                generation.set(published_generation + 1);
+                Ok(published_generation)
+            },
+            |state, _, generation| {
+                assert_eq!(generation, 41);
+                state.commit_calls += 1;
+                let retired = std::mem::replace(&mut state.active, state.staging);
+                events.borrow_mut().push("physical-swap");
+                state.logical = "promoted-logical";
+                events.borrow_mut().push("logical-promotion");
+                retired
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            outcome,
+            PublicationTransactionOutcome::Published {
+                committed: "old-active",
+                ..
+            }
+        ));
+        assert_eq!(publish_calls.get(), 1);
+        assert_eq!(state.commit_calls, 1);
+        assert_eq!(state.active, "ready-staging");
+        assert_eq!(state.logical, "promoted-logical");
+        assert_eq!(generation.get(), 42);
+        assert_eq!(
+            *events.borrow(),
+            ["publish-consumers", "physical-swap", "logical-promotion"]
+        );
     }
 
     fn lighting_snapshot(sun_luminance: f32) -> DdgiRadianceSnapshot {

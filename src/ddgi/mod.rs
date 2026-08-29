@@ -59,6 +59,7 @@ pub use config::{
 };
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
+pub(crate) use resources::DdgiConsumerResources;
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
@@ -68,7 +69,7 @@ pub use resources::{
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
-    DdgiVolumePublication,
+    DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};

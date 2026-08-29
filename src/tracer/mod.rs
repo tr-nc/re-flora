@@ -93,7 +93,7 @@ use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
     DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
     DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
-    DdgiTraceStats, DdgiVolume, DdgiVolumePublication, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -907,7 +907,6 @@ pub struct Tracer {
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
-    prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
@@ -1160,7 +1159,6 @@ impl Tracer {
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
-            prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
             ddgi_local_light_gpu_evidence_complete: None,
@@ -1246,11 +1244,6 @@ impl Tracer {
             None,
             descriptor_generation,
         );
-        // Prepare the consumer generation while this volume is still private. The descriptor
-        // writes and owner copies are paid during staging setup; promotion only swaps the already
-        // complete sets into the active pipelines and schedules the old generation for retirement.
-        self.prepared_ddgi_consumer_descriptors =
-            Some(self.pipeline_topology.prepare_ddgi_consumers(staging));
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
         if let Some(retired_staging) = retired_staging {
@@ -1792,61 +1785,44 @@ impl Tracer {
         ]
     }
 
-    fn promote_ready_ddgi_staging(&mut self) {
-        let Some(publication) = self.ddgi_runtime.pending_volume_publication() else {
-            return;
-        };
-        let build_token = publication.token();
-        if matches!(publication, DdgiVolumePublication::DiscardObsolete(_)) {
-            log::info!(
-                "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
-                build_token.serial(),
-                build_token.kind(),
-                build_token.terrain_revision(),
-                build_token.spacing_voxels(),
-                self.ddgi_runtime.refresh_state(),
-            );
-            let retired = self
-                .ddgi_runtime
-                .finish_volume_publication(publication, Ok(()))
-                .expect("obsolete DDGI staging completion must settle");
-            assert!(
-                retired.is_none(),
-                "obsolete DDGI staging must not retire Active"
-            );
-            self.prepared_ddgi_consumer_descriptors = None;
-            return;
-        }
-
+    fn promote_ready_ddgi_staging(&mut self) -> Result<()> {
         // Previous frames may still sample the active volume. Publish a new descriptor generation
         // and keep the old generation/resource owners on the frame-completion retirement clock
         // while the frame's shading constants move to the complete staging volume.
         let publication_started = Instant::now();
-        let descriptor_generation = self.next_descriptor_generation();
-        let prepared = self
-            .prepared_ddgi_consumer_descriptors
-            .take()
-            .filter(|prepared| prepared.token_serial() == build_token.serial());
-        if let Some(prepared) = prepared {
-            self.pipeline_topology.publish_ddgi_consumers(
-                build_token.serial(),
-                descriptor_generation,
-                prepared,
-            );
-        } else {
-            let builder = self.ddgi_runtime.volumes().builder();
-            self.pipeline_topology.update_ddgi_consumers(
-                build_token.serial(),
-                builder,
-                descriptor_generation,
-            );
-        }
-        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
-        let retired_active = self
-            .ddgi_runtime
-            .finish_volume_publication(publication, Ok(()))
-            .expect("ready DDGI staging Volume publication must settle")
-            .expect("promoted DDGI staging Volume must retire Active");
+        let mut descriptor_generation = None;
+        let mut descriptor_rebind_ms = 0.0;
+        let publication = {
+            let topology = &self.pipeline_topology;
+            let next_generation = &mut self.descriptor_generation;
+            self.ddgi_runtime.publish_ready_volume(|resources| {
+                descriptor_generation =
+                    Some(topology.publish_ddgi_consumers(resources, next_generation)?);
+                descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
+                Ok(())
+            })
+        };
+        let (build_token, retired_active) = match publication {
+            Ok(DdgiVolumePublishOutcome::Idle) => return Ok(()),
+            Ok(DdgiVolumePublishOutcome::DiscardedObsolete(build_token)) => {
+                log::info!(
+                    "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
+                    build_token.serial(),
+                    build_token.kind(),
+                    build_token.terrain_revision(),
+                    build_token.spacing_voxels(),
+                    self.ddgi_runtime.refresh_state(),
+                );
+                return Ok(());
+            }
+            Ok(DdgiVolumePublishOutcome::Published {
+                token,
+                retired_active,
+            }) => (token, retired_active),
+            Err(error) => return Err(error.context("publish ready DDGI staging Volume")),
+        };
+        let descriptor_generation = descriptor_generation
+            .expect("published DDGI Volume must expose its descriptor generation");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         let active = self.ddgi_runtime.status().active();
@@ -1898,7 +1874,12 @@ impl Tracer {
             published_key.update_epoch(),
             published.source(),
         );
-        drop(retired_active);
+        self.frame_retirement_sink.retire(FrameRetirement::new(
+            "ddgi.active.volume",
+            descriptor_generation,
+            retired_active,
+        ));
+        Ok(())
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -2043,7 +2024,7 @@ impl Tracer {
         terrain_edit_preview_color: Vec3,
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
-        self.promote_ready_ddgi_staging();
+        self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
@@ -2482,7 +2463,14 @@ impl Tracer {
         }
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let completion = self.ddgi_runtime.complete_pending_batch(batch)?;
+            let completion = {
+                let topology = &self.pipeline_topology;
+                let next_generation = &mut self.descriptor_generation;
+                self.ddgi_runtime
+                    .complete_pending_batch(batch, |resources| {
+                        topology.publish_ddgi_consumers(resources, next_generation)
+                    })?
+            };
             if completion.is_stale() {
                 log::warn!(
                     "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
@@ -2599,19 +2587,7 @@ impl Tracer {
                             field.field().update_epoch(),
                         );
                     }
-                    if self.ddgi_runtime.volumes().builder_is_active() {
-                        let descriptor_generation = self.next_descriptor_generation();
-                        let builder = self.ddgi_runtime.volumes().builder();
-                        let token_serial = builder
-                            .status()
-                            .build_token
-                            .expect("published DDGI builder must retain its build token")
-                            .serial();
-                        self.pipeline_topology.update_ddgi_consumers(
-                            token_serial,
-                            builder,
-                            descriptor_generation,
-                        );
+                    if let Some(descriptor_generation) = completion.consumer_descriptor_generation {
                         let slot = self
                             .ddgi_runtime
                             .volumes()
@@ -2620,7 +2596,7 @@ impl Tracer {
                             .expect("validated DDGI field must be resident");
                         let key = field.field();
                         log::debug!(
-                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
+                            "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?} descriptor_generation={}",
                                     slot,
                                     key.state(),
                                     key.update_epoch(),
@@ -2629,6 +2605,7 @@ impl Tracer {
                                     key.radiance_revision(),
                                     key.spacing_voxels(),
                                     field.source(),
+                                    descriptor_generation,
                                 );
                         log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
