@@ -31,6 +31,9 @@ pub use canopy_audio_telemetry::{
 mod local_player_footsteps;
 pub use local_player_footsteps::LocalPlayerFootstepAudio;
 
+mod spatial_frame;
+pub(crate) use spatial_frame::{SpatialFrame, SpatialFrameFacts};
+
 mod spatial_sound_manager;
 pub use spatial_sound_manager::{SpatialAcousticTelemetryEvent, SpatialSoundManager};
 
