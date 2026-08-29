@@ -299,7 +299,7 @@ impl TerrainConnectivityBench {
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
         if app
             .terrain_connectivity
-            .take_edit_region(world_dim)
+            .take_player_release(world_dim)
             .is_none()
         {
             return Ok(());
@@ -801,11 +801,12 @@ fn run_release_event(
     let total_started = Instant::now();
     let revision_before = app.visible_terrain_revision;
     app.terrain_connectivity = TerrainConnectivityRuntime::default();
-    app.terrain_connectivity.record_edit(fixture_edit_bound());
+    app.terrain_connectivity
+        .observe_player_publication(fixture_edit_bound(), true);
 
     if mode == TerrainConnectivityBenchMode::Existing {
         let current_started = Instant::now();
-        app.resolve_detached_terrain_after_edit()?;
+        app.finish_player_terrain_connectivity_hold()?;
         return Ok(EventStages {
             total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
             current_path_us: current_started.elapsed().as_secs_f64() * 1_000_000.0,
@@ -816,10 +817,13 @@ fn run_release_event(
     }
 
     let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-    let (edited, block) = app
+    let TerrainConnectivityRequest::PlayerEdit { edited, block } = app
         .terrain_connectivity
-        .take_edit_region(world_dim)
-        .context("bench edit region disappeared")?;
+        .take_player_release(world_dim)
+        .context("bench edit region disappeared")?
+    else {
+        anyhow::bail!("bench expected a player-edit connectivity request");
+    };
     let primary_started = Instant::now();
     let atlas_voxels = app
         .plain_builder
@@ -864,7 +868,12 @@ fn run_release_event(
     let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
 
     let invalidation_started = Instant::now();
-    clear_detached_voxels(&mut app.plain_builder, world_dim, &component.voxels)?;
+    for (origin, dim, data) in
+        prepare_detached_voxel_clear(&mut app.plain_builder, world_dim, &component.voxels)?
+    {
+        app.plain_builder
+            .write_chunk_atlas_region(origin, dim, &data)?;
+    }
     let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
 
     let publication_started = Instant::now();

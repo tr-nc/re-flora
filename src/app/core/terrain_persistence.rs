@@ -364,6 +364,7 @@ impl App {
             )])?
             .context("snapshot replacement has no visible terrain chunks")?;
         self.publish_visible_terrain(change)?;
+        self.reconcile_loaded_terrain_publication()?;
 
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(

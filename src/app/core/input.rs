@@ -362,7 +362,7 @@ impl App {
     pub(super) fn refresh_terrain_edit_hold_from_mouse_buttons(&mut self) {
         if !self.player_tools.finish_pointer_release() {
             self.stop_terrain_edit_loop_sound();
-            if let Err(err) = self.resolve_detached_terrain_after_edit() {
+            if let Err(err) = self.finish_player_terrain_connectivity_hold() {
                 log::error!("Failed to resolve detached terrain after edit release: {err:#}");
             }
         }
