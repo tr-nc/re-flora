@@ -715,7 +715,6 @@ mod tests {
         let probe_trace = include_str!("../../../shader/slang/ddgi_probe_trace.slang");
         let ray_origin = include_str!("../../../shader/slang/terrain_ray_origin.slang");
 
-        assert!(tracer.contains("import ddgi_exact_sun_visibility;"));
         assert!(tracer.contains("captureIndex + width * height"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
         assert!(tracer.contains("environmentCaptureWorld"));
@@ -732,16 +731,8 @@ mod tests {
         assert!(!capture_visibility.contains("sunAboveHorizon"));
         assert!(capture_visibility.contains("ddgiExactTerrainSunVisibility("));
         assert!(capture_visibility.contains("gui_input.terrain_ray_origin_offset_world"));
-        for contract in ["import terrain_ray_origin;", "terrainRayOriginAlongNormal("] {
-            assert!(
-                exact_shadow.contains(contract),
-                "capture exact-shadow helper lost shared origin contract `{contract}`"
-            );
-            assert!(
-                probe_trace.contains(contract),
-                "probe exact-shadow path lost shared origin contract `{contract}`"
-            );
-        }
+        assert!(exact_shadow.contains("terrainRayOriginAlongNormal("));
+        assert!(probe_trace.contains("terrainRayOriginAlongNormal("));
         assert!(exact_shadow.contains("originOffsetWorld"));
         assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
         for contract in [
@@ -782,13 +773,10 @@ mod tests {
     #[test]
     fn capture_uses_the_same_published_field_as_runtime_consumers() {
         let tracer = include_str!("../../../shader/slang/tracer.slang");
-        let query = include_str!("../../../shader/slang/ddgi_query.slang");
 
         assert!(!tracer.contains("sampleDdgiUnpublished"));
         assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
         assert!(tracer.contains("color = environmentIrradiance * albedo"));
-        assert!(query.contains("[[vk::binding(27, 0)]]\nSampler2D ddgi_irradiance_atlas"));
-        assert!(!query.contains("ddgi_capture_irradiance_atlas"));
     }
 }

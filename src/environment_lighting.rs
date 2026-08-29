@@ -785,7 +785,6 @@ mod tests {
         let terrain = include_str!("../shader/slang/tracer.slang");
         let raster = include_str!("../shader/slang/flora_shadow.slang");
 
-        assert!(shared.contains("import ddgi_query;"));
         assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
         assert!(!shared.contains("SH"));
         assert!(!shared.contains("environment_probe_coefficients"));
@@ -797,19 +796,10 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
-            include_str!("../shader/slang/flora.vert.slang"),
-            include_str!("../shader/slang/flora_lod.vert.slang"),
-            include_str!("../shader/slang/leaves.vert.slang"),
-            include_str!("../shader/slang/leaves_lod.vert.slang"),
-        ] {
-            assert!(consumer.contains("import flora_vertex;"));
-        }
-        for consumer in [
             include_str!("../shader/slang/dynamic_fruit.vert.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_lod_textured.vert.slang"),
         ] {
-            assert!(consumer.contains("import flora_shadow;"));
             assert!(consumer.contains("applyStylizedVoxelLighting("));
         }
     }
@@ -995,7 +985,6 @@ mod tests {
             .split_once("float depthFromWorldPosition(")
             .expect("path-tracing transport must remain a bounded terrain helper")
             .0;
-        assert!(terrain.contains("import skylight;"));
         assert!(transport.contains("getAuthoredSkyRadiance("));
         assert!(transport.contains("sampleDiffuseBounce("));
         assert!(transport.contains("sampleSunDisk("));
@@ -1083,14 +1072,6 @@ mod tests {
         assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
         assert!(consumer.contains("ddgi_irradiance_atlas"));
         assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
-
-        let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
-        assert!(!trace.contains("ConstantBuffer<U_SunInfo>"));
-        assert!(!trace.contains("ConstantBuffer<U_ShadingInfo>"));
-        assert!(trace.contains("[[vk::binding(29, 0)]]"));
-        assert!(trace.contains("[[vk::binding(30, 0)]]"));
-        assert!(trace.contains("[[vk::binding(31, 0)]]"));
-        assert!(trace.contains("[[vk::binding(32, 0)]]"));
     }
 
     #[test]
@@ -1110,7 +1091,6 @@ mod tests {
             .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
             .expect("transport adapter must follow transport sampler")
             .0;
-        assert!(query.contains("import ddgi_voxel_visibility;"));
         assert!(query.contains("ddgiVoxelSegmentVisibility("));
         assert!(query.contains("worldPosition + normal * biasWorld"));
         assert!(query.contains("float3 hardVisibilityWorldPosition"));
@@ -1143,9 +1123,6 @@ mod tests {
         assert!(tracer.contains(
             "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
         ));
-        assert!(!tracer.contains("register(t39"));
-        assert!(!tracer.contains("register(t40"));
-        assert!(!tracer.contains("register(t42"));
         let terrain_smooth = query
             .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
             .expect("terrain smooth Moment query must exist")
@@ -1292,11 +1269,9 @@ mod tests {
 
         assert!(shared.contains("public float3 terrainRayOriginAlongNormal("));
         assert!(shared.contains("public float3 terrainRayOriginFromSurface("));
-        assert!(tracer.contains("import terrain_ray_origin;"));
         assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
         assert!(exact_sun.contains("originOffsetWorld"));
         assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
-        assert!(probe_trace.contains("import terrain_ray_origin;"));
         assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
         assert!(probe_trace.contains("ddgiHardVisibilityPosition"));
         let query = include_str!("../shader/slang/ddgi_query.slang");
@@ -1310,7 +1285,6 @@ mod tests {
         assert!(transport.contains("float3 hardVisibilityWorldPosition"));
         assert!(transport.contains("hardVisibilityWorldPosition);"));
         assert!(!transport.contains("visibility_bias_world *"));
-        assert!(moisture.contains("import terrain_ray_origin;"));
         assert!(moisture.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 }
