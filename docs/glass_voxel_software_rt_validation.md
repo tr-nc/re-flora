@@ -168,6 +168,46 @@ window, and 63 baseline versus 62 candidate post-warm-up samples:
 All existing 5% incremental gates pass. Evidence is under
 `target/perf-glass-depth-linear-ab-v4/` and `target/glass-r12-diagnosis/`.
 
+## Distance anti-aliasing and opaque foreground preservation
+
+The user-authored `moore` snapshot exposed stable spatial moire bands once a visible Glass voxel
+projected below one internal render pixel. This was not temporal noise or a cache race: repeated
+Release captures were stable. The cache previously enabled its symmetric two-point face prefilter
+only above a one-pixel footprint, leaving distant cells to sample sharp secondary visibility with
+one center ray. The resulting one-color-per-voxel signal was undersampled by the final raster.
+
+Commit `69ba96a2` removes the projected-footprint cutoff. Every single-face interface now averages
+the same two deterministic, symmetric face samples before publishing one geometric normal and one
+transport color for the voxel. Both Fresnel branches are still evaluated for each sample; there is
+no jitter, temporal accumulation, output blur, or resolution reduction. Edge/corner events retain
+their exact event ray because they do not own one rectangular face.
+
+At the fixed 2880x1620 `moore` capture, sampled at the 1440x810 internal pixel cadence, the fraction
+of adjacent affected samples with an RGB L1 jump above 72 fell from 9.685% (685 edges) to 3.839%
+(199 edges). Mean affected-neighbor RGB L1 delta fell from 17.384 to 7.128. The visible colored
+bands disappear while the stored color remains constant inside each Glass voxel.
+
+The retained `r1` snapshot also isolated the opaque amber sentinel in front of Glass. A matched
+Glass-on/Glass-off Release comparison found the same 103,184 amber foreground pixels with an empty
+mask symmetric difference. Thus Glass does not replace or lower the foreground object's geometry.
+The visible two-output-pixel stair steps are the renderer's existing global 0.5x internal render
+extent followed by nearest-neighbor upscale; the Glass change neither enlarges nor blurs them.
+
+An RTX 3060 Ti Release A,B,B,A comparison used the fixed 25% Glass workload and a 30-second sample
+window. Each pooled side contains 70 post-warm-up samples:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 23.948 / 24.193 ms | 23.800 / 24.088 ms | -0.62% / -0.44% | pass |
+| `tracer.render` | 14.932 / 15.087 ms | 14.905 / 15.057 ms | -0.18% / -0.20% | pass |
+| `tracer.pass` | 8.856 / 8.900 ms | 8.822 / 8.879 ms | -0.38% / -0.24% | pass |
+| `glass.resolve` | 4.614 / 4.748 ms | 4.624 / 4.760 ms | +0.22% / +0.25% | pass |
+
+All existing 5% incremental gates pass. The fixed 25% acceptance capture measured 23.469% coverage,
+35,139 foreground pixels, 181,177 screen hits, zero query-budget fallback, zero exhaustion, and zero
+non-finite pixels. Evidence is under `target/perf-glass-moire-ab/` and
+`target/glass-moore-diagnosis/`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 12,800,000 bytes (12.21 MiB), or 32 bytes per
