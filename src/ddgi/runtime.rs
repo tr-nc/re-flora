@@ -55,6 +55,23 @@ pub(crate) struct DdgiFramePlan {
     pub iteration_will_complete: bool,
 }
 
+/// Stable identity and physical DDGI work for one frame recording transaction.
+///
+/// This capsule contains no Vulkan types. The concrete Tracer encoder consumes it once and the
+/// runtime settles the complete encoding result once; callers cannot advance individual Volume
+/// stages or re-plan between passes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiFrameWork {
+    serial: u64,
+    plan: DdgiFramePlan,
+}
+
+impl DdgiFrameWork {
+    pub(crate) fn plan(self) -> DdgiFramePlan {
+        self.plan
+    }
+}
+
 /// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
 /// harnesses. Physical atlas status remains separately available through `DdgiRuntimeStatus`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -131,6 +148,8 @@ pub(crate) struct DdgiRuntime {
     capture_batch_order: DdgiBatchOrder,
     capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     resident_active_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
+    next_frame_work_serial: u64,
+    pending_frame_work: Option<DdgiFrameWork>,
 }
 
 impl DdgiRuntime {
@@ -157,6 +176,8 @@ impl DdgiRuntime {
             capture_batch_order: DdgiBatchOrder::default(),
             capture_checkpoint: None,
             resident_active_capture_checkpoint: None,
+            next_frame_work_serial: 1,
+            pending_frame_work: None,
         }
     }
 
@@ -616,49 +637,79 @@ impl DdgiRuntime {
         self.live_authored_lighting
     }
 
+    #[cfg(test)]
     pub(crate) fn in_flight_authored_lighting(&self) -> Option<EnvironmentLightingState> {
         self.in_flight_authored_lighting
     }
 
-    /// Selects all DDGI logical work for the current frame without exposing physical atlas
-    /// ownership to the caller that records Vulkan commands.
-    pub(crate) fn frame_plan(&self) -> DdgiFramePlan {
+    /// Latches immutable lighting and selects the complete physical DDGI sequence once per frame.
+    pub(crate) fn begin_frame_work(&mut self) -> Result<DdgiFrameWork> {
+        anyhow::ensure!(
+            self.pending_frame_work.is_none(),
+            "DDGI frame work must be settled before another frame begins"
+        );
         let builder = self.volumes().builder();
-        let ray_batch = builder.next_ray_batch_to_trace();
-        DdgiFramePlan {
+        let lighting_to_latch = self
+            .in_flight_authored_lighting
+            .filter(|lighting| builder.should_latch_radiance_snapshot(lighting.revision));
+        if let Some(lighting) = lighting_to_latch {
+            self.volumes_mut()
+                .builder_mut()
+                .latch_radiance_snapshot(lighting.revision, lighting.snapshot)?;
+        }
+
+        let builder = self.volumes().builder();
+        let ray_batch = builder.projected_ray_batch_after_preparation();
+        let plan = DdgiFramePlan {
             global_sky_needs_update: builder.global_sky_needs_update(),
             relocation_terrain_revision: builder.pending_relocation_terrain_revision(),
             visibility_preservation_needed: builder.visibility_preservation_needed(),
             iteration_will_complete: ray_batch
-                .is_some_and(|batch| builder.iteration_will_complete(batch)),
+                .is_some_and(|batch| builder.projected_iteration_will_complete(batch)),
             ray_batch,
+        };
+        let work = DdgiFrameWork {
+            serial: self.next_frame_work_serial,
+            plan,
+        };
+        self.next_frame_work_serial = self.next_frame_work_serial.saturating_add(1);
+        self.pending_frame_work = Some(work);
+        Ok(work)
+    }
+
+    /// Settles all physical pass completions, or the single encoding failure, through one seam.
+    pub(crate) fn finish_frame_work(
+        &mut self,
+        work: DdgiFrameWork,
+        outcome: Result<()>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.pending_frame_work == Some(work),
+            "stale or out-of-order DDGI frame work completion"
+        );
+        self.pending_frame_work = None;
+        outcome?;
+
+        let builder = self.volumes_mut().builder_mut();
+        let plan = work.plan;
+        if plan.global_sky_needs_update {
+            let revision = builder
+                .status()
+                .radiance_revision
+                .expect("a DDGI global-sky pass requires a latched radiance snapshot");
+            builder.mark_global_sky_ready(revision)?;
         }
-    }
-
-    pub(crate) fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
-        self.volumes_mut()
-            .builder_mut()
-            .mark_global_sky_ready(environment_revision)
-    }
-
-    pub(crate) fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
-        self.volumes_mut()
-            .builder_mut()
-            .mark_relocated(terrain_revision)
-    }
-
-    pub(crate) fn mark_visibility_preserved(&mut self) {
-        self.volumes_mut().builder_mut().mark_visibility_preserved();
-    }
-
-    pub(crate) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
-        self.volumes_mut().builder_mut().mark_ray_batch_ready(batch);
-    }
-
-    pub(crate) fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
-        self.volumes_mut()
-            .builder_mut()
-            .mark_ray_batch_filtered(batch);
+        if let Some(terrain_revision) = plan.relocation_terrain_revision {
+            builder.mark_relocated(terrain_revision)?;
+        }
+        if plan.visibility_preservation_needed {
+            builder.mark_visibility_preserved();
+        }
+        if let Some(batch) = plan.ray_batch {
+            builder.mark_ray_batch_ready(batch);
+            builder.mark_ray_batch_filtered(batch);
+        }
+        Ok(())
     }
 }
 
@@ -1172,6 +1223,47 @@ mod tests {
         assert_eq!(build.token().spacing_voxels(), 32);
         assert_eq!(runtime.refresh_state(), DdgiRefreshState::Idle);
         assert_eq!(runtime.invalidation_voxel_bound(), None);
+    }
+
+    #[test]
+    fn frame_work_identity_is_stable_and_failure_settles_through_runtime_interface() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        let plan = DdgiFramePlan {
+            global_sky_needs_update: true,
+            relocation_terrain_revision: Some(7),
+            visibility_preservation_needed: true,
+            ray_batch: None,
+            iteration_will_complete: false,
+        };
+        let work = DdgiFrameWork { serial: 41, plan };
+        runtime.pending_frame_work = Some(work);
+
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+        runtime.observe_visible_terrain(8, edit_bound(200, 220));
+        assert_eq!(
+            work.plan(),
+            plan,
+            "queued facts must not rewrite a frame capsule"
+        );
+
+        let error = runtime
+            .finish_frame_work(
+                work,
+                Err(anyhow::anyhow!("injected Vulkan encoding failure")),
+            )
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("injected Vulkan encoding failure"));
+        assert_eq!(runtime.pending_frame_work, None);
+
+        let stale = runtime
+            .finish_frame_work(work, Ok(()))
+            .expect_err("one frame capsule must settle at most once");
+        assert!(stale
+            .to_string()
+            .contains("stale or out-of-order DDGI frame work completion"));
     }
 
     #[test]

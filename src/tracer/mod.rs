@@ -3657,6 +3657,9 @@ impl Tracer {
 
         self.start_next_ddgi_scheduled_work()?;
 
+        let ddgi_frame_work = self.ddgi_runtime.begin_frame_work()?;
+        let ddgi_frame_plan = ddgi_frame_work.plan();
+
         self.graphics_pipelines
             .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
@@ -3695,27 +3698,7 @@ impl Tracer {
             );
         }
 
-        if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
-            let revision = lighting.revision;
-            if self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .should_latch_radiance_snapshot(revision)
-            {
-                self.ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .latch_radiance_snapshot(revision, lighting.snapshot)?;
-                log::info!(
-                    "[DDGI] radiance snapshot latched revision={} stage={:?}",
-                    revision,
-                    self.ddgi_runtime.volumes().status().builder().stage,
-                );
-            }
-        }
-
-        if self.ddgi_runtime.frame_plan().global_sky_needs_update {
+        if ddgi_frame_plan.global_sky_needs_update {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3730,28 +3713,9 @@ impl Tracer {
                 "ddgi.global_sky_gutter",
                 || self.record_ddgi_global_sky_gutter_pass(cmdbuf),
             );
-            let environment_revision = self
-                .ddgi_runtime
-                .volumes()
-                .status()
-                .builder()
-                .radiance_revision
-                .expect("a DDGI global-sky pass requires a latched radiance snapshot");
-            self.ddgi_runtime
-                .mark_global_sky_ready(environment_revision)?;
-            let status = self.ddgi_runtime.volumes().status().builder();
-            log::info!(
-                "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
-                environment_revision,
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-                DDGI_IRRADIANCE_STORED_SIDE,
-                DDGI_IRRADIANCE_STORED_SIDE,
-                status.stage,
-            );
         }
 
-        let ddgi_relocation_revision = self.ddgi_runtime.frame_plan().relocation_terrain_revision;
+        let ddgi_relocation_revision = ddgi_frame_plan.relocation_terrain_revision;
         if let Some(terrain_revision) = ddgi_relocation_revision {
             let volume = self.ddgi_runtime.volumes().builder();
             volume.ddgi_relocation_stats.record_fill(
@@ -3770,25 +3734,9 @@ impl Tracer {
             let volume = self.ddgi_runtime.volumes().builder();
             volume.record_relocation_stats_readback(cmdbuf);
             self.ddgi_relocation_stats_readback_pending = true;
-            self.ddgi_runtime.mark_relocated(terrain_revision)?;
-            let status = self.ddgi_runtime.volumes().status().builder();
-            log::info!(
-                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels={} local_search_radius_voxels={} stage={:?}",
-                terrain_revision,
-                status.grid.probe_count(),
-                status.grid.spacing_voxels(),
-                status.grid.spacing_voxels() / 2,
-                (status.grid.spacing_voxels() / 4).max(1),
-                (status.grid.spacing_voxels() / 4).max(1),
-                status.stage,
-            );
         }
 
-        if self
-            .ddgi_runtime
-            .frame_plan()
-            .visibility_preservation_needed
-        {
+        if ddgi_frame_plan.visibility_preservation_needed {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3801,27 +3749,8 @@ impl Tracer {
                         .record_visibility_preservation(cmdbuf)
                 },
             );
-            self.ddgi_runtime.mark_visibility_preserved();
-            log::debug!(
-                "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .builder()
-                    .scheduled_work
-                    .expect("visibility preservation requires scheduled work")
-                    .destination()
-                    .field()
-                    .geometry_revision(),
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .builder()
-                    .radiance_revision,
-            );
         }
 
-        let ddgi_frame_plan = self.ddgi_runtime.frame_plan();
         let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
         if let Some(batch) = ddgi_ray_batch {
             let iteration_will_complete = ddgi_frame_plan.iteration_will_complete;
@@ -3849,8 +3778,6 @@ impl Tracer {
                 "ddgi.probe_trace",
                 || self.record_ddgi_probe_trace_pass(cmdbuf, batch),
             );
-            self.ddgi_runtime.mark_ray_batch_ready(batch);
-
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3892,22 +3819,60 @@ impl Tracer {
                 volume.record_atlas_reduction_readback(cmdbuf);
             }
             self.ddgi_trace_stats_readback_pending = Some(batch);
+        }
 
-            self.ddgi_runtime.mark_ray_batch_filtered(batch);
-            let status = self.ddgi_runtime.volumes().status().builder();
-            if status.filtered_probe_count == batch.probe_count
-                || status.filtered_probe_count == status.grid.probe_count()
-                || status.filtered_probe_count.is_multiple_of(1_024)
+        self.ddgi_runtime
+            .finish_frame_work(ddgi_frame_work, Ok(()))?;
+        let ddgi_status = self.ddgi_runtime.volumes().status().builder();
+        if ddgi_frame_plan.global_sky_needs_update {
+            log::info!(
+                "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
+                ddgi_status.radiance_revision.expect("completed global sky work must retain its radiance revision"),
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_STORED_SIDE,
+                DDGI_IRRADIANCE_STORED_SIDE,
+                ddgi_status.stage,
+            );
+        }
+        if let Some(terrain_revision) = ddgi_relocation_revision {
+            log::info!(
+                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels={} local_search_radius_voxels={} stage={:?}",
+                terrain_revision,
+                ddgi_status.grid.probe_count(),
+                ddgi_status.grid.spacing_voxels(),
+                ddgi_status.grid.spacing_voxels() / 2,
+                (ddgi_status.grid.spacing_voxels() / 4).max(1),
+                (ddgi_status.grid.spacing_voxels() / 4).max(1),
+                ddgi_status.stage,
+            );
+        }
+        if ddgi_frame_plan.visibility_preservation_needed {
+            log::debug!(
+                "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
+                ddgi_status
+                    .scheduled_work
+                    .expect("visibility preservation requires scheduled work")
+                    .destination()
+                    .field()
+                    .geometry_revision(),
+                ddgi_status.radiance_revision,
+            );
+        }
+        if let Some(batch) = ddgi_ray_batch {
+            if ddgi_status.filtered_probe_count == batch.probe_count
+                || ddgi_status.filtered_probe_count == ddgi_status.grid.probe_count()
+                || ddgi_status.filtered_probe_count.is_multiple_of(1_024)
             {
                 log::debug!(
                     "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} priority={:?} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
-                    status.filtered_probe_count,
-                    status.grid.probe_count(),
+                    ddgi_status.filtered_probe_count,
+                    ddgi_status.grid.probe_count(),
                     batch.geometry_revision(),
-                    status.build_token.map(DdgiBuildToken::serial),
+                    ddgi_status.build_token.map(DdgiBuildToken::serial),
                     batch.radiance_revision(),
                     batch.spacing_voxels(),
                     batch.state(),
@@ -3918,8 +3883,8 @@ impl Tracer {
                     batch.irradiance_history_retention(self.ddgi_history_retention),
                     batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),
-                    iteration_will_complete,
-                    status.stage,
+                    ddgi_frame_plan.iteration_will_complete,
+                    ddgi_status.stage,
                 );
             }
         }
