@@ -71,7 +71,11 @@ static const uint GLASS_FALLBACK_FOREGROUND = 7u;
 static const uint GLASS_FALLBACK_EXHAUSTED = 8u;
 static const uint GLASS_FALLBACK_QUERY_BUDGET = 9u;
 
-static const float GLASS_DEPTH_TOLERANCE = 0.003;
+// Screen-space ray intersection thickness is expressed in linear camera-space world units.
+// A fixed NDC tolerance grows into an arbitrarily large world-space slab with distance and can
+// therefore erase real foreground/background ordering.
+static const float GLASS_SCREEN_TRACE_THICKNESS_WORLD = 2.0 / 256.0;
+static const uint GLASS_DEPTH_ORDER_ULPS = 4u;
 static const uint GLASS_SCREEN_TRACE_MAX_STEPS = 256u;
 static const uint GLASS_VOXEL_CACHE_BUILD_PASS = 0u;
 static const uint GLASS_VOXEL_CACHE_SHADE_PASS = 1u;
@@ -251,6 +255,19 @@ float3 glassVoxelFallback(SceneQueryEvent event)
     return ambient + direct + voxelSurfaceEmission(voxel_colors, event.to_voxel_type);
 }
 
+float glassCameraDepthFromNdc(float depth)
+{
+    float4 viewPosition = mul(
+        camera_info.proj_mat_inv, float4(0.0, 0.0, depth, 1.0));
+    return -viewPosition.z / viewPosition.w;
+}
+
+bool glassDepthPrecedes(float nearerDepth, float fartherDepth)
+{
+    if (!(nearerDepth < fartherDepth)) return false;
+    return asuint(fartherDepth) - asuint(nearerDepth) > GLASS_DEPTH_ORDER_ULPS;
+}
+
 bool glassTerminalIsBehindLocalFront(int2 coordinate, float terminalDepth)
 {
     // Refraction moves the terminal to another screen coordinate. Comparing it
@@ -258,7 +275,7 @@ bool glassTerminalIsBehindLocalFront(int2 coordinate, float terminalDepth)
     uint localFrontData = glass_front_data_tex[coordinate];
     if ((localFrontData & 1u) == 0u) return true;
     float localFrontDepth = glass_front_depth_tex[coordinate];
-    return terminalDepth > localFrontDepth + GLASS_DEPTH_TOLERANCE;
+    return glassDepthPrecedes(localFrontDepth, terminalDepth);
 }
 
 bool validateGlassTerminalCoordinate(
@@ -275,9 +292,13 @@ bool validateGlassTerminalCoordinate(
     }
     // Raster-only geometry is absent from the voxel DDA and may legitimately
     // terminate the refracted ray before its world-space voxel endpoint.
+    float sampledCameraDepth = glassCameraDepthFromNdc(sampledDepth);
+    float hitCameraDepth = glassCameraDepthFromNdc(hitDepth);
     bool terminalDepthMatches = provenance == OPAQUE_PROVENANCE_RASTER
-        ? sampledDepth <= hitDepth + GLASS_DEPTH_TOLERANCE
-        : abs(sampledDepth - hitDepth) <= GLASS_DEPTH_TOLERANCE;
+        ? sampledCameraDepth <=
+            hitCameraDepth + GLASS_SCREEN_TRACE_THICKNESS_WORLD
+        : abs(sampledCameraDepth - hitCameraDepth) <=
+            GLASS_SCREEN_TRACE_THICKNESS_WORLD;
     if (!glassTerminalIsBehindLocalFront(coordinate, sampledDepth) ||
         !terminalDepthMatches)
     {
@@ -355,13 +376,18 @@ bool traceGlassOpaqueScreenSegment(
             continue;
         }
 
-        float rayDepthStart = lerp(startDepth, endDepth, intervalStart);
-        float rayDepthEnd = lerp(startDepth, endDepth, intervalEnd);
+        float rayDepthStart = glassCameraDepthFromNdc(
+            lerp(startDepth, endDepth, intervalStart));
+        float rayDepthEnd = glassCameraDepthFromNdc(
+            lerp(startDepth, endDepth, intervalEnd));
         float rayDepthMin = min(rayDepthStart, rayDepthEnd);
         float rayDepthMax = max(rayDepthStart, rayDepthEnd);
         float sampledDepth = unified_opaque_depth_tex[coordinate];
-        if (sampledDepth < rayDepthMin - GLASS_DEPTH_TOLERANCE ||
-            sampledDepth > rayDepthMax + GLASS_DEPTH_TOLERANCE)
+        float sampledCameraDepth = glassCameraDepthFromNdc(sampledDepth);
+        if (sampledCameraDepth <
+                rayDepthMin - GLASS_SCREEN_TRACE_THICKNESS_WORLD ||
+            sampledCameraDepth >
+                rayDepthMax + GLASS_SCREEN_TRACE_THICKNESS_WORLD)
         {
             continue;
         }
@@ -878,7 +904,7 @@ void buildGlassVoxelCache(uint2 pixel, uint2 extent)
     if ((frontData & 1u) == 0u) return;
     float frontDepth = glass_front_depth_tex[coordinate];
     float opaqueDepth = unified_opaque_depth_tex[coordinate];
-    if (opaqueDepth + GLASS_DEPTH_TOLERANCE < frontDepth) return;
+    if (glassDepthPrecedes(opaqueDepth, frontDepth)) return;
 
     float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
     Ray cameraRay = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
@@ -993,7 +1019,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
     bool usedCachedDiagnostics = false;
     if ((frontData & 1u) != 0u)
     {
-        if (opaqueDepth + GLASS_DEPTH_TOLERANCE < frontDepth)
+        if (glassDepthPrecedes(opaqueDepth, frontDepth))
         {
             reason = GLASS_FALLBACK_FOREGROUND;
             result.fallback_reason = reason;
