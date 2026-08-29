@@ -122,10 +122,9 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, Buffer, BufferUse, ClearValue, ColorClearValue,
     CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource, DescriptorUpdate,
-    DescriptorWrite, Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement,
-    FrameRetirementSink, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage,
-    PreparedDescriptorGeneration, PreparedDrawDescriptors, PushConstantInfo, Texture,
-    TextureLayout, Viewport, VulkanContext,
+    Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink, GpuProfiler,
+    GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDrawDescriptors, PushConstantInfo,
+    Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::time::Instant;
 
@@ -831,16 +830,6 @@ pub struct DirectSunShadowResources<'a> {
     pub cloud_shadow_tex: &'a Texture,
 }
 
-/// Descriptor sets prepared for a private DDGI staging volume. The sets retain the staging
-/// volume's resource owners but are not visible to any frame until promotion publishes them.
-struct PreparedDdgiConsumerDescriptors {
-    token_serial: u64,
-    tracer: PreparedDescriptorGeneration,
-    flora_lighting_cache: PreparedDescriptorGeneration,
-    tree_leaf_lighting_cache: PreparedDescriptorGeneration,
-    graphics: Vec<PreparedDescriptorGeneration>,
-}
-
 struct PreparedTreeFoliageBatch<'a> {
     batch: TreeFoliageBatch,
     instance: &'a TreeLeavesInstance,
@@ -1251,16 +1240,16 @@ impl Tracer {
         // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
         let staging = self.ddgi_runtime.volumes().builder();
-        let descriptor_retirements =
-            self.update_ddgi_builder_descriptors(staging, None, descriptor_generation);
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
-        }
+        self.pipeline_topology.publish_ddgi_builder_generation(
+            staging,
+            None,
+            descriptor_generation,
+        );
         // Prepare the consumer generation while this volume is still private. The descriptor
         // writes and owner copies are paid during staging setup; promotion only swaps the already
         // complete sets into the active pipelines and schedules the old generation for retirement.
         self.prepared_ddgi_consumer_descriptors =
-            Some(self.stage_ddgi_consumer_descriptors(staging));
+            Some(self.pipeline_topology.prepare_ddgi_consumers(staging));
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
         if let Some(retired_staging) = retired_staging {
@@ -1326,17 +1315,18 @@ impl Tracer {
             }
         }
         let descriptor_generation = self.next_descriptor_generation();
-        let descriptor_retirements = {
+        {
             let volumes = self.ddgi_runtime.volumes();
             let builder = volumes.builder();
             let inherited_source = (work.kind() == DdgiScheduledWorkKind::GeometryUpdate
                 && work.transport_source().is_some()
                 && !volumes.builder_is_active())
             .then(|| volumes.active());
-            self.update_ddgi_builder_descriptors(builder, inherited_source, descriptor_generation)
-        };
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
+            self.pipeline_topology.publish_ddgi_builder_generation(
+                builder,
+                inherited_source,
+                descriptor_generation,
+            );
         }
         let lighting = self.ddgi_runtime.lighting_diagnostics();
         log::debug!(
@@ -1801,429 +1791,6 @@ impl Tracer {
         ]
     }
 
-    fn update_ddgi_builder_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-        inherited_source: Option<&DdgiVolume>,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let mut relocate = Vec::new();
-        let mut trace = Vec::new();
-        let mut irradiance_filter = Vec::new();
-        let mut visibility_filter = Vec::new();
-        let mut atlas_reduce = Vec::new();
-        let mut global_sky_filter = Vec::new();
-        let mut octahedral_gutter = Vec::new();
-        let mut irradiance_gutter = Vec::new();
-        let mut visibility_gutter = Vec::new();
-
-        macro_rules! write_buffer {
-            ($writes:expr, $name:literal, $buffer:expr) => {
-                $writes.push(DescriptorWrite {
-                    name: $name,
-                    resource: DescriptorResource::Buffer($buffer),
-                });
-            };
-        }
-        macro_rules! write_texture {
-            ($writes:expr, $name:literal, $texture:expr) => {
-                $writes.push(DescriptorWrite {
-                    name: $name,
-                    resource: DescriptorResource::Texture($texture),
-                });
-            };
-        }
-
-        write_buffer!(
-            relocate,
-            "ddgi_probe_metadata",
-            &ddgi_volume.ddgi_probe_metadata
-        );
-        write_buffer!(
-            relocate,
-            "ddgi_relocation_stats",
-            &ddgi_volume.ddgi_relocation_stats
-        );
-
-        for writes in [
-            &mut trace,
-            &mut irradiance_filter,
-            &mut visibility_filter,
-            &mut atlas_reduce,
-        ] {
-            write_buffer!(
-                writes,
-                "ddgi_probe_metadata",
-                &ddgi_volume.ddgi_probe_metadata
-            );
-        }
-        for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
-            write_buffer!(
-                writes,
-                "ddgi_transient_ray_data",
-                &ddgi_volume.ddgi_transient_ray_data
-            );
-        }
-        write_buffer!(trace, "ddgi_trace_stats", &ddgi_volume.ddgi_trace_stats);
-        write_buffer!(
-            atlas_reduce,
-            "ddgi_atlas_reduction",
-            &ddgi_volume.ddgi_atlas_reduction
-        );
-        write_buffer!(
-            global_sky_filter,
-            "ddgi_radiance_sun",
-            &ddgi_volume.ddgi_radiance_sun
-        );
-        write_buffer!(trace, "ddgi_radiance_sun", &ddgi_volume.ddgi_radiance_sun);
-        write_buffer!(
-            trace,
-            "ddgi_radiance_voxel_palette",
-            &ddgi_volume.ddgi_radiance_voxel_palette
-        );
-        write_buffer!(
-            trace,
-            "ddgi_transport_query_info",
-            &ddgi_volume.ddgi_transport_query_info
-        );
-        write_buffer!(
-            trace,
-            "ddgi_local_light_info",
-            &ddgi_volume.ddgi_local_light_info
-        );
-        write_buffer!(trace, "ddgi_local_lights", &ddgi_volume.ddgi_local_lights);
-
-        let source_irradiance = inherited_source
-            .and_then(DdgiVolume::published_irradiance_atlas)
-            .unwrap_or(&ddgi_volume.ddgi_transport_source_irradiance_atlas);
-        let source_visibility = inherited_source
-            .and_then(DdgiVolume::published_visibility_atlas)
-            .unwrap_or(&ddgi_volume.ddgi_transport_source_visibility_atlas);
-
-        write_texture!(
-            trace,
-            "ddgi_transport_source_irradiance_atlas",
-            source_irradiance
-        );
-        write_texture!(
-            trace,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            trace,
-            "ddgi_irradiance_atlas",
-            &ddgi_volume.ddgi_irradiance_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_visibility_atlas",
-            &ddgi_volume.ddgi_visibility_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_transport_source_visibility_atlas",
-            source_visibility
-        );
-        write_texture!(
-            global_sky_filter,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            octahedral_gutter,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        for writes in [
-            &mut irradiance_filter,
-            &mut irradiance_gutter,
-            &mut atlas_reduce,
-        ] {
-            write_texture!(
-                writes,
-                "ddgi_irradiance_atlas",
-                &ddgi_volume.ddgi_irradiance_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_irradiance_atlas",
-                source_irradiance
-            );
-        }
-        for writes in [&mut visibility_filter, &mut visibility_gutter] {
-            write_texture!(
-                writes,
-                "ddgi_visibility_atlas",
-                &ddgi_volume.ddgi_visibility_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_visibility_atlas",
-                source_visibility
-            );
-        }
-
-        vec![
-            self.pipeline_topology
-                .compute()
-                .ddgi_probe_relocate_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&relocate),
-                )
-                .expect("DDGI relocation descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_probe_trace_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&trace),
-                )
-                .expect("DDGI trace descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_irradiance_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&irradiance_filter),
-                )
-                .expect("DDGI irradiance filter descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_visibility_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&visibility_filter),
-                )
-                .expect("DDGI visibility filter descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_atlas_reduce_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&atlas_reduce),
-                )
-                .expect("DDGI atlas reduction descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_global_sky_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&global_sky_filter),
-                )
-                .expect("DDGI global sky filter descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_octahedral_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&octahedral_gutter),
-                )
-                .expect("DDGI octahedral gutter descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_irradiance_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&irradiance_gutter),
-                )
-                .expect("DDGI irradiance gutter descriptor update failed"),
-            self.pipeline_topology
-                .compute()
-                .ddgi_visibility_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&visibility_gutter),
-                )
-                .expect("DDGI visibility gutter descriptor update failed"),
-        ]
-    }
-
-    fn stage_ddgi_consumer_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-    ) -> PreparedDdgiConsumerDescriptors {
-        let graphics_pipelines = [
-            &self.pipeline_topology.graphics().flora_ppl,
-            &self.pipeline_topology.graphics().flora_lod_ppl,
-            &self.pipeline_topology.graphics().leaves_ppl,
-            &self.pipeline_topology.graphics().leaves_lod_ppl,
-            &self.pipeline_topology.graphics().sprinkler_ppl,
-            &self.pipeline_topology.graphics().dynamic_fruit_ppl,
-            &self.pipeline_topology.graphics().particle_ppl,
-            &self.pipeline_topology.graphics().water_droplet_ppl,
-            &self
-                .pipeline_topology
-                .graphics()
-                .environment_probe_visualization_depth_ppl,
-            &self
-                .pipeline_topology
-                .graphics()
-                .environment_probe_visualization_overlay_ppl,
-        ];
-        let irradiance_atlas = ddgi_volume
-            .published_irradiance_atlas()
-            .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
-        let visibility_atlas = ddgi_volume
-            .published_visibility_atlas()
-            .unwrap_or(&ddgi_volume.ddgi_visibility_atlas);
-        let mut tracer_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut flora_lighting_cache_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut tree_leaf_lighting_cache_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut graphics_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        for (binding, texture) in [
-            (
-                "ddgi_global_sky_irradiance",
-                ddgi_volume.published_global_sky_irradiance(),
-            ),
-            ("ddgi_irradiance_atlas", irradiance_atlas),
-            ("ddgi_visibility_atlas", visibility_atlas),
-        ] {
-            let write = DescriptorWrite {
-                name: binding,
-                resource: DescriptorResource::Texture(texture),
-            };
-            tracer_writes.push(write);
-            flora_lighting_cache_writes.push(write);
-            tree_leaf_lighting_cache_writes.push(write);
-            graphics_writes.push(write);
-        }
-
-        PreparedDdgiConsumerDescriptors {
-            token_serial: ddgi_volume
-                .status()
-                .build_token
-                .expect("staged DDGI consumer descriptors require a build token")
-                .serial(),
-            tracer: self
-                .pipeline_topology
-                .compute()
-                .tracer_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
-                .expect("DDGI consumer tracer descriptor preparation failed"),
-            flora_lighting_cache: self
-                .pipeline_topology
-                .compute()
-                .flora_lighting_cache_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&flora_lighting_cache_writes))
-                .expect("DDGI consumer flora cache descriptor preparation failed"),
-            tree_leaf_lighting_cache: self
-                .pipeline_topology
-                .compute()
-                .tree_leaf_lighting_cache_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&tree_leaf_lighting_cache_writes))
-                .expect("DDGI consumer tree-leaf cache descriptor preparation failed"),
-            graphics: graphics_pipelines
-                .iter()
-                .map(|pipeline| {
-                    pipeline
-                        .prepare_descriptors(DescriptorUpdate::Named(&graphics_writes))
-                        .expect("DDGI consumer graphics descriptor preparation failed")
-                })
-                .collect(),
-        }
-    }
-
-    fn publish_ddgi_consumer_descriptors(
-        &self,
-        prepared: PreparedDdgiConsumerDescriptors,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let graphics_pipelines = [
-            &self.pipeline_topology.graphics().flora_ppl,
-            &self.pipeline_topology.graphics().flora_lod_ppl,
-            &self.pipeline_topology.graphics().leaves_ppl,
-            &self.pipeline_topology.graphics().leaves_lod_ppl,
-            &self.pipeline_topology.graphics().sprinkler_ppl,
-            &self.pipeline_topology.graphics().dynamic_fruit_ppl,
-            &self.pipeline_topology.graphics().particle_ppl,
-            &self.pipeline_topology.graphics().water_droplet_ppl,
-            &self
-                .pipeline_topology
-                .graphics()
-                .environment_probe_visualization_depth_ppl,
-            &self
-                .pipeline_topology
-                .graphics()
-                .environment_probe_visualization_overlay_ppl,
-        ];
-        assert_eq!(
-            prepared.graphics.len(),
-            graphics_pipelines.len(),
-            "DDGI consumer descriptor preparation pipeline order changed"
-        );
-        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
-        retirements.push(
-            self.pipeline_topology
-                .compute()
-                .tracer_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.tracer,
-                ),
-        );
-        retirements.push(
-            self.pipeline_topology
-                .compute()
-                .flora_lighting_cache_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.flora_lighting_cache,
-                ),
-        );
-        retirements.push(
-            self.pipeline_topology
-                .compute()
-                .tree_leaf_lighting_cache_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.tree_leaf_lighting_cache,
-                ),
-        );
-        for (pipeline, descriptor_sets) in graphics_pipelines.into_iter().zip(prepared.graphics) {
-            retirements.push(pipeline.publish_prepared_descriptors(
-                "ddgi.consumer.descriptors",
-                generation,
-                descriptor_sets,
-            ));
-        }
-        retirements
-    }
-
-    fn update_ddgi_consumer_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let prepared = self.stage_ddgi_consumer_descriptors(ddgi_volume);
-        self.publish_ddgi_consumer_descriptors(prepared, generation)
-    }
-
     fn promote_ready_ddgi_staging(&mut self) {
         let Some(publication) = self.ddgi_runtime.pending_volume_publication() else {
             return;
@@ -2258,17 +1825,22 @@ impl Tracer {
         let prepared = self
             .prepared_ddgi_consumer_descriptors
             .take()
-            .filter(|prepared| prepared.token_serial == build_token.serial());
-        let descriptor_retirements = if let Some(prepared) = prepared {
-            self.publish_ddgi_consumer_descriptors(prepared, descriptor_generation)
+            .filter(|prepared| prepared.token_serial() == build_token.serial());
+        if let Some(prepared) = prepared {
+            self.pipeline_topology.publish_ddgi_consumers(
+                build_token.serial(),
+                descriptor_generation,
+                prepared,
+            );
         } else {
             let builder = self.ddgi_runtime.volumes().builder();
-            self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
-        };
-        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
+            self.pipeline_topology.update_ddgi_consumers(
+                build_token.serial(),
+                builder,
+                descriptor_generation,
+            );
         }
+        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
         let retired_active = self
             .ddgi_runtime
             .finish_volume_publication(publication, Ok(()))
@@ -2315,7 +1887,7 @@ impl Tracer {
             descriptor_generation,
         );
         log::info!(
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=pipeline_topology",
             build_token.serial(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
@@ -3029,13 +2601,17 @@ impl Tracer {
                     }
                     if self.ddgi_runtime.volumes().builder_is_active() {
                         let descriptor_generation = self.next_descriptor_generation();
-                        let descriptor_retirements = {
-                            let builder = self.ddgi_runtime.volumes().builder();
-                            self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
-                        };
-                        for retirement in descriptor_retirements {
-                            self.frame_retirement_sink.retire(retirement);
-                        }
+                        let builder = self.ddgi_runtime.volumes().builder();
+                        let token_serial = builder
+                            .status()
+                            .build_token
+                            .expect("published DDGI builder must retain its build token")
+                            .serial();
+                        self.pipeline_topology.update_ddgi_consumers(
+                            token_serial,
+                            builder,
+                            descriptor_generation,
+                        );
                         let slot = self
                             .ddgi_runtime
                             .volumes()

@@ -6,9 +6,10 @@ use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool,
-    DescriptorUpdate, Extent2D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink,
-    Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, RenderPass, RenderTarget, ShaderModule,
-    Texture, TextureLayout, VulkanContext,
+    DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, FrameExtentGeneration,
+    FrameRetirement, FrameRetirementSink, Framebuffer, GraphicsPipeline, GraphicsPipelineDesc,
+    PreparedDescriptorGeneration, RenderPass, RenderTarget, ShaderModule, Texture, TextureLayout,
+    VulkanContext,
 };
 
 pub struct PipelineBuilder {
@@ -1275,6 +1276,287 @@ pub struct PipelineTopology {
     frame_retirement_sink: FrameRetirementSink,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum PipelineKind {
+    Compute,
+    Graphics,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[allow(dead_code)]
+enum PipelineKey {
+    DdgiGlobalSkyFilter,
+    DdgiOctahedralGutter,
+    DdgiProbeRelocate,
+    DdgiProbeTrace,
+    LocalLightVisibilityDiagnostic,
+    DdgiIrradianceFilter,
+    DdgiVisibilityFilter,
+    DdgiIrradianceGutter,
+    DdgiVisibilityGutter,
+    DdgiAtlasReduce,
+    DdgiVoxelVisibilityPack,
+    DdgiVoxelVisibilityBlocks,
+    FloraLightingCache,
+    TreeLeafLightingCache,
+    Tracer,
+    TracerShadow,
+    ShadowDepthCopy,
+    LeafShadowTemporal,
+    LeafShadowMask,
+    VsmCreation,
+    VsmBlurH,
+    VsmBlurV,
+    GodRay,
+    GodRayTemporal,
+    Cloud,
+    CloudShadow,
+    CloudShadowTemporal,
+    CloudTemporal,
+    LensFlare,
+    LensFlareTemporal,
+    LensFlareSunVisible,
+    Composition,
+    PlayerCollider,
+    TerrainQuery,
+    WindVolume,
+    PostProcessing,
+    TerrainDepthPrefill,
+    Flora,
+    FloraLod,
+    Leaves,
+    LeavesLod,
+    LeavesShadowLod,
+    Sprinkler,
+    GeometryPreview,
+    EnvironmentProbeDepth,
+    EnvironmentProbeOverlay,
+    DynamicFruit,
+    DynamicFruitShadow,
+    Particle,
+    WaterDroplet,
+    Glass,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LifecycleMask(u8);
+
+#[cfg(test)]
+impl LifecycleMask {
+    const CONSTRUCTION: u8 = 1 << 0;
+    const RECORD: u8 = 1 << 1;
+    const EXTENT: u8 = 1 << 2;
+    const DDGI_BUILDER: u8 = 1 << 3;
+    const DDGI_CONSUMER: u8 = 1 << 4;
+
+    const fn new(extra: u8) -> Self {
+        Self(Self::CONSTRUCTION | Self::RECORD | extra)
+    }
+
+    const fn contains(self, lifecycle: u8) -> bool {
+        self.0 & lifecycle != 0
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PipelineLifecycleSpec {
+    key: PipelineKey,
+    kind: PipelineKind,
+    lifecycle: LifecycleMask,
+}
+
+#[cfg(test)]
+macro_rules! spec {
+    ($key:ident, $kind:ident, $extra:expr) => {
+        PipelineLifecycleSpec {
+            key: PipelineKey::$key,
+            kind: PipelineKind::$kind,
+            lifecycle: LifecycleMask::new($extra),
+        }
+    };
+}
+
+#[cfg(test)]
+const PIPELINE_LIFECYCLE: &[PipelineLifecycleSpec] = &[
+    spec!(
+        DdgiGlobalSkyFilter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiOctahedralGutter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiProbeRelocate,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiProbeTrace,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(LocalLightVisibilityDiagnostic, Compute, 0),
+    spec!(
+        DdgiIrradianceFilter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiVisibilityFilter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiIrradianceGutter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiVisibilityGutter,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(
+        DdgiAtlasReduce,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_BUILDER
+    ),
+    spec!(DdgiVoxelVisibilityPack, Compute, LifecycleMask::EXTENT),
+    spec!(DdgiVoxelVisibilityBlocks, Compute, LifecycleMask::EXTENT),
+    spec!(FloraLightingCache, Compute, LifecycleMask::DDGI_CONSUMER),
+    spec!(TreeLeafLightingCache, Compute, LifecycleMask::DDGI_CONSUMER),
+    spec!(
+        Tracer,
+        Compute,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(TracerShadow, Compute, LifecycleMask::EXTENT),
+    spec!(ShadowDepthCopy, Compute, LifecycleMask::EXTENT),
+    spec!(LeafShadowTemporal, Compute, 0),
+    spec!(LeafShadowMask, Compute, LifecycleMask::EXTENT),
+    spec!(VsmCreation, Compute, LifecycleMask::EXTENT),
+    spec!(VsmBlurH, Compute, LifecycleMask::EXTENT),
+    spec!(VsmBlurV, Compute, LifecycleMask::EXTENT),
+    spec!(GodRay, Compute, LifecycleMask::EXTENT),
+    spec!(GodRayTemporal, Compute, LifecycleMask::EXTENT),
+    spec!(Cloud, Compute, LifecycleMask::EXTENT),
+    spec!(CloudShadow, Compute, LifecycleMask::EXTENT),
+    spec!(CloudShadowTemporal, Compute, LifecycleMask::EXTENT),
+    spec!(CloudTemporal, Compute, LifecycleMask::EXTENT),
+    spec!(LensFlare, Compute, LifecycleMask::EXTENT),
+    spec!(LensFlareTemporal, Compute, LifecycleMask::EXTENT),
+    spec!(LensFlareSunVisible, Compute, LifecycleMask::EXTENT),
+    spec!(Composition, Compute, LifecycleMask::EXTENT),
+    spec!(PlayerCollider, Compute, LifecycleMask::EXTENT),
+    spec!(TerrainQuery, Compute, LifecycleMask::EXTENT),
+    spec!(WindVolume, Compute, LifecycleMask::EXTENT),
+    spec!(PostProcessing, Compute, LifecycleMask::EXTENT),
+    spec!(TerrainDepthPrefill, Graphics, LifecycleMask::EXTENT),
+    spec!(
+        Flora,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        FloraLod,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        Leaves,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        LeavesLod,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(LeavesShadowLod, Graphics, LifecycleMask::EXTENT),
+    spec!(
+        Sprinkler,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(GeometryPreview, Graphics, LifecycleMask::EXTENT),
+    spec!(
+        EnvironmentProbeDepth,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        EnvironmentProbeOverlay,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        DynamicFruit,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(DynamicFruitShadow, Graphics, 0),
+    spec!(
+        Particle,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(
+        WaterDroplet,
+        Graphics,
+        LifecycleMask::EXTENT | LifecycleMask::DDGI_CONSUMER
+    ),
+    spec!(Glass, Graphics, 0),
+];
+
+struct PreparedComputeGeneration {
+    key: PipelineKey,
+    descriptors: PreparedDescriptorGeneration,
+}
+
+struct PreparedGraphicsGeneration {
+    key: PipelineKey,
+    descriptors: PreparedDescriptorGeneration,
+}
+
+fn prepared_pair_matches(
+    expected_key: PipelineKey,
+    expected_kind: PipelineKind,
+    prepared_key: PipelineKey,
+    prepared_kind: PipelineKind,
+) -> bool {
+    (prepared_key, prepared_kind) == (expected_key, expected_kind)
+}
+
+/// A complete private descriptor generation for every pipeline that consumes a DDGI Volume.
+/// Named fields make preparation/publication pairing independent of list position.
+pub struct PreparedDdgiConsumerDescriptors {
+    token_serial: u64,
+    tracer: PreparedComputeGeneration,
+    flora_lighting_cache: PreparedComputeGeneration,
+    tree_leaf_lighting_cache: PreparedComputeGeneration,
+    flora: PreparedGraphicsGeneration,
+    flora_lod: PreparedGraphicsGeneration,
+    leaves: PreparedGraphicsGeneration,
+    leaves_lod: PreparedGraphicsGeneration,
+    sprinkler: PreparedGraphicsGeneration,
+    dynamic_fruit: PreparedGraphicsGeneration,
+    particle: PreparedGraphicsGeneration,
+    water_droplet: PreparedGraphicsGeneration,
+    environment_probe_depth: PreparedGraphicsGeneration,
+    environment_probe_overlay: PreparedGraphicsGeneration,
+}
+
+impl PreparedDdgiConsumerDescriptors {
+    pub fn token_serial(&self) -> u64 {
+        self.token_serial
+    }
+}
+
 impl PipelineTopology {
     pub fn compute(&self) -> &ComputePipelines {
         &self.compute
@@ -1539,6 +1821,458 @@ impl PipelineTopology {
                 "DDGI filter descriptor update failed during extent publication",
             );
         }
+    }
+
+    pub fn publish_ddgi_builder_generation(
+        &self,
+        volume: &DdgiVolume,
+        inherited_source: Option<&DdgiVolume>,
+        generation: u64,
+    ) {
+        let mut relocate = Vec::new();
+        let mut trace = Vec::new();
+        let mut irradiance_filter = Vec::new();
+        let mut visibility_filter = Vec::new();
+        let mut atlas_reduce = Vec::new();
+        let mut global_sky_filter = Vec::new();
+        let mut octahedral_gutter = Vec::new();
+        let mut irradiance_gutter = Vec::new();
+        let mut visibility_gutter = Vec::new();
+
+        macro_rules! write_buffer {
+            ($writes:expr, $name:literal, $buffer:expr) => {
+                $writes.push(DescriptorWrite {
+                    name: $name,
+                    resource: DescriptorResource::Buffer($buffer),
+                });
+            };
+        }
+        macro_rules! write_texture {
+            ($writes:expr, $name:literal, $texture:expr) => {
+                $writes.push(DescriptorWrite {
+                    name: $name,
+                    resource: DescriptorResource::Texture($texture),
+                });
+            };
+        }
+
+        write_buffer!(relocate, "ddgi_probe_metadata", &volume.ddgi_probe_metadata);
+        write_buffer!(
+            relocate,
+            "ddgi_relocation_stats",
+            &volume.ddgi_relocation_stats
+        );
+        for writes in [
+            &mut trace,
+            &mut irradiance_filter,
+            &mut visibility_filter,
+            &mut atlas_reduce,
+        ] {
+            write_buffer!(writes, "ddgi_probe_metadata", &volume.ddgi_probe_metadata);
+        }
+        for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
+            write_buffer!(
+                writes,
+                "ddgi_transient_ray_data",
+                &volume.ddgi_transient_ray_data
+            );
+        }
+        write_buffer!(trace, "ddgi_trace_stats", &volume.ddgi_trace_stats);
+        write_buffer!(
+            atlas_reduce,
+            "ddgi_atlas_reduction",
+            &volume.ddgi_atlas_reduction
+        );
+        write_buffer!(
+            global_sky_filter,
+            "ddgi_radiance_sun",
+            &volume.ddgi_radiance_sun
+        );
+        write_buffer!(trace, "ddgi_radiance_sun", &volume.ddgi_radiance_sun);
+        write_buffer!(
+            trace,
+            "ddgi_radiance_voxel_palette",
+            &volume.ddgi_radiance_voxel_palette
+        );
+        write_buffer!(
+            trace,
+            "ddgi_transport_query_info",
+            &volume.ddgi_transport_query_info
+        );
+        write_buffer!(
+            trace,
+            "ddgi_local_light_info",
+            &volume.ddgi_local_light_info
+        );
+        write_buffer!(trace, "ddgi_local_lights", &volume.ddgi_local_lights);
+
+        let source_irradiance = inherited_source
+            .and_then(DdgiVolume::published_irradiance_atlas)
+            .unwrap_or(&volume.ddgi_transport_source_irradiance_atlas);
+        let source_visibility = inherited_source
+            .and_then(DdgiVolume::published_visibility_atlas)
+            .unwrap_or(&volume.ddgi_transport_source_visibility_atlas);
+        write_texture!(
+            trace,
+            "ddgi_transport_source_irradiance_atlas",
+            source_irradiance
+        );
+        write_texture!(
+            trace,
+            "ddgi_global_sky_irradiance",
+            volume.building_global_sky_irradiance()
+        );
+        write_texture!(
+            trace,
+            "ddgi_irradiance_atlas",
+            &volume.ddgi_irradiance_atlas
+        );
+        write_texture!(
+            trace,
+            "ddgi_visibility_atlas",
+            &volume.ddgi_visibility_atlas
+        );
+        write_texture!(
+            trace,
+            "ddgi_transport_source_visibility_atlas",
+            source_visibility
+        );
+        write_texture!(
+            global_sky_filter,
+            "ddgi_global_sky_irradiance",
+            volume.building_global_sky_irradiance()
+        );
+        write_texture!(
+            octahedral_gutter,
+            "ddgi_global_sky_irradiance",
+            volume.building_global_sky_irradiance()
+        );
+        for writes in [
+            &mut irradiance_filter,
+            &mut irradiance_gutter,
+            &mut atlas_reduce,
+        ] {
+            write_texture!(
+                writes,
+                "ddgi_irradiance_atlas",
+                &volume.ddgi_irradiance_atlas
+            );
+            write_texture!(
+                writes,
+                "ddgi_transport_source_irradiance_atlas",
+                source_irradiance
+            );
+        }
+        for writes in [&mut visibility_filter, &mut visibility_gutter] {
+            write_texture!(
+                writes,
+                "ddgi_visibility_atlas",
+                &volume.ddgi_visibility_atlas
+            );
+            write_texture!(
+                writes,
+                "ddgi_transport_source_visibility_atlas",
+                source_visibility
+            );
+        }
+
+        let publish =
+            |pipeline: &ComputePipeline, writes: &[DescriptorWrite<'_>], error: &'static str| {
+                self.frame_retirement_sink.retire(
+                    pipeline
+                        .publish_descriptors(
+                            "ddgi.builder.descriptors",
+                            generation,
+                            DescriptorUpdate::Named(writes),
+                        )
+                        .expect(error),
+                );
+            };
+        publish(
+            &self.compute.ddgi_probe_relocate_ppl,
+            &relocate,
+            "DDGI relocation descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_probe_trace_ppl,
+            &trace,
+            "DDGI trace descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_irradiance_filter_ppl,
+            &irradiance_filter,
+            "DDGI irradiance filter descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_visibility_filter_ppl,
+            &visibility_filter,
+            "DDGI visibility filter descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_atlas_reduce_ppl,
+            &atlas_reduce,
+            "DDGI atlas reduction descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_global_sky_filter_ppl,
+            &global_sky_filter,
+            "DDGI global sky filter descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_octahedral_gutter_ppl,
+            &octahedral_gutter,
+            "DDGI octahedral gutter descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_irradiance_gutter_ppl,
+            &irradiance_gutter,
+            "DDGI irradiance gutter descriptor update failed",
+        );
+        publish(
+            &self.compute.ddgi_visibility_gutter_ppl,
+            &visibility_gutter,
+            "DDGI visibility gutter descriptor update failed",
+        );
+    }
+
+    pub fn prepare_ddgi_consumers(&self, volume: &DdgiVolume) -> PreparedDdgiConsumerDescriptors {
+        let irradiance_atlas = volume
+            .published_irradiance_atlas()
+            .unwrap_or(&volume.ddgi_irradiance_atlas);
+        let visibility_atlas = volume
+            .published_visibility_atlas()
+            .unwrap_or(&volume.ddgi_visibility_atlas);
+        let mut writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&volume.ddgi_probe_metadata),
+        }];
+        for (name, texture) in [
+            (
+                "ddgi_global_sky_irradiance",
+                volume.published_global_sky_irradiance(),
+            ),
+            ("ddgi_irradiance_atlas", irradiance_atlas),
+            ("ddgi_visibility_atlas", visibility_atlas),
+        ] {
+            writes.push(DescriptorWrite {
+                name,
+                resource: DescriptorResource::Texture(texture),
+            });
+        }
+        let prepare_compute =
+            |key: PipelineKey, pipeline: &ComputePipeline, error: &'static str| {
+                PreparedComputeGeneration {
+                    key,
+                    descriptors: pipeline
+                        .prepare_descriptors(DescriptorUpdate::Named(&writes))
+                        .expect(error),
+                }
+            };
+        let prepare_graphics =
+            |key: PipelineKey, pipeline: &GraphicsPipeline, error: &'static str| {
+                PreparedGraphicsGeneration {
+                    key,
+                    descriptors: pipeline
+                        .prepare_descriptors(DescriptorUpdate::Named(&writes))
+                        .expect(error),
+                }
+            };
+
+        PreparedDdgiConsumerDescriptors {
+            token_serial: volume
+                .status()
+                .build_token
+                .expect("staged DDGI consumer descriptors require a build token")
+                .serial(),
+            tracer: prepare_compute(
+                PipelineKey::Tracer,
+                &self.compute.tracer_ppl,
+                "DDGI consumer tracer descriptor preparation failed",
+            ),
+            flora_lighting_cache: prepare_compute(
+                PipelineKey::FloraLightingCache,
+                &self.compute.flora_lighting_cache_ppl,
+                "DDGI consumer flora cache descriptor preparation failed",
+            ),
+            tree_leaf_lighting_cache: prepare_compute(
+                PipelineKey::TreeLeafLightingCache,
+                &self.compute.tree_leaf_lighting_cache_ppl,
+                "DDGI consumer tree-leaf cache descriptor preparation failed",
+            ),
+            flora: prepare_graphics(
+                PipelineKey::Flora,
+                &self.graphics.flora_ppl,
+                "DDGI consumer flora descriptor preparation failed",
+            ),
+            flora_lod: prepare_graphics(
+                PipelineKey::FloraLod,
+                &self.graphics.flora_lod_ppl,
+                "DDGI consumer flora LOD descriptor preparation failed",
+            ),
+            leaves: prepare_graphics(
+                PipelineKey::Leaves,
+                &self.graphics.leaves_ppl,
+                "DDGI consumer leaves descriptor preparation failed",
+            ),
+            leaves_lod: prepare_graphics(
+                PipelineKey::LeavesLod,
+                &self.graphics.leaves_lod_ppl,
+                "DDGI consumer leaves LOD descriptor preparation failed",
+            ),
+            sprinkler: prepare_graphics(
+                PipelineKey::Sprinkler,
+                &self.graphics.sprinkler_ppl,
+                "DDGI consumer sprinkler descriptor preparation failed",
+            ),
+            dynamic_fruit: prepare_graphics(
+                PipelineKey::DynamicFruit,
+                &self.graphics.dynamic_fruit_ppl,
+                "DDGI consumer fruit descriptor preparation failed",
+            ),
+            particle: prepare_graphics(
+                PipelineKey::Particle,
+                &self.graphics.particle_ppl,
+                "DDGI consumer particle descriptor preparation failed",
+            ),
+            water_droplet: prepare_graphics(
+                PipelineKey::WaterDroplet,
+                &self.graphics.water_droplet_ppl,
+                "DDGI consumer droplet descriptor preparation failed",
+            ),
+            environment_probe_depth: prepare_graphics(
+                PipelineKey::EnvironmentProbeDepth,
+                &self.graphics.environment_probe_visualization_depth_ppl,
+                "DDGI consumer probe-depth descriptor preparation failed",
+            ),
+            environment_probe_overlay: prepare_graphics(
+                PipelineKey::EnvironmentProbeOverlay,
+                &self.graphics.environment_probe_visualization_overlay_ppl,
+                "DDGI consumer probe-overlay descriptor preparation failed",
+            ),
+        }
+    }
+
+    pub fn publish_ddgi_consumers(
+        &self,
+        expected_token_serial: u64,
+        generation: u64,
+        prepared: PreparedDdgiConsumerDescriptors,
+    ) {
+        assert_eq!(
+            prepared.token_serial, expected_token_serial,
+            "prepared DDGI consumer generation must match the promoted Volume"
+        );
+        let publish_compute = |expected_key: PipelineKey,
+                               pipeline: &ComputePipeline,
+                               prepared: PreparedComputeGeneration| {
+            assert!(
+                prepared_pair_matches(
+                    expected_key,
+                    PipelineKind::Compute,
+                    prepared.key,
+                    PipelineKind::Compute,
+                ),
+                "prepared compute generation must publish to its declared pipeline"
+            );
+            self.frame_retirement_sink
+                .retire(pipeline.publish_prepared_descriptors(
+                    "ddgi.consumer.descriptors",
+                    generation,
+                    prepared.descriptors,
+                ));
+        };
+        let publish_graphics =
+            |expected_key: PipelineKey,
+             pipeline: &GraphicsPipeline,
+             prepared: PreparedGraphicsGeneration| {
+                assert!(
+                    prepared_pair_matches(
+                        expected_key,
+                        PipelineKind::Graphics,
+                        prepared.key,
+                        PipelineKind::Graphics,
+                    ),
+                    "prepared graphics generation must publish to its declared pipeline"
+                );
+                self.frame_retirement_sink
+                    .retire(pipeline.publish_prepared_descriptors(
+                        "ddgi.consumer.descriptors",
+                        generation,
+                        prepared.descriptors,
+                    ));
+            };
+
+        publish_compute(
+            PipelineKey::Tracer,
+            &self.compute.tracer_ppl,
+            prepared.tracer,
+        );
+        publish_compute(
+            PipelineKey::FloraLightingCache,
+            &self.compute.flora_lighting_cache_ppl,
+            prepared.flora_lighting_cache,
+        );
+        publish_compute(
+            PipelineKey::TreeLeafLightingCache,
+            &self.compute.tree_leaf_lighting_cache_ppl,
+            prepared.tree_leaf_lighting_cache,
+        );
+        publish_graphics(PipelineKey::Flora, &self.graphics.flora_ppl, prepared.flora);
+        publish_graphics(
+            PipelineKey::FloraLod,
+            &self.graphics.flora_lod_ppl,
+            prepared.flora_lod,
+        );
+        publish_graphics(
+            PipelineKey::Leaves,
+            &self.graphics.leaves_ppl,
+            prepared.leaves,
+        );
+        publish_graphics(
+            PipelineKey::LeavesLod,
+            &self.graphics.leaves_lod_ppl,
+            prepared.leaves_lod,
+        );
+        publish_graphics(
+            PipelineKey::Sprinkler,
+            &self.graphics.sprinkler_ppl,
+            prepared.sprinkler,
+        );
+        publish_graphics(
+            PipelineKey::DynamicFruit,
+            &self.graphics.dynamic_fruit_ppl,
+            prepared.dynamic_fruit,
+        );
+        publish_graphics(
+            PipelineKey::Particle,
+            &self.graphics.particle_ppl,
+            prepared.particle,
+        );
+        publish_graphics(
+            PipelineKey::WaterDroplet,
+            &self.graphics.water_droplet_ppl,
+            prepared.water_droplet,
+        );
+        publish_graphics(
+            PipelineKey::EnvironmentProbeDepth,
+            &self.graphics.environment_probe_visualization_depth_ppl,
+            prepared.environment_probe_depth,
+        );
+        publish_graphics(
+            PipelineKey::EnvironmentProbeOverlay,
+            &self.graphics.environment_probe_visualization_overlay_ppl,
+            prepared.environment_probe_overlay,
+        );
+    }
+
+    pub fn update_ddgi_consumers(
+        &self,
+        expected_token_serial: u64,
+        volume: &DdgiVolume,
+        generation: u64,
+    ) {
+        let prepared = self.prepare_ddgi_consumers(volume);
+        self.publish_ddgi_consumers(expected_token_serial, generation, prepared);
     }
 }
 
@@ -1825,5 +2559,132 @@ impl GraphicsPipelines {
             .begin_transient_descriptor_frame(frame_slot);
         self.leaves_shadow_lod_ppl
             .begin_transient_descriptor_frame(frame_slot);
+    }
+}
+
+#[cfg(test)]
+mod topology_tests {
+    use super::{
+        prepared_pair_matches, LifecycleMask, PipelineKey, PipelineKind, PIPELINE_LIFECYCLE,
+    };
+    use std::collections::HashSet;
+
+    fn family_keys(lifecycle: u8) -> HashSet<PipelineKey> {
+        PIPELINE_LIFECYCLE
+            .iter()
+            .filter(|spec| spec.lifecycle.contains(lifecycle))
+            .map(|spec| spec.key)
+            .collect()
+    }
+
+    #[test]
+    fn pipeline_family_keys_are_unique() {
+        let keys = PIPELINE_LIFECYCLE
+            .iter()
+            .map(|spec| spec.key)
+            .collect::<HashSet<_>>();
+        assert_eq!(keys.len(), PIPELINE_LIFECYCLE.len());
+        assert_eq!(keys.len(), 51, "every concrete pipeline must have one key");
+    }
+
+    #[test]
+    fn lifecycle_membership_is_complete() {
+        assert!(PIPELINE_LIFECYCLE
+            .iter()
+            .all(|spec| spec.lifecycle.contains(LifecycleMask::CONSTRUCTION)));
+        assert!(PIPELINE_LIFECYCLE
+            .iter()
+            .all(|spec| spec.lifecycle.contains(LifecycleMask::RECORD)));
+        assert_eq!(
+            PIPELINE_LIFECYCLE
+                .iter()
+                .filter(|spec| spec.kind == PipelineKind::Compute)
+                .count(),
+            36
+        );
+        assert_eq!(
+            PIPELINE_LIFECYCLE
+                .iter()
+                .filter(|spec| spec.kind == PipelineKind::Graphics)
+                .count(),
+            15
+        );
+        assert_eq!(family_keys(LifecycleMask::EXTENT).len(), 45);
+
+        let ddgi_builder = family_keys(LifecycleMask::DDGI_BUILDER);
+        assert_eq!(ddgi_builder.len(), 9);
+        assert_eq!(
+            ddgi_builder,
+            HashSet::from([
+                PipelineKey::DdgiGlobalSkyFilter,
+                PipelineKey::DdgiOctahedralGutter,
+                PipelineKey::DdgiProbeRelocate,
+                PipelineKey::DdgiProbeTrace,
+                PipelineKey::DdgiIrradianceFilter,
+                PipelineKey::DdgiVisibilityFilter,
+                PipelineKey::DdgiIrradianceGutter,
+                PipelineKey::DdgiVisibilityGutter,
+                PipelineKey::DdgiAtlasReduce,
+            ])
+        );
+
+        let ddgi_consumers = family_keys(LifecycleMask::DDGI_CONSUMER);
+        assert_eq!(ddgi_consumers.len(), 13);
+        assert_eq!(
+            ddgi_consumers,
+            HashSet::from([
+                PipelineKey::Tracer,
+                PipelineKey::FloraLightingCache,
+                PipelineKey::TreeLeafLightingCache,
+                PipelineKey::Flora,
+                PipelineKey::FloraLod,
+                PipelineKey::Leaves,
+                PipelineKey::LeavesLod,
+                PipelineKey::Sprinkler,
+                PipelineKey::DynamicFruit,
+                PipelineKey::Particle,
+                PipelineKey::WaterDroplet,
+                PipelineKey::EnvironmentProbeDepth,
+                PipelineKey::EnvironmentProbeOverlay,
+            ])
+        );
+
+        let glass = PIPELINE_LIFECYCLE
+            .iter()
+            .find(|spec| spec.key == PipelineKey::Glass)
+            .expect("Glass must remain an opaque topology member");
+        assert_eq!(
+            glass.lifecycle,
+            LifecycleMask::new(0),
+            "Glass keeps construction/record behavior without resize or DDGI membership"
+        );
+    }
+
+    #[test]
+    fn prepared_generation_is_paired_with_actual_pipeline_type() {
+        assert!(prepared_pair_matches(
+            PipelineKey::Tracer,
+            PipelineKind::Compute,
+            PipelineKey::Tracer,
+            PipelineKind::Compute,
+        ));
+        assert!(prepared_pair_matches(
+            PipelineKey::Flora,
+            PipelineKind::Graphics,
+            PipelineKey::Flora,
+            PipelineKind::Graphics,
+        ));
+        assert!(!prepared_pair_matches(
+            PipelineKey::Flora,
+            PipelineKind::Graphics,
+            PipelineKey::Leaves,
+            PipelineKind::Graphics,
+        ));
+        assert!(!prepared_pair_matches(
+            PipelineKey::Tracer,
+            PipelineKind::Compute,
+            PipelineKey::Tracer,
+            PipelineKind::Graphics,
+        ));
     }
 }
