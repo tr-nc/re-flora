@@ -1,4 +1,4 @@
-use super::{LocalPlayerFootstepAudio, SpatialSoundManager};
+use super::{CanopyAcousticObservation, LocalPlayerFootstepAudio, SpatialSoundManager};
 use crate::gameplay::{CameraPose, FootstepEvent};
 
 /// Domain facts observed by spatial audio at the end of one application frame.
@@ -15,6 +15,9 @@ pub(crate) struct SpatialFrameFacts<'a> {
 /// retiring an emitter marks the shared spatial generation dirty, so this transaction publishes
 /// that structural change before starting any Voice that depends on it. A failed publication
 /// terminates every prepared footstep instead of allowing playback against an older generation.
+/// It also owns the single per-frame telemetry drain: local-footstep observations are applied
+/// before completion/deadline retirement, while typed canopy observations are returned to the
+/// canopy domain owner. PetalSonic lifecycle events remain on their independent stream.
 pub(crate) struct SpatialFrame {
     spatial_sound_manager: SpatialSoundManager,
     local_player_footsteps: LocalPlayerFootstepAudio,
@@ -28,7 +31,11 @@ impl SpatialFrame {
         }
     }
 
-    pub(crate) fn advance(&mut self, facts: SpatialFrameFacts<'_>) {
+    pub(crate) fn advance(
+        &mut self,
+        facts: SpatialFrameFacts<'_>,
+    ) -> Vec<CanopyAcousticObservation> {
+        let telemetry = self.spatial_sound_manager.drain_audio_telemetry();
         self.spatial_sound_manager.observe_listener(facts.listener);
 
         self.local_player_footsteps
@@ -36,7 +43,8 @@ impl SpatialFrame {
 
         // Complete or deadline-expire old Voices before reserving emitters for this frame. Any
         // resulting structural removal participates in the publication below.
-        self.local_player_footsteps.maintain(facts.sim_time_seconds);
+        self.local_player_footsteps
+            .maintain(facts.sim_time_seconds, telemetry.local_footsteps);
         let prepared = self
             .local_player_footsteps
             .prepare(facts.local_footsteps, facts.sim_time_seconds);
@@ -54,5 +62,6 @@ impl SpatialFrame {
                     .abort_prepared(prepared, "spatial_frame_publish_failed");
             }
         }
+        telemetry.canopy
     }
 }

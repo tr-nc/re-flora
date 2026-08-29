@@ -1,14 +1,14 @@
 use super::spatial_sound_manager::{
     AcousticPipelineSnapshot, SpatialFramePublication, TransientSpatialEmitter,
 };
-use super::SpatialSoundManager;
+use super::{LocalFootstepTelemetryObservations, SpatialSoundManager};
 use crate::gameplay::camera::{FootstepEvent, FootstepKind, Gait};
 use anyhow::Result;
 use petalsonic::{
     AcousticRouteOutcome, AcousticSolveStatus, AcousticVoiceConclusionTelemetry, DirectGeometry,
-    DirectPath, DirectPropagation, Emitter, EnvironmentResponse, EnvironmentSend,
-    LateReverbTelemetry, PetalSonicEvent, PlayCommandId, PlayOptions, PlaybackControl, PlaybackTag,
-    Pose, Vec3 as PetalVec3, VoiceEnergyTelemetry, VoiceTelemetryEvent,
+    DirectPath, DirectPropagation, EnvironmentResponse, EnvironmentSend, LateReverbTelemetry,
+    PetalSonicEvent, PlayCommandId, PlayOptions, PlaybackControl, PlaybackTag, Pose,
+    Vec3 as PetalVec3, VoiceEnergyTelemetry, VoiceTelemetryEvent,
 };
 
 const LOCAL_FOOTSTEP_DIRECT_WORLD_Y: f32 = -0.08;
@@ -19,7 +19,7 @@ const COMPLETION_DEADLINE_GRACE_SECONDS: f64 = 1.0;
 const TELEMETRY_CONCLUSION_GRACE_SECONDS: f64 = 1.0;
 const LOCAL_FOOTSTEP_CORRELATION_NAMESPACE: u64 = 1 << 63;
 
-fn local_footstep_correlation_id(event_seq: u64) -> u64 {
+pub(crate) fn local_footstep_correlation_id(event_seq: u64) -> u64 {
     LOCAL_FOOTSTEP_CORRELATION_NAMESPACE
         .checked_add(event_seq)
         .expect("local footstep telemetry correlation ID overflowed")
@@ -525,16 +525,17 @@ impl LocalPlayerFootstepAudio {
         };
     }
 
-    pub(crate) fn maintain(&mut self, sim_time_seconds: f64) {
+    pub(crate) fn maintain(
+        &mut self,
+        sim_time_seconds: f64,
+        telemetry: LocalFootstepTelemetryObservations,
+    ) {
         self.retry_retiring_emitters();
-        for conclusion in self
-            .spatial_sound_manager
-            .drain_local_footstep_acoustic_telemetry()
-        {
-            self.handle_acoustic_conclusion(conclusion);
+        for observation in telemetry.acoustic {
+            self.handle_acoustic_conclusion(observation.event_seq, observation.conclusion);
         }
-        for event in self.spatial_sound_manager.drain_voice_telemetry() {
-            self.handle_voice_telemetry(event);
+        for observation in telemetry.voice {
+            self.handle_voice_telemetry(observation.event_seq, observation.event);
         }
         for event in self.spatial_sound_manager.drain_events() {
             self.handle_petalsonic_event(event, sim_time_seconds);
@@ -717,6 +718,7 @@ impl LocalPlayerFootstepAudio {
         let routing = FootstepRouting::for_event(&event);
         let gain_db = self.event_gain_db(&event) + self.volume_gain_db;
         match self.spatial_sound_manager.create_transient_spatial_emitter(
+            event.event_seq,
             &path,
             gain_db,
             routing.environment_world,
@@ -799,32 +801,25 @@ impl LocalPlayerFootstepAudio {
         })
     }
 
-    fn voice_by_emitter_mut(
+    fn handle_acoustic_conclusion(
         &mut self,
-        emitter: Emitter,
-    ) -> Option<&mut ManagedFootstepVoice<TransientSpatialEmitter, PlaybackControl>> {
-        if let Some(index) = self
-            .active
-            .voices
-            .iter()
-            .position(|voice| voice.emitter.matches(emitter))
-        {
-            return self.active.voices.get_mut(index);
-        }
-        self.concluding
-            .iter_mut()
-            .find(|concluding| concluding.voice.emitter.matches(emitter))
-            .map(|concluding| &mut concluding.voice)
-    }
-
-    fn handle_acoustic_conclusion(&mut self, conclusion: AcousticVoiceConclusionTelemetry) {
-        let Some(voice) = self.voice_by_emitter_mut(conclusion.emitter) else {
+        event_seq: u64,
+        conclusion: AcousticVoiceConclusionTelemetry,
+    ) {
+        let Some(voice) = self.voice_by_event_seq_mut(event_seq) else {
             log::debug!(
-                "[AUDIO][LOCAL_FOOTSTEP] voice_id={} reason=unmatched_acoustic_conclusion",
+                "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} voice_id={} reason=unmatched_acoustic_conclusion",
                 conclusion.voice_id,
             );
             return;
         };
+        if !voice.emitter.matches(conclusion.emitter) {
+            log::error!(
+                "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} voice_id={} reason=acoustic_conclusion_emitter_mismatch",
+                conclusion.voice_id,
+            );
+            return;
+        }
         voice
             .wet_observation
             .record_acoustic_conclusion(conclusion.into());
@@ -880,16 +875,13 @@ impl LocalPlayerFootstepAudio {
         }
     }
 
-    fn handle_voice_telemetry(&mut self, event: VoiceTelemetryEvent) {
+    fn handle_voice_telemetry(&mut self, event_seq: u64, event: VoiceTelemetryEvent) {
         match event {
             VoiceTelemetryEvent::FirstRendered(telemetry) => {
-                let Some(event_seq) = local_footstep_event_seq(telemetry.play_command_id.0) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_first_render",
-                        telemetry.play_command_id.0,
-                    );
-                    return;
-                };
+                debug_assert_eq!(
+                    local_footstep_event_seq(telemetry.play_command_id.0),
+                    Some(event_seq)
+                );
                 match correlated_telemetry_attribution(self.active.get(event_seq), |emitter| {
                     emitter.matches(telemetry.emitter)
                 }) {
@@ -948,13 +940,7 @@ impl LocalPlayerFootstepAudio {
                 play_command_id,
                 response,
             } => {
-                let Some(event_seq) = local_footstep_event_seq(play_command_id.0) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_environment_response",
-                        play_command_id.0,
-                    );
-                    return;
-                };
+                debug_assert_eq!(local_footstep_event_seq(play_command_id.0), Some(event_seq));
                 let Some(voice) = self.voice_by_event_seq_mut(event_seq) else {
                     log::debug!(
                         "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_environment_response"
@@ -971,13 +957,10 @@ impl LocalPlayerFootstepAudio {
                 );
             }
             VoiceTelemetryEvent::EnergySummary(telemetry) => {
-                let Some(event_seq) = local_footstep_event_seq(telemetry.play_command_id.0) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_energy_summary",
-                        telemetry.play_command_id.0,
-                    );
-                    return;
-                };
+                debug_assert_eq!(
+                    local_footstep_event_seq(telemetry.play_command_id.0),
+                    Some(event_seq)
+                );
                 match correlated_telemetry_attribution(
                     self.voice_by_event_seq(event_seq),
                     |emitter| emitter.matches(telemetry.emitter),

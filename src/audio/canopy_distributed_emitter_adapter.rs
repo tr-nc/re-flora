@@ -1,9 +1,9 @@
 use crate::audio::{
-    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticSampleId,
-    CanopyAcousticSolveStatus, CanopyAudioGenerationKey, CanopyAudioLifecycleSnapshot,
-    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioVoice,
-    CanopyExtentAcousticObservation, CanopyOcclusionClassification, CanopyRouteAcousticObservation,
-    CanopySampleAcousticObservation, SpatialAcousticTelemetryEvent, SpatialSoundManager,
+    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticObservation,
+    CanopyAcousticSampleId, CanopyAcousticSolveStatus, CanopyAudioGenerationKey,
+    CanopyAudioLifecycleSnapshot, CanopyAudioSampleTelemetry, CanopyAudioTelemetry,
+    CanopyAudioVoice, CanopyExtentAcousticObservation, CanopyOcclusionClassification,
+    CanopyRouteAcousticObservation, CanopySampleAcousticObservation, SpatialSoundManager,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
@@ -158,15 +158,14 @@ impl CanopyDistributedEmitterAdapter {
         self.telemetry.set_enabled(enabled);
     }
 
-    pub fn collect_acoustic_telemetry(&mut self) {
-        for event in self.spatial_sound_manager.drain_acoustic_telemetry() {
+    pub fn collect_acoustic_telemetry(&mut self, observations: Vec<CanopyAcousticObservation>) {
+        for event in observations {
             match event {
-                SpatialAcousticTelemetryEvent::ExtentResponse {
-                    source_uuid: Some(source_uuid),
+                CanopyAcousticObservation::ExtentResponse {
+                    generation,
                     response,
                 } => {
-                    let Some(voice) = self.voices.values().find(|voice| voice.uuid == source_uuid)
-                    else {
+                    let Some(voice) = self.voices.get(&generation) else {
                         continue;
                     };
                     let key = voice.key;
@@ -231,20 +230,7 @@ impl CanopyDistributedEmitterAdapter {
                         },
                     );
                 }
-                SpatialAcousticTelemetryEvent::ExtentResponse {
-                    source_uuid: None, ..
-                } => {}
-                SpatialAcousticTelemetryEvent::VoiceConclusion {
-                    source_uuid,
-                    conclusion,
-                } => {
-                    // This event reached the canopy-owned inbox, so the local-footstep consumer
-                    // cannot drain or misattribute it. Existing extent telemetry remains the
-                    // canopy diagnostic authority, so no current canopy snapshot field projects
-                    // this QoS record.
-                    let _ = (source_uuid, conclusion);
-                }
-                SpatialAcousticTelemetryEvent::SolveDiscarded {
+                CanopyAcousticObservation::SolveDiscarded {
                     spatial_revision,
                     geometry_version,
                 } => {
@@ -317,7 +303,8 @@ impl CanopyDistributedEmitterAdapter {
         let phase = Self::phase_at_time(descriptor.phase(), rustle_clip, time_seconds);
         let uuid = self
             .spatial_sound_manager
-            .add_looping_spatial_clip_with_extent_at_phase(
+            .add_canopy_looping_clip_with_extent_at_phase(
+                active.key(),
                 rustle_clip.clone(),
                 TREE_SILENT_VOLUME_DB,
                 descriptor.tree_origin_world(),

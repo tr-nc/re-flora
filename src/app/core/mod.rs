@@ -2433,10 +2433,7 @@ impl App {
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                self.tree_audio_manager.collect_canopy_acoustic_telemetry();
-                self.start_canopy_audio_diagnostic_when_ready(time_since_start);
                 self.update_environmental_acoustics_quality();
-                self.log_canopy_audio_telemetry(time_since_start);
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
@@ -4431,13 +4428,17 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
-                self.spatial_frame.advance(SpatialFrameFacts {
+                let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),
                     local_footsteps: &footstep_events,
                     footstep_volume_gain_db: -40.0
                         + self.debug_settings.adjustables.footstep_volume_db.value,
                 });
+                self.tree_audio_manager
+                    .observe_canopy_acoustic_telemetry(canopy_audio_observations);
+                self.start_canopy_audio_diagnostic_when_ready(time_since_start);
+                self.log_canopy_audio_telemetry(time_since_start);
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();
