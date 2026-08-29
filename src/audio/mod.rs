@@ -3,8 +3,7 @@ mod audio_clip_cache;
 mod audio_telemetry_router;
 pub(crate) use audio_telemetry_router::{
     AudioTelemetryObservations, AudioTelemetryRouter, CanopyAcousticObservation,
-    LocalFootstepAcousticObservation, LocalFootstepTelemetryObservations,
-    LocalFootstepVoiceObservation,
+    LocalFootstepTelemetryObservations,
 };
 
 mod canopy_acoustics;
