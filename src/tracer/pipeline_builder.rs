@@ -5,14 +5,76 @@ use crate::tracer::TracerResources;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, DescriptorUpdate,
-    GraphicsPipeline, GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, TextureLayout,
-    VulkanContext,
+    Allocator, AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool,
+    DescriptorUpdate, Extent2D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink,
+    Framebuffer, GraphicsPipeline, GraphicsPipelineDesc, RenderPass, RenderTarget, ShaderModule,
+    Texture, TextureLayout, VulkanContext,
 };
 
-pub struct PipelineBuilder;
+pub struct PipelineBuilder {
+    shader_modules: ShaderModules,
+}
 
 impl PipelineBuilder {
+    pub fn new(vulkan_ctx: &VulkanContext) -> Result<Self> {
+        Ok(Self {
+            shader_modules: Self::create_shader_modules(vulkan_ctx)?,
+        })
+    }
+
+    pub fn shader_modules(&self) -> &ShaderModules {
+        &self.shader_modules
+    }
+
+    pub fn build(self, input: PipelineTopologyBuild<'_>) -> PipelineTopology {
+        let compute = Self::create_compute_pipelines(
+            input.vulkan_ctx,
+            &self.shader_modules,
+            input.pool,
+            input.resources,
+            input.contree_builder_resources,
+            input.scene_accel_resources,
+            input.plain_builder_resources,
+            input.ddgi_volume,
+            input.ddgi_voxel_visibility,
+        );
+        let render_passes = Self::create_render_passes(
+            input.vulkan_ctx,
+            input
+                .resources
+                .extent_dependent_resources
+                .gfx_output_tex
+                .clone(),
+            input
+                .resources
+                .extent_dependent_resources
+                .gfx_depth_tex
+                .clone(),
+            input.resources.shadow.shadow_map_depth_tex.clone(),
+            input.resources.shadow.leaf_shadow_opacity_tex.clone(),
+        );
+        let graphics = Self::create_graphics_pipelines(
+            input.vulkan_ctx,
+            &self.shader_modules,
+            &render_passes,
+            input.pool,
+            input.resources,
+            input.plain_builder_resources,
+            input.ddgi_volume,
+            input.ddgi_voxel_visibility,
+        );
+        let render_targets =
+            PipelineRenderTargets::new(input.vulkan_ctx, render_passes, input.resources);
+
+        PipelineTopology {
+            compute,
+            graphics,
+            render_targets,
+            frame_extent_generation: input.frame_extent_generation,
+            frame_retirement_sink: input.frame_retirement_sink,
+        }
+    }
+
     pub fn create_shader_modules(vulkan_ctx: &VulkanContext) -> Result<ShaderModules> {
         let tracer_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -1190,6 +1252,444 @@ impl PipelineBuilder {
             descriptor_pool,
         )
     }
+}
+
+pub struct PipelineTopologyBuild<'a> {
+    pub vulkan_ctx: &'a VulkanContext,
+    pub pool: &'a DescriptorPool,
+    pub resources: &'a TracerResources,
+    pub contree_builder_resources: &'a ContreeBuilderResources,
+    pub scene_accel_resources: &'a SceneAccelBuilderResources,
+    pub plain_builder_resources: &'a PlainBuilderResources,
+    pub ddgi_volume: &'a DdgiVolume,
+    pub ddgi_voxel_visibility: &'a DdgiVoxelVisibility,
+    pub frame_extent_generation: FrameExtentGeneration,
+    pub frame_retirement_sink: FrameRetirementSink,
+}
+
+pub struct PipelineTopology {
+    compute: ComputePipelines,
+    graphics: GraphicsPipelines,
+    render_targets: PipelineRenderTargets,
+    frame_extent_generation: FrameExtentGeneration,
+    frame_retirement_sink: FrameRetirementSink,
+}
+
+impl PipelineTopology {
+    pub fn compute(&self) -> &ComputePipelines {
+        &self.compute
+    }
+
+    pub fn graphics(&self) -> &GraphicsPipelines {
+        &self.graphics
+    }
+
+    pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
+        self.frame_extent_generation
+    }
+
+    pub fn color_and_depth_target(&self) -> &RenderTarget {
+        &self.render_targets.color_and_depth
+    }
+
+    pub fn depth_only_target(&self) -> &RenderTarget {
+        &self.render_targets.depth_only
+    }
+
+    pub fn leaf_shadow_opacity_target(&self) -> &RenderTarget {
+        &self.render_targets.leaf_shadow_opacity
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn publish_extent_generation(
+        &mut self,
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        resources: &mut TracerResources,
+        render_extent: Extent2D,
+        frame_extent_generation: FrameExtentGeneration,
+        environment_irradiance_capture_enabled: bool,
+        descriptor_generation: u64,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+        active_ddgi_volume: &DdgiVolume,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
+    ) {
+        let expected_serial = self
+            .frame_extent_generation
+            .serial()
+            .checked_add(1)
+            .expect("pipeline topology frame extent generation overflow");
+        assert_eq!(
+            frame_extent_generation.serial(),
+            expected_serial,
+            "pipeline topology frame extent generation must advance exactly once"
+        );
+
+        let retired_resources = resources.replace_extent_dependent_resources(
+            vulkan_ctx.device().clone(),
+            allocator,
+            render_extent,
+            frame_extent_generation.extent(),
+            environment_irradiance_capture_enabled,
+        );
+        let replacement_targets = self.render_targets.replacement(vulkan_ctx, resources);
+        let retired_targets = std::mem::replace(&mut self.render_targets, replacement_targets);
+        let retired_generation = self.frame_extent_generation.serial();
+        self.frame_extent_generation = frame_extent_generation;
+
+        self.publish_extent_descriptors(
+            descriptor_generation,
+            resources,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+            active_ddgi_volume,
+            ddgi_voxel_visibility,
+        );
+        self.frame_retirement_sink.retire(FrameRetirement::new(
+            "tracer.extent_dependent",
+            retired_generation,
+            (retired_resources, retired_targets),
+        ));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn publish_extent_descriptors(
+        &self,
+        generation: u64,
+        resources: &TracerResources,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+        active_ddgi_volume: &DdgiVolume,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
+    ) {
+        let retire_compute = |pipeline: &ComputePipeline,
+                              update: DescriptorUpdate<'_>,
+                              error: &'static str| {
+            self.frame_retirement_sink.retire(
+                pipeline
+                    .publish_descriptors("tracer.resize.compute.descriptors", generation, update)
+                    .expect(error),
+            );
+        };
+        let retire_graphics = |pipeline: &GraphicsPipeline,
+                               update: DescriptorUpdate<'_>,
+                               error: &'static str| {
+            self.frame_retirement_sink.retire(
+                pipeline
+                    .publish_descriptors("tracer.resize.graphics.descriptors", generation, update)
+                    .expect(error),
+            );
+        };
+
+        let all_resources: [&dyn ResourceContainer; 6] = [
+            resources,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+            active_ddgi_volume,
+            ddgi_voxel_visibility,
+        ];
+        for pipeline in [
+            &self.compute.tracer_ppl,
+            &self.compute.tracer_shadow_ppl,
+            &self.compute.player_collider_ppl,
+            &self.compute.terrain_query_ppl,
+        ] {
+            retire_compute(
+                pipeline,
+                DescriptorUpdate::All(&all_resources),
+                "compute descriptor update failed during extent publication",
+            );
+        }
+
+        let tracer_resources: [&dyn ResourceContainer; 3] =
+            [resources, active_ddgi_volume, ddgi_voxel_visibility];
+        for pipeline in [
+            &self.compute.wind_volume_ppl,
+            &self.compute.shadow_depth_copy_ppl,
+            &self.compute.leaf_shadow_mask_ppl,
+            &self.compute.vsm_creation_ppl,
+            &self.compute.vsm_blur_h_ppl,
+            &self.compute.vsm_blur_v_ppl,
+            &self.compute.god_ray_ppl,
+            &self.compute.god_ray_temporal_ppl,
+            &self.compute.cloud_ppl,
+            &self.compute.cloud_shadow_ppl,
+            &self.compute.cloud_shadow_temporal_ppl,
+            &self.compute.cloud_temporal_ppl,
+            &self.compute.lens_flare_ppl,
+            &self.compute.lens_flare_temporal_ppl,
+            &self.compute.lens_flare_sun_visible_ppl,
+            &self.compute.composition_ppl,
+            &self.compute.post_processing_ppl,
+        ] {
+            retire_compute(
+                pipeline,
+                DescriptorUpdate::All(&tracer_resources),
+                "compute descriptor update failed during extent publication",
+            );
+        }
+
+        let environment_lighting_resources: [&dyn ResourceContainer; 3] =
+            [resources, active_ddgi_volume, ddgi_voxel_visibility];
+        retire_graphics(
+            &self.graphics.terrain_depth_prefill_ppl,
+            DescriptorUpdate::All(&tracer_resources),
+            "graphics descriptor update failed during extent publication",
+        );
+        for pipeline in [&self.graphics.flora_ppl, &self.graphics.flora_lod_ppl] {
+            retire_graphics(
+                pipeline,
+                DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &all_resources,
+                },
+                "graphics descriptor set update failed during extent publication",
+            );
+        }
+        for pipeline in [&self.graphics.leaves_ppl, &self.graphics.leaves_lod_ppl] {
+            retire_graphics(
+                pipeline,
+                DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &environment_lighting_resources,
+                },
+                "graphics descriptor set update failed during extent publication",
+            );
+        }
+        retire_graphics(
+            &self.graphics.leaves_shadow_lod_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &tracer_resources,
+            },
+            "graphics descriptor set update failed during extent publication",
+        );
+        for pipeline in [
+            &self.graphics.sprinkler_ppl,
+            &self.graphics.environment_probe_visualization_depth_ppl,
+            &self.graphics.environment_probe_visualization_overlay_ppl,
+            &self.graphics.dynamic_fruit_ppl,
+            &self.graphics.particle_ppl,
+            &self.graphics.water_droplet_ppl,
+        ] {
+            retire_graphics(
+                pipeline,
+                DescriptorUpdate::All(&environment_lighting_resources),
+                "graphics descriptor update failed during extent publication",
+            );
+        }
+        retire_graphics(
+            &self.graphics.geometry_preview_ppl,
+            DescriptorUpdate::All(&tracer_resources),
+            "graphics descriptor update failed during extent publication",
+        );
+
+        let ddgi_resources: [&dyn ResourceContainer; 2] = [resources, active_ddgi_volume];
+        retire_compute(
+            &self.compute.ddgi_global_sky_filter_ppl,
+            DescriptorUpdate::All(&ddgi_resources),
+            "DDGI global-sky descriptor update failed during extent publication",
+        );
+        retire_compute(
+            &self.compute.ddgi_octahedral_gutter_ppl,
+            DescriptorUpdate::All(&[active_ddgi_volume]),
+            "DDGI octahedral-gutter descriptor update failed during extent publication",
+        );
+        retire_compute(
+            &self.compute.ddgi_probe_relocate_ppl,
+            DescriptorUpdate::All(&[plain_builder_resources, active_ddgi_volume]),
+            "DDGI relocation descriptor update failed during extent publication",
+        );
+        retire_compute(
+            &self.compute.ddgi_probe_trace_ppl,
+            DescriptorUpdate::All(&[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                active_ddgi_volume,
+                ddgi_voxel_visibility,
+            ]),
+            "DDGI trace descriptor update failed during extent publication",
+        );
+        retire_compute(
+            &self.compute.ddgi_voxel_visibility_pack_ppl,
+            DescriptorUpdate::All(&[plain_builder_resources, ddgi_voxel_visibility]),
+            "DDGI voxel pack descriptor update failed during extent publication",
+        );
+        retire_compute(
+            &self.compute.ddgi_voxel_visibility_blocks_ppl,
+            DescriptorUpdate::All(&[ddgi_voxel_visibility]),
+            "DDGI voxel blocks descriptor update failed during extent publication",
+        );
+        for pipeline in [
+            &self.compute.ddgi_irradiance_filter_ppl,
+            &self.compute.ddgi_visibility_filter_ppl,
+            &self.compute.ddgi_irradiance_gutter_ppl,
+            &self.compute.ddgi_visibility_gutter_ppl,
+            &self.compute.ddgi_atlas_reduce_ppl,
+        ] {
+            retire_compute(
+                pipeline,
+                DescriptorUpdate::All(&[active_ddgi_volume]),
+                "DDGI filter descriptor update failed during extent publication",
+            );
+        }
+    }
+}
+
+struct PipelineRenderTargets {
+    color_and_depth: RenderTarget,
+    depth_only: RenderTarget,
+    leaf_shadow_opacity: RenderTarget,
+    gui: RenderTarget,
+}
+
+impl PipelineRenderTargets {
+    fn new(
+        vulkan_ctx: &VulkanContext,
+        render_passes: RenderPasses,
+        resources: &TracerResources,
+    ) -> Self {
+        let framebuffer_color_and_depth = framebuffer_color_and_depth(
+            vulkan_ctx,
+            &render_passes.render_pass_color_and_depth,
+            &resources.extent_dependent_resources.gfx_output_tex,
+            &resources.extent_dependent_resources.gfx_depth_tex,
+        );
+        let framebuffer_depth_only = framebuffer_single_attachment(
+            vulkan_ctx,
+            &render_passes.render_pass_depth,
+            &resources.shadow.shadow_map_depth_tex,
+        );
+        let framebuffer_leaf_shadow_opacity = framebuffer_single_attachment(
+            vulkan_ctx,
+            &render_passes.render_pass_leaf_shadow_opacity,
+            &resources.shadow.leaf_shadow_opacity_tex,
+        );
+
+        let color_and_depth = RenderTarget::new(
+            render_passes.render_pass_color_and_depth,
+            vec![framebuffer_color_and_depth],
+        );
+        let depth_only = RenderTarget::new(
+            render_passes.render_pass_depth,
+            vec![framebuffer_depth_only],
+        );
+        let leaf_shadow_opacity = RenderTarget::new(
+            render_passes.render_pass_leaf_shadow_opacity,
+            vec![framebuffer_leaf_shadow_opacity],
+        );
+        let gui_render_pass = RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[AttachmentDescOuter {
+                texture: resources
+                    .extent_dependent_resources
+                    .screenshot_output_tex
+                    .clone(),
+                load_op: vk::AttachmentLoadOp::LOAD,
+                store_op: vk::AttachmentStoreOp::STORE,
+                initial_layout: TextureLayout::GENERAL,
+                final_layout: TextureLayout::GENERAL,
+                ty: AttachmentType::Color,
+            }],
+        );
+        let framebuffer_gui = framebuffer_single_attachment(
+            vulkan_ctx,
+            &gui_render_pass,
+            &resources.extent_dependent_resources.screenshot_output_tex,
+        );
+        let gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
+
+        Self {
+            color_and_depth,
+            depth_only,
+            leaf_shadow_opacity,
+            gui,
+        }
+    }
+
+    fn replacement(&self, vulkan_ctx: &VulkanContext, resources: &TracerResources) -> Self {
+        let color_and_depth_pass = self.color_and_depth.get_render_pass().clone();
+        let depth_only_pass = self.depth_only.get_render_pass().clone();
+        let leaf_shadow_opacity_pass = self.leaf_shadow_opacity.get_render_pass().clone();
+        let gui_pass = self.gui.get_render_pass().clone();
+
+        Self {
+            color_and_depth: RenderTarget::new(
+                color_and_depth_pass.clone(),
+                vec![framebuffer_color_and_depth(
+                    vulkan_ctx,
+                    &color_and_depth_pass,
+                    &resources.extent_dependent_resources.gfx_output_tex,
+                    &resources.extent_dependent_resources.gfx_depth_tex,
+                )],
+            ),
+            depth_only: RenderTarget::new(
+                depth_only_pass.clone(),
+                vec![framebuffer_single_attachment(
+                    vulkan_ctx,
+                    &depth_only_pass,
+                    &resources.shadow.shadow_map_depth_tex,
+                )],
+            ),
+            leaf_shadow_opacity: RenderTarget::new(
+                leaf_shadow_opacity_pass.clone(),
+                vec![framebuffer_single_attachment(
+                    vulkan_ctx,
+                    &leaf_shadow_opacity_pass,
+                    &resources.shadow.leaf_shadow_opacity_tex,
+                )],
+            ),
+            gui: RenderTarget::new(
+                gui_pass.clone(),
+                vec![framebuffer_single_attachment(
+                    vulkan_ctx,
+                    &gui_pass,
+                    &resources.extent_dependent_resources.screenshot_output_tex,
+                )],
+            ),
+        }
+    }
+}
+
+fn framebuffer_color_and_depth(
+    vulkan_ctx: &VulkanContext,
+    render_pass: &RenderPass,
+    target_texture: &Texture,
+    depth_texture: &Texture,
+) -> Framebuffer {
+    let extent = target_texture
+        .get_image()
+        .get_desc()
+        .extent
+        .as_extent_2d()
+        .unwrap();
+    Framebuffer::from_textures(
+        vulkan_ctx.clone(),
+        render_pass,
+        &[target_texture, depth_texture],
+        extent,
+    )
+    .unwrap()
+}
+
+fn framebuffer_single_attachment(
+    vulkan_ctx: &VulkanContext,
+    render_pass: &RenderPass,
+    texture: &Texture,
+) -> Framebuffer {
+    let extent = texture
+        .get_image()
+        .get_desc()
+        .extent
+        .as_extent_2d()
+        .unwrap();
+    Framebuffer::from_textures(vulkan_ctx.clone(), render_pass, &[texture], extent).unwrap()
 }
 
 pub struct ShaderModules {
