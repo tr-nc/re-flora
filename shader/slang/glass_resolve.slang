@@ -85,10 +85,9 @@ static const uint GLASS_VOXEL_CACHE_MASK = GLASS_VOXEL_CACHE_CAPACITY - 1u;
 static const uint GLASS_VOXEL_CACHE_MAX_PROBES = 32u;
 static const uint GLASS_VOXEL_COORD_BITS = 10u;
 static const uint GLASS_VOXEL_COORD_MASK = (1u << GLASS_VOXEL_COORD_BITS) - 1u;
-// Two-point Gauss-Legendre abscissa over the normalized [-0.5, 0.5] voxel face.
+// Symmetric two-point prefilter positions along a voxel-face diagonal.
 static const float GLASS_VOXEL_FACE_SAMPLE_OFFSET = 0.2886751346 / 256.0;
 static const float GLASS_VOXEL_FACE_HALF_EXTENT = 0.5 / 256.0;
-static const float GLASS_VOXEL_QUADRATURE_MIN_FOOTPRINT_PIXELS = 1.0;
 
 struct GlassActivePath
 {
@@ -807,32 +806,6 @@ void glassInterfaceFaceFrame(
         axisNormal * GLASS_VOXEL_FACE_HALF_EXTENT;
 }
 
-float2 projectGlassPointToUv(float3 position)
-{
-    float4 clip = mul(camera_info.view_proj_mat, float4(position, 1.0));
-    return clip.xy / clip.w * 0.5 + 0.5;
-}
-
-bool glassVoxelNeedsFaceQuadrature(
-    float3 faceCenter, float3 tangentU, float3 tangentV,
-    SceneQueryEvent event, uint2 extent)
-{
-    // Edge/corner events do not own a single rectangular face to integrate.
-    if (countbits(event.tied_axes & 0x07u) != 1u) return false;
-    float2 uMin = projectGlassPointToUv(
-        faceCenter - tangentU * GLASS_VOXEL_FACE_HALF_EXTENT);
-    float2 uMax = projectGlassPointToUv(
-        faceCenter + tangentU * GLASS_VOXEL_FACE_HALF_EXTENT);
-    float2 vMin = projectGlassPointToUv(
-        faceCenter - tangentV * GLASS_VOXEL_FACE_HALF_EXTENT);
-    float2 vMax = projectGlassPointToUv(
-        faceCenter + tangentV * GLASS_VOXEL_FACE_HALF_EXTENT);
-    float footprintPixels = max(
-        length((uMax - uMin) * float2(extent)),
-        length((vMax - vMin) * float2(extent)));
-    return footprintPixels > GLASS_VOXEL_QUADRATURE_MIN_FOOTPRINT_PIXELS;
-}
-
 GlassResolveResult traceGlassFrontSample(
     float3 samplePosition, SceneQueryEvent frontEvent)
 {
@@ -932,11 +905,6 @@ void shadeGlassVoxelCache(uint activeIndex)
     uint slot = glass_voxel_cache_active_slots[activeIndex];
     uint key = glass_voxel_cache_metadata[slot].x;
     if (key == 0u) return;
-    uint width;
-    uint height;
-    composited_tex.GetDimensions(width, height);
-    uint2 extent = uint2(width, height);
-
     int3 glassCell = glassVoxelCellFromKey(key);
     float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
     // One camera-to-center ray defines one geometric DDA normal and one transport color for the
@@ -952,17 +920,19 @@ void shadeGlassVoxelCache(uint activeIndex)
     GlassResolveResult result = emptyGlassResolveResult();
     if (frontEvent.kind == SCENE_QUERY_EVENT_INTERFACE)
     {
-        float3 faceCenter;
-        float3 tangentU;
-        float3 tangentV;
-        glassInterfaceFaceFrame(
-            glassCell, frontEvent, faceCenter, tangentU, tangentV);
-        if (glassVoxelNeedsFaceQuadrature(
-                faceCenter, tangentU, tangentV, frontEvent,
-                extent))
+        // A single-axis event owns a rectangular face. Always prefilter its transport across
+        // two symmetric positions: turning this off below a one-pixel projected footprint
+        // aliases the cell-center visibility signal into stable distance-dependent moire bands.
+        // Edge/corner events have no single face to integrate and retain their exact event ray.
+        if (countbits(frontEvent.tied_axes & 0x07u) == 1u)
         {
-            // The opposite diagonal samples are deterministic. Each sample still splits both
-            // Fresnel branches; their mean remains one normal and one cached color per voxel.
+            float3 faceCenter;
+            float3 tangentU;
+            float3 tangentV;
+            glassInterfaceFaceFrame(
+                glassCell, frontEvent, faceCenter, tangentU, tangentV);
+            // Each deterministic sample still splits both Fresnel branches; their mean remains
+            // one geometric normal and one cached transport color for the entire voxel.
             [unroll]
             for (uint sampleIndex = 0u; sampleIndex < 2u; ++sampleIndex)
             {
