@@ -85,8 +85,6 @@ const FLORA_LIGHTING_CACHE_LOD_BIT: u32 = 1 << 31;
 const FLORA_INSTANCE_TYPE_MASK: u32 = 0xff;
 const FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT: u32 = 8;
 
-use crate::audio::SpatialSoundManager;
-
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
@@ -107,9 +105,7 @@ use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
     EnvironmentProbeVisualizationSettings,
 };
-use crate::gameplay::{
-    calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
-};
+use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraPose};
 use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
 use crate::lighting::{
@@ -952,7 +948,6 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
-    spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -1047,7 +1042,6 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
         desc: TracerDesc,
-        spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
@@ -1278,7 +1272,6 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
-            spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -6292,15 +6285,6 @@ impl Tracer {
         self.cloud_history_valid = false;
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
-        if let Err(err) = self
-            .spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-        {
-            log::warn!(
-                "Failed to update listener after applying camera pose: {}",
-                err
-            );
-        }
     }
 
     pub fn camera_front(&self) -> Vec3 {
@@ -6320,15 +6304,6 @@ impl Tracer {
         let changed = self.camera.set_pose_looking_at(position, target);
         if changed {
             self.direct_sun_shadows.invalidate_local_histories();
-            if let Err(err) = self
-                .spatial_sound_manager
-                .update_player_pos(self.camera.position(), self.camera.vectors())
-            {
-                log::warn!(
-                    "Failed to update listener after applying look-at camera pose: {}",
-                    err
-                );
-            }
         }
         changed
     }
@@ -6365,16 +6340,8 @@ impl Tracer {
         Some(camera_pos + direction * distance_from_camera)
     }
 
-    #[allow(dead_code)]
-    pub fn camera_vectors(&self) -> &CameraVectors {
-        self.camera.vectors()
-    }
-
     pub fn update_fly_camera(&mut self, frame_delta_time: f32) {
         self.camera.update_transform_fly_mode(frame_delta_time);
-        self.spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-            .unwrap();
     }
 
     pub fn prepare_walk_camera_movement(
@@ -6395,9 +6362,6 @@ impl Tracer {
     ) {
         self.camera
             .apply_walk_movement(frame_delta_time, sim_time_seconds, request, result);
-        self.spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-            .unwrap();
     }
 
     pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
