@@ -49,6 +49,11 @@ impl TransientSpatialEmitter {
     pub(crate) fn matches(self, emitter: Emitter) -> bool {
         self.emitter == emitter
     }
+
+    #[cfg(test)]
+    pub(super) fn test_emitter(self) -> Emitter {
+        self.emitter
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,6 +143,119 @@ pub struct SpatialSoundManager {
     spatial_frame_revision: Arc<AtomicU64>,
     spatial_frame_publish_cadence: Arc<Mutex<SpatialFramePublishCadence>>,
     published_acoustic_scene_version: Arc<AtomicU64>,
+    #[cfg(test)]
+    test_audio_queue_probe: Arc<Mutex<Option<Arc<SpatialAudioQueueProbe>>>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FootstepRetirementProbe {
+    pub(super) event_seq: u64,
+    pub(super) reason: &'static str,
+    pub(super) environment_response_observed: bool,
+    pub(super) acoustic_conclusion_observed: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NextAudioQueue {
+    Voice,
+    Acoustic,
+    Lifecycle,
+    Done,
+}
+
+#[cfg(test)]
+struct SpatialAudioQueueProbeState {
+    next: NextAudioQueue,
+    voice: Option<Vec<petalsonic::VoiceTelemetryEvent>>,
+    acoustic: Option<Vec<petalsonic::AcousticTelemetryEvent>>,
+    lifecycle: Option<Vec<PetalSonicEvent>>,
+    retirements: Vec<FootstepRetirementProbe>,
+}
+
+/// Test-only replacement for the three concrete PetalSonic queue reads.
+///
+/// Each queue is consumable exactly once and in its production order. This is deliberately not a
+/// production interface: it exists only so tests can drive and observe the real manager and
+/// `SpatialFrame` transaction deterministically.
+#[cfg(test)]
+pub(super) struct SpatialAudioQueueProbe {
+    state: Mutex<SpatialAudioQueueProbeState>,
+}
+
+#[cfg(test)]
+impl SpatialAudioQueueProbe {
+    pub(super) fn new(
+        voice: Vec<petalsonic::VoiceTelemetryEvent>,
+        acoustic: Vec<petalsonic::AcousticTelemetryEvent>,
+        lifecycle: Vec<PetalSonicEvent>,
+    ) -> Self {
+        Self {
+            state: Mutex::new(SpatialAudioQueueProbeState {
+                next: NextAudioQueue::Voice,
+                voice: Some(voice),
+                acoustic: Some(acoustic),
+                lifecycle: Some(lifecycle),
+                retirements: Vec::new(),
+            }),
+        }
+    }
+
+    fn drain_voice(&self) -> Vec<petalsonic::VoiceTelemetryEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Voice,
+            "Voice telemetry drained more than once or out of order"
+        );
+        state.next = NextAudioQueue::Acoustic;
+        state.voice.take().expect("Voice telemetry drained twice")
+    }
+
+    fn drain_acoustic(&self) -> Vec<petalsonic::AcousticTelemetryEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Acoustic,
+            "acoustic telemetry drained more than once or out of order"
+        );
+        state.next = NextAudioQueue::Lifecycle;
+        state
+            .acoustic
+            .take()
+            .expect("acoustic telemetry drained twice")
+    }
+
+    fn drain_lifecycle(&self) -> Vec<PetalSonicEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Lifecycle,
+            "lifecycle stream was cross-drained or drained more than once"
+        );
+        state.next = NextAudioQueue::Done;
+        state
+            .lifecycle
+            .take()
+            .expect("lifecycle stream drained twice")
+    }
+
+    fn observe_retirement(&self, retirement: FootstepRetirementProbe) {
+        self.state.lock().unwrap().retirements.push(retirement);
+    }
+
+    pub(super) fn retirements(&self) -> Vec<FootstepRetirementProbe> {
+        self.state.lock().unwrap().retirements.clone()
+    }
+
+    pub(super) fn assert_all_queues_drained_once(&self) {
+        let state = self.state.lock().unwrap();
+        assert_eq!(state.next, NextAudioQueue::Done);
+        assert!(state.voice.is_none());
+        assert!(state.acoustic.is_none());
+        assert!(state.lifecycle.is_none());
+    }
 }
 
 #[derive(Debug, Default)]
@@ -254,6 +372,8 @@ impl SpatialSoundManager {
             published_acoustic_scene_version: Arc::new(AtomicU64::new(
                 initial_acoustic_scene_version,
             )),
+            #[cfg(test)]
+            test_audio_queue_probe: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -497,7 +617,44 @@ impl SpatialSoundManager {
     }
 
     pub(crate) fn drain_events(&self) -> Vec<PetalSonicEvent> {
+        #[cfg(test)]
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            return probe.drain_lifecycle();
+        }
         self.world.drain_events()
+    }
+
+    #[cfg(test)]
+    pub(super) fn install_audio_queue_probe(&self, probe: Arc<SpatialAudioQueueProbe>) {
+        *self.test_audio_queue_probe.lock().unwrap() = Some(probe);
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_source_emitter(&self, uuid: Uuid) -> Emitter {
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .get(&uuid)
+            .expect("test source must remain registered")
+            .emitter
+    }
+
+    #[cfg(test)]
+    pub(super) fn observe_test_footstep_retirement(
+        &self,
+        event_seq: u64,
+        reason: &'static str,
+        environment_response_observed: bool,
+        acoustic_conclusion_observed: bool,
+    ) {
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            probe.observe_retirement(FootstepRetirementProbe {
+                event_seq,
+                reason,
+                environment_response_observed,
+                acoustic_conclusion_observed,
+            });
+        }
     }
 
     pub(super) fn observe_listener(&self, pose: CameraPose) {
@@ -649,6 +806,16 @@ impl SpatialSoundManager {
     }
 
     pub(crate) fn drain_audio_telemetry(&self) -> AudioTelemetryObservations {
+        #[cfg(test)]
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            let voice = probe.drain_voice();
+            let acoustic = probe.drain_acoustic();
+            return self
+                .audio_telemetry_router
+                .lock()
+                .unwrap()
+                .route(voice, acoustic);
+        }
         self.audio_telemetry_router.lock().unwrap().route(
             self.world.drain_voice_telemetry(),
             self.world.drain_acoustic_telemetry(),

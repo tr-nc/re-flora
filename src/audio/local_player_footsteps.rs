@@ -557,6 +557,27 @@ impl LocalPlayerFootstepAudio {
         self.finalize_concluding_voices(sim_time_seconds);
     }
 
+    #[cfg(test)]
+    pub(super) fn test_active_voice_identity(
+        &self,
+        event_seq: u64,
+    ) -> (petalsonic::Emitter, PlaybackControl, f64) {
+        let voice = self
+            .active
+            .get(event_seq)
+            .expect("test footstep Voice must be active");
+        (
+            voice.emitter.test_emitter(),
+            voice.control,
+            voice.completion_deadline_seconds,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_voice_counts(&self) -> (usize, usize) {
+        (self.active.len(), self.concluding.len())
+    }
+
     pub(crate) fn prepare(
         &mut self,
         events: &[FootstepEvent],
@@ -1004,6 +1025,13 @@ impl LocalPlayerFootstepAudio {
         reason: &'static str,
         sim_time_seconds: f64,
     ) {
+        #[cfg(test)]
+        self.spatial_sound_manager.observe_test_footstep_retirement(
+            voice.event_seq,
+            reason,
+            voice.wet_observation.response.is_some(),
+            voice.wet_observation.acoustic_conclusion.is_some(),
+        );
         if stop_first {
             if let Err(err) = self
                 .spatial_sound_manager
