@@ -1,5 +1,5 @@
 use super::{LocalPlayerFootstepAudio, SpatialSoundManager};
-use crate::gameplay::{CameraPose, CameraVectors, FootstepEvent};
+use crate::gameplay::{CameraPose, FootstepEvent};
 
 /// Domain facts observed by spatial audio at the end of one application frame.
 pub(crate) struct SpatialFrameFacts<'a> {
@@ -29,17 +29,7 @@ impl SpatialFrame {
     }
 
     pub(crate) fn advance(&mut self, facts: SpatialFrameFacts<'_>) {
-        let mut listener_vectors = CameraVectors::new();
-        listener_vectors.update(
-            facts.listener.yaw_deg.to_radians(),
-            facts.listener.pitch_deg.to_radians(),
-        );
-        if let Err(err) = self
-            .spatial_sound_manager
-            .update_player_pos(facts.listener.position, &listener_vectors)
-        {
-            log::warn!("Failed to update spatial audio listener: {err}");
-        }
+        self.spatial_sound_manager.observe_listener(facts.listener);
 
         self.local_player_footsteps
             .set_volume_gain_db(facts.footstep_volume_gain_db);

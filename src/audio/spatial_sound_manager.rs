@@ -1,5 +1,5 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
-use crate::gameplay::camera::vectors::CameraVectors;
+use crate::gameplay::{CameraPose, CameraVectors};
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
@@ -503,17 +503,14 @@ impl SpatialSoundManager {
         self.world.drain_voice_telemetry()
     }
 
-    pub fn update_player_pos(
-        &self,
-        player_pos: Vec3,
-        camera_vectors: &CameraVectors,
-    ) -> Result<()> {
+    pub(super) fn observe_listener(&self, pose: CameraPose) {
+        let mut camera_vectors = CameraVectors::new();
+        camera_vectors.update(pose.yaw_deg.to_radians(), pose.pitch_deg.to_radians());
         let mut listener = self.listener_state.lock().unwrap();
-        listener.position = player_pos;
+        listener.position = pose.position;
         listener.up = camera_vectors.up;
         listener.front = camera_vectors.front;
         listener.right = camera_vectors.right;
-        Ok(())
     }
 
     /// Publish one complete listener + spatial Emitter generation when its cadence is due.

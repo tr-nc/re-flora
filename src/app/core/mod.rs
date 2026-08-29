@@ -69,8 +69,8 @@ use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{
     canopy_audio_diagnostic_pose, CanopyAudioDiagnosticPose, CanopyAudioTelemetrySnapshot,
-    CanopyAudioTrajectoryPhase, LocalPlayerFootstepAudio, SpatialSoundManager, TreeAudioManager,
-    TreeRustleParams,
+    CanopyAudioTrajectoryPhase, SpatialFrame, SpatialFrameFacts, SpatialSoundManager,
+    TreeAudioManager, TreeRustleParams,
 };
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
@@ -595,7 +595,7 @@ pub struct App {
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
-    local_player_footstep_audio: LocalPlayerFootstepAudio,
+    spatial_frame: SpatialFrame,
     tree_audio_manager: TreeAudioManager,
 }
 
@@ -1176,8 +1176,7 @@ impl App {
             indices
         };
 
-        // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
-        // and the app-level tree ambience sources.
+        // Shared spatial audio engine (PetalSonic) used by the frame transaction and tree ambience.
         let spatial_sound_manager = SpatialSoundManager::new(
             1024,
             contree_builder.acoustic_scene_snapshot(),
@@ -1226,7 +1225,6 @@ impl App {
                     )
                 ),
             },
-            spatial_sound_manager.clone(),
         )?;
         {
             let shadow = tracer.direct_sun_shadow_resources();
@@ -1344,8 +1342,7 @@ impl App {
         tree_audio_manager.set_canopy_telemetry_enabled(
             options.canopy_audio_telemetry || options.canopy_audio_diagnostic,
         );
-        let local_player_footstep_audio =
-            LocalPlayerFootstepAudio::new(spatial_sound_manager.clone());
+        let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1582,7 +1579,7 @@ impl App {
             shutdown_started: false,
 
             spatial_sound_manager,
-            local_player_footstep_audio,
+            spatial_frame,
             tree_audio_manager,
         };
 
@@ -4431,30 +4428,16 @@ impl App {
                     benchmark.mark_frame_presented();
                 }
 
-                self.local_player_footstep_audio.set_volume_gain_db(
-                    -40.0 + self.debug_settings.adjustables.footstep_volume_db.value,
-                );
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
-                self.local_player_footstep_audio
-                    .maintain(f64::from(time_since_start));
-                let prepared_footsteps = self
-                    .local_player_footstep_audio
-                    .prepare(&footstep_events, f64::from(time_since_start));
-                match self
-                    .spatial_sound_manager
-                    .publish_spatial_frame(f64::from(time_since_start))
-                {
-                    Ok(publication) => self
-                        .local_player_footstep_audio
-                        .play_after_publication(prepared_footsteps, publication),
-                    Err(err) => {
-                        log::warn!("Failed to publish spatial audio frame: {}", err);
-                        self.local_player_footstep_audio
-                            .abort_prepared(prepared_footsteps, "spatial_frame_publish_failed");
-                    }
-                }
+                self.spatial_frame.advance(SpatialFrameFacts {
+                    sim_time_seconds: f64::from(time_since_start),
+                    listener: self.tracer.camera_pose(),
+                    local_footsteps: &footstep_events,
+                    footstep_volume_gain_db: -40.0
+                        + self.debug_settings.adjustables.footstep_volume_db.value,
+                });
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

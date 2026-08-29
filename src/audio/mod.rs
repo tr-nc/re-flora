@@ -29,7 +29,7 @@ pub use canopy_audio_telemetry::{
 };
 
 mod local_player_footsteps;
-pub use local_player_footsteps::LocalPlayerFootstepAudio;
+pub(super) use local_player_footsteps::LocalPlayerFootstepAudio;
 
 mod spatial_frame;
 pub(crate) use spatial_frame::{SpatialFrame, SpatialFrameFacts};
