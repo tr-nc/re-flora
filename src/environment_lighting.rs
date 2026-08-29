@@ -993,9 +993,10 @@ mod tests {
         let descriptor_rebind = promotion
             .find("publish_ddgi_consumer_descriptors")
             .expect("promotion must rebind every shared consumer");
-        let ownership_swap = promotion
-            .find("promote_staging(build_token)")
-            .expect("promotion must swap the same builder token");
+        let ownership_swap = descriptor_rebind
+            + promotion[descriptor_rebind..]
+                .find("finish_volume_publication(publication, Ok(()))")
+                .expect("promotion must settle the runtime-authorized publication transaction");
         assert!(descriptor_rebind < ownership_swap);
         assert!(promotion.contains("[DDGI][CONSUMERS]"));
         assert!(promotion.contains("consumer_set=terrain_compute,flora_raster"));
