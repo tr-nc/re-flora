@@ -971,16 +971,16 @@ mod tests {
         assert!(pipeline_builder.contains("environment_lighting_resources"));
         assert!(!pipeline_builder.contains("environment_probes"));
 
-        let consumer_update = tracer_host
-            .split_once("fn stage_ddgi_consumer_descriptors")
+        let consumer_update = pipeline_builder
+            .split_once("pub fn prepare_ddgi_consumers")
             .expect("DDGI consumer promotion seam must exist")
             .1
-            .split_once("fn publish_ddgi_consumer_descriptors")
+            .split_once("pub fn publish_ddgi_consumers")
             .expect("staged consumer descriptors must have an explicit publication seam")
             .0;
-        assert!(consumer_update.contains("compute_pipelines"));
+        assert!(consumer_update.contains("self.compute"));
         assert!(consumer_update.contains("tracer_ppl"));
-        assert!(consumer_update.contains("graphics_pipelines"));
+        assert!(consumer_update.contains("self.graphics"));
         assert!(consumer_update.contains("flora_ppl"));
         assert!(consumer_update.contains("ddgi_probe_metadata"));
         assert!(consumer_update.contains("ddgi_irradiance_atlas"));
@@ -991,7 +991,7 @@ mod tests {
             .expect("DDGI promotion must exist")
             .1;
         let descriptor_rebind = promotion
-            .find("publish_ddgi_consumer_descriptors")
+            .find("publish_ddgi_consumers")
             .expect("promotion must rebind every shared consumer");
         let ownership_swap = descriptor_rebind
             + promotion[descriptor_rebind..]
