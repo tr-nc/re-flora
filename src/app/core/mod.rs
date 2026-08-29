@@ -1426,11 +1426,10 @@ impl App {
             linear_damping: 0.08,
             ..ParticleForces::default()
         };
-        let physical_terrain_publication =
-            physical_visible_terrain::PhysicalTerrainPublication::loading(
-                chunk_indices.clone(),
-                VOXEL_DIM_PER_CHUNK,
-            )?;
+        let visible_terrain_publication = visible_terrain::VisibleTerrainPublication::startup(
+            chunk_indices.clone(),
+            terrain_snapshot_reader.is_some(),
+        )?;
 
         // Keep the point-light diagnostic isolated to its authored identities; production and
         // all other scenes consume emissive voxels from the immutable Contree CPU snapshot.
@@ -1453,7 +1452,7 @@ impl App {
             loading_state: Some(LoadingState {
                 chunk_indices,
                 terrain_snapshot_reader,
-                physical_terrain_publication,
+                visible_terrain_publication: Some(visible_terrain_publication),
                 current: 0,
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,

@@ -42,7 +42,7 @@ impl App {
         self.water_sim.shutdown();
 
         log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
-        self.abort_loading_physical_publication();
+        self.abort_loading_visible_terrain_publication();
         self.shutdown_water_terrain()
             .context("shut down water terrain runtime")?;
         self.contree_builder

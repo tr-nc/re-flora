@@ -137,6 +137,7 @@ pub(super) trait VisibleTerrainPublicationHost {
     ) -> Result<()>;
     fn commit_visible_terrain_revision(&mut self, revision: u32);
     fn reconcile_loaded_terrain(&mut self) -> Result<()>;
+    fn prepare_snapshot_world_collider_import(&mut self) -> Result<()>;
     fn begin_world_collider_import(&mut self) -> Result<usize>;
     fn advance_world_collider_import(&mut self) -> Result<(usize, usize)>;
     fn enqueue_startup_water_terrain(&mut self);
@@ -292,10 +293,6 @@ impl VisibleTerrainPublication {
                                     total_chunks: self.chunk_count,
                                 });
                             }
-                            debug_assert_eq!(
-                                self.physically_published_chunks, self.chunk_count,
-                                "semantic and physical publication chunk counts diverged"
-                            );
                             self.state = match self.kind {
                                 VisibleTerrainPublicationKind::Edit
                                 | VisibleTerrainPublicationKind::SnapshotReplacement => {
@@ -327,6 +324,9 @@ impl VisibleTerrainPublication {
                 }
                 VisibleTerrainPublicationState::LoadedConnectivity => {
                     host.reconcile_loaded_terrain()?;
+                    if self.kind == VisibleTerrainPublicationKind::SnapshotReplacement {
+                        host.prepare_snapshot_world_collider_import()?;
+                    }
                     self.state = VisibleTerrainPublicationState::BeginWorldColliders;
                 }
                 VisibleTerrainPublicationState::BeginWorldColliders => {
@@ -443,11 +443,15 @@ impl VisibleTerrainPublication {
     }
 
     fn completion(&mut self, visible_revision: u32) -> VisibleTerrainCompletion {
-        let completion = *self.completion.get_or_insert(VisibleTerrainCompletion {
+        if let Some(completion) = self.completion {
+            return completion;
+        }
+        let completion = VisibleTerrainCompletion {
             chunks: self.chunk_count,
             visible_revision,
             changed_revision: self.changed_revision,
-        });
+        };
+        self.completion = Some(completion);
         log::info!(
             "[PERF][VISIBLE_TERRAIN_PUBLICATION] chunks={} terrain_changed={} revision={:?} elapsed_ms={:.2}",
             completion.chunks,
@@ -511,6 +515,15 @@ impl VisibleTerrainPublicationHost for App {
         self.reconcile_loaded_terrain_publication()
     }
 
+    fn prepare_snapshot_world_collider_import(&mut self) -> Result<()> {
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        anyhow::ensure!(
+            self.contree_builder.cpu_chunk_cache_jobs_idle(),
+            "Contree CPU cache did not reach Ready after snapshot publication"
+        );
+        Ok(())
+    }
+
     fn begin_world_collider_import(&mut self) -> Result<usize> {
         self.terrain_physics
             .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
@@ -526,7 +539,13 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn observe_initial_terrain_for_ddgi(&mut self) -> Result<u32> {
-        self.observe_initial_published_terrain_for_ddgi()
+        if self.environment_lighting_test_scene.is_none()
+            && self.hybrid_transparency_test_scene.is_none()
+        {
+            self.observe_initial_published_terrain_for_ddgi()
+        } else {
+            Ok(self.visible_terrain_revision)
+        }
     }
 }
 
@@ -603,6 +622,8 @@ mod tests {
         Ddgi(u32),
         Revision(u32),
         Connectivity,
+        ChildPublicationComplete,
+        SnapshotCollidersReady,
         ColliderBegin,
         ColliderComplete,
         Water,
@@ -613,6 +634,7 @@ mod tests {
         physical: VecDeque<physical_visible_terrain::PhysicalTerrainPublicationProgress>,
         events: Vec<Event>,
         revision: u32,
+        connectivity_child: bool,
     }
 
     impl RecordingHost {
@@ -625,7 +647,13 @@ mod tests {
                 physical: physical.into_iter().collect(),
                 events: Vec::new(),
                 revision: 7,
+                connectivity_child: false,
             }
+        }
+
+        fn with_connectivity_child(mut self) -> Self {
+            self.connectivity_child = true;
+            self
         }
     }
 
@@ -682,6 +710,14 @@ mod tests {
 
         fn reconcile_loaded_terrain(&mut self) -> Result<()> {
             self.events.push(Event::Connectivity);
+            if self.connectivity_child {
+                self.events.push(Event::ChildPublicationComplete);
+            }
+            Ok(())
+        }
+
+        fn prepare_snapshot_world_collider_import(&mut self) -> Result<()> {
+            self.events.push(Event::SnapshotCollidersReady);
             Ok(())
         }
 
@@ -800,6 +836,61 @@ mod tests {
                 Event::InitialDdgi,
             ]
         );
+    }
+
+    #[test]
+    fn loaded_connectivity_child_completes_before_collider_import() {
+        let mut publication = VisibleTerrainPublication::startup(vec![UVec3::ZERO], true).unwrap();
+        let mut host = RecordingHost::new([published(1)]).with_connectivity_child();
+
+        publication.advance(&mut host).unwrap();
+
+        assert_eq!(
+            host.events,
+            vec![
+                Event::PhysicalComplete,
+                Event::Connectivity,
+                Event::ChildPublicationComplete,
+                Event::ColliderBegin,
+            ]
+        );
+    }
+
+    #[test]
+    fn snapshot_replacement_has_one_ordered_semantic_completion() {
+        let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunks(vec![
+            UVec3::ZERO,
+        ])])
+        .unwrap()
+        .unwrap();
+        let mut publication = VisibleTerrainPublication::snapshot_replacement(change).unwrap();
+        let mut host = RecordingHost::new([published(1)]);
+
+        let completion = publication.run_to_completion(&mut host).unwrap();
+
+        assert_eq!(completion.changed_revision, Some(8));
+        assert_eq!(
+            host.events,
+            vec![
+                Event::PhysicalComplete,
+                Event::Emissive,
+                Event::Shadow,
+                Event::CollidersDirty,
+                Event::Ddgi(8),
+                Event::Revision(8),
+                Event::Connectivity,
+                Event::SnapshotCollidersReady,
+                Event::ColliderBegin,
+                Event::ColliderComplete,
+                Event::Water,
+            ]
+        );
+
+        assert_eq!(
+            publication.advance(&mut host).unwrap(),
+            VisibleTerrainPublicationProgress::Complete(completion)
+        );
+        assert_eq!(host.events.len(), 11);
     }
 
     #[test]
