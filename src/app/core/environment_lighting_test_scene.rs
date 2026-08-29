@@ -5481,6 +5481,85 @@ mod tests {
     use super::*;
     use crate::ddgi::DdgiFieldKey;
 
+    fn planned_cuboid_voxel_type_at(plan: &WorldEditPlan, point: Vec3) -> Option<u32> {
+        plan.voxel_edits.iter().fold(None, |voxel_type, edit| {
+            let VoxelEdit::StampCuboids {
+                cuboids,
+                voxel_type: fill,
+                ..
+            } = edit
+            else {
+                return voxel_type;
+            };
+            cuboids
+                .iter()
+                .any(|cuboid| {
+                    let bound = cuboid.aabb();
+                    point.cmpge(bound.min()).all() && point.cmple(bound.max()).all()
+                })
+                .then_some(*fill)
+                .or(voxel_type)
+        })
+    }
+
+    #[test]
+    fn terrain_edit_transactions_change_the_authored_world_materials() {
+        let skylight_center = (SKYLIGHT_MIN + SKYLIGHT_MAX) * 0.5;
+        assert_eq!(
+            planned_cuboid_voxel_type_at(
+                &skylight_edit_plan(TerrainEdit::CloseSkylight).unwrap(),
+                skylight_center,
+            ),
+            Some(VOXEL_TYPE_ROCK),
+        );
+        assert_eq!(
+            planned_cuboid_voxel_type_at(
+                &skylight_edit_plan(TerrainEdit::ReopenSkylight).unwrap(),
+                skylight_center,
+            ),
+            Some(VOXEL_TYPE_EMPTY),
+        );
+
+        let blocker_center = (POINT_LIGHT_BLOCKER_MIN + POINT_LIGHT_BLOCKER_MAX) * 0.5;
+        for voxel_type in [VOXEL_TYPE_ROCK, VOXEL_TYPE_EMPTY] {
+            assert_eq!(
+                planned_cuboid_voxel_type_at(
+                    &point_light_blocker_edit_plan(voxel_type).unwrap(),
+                    blocker_center,
+                ),
+                Some(voxel_type),
+            );
+        }
+
+        let moved = voxel_emissive_edit_plan(&[
+            (
+                VOXEL_EMISSIVE_PRIMARY_MIN,
+                VOXEL_EMISSIVE_SECONDARY_MAX,
+                VOXEL_TYPE_EMPTY,
+            ),
+            (
+                VOXEL_EMISSIVE_MOVED_MIN,
+                VOXEL_EMISSIVE_MOVED_MAX,
+                VOXEL_TYPE_EMISSIVE,
+            ),
+        ])
+        .unwrap();
+        assert_eq!(
+            planned_cuboid_voxel_type_at(
+                &moved,
+                (VOXEL_EMISSIVE_PRIMARY_MIN.as_vec3() + VOXEL_EMISSIVE_PRIMARY_MAX.as_vec3()) * 0.5,
+            ),
+            Some(VOXEL_TYPE_EMPTY),
+        );
+        assert_eq!(
+            planned_cuboid_voxel_type_at(
+                &moved,
+                (VOXEL_EMISSIVE_MOVED_MIN.as_vec3() + VOXEL_EMISSIVE_MOVED_MAX.as_vec3()) * 0.5,
+            ),
+            Some(VOXEL_TYPE_EMISSIVE),
+        );
+    }
+
     #[test]
     fn radiance_epochs_use_exact_distinct_palette_values() {
         let baseline = voxel_palette(EnvironmentLightingTestCase::RadianceChanges).rock;
