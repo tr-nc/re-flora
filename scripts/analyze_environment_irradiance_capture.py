@@ -40,6 +40,9 @@ DEBUG_VIEW_LABELS = {
     9: "relocation",
     10: "irradiance-atlas",
     11: "visibility-atlas",
+    12: "unoccluded-irradiance",
+    13: "equal-weight-irradiance",
+    14: "raw-cage-irradiance",
 }
 TRANSPORT_STAGE_LABELS = {
     1: "seed-sky",
@@ -1316,6 +1319,66 @@ def compare_roi_baseline(
     }
 
 
+def compare_debug_baseline(
+    current: Capture,
+    baseline: Capture,
+    world_roi: tuple[float, float, float, float, float, float] | None,
+) -> dict[str, object]:
+    mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
+        current, baseline
+    )
+    base_compatible = (
+        current.version,
+        current.width,
+        current.height,
+        current.backend,
+        current.spacing_voxels,
+    ) == (
+        baseline.version,
+        baseline.width,
+        baseline.height,
+        baseline.backend,
+        baseline.spacing_voxels,
+    )
+    world_xyz_matches = world_xyz_payload(
+        current.world_payload
+    ) == world_xyz_payload(baseline.world_payload)
+    terrain_hit_mask_matches = float4_alpha_payload(
+        current.payload
+    ) == float4_alpha_payload(baseline.payload)
+    current_summary = summarize(current, world_roi)
+    baseline_summary = summarize(baseline, world_roi)
+    current_mean = current_summary["world_roi_luminance_mean"]
+    baseline_mean = baseline_summary["world_roi_luminance_mean"]
+    compatible = (
+        base_compatible
+        and not mismatches
+        and current.debug_view != baseline.debug_view
+        and world_xyz_matches
+        and terrain_hit_mask_matches
+        and current_mean is not None
+        and baseline_mean is not None
+    )
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": mismatches,
+        "process_local_identity_mismatches": process_local_identity_mismatches,
+        "baseline_debug_view": DEBUG_VIEW_LABELS.get(
+            baseline.debug_view, baseline.debug_view
+        ),
+        "current_debug_view": DEBUG_VIEW_LABELS.get(
+            current.debug_view, current.debug_view
+        ),
+        "world_xyz_matches": world_xyz_matches,
+        "terrain_hit_mask_matches": terrain_hit_mask_matches,
+        "baseline_roi_luminance_mean": baseline_mean,
+        "current_roi_luminance_mean": current_mean,
+        "roi_luminance_gain": (
+            current_mean - baseline_mean if compatible else None
+        ),
+    }
+
+
 def compare_direct_light_baseline(
     current: Capture,
     baseline: Capture,
@@ -1371,6 +1434,7 @@ def main() -> int:
     )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--debug-baseline", type=Path)
     parser.add_argument("--direct-light-baseline", type=Path)
     parser.add_argument(
         "--min-direct-light-sunlit-roi-luminance-absolute-delta", type=float
@@ -1381,6 +1445,7 @@ def main() -> int:
     parser.add_argument("--require-nonnegative-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
+    parser.add_argument("--min-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
     parser.add_argument("--world-roi", type=float, nargs=6)
     parser.add_argument("--camera-position", type=float, nargs=3)
@@ -1393,6 +1458,8 @@ def main() -> int:
     parser.add_argument("--min-roi-channel-share-gain", type=float)
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
+    parser.add_argument("--min-debug-roi-luminance-gain", type=float)
+    parser.add_argument("--max-debug-roi-luminance-gain", type=float)
     parser.add_argument("--max-world-roi-environment-zero-count", type=int)
     parser.add_argument("--max-world-roi-combined-zero-count", type=int)
     parser.add_argument(
@@ -1437,6 +1504,9 @@ def main() -> int:
         ),
     )
     parser.add_argument("--expect-version", type=int)
+    parser.add_argument(
+        "--expect-debug-view", choices=tuple(DEBUG_VIEW_LABELS.values())
+    )
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
@@ -1507,6 +1577,7 @@ def main() -> int:
             failures.append(f"{field}: expected {expected}, got {actual}")
 
     expect("version", args.expect_version)
+    expect("debug_view", args.expect_debug_view)
     expect("spacing_voxels", args.expect_spacing_voxels)
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
@@ -1715,6 +1786,17 @@ def main() -> int:
         if not reference["compatible"] or not reference.get("hit_mask_matches", False):
             exit_code = 1
         if (
+            args.min_reference_error_p99 is not None
+            and reference.get("luminance_error_p99", -math.inf)
+            < args.min_reference_error_p99
+        ):
+            failures.append(
+                "reference luminance_error_p99: expected at least "
+                f"{args.min_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99')}"
+            )
+            exit_code = 1
+        if (
             args.max_reference_error_p99 is not None
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
@@ -1726,6 +1808,42 @@ def main() -> int:
             > args.max_reference_overestimate_p99
         ):
             exit_code = 1
+    elif args.min_reference_error_p99 is not None:
+        failures.append("--min-reference-error-p99 requires --reference")
+        exit_code = 1
+    if args.debug_baseline is not None:
+        debug_baseline = compare_debug_baseline(
+            first,
+            load_capture(args.debug_baseline),
+            tuple(args.world_roi) if args.world_roi is not None else None,
+        )
+        report["debug_baseline_comparison"] = debug_baseline
+        if not debug_baseline["compatible"]:
+            failures.append("debug baseline comparison is incompatible")
+            exit_code = 1
+        gain = debug_baseline["roi_luminance_gain"]
+        if args.min_debug_roi_luminance_gain is not None and (
+            gain is None or gain < args.min_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at least "
+                f"{args.min_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+        if args.max_debug_roi_luminance_gain is not None and (
+            gain is None or gain > args.max_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at most "
+                f"{args.max_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+    elif (
+        args.min_debug_roi_luminance_gain is not None
+        or args.max_debug_roi_luminance_gain is not None
+    ):
+        failures.append("debug ROI luminance gates require --debug-baseline")
+        exit_code = 1
     if args.baseline is not None:
         baseline_comparison = compare_roi_baseline(
             first,

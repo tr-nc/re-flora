@@ -297,6 +297,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         direct_light_pixels: list[tuple[float, float, float, float]],
         receiver_pixels: list[tuple[float, float, float, float]],
         direct_sun_shadow_pixels: list[tuple[float, float, float, float]],
+        *,
+        debug_view: int = 0,
     ) -> None:
         pixel_count = len(irradiance_pixels)
         self.assertTrue(
@@ -318,7 +320,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             4,
             1,
             16,
-            0,
+            debug_view,
             5,
             41,
             17,
@@ -349,6 +351,122 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
         )
         path.write_bytes(header + payload)
+
+    def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "unoccluded.rfirr"
+            voxel = 1.0 / 256.0
+            self.write_capture_v8(
+                capture_path,
+                [(0.4, 0.4, 0.4, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+                debug_view=12,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "unoccluded-irradiance",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "equal-weight-irradiance",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(
+            json.loads(accepted.stdout)["capture"]["debug_view"],
+            "unoccluded-irradiance",
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_requires_visibility_routes_to_have_observable_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            moment_path = Path(directory) / "moment.rfirr"
+            exact_path = Path(directory) / "exact.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                moment_path,
+                [(0.8, 0.8, 0.8, 1.0)],
+                *common_planes,
+                debug_view=1,
+            )
+            self.write_capture_v8(
+                exact_path,
+                [(0.2, 0.2, 0.2, 1.0)],
+                *common_planes,
+                debug_view=2,
+            )
+            accepted = self.run_analyzer(
+                moment_path,
+                "--reference",
+                str(exact_path),
+                "--min-reference-error-p99",
+                "0.59",
+            )
+            rejected = self.run_analyzer(
+                moment_path,
+                "--reference",
+                str(exact_path),
+                "--min-reference-error-p99",
+                "0.61",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_gates_debug_route_roi_gain_against_real_capture_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            final_path = Path(directory) / "final.rfirr"
+            unoccluded_path = Path(directory) / "unoccluded.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                final_path,
+                [(0.1, 0.1, 0.1, 1.0)],
+                *common_planes,
+                debug_view=0,
+            )
+            self.write_capture_v8(
+                unoccluded_path,
+                [(0.5, 0.5, 0.5, 1.0)],
+                *common_planes,
+                debug_view=12,
+            )
+            common = (
+                "--debug-baseline",
+                str(final_path),
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "2",
+                "3",
+                "4",
+                "--min-debug-roi-luminance-gain",
+            )
+            accepted = self.run_analyzer(unoccluded_path, *common, "0.39")
+            rejected = self.run_analyzer(unoccluded_path, *common, "0.41")
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        report = json.loads(accepted.stdout)["debug_baseline_comparison"]
+        self.assertTrue(report["compatible"])
+        self.assertAlmostEqual(report["roi_luminance_gain"], 0.4)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
     def test_loads_v6_lifecycle_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
