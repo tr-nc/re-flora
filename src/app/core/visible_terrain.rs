@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::world_edits::WorldEditOutcome;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
@@ -38,11 +39,6 @@ impl VisibleTerrainChange {
             affected_voxels,
             terrain_changed: true,
         }))
-    }
-
-    pub(super) fn tree_chunks(chunk_ids: Vec<UVec3>) -> Result<Self> {
-        Self::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(chunk_ids)])?
-            .context("tree publication requires at least one affected chunk")
     }
 
     pub(super) fn preserving_flora(
@@ -121,6 +117,22 @@ impl App {
                 });
         }
 
+        self.observe_world_edit_outcome(WorldEditOutcome {
+            affected_voxels,
+            chunks: chunk_ids.len(),
+            terrain_changed,
+            publication_elapsed: started_at.elapsed(),
+        })
+    }
+
+    pub(super) fn observe_world_edit_outcome(&mut self, outcome: WorldEditOutcome) -> Result<()> {
+        let WorldEditOutcome {
+            affected_voxels,
+            chunks,
+            terrain_changed,
+            publication_elapsed,
+        } = outcome;
+
         if terrain_changed {
             if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
                 runtime.mark_trusted_change(affected_voxels, self.time_info.total_frame_count())?;
@@ -145,10 +157,10 @@ impl App {
 
         log::info!(
             "[PERF][VISIBLE_TERRAIN_PUBLICATION] chunks={} terrain_changed={} revision={:?} elapsed_ms={:.2}",
-            chunk_ids.len(),
+            chunks,
             terrain_changed,
             revision,
-            started_at.elapsed().as_secs_f64() * 1000.0,
+            publication_elapsed.as_secs_f64() * 1000.0,
         );
         Ok(())
     }

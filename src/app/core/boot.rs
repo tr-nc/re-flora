@@ -1,6 +1,6 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, ClearVoxelRegionEdit, VoxelEdit, WorldEditPlan};
-use crate::app::world_ops;
+use crate::app::physical_visible_terrain::PhysicalTerrainBuilders;
+use crate::app::world_edits::{ClearVoxelRegionEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
@@ -20,19 +20,17 @@ impl App {
     ) -> Result<()> {
         let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
         let world_bound = UAabb3::new(UVec3::ZERO, world_dim - UVec3::ONE);
-        world_ops::execute_edit_plan_on_builders(
+        WorldEditTransaction::terrain_change(
+            vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
+                offset: UVec3::ZERO,
+                dim: world_dim,
+            })],
+            world_bound,
+        )
+        .execute(
             plain_builder,
-            surface_builder,
-            contree_builder,
-            scene_accel_builder,
+            PhysicalTerrainBuilders::new(surface_builder, contree_builder, scene_accel_builder),
             super::VOXEL_DIM_PER_CHUNK,
-            WorldEditPlan {
-                voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
-                    offset: UVec3::ZERO,
-                    dim: world_dim,
-                })],
-                build_edits: vec![BuildEdit::RebuildMesh(world_bound)],
-            },
         )?;
 
         BENCH.lock().unwrap().summary();

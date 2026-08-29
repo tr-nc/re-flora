@@ -1,5 +1,5 @@
 use super::App;
-use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::geom::{build_bvh, Cuboid};
 use anyhow::Result;
@@ -77,22 +77,19 @@ fn cuboid_edit(min_ws: Vec3, max_ws: Vec3, voxel_type: u32) -> Result<VoxelEdit>
     })
 }
 
-fn terrain_plan() -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
+fn terrain_plan() -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::during_loading(vec![
         // Establish a known solid basin first, then carve the open water volume.
         // Loading builds every terrain chunk after this plan, so no extra runtime
         // rebuild or transient old scene is needed.
-        voxel_edits: vec![
-            cuboid_edit(BASIN_OUTER_MIN_WS, BASIN_OUTER_MAX_WS, VOXEL_TYPE_ROCK)?,
-            cuboid_edit(BASIN_INNER_MIN_WS, BASIN_INNER_MAX_WS, VOXEL_TYPE_EMPTY)?,
-        ],
-        build_edits: Vec::new(),
-    })
+        cuboid_edit(BASIN_OUTER_MIN_WS, BASIN_OUTER_MAX_WS, VOXEL_TYPE_ROCK)?,
+        cuboid_edit(BASIN_INNER_MIN_WS, BASIN_INNER_MAX_WS, VOXEL_TYPE_EMPTY)?,
+    ]))
 }
 
 impl App {
     pub(super) fn apply_water_experience_terrain(&mut self) -> Result<()> {
-        self.execute_edit_plan(terrain_plan()?)?;
+        self.execute_world_edit(terrain_plan()?)?;
         log::info!(
             "[WATER_EXPERIENCE] terrain basin outer={:?}..{:?} inner={:?}..{:?}",
             BASIN_OUTER_MIN_WS,
@@ -200,13 +197,16 @@ mod tests {
     fn experience_terrain_plan_builds_solid_basin_then_carves_open_volume() {
         let plan = terrain_plan().unwrap();
 
-        assert!(plan.build_edits.is_empty());
-        assert_eq!(plan.voxel_edits.len(), 2);
+        assert!(plan
+            .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+            .unwrap()
+            .is_none());
+        assert_eq!(plan.voxel_edits().len(), 2);
         let VoxelEdit::StampCuboids {
             cuboids,
             voxel_type,
             ..
-        } = &plan.voxel_edits[0]
+        } = &plan.voxel_edits()[0]
         else {
             panic!("expected outer basin cuboid");
         };
@@ -218,7 +218,7 @@ mod tests {
             cuboids,
             voxel_type,
             ..
-        } = &plan.voxel_edits[1]
+        } = &plan.voxel_edits()[1]
         else {
             panic!("expected inner basin cuboid");
         };

@@ -8,7 +8,8 @@ use super::{
 };
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
-    TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
+    TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit,
+    WorldEditTransaction,
 };
 use crate::app::world_ops;
 use crate::audio::{CanopyAcousticDescriptor, LegacyBranchEndpointLayout};
@@ -25,7 +26,7 @@ use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
 const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
@@ -988,12 +989,15 @@ impl App {
         self.remove_tree(self.trees.tuned_tree_id())?;
 
         let prev_bound = self.trees.previous_bound();
-        self.execute_edit_plan(WorldEditPlan::with_voxel(VoxelEdit::ClearVoxelRegion(
-            ClearVoxelRegionEdit {
-                offset: prev_bound.min(),
-                dim: prev_bound.max() - prev_bound.min(),
-            },
-        )))?;
+        if prev_bound.has_size() {
+            self.execute_world_edit(WorldEditTransaction::tree_changes(
+                vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
+                    offset: prev_bound.min(),
+                    dim: prev_bound.max() - prev_bound.min(),
+                })],
+                vec![prev_bound],
+            ))?;
+        }
 
         let world_size = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
         let map_padding = 50.0;
@@ -1238,6 +1242,8 @@ impl App {
         let tree_age = self.debug_settings.adjustables.tree_age.value;
         let total_start = Instant::now();
         let mut replacements = Vec::with_capacity(records.len());
+        let mut trunk_voxel_edits = Vec::with_capacity(records.len());
+        let mut rebuild_regions = Vec::with_capacity(records.len() * 2);
         let mut rebuild_chunk_ids = Vec::new();
         for (tree_id, record) in records {
             let compile_start = Instant::now();
@@ -1252,9 +1258,9 @@ impl App {
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
             let trunk_geometry = compiled.trunk_geometry.clone();
-            let trunk_start = Instant::now();
-            self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit.clone()))?;
-            let trunk_elapsed = trunk_start.elapsed();
+            trunk_voxel_edits.push(compiled.trunk_voxel_edit.clone());
+            let trunk_elapsed = Duration::ZERO;
+            rebuild_regions.extend([record.bound, compiled.this_bound]);
             rebuild_chunk_ids
                 .extend(self.tree_rebuild_chunk_ids(record.bound, compiled.this_bound));
             replacements.push((
@@ -1271,9 +1277,10 @@ impl App {
         let mut seen = HashSet::new();
         rebuild_chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
         let rebuild_start = Instant::now();
-        self.publish_visible_terrain(VisibleTerrainChange::tree_chunks(
-            rebuild_chunk_ids.clone(),
-        )?)?;
+        self.execute_world_edit(WorldEditTransaction::tree_changes(
+            trunk_voxel_edits,
+            rebuild_regions,
+        ))?;
         let rebuild_elapsed = rebuild_start.elapsed();
 
         for (
@@ -1373,19 +1380,12 @@ impl App {
             old_clear_ms = old_clear_start.elapsed().as_secs_f32() * 1000.0;
         }
 
-        let trunk_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit))?;
-        let trunk_elapsed = trunk_start.elapsed();
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("tree_gui_trunk_voxel", trunk_elapsed);
-
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
-        self.publish_visible_terrain(VisibleTerrainChange::tree_chunks(
-            rebuild_chunk_ids.clone(),
-        )?)?;
+        self.execute_world_edit(WorldEditTransaction::tree_changes(
+            vec![compiled.trunk_voxel_edit],
+            vec![old_bound, compiled.this_bound],
+        ))?;
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -1406,7 +1406,7 @@ impl App {
             compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
-            trunk_elapsed,
+            Duration::ZERO,
             rebuild_elapsed,
             trunk_count,
             true,
@@ -1561,13 +1561,13 @@ impl App {
         self.tree_audio_manager.remove_all();
 
         let prev_bound = self.trees.previous_bound();
-        self.execute_edit_plan(WorldEditPlan {
-            voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
+        self.execute_world_edit(WorldEditTransaction::tree_changes(
+            vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
                 offset: prev_bound.min(),
                 dim: prev_bound.max() - prev_bound.min(),
             })],
-            build_edits: vec![BuildEdit::RebuildMesh(prev_bound)],
-        })?;
+            vec![prev_bound],
+        ))?;
 
         Ok(())
     }
@@ -1660,18 +1660,18 @@ impl App {
         let terrain_height = self.query_terrain_height_cpu(edit.horizontal);
         let compiled = FencePostPlacementService::compile(edit, terrain_height, voxel_type);
 
-        self.execute_edit_plan(WorldEditPlan::with_voxel_and_build(
-            compiled.voxel_edit,
-            BuildEdit::RebuildMesh(compiled.rebuild_bound),
+        self.execute_world_edit(WorldEditTransaction::terrain_change(
+            vec![compiled.voxel_edit],
+            compiled.rebuild_bound,
         ))
     }
 
     #[allow(dead_code)]
     pub(super) fn apply_cube_placement(&mut self, edit: CubePlacementEdit) -> Result<()> {
         let compiled = CubePlacementService::compile(edit);
-        self.execute_edit_plan(WorldEditPlan::with_voxel_and_build(
-            compiled.voxel_edit,
-            BuildEdit::RebuildMesh(compiled.rebuild_bound),
+        self.execute_world_edit(WorldEditTransaction::terrain_change(
+            vec![compiled.voxel_edit],
+            compiled.rebuild_bound,
         ))
     }
 
@@ -2319,19 +2319,14 @@ impl App {
         };
         let trunk_geometry = compiled.trunk_geometry.clone();
 
-        let trunk_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit))?;
-        let trunk_elapsed = trunk_start.elapsed();
-        if benchmark_gui_tree {
-            crate::util::BENCH
-                .lock()
-                .unwrap()
-                .record("tree_gui_trunk_voxel", trunk_elapsed);
-        }
-
         let rebuild_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_build(
-            BuildEdit::RebuildMeshWithoutFlora(compiled.rebuild_bound),
+        let affected_chunks = world_ops::affected_chunk_indices_for_bound(
+            compiled.rebuild_bound,
+            super::VOXEL_DIM_PER_CHUNK,
+        );
+        self.execute_world_edit(WorldEditTransaction::tree_changes(
+            vec![compiled.trunk_voxel_edit],
+            vec![compiled.rebuild_bound],
         ))?;
         let rebuild_elapsed = rebuild_start.elapsed();
         if benchmark_gui_tree {
@@ -2346,11 +2341,7 @@ impl App {
             compiled.tree_pos,
             compiled.this_bound,
             compiled.rebuild_bound,
-            world_ops::affected_chunk_indices_for_bound(
-                compiled.rebuild_bound,
-                super::VOXEL_DIM_PER_CHUNK,
-            )
-            .len(),
+            affected_chunks.len(),
             &compiled.quantized_leaf_positions,
             &compiled.quantized_leaf_render_positions,
             &compiled.leaf_render_local_positions,
@@ -2359,7 +2350,7 @@ impl App {
             compiled.canopy_acoustic_descriptor.clone(),
             total_start,
             compile_elapsed,
-            trunk_elapsed,
+            Duration::ZERO,
             rebuild_elapsed,
             trunk_count,
             benchmark_gui_tree,

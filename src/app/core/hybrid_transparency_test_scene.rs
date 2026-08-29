@@ -1,5 +1,5 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
@@ -69,9 +69,9 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
-fn scene_plan() -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
-        voxel_edits: vec![
+fn scene_plan() -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::terrain_change(
+        vec![
             stamp_cuboids(
                 vec![Cuboid::from_min_max(CLEAR_MIN, CLEAR_MAX)],
                 VOXEL_TYPE_EMPTY,
@@ -81,11 +81,8 @@ fn scene_plan() -> Result<WorldEditPlan> {
                 VOXEL_TYPE_ROCK,
             )?,
         ],
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
-            REBUILD_MIN,
-            REBUILD_MAX,
-        ))],
-    })
+        UAabb3::new(REBUILD_MIN, REBUILD_MAX),
+    ))
 }
 
 fn sentinel_mesh() -> GeometryPreviewMesh {
@@ -173,7 +170,7 @@ impl App {
                 );
                 match scene_plan()
                     .context("compile deterministic hybrid transparency test scene")
-                    .and_then(|plan| self.execute_edit_plan(plan))
+                    .and_then(|transaction| self.execute_world_edit(transaction))
                 {
                     Ok(()) => TestScenePhase::TerrainPublished,
                     Err(err) => {
