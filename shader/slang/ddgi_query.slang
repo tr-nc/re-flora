@@ -28,6 +28,37 @@ static const uint DDGI_PROBE_REJECTION_INVALID_STATE = 1u;
 static const uint DDGI_PROBE_REJECTION_POSITION_WEIGHT = 2u;
 static const uint DDGI_PROBE_REJECTION_SURFACE_SIDE_WEIGHT = 4u;
 static const uint DDGI_PROBE_REJECTION_SUPPORT = 8u;
+public static const uint DDGI_QUERY_DOMAIN_LOCAL = 0u;
+public static const uint DDGI_QUERY_DOMAIN_INVALIDATED = 1u;
+public static const uint DDGI_QUERY_DOMAIN_GLOBAL_SKY = 2u;
+public static const uint DDGI_VISIBILITY_MOMENT = 0u;
+public static const uint DDGI_VISIBILITY_MOMENT_EXACT = 1u;
+public static const uint DDGI_VISIBILITY_EXACT = 2u;
+
+public float ddgiVisibilityBiasWorld(float configuredBiasWorld)
+{
+    return max(0.0, configuredBiasWorld);
+}
+
+public uint ddgiQueryDomain(bool terrainInvalidated, bool usesGlobalSky)
+{
+    if (terrainInvalidated) return DDGI_QUERY_DOMAIN_INVALIDATED;
+    return usesGlobalSky
+        ? DDGI_QUERY_DOMAIN_GLOBAL_SKY
+        : DDGI_QUERY_DOMAIN_LOCAL;
+}
+
+public float ddgiQueryVisibilityWeight(
+    float momentVisibility, float exactVisibility, uint visibilityPolicy)
+{
+    if (visibilityPolicy == DDGI_VISIBILITY_MOMENT)
+        return momentVisibility;
+    if (visibilityPolicy == DDGI_VISIBILITY_MOMENT_EXACT)
+        return momentVisibility * exactVisibility;
+    if (visibilityPolicy == DDGI_VISIBILITY_EXACT)
+        return exactVisibility;
+    return 0.0;
+}
 
 [[vk::binding(23, 0)]]
 Sampler2D ddgi_global_sky_irradiance;
@@ -326,6 +357,20 @@ bool ddgiQueryIsTerrainInvalidated(U_ShadingInfo lighting,
         ddgiConsumerQueryInfo(lighting), worldPosition);
 }
 
+uint ddgiQueryDomain(DdgiQueryInfo query, float3 worldPosition)
+{
+    return ddgiQueryDomain(
+        ddgiQueryIsTerrainInvalidated(query, worldPosition),
+        ddgiQueryUsesGlobalSky(query, worldPosition));
+}
+
+uint ddgiQueryDomain(U_ShadingInfo lighting, float3 worldPosition)
+{
+    return ddgiQueryDomain(
+        ddgiQueryIsTerrainInvalidated(lighting, worldPosition),
+        ddgiQueryUsesGlobalSky(lighting, worldPosition));
+}
+
 public DdgiQueryResult makeEmptyDdgiQueryResult()
 {
     DdgiQueryResult result;
@@ -431,7 +476,7 @@ DdgiProbeContribution getDdgiUnoccludedSpatialWeightProbeContributionAt(
         return contribution;
     }
 
-    float biasWorld = max(0.0, query.visibility_bias_world);
+    float biasWorld = ddgiVisibilityBiasWorld(query.visibility_bias_world);
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
     float3 probeToBiasedSurface = biasedWorldPosition - actualPosition;
     float distanceToSurface = length(probeToBiasedSurface);
@@ -472,7 +517,7 @@ DdgiProbeContribution getDdgiMomentSpatialWeightProbeContributionAt(
 
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
     float3 biasedWorldPosition = worldPosition +
-        normal * max(0.0, query.visibility_bias_world);
+        normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
     float3 probeToBiasedSurface =
         biasedWorldPosition - contribution.actual_position;
     if (dot(probeToBiasedSurface, probeToBiasedSurface) <= 1.0e-12)
@@ -535,7 +580,7 @@ DdgiProbeContribution getDdgiMomentExactProbeContributionFromAtlases(
 
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
     float3 biasedWorldPosition = worldPosition +
-        normal * max(0.0, query.visibility_bias_world);
+        normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
     float3 probeToBiasedSurface =
         biasedWorldPosition - contribution.actual_position;
     if (dot(probeToBiasedSurface, probeToBiasedSurface) <= 1.0e-12)
@@ -678,8 +723,9 @@ public DdgiQueryResult sampleDdgiExactTerrainReference(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    uint domain = ddgiQueryDomain(lighting, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -700,7 +746,10 @@ public DdgiQueryResult sampleDdgiExactTerrainReference(
                         positionWeightWorldPosition, normal,
                         hardVisibilityWorldPosition, uint3(x, y, z));
                 float visibility = contribution.trustworthy
-                    ? contribution.hard_visibility
+                    ? ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_EXACT)
                     : 0.0;
                 accumulateDdgiContribution(result, contribution, visibility);
             }
@@ -715,8 +764,9 @@ public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    uint domain = ddgiQueryDomain(lighting, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -747,8 +797,9 @@ public DdgiQueryResult sampleDdgiEqualWeightTerrainReference(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    uint domain = ddgiQueryDomain(lighting, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -780,8 +831,9 @@ public DdgiQueryResult sampleDdgiSpatialWeightTerrainReference(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    uint domain = ddgiQueryDomain(lighting, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -802,7 +854,10 @@ public DdgiQueryResult sampleDdgiSpatialWeightTerrainReference(
                         hardVisibilityWorldPosition, uint3(x, y, z),
                         spatialWeightMode);
                 float visibility = contribution.trustworthy
-                    ? contribution.hard_visibility
+                    ? ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_EXACT)
                     : 0.0;
                 accumulateDdgiContribution(result, contribution, visibility);
             }
@@ -856,10 +911,16 @@ public void writeDdgiSpatialWeightDiagnostics(
                         hardVisibilityWorldPosition, cageCorner,
                         DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP);
                 float hardVisibility = contribution.trustworthy
-                    ? contribution.hard_visibility
+                    ? ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_EXACT)
                     : 0.0;
                 float consumerVisibility = contribution.trustworthy
-                    ? hardVisibility * contribution.moment_visibility
+                    ? ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_MOMENT_EXACT)
                     : 0.0;
                 accumulateDdgiContribution(
                     exactResult, contribution, hardVisibility);
@@ -928,8 +989,9 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
     // Once terrain has changed, neither the active probe field nor its global-sky fallback is
     // trustworthy inside the edit's interpolation/relocation influence region.
-    if (ddgiQueryIsTerrainInvalidated(query, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(query, worldPosition))
+    uint domain = ddgiQueryDomain(query, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -950,7 +1012,11 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
                         query, worldPosition, normal, uint3(x, y, z),
                         irradianceAtlas);
                 accumulateDdgiContribution(
-                    result, contribution, contribution.moment_visibility);
+                    result, contribution,
+                    ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_MOMENT));
             }
         }
     }
@@ -965,9 +1031,9 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryIsTerrainInvalidated(query, receiverWorldPosition))
-        return result;
-    if (ddgiQueryUsesGlobalSky(query, receiverWorldPosition))
+    uint domain = ddgiQueryDomain(query, receiverWorldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -996,7 +1062,11 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
                         uint3(x, y, z), DDGI_SPATIAL_WEIGHT_NOMINAL_HARD,
                         irradianceAtlas);
                 accumulateDdgiContribution(
-                    result, contribution, contribution.moment_visibility);
+                    result, contribution,
+                    ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_MOMENT));
             }
         }
     }
@@ -1039,7 +1109,9 @@ DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    if (ddgiQueryUsesGlobalSky(query, worldPosition))
+    uint domain = ddgiQueryDomain(query, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -1062,8 +1134,10 @@ DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
                         irradianceAtlas, visibilityAtlas);
                 accumulateDdgiContribution(
                     result, contribution,
-                    contribution.moment_visibility *
-                        contribution.hard_visibility);
+                    ddgiQueryVisibilityWeight(
+                        contribution.moment_visibility,
+                        contribution.hard_visibility,
+                        DDGI_VISIBILITY_MOMENT_EXACT));
             }
         }
     }

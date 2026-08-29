@@ -1,4 +1,5 @@
 import ddgi_config;
+import ddgi_filter_policy;
 import ddgi_octahedral;
 import ddgi_sampling;
 import ddgi_types;
@@ -57,14 +58,6 @@ void storeVisibility(uint2 coordinate, float2 value)
         ddgi_transport_source_visibility_atlas[coordinate] = value;
 }
 
-bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
-{
-    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
-    return pc.local_refresh_enabled.x != 0u &&
-           all(nominal >= pc.local_refresh_world_min.xyz) &&
-           all(nominal <= pc.local_refresh_world_max.xyz);
-}
-
 [shader("compute")]
 [numthreads(16, 16, 1)]
 void main(uint3 groupId : SV_GroupID,
@@ -79,9 +72,14 @@ void main(uint3 groupId : SV_GroupID,
                        DDGI_VISIBILITY_STORED_SIDE) +
         localInvocationId.xy + uint2(1u);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
-    bool localRecoveryProbe = probeNeedsLocalRefresh(metadata);
-    if (pc.has_history != 0u && pc.local_refresh_enabled.x != 0u &&
-        !localRecoveryProbe)
+    bool localRecoveryProbe = ddgiFilterProbeNeedsLocalRefresh(
+        metadata.nominal_position_and_min_clearance.xyz,
+        pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
+        pc.local_refresh_world_max.xyz);
+    DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(
+        pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
+        pc.local_refresh_enabled.y, pc.history_retention);
+    if (historyPolicy.retain_source)
     {
         storeVisibility(
             atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));
@@ -119,19 +117,14 @@ void main(uint3 groupId : SV_GroupID,
             ddgi_transient_ray_data
                 .data[localProbeIndex * DDGI_RAYS_PER_PROBE + rayIndex]
                 .w;
-        float hitDistance = signedDistance < 0.0
-            ? abs(signedDistance) * 0.2
-            : signedDistance;
+        DdgiFilterVisibilitySample sample = ddgiFilterVisibilitySample(
+            signedDistance, supportDistance, pc.far_distance_world);
         // Rohacek's cage-support correction: a distant directional sample
         // cannot claim support beyond this probe's relocated nominal cage.
         // Preserve sky misses as unoccluded support; reject only distant
         // geometry hits that would pull a local depth lobe outward.
-        if (hitDistance > supportDistance)
-        {
-            bool skyMiss = signedDistance >= pc.far_distance_world * 0.999;
-            if (!skyMiss) continue;
-            hitDistance = supportDistance;
-        }
+        if (!sample.accepted) continue;
+        float hitDistance = sample.distance;
         weightedDistance += hitDistance * cosineWeight;
         weightedSquaredDistance +=
             hitDistance * hitDistance * cosineWeight;
@@ -150,17 +143,11 @@ void main(uint3 groupId : SV_GroupID,
         current = float2(weightedDistance, weightedSquaredDistance) *
                   inverseWeight;
     }
-    if (pc.has_history != 0u)
+    if (historyPolicy.blend_history)
     {
-        float historyRetention = saturate(pc.history_retention);
-        if (localRecoveryProbe)
-        {
-            float recoveryEpoch = float(pc.local_refresh_enabled.y);
-            historyRetention = recoveryEpoch / (recoveryEpoch + 1.0);
-        }
         current = lerp(current,
                        loadVisibility(pc.source_slot, atlasCoordinate),
-                       historyRetention);
+                       historyPolicy.retention);
     }
     storeVisibility(atlasCoordinate, current);
 }
