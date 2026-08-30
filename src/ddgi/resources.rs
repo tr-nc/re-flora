@@ -27,7 +27,7 @@ const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
 const DDGI_TRACE_STATS_COUNT: usize = 29;
 const DDGI_FILTER_STATS_START: usize = 13;
-const DDGI_FILTER_POLICY_OWNER_VERSION: u32 = 1;
+pub const DDGI_FILTER_POLICY_OWNER_VERSION: u32 = 1;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
 
@@ -547,6 +547,7 @@ impl DdgiFilterActionCounts {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiFilterHistoryEvidence {
+    pub owner_version: u32,
     pub probes: u64,
     pub actions: DdgiFilterActionCounts,
     pub blend_retention_q16: u64,
@@ -575,6 +576,7 @@ impl DdgiFilterHistoryEvidence {
             "DDGI {label} history evidence mixes Blend retentions within one batch"
         );
         Ok(Self {
+            owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
             probes,
             actions,
             blend_retention_q16,
@@ -582,6 +584,11 @@ impl DdgiFilterHistoryEvidence {
     }
 
     fn accumulate(&mut self, other: Self) {
+        assert!(
+            self.owner_version == 0 || self.owner_version == other.owner_version,
+            "DDGI filter history evidence mixed owner versions"
+        );
+        self.owner_version = other.owner_version;
         self.probes += other.probes;
         self.actions.accumulate(other.actions);
         self.blend_retention_q16 += other.blend_retention_q16;
@@ -590,6 +597,7 @@ impl DdgiFilterHistoryEvidence {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiFilterVisibilitySampleEvidence {
+    pub owner_version: u32,
     pub samples: u64,
     pub accept: u64,
     pub reject: u64,
@@ -598,6 +606,7 @@ pub struct DdgiFilterVisibilitySampleEvidence {
 impl DdgiFilterVisibilitySampleEvidence {
     fn decode(raw: &[u32]) -> Result<Self> {
         let result = Self {
+            owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
             samples: u64::from(raw[1]),
             accept: u64::from(raw[2]),
             reject: u64::from(raw[3]),
@@ -611,6 +620,11 @@ impl DdgiFilterVisibilitySampleEvidence {
     }
 
     fn accumulate(&mut self, other: Self) {
+        assert!(
+            self.owner_version == 0 || self.owner_version == other.owner_version,
+            "DDGI visibility sample evidence mixed owner versions"
+        );
+        self.owner_version = other.owner_version;
         self.samples += other.samples;
         self.accept += other.accept;
         self.reject += other.reject;
@@ -2726,12 +2740,14 @@ mod tests {
                 .expect("capture-enabled batch must produce evidence");
 
         assert_eq!(evidence.field, batch.logical());
+        assert_eq!(evidence.irradiance.owner_version, 1);
         assert_eq!(evidence.irradiance.probes, 2);
         assert_eq!(evidence.irradiance.actions.blend, 2);
         assert_eq!(evidence.irradiance.blend_retention_q16, 65_536);
         assert_eq!(evidence.visibility_history.probes, 2);
         assert_eq!(evidence.visibility_history.actions.blend, 2);
         assert_eq!(evidence.visibility_samples.samples, 6);
+        assert_eq!(evidence.visibility_samples.owner_version, 1);
         assert_eq!(evidence.visibility_samples.accept, 4);
         assert_eq!(evidence.visibility_samples.reject, 2);
     }

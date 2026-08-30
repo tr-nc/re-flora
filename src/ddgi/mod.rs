@@ -63,10 +63,11 @@ pub(crate) use resources::DdgiConsumerResources;
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
-    DdgiFilterEpochAccumulator, DdgiFilterEpochEvidence, DdgiLocalLightTraceTotals,
+    DdgiFilterActionCounts, DdgiFilterEpochAccumulator, DdgiFilterEpochEvidence,
+    DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence, DdgiLocalLightTraceTotals,
     DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes, DdgiTraceStats,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
-    DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiVolumes, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,

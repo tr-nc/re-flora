@@ -20,6 +20,7 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -352,6 +353,115 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
         )
         path.write_bytes(header + payload)
+
+    def write_capture_v9(
+        self,
+        path: Path,
+        *,
+        debug_view: int = 0,
+        visibility_samples: int = 12,
+        visibility_accept: int = 8,
+        visibility_reject: int = 4,
+    ) -> None:
+        voxel = 1.0 / 256.0
+        header = HEADER_V9.pack(
+            analyzer.MAGIC,
+            9,
+            1,
+            1,
+            4,
+            1,
+            16,
+            debug_view,
+            5,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            1,
+            1,
+            1,
+            0,
+            88,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+            89,
+            1,
+            4,
+            1,
+            0,
+            0,
+            2,
+            2,
+            65_536,
+            0,
+            2,
+            2,
+            65_536,
+            visibility_samples,
+            visibility_accept,
+            visibility_reject,
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in (
+                (0.25, 0.5, 0.75, 1.0),
+                (1.0, 2.0, 3.0, 0.0),
+                (0.0, 0.0, 0.0, 1.0),
+                (0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0),
+                (1.0, 1.0, 1.0, 1.0),
+            )
+        )
+        path.write_bytes(header + payload)
+
+    def test_v9_filter_evidence_is_typed_and_debug_view_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "filter-evidence.rfirr"
+            self.write_capture_v9(capture_path, debug_view=22)
+            result = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "moment-support",
+                "--require-filter-history-retain-blend",
+                "--expect-filter-blend-retention-q16",
+                "32768",
+                "--min-filter-visibility-reject-count",
+                "1",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        capture = json.loads(result.stdout)["capture"]
+        self.assertEqual(capture["debug_view"], "moment-support")
+        self.assertEqual(capture["filter_evidence"]["field_serial"], 89)
+        self.assertEqual(capture["filter_evidence"]["update_epoch"], 1)
+        self.assertEqual(
+            capture["filter_evidence"]["irradiance_history"]["blend"], 2
+        )
+        self.assertEqual(
+            capture["filter_evidence"]["visibility_samples"]["reject"], 4
+        )
+
+    def test_v9_filter_evidence_rejects_an_invalid_sample_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "invalid-filter-evidence.rfirr"
+            self.write_capture_v9(
+                capture_path,
+                visibility_samples=12,
+                visibility_accept=8,
+                visibility_reject=5,
+            )
+            with self.assertRaisesRegex(ValueError, "visibility sample partition"):
+                analyzer.load_capture(capture_path)
 
     def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
