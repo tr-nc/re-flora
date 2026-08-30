@@ -1802,7 +1802,11 @@ def main() -> int:
             "to have no more than this combined direct-shadow transmittance range"
         ),
     )
-    parser.add_argument("--expect-version", type=parse_expected_rfirr_version)
+    parser.add_argument(
+        "--expect-version",
+        type=parse_expected_rfirr_version,
+        default=CURRENT_RFIRR_VERSION,
+    )
     parser.add_argument("--require-filter-history-retain-blend", action="store_true")
     parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
     parser.add_argument("--expect-filter-blend-retention-q16", type=int)
