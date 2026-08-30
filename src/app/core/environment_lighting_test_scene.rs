@@ -5904,26 +5904,11 @@ mod tests {
     }
 
     #[test]
-    fn environment_attempts_are_affine_and_failures_return_the_uncommitted_request() {
+    fn environment_phase_has_one_outstanding_attempt_and_retries_the_exact_payload() {
         static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentFamilyScratch: Clone, Copy);
 
-        let mut owner = EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::Sealed);
-        let mut attempt = owner.begin_phase();
-        attempt.request_mut().phase = TestScenePhase::Ready;
-
-        let failure = attempt.fail(anyhow::anyhow!("injected phase failure"));
-        assert_eq!(owner.begin_phase().request().phase, TestScenePhase::Pending);
-
-        let (recovered, error) = failure.into_parts();
-        assert_eq!(error.to_string(), "injected phase failure");
-        assert_eq!(recovered.request().phase, TestScenePhase::Ready);
-        owner.commit_phase(recovered.complete()).unwrap();
-        assert_eq!(owner.begin_phase().request().phase, TestScenePhase::Ready);
-    }
-
-    #[test]
-    fn environment_receipts_advance_once_and_reject_every_stale_family_attempt() {
         let cases = [
             EnvironmentLightingTestCase::Sealed,
             EnvironmentLightingTestCase::TerrainEdits,
@@ -5937,21 +5922,96 @@ mod tests {
 
         for case in cases {
             let mut owner = EnvironmentLightingTestScene::new(case);
-            let stale = owner.begin_phase();
-            let expected_family = stale.request().family();
-            let mut successful = owner.begin_phase();
-            assert_eq!(successful.request().family(), expected_family);
-            successful.request_mut().phase = TestScenePhase::Ready;
+            let mut attempt = owner.begin_phase().unwrap();
+            match &mut attempt.request_mut().scratch {
+                EnvironmentFamilyScratch::None => {}
+                EnvironmentFamilyScratch::PointLight { supplemental_ids } => {
+                    supplemental_ids.reserve_exact(3);
+                }
+                EnvironmentFamilyScratch::MultiSource {
+                    overflow_authored_ids,
+                } => {
+                    overflow_authored_ids.reserve_exact(5);
+                }
+                EnvironmentFamilyScratch::LocalLightScaling { ids, samples } => {
+                    ids.reserve_exact(7);
+                    samples.reserve_exact(11);
+                }
+            }
+            let expected_family = attempt.request().family();
+            let expected_payload = environment_payload_fingerprint(attempt.request());
 
-            owner.commit_phase(successful.complete()).unwrap();
-            let error = owner.commit_phase(stale.complete()).unwrap_err();
+            let busy = owner.begin_phase().unwrap_err();
+            assert_eq!(busy.family(), expected_family);
 
-            assert!(error
-                .to_string()
-                .contains("stale environment phase receipt"));
-            let current = owner.begin_phase();
-            assert_eq!(current.request().family(), expected_family);
-            assert_eq!(current.request().phase, TestScenePhase::Ready);
+            let mut wrong_owner = EnvironmentLightingTestScene::new(case);
+            let ownership_error = wrong_owner
+                .commit_phase(attempt.complete())
+                .expect_err("another owner must reject this phase payload");
+            let recovered = ownership_error.into_receipt().retry();
+            assert_eq!(
+                environment_payload_fingerprint(recovered.request()),
+                expected_payload
+            );
+
+            owner.restore_phase(recovered).unwrap();
+            let retry = owner.begin_phase().unwrap();
+            assert_eq!(
+                environment_payload_fingerprint(retry.request()),
+                expected_payload
+            );
+            owner.restore_phase(retry).unwrap();
+        }
+    }
+
+    #[test]
+    fn lost_environment_attempt_leaves_an_explicit_in_flight_terminal_state() {
+        let mut owner = EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::Sealed);
+        drop(owner.begin_phase().unwrap());
+
+        let busy = owner.begin_phase().unwrap_err();
+        assert_eq!(busy.family(), EnvironmentPhaseFamily::Static);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EnvironmentPayloadFingerprint {
+        case: EnvironmentLightingTestCase,
+        phase: TestScenePhase,
+        first_allocation: Option<(usize, usize)>,
+        second_allocation: Option<(usize, usize)>,
+    }
+
+    fn environment_payload_fingerprint(
+        request: &EnvironmentPhaseRequest,
+    ) -> EnvironmentPayloadFingerprint {
+        let (first_allocation, second_allocation) = match &request.scratch {
+            EnvironmentFamilyScratch::None => (None, None),
+            EnvironmentFamilyScratch::PointLight { supplemental_ids } => (
+                Some((
+                    supplemental_ids.as_ptr() as usize,
+                    supplemental_ids.capacity(),
+                )),
+                None,
+            ),
+            EnvironmentFamilyScratch::MultiSource {
+                overflow_authored_ids,
+            } => (
+                Some((
+                    overflow_authored_ids.as_ptr() as usize,
+                    overflow_authored_ids.capacity(),
+                )),
+                None,
+            ),
+            EnvironmentFamilyScratch::LocalLightScaling { ids, samples } => (
+                Some((ids.as_ptr() as usize, ids.capacity())),
+                Some((samples.as_ptr() as usize, samples.capacity())),
+            ),
+        };
+        EnvironmentPayloadFingerprint {
+            case: request.case,
+            phase: request.phase,
+            first_allocation,
+            second_allocation,
         }
     }
 
