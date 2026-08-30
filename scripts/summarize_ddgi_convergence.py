@@ -309,6 +309,25 @@ def load_acceptance_contract(path: Path) -> Policy:
     )
 
 
+def expected_initialization_probe_count(path: Path, spacing_voxels: int) -> int:
+    contract = tomllib.loads(path.read_text())
+    grid = contract.get("initialization_grid")
+    if not isinstance(grid, dict) or set(grid) != {"world_extent_voxels"}:
+        raise ValueError("invalid DDGI convergence initialization grid contract")
+    world_extent = grid["world_extent_voxels"]
+    if (
+        type(world_extent) is not int
+        or not 0 < world_extent <= (1 << 32) - 1
+        or world_extent % spacing_voxels != 0
+    ):
+        raise ValueError("invalid DDGI convergence initialization world extent")
+    side = world_extent // spacing_voxels + 1
+    probe_count = side * side * side
+    if probe_count > (1 << 32) - 1:
+        raise ValueError("DDGI convergence initialization probe count exceeds u32")
+    return probe_count
+
+
 def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
     for field in ("absolute_threshold", "relative_threshold", "relative_floor"):
         runtime_value = float(getattr(policy, field))
@@ -379,6 +398,7 @@ def require_global_validation_legality(
     evidence_path: Path,
     wire: ValidationWireContract,
     policy: Policy,
+    probe_count: int,
 ) -> list[list[dict[str, object]]]:
     for record in records:
         numeric_fields = set(record) - {"state", "log_time"}
@@ -430,9 +450,12 @@ def require_global_validation_legality(
             raise ValueError(f"validated atlas record in {evidence_path} has invalid texels")
         valid = int(record["valid_texel_count"])
         scanned = int(record["scanned_stored_texel_count"])
-        if valid == 0 or scanned == 0 or scanned * 64 != valid * 100:
+        expected_valid = probe_count * 64
+        expected_scanned = probe_count * 100
+        if valid != expected_valid or scanned != expected_scanned:
             raise ValueError(
-                f"validated atlas record in {evidence_path} has incomplete coverage"
+                f"validated atlas record in {evidence_path} has incomplete coverage: "
+                f"valid={valid}/{expected_valid} scanned={scanned}/{expected_scanned}"
             )
         if record["required_consecutive_epochs"] != policy.consecutive_epochs:
             raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
@@ -614,8 +637,16 @@ def parse_curve(
         raise ValueError("runtime initialization terrain revision exceeds u32")
     if not 0 < policy_spacing <= (1 << 32) - 1:
         raise ValueError("runtime initialization spacing must be a positive u32")
-    if not 0 < probe_count <= (1 << 64) - 1:
-        raise ValueError("runtime initialization probe count must be a positive u64")
+    if not 0 < probe_count <= (1 << 32) - 1:
+        raise ValueError("runtime initialization probe count must be a positive u32")
+    expected_probe_count = expected_initialization_probe_count(
+        contract_path, policy_spacing
+    )
+    if probe_count != expected_probe_count:
+        raise ValueError(
+            f"runtime initialization probe count {probe_count} differs from "
+            f"acceptance grid {expected_probe_count} at spacing {policy_spacing}"
+        )
     initialization = InitializationEvent(
         log_time=policy_values["log_time"],
         terrain_revision=terrain_revision,
@@ -736,7 +767,7 @@ def parse_curve(
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
     generations = require_global_validation_legality(
-        records, console_path, wire, policy
+        records, console_path, wire, policy, initialization.probe_count
     )
     if len(terminals) != 1:
         raise ValueError(

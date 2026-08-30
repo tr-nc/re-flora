@@ -52,8 +52,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             + "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 source_field_serial=none geometry_revision=1 radiance_revision=1 "
             "spacing_voxels=32 state=Converging update_epoch=0 "
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
-            "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
-            "scanned_stored_texels=100 abs_threshold=0.00250000 "
+            "non_finite=0 negative_rgb_texels=0 valid_texels=314432 "
+            "scanned_stored_texels=491300 abs_threshold=0.00250000 "
             f"rel_threshold={relative_threshold:.8f} consecutive_below=0/{consecutive_epochs}"
         )
         for field_serial, (epoch, absolute, relative, consecutive) in enumerate(samples, 2):
@@ -66,7 +66,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 f"max_abs_rgb_delta={absolute:.8f} "
                 f"max_rel_rgb_delta={relative:.8f} "
                 "non_finite=0 negative_rgb_texels=0 "
-                "valid_texels=64 scanned_stored_texels=100 "
+                "valid_texels=314432 scanned_stored_texels=491300 "
                 f"abs_threshold={absolute_threshold:.8f} rel_threshold={relative_threshold:.8f} "
                 f"consecutive_below={consecutive}/{consecutive_epochs}"
             )
@@ -187,6 +187,27 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(output.exists())
         self.assertIn("drifted from acceptance contract", result.stderr)
+
+    def test_rejects_initialization_grid_contract_drift(self) -> None:
+        source = SCRIPTS.parent / "config" / "ddgi_convergence_acceptance.toml"
+        for world_extent in (511, 1024):
+            with self.subTest(world_extent=world_extent), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                contract = run_dir / "contract.toml"
+                self.write_curve(run_dir)
+                contract.write_text(
+                    source.read_text().replace(
+                        "world_extent_voxels = 512",
+                        f"world_extent_voxels = {world_extent}",
+                    )
+                )
+
+                result = self.run_summarizer(run_dir, output, contract=contract)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("initialization", result.stderr)
 
     def test_rejects_missing_duplicate_or_mismatched_terminal_evidence(self) -> None:
         mutations = (
@@ -464,9 +485,9 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 "negative_rgb_texels=0",
                 "negative_rgb_texels=4294967296",
             ),
-            "valid_texel_count": ("valid_texels=64", "valid_texels=4294967296"),
+            "valid_texel_count": ("valid_texels=314432", "valid_texels=4294967296"),
             "scanned_stored_texel_count": (
-                "scanned_stored_texels=100",
+                "scanned_stored_texels=491300",
                 "scanned_stored_texels=4294967296",
             ),
             "consecutive_below_threshold": (
@@ -547,9 +568,9 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         mutations = {
             "nonfinite": ("non_finite=0", "non_finite=1"),
             "negative": ("negative_rgb_texels=0", "negative_rgb_texels=1"),
-            "zero-valid": ("valid_texels=64", "valid_texels=0"),
-            "zero-scanned": ("scanned_stored_texels=100", "scanned_stored_texels=0"),
-            "partial-coverage": ("valid_texels=64", "valid_texels=63"),
+            "zero-valid": ("valid_texels=314432", "valid_texels=0"),
+            "zero-scanned": ("scanned_stored_texels=491300", "scanned_stored_texels=0"),
+            "partial-coverage": ("valid_texels=314432", "valid_texels=314431"),
             "absolute-policy": ("abs_threshold=0.00250000", "abs_threshold=0.003"),
             "relative-policy": ("rel_threshold=0.02000000", "rel_threshold=0.03"),
             "required-policy": ("consecutive_below=0/2", "consecutive_below=0/3"),
@@ -810,7 +831,6 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             "policy-time": ("12:34:56.789", "12:34:56.788"),
             "terrain": ("terrain_revision=2", "terrain_revision=99"),
             "policy-spacing": ("spacing_voxels=32", "spacing_voxels=16"),
-            "probe-count": ("probes=4913", "probes=4912"),
             "evidence-time": ("12:34:56.790", "12:34:56.791"),
         }
         for name, (before, after) in mutations.items():
@@ -825,7 +845,10 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
-                self.assertIn("console and preserved run-log", result.stderr)
+                self.assertTrue(
+                    "console and preserved run-log" in result.stderr
+                    or "acceptance grid" in result.stderr
+                )
 
     def test_rejects_dual_stream_initialization_identity_that_differs_from_curve(self) -> None:
         mutations = {
@@ -846,6 +869,45 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
                 self.assertIn("initialization", result.stderr)
+
+    def test_rejects_dual_stream_probe_count_type_or_coverage_drift(self) -> None:
+        mutations = {
+            "u32-overflow": ("probes=4913", "probes=4294967296", "positive u32"),
+            "grid-count": ("probes=4913", "probes=4912", "acceptance grid"),
+        }
+        for name, (before, after, error) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn(error, result.stderr)
+
+    def test_rejects_dual_stream_validation_coverage_below_the_grid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace("valid_texels=314432", "valid_texels=314368")
+                    .replace("scanned_stored_texels=491300", "scanned_stored_texels=491200")
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("incomplete coverage", result.stderr)
 
     def test_rejects_capture_metric_drift_inside_the_old_tolerance(self) -> None:
         mutations = {

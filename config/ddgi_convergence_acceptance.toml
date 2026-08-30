@@ -7,6 +7,9 @@ minimum_update_epochs = 8
 maximum_update_epochs = 128
 terminal_update_epoch = 127
 
+[initialization_grid]
+world_extent_voxels = 512
+
 [validation_wire]
 decimal_places = 8
 

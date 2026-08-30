@@ -259,7 +259,7 @@ mod convergence_evidence {
     mod tests {
         use super::super::DdgiFieldIdentity;
         use super::*;
-        use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler};
+        use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler, DdgiVolumeGrid};
 
         fn facts() -> (
             super::super::DdgiScheduledWork,
@@ -300,6 +300,19 @@ mod convergence_evidence {
                 contract["validation_wire"]["decimal_places"].as_integer(),
                 Some(DECIMAL_PLACES as i64)
             );
+            let world_extent = contract["initialization_grid"]["world_extent_voxels"]
+                .as_integer()
+                .and_then(|value| u32::try_from(value).ok())
+                .expect("initialization grid contract must carry a u32 world extent");
+            assert_eq!(
+                world_extent, 512,
+                "acceptance grid must match the production terrain extent"
+            );
+            for (spacing, probe_count) in [(32, 4_913), (16, 35_937)] {
+                let grid = DdgiVolumeGrid::new(glam::UVec3::splat(world_extent), spacing)
+                    .expect("acceptance spacing must produce a runtime grid");
+                assert_eq!(grid.probe_count(), probe_count);
+            }
             let (work, field, stats) = facts();
             let key = field.field();
             let prepared = prepare(

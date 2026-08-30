@@ -102,7 +102,10 @@ The convergence summarizer independently parses both the capture console and its
 process-bound `.run.log`, then requires semantic equality of the complete initialization event,
 ordered validation curve, and terminal identity. The initialization identity retains the logger
 timestamp, terrain revision, spacing, probe count, stage, and policy; the curve must use that
-spacing and its captured geometry must name that terrain revision. Every authoritative event is a
+spacing and its captured geometry must name that terrain revision. The checked-in initialization
+grid extent derives the exact probe count for each spacing, and every full-atlas record must report
+exactly `probe_count * 64` valid irradiance texels and `probe_count * 100` scanned stored texels.
+Every authoritative event is a
 complete production logger line: initialization comes from `re_flora::tracer`, while validation
 and terminal events come from `re_flora::ddgi::runtime::convergence_evidence` at Debug level.
 Raw, prefixed, wrong-level, wrong-module, and suffixed marker lines are not evidence. Before
