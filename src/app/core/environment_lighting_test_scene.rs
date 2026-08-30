@@ -5775,38 +5775,54 @@ mod tests {
     }
 
     #[test]
-    fn environment_phase_transaction_commits_or_discards_the_owned_candidate_atomically() {
-        let mut owners = prepare_startup_owners(
-            AutomationPlan::default(),
-            Scenario::EnvironmentLighting(EnvironmentLightingTestCase::Sealed),
-        )
-        .unwrap();
+    fn environment_attempts_are_affine_and_failures_return_the_uncommitted_request() {
+        static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
 
-        let mut rejected = owners.begin_environment_phase();
-        let EnvironmentPhaseTxn::Active { staged, .. } = &mut rejected else {
-            panic!("environment scenario must mint an active phase transaction")
-        };
-        staged.phase = TestScenePhase::Ready;
-        owners
-            .finish_environment_phase(rejected, EnvironmentPhaseResult::Rejected)
-            .unwrap();
-        let EnvironmentPhaseTxn::Active { staged, .. } = owners.begin_environment_phase() else {
-            panic!("environment scenario must remain active")
-        };
-        assert_eq!(staged.phase, TestScenePhase::Pending);
+        let mut owner = EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::Sealed);
+        let mut attempt = owner.begin_phase();
+        attempt.request_mut().phase = TestScenePhase::Ready;
 
-        let mut committed = owners.begin_environment_phase();
-        let EnvironmentPhaseTxn::Active { staged, .. } = &mut committed else {
-            unreachable!()
-        };
-        staged.phase = TestScenePhase::Ready;
-        owners
-            .finish_environment_phase(committed, EnvironmentPhaseResult::Commit)
-            .unwrap();
-        let EnvironmentPhaseTxn::Active { staged, .. } = owners.begin_environment_phase() else {
-            unreachable!()
-        };
-        assert_eq!(staged.phase, TestScenePhase::Ready);
+        let failure = attempt.fail(anyhow::anyhow!("injected phase failure"));
+        assert_eq!(owner.begin_phase().request().phase, TestScenePhase::Pending);
+
+        let recovered = failure.into_attempt();
+        assert_eq!(recovered.request().phase, TestScenePhase::Ready);
+        owner.commit_phase(recovered.complete()).unwrap();
+        assert_eq!(owner.begin_phase().request().phase, TestScenePhase::Ready);
+    }
+
+    #[test]
+    fn environment_receipts_advance_once_and_reject_every_stale_family_attempt() {
+        let cases = [
+            EnvironmentLightingTestCase::Sealed,
+            EnvironmentLightingTestCase::TerrainEdits,
+            EnvironmentLightingTestCase::RadianceChanges,
+            EnvironmentLightingTestCase::PointLightChanges,
+            EnvironmentLightingTestCase::VoxelEmissiveChanges,
+            EnvironmentLightingTestCase::RasterEmitterChanges,
+            EnvironmentLightingTestCase::MultiSourceStress,
+            EnvironmentLightingTestCase::LocalLightScaling,
+        ];
+
+        for case in cases {
+            let mut owner = EnvironmentLightingTestScene::new(case);
+            let stale = owner.begin_phase();
+            let expected_family = stale.request().family();
+            let mut successful = owner.begin_phase();
+            assert_eq!(successful.request().family(), expected_family);
+            successful.request_mut().phase = TestScenePhase::Ready;
+
+            owner.commit_phase(successful.complete()).unwrap();
+            let error = owner.commit_phase(stale.complete()).unwrap_err();
+
+            assert!(error
+                .to_string()
+                .contains("stale environment phase receipt"));
+            let current = owner.begin_phase();
+            assert_eq!(current.request().family(), expected_family);
+            assert_eq!(current.request().phase, TestScenePhase::Ready);
+        }
     }
 
     #[test]

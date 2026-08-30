@@ -656,6 +656,34 @@ mod tests {
         prepare_startup_owners(AutomationPlan::default(), scenario).unwrap()
     }
 
+    #[test]
+    fn protocol_heavy_scenarios_are_promoted_to_top_level_launch_modes() {
+        let environment = launch_for(Scenario::EnvironmentLighting(
+            crate::cli::EnvironmentLightingTestCase::Sealed,
+        ));
+        assert!(matches!(
+            environment.mode,
+            LaunchMode::Environment {
+                camera: CameraOwner::None,
+                ..
+            }
+        ));
+
+        let canopy = launch_for(Scenario::CanopyAudioDiagnostic {
+            constrained_budget: true,
+        });
+        assert!(matches!(
+            canopy.mode,
+            LaunchMode::CanopyAudio {
+                camera: CameraOwner::None,
+                ..
+            }
+        ));
+
+        let garden = launch_for(Scenario::Garden);
+        assert!(matches!(garden.mode, LaunchMode::General { .. }));
+    }
+
     fn capture_for(camera: CameraAutomation) -> LaunchOwners {
         prepare_startup_owners(
             AutomationPlan {
