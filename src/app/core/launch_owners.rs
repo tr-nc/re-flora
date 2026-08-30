@@ -1187,4 +1187,139 @@ mod tests {
             }
         ));
     }
+
+    #[test]
+    fn water_phase_transactions_commit_only_successful_runtime_receipts() {
+        let mut experience = owner_for(Scenario::WaterExperience);
+        experience.activate_water_experience(10_000);
+        let ready = experience.begin_water_experience_frame();
+        assert!(matches!(
+            ready,
+            WaterExperienceFrameTxn::Waiting {
+                expected_particle_count: 10_000,
+                ..
+            }
+        ));
+        experience
+            .finish_water_experience_frame(
+                ready,
+                WaterExperienceFrameResult::Ready {
+                    particle_count: 10_000,
+                    sim_time_seconds: 1.0 / 60.0,
+                    revision: 7,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            experience.begin_water_experience_frame(),
+            WaterExperienceFrameTxn::Ready
+        ));
+
+        let mut edit = owner_for(Scenario::WaterEditSoak);
+        let first = edit.begin_water_edit_frame();
+        assert!(matches!(first, WaterEditFrameTxn::Step { step: 0, .. }));
+        edit.finish_water_edit_frame(first, WaterEditFrameResult::Failed)
+            .unwrap();
+        assert!(matches!(
+            edit.begin_water_edit_frame(),
+            WaterEditFrameTxn::Step { step: 0, .. }
+        ));
+        let retry = edit.begin_water_edit_frame();
+        edit.finish_water_edit_frame(retry, WaterEditFrameResult::Applied)
+            .unwrap();
+        assert!(matches!(
+            edit.begin_water_edit_frame(),
+            WaterEditFrameTxn::Step { step: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn canopy_audio_transactions_start_and_publish_telemetry_only_after_commit() {
+        let mut owners = owner_for(Scenario::CanopyAudioDiagnostic {
+            constrained_budget: true,
+        });
+        assert_eq!(
+            owners.canopy_audio_setup(),
+            CanopyAudioSetup::Diagnostic {
+                budget_stress: true
+            }
+        );
+
+        let mut baseline = CanopyAudioTelemetrySnapshot::default();
+        baseline.telemetry.extent_response_count = 10;
+        baseline.petal_direct_ray_count = 100;
+        let rejected = owners.begin_canopy_audio_start(CanopyAudioStartObservation::new(
+            1.0, true, &baseline,
+        ));
+        owners
+            .finish_canopy_audio_start(rejected, CanopyAudioStartResult::Rejected)
+            .unwrap();
+
+        for time_seconds in [1.0, 1.11] {
+            let transaction = owners.begin_canopy_audio_start(
+                CanopyAudioStartObservation::new(time_seconds, true, &baseline),
+            );
+            owners
+                .finish_canopy_audio_start(transaction, CanopyAudioStartResult::Observed)
+                .unwrap();
+        }
+
+        let mut current = baseline.clone();
+        current.telemetry.extent_response_count = 14;
+        current.petal_direct_ray_count = 164;
+        let telemetry = owners.canopy_audio_telemetry(glam::Vec3::ZERO, 1.25, &current);
+        assert!(matches!(
+            telemetry.marker,
+            AudioTelemetryMarker::Active(elapsed, _) if (elapsed - 0.14).abs() < 1.0e-6
+        ));
+        assert_eq!(telemetry.counters.extent_responses, 4);
+        assert_eq!(telemetry.counters.direct_rays, 64);
+    }
+
+    #[test]
+    fn rejected_canopy_trajectory_does_not_commit_its_phase_transition() {
+        let mut owners = owner_for(Scenario::CanopyAudioDiagnostic {
+            constrained_budget: false,
+        });
+        let mut baseline = CanopyAudioTelemetrySnapshot::default();
+        for time_seconds in [1.0, 1.11] {
+            let transaction = owners.begin_canopy_audio_start(
+                CanopyAudioStartObservation::new(time_seconds, true, &baseline),
+            );
+            owners
+                .finish_canopy_audio_start(transaction, CanopyAudioStartResult::Observed)
+                .unwrap();
+        }
+
+        let rejected = owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25);
+        assert!(matches!(
+            rejected,
+            CanopyAudioTrajectoryTxn::Active {
+                phase_changed: true,
+                ..
+            }
+        ));
+        owners
+            .finish_canopy_audio_trajectory(rejected, CanopyAudioTrajectoryResult::Rejected)
+            .unwrap();
+        assert!(matches!(
+            owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25),
+            CanopyAudioTrajectoryTxn::Active {
+                phase_changed: true,
+                ..
+            }
+        ));
+
+        let applied = owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25);
+        owners
+            .finish_canopy_audio_trajectory(applied, CanopyAudioTrajectoryResult::Applied)
+            .unwrap();
+        assert!(matches!(
+            owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25),
+            CanopyAudioTrajectoryTxn::Active {
+                phase_changed: false,
+                ..
+            }
+        ));
+    }
 }
