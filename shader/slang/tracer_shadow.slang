@@ -10,6 +10,7 @@ import scene_query;
 #endif
 import scene_marching;
 import tracer_types;
+import voxel_material;
 import voxel_types;
 
 static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
@@ -52,10 +53,29 @@ float tracePixelDepth(Ray ray, uint localInvocationIndex)
     MarchingResult result;
 #if RE_FLORA_GLASS_TRANSPORT
     {
-        ScenePrimaryQuery query = tracePrimaryVoxelSurfaces(
-            chunk_atlas, ray.origin, ray.direction, 256.0, true);
-        result = sceneQueryMarchingResultFromOpaqueEvent(
-            query.opaque_hit, ray.origin);
+        MarchingResult accelerated = marchScene(
+            contree_node_data, contree_leaf_data, scene_tex, ray.origin,
+            ray.direction, ray.inverse_direction, localInvocationIndex);
+        uint originVoxelType = sceneQueryVoxelTypeAtWorld(
+            chunk_atlas, ray.origin, 256.0);
+        bool originInsideGlass = voxelMaterial(
+            originVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+        bool hitGlass = accelerated.is_hit && voxelMaterial(
+            accelerated.voxel_type, true).surface_class ==
+                VOXEL_SURFACE_CLASS_DIELECTRIC;
+        if (originInsideGlass || hitGlass)
+        {
+            ScenePrimaryQuery query = tracePrimaryVoxelSurfaces(
+                contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+                ray.origin, ray.direction, 256.0, true, accelerated,
+                originInsideGlass, localInvocationIndex);
+            result = sceneQueryMarchingResultFromOpaqueEvent(
+                query.opaque_hit, ray.origin);
+        }
+        else
+        {
+            result = accelerated;
+        }
     }
 #else
     {

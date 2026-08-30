@@ -266,8 +266,9 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
 #if RE_FLORA_GLASS_PRIMARY
             {
                 SceneStraightTransport transport = traceVoxelStraightTransport(
-                    chunk_atlas, shadowRay.origin, shadowRay.direction,
-                    256.0, true);
+                    contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+                    shadowRay.origin, shadowRay.direction, 256.0, true,
+                    localInvocationIndex);
                 visibility = transport.exhausted != 0u ||
                     transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
                     ? 0.0
@@ -648,7 +649,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         if (cameraInsideGlass || acceleratedHitGlass)
         {
             glassPrimary = tracePrimaryVoxelSurfaces(
-                chunk_atlas, ray.origin, ray.direction, 256.0, true);
+                contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+                ray.origin, ray.direction, 256.0, true, acceleratedPrimary,
+                cameraInsideGlass, localInvocationIndex);
             primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
                 glassPrimary.opaque_hit, ray.origin);
             glass_front_depth_tex[dispatchThreadId.xy] =

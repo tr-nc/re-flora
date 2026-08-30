@@ -97,10 +97,13 @@ void recordTraceStatValue(uint index, uint value)
 #if RE_FLORA_GLASS_TRANSPORT
 MarchingResult ddgiTraceGlassScene(float3 origin, float3 direction,
                                    out float3 transmittance,
-                                   out uint transportExhausted)
+                                   out uint transportExhausted,
+                                   uint localInvocationIndex)
 {
     SceneStraightTransport transport = traceVoxelStraightTransport(
-        chunk_atlas, origin, direction, pc.far_distance_world, true);
+        contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+        origin, direction, pc.far_distance_world, true,
+        localInvocationIndex);
     transmittance = transport.transmittance;
     transportExhausted = transport.exhausted;
     return sceneQueryMarchingResultFromOpaqueEvent(transport.terminal, origin);
@@ -117,7 +120,9 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
 #if RE_FLORA_GLASS_TRANSPORT
     {
         SceneStraightTransport transport = traceVoxelStraightTransport(
-            chunk_atlas, origin, sunDirection, pc.far_distance_world, true);
+            contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+            origin, sunDirection, pc.far_distance_world, true,
+            localInvocationIndex);
         return transport.exhausted == 0u &&
             transport.terminal.kind != SCENE_QUERY_EVENT_OPAQUE ? 1.0 : 0.0;
     }
@@ -249,7 +254,8 @@ void main(uint3 groupId : SV_GroupID,
         uint transportExhausted;
         MarchingResult result = ddgiTraceGlassScene(
             metadata.actual_position_and_clearance.xyz, direction,
-            transportTransmittance, transportExhausted);
+            transportTransmittance, transportExhausted,
+            localInvocationId.x);
         if (transportExhausted != 0u) recordTraceStat(5u);
 #else
         MarchingResult result = marchScene(

@@ -2,6 +2,7 @@ import color;
 import composition_camera_effects;
 import composition_sky;
 import composition_types;
+import contree_node;
 import packer;
 import projection;
 import ray;
@@ -49,6 +50,10 @@ RWStructuredBuffer<float4> glass_voxel_cache_radiance;
 RWStructuredBuffer<uint> glass_voxel_cache_active_slots;
 [[vk::binding(20, 0)]]
 RWStructuredBuffer<uint> glass_voxel_cache_active_count;
+[[vk::binding(21, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
+[[vk::binding(22, 0)]] StructuredBuffer<uint> contree_leaf_data;
+[[vk::binding(23, 0)]] [[vk::image_format("rg32ui")]]
+readonly RWTexture3D<uint2> scene_tex;
 
 struct GlassVoxelCachePushConstants
 {
@@ -745,7 +750,7 @@ void spawnGlassInterfacePaths(
 
 GlassResolveResult traceGlassRadianceFromFrontEvent(
     Ray cameraRay, float2 screenUv, float glassFrontDepth,
-    SceneQueryEvent frontEvent)
+    SceneQueryEvent frontEvent, uint localInvocationIndex)
 {
     GlassResolveResult result = emptyGlassResolveResult();
     GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS];
@@ -798,8 +803,9 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
         paths[uint(selectedIndex)].active = 0u;
         result.scene_queries += 1u;
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
-            chunk_atlas, path.origin, path.direction, 256.0, true,
-            SCENE_QUERY_MAX_DDA_STEPS);
+            contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+            path.origin, path.direction, 256.0, true,
+            SCENE_QUERY_MAX_DDA_STEPS, localInvocationIndex);
         result.dda_steps += event.dda_steps;
         VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, true);
         if (fromMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
@@ -1032,7 +1038,8 @@ void glassInterfaceFaceFrame(
 }
 
 GlassResolveResult traceGlassFrontSample(
-    float3 samplePosition, SceneQueryEvent frontEvent)
+    float3 samplePosition, SceneQueryEvent frontEvent,
+    uint localInvocationIndex)
 {
     Ray sampleRay;
     sampleRay.origin = camera_info.pos.xyz;
@@ -1052,7 +1059,7 @@ GlassResolveResult traceGlassFrontSample(
     float2 screenUv = clip.xy / clip.w * 0.5 + 0.5;
     float frontDepth = clip.z / clip.w;
     return traceGlassRadianceFromFrontEvent(
-        sampleRay, screenUv, frontDepth, frontEvent);
+        sampleRay, screenUv, frontDepth, frontEvent, localInvocationIndex);
 }
 
 float3 glassFrontDebugColor(uint packed)
@@ -1125,7 +1132,8 @@ void buildGlassVoxelCache(uint2 pixel, uint2 extent)
 }
 
 GlassResolveResult traceGlassVoxelCellRadiance(
-    int3 glassCell, uint packedStoredVoxelNormal)
+    int3 glassCell, uint packedStoredVoxelNormal,
+    uint localInvocationIndex)
 {
     // Visibility was already established by GlassFront. Reconstruct the cell-owned surface
     // directly instead of retracing the world toward a center that an unrelated occluder may hide.
@@ -1148,7 +1156,7 @@ GlassResolveResult traceGlassVoxelCellRadiance(
             (tangentU * u + tangentV * v) *
             GLASS_VOXEL_FACE_SAMPLE_OFFSET;
         GlassResolveResult sample = traceGlassFrontSample(
-            samplePosition, frontEvent);
+            samplePosition, frontEvent, localInvocationIndex);
         accumulateGlassResolveSample(sample, result);
     }
     averageGlassResolveSamples(2u, result);
@@ -1166,7 +1174,7 @@ GlassResolveResult traceGlassVoxelCellRadiance(
     return result;
 }
 
-void shadeGlassVoxelCache(uint activeIndex)
+void shadeGlassVoxelCache(uint activeIndex, uint localInvocationIndex)
 {
     if (activeIndex >= min(
             glass_voxel_cache_active_count[0], GLASS_VOXEL_CACHE_CAPACITY)) return;
@@ -1174,7 +1182,8 @@ void shadeGlassVoxelCache(uint activeIndex)
     uint key = glass_voxel_cache_metadata[slot].x;
     if (key == 0u) return;
     GlassResolveResult result = traceGlassVoxelCellRadiance(
-        glassVoxelCellFromKey(key), glass_voxel_cache_metadata[slot].y);
+        glassVoxelCellFromKey(key), glass_voxel_cache_metadata[slot].y,
+        localInvocationIndex);
 
     glass_voxel_cache_radiance[slot] = float4(result.radiance, 1.0);
     uint2 diagnostics = packGlassDiagnostics(result, result.radiance);
@@ -1182,7 +1191,8 @@ void shadeGlassVoxelCache(uint activeIndex)
     glass_voxel_cache_metadata[slot].w = diagnostics.y | (1u << 31u);
 }
 
-void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
+void resolveGlassVoxelPixel(uint2 pixel, uint2 extent,
+                            uint localInvocationIndex)
 {
     int2 coordinate = int2(pixel);
     float2 screenUv = (float2(pixel) + 0.5) / float2(extent);
@@ -1233,7 +1243,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
                 // Cache insertion/readiness failure is exceptional but must preserve the same
                 // output contract: recompute the deterministic cell sample, never a pixel ray.
                 result = traceGlassVoxelCellRadiance(
-                    glassCell, frontData >> 16u);
+                    glassCell, frontData >> 16u, localInvocationIndex);
                 resolvedColor = result.radiance;
                 reason = result.fallback_reason;
             }
@@ -1257,11 +1267,12 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void main(uint3 dispatchThreadId : SV_DispatchThreadID,
+          uint localInvocationIndex : SV_GroupIndex)
 {
     if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_SHADE_PASS)
     {
-        shadeGlassVoxelCache(dispatchThreadId.x);
+        shadeGlassVoxelCache(dispatchThreadId.x, localInvocationIndex);
         return;
     }
     uint width;
@@ -1275,5 +1286,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     if (glass_voxel_cache_push.pass == GLASS_VOXEL_CACHE_RESOLVE_PASS)
-        resolveGlassVoxelPixel(dispatchThreadId.xy, extent);
+        resolveGlassVoxelPixel(
+            dispatchThreadId.xy, extent, localInvocationIndex);
 }

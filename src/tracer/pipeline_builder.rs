@@ -722,7 +722,12 @@ impl PipelineBuilder {
                     device,
                     shader_module,
                     pool,
-                    &[resources, plain_builder_resources],
+                    &[
+                        resources,
+                        contree_builder_resources,
+                        scene_accel_resources,
+                        plain_builder_resources,
+                    ],
                 )
             });
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
