@@ -32,6 +32,14 @@ VALIDATION_PATTERN = re.compile(
 TERMINAL_PATTERN = re.compile(
     r"transport converged .*update_epoch=(?P<epoch>\d+).*reason=(?P<reason>\w+)"
 )
+POLICY_PATTERN = re.compile(
+    r"initialization requested .*?"
+    r"convergence_max_absolute_rgb_delta=(?P<absolute>[0-9.eE+-]+) "
+    r"convergence_max_relative_rgb_delta=(?P<relative>[0-9.eE+-]+) "
+    r"convergence_consecutive_epochs=(?P<consecutive>\d+) "
+    r"convergence_minimum_update_epochs=(?P<minimum>\d+) "
+    r"convergence_maximum_update_epochs=(?P<maximum>\d+)"
+)
 
 
 @dataclass(frozen=True)
@@ -47,10 +55,28 @@ def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
 
 
-def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str]:
+def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Policy]:
     records: list[dict[str, object]] = []
     terminal_reason: str | None = None
-    for line in console_path.read_text().splitlines():
+    text = console_path.read_text()
+    policy_matches = list(POLICY_PATTERN.finditer(text))
+    if len(policy_matches) != 1:
+        raise ValueError(
+            f"expected exactly one authoritative runtime convergence policy in "
+            f"{console_path}, found {len(policy_matches)}"
+        )
+    policy_values = policy_matches[0].groupdict()
+    maximum_update_epochs = int(policy_values["maximum"])
+    if maximum_update_epochs == 0:
+        raise ValueError("runtime convergence maximum_update_epochs must be positive")
+    policy = Policy(
+        float(policy_values["absolute"]),
+        float(policy_values["relative"]),
+        int(policy_values["consecutive"]),
+        int(policy_values["minimum"]),
+        maximum_update_epochs - 1,
+    )
+    for line in text.splitlines():
         if "[DDGI] full-atlas validated" in line:
             match = VALIDATION_PATTERN.search(line)
             if match is None:
@@ -86,7 +112,7 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str]:
         raise ValueError(f"no full-atlas validation records in {console_path}")
     if terminal_reason is None:
         raise ValueError(f"no terminal convergence record in {console_path}")
-    return records, terminal_reason
+    return records, terminal_reason, policy
 
 
 def validate_curve(
@@ -205,41 +231,38 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--absolute-threshold", type=float, required=True)
-    parser.add_argument("--relative-threshold", type=float, required=True)
-    parser.add_argument("--consecutive-epochs", type=int, required=True)
-    parser.add_argument("--minimum-epoch-count", type=int, required=True)
-    parser.add_argument("--maximum-update-epoch", type=int, required=True)
     parser.add_argument("--cases", nargs="+", default=list(DEFAULT_CASES))
     parser.add_argument("--spacings", nargs="+", type=int, default=list(DEFAULT_SPACINGS))
     args = parser.parse_args()
-    policy = Policy(
-        args.absolute_threshold,
-        args.relative_threshold,
-        args.consecutive_epochs,
-        args.minimum_epoch_count,
-        args.maximum_update_epoch,
-    )
 
     try:
         curves = []
+        policy: Policy | None = None
         for spacing in args.spacings:
             for case_name in args.cases:
                 stem = f"{case_name}-spacing{spacing}-converged-forward"
                 console_path = args.run_dir / f"{stem}.console.log"
                 analysis_path = args.run_dir / f"{stem}.analysis.json"
-                records, terminal_reason = parse_curve(console_path)
+                records, terminal_reason, runtime_policy = parse_curve(console_path)
+                if policy is None:
+                    policy = runtime_policy
+                elif runtime_policy != policy:
+                    raise ValueError(
+                        f"{case_name} spacing {spacing}: runtime convergence policy drift"
+                    )
                 curve = validate_curve(
                     case_name,
                     spacing,
                     records,
                     terminal_reason,
                     json.loads(analysis_path.read_text()),
-                    policy,
+                    runtime_policy,
                 )
                 curve["capture_analysis"] = analysis_path.name
                 curve["console_log"] = console_path.name
                 curves.append(curve)
+        if policy is None:
+            raise ValueError("convergence matrix is empty")
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
         print(f"DDGI convergence provenance validation failed: {error}", file=sys.stderr)
         return 1

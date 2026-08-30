@@ -23,11 +23,6 @@ dogleg_max_e0_luminance_mean=0.00002
 # Epoch one retains 50% history under the sample-age cap, so the old unblended 0.00007 gate maps
 # to a minimum blended gain of 0.000035.
 dogleg_min_e1_luminance_gain=0.000035
-convergence_max_abs_delta=0.0025
-convergence_max_rel_delta=0.02
-convergence_consecutive_epochs=2
-convergence_minimum_epoch_count=8
-convergence_max_epoch=63
 
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
@@ -40,6 +35,7 @@ filter_history_outcome_accepted=true
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
+echo "[DDGI_TRANSPORT] convergence-policy=RUNTIME_LOG source=DDGI_CONVERGENCE_POLICY"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=REQUIRED seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
 echo "[DDGI_TRANSPORT] filter-history-outcome=REQUIRED seam=dogleg-e0-e1-production-capture"
 
@@ -230,11 +226,6 @@ convergence_summary_command=(
     "$convergence_summarizer"
     --run-dir "$run_dir"
     --output "$convergence_summary"
-    --absolute-threshold "$convergence_max_abs_delta"
-    --relative-threshold "$convergence_max_rel_delta"
-    --consecutive-epochs "$convergence_consecutive_epochs"
-    --minimum-epoch-count "$convergence_minimum_epoch_count"
-    --maximum-update-epoch "$convergence_max_epoch"
 )
 if $dry_run; then
     print_command "${convergence_summary_command[@]}"

@@ -18,9 +18,21 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         *,
         absolute_threshold: float = 0.0025,
         terminal_reason: str = "Threshold",
+        maximum_update_epochs: int = 128,
+        include_policy: bool = True,
     ) -> None:
         stem = "sealed-spacing32-converged-forward"
         lines = []
+        if include_policy:
+            lines.append(
+                "[DDGI] initialization requested terrain_revision=2 spacing_voxels=32 "
+                "probes=4913 stage=RelocationPending "
+                "convergence_max_absolute_rgb_delta=0.0025 "
+                "convergence_max_relative_rgb_delta=0.02 "
+                "convergence_consecutive_epochs=2 "
+                "convergence_minimum_update_epochs=4 "
+                f"convergence_maximum_update_epochs={maximum_update_epochs}"
+            )
         samples = (
             (0, 0.0, 0.0, 0),
             (1, 0.5, 1.0, 0),
@@ -77,16 +89,6 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 str(run_dir),
                 "--output",
                 str(output),
-                "--absolute-threshold",
-                "0.0025",
-                "--relative-threshold",
-                "0.02",
-                "--consecutive-epochs",
-                "2",
-                "--minimum-epoch-count",
-                "4",
-                "--maximum-update-epoch",
-                "8",
                 "--cases",
                 "sealed",
                 "--spacings",
@@ -114,6 +116,31 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(curve["final_update_epoch"], 3)
         self.assertEqual(curve["terminal_reason"], "Threshold")
         self.assertEqual(len(curve["epochs"]), 4)
+        self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
+
+    def test_derives_the_terminal_epoch_from_the_runtime_epoch_count(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir, maximum_update_epochs=64)
+
+            result = self.run_summarizer(run_dir, output)
+            report = json.loads(output.read_text())
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report["policy"]["maximum_update_epoch"], 63)
+
+    def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir, include_policy=False)
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(output.exists())
+        self.assertIn("authoritative runtime convergence policy", result.stderr)
 
     def test_rejects_curve_whose_logged_threshold_drifted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

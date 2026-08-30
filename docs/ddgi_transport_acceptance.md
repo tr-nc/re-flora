@@ -77,7 +77,9 @@ weaken the correctness thresholds.
 
 ## Convergence policy
 
-The runner does not override `DDGI_CONVERGENCE_POLICY`:
+The runner does not override or duplicate `DDGI_CONVERGENCE_POLICY`. Each production capture logs
+the typed runtime policy used by its first build; the convergence summarizer derives the terminal
+epoch from that process-bound record and rejects missing or cross-capture policy drift:
 
 - absolute delta threshold `0.0025`;
 - relative delta threshold `0.02` with floor `0.05`;

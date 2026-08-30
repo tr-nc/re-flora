@@ -53,6 +53,7 @@ scripts/check_ddgi_transport_acceptance.sh
 
 The convergence summarizer validates:
 
+- one authoritative typed runtime-policy record per process, with no runner-owned epoch-count copy;
 - one contiguous epoch sequence for the capture's exact geometry/radiance/spacing identity;
 - full valid/stored atlas coverage for every epoch;
 - finite, nonnegative RGB values;

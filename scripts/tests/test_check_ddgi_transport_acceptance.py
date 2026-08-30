@@ -161,16 +161,15 @@ done
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
             "direct-sun-framebuffer=REQUIRED",
             "convergence_provenance=docs/ddgi_convergence_calibration.md",
+            "convergence-policy=RUNTIME_LOG source=DDGI_CONVERGENCE_POLICY",
             "summarize_ddgi_convergence.py",
-            "--consecutive-epochs 2",
-            "--minimum-epoch-count 8",
-            "--maximum-update-epoch 63",
             "check_ddgi_sky_normalization_evidence.py",
         ):
             self.assertIn(contract, output)
         self.assertNotIn("filter-history-action=PROVEN", output)
         self.assertNotIn("filter-history-outcome=ACCEPTED", output)
         self.assertNotIn("direct-sun-framebuffer=PROVEN", output)
+        self.assertNotIn("--maximum-update-epoch", output)
 
     def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,
