@@ -31,8 +31,9 @@ const ROUND_WINDOW_RADIUS: f32 = 7.0;
 const WINDOW_FRAME_MAJOR_RADIUS: f32 = 9.0;
 const WINDOW_FRAME_TUBE_RADIUS: f32 = 2.0;
 const WINDOW_FRAME_OUTWARD_OFFSET: f32 = 1.0;
+const WINDOW_PANE_THICKNESS: f32 = 2.0;
 const WINDOW_PANE_MAX_Z: f32 = HOUSE_MAX_Z;
-const WINDOW_PANE_MIN_Z: f32 = WINDOW_PANE_MAX_Z - 1.0;
+const WINDOW_PANE_MIN_Z: f32 = WINDOW_PANE_MAX_Z - WINDOW_PANE_THICKNESS;
 const HILL_CENTER_Z: f32 = 220.0;
 const HILL_RADIUS_X: f32 = 165.0;
 const HILL_RADIUS_Z: f32 = 215.0;
@@ -422,9 +423,11 @@ mod tests {
         assert_eq!(*pane_type, VOXEL_TYPE_SAND);
         assert_eq!(*atlas_state_write, Default::default());
         assert_eq!(panes.len(), (ROUND_WINDOW_RADIUS * 4.0) as usize);
-        assert!(panes
-            .iter()
-            .all(|pane| { pane.min().z == HOUSE_MAX_Z - 1.0 && pane.max().z == HOUSE_MAX_Z }));
+        assert!(panes.iter().all(|pane| {
+            pane.min().z == HOUSE_MAX_Z - WINDOW_PANE_THICKNESS
+                && pane.max().z == HOUSE_MAX_Z
+                && pane.max().z - pane.min().z == WINDOW_PANE_THICKNESS
+        }));
 
         assert!(plan.voxel_edits.iter().all(|edit| !matches!(
             edit,
