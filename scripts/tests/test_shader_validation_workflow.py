@@ -17,6 +17,8 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "config/camera_snapshots.toml",
             "config/ddgi_convergence_acceptance.toml",
             "docs/ddgi_convergence_calibration.md",
+            "docs/ddgi_indirect_transport_spec.md",
+            "docs/ddgi_transport_acceptance.md",
             "scripts/analyze_bd2_blue_voxel.py",
             "scripts/check_bd2_blue_voxel.sh",
             "scripts/check_ddgi_sky_normalization_evidence.py",
@@ -24,6 +26,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "scripts/validate_capture_process_evidence.py",
             "src/app/core/mod.rs",
             "src/app/core/environment_lighting_test_scene.rs",
+            "src/app/core/environment_irradiance_capture.rs",
             "src/app/core/loading.rs",
             "src/app/core/visible_terrain.rs",
             "src/main.rs",
@@ -49,7 +52,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         for gate in (
             "ddgi_convergence_evidence_tests::",
             "runtime_convergence_budget_matches_the_acceptance_contract",
-            "validated_publication_exposes_only_a_typed_terminal_reason",
+            "validated_publication_capsule_owns_field_validation_and_terminal_identity",
         ):
             self.assertIn(f"timeout 10m cargo test --locked {gate}", workflow)
         for gate in (
@@ -57,6 +60,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "scripts.tests.test_summarize_ddgi_convergence",
             "scripts.tests.test_check_ddgi_transport_acceptance",
             "scripts.tests.test_ddgi_capture_process_integration",
+            "scripts.tests.test_ddgi_indirect_transport_spec",
         ):
             self.assertIn(gate, workflow)
         self.assertIn("timeout-minutes: 45", workflow)

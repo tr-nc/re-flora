@@ -10,6 +10,8 @@ on:
       - "config/camera_snapshots.toml"
       - "config/ddgi_convergence_acceptance.toml"
       - "docs/ddgi_convergence_calibration.md"
+      - "docs/ddgi_indirect_transport_spec.md"
+      - "docs/ddgi_transport_acceptance.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -28,6 +30,7 @@ on:
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/app/core/environment_lighting_test_scene.rs"
+      - "src/app/core/environment_irradiance_capture.rs"
       - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
       - "src/app/core/visible_terrain.rs"
@@ -46,6 +49,8 @@ on:
       - "config/camera_snapshots.toml"
       - "config/ddgi_convergence_acceptance.toml"
       - "docs/ddgi_convergence_calibration.md"
+      - "docs/ddgi_indirect_transport_spec.md"
+      - "docs/ddgi_transport_acceptance.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -64,6 +69,7 @@ on:
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/app/core/environment_lighting_test_scene.rs"
+      - "src/app/core/environment_irradiance_capture.rs"
       - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
       - "src/app/core/visible_terrain.rs"
@@ -241,7 +247,7 @@ jobs:
         run: |
           timeout 10m cargo test --locked ddgi_convergence_evidence_tests::
           timeout 10m cargo test --locked runtime_convergence_budget_matches_the_acceptance_contract
-          timeout 10m cargo test --locked validated_publication_exposes_only_a_typed_terminal_reason
+          timeout 10m cargo test --locked validated_publication_capsule_owns_field_validation_and_terminal_identity
 
       - name: Run DDGI process and convergence policy gates
         run: >-
@@ -250,6 +256,7 @@ jobs:
           scripts.tests.test_summarize_ddgi_convergence
           scripts.tests.test_check_ddgi_transport_acceptance
           scripts.tests.test_ddgi_capture_process_integration
+          scripts.tests.test_ddgi_indirect_transport_spec
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py
