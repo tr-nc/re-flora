@@ -54,8 +54,10 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
-        let water_experience_requested = self.scenario_owner.water_experience().is_some();
-        let house_scene_requested = self.scenario_owner.is_house();
+        let loading_directive = self.scenario_owner.loading_directive();
+        let water_experience_requested =
+            loading_directive == launch_owners::LoadingDirective::WaterExperience;
+        let house_scene_requested = loading_directive == launch_owners::LoadingDirective::House;
         let phase = match self.loading_state.as_ref() {
             Some(loading) if !loading.is_done() => loading.phase,
             _ => return,
@@ -384,26 +386,29 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        if self.scenario_owner.water_experience().is_some() {
-            log::info!(
-                "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
-            );
-        } else if self.scenario_owner.is_house() {
-            log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
-        } else if !self.terrain_persistence.startup_load_requested() {
-            if let Err(err) = self.plant_startup_tuned_tree() {
-                log::error!("Failed to plant startup tuning tree: {}", err);
+        match self.scenario_owner.loading_directive() {
+            launch_owners::LoadingDirective::WaterExperience => {
+                log::info!(
+                    "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
+                );
             }
-        } else {
-            log::info!(
-                "[TERRAIN_PERSISTENCE] startup snapshot loaded; procedural tuning-tree stamp suppressed"
-            );
+            launch_owners::LoadingDirective::House => {
+                log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
+            }
+            launch_owners::LoadingDirective::Garden => {
+                if !self.terrain_persistence.startup_load_requested() {
+                    if let Err(err) = self.plant_startup_tuned_tree() {
+                        log::error!("Failed to plant startup tuning tree: {}", err);
+                    }
+                } else {
+                    log::info!(
+                        "[TERRAIN_PERSISTENCE] startup snapshot loaded; procedural tuning-tree stamp suppressed"
+                    );
+                }
+            }
         }
 
-        if self
-            .denoiser_bench()
-            .is_some_and(DenoiserBench::is_foliage_shadow)
-        {
+        if self.denoiser_event().is_foliage_shadow() {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {
                     panic!("[FOLIAGE_SHADOW_BENCH] receiver setup failed: {err:#}")

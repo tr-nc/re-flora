@@ -562,12 +562,12 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn observe_initial_terrain_for_ddgi(&mut self) -> Result<u32> {
-        if self.scenario_owner.environment_lighting().is_none()
-            && self.scenario_owner.hybrid_transparency().is_none()
-        {
-            self.observe_initial_published_terrain_for_ddgi()
-        } else {
-            Ok(self.visible_terrain_revision)
+        match self.scenario_owner.test_scene_event() {
+            launch_owners::TestSceneEvent::None => {
+                self.observe_initial_published_terrain_for_ddgi()
+            }
+            launch_owners::TestSceneEvent::Environment(_)
+            | launch_owners::TestSceneEvent::Hybrid(_) => Ok(self.visible_terrain_revision),
         }
     }
 }

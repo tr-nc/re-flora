@@ -52,6 +52,14 @@ impl WaterExperienceScene {
     fn is_waiting(&self) -> bool {
         self.phase == WaterExperiencePhase::WaitingForCompleteFrame
     }
+
+    pub(super) fn waiting_particle_count(&self) -> Option<usize> {
+        self.is_waiting().then_some(self.expected_particle_count)
+    }
+
+    pub(super) fn mark_ready(&mut self) {
+        self.phase = WaterExperiencePhase::Ready;
+    }
 }
 
 fn complete_frame_is_ready(
@@ -123,11 +131,8 @@ impl App {
     }
 
     pub(super) fn process_water_experience_scene(&mut self) {
-        let Some(expected_particle_count) = self
-            .scenario_owner
-            .water_experience()
-            .filter(|scene| scene.is_waiting())
-            .map(|scene| scene.expected_particle_count)
+        let Some(expected_particle_count) =
+            self.scenario_owner.water_event().waiting_particle_count()
         else {
             return;
         };
@@ -148,9 +153,8 @@ impl App {
         let revision = frame.revision();
         let sim_time_seconds = frame.sim_time_seconds();
         self.scenario_owner
-            .water_experience_mut()
-            .expect("water experience disappeared while becoming ready")
-            .phase = WaterExperiencePhase::Ready;
+            .water_event_mut()
+            .mark_experience_ready();
         log::info!(
             "[WATER_EXPERIENCE] ready complete_frame_revision={} sim_time_seconds={:.6} particles={} terrain_cache=ready",
             revision,

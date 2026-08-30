@@ -141,8 +141,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
         let ids = std::mem::take(
             &mut app
                 .scenario_owner
-                .environment_lighting_mut()
-                .unwrap()
+                .test_scene_event_mut()
+                .environment()
                 .local_light_scaling_ids,
         );
         for id in ids {
@@ -153,8 +153,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
     } else {
         let first_new = app
             .scenario_owner
-            .environment_lighting()
-            .unwrap()
+            .test_scene_event()
+            .environment()
             .local_light_scaling_ids
             .len();
         assert!(first_new <= requested_count);
@@ -162,8 +162,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
         app.scenario_owner
-            .environment_lighting_mut()
-            .unwrap()
+            .test_scene_event_mut()
+            .environment()
             .local_light_scaling_ids
             .extend(new_ids);
     }
@@ -256,8 +256,8 @@ impl App {
                     return None;
                 }
                 self.scenario_owner
-                    .environment_lighting_mut()
-                    .unwrap()
+                    .test_scene_event_mut()
+                    .environment()
                     .local_light_scaling_samples
                     .clear();
                 state.warmup_frames = 0;
@@ -281,8 +281,8 @@ impl App {
                 let sample = sample_from_app(self)?;
                 let samples = &mut self
                     .scenario_owner
-                    .environment_lighting_mut()
-                    .unwrap()
+                    .test_scene_event_mut()
+                    .environment()
                     .local_light_scaling_samples;
                 samples.push(sample);
                 if samples.len() < LOCAL_LIGHT_SCALING_SAMPLE_FRAMES {
@@ -341,8 +341,8 @@ impl App {
                     let ids = std::mem::take(
                         &mut self
                             .scenario_owner
-                            .environment_lighting_mut()
-                            .unwrap()
+                            .test_scene_event_mut()
+                            .environment()
                             .local_light_scaling_ids,
                     );
                     for id in ids {

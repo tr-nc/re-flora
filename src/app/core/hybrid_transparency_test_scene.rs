@@ -148,12 +148,10 @@ impl App {
     }
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
-        let Some(phase) = self
-            .scenario_owner
-            .hybrid_transparency()
-            .map(|scene| scene.phase)
-        else {
-            return;
+        let phase = match self.scenario_owner.test_scene_event() {
+            super::launch_owners::TestSceneEvent::Hybrid(scene) => scene.phase,
+            super::launch_owners::TestSceneEvent::None
+            | super::launch_owners::TestSceneEvent::Environment(_) => return,
         };
 
         let next_phase = match phase {
@@ -224,9 +222,12 @@ impl App {
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
 
-        self.scenario_owner
-            .hybrid_transparency_mut()
-            .expect("test scene state disappeared")
-            .phase = next_phase;
+        match self.scenario_owner.test_scene_event_mut() {
+            super::launch_owners::TestSceneEventMut::Hybrid(scene) => scene.phase = next_phase,
+            super::launch_owners::TestSceneEventMut::None
+            | super::launch_owners::TestSceneEventMut::Environment(_) => {
+                panic!("hybrid test scene state disappeared")
+            }
+        }
     }
 }

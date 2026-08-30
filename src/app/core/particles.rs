@@ -1,4 +1,3 @@
-use super::terrain_connectivity::bench::TerrainConnectivityBench;
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
@@ -492,8 +491,8 @@ impl App {
         let setup_start = Instant::now();
         let diagnostic_capacity_isolation = self
             .scenario_owner
-            .terrain_connectivity()
-            .is_some_and(TerrainConnectivityBench::active);
+            .connectivity_event()
+            .isolates_particle_capacity();
         if !diagnostic_capacity_isolation {
             self.butterfly_emitter_desc =
                 Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
