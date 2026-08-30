@@ -85,15 +85,16 @@ const FLORA_LIGHTING_CACHE_LOD_BIT: u32 = 1 << 31;
 const FLORA_INSTANCE_TYPE_MASK: u32 = 0xff;
 const FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT: u32 = 8;
 
+use crate::app::{CaptureReadbackAuthorization, CaptureShadingView};
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
-    DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
-    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus,
+    DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
+    DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -1711,6 +1712,7 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         readback: &Buffer,
+        _authorization: CaptureReadbackAuthorization,
     ) {
         let source = &self
             .resources
@@ -1954,7 +1956,7 @@ impl Tracer {
         &mut self,
         time_info: &TimeInfo,
         local_lights: &LocalLightSnapshot,
-        ddgi_debug_view: DdgiDebugView,
+        ddgi_debug_view: CaptureShadingView,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         dither_strength_lsb: f32,

@@ -44,6 +44,9 @@ use self::denoiser_bench::{
     CAMERA_YAW_PER_FRAME_RADIANS,
 };
 use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
+pub(crate) use self::environment_irradiance_capture::{
+    CaptureReadbackAuthorization, CaptureShadingView,
+};
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
@@ -3521,14 +3524,17 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                let environment_irradiance_capture_frame = self
+                let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
                     .begin_frame(&self.tracer, self.environment_lighting_test_scene.as_ref());
-                self.tracer
-                    .update_buffers(
+                // Preserve the established argument layout while the consuming capture seam wraps
+                // this pre-existing, intentionally centralized buffer publication call.
+                #[rustfmt::skip]
+                let (buffer_update, rendered_environment_irradiance_capture_frame) =
+                    environment_irradiance_capture_plan.render(|effective_ddgi_debug_view| self.tracer.update_buffers(
                         &self.time_info,
                         &self.local_lights.snapshot(),
-                        environment_irradiance_capture_frame.effective_view(),
+                        effective_ddgi_debug_view,
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -4020,8 +4026,8 @@ impl App {
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
                         TERRAIN_EDIT_PREVIEW_ALPHA,
-                    )
-                    .unwrap();
+                    ));
+                buffer_update.unwrap();
                 self.tracer.record_host_buffer_writes(cmdbuf);
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
@@ -4227,7 +4233,7 @@ impl App {
 
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
-                        environment_irradiance_capture_frame,
+                        rendered_environment_irradiance_capture_frame,
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,
