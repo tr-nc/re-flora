@@ -3734,6 +3734,11 @@ impl App {
                                 .adjustables
                                 .glass_refraction_strength
                                 .value,
+                            refraction_enabled: self
+                                .debug_settings
+                                .adjustables
+                                .glass_refraction_enabled
+                                .value,
                             unrefracted_raster_fallback: self
                                 .debug_settings
                                 .adjustables

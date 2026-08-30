@@ -412,9 +412,12 @@ mod glass_voxel_cache_contract_tests {
         let shader = include_str!("../../shader/slang/glass_resolve.slang");
 
         for required in [
+            "enable_refraction",
             "enable_unrefracted_raster_fallback",
             "GLASS_SCREEN_QUERY_REFRACTION",
+            "GLASS_SCREEN_QUERY_UNREFRACTED",
             "GLASS_SCREEN_QUERY_REFLECTION",
+            "glassRefractionEnabled",
             "glassUnrefractedRasterFallbackEnabled",
         ] {
             assert!(
@@ -425,6 +428,20 @@ mod glass_voxel_cache_contract_tests {
         assert!(
             shader.contains("reflected.screen_query_mode = GLASS_SCREEN_QUERY_REFLECTION;"),
             "Fresnel reflection must always retain raster visibility",
+        );
+        assert!(
+            shader.contains("transmittedDirection = path.direction;"),
+            "disabled refraction must keep transmission straight",
+        );
+        assert!(
+            shader.contains("GLASS_SCREEN_QUERY_UNREFRACTED")
+                && shader.contains("sampleGlassUnrefractedRaster"),
+            "straight transmission must use same-screen raster visibility as a first-class mode",
+        );
+        assert!(
+            shader.contains("spawnGlassThinSheetFront")
+                && shader.contains("2.0 * fresnel / (1.0 + fresnel)"),
+            "disabled refraction must collapse the front pane into an energy-conserving thin sheet",
         );
         assert!(
             !shader.contains("enable_raster_reflections"),
@@ -489,6 +506,7 @@ pub struct GlassGuiParams {
     pub ssr_min_hit_thickness_voxels: f32,
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,
+    pub refraction_enabled: bool,
     pub unrefracted_raster_fallback: bool,
     pub stored_voxel_normal: bool,
     pub alpha: f32,
@@ -1089,6 +1107,7 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
+    glass_refraction_enabled: bool,
     glass_unrefracted_raster_fallback: bool,
     glass_stored_voxel_normal: bool,
     environment_lighting: EnvironmentLightingCache,
@@ -1454,6 +1473,7 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
+            glass_refraction_enabled: true,
             glass_unrefracted_raster_fallback: false,
             glass_stored_voxel_normal: true,
             environment_lighting: EnvironmentLightingCache::default(),
@@ -3377,6 +3397,7 @@ impl Tracer {
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
+        self.glass_refraction_enabled = glass_gui_params.refraction_enabled;
         self.glass_unrefracted_raster_fallback = glass_gui_params.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = glass_gui_params.stored_voxel_normal;
 
@@ -6746,6 +6767,7 @@ impl Tracer {
         ] {
             let push = PushConstantGlassResolve {
                 pass,
+                enable_refraction: u32::from(self.glass_refraction_enabled),
                 enable_unrefracted_raster_fallback: u32::from(
                     self.glass_unrefracted_raster_fallback,
                 ),

@@ -1254,6 +1254,27 @@ mod tests {
     }
 
     #[test]
+    fn glass_refraction_defaults_on_and_owns_the_fallback_control() {
+        let settings = DebugSettings::from_config(GuiConfigLoader::load());
+
+        assert!(settings.adjustables.glass_refraction_enabled.value);
+        let fallback = settings
+            .config
+            .section
+            .iter()
+            .flat_map(|section| section.param.iter())
+            .find(|param| param.id == "glass_unrefracted_raster_fallback")
+            .expect("Glass unrefracted fallback GUI parameter");
+        assert_eq!(
+            fallback.enabled_if,
+            Some(GuiParamEnabledIf {
+                param: "glass_refraction_enabled".to_owned(),
+                equals: GuiParamConditionValue::Bool(true),
+            })
+        );
+    }
+
+    #[test]
     fn glass_stored_voxel_normal_defaults_on() {
         let settings = DebugSettings::from_config(GuiConfigLoader::load());
 

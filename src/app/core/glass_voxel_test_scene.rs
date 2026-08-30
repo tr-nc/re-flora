@@ -200,8 +200,16 @@ impl App {
             .upload_debug_geometry_preview(&sentinel_mesh(), Vec3::ZERO, Vec4::ONE)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
-            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 target_coverage_percent={} camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
+            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 target_coverage_percent={} refraction_enabled={} unrefracted_raster_fallback={} camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
             coverage.percent(),
+            self.debug_settings
+                .adjustables
+                .glass_refraction_enabled
+                .value,
+            self.debug_settings
+                .adjustables
+                .glass_unrefracted_raster_fallback
+                .value,
             CAMERA_POSITION.x,
             CAMERA_POSITION.y,
             CAMERA_POSITION.z,

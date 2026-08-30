@@ -979,10 +979,23 @@ min = 0
 max = 3
 
 [[section.param]]
+id = "glass_refraction_enabled"
+kind = "bool"
+label = "Refraction"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "glass_unrefracted_raster_fallback"
 kind = "bool"
 label = "Unrefracted Raster Fallback"
 type = "Bool"
+
+[section.param.enabled_if]
+param = "glass_refraction_enabled"
+equals = true
 
 [section.param.data]
 value = false
