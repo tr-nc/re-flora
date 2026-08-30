@@ -191,6 +191,35 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     failures,
                 )
 
+    def test_double_quoted_fi_cannot_pop_a_real_dry_run_frame(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        anchor = '        if ! analyze_current_capture "${final_analysis[@]}"; then'
+        for quoted_command in (
+            "            printf '%s\\n' \"\nfi\n\"",
+            "            ignored=\"$(printf '%s\\n' \"\nfi\n\")\"",
+            "            ignored=\"$(if true; then printf '%s' \"fi\"; fi)\"",
+        ):
+            with self.subTest(quoted_command=quoted_command):
+                mutated = source.replace(
+                    anchor,
+                    "        if $dry_run; then\n"
+                    f"{quoted_command}\n"
+                    '            analyze_current_capture "${final_analysis[@]}"\n'
+                    "        elif false; then",
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any(
+                        "controlled by dry_run" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -488,6 +517,69 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     failures,
                 )
 
+    def test_arithmetic_and_loop_writes_cannot_mutate_runner_authority(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for mutation in (
+            "(( dry_run = 0 ))",
+            "(( dry_run += 1 ))",
+            "(( repo_root = 0 ))",
+            ': "$((dry_run = 0))"',
+            "for dry_run in false; do :; done",
+            "for repo_root in /tmp/reviewer; do :; done",
+        ):
+            with self.subTest(mutation=mutation):
+                mutated = source.replace(
+                    "    dry_run=true",
+                    "    dry_run=true\n    " + mutation,
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any(
+                        "immutable runner authority" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
+    def test_double_bracket_comparisons_are_not_authority_assignments(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for comparison in (
+            "[[ dry_run=false ]]",
+            "[[ dry_run==false ]]",
+            "[[ repo_root=/tmp/reviewer ]]",
+        ):
+            with self.subTest(comparison=comparison):
+                self.assertEqual(
+                    production_runner_invocation_failures(
+                        runner_name, source + "\n" + comparison + "\n"
+                    ),
+                    [],
+                )
+
+    def test_nested_parameter_assignment_is_recursively_inventoried(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace(
+            "    dry_run=true",
+            '    dry_run=true\n    : "${dry_runner:-${dry_run:=false}}"',
+            1,
+        )
+        failures = production_runner_invocation_failures(runner_name, mutated)
+        self.assertTrue(
+            any("immutable runner authority" in failure for failure in failures),
+            failures,
+        )
+
+        nonassigning = source + '\n: "${dry_runner:-${dry_run:-false}}"\n'
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, nonassigning), []
+        )
+
     def test_comparisons_and_nonassigning_expansions_do_not_mutate_authority(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -550,6 +642,7 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             "command source /tmp/reviewer.sh",
             "bash -c 'dry_run=false'",
             "/usr/bin/env bash -c 'dry_run=false'",
+            'ignored="$(eval \'dry_run=false\')"',
         ):
             with self.subTest(mutation=mutation):
                 mutated = source.replace(

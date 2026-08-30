@@ -398,22 +398,80 @@ def _immutable_authority_failures(
 
 def _authority_operations(active: str) -> tuple[str, ...]:
     operations: list[str] = []
+    shell_assignments = _without_double_bracket_tests(active)
     assignment = re.compile(
         r"(?<![$A-Za-z0-9_])(?P<base>dry_run|repo_root)"
         r"(?:\[[^]\n]*\])?(?:\+=|=)"
     )
-    operations.extend(match.group("base") for match in assignment.finditer(active))
+    operations.extend(
+        match.group("base") for match in assignment.finditer(shell_assignments)
+    )
     command_mutation = re.compile(
         r"\b(?:readonly|unset)(?:\s+-[A-Za-z]+)*\s+"
         r"(?P<base>dry_run|repo_root)\b"
     )
     operations.extend(
-        match.group("base") for match in command_mutation.finditer(active)
+        match.group("base")
+        for match in command_mutation.finditer(shell_assignments)
     )
     for start, end, base in _active_parameter_expansions(active):
         if _parameter_expansion_assigns(active[start:end], base):
             operations.append(base)
+    for expression in _arithmetic_expressions(active, expansion=True):
+        operations.extend(_arithmetic_authority_writes(expression))
+    for expression in _arithmetic_expressions(
+        shell_assignments, expansion=False
+    ):
+        operations.extend(_arithmetic_authority_writes(expression))
     return tuple(operations)
+
+
+def _without_double_bracket_tests(active: str) -> str:
+    masked = list(active)
+    start = 0
+    while True:
+        opening = active.find("[[", start)
+        if opening < 0:
+            break
+        closing = active.find("]]", opening + 2)
+        if closing < 0:
+            closing = len(active) - 2
+        for index in range(opening, min(len(masked), closing + 2)):
+            masked[index] = " "
+        start = closing + 2
+    return "".join(masked)
+
+
+def _arithmetic_expressions(text: str, *, expansion: bool) -> tuple[str, ...]:
+    opener = "$((" if expansion else "(("
+    expressions: list[str] = []
+    start = 0
+    while True:
+        opening = text.find(opener, start)
+        if opening < 0:
+            break
+        if not expansion and opening > 0 and text[opening - 1] == "$":
+            start = opening + len(opener)
+            continue
+        closing = text.find("))", opening + len(opener))
+        if closing < 0:
+            break
+        expressions.append(text[opening + len(opener) : closing])
+        start = closing + 2
+    return tuple(expressions)
+
+
+def _arithmetic_authority_writes(expression: str) -> tuple[str, ...]:
+    mutation = re.compile(
+        r"(?:^|[^$A-Za-z0-9_])(?P<postfix>dry_run|repo_root)"
+        r"(?:\[[^]]*\])?\s*"
+        r"(?:\+\+|--|(?:<<|>>|[+\-*/%&^|])?=(?!=))"
+        r"|(?:\+\+|--)\s*(?P<prefix>dry_run|repo_root)\b"
+    )
+    return tuple(
+        match.group("postfix") or match.group("prefix")
+        for match in mutation.finditer(expression)
+    )
 
 
 def _parameter_expansion_assigns(expansion: str, base: str) -> bool:
@@ -442,7 +500,12 @@ def _forbidden_dynamic_authority(
     ):
         if not active.strip() and not code.lstrip().startswith(("'", '"')):
             continue
-        for command in _shell_commands(code):
+        command_sources = (code, *_command_substitution_bodies(code))
+        for command in (
+            command
+            for source in command_sources
+            for command in _shell_commands(source)
+        ):
             executable, arguments = _resolved_shell_command(command)
             if executable in {"eval", "source", "."}:
                 failures.append((line_number, executable))
@@ -458,6 +521,10 @@ def _forbidden_dynamic_authority(
                 failures.append((line_number, "getopts"))
             elif executable == "let" and _let_writes_authority(arguments):
                 failures.append((line_number, "let"))
+            elif executable in {"for", "select"} and (
+                not arguments or _authority_or_dynamic_target(arguments[0])
+            ):
+                failures.append((line_number, executable))
             elif executable in {"declare", "typeset", "local"} and _has_nameref_option(
                 arguments
             ):
@@ -468,6 +535,67 @@ def _forbidden_dynamic_authority(
             ):
                 failures.append((line_number, "shell-c"))
     return tuple(failures)
+
+
+def _command_substitution_bodies(code: str) -> tuple[str, ...]:
+    bodies: list[str] = []
+    quote: str | None = None
+    index = 0
+    while index < len(code):
+        character = code[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote == "'":
+            if character == "'":
+                quote = None
+            index += 1
+            continue
+        if character == '"':
+            quote = None if quote == '"' else '"'
+            index += 1
+            continue
+        if quote is None and character == "'":
+            quote = "'"
+            index += 1
+            continue
+        if code.startswith("$(", index) and not code.startswith("$((", index):
+            end = _command_substitution_end(code, index + 1)
+            if end is None:
+                break
+            body = code[index + 2 : end - 1]
+            bodies.append(body)
+            bodies.extend(_command_substitution_bodies(body))
+            index = end
+            continue
+        index += 1
+    return tuple(bodies)
+
+
+def _command_substitution_end(code: str, opening_parenthesis: int) -> int | None:
+    depth = 1
+    quote: str | None = None
+    index = opening_parenthesis + 1
+    while index < len(code):
+        character = code[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return None
 
 
 def _logical_shell_lines(
@@ -625,13 +753,10 @@ def _getopts_writes_authority(arguments: tuple[str, ...]) -> bool:
 
 
 def _let_writes_authority(arguments: tuple[str, ...]) -> bool:
-    mutation = re.compile(
-        r"(?:^|[^$A-Za-z0-9_])(dry_run|repo_root)\s*"
-        r"(?:\+\+|--|(?:<<|>>|[+\-*/%&^|])?=(?!=))"
-        r"|(?:\+\+|--)\s*(dry_run|repo_root)\b"
-    )
     return any(
-        "$" in argument or "`" in argument or mutation.search(argument) is not None
+        "$" in argument
+        or "`" in argument
+        or bool(_arithmetic_authority_writes(argument))
         for argument in arguments
     )
 
@@ -656,6 +781,12 @@ def _references_parameter(line: str, expected_base: str) -> bool:
 
 def _active_parameter_expansions(
     line: str,
+) -> tuple[tuple[int, int, str], ...]:
+    return _parameter_expansions_in_fragment(line, 0)
+
+
+def _parameter_expansions_in_fragment(
+    line: str, offset: int
 ) -> tuple[tuple[int, int, str], ...]:
     expansions: list[tuple[int, int, str]] = []
     quote: str | None = None
@@ -689,7 +820,15 @@ def _active_parameter_expansions(
             continue
         end, base = parsed
         if base is not None:
-            expansions.append((index, end, base))
+            expansions.append((offset + index, offset + end, base))
+        if line[index + 1 : index + 2] == "{":
+            nested_start = index + 2
+            nested_end = end - 1
+            expansions.extend(
+                _parameter_expansions_in_fragment(
+                    line[nested_start:nested_end], offset + nested_start
+                )
+            )
         index = end
     return tuple(expansions)
 
@@ -1028,10 +1167,8 @@ def _shell_lex_lines(
                 continue
             if quote == '"':
                 code[index] = character
-                structural[index] = character
                 if character == "\\" and index + 1 < len(line):
                     code[index + 1] = line[index + 1]
-                    structural[index + 1] = line[index + 1]
                     index += 2
                     continue
                 if character == '"':
@@ -1040,7 +1177,6 @@ def _shell_lex_lines(
                     continue
                 if line.startswith("$(", index):
                     code[index : index + 2] = line[index : index + 2]
-                    structural[index : index + 2] = line[index : index + 2]
                     active[index : index + 2] = line[index : index + 2]
                     command_substitutions.append(
                         {"resume_quote": '"', "depth": 1}
@@ -1054,7 +1190,8 @@ def _shell_lex_lines(
                         end, _ = parsed
                         active[index:end] = line[index:end]
                         code[index:end] = line[index:end]
-                        structural[index:end] = line[index:end]
+                        if not command_substitutions:
+                            structural[index:end] = line[index:end]
                         index = end
                         continue
                 index += 1
@@ -1063,11 +1200,12 @@ def _shell_lex_lines(
                 break
             code[index] = character
             active[index] = character
-            structural[index] = character
+            if not command_substitutions:
+                structural[index] = character
             if line.startswith("$(", index):
                 code[index : index + 2] = line[index : index + 2]
                 active[index : index + 2] = line[index : index + 2]
-                structural[index : index + 2] = line[index : index + 2]
+                structural[index : index + 2] = "  "
                 command_substitutions.append(
                     {"resume_quote": None, "depth": 1}
                 )
@@ -1086,7 +1224,8 @@ def _shell_lex_lines(
                     quote = resume_quote if isinstance(resume_quote, str) else None
             if character == "\\" and index + 1 < len(line):
                 code[index + 1] = line[index + 1]
-                structural[index + 1] = line[index + 1]
+                if not command_substitutions:
+                    structural[index + 1] = line[index + 1]
                 active[index] = " "
                 active[index + 1] = " "
                 index += 2

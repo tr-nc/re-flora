@@ -58,12 +58,12 @@ command counts and representative branch arguments. Transport additionally seals
 pipeline, with an executable function-shadow test for the production sink. A whole-tree manifest
 proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
 makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
-controlled stateful lexical pass tracks comments and quotes across lines, including nested command
-syntax in a double-quoted command substitution, so apostrophes in comments or ordinary strings do
-not change structural masking. It discards inactive quoted/escaped literals, retains actual
-parameter expansions, and parses each braced expansion's exact base identifier (including length,
-indirection, operator, and array forms). It inventories actual simple, compound, and parameter
-assignment, unset, readonly, and expansion facts. Its logical command/argv policy explicitly
+controlled stateful lexical pass tracks comments and quotes across lines. Its control stream masks
+ordinary double-quoted text and command-substitution child-shell bodies, so neither can inject an
+outer `fi`; separate code/active streams retain child commands and real expansions for authority
+auditing. Braced expansions are recursively inventoried by exact base identifier, including nested
+fallbacks. It inventories actual simple, compound, arithmetic, parameter, and loop-variable
+assignment, unset, readonly, and expansion facts while excluding `[[...]]` comparisons. Its logical command/argv policy explicitly
 rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
 `read`, `readarray`/`mapfile`, `getopts`, or `let`, and every declaration nameref. Literal writes to
 other variables, comparisons, comments, and quoted prose remain allowed. This is a fail-closed
