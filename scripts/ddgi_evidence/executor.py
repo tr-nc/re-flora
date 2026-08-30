@@ -170,7 +170,9 @@ class SubprocessHost(RecordingHost):
                 action.console,
                 require_test_scene_startup=action.require_test_scene_startup,
             )
-            destination = action.console.with_suffix(".run.log")
+            destination = Path(
+                str(action.console).removesuffix(".console.log") + ".run.log"
+            )
             if destination != run_log:
                 shutil.copy2(run_log, destination)
         except (OSError, ValueError) as error:
@@ -228,19 +230,27 @@ class SubprocessHost(RecordingHost):
         try:
             if output is None:
                 result = subprocess.run(argv, cwd=cwd, check=False, shell=False)
+                return_code = result.returncode
             else:
                 with output.open("w", encoding="utf-8") as sink:
-                    result = subprocess.run(
+                    process = subprocess.Popen(
                         argv,
                         cwd=cwd,
-                        check=False,
-                        stdout=sink,
+                        stdout=subprocess.PIPE,
+                        text=True,
                         shell=False,
                     )
+                    assert process.stdout is not None
+                    for line in process.stdout:
+                        sink.write(line)
+                        sink.flush()
+                        self.stdout.write(line)
+                        self.stdout.flush()
+                    return_code = process.wait()
         except OSError as error:
             return ActionResult(False, str(error))
-        if result.returncode != 0:
-            return ActionResult(False, f"command exited {result.returncode}: {shlex.join(argv)}")
+        if return_code != 0:
+            return ActionResult(False, f"command exited {return_code}: {shlex.join(argv)}")
         return ActionResult(True)
 
 
@@ -308,27 +318,46 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
                 claims.append(stage.message)
                 host.emit(stage.message)
             continue
+        if isinstance(stage, Aggregate) and not all(
+            stage_status.get(required, False) for required in stage.requires
+        ):
+            stage_status[stage.id] = False
+            continue
         key = (
             FailureKey(execution_plan.request.suite, "setup")
             if isinstance(stage, Setup)
             else stage.failure_key
         )
         succeeded = True
+        blocked_segment = False
+        first_failure = ""
         for action in stage.actions:
+            if isinstance(action, Capture):
+                blocked_segment = False
+            elif blocked_segment or (
+                not succeeded and isinstance(action, AnalyzeCurrentCapture)
+            ):
+                continue
             try:
                 result = _perform(host, action, execution_plan.request.repo_root, facts)
             except KeyError as error:
                 result = ActionResult(False, f"missing dynamic fact {error.args[0]!r}")
             if not result.succeeded:
-                failures.append(ActionFailure(key, result.message))
                 succeeded = False
-                break
+                blocked_segment = True
+                if not first_failure:
+                    first_failure = result.message
+                continue
             namespace = stage.id
             if isinstance(action, ValidateScenarioLog) and action.fact_namespace:
                 namespace = action.fact_namespace
             for name, value in result.facts.items():
                 facts[(namespace, name)] = value
         stage_status[stage.id] = succeeded
+        if not succeeded:
+            failures.append(ActionFailure(key, first_failure))
+            if isinstance(stage, Setup):
+                break
     return RunReport(
         execution_plan.request.suite,
         execution_plan.run_dir,

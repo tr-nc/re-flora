@@ -210,6 +210,7 @@ def _correctness(request: RunRequest) -> ExecutionPlan:
                     f"correctness.{case_name}.{spacing}.analysis",
                     tuple(analyses),
                     key,
+                    (f"correctness.{case_name}.{spacing}.captures",),
                 )
             )
     return ExecutionPlan(request, run_dir, tuple(stages))
@@ -724,7 +725,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             Suite.CORRECTNESS,
             request.repo_root,
             request.dry_run,
-            CorrectnessOptions(),
+            options.correctness,
             child_run_id,
         )
     )
@@ -733,7 +734,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             Suite.RUNTIME_TERRAIN_EDITS,
             request.repo_root,
             request.dry_run,
-            RuntimeTerrainEditsOptions(),
+            options.runtime,
             child_run_id,
         )
     )
@@ -742,7 +743,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             Suite.LIFECYCLE,
             request.repo_root,
             request.dry_run,
-            LifecycleOptions(),
+            options.lifecycle,
             child_run_id,
         )
     )
@@ -756,6 +757,16 @@ def _transport(request: RunRequest) -> ExecutionPlan:
                 FailureKey(Suite.TRANSPORT, "sky-normalization"),
             ),
             IncludeSuite("transport.include.lifecycle", lifecycle),
+            Claim(
+                "transport.filter-history-outcome",
+                "[DDGI_TRANSPORT] filter-history-outcome=ACCEPTED seam=dogleg-e0-e1-production-capture",
+                (
+                    "transport.dogleg.32.e0.forward",
+                    "transport.dogleg.32.e1.forward",
+                    "transport.dogleg.16.e0.forward",
+                    "transport.dogleg.16.e1.forward",
+                ),
+            ),
             Claim(
                 "transport.direct-sun",
                 "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh",

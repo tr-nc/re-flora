@@ -60,6 +60,11 @@ class TerrainEditCycleOptions:
 class TransportOptions:
     auto_exit: str = "120"
     output_dir: Path | None = None
+    correctness: CorrectnessOptions = field(default_factory=CorrectnessOptions)
+    runtime: RuntimeTerrainEditsOptions = field(
+        default_factory=RuntimeTerrainEditsOptions
+    )
+    lifecycle: LifecycleOptions = field(default_factory=LifecycleOptions)
 
 
 SuiteOptions: TypeAlias = (
@@ -301,6 +306,7 @@ class Aggregate:
     id: str
     actions: tuple[Action, ...]
     failure_key: FailureKey
+    requires: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
