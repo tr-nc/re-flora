@@ -5,6 +5,22 @@ It owns the deterministic foliage-shadow fixture, camera, animation time, frame 
 dither, path-reference bounce/ambient controls, and exit. It does not mutate GUI configuration or
 defaults.
 
+## Frame ownership
+
+The acceptance module owns the opaque resolved timing and lighting frame inputs. Three seams were
+considered: a neutral frame-input module would expose a shallow seven-value container or import an
+acceptance-only factory; Tracer ownership would reverse the dependency by making the renderer own
+fixture timing and phase policy; acceptance ownership keeps the fixed bundle, resolution order,
+identity, and private construction in one module. Callers can consume the resolved views but cannot
+construct or destructure them. `RasterLightingMode` remains typed through Tracer and is lowered only
+when `BufferUpdater` writes the production GPU uniform.
+
+Rust privacy is the primary seal. `scripts/check_lighting_mode_acceptance_source_contract.py`
+tokenizes every `src/**/*.rs` file to guard the unique plan-resolution route and typed consumer
+capabilities. The shader-validation workflow routes all `src/**` changes, this checker, its tests,
+and this document through the same CPU contract gate; adding a new Rust module therefore cannot
+bypass the audit through an omitted path filter.
+
 One release-hidden process waits for a converged DDGI field, latches the camera, visible-terrain
 revision, DDGI field, lighting revisions, and extents, then records these stages after a settling
 frame:
