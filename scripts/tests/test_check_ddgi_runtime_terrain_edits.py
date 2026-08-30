@@ -28,10 +28,10 @@ class CheckDdgiRuntimeTerrainEditsTests(unittest.TestCase):
                 line
                 for line in output.splitlines()
                 if evidence_capture in line
-                and "analyze_environment_irradiance_capture.py" in line
+                and "analyze_current_environment_irradiance_capture.py" in line
             ]
             self.assertEqual(len(evidence_lines), 1, evidence_lines)
-            self.assertIn("--expect-version current", evidence_lines[0])
+            self.assertNotIn("--expect-version", evidence_lines[0])
             self.assertIn(
                 "--require-filter-history-retain-blend", evidence_lines[0]
             )

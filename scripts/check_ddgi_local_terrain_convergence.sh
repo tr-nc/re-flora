@@ -114,7 +114,7 @@ if [[ -n "$final_revision" ]]; then
     fi
 fi
 
-if [[ -f "$capture" ]] && ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+if [[ -f "$capture" ]] && ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
     "$capture" --max-luminance 0.00005 >/dev/null; then
     fail "closed scene retained stale light"
 fi

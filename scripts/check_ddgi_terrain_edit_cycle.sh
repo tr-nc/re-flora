@@ -95,12 +95,12 @@ run_case() {
         return 1
     fi
     if [[ "$mode" == "closed" ]]; then
-        if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+        if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
             "$capture" --max-luminance 0.00005; then
             echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing post-close capture leaks light" >&2
             return 1
         fi
-    elif ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+    elif ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing reopened portal capture is not lit" >&2
         return 1

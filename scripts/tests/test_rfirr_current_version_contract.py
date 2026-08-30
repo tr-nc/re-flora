@@ -1,100 +1,131 @@
 from __future__ import annotations
 
-import re
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+FIXTURES = Path(__file__).with_name("fixtures")
+CURRENT_ANALYZER = SCRIPTS / "analyze_current_environment_irradiance_capture.py"
+COMPATIBILITY_ANALYZER = SCRIPTS / "analyze_environment_irradiance_capture.py"
 PRODUCTION_RUNNERS = tuple(sorted(SCRIPTS.glob("check_ddgi*.sh")))
 
 
-def invalid_expected_versions(source: str) -> list[str]:
-    logical_source = source.replace("\\\r\n", " ").replace("\\\n", " ")
-    uncommented: list[str] = []
-    quote: str | None = None
-    escaped = False
-    index = 0
-    while index < len(logical_source):
-        character = logical_source[index]
-        if escaped:
-            uncommented.append(character)
-            escaped = False
-        elif character == "\\" and quote != "'":
-            uncommented.append(character)
-            escaped = True
-        elif quote is not None:
-            uncommented.append(character)
-            if character == quote:
-                quote = None
-        elif character in {"'", '"'}:
-            uncommented.append(character)
-            quote = character
-        elif character == "#":
-            while index < len(logical_source) and logical_source[index] != "\n":
-                index += 1
-            uncommented.append("\n")
-        else:
-            uncommented.append(character)
-        index += 1
-
-    invalid: list[str] = []
-    expectation = re.compile(
-        r"--expect-version(?:=([^\s;&|]*)|[ \t]+([^\s;&|]+))?"
-    )
-    for match in expectation.finditer("".join(uncommented)):
-        value = match.group(1) if match.group(1) is not None else match.group(2)
-        normalized = value.strip("'\"") if value is not None else None
-        if normalized != "current":
-            invalid.append(f"--expect-version {normalized or '<missing>'}")
-    return invalid
-
-
 class RfirrCurrentVersionContractTests(unittest.TestCase):
-    def test_production_runners_delegate_current_version_to_the_analyzer(self) -> None:
+    def run_analyzer(
+        self, analyzer: Path, capture: Path, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(analyzer), str(capture), *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_production_runners_only_name_the_current_schema_entry(self) -> None:
         for runner in PRODUCTION_RUNNERS:
             source = runner.read_text(encoding="utf-8")
             with self.subTest(runner=runner.name):
-                self.assertEqual(invalid_expected_versions(source), [])
+                self.assertIn(CURRENT_ANALYZER.name, source)
+                self.assertNotIn(COMPATIBILITY_ANALYZER.name, source)
+                self.assertNotIn("--expect-version", source)
 
-    def test_version_guard_rejects_non_current_shell_forms(self) -> None:
-        production_source = (
-            SCRIPTS / "check_ddgi_correctness.sh"
-        ).read_text(encoding="utf-8")
-        mutations = (
-            "--expect-version 9",
-            "--expect-version=9",
-            "--expect-version \\" "\n  9",
-            "--expect-version=\n9",
-            "--expect-version # value removed\ncurrent",
-        )
-        for mutation in mutations:
-            with self.subTest(mutation=mutation):
-                mutated_source = production_source.replace(
-                    "--expect-version current", mutation, 1
-                )
-                self.assertNotEqual(
-                    invalid_expected_versions(mutated_source), []
-                )
+    def test_current_schema_entry_accepts_current_and_rejects_v9(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = root / "current.rfirr"
+            current.write_bytes(
+                bytes.fromhex((FIXTURES / "ddgi_filter_evidence_v10.hex").read_text())
+            )
+            historical = root / "historical.rfirr"
+            historical.write_bytes(
+                bytes.fromhex((FIXTURES / "ddgi_filter_evidence_v9.hex").read_text())
+            )
 
-    def test_version_guard_accepts_current_and_ignores_comments(self) -> None:
-        source = (
-            "analyze --expect-version current\n"
-            "analyze --expect-version=current\n"
-            "analyze --expect-version \\" "\n  current\n"
-            "# analyze --expect-version 9\n"
+            current_result = self.run_analyzer(CURRENT_ANALYZER, current)
+            historical_result = self.run_analyzer(CURRENT_ANALYZER, historical)
+
+        self.assertEqual(current_result.returncode, 0, current_result.stderr)
+        self.assertEqual(json.loads(current_result.stdout)["capture"]["version"], 10)
+        self.assertEqual(historical_result.returncode, 1, historical_result.stderr)
+        self.assertIn(
+            "version: expected 10, got 9",
+            json.loads(historical_result.stdout)["validation_failures"],
         )
-        self.assertEqual(invalid_expected_versions(source), [])
+
+    def test_current_schema_entry_has_no_numeric_or_dynamic_version_surface(self) -> None:
+        fixture = bytes.fromhex(
+            (FIXTURES / "ddgi_filter_evidence_v9.hex").read_text()
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "historical.rfirr"
+            capture.write_bytes(fixture)
+            mutations = (
+                ("--expect-version", "9"),
+                ("--expect-version=9",),
+                # Escaped and dynamically expanded shell spellings produce this argv.
+                ("--expect-version", "current"),
+            )
+            for arguments in mutations:
+                with self.subTest(arguments=arguments):
+                    result = self.run_analyzer(CURRENT_ANALYZER, capture, *arguments)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("unrecognized arguments", result.stderr)
+
+    def test_shell_escaping_and_expansion_cannot_select_a_schema(self) -> None:
+        fixture = bytes.fromhex(
+            (FIXTURES / "ddgi_filter_evidence_v9.hex").read_text()
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "historical.rfirr"
+            capture.write_bytes(fixture)
+            commands = (
+                '"$1" "$2" --expect\\-version 9',
+                'flag=--expect-version; "$1" "$2" "$flag" 9',
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    result = subprocess.run(
+                        [
+                            "bash",
+                            "-c",
+                            command,
+                            "production-current-schema-test",
+                            str(CURRENT_ANALYZER),
+                            str(capture),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("unrecognized arguments", result.stderr)
+
+    def test_compatibility_entry_retains_explicit_numeric_decode(self) -> None:
+        fixture = bytes.fromhex(
+            (FIXTURES / "ddgi_filter_evidence_v9.hex").read_text()
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "historical.rfirr"
+            capture.write_bytes(fixture)
+            result = self.run_analyzer(
+                COMPATIBILITY_ANALYZER, capture, "--expect-version", "9"
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_python_consumers_do_not_own_a_numeric_current_version(self) -> None:
-        numeric_comparison = re.compile(r"\.version\s*(?:==|!=)\s*\d+")
         for consumer_name in (
             "validate_ddgi_radiance_lifecycle.py",
             "summarize_ddgi_convergence.py",
         ):
             source = (SCRIPTS / consumer_name).read_text(encoding="utf-8")
             with self.subTest(consumer=consumer_name):
-                self.assertIsNone(numeric_comparison.search(source))
+                self.assertNotRegex(source, r"\.version\s*(?:==|!=)\s*\d+")
 
 
 if __name__ == "__main__":

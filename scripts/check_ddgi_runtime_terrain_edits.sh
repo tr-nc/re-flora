@@ -277,8 +277,8 @@ check_captures() {
         thresholds+=(--min-luminance-p99 0.10)
     fi
     local analysis=(
-        "$repo_root/scripts/analyze_environment_irradiance_capture.py"
-        "$first" --correctness --expect-version current
+        "$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
+        "$first" --correctness
         --compare "$second" --reference "$reference" "${thresholds[@]}"
     )
     if [[ "$state" == "sequential-reopened" ]]; then
@@ -314,8 +314,8 @@ check_inflight_stale_active_captures() {
         echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing captures are not bit-exact" >&2
         return 1
     fi
-    if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --compare-direct-light --expect-version current \
+    if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+        "$first" --compare "$second" --compare-direct-light \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \
@@ -346,7 +346,7 @@ check_flora_consumer() {
         echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=$final_revision" >&2
         return 1
     fi
-    if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+    if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_RUNTIME_EDIT] FAIL flora-enabled final capture is not lit" >&2
         return 1

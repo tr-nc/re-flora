@@ -8,6 +8,7 @@ import re
 
 REQUIRED_OWNER_PATHS = (
     "scripts/analyze_environment_irradiance_capture.py",
+    "scripts/analyze_current_environment_irradiance_capture.py",
     "scripts/shader_validation_workflow_contract.py",
     "scripts/summarize_ddgi_convergence.py",
     "scripts/validate_ddgi_radiance_lifecycle.py",

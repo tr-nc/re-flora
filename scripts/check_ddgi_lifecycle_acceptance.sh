@@ -8,7 +8,7 @@ auto_exit="${DDGI_LIFECYCLE_AUTO_EXIT:-90}"
 output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-acceptance}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
-analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
 radiance_validator="$repo_root/scripts/validate_ddgi_radiance_lifecycle.py"
 failures=0
 dry_run=false
@@ -131,7 +131,6 @@ check_radiance() {
     }
 
     "$analyzer" "$capture" \
-        --expect-version current \
         --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
@@ -198,7 +197,6 @@ check_density() {
     fi
 
     "$analyzer" "$capture" \
-        --expect-version current \
         --expect-spacing-voxels 16 \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \

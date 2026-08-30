@@ -27,6 +27,18 @@ owner-generated filter evidence. Version selects the layout; byte length never s
 layout for the same version. Source-shape tests remain wiring guards only; they are not runtime
 proof.
 
+Production runners invoke `scripts/analyze_current_environment_irradiance_capture.py`. That entry
+does not expose `--expect-version`; it binds the analyzer to `CURRENT_RFIRR_VERSION` internally, so
+escaped or dynamically expanded shell arguments cannot select a historical schema. Explicit
+numeric compatibility remains available only through
+`scripts/analyze_environment_irradiance_capture.py` for historical fixtures and tests.
+
+Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
+it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
+evaluation still prevents a general static proof and would add a large dependency surface. The
+selected seam is the production-only current-schema entry above: all analysis behavior remains in
+the deep analyzer module, while the production interface makes schema selection unrepresentable.
+
 ## Transport matrix
 
 The matrix runs spacing 32 and 16 and includes:

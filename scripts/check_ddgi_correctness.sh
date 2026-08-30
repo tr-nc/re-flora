@@ -28,7 +28,7 @@ capture_specs=(
     equal-weight-irradiance:equal-weight-irradiance
     raw-cage-irradiance:raw-cage-irradiance
 )
-analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
 
 print_command() {
     printf '%q ' "$@"
@@ -111,7 +111,6 @@ for case_name in "${cases[@]}"; do
         final_analysis=(
             "$analyzer" "$first"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view final
             --reference "$exact_irradiance"
@@ -129,7 +128,6 @@ for case_name in "${cases[@]}"; do
             stability_analysis=(
                 "$analyzer" "$first"
                 --correctness
-                --expect-version current
                 --require-nonnegative-rgb
                 --expect-debug-view final
                 --reference "$second"
@@ -142,7 +140,6 @@ for case_name in "${cases[@]}"; do
         visibility_analysis=(
             "$analyzer" "$moment"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view moment-visibility
             --reference "$exact_visibility"
@@ -151,21 +148,18 @@ for case_name in "${cases[@]}"; do
         exact_visibility_analysis=(
             "$analyzer" "$exact_visibility"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view exact-visibility
         )
         exact_irradiance_analysis=(
             "$analyzer" "$exact_irradiance"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view exact-irradiance
         )
         unoccluded_analysis=(
             "$analyzer" "$unoccluded"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view unoccluded-irradiance
             --debug-baseline "$first"
@@ -174,7 +168,6 @@ for case_name in "${cases[@]}"; do
         equal_weight_analysis=(
             "$analyzer" "$equal_weight"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view equal-weight-irradiance
             --reference "$unoccluded"
@@ -183,7 +176,6 @@ for case_name in "${cases[@]}"; do
         raw_cage_analysis=(
             "$analyzer" "$raw_cage"
             --correctness
-            --expect-version current
             --require-nonnegative-rgb
             --expect-debug-view raw-cage-irradiance
             --reference "$equal_weight"

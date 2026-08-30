@@ -89,7 +89,7 @@ run_case() {
         grep -E "ENV_LIGHT_EDIT|\[DDGI\].*(staging|rebuild)" "$console" | tail -n 40 >&2 || true
         return 1
     fi
-    if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+    if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat final reopened portal is not lit" >&2
         return 1
@@ -107,7 +107,7 @@ for spacing in "${spacings[@]}"; do
         first="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat1.rfirr"
         second="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat2.rfirr"
         if [[ -f "$first" && -f "$second" ]] && \
-            "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+            "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
                 "$first" --compare "$second" --compare-direct-light >/dev/null; then
             echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing deterministic final captures"
         else

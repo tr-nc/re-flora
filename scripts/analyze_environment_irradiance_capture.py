@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1720,7 +1721,9 @@ def compare_direct_light_baseline(
     }
 
 
-def main() -> int:
+def _run_cli(
+    argv: Sequence[str] | None, *, allow_version_override: bool
+) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
@@ -1802,11 +1805,14 @@ def main() -> int:
             "to have no more than this combined direct-shadow transmittance range"
         ),
     )
-    parser.add_argument(
-        "--expect-version",
-        type=parse_expected_rfirr_version,
-        default=CURRENT_RFIRR_VERSION,
-    )
+    if allow_version_override:
+        parser.add_argument(
+            "--expect-version",
+            type=parse_expected_rfirr_version,
+            default=CURRENT_RFIRR_VERSION,
+        )
+    else:
+        parser.set_defaults(expect_version=CURRENT_RFIRR_VERSION)
     parser.add_argument("--require-filter-history-retain-blend", action="store_true")
     parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
     parser.add_argument("--expect-filter-blend-retention-q16", type=int)
@@ -1851,7 +1857,7 @@ def main() -> int:
         action="store_true",
         help="apply correctness-gate policy, including rejecting NonConverged fields",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     first = load_capture(args.capture)
     capture_summary = summarize(
@@ -2351,6 +2357,16 @@ def main() -> int:
         exit_code = 1
     print(json.dumps(report, indent=2, sort_keys=True))
     return exit_code
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Compatibility CLI, including explicit historical RFIRR versions."""
+    return _run_cli(argv, allow_version_override=True)
+
+
+def main_current(argv: Sequence[str] | None = None) -> int:
+    """Production CLI whose interface only accepts the current RFIRR schema."""
+    return _run_cli(argv, allow_version_override=False)
 
 
 if __name__ == "__main__":

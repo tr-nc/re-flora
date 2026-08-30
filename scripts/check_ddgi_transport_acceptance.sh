@@ -32,7 +32,7 @@ convergence_max_epoch=63
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
 dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
-analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 failures=0
 
@@ -108,7 +108,6 @@ run_analysis() {
     local command=(
         "$analyzer" "$capture"
         --correctness
-        --expect-version current
         --expect-debug-view final
         --require-nonnegative-rgb
         "$@"

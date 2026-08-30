@@ -162,6 +162,8 @@ Source-shape audits only guard production wiring into the owner terminal store/a
 They do not constitute runtime action proof; that claim requires a complete RFIRR v10 GPU epoch.
 The analyzer keeps the fixed RFIRR v8 reference layout and the published 252-byte/11Q v9 layout
 readable, but production acceptance never infers a same-version layout from file length.
+Production runners use the current-schema analyzer entry, whose interface has no numeric version
+option; explicit historical-version selection remains confined to compatibility tests and tools.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were
