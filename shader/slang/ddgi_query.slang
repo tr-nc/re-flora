@@ -274,17 +274,30 @@ public float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
 }
 
 public float ddgiMomentNormalizationWeight(
-    float accumulatedBaseWeight, float accumulatedWeight)
+    float accumulatedBaseWeight, float accumulatedWeight,
+    float dominantProbeWeight, uint contributingProbeCount)
 {
-    // Treat the visible fraction of geometric support as interpolation
-    // confidence. Sparse visibility stays close to base-weight normalization,
-    // so a lone statistical outlier cannot be amplified to full irradiance.
-    // Well-supported queries smoothly recover ordinary visibility-weighted
-    // interpolation instead of darkening partially occluded receivers.
-    float confidence = saturate(
+    // A single statistical outlier must not be amplified to full irradiance,
+    // even when tiny tails from other probes survive the visibility epsilon.
+    // Measure the visible support outside the dominant probe against total
+    // geometric support. For an eight-probe cage, transition from conservative
+    // normalization at 1/16 of one equal probe to ordinary W normalization at
+    // half of one equal probe. The transition avoids a spatial threshold seam.
+    float visibilityConfidence = saturate(
         accumulatedWeight / max(accumulatedBaseWeight,
                                 DDGI_QUERY_WEIGHT_EPSILON));
-    return lerp(accumulatedBaseWeight, accumulatedWeight, confidence);
+    float conservativeWeight = lerp(
+        accumulatedBaseWeight, accumulatedWeight, visibilityConfidence);
+    float secondaryWeight = max(0.0, accumulatedWeight - dominantProbeWeight);
+    float secondarySupport = secondaryWeight /
+        max(accumulatedBaseWeight, DDGI_QUERY_WEIGHT_EPSILON);
+    float transition = saturate(
+        (secondarySupport - 1.0 / 128.0) / (1.0 / 16.0 - 1.0 / 128.0));
+    float broadSupportConfidence = contributingProbeCount > 1u
+        ? transition * transition * (3.0 - 2.0 * transition)
+        : 0.0;
+    return lerp(conservativeWeight, accumulatedWeight,
+                broadSupportConfidence);
 }
 
 float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
@@ -710,7 +723,8 @@ void finalizeDdgiMomentQueryResult(inout DdgiQueryResult result)
     // This stays continuous in tight creases without turning a low-confidence
     // outlier into full irradiance or over-darkening well-supported queries.
     float normalizationWeight = ddgiMomentNormalizationWeight(
-        result.accumulated_base_weight, result.accumulated_weight);
+        result.accumulated_base_weight, result.accumulated_weight,
+        result.dominant_probe_weight, result.contributing_probe_count);
     finalizeDdgiQueryResultWithWeight(result, normalizationWeight);
 }
 
