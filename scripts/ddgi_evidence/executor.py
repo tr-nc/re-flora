@@ -155,9 +155,7 @@ class SubprocessHost(RecordingHost):
 
     def prepare(self, run_dir: Path) -> ActionResult:
         try:
-            run_dir.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            return ActionResult(False, f"run directory already exists: {run_dir}")
+            run_dir.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             return ActionResult(False, f"cannot create run directory: {error}")
         return ActionResult(True)

@@ -78,6 +78,8 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
                         str(root / "scripts/analyze_current_environment_irradiance_capture.py"),
                     )
                     self.assertNotIn("--expect-version", action.argv(root))
+        with self.assertRaisesRegex(ValueError, "cannot select"):
+            ProductionAnalyzerOptions(("--expect-version", "9"))
 
     def test_recording_host_executes_the_same_plan_without_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

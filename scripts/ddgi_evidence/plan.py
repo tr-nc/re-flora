@@ -132,11 +132,7 @@ def _correctness(request: RunRequest) -> ExecutionPlan:
                     capture_target="converged",
                     debug_view=view,
                     rust_log=STANDARD_RUST_LOG,
-                    extra_arguments=(
-                        ("--ddgi-terrain-hard-origin", options.terrain_hard_origin)
-                        if options.terrain_hard_origin
-                        else ()
-                    ),
+                    terrain_hard_origin=options.terrain_hard_origin,
                 )
                 capture_stage_id = (
                     f"correctness.{case_name}.{spacing}.capture.{suffix}"

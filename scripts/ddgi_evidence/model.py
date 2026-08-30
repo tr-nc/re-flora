@@ -108,6 +108,19 @@ class FailureKey:
 class ProductionAnalyzerOptions:
     arguments: tuple[Argument, ...] = ()
 
+    def __post_init__(self) -> None:
+        if any(
+            isinstance(argument, str)
+            and (
+                argument == "--expect-version"
+                or argument.startswith("--expect-version=")
+            )
+            for argument in self.arguments
+        ):
+            raise ValueError(
+                "the production analyzer cannot select a compatibility version"
+            )
+
 
 @dataclass(frozen=True)
 class BuildRelease:
@@ -143,7 +156,7 @@ class Capture:
         "re_flora::app::core::environment_irradiance_capture=info,"
         "re_flora::app::core::environment_lighting_test_scene=info"
     )
-    extra_arguments: tuple[str, ...] = ()
+    terrain_hard_origin: str | None = None
     require_test_scene_startup: bool = True
     case_label: str = ""
 
@@ -179,7 +192,10 @@ class Capture:
             arguments.extend(("--ddgi-debug-view", self.debug_view))
         arguments.extend(("--environment-irradiance-capture", str(self.capture)))
         arguments.extend(("--auto-exit", self.auto_exit))
-        arguments.extend(self.extra_arguments)
+        if self.terrain_hard_origin:
+            arguments.extend(
+                ("--ddgi-terrain-hard-origin", self.terrain_hard_origin)
+            )
         return tuple(arguments)
 
 

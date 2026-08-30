@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -42,9 +45,51 @@ class TypedDdgiEvidenceCliTests(unittest.TestCase):
                 self.assertIn("readonly repo_root=", lines[2])
                 self.assertEqual(
                     lines[3],
-                    'exec /usr/bin/env python3 "$repo_root/scripts/ddgi_evidence/cli.py" '
+                    'exec /usr/bin/env python3 -B "$repo_root/scripts/ddgi_evidence/cli.py" '
                     f'{suite.value} "$@"',
                 )
+
+    def test_all_dry_runs_leave_the_complete_input_tree_unchanged(self) -> None:
+        def manifest(root: Path) -> dict[Path, tuple[object, ...]]:
+            result = {}
+            for path in (root, *sorted(root.rglob("*"))):
+                relative = path.relative_to(root) if path != root else Path(".")
+                metadata = path.lstat()
+                mode = stat.S_IMODE(metadata.st_mode)
+                if path.is_dir():
+                    result[relative] = ("directory", mode)
+                elif path.is_symlink():
+                    result[relative] = ("symlink", mode, os.readlink(path))
+                else:
+                    result[relative] = ("file", mode, path.read_bytes())
+            return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            shutil.copytree(SCRIPTS / "ddgi_evidence", scripts / "ddgi_evidence")
+            shutil.copy2(
+                SCRIPTS / "runtime_log_diagnostics.py",
+                scripts / "runtime_log_diagnostics.py",
+            )
+            for runner in RUNNERS.values():
+                shutil.copy2(SCRIPTS / runner, scripts / runner)
+            for cache in scripts.rglob("__pycache__"):
+                shutil.rmtree(cache)
+            before = manifest(root)
+
+            for runner in RUNNERS.values():
+                result = subprocess.run(
+                    [str(scripts / runner), "--dry-run"],
+                    cwd=root,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            self.assertEqual(manifest(root), before)
 
     def test_environment_is_decoded_once_into_suite_specific_options(self) -> None:
         correctness = request_from_environment(
