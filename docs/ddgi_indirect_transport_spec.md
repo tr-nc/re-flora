@@ -172,8 +172,15 @@ Dry-run and production use the same call sites; only the canonical wrapper chang
 emission, while transport's narrow execution-policy helper selects an output sink around one
 analyzer invocation. That proves the maintained normal-entry inventory, not arbitrary Bash
 control-flow reachability. The source tripwire additionally rejects canonical analysis execution
-under a syntactic `dry_run` `if`/`elif`/`else` chain, and behavioral dry-run tests require an
-unchanged whole repository tree plus zero `cargo` or Re: Flora binary launches.
+under a syntactic `dry_run` `if`/`elif`/`else` chain. Its controlled grammar carries pending
+single-line, backslash-continued, or multiline headers through an independent `then`, treats the
+whole chain (including `else`) as dry-run-owned, inventories every raw analyzer identifier, and
+locks transport to `cat` in dry-run, `tee "$json"` in production, and one two-stage
+analyzer-to-sink pipeline. Behavioral dry-run tests require an unchanged whole repository tree.
+For process launches, the source contract fail-closes raw `cargo`/`re-flora` command tokens to the
+maintained canonical Cargo build/run forms and their non-dry execution policy; PATH plus repository
+and external absolute-path sentinels dynamically cover those known launch entrypoints. This is not
+a claim about arbitrary Bash variable encoding or general process tracing.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

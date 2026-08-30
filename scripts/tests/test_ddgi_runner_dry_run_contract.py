@@ -209,6 +209,13 @@ elif false; then'''
     raise AssertionError(f"missing dry-run-only mutation for {runner}")
 
 
+def _multiline_dry_run_only_analysis_mutation(runner: str, source: str) -> str:
+    mutated = _dry_run_only_analysis_mutation(runner, source)
+    mutated = mutated.replace("if $dry_run; then", "if $dry_run\nthen")
+    mutated = mutated.replace("elif false; then", "elif false\nthen")
+    return mutated
+
+
 def _tree_manifest(root: Path) -> dict[Path, tuple[object, ...]]:
     manifest: dict[Path, tuple[object, ...]] = {}
 
@@ -311,12 +318,57 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                     len(_analysis_lines(result)), EXPECTED_ANALYSES[runner.name]
                 )
 
+    def test_multiline_dry_run_only_analysis_branches_are_rejected(self) -> None:
+        for runner in RUNNERS:
+            with self.subTest(runner=runner.name), tempfile.TemporaryDirectory() as root:
+                scripts = Path(root) / "scripts"
+                scripts.mkdir()
+                for production_runner in RUNNERS:
+                    source = production_runner.read_text(encoding="utf-8")
+                    if production_runner.name == runner.name:
+                        source = _multiline_dry_run_only_analysis_mutation(
+                            production_runner.name, source
+                        )
+                        failures = production_runner_invocation_failures(
+                            production_runner.name, source
+                        )
+                        self.assertTrue(
+                            any("controlled by dry_run" in failure for failure in failures),
+                            failures,
+                        )
+                    target = scripts / production_runner.name
+                    target.write_text(source, encoding="utf-8")
+                    os.chmod(target, 0o755)
+                result = self.run_runner(scripts / runner.name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    len(_analysis_lines(result)), EXPECTED_ANALYSES[runner.name]
+                )
+
     def test_single_line_dry_run_short_circuit_is_rejected(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutated = source.replace(
             '        if ! analyze_current_capture "${final_analysis[@]}"; then',
             '        if $dry_run && ! analyze_current_capture "${final_analysis[@]}"; then',
+            1,
+        )
+        failures = production_runner_invocation_failures(runner_name, mutated)
+        self.assertTrue(
+            any("controlled by dry_run" in failure for failure in failures),
+            failures,
+        )
+
+    def test_backslash_continued_dry_run_header_is_rejected(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        call = 'analyze_current_capture "${final_analysis[@]}"'
+        mutated = source.replace(
+            f"        if ! {call}; then",
+            "        if $dry_run \\\n"
+            "            && true; then\n"
+            f"            {call}\n"
+            "        elif false; then",
             1,
         )
         failures = production_runner_invocation_failures(runner_name, mutated)
@@ -425,6 +477,15 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                         encoding="utf-8",
                     )
                     os.chmod(executable, 0o755)
+                absolute_app = root_path / "target" / "release" / APP_BINARY
+                absolute_app.parent.mkdir(parents=True)
+                absolute_app.write_text(
+                    "#!/usr/bin/env bash\n"
+                    'printf \'%s\\n\' "$0 $*" >>"$DDGI_SENTINEL_MARKER"\n'
+                    "exit 97\n",
+                    encoding="utf-8",
+                )
+                os.chmod(absolute_app, 0o755)
                 for production_runner in RUNNERS:
                     target = scripts / production_runner.name
                     target.write_bytes(production_runner.read_bytes())
@@ -432,6 +493,7 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                 env = dict(os.environ)
                 env["PATH"] = f"{sentinels}:{env['PATH']}"
                 env["DDGI_SENTINEL_MARKER"] = str(marker)
+                before = _tree_manifest(root_path)
 
                 result = subprocess.run(
                     [str(scripts / runner.name), "--dry-run"],
@@ -444,6 +506,7 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
 
                 _assert_no_guarded_command(marker)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(_tree_manifest(root_path), before)
 
     def test_dry_run_cargo_launch_mutation_has_explicit_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -487,6 +550,107 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 AssertionError, r"command-called: cargo --version"
+            ):
+                _assert_no_guarded_command(marker)
+
+    def test_dry_run_absolute_app_launch_mutation_has_explicit_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            scripts = root_path / "scripts"
+            scripts.mkdir()
+            marker = root_path / "command-called"
+            absolute_app = root_path / "target" / "release" / APP_BINARY
+            absolute_app.parent.mkdir(parents=True)
+            absolute_app.write_text(
+                "#!/usr/bin/env bash\n"
+                'printf \'%s\\n\' "$0 $*" >>"$DDGI_SENTINEL_MARKER"\n'
+                "exit 97\n",
+                encoding="utf-8",
+            )
+            os.chmod(absolute_app, 0o755)
+            for production_runner in RUNNERS:
+                source = production_runner.read_text(encoding="utf-8")
+                if production_runner.name == "check_ddgi_correctness.sh":
+                    source = source.replace(
+                        "capture_specs=(",
+                        'if $dry_run; then "$repo_root/target/release/'
+                        f'{APP_BINARY}" --version || true; fi\n\ncapture_specs=(',
+                        1,
+                    )
+                    failures = production_runner_invocation_failures(
+                        production_runner.name, source
+                    )
+                    self.assertTrue(
+                        any("unauthorized process launch" in failure for failure in failures),
+                        failures,
+                    )
+                target = scripts / production_runner.name
+                target.write_text(source, encoding="utf-8")
+                os.chmod(target, 0o755)
+            env = dict(os.environ)
+            env["DDGI_SENTINEL_MARKER"] = str(marker)
+
+            subprocess.run(
+                [str(scripts / "check_ddgi_correctness.sh"), "--dry-run"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=env,
+            )
+
+            with self.assertRaisesRegex(
+                AssertionError, rf"command-called: .*/target/release/{APP_BINARY} --version"
+            ):
+                _assert_no_guarded_command(marker)
+
+    def test_dry_run_external_absolute_app_launch_is_statically_and_dynamically_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+            root_path = Path(root)
+            scripts = root_path / "scripts"
+            scripts.mkdir()
+            marker = root_path / "command-called"
+            external_app = Path(outside) / APP_BINARY
+            external_app.write_text(
+                "#!/usr/bin/env bash\n"
+                'printf \'%s\\n\' "$0 $*" >>"$DDGI_SENTINEL_MARKER"\n'
+                "exit 97\n",
+                encoding="utf-8",
+            )
+            os.chmod(external_app, 0o755)
+            for production_runner in RUNNERS:
+                source = production_runner.read_text(encoding="utf-8")
+                if production_runner.name == "check_ddgi_correctness.sh":
+                    source = source.replace(
+                        "capture_specs=(",
+                        f'if $dry_run; then "{external_app}" --version || true; fi\n\n'
+                        "capture_specs=(",
+                        1,
+                    )
+                    failures = production_runner_invocation_failures(
+                        production_runner.name, source
+                    )
+                    self.assertTrue(
+                        any("unauthorized process launch" in failure for failure in failures),
+                        failures,
+                    )
+                target = scripts / production_runner.name
+                target.write_text(source, encoding="utf-8")
+                os.chmod(target, 0o755)
+            env = dict(os.environ)
+            env["DDGI_SENTINEL_MARKER"] = str(marker)
+
+            subprocess.run(
+                [str(scripts / "check_ddgi_correctness.sh"), "--dry-run"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=env,
+            )
+
+            with self.assertRaisesRegex(
+                AssertionError, rf"command-called: .*/{APP_BINARY} --version"
             ):
                 _assert_no_guarded_command(marker)
 

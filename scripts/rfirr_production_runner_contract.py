@@ -15,8 +15,9 @@ CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
 FUNCTION_INVOCATION = re.compile(
     r"^\s*(?:(?:if|elif)\s+(?:!\s+)?)?"
-    r"analyze_current_capture(?:\s|$)"
+    r"analyze_current_capture(?=$|[\s<>|;&])"
 )
+ANALYZER_IDENTIFIER = re.compile(r"\banalyze_current_capture\b")
 SHELL_FUNCTION = re.compile(
     r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
     r"(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{\s*$"
@@ -103,6 +104,14 @@ TRANSPORT_EXECUTION_CALL = re.compile(
     r'^if\s+!\s+execute_analysis\s+"\$json"\s+'
     r'"\$\{arguments\[@\]\}"\s*;\s*then$'
 )
+CARGO_IDENTIFIER = re.compile(r"\bcargo\b")
+APP_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_-])re-flora(?![A-Za-z0-9_-])")
+CANONICAL_CARGO_BUILD = re.compile(
+    r'^\s*cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
+)
+CANONICAL_CARGO_RUN = re.compile(
+    r'^\s*cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
+)
 
 
 def production_runner_invocation_failures(
@@ -144,15 +153,29 @@ def production_runner_invocation_failures(
             "runner current-schema analysis execution is controlled by dry_run at "
             + ", ".join(dry_run_controlled)
         )
-    if runner_name == "check_ddgi_transport_acceptance.sh" and not (
-        _scope_lines(lines, "run_analysis")
-        and sum(
-            TRANSPORT_EXECUTION_CALL.fullmatch(line.strip()) is not None
-            for line in _scope_lines(lines, "run_analysis")
+    unknown_occurrences = _unclassified_analyzer_occurrences(lines)
+    if unknown_occurrences:
+        failures.append(
+            "runner has unclassified analyzer occurrence at "
+            + ", ".join(unknown_occurrences)
         )
-        == 1
-    ):
-        failures.append("transport runner lacks its shared analysis execution seam")
+    if runner_name == "check_ddgi_transport_acceptance.sh":
+        if not (
+            _scope_lines(lines, "run_analysis")
+            and sum(
+                TRANSPORT_EXECUTION_CALL.fullmatch(line.strip()) is not None
+                for line in _scope_lines(lines, "run_analysis")
+            )
+            == 1
+        ):
+            failures.append("transport runner lacks its shared analysis execution seam")
+        if not _transport_sink_policy_is_sealed(lines):
+            failures.append("transport runner lacks exact analyzer-to-sink policy")
+    launch_failures = _process_launch_failures(lines)
+    if launch_failures:
+        failures.append(
+            "runner has unauthorized process launch at " + ", ".join(launch_failures)
+        )
     expected_dependencies = RUNNER_PRODUCTION_DEPENDENCIES.get(runner_name)
     actual_dependencies = frozenset(PRODUCTION_SCRIPT_REFERENCE.findall(source))
     if expected_dependencies is None:
@@ -196,7 +219,7 @@ def _invocation_inventory(lines: list[str]) -> dict[str, int]:
             _shell_function_name(line) is None
             and function_scope != "analyze_current_capture"
             and not line.lstrip().startswith("#")
-            and FUNCTION_INVOCATION.match(line) is not None
+            and _canonical_analyzer_invocation(line)
         ):
             counts[function_scope or TOP_LEVEL] += 1
     return dict(counts)
@@ -209,48 +232,45 @@ def _dry_run_controlled_analysis_calls(
     frames: list[dict[str, object]] = []
     recorded_calls: list[tuple[int, str | None, tuple[dict[str, object], ...]]] = []
     scopes = _function_scopes(lines)
+    code_lines = _shell_code_lines(lines)
     previous_scope: str | None = None
     dry_run_token = re.compile(r"\$(?:dry_run\b|\{dry_run\})")
-    analyzer_call = re.compile(r"\banalyze_current_capture(?:\s|$)")
+    analyzer_call = ANALYZER_IDENTIFIER
     transport_execution = re.compile(r"\bexecute_analysis(?:\s|$)")
 
-    for line_number, (line, function_scope) in enumerate(
-        zip(lines, scopes, strict=True), 1
+    for line_number, (line, code, function_scope) in enumerate(
+        zip(lines, code_lines, scopes, strict=True), 1
     ):
         if function_scope != previous_scope:
             frames = []
             previous_scope = function_scope
-        stripped = line.strip()
+        stripped = code.strip()
         if not stripped or stripped.startswith("#"):
             continue
 
-        if re.match(r"^fi(?:\s*;|\s*$)", stripped):
+        if re.fullmatch(r"fi\s*;?", stripped):
             if frames:
                 frames.pop()
             continue
 
-        if re.match(r"^elif\b", stripped) and (
-            "then" in stripped or stripped.endswith("\\")
-        ):
+        if re.match(r"^elif\b", stripped):
             if frames:
-                frames[-1]["in_condition"] = "then" not in stripped
+                frames[-1]["in_condition"] = not _has_then_token(stripped)
                 if dry_run_token.search(stripped):
                     frames[-1]["dry_run"] = True
         elif re.match(r"^else(?:\s*;|\s*$)", stripped):
             pass
-        elif re.match(r"^if\b", stripped) and (
-            "then" in stripped or stripped.endswith("\\")
-        ):
+        elif re.match(r"^if\b", stripped):
             frames.append(
                 {
                     "dry_run": dry_run_token.search(stripped) is not None,
-                    "in_condition": "then" not in stripped,
+                    "in_condition": not _has_then_token(stripped),
                 }
             )
         elif frames and bool(frames[-1]["in_condition"]):
             if dry_run_token.search(stripped):
                 frames[-1]["dry_run"] = True
-            if "then" in stripped:
+            if _has_then_token(stripped):
                 frames[-1]["in_condition"] = False
 
         is_analysis_call = analyzer_call.search(stripped) is not None
@@ -270,6 +290,284 @@ def _dry_run_controlled_analysis_calls(
         if any(bool(frame["dry_run"]) for frame in active_frames):
             violations.append(f"{scope or TOP_LEVEL}:{line_number}")
     return violations
+
+
+def _canonical_analyzer_invocation(line: str) -> bool:
+    code = _shell_code(line)
+    occurrences = tuple(ANALYZER_IDENTIFIER.finditer(code))
+    if len(occurrences) != 1:
+        return False
+    occurrence = occurrences[0]
+    suffix = code[occurrence.end() :]
+    if suffix and suffix[0] not in " \t<>|;&":
+        return False
+    prefix = code[: occurrence.start()].strip()
+    if prefix in ("", "!"):
+        return True
+    if re.fullmatch(r"(?:if|elif)(?:\s+!)?", prefix):
+        return True
+    return (
+        re.fullmatch(r"(?:if|elif)\s+.+(?:&&|\|\|)\s*!?", prefix)
+        is not None
+    )
+
+
+def _unclassified_analyzer_occurrences(lines: list[str]) -> list[str]:
+    scopes = _function_scopes(lines)
+    unknown: list[str] = []
+    for line_number, (line, scope) in enumerate(zip(lines, scopes, strict=True), 1):
+        occurrences = tuple(ANALYZER_IDENTIFIER.finditer(line))
+        if not occurrences:
+            continue
+        if _shell_function_name(line) == "analyze_current_capture":
+            classified = len(occurrences) == 1
+        elif scope == "analyze_current_capture":
+            classified = True
+        else:
+            classified = len(occurrences) == 1 and _canonical_analyzer_invocation(line)
+        if not classified:
+            unknown.append(str(line_number))
+    return unknown
+
+
+def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
+    statements = [
+        _shell_code(line).strip()
+        for line in _scope_lines(lines, "execute_analysis")
+        if _shell_code(line).strip()
+    ]
+    dry_sink = re.compile(r"local\s+sink=\(\s*cat\s*\)")
+    production_sink = re.compile(r'sink=\(\s*tee\s+"\$json"\s*\)')
+    sink_assignments = [
+        (index, statement)
+        for index, statement in enumerate(statements)
+        if re.match(r"^(?:local\s+)?sink\s*=", statement)
+    ]
+    if len(sink_assignments) != 2:
+        return False
+    if dry_sink.fullmatch(sink_assignments[0][1]) is None:
+        return False
+    if production_sink.fullmatch(sink_assignments[1][1]) is None:
+        return False
+    production_sink_index = sink_assignments[1][0]
+    if production_sink_index == 0 or production_sink_index + 1 >= len(statements):
+        return False
+    if (
+        re.fullmatch(
+            r"if\s+!\s*\$dry_run\s*;\s*then",
+            statements[production_sink_index - 1],
+        )
+        is None
+    ):
+        return False
+    if statements[production_sink_index + 1] != "fi":
+        return False
+    pipelines = [
+        statement
+        for statement in statements
+        if ANALYZER_IDENTIFIER.search(statement) is not None
+    ]
+    if len(pipelines) != 1:
+        return False
+    stages = _shell_pipeline_stages(pipelines[0])
+    return (
+        len(stages) == 2
+        and re.fullmatch(r'analyze_current_capture\s+"\$@"', stages[0]) is not None
+        and re.fullmatch(r'"\$\{sink\[@\]\}"', stages[1]) is not None
+    )
+
+
+def _shell_pipeline_stages(statement: str) -> tuple[str, ...]:
+    stages: list[str] = []
+    start = 0
+    quote: str | None = None
+    escaped = False
+    for index, character in enumerate(statement):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+        elif character == "|":
+            if (
+                (index > 0 and statement[index - 1] == "|")
+                or (index + 1 < len(statement) and statement[index + 1] == "|")
+            ):
+                continue
+            stages.append(statement[start:index].strip())
+            start = index + 1
+    stages.append(statement[start:].strip())
+    return tuple(stages)
+
+
+def _process_launch_failures(lines: list[str]) -> list[str]:
+    failures: list[str] = []
+    cargo_builds = 0
+    cargo_runs = 0
+    for line_number, line in enumerate(lines, 1):
+        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(line))
+        if cargo_occurrences:
+            if len(cargo_occurrences) != 1:
+                failures.append(f"cargo:{line_number}")
+            elif CANONICAL_CARGO_BUILD.fullmatch(line):
+                cargo_builds += 1
+                if not _cargo_build_is_non_dry_run(lines, line_number - 1):
+                    failures.append(f"cargo-build-policy:{line_number}")
+            elif CANONICAL_CARGO_RUN.fullmatch(line):
+                cargo_runs += 1
+            else:
+                failures.append(f"cargo:{line_number}")
+        if APP_IDENTIFIER.search(line) is not None:
+            failures.append(f"re-flora:{line_number}")
+    if cargo_builds != 1:
+        failures.append(f"cargo-build-count:{cargo_builds}")
+    if cargo_runs != 1:
+        failures.append(f"cargo-run-count:{cargo_runs}")
+    command_launches = [
+        index
+        for index, line in enumerate(lines)
+        if '"${command[@]}"' in line
+        and "print_command" not in line
+        and not re.match(r"^\s*printf\b", line)
+    ]
+    if len(command_launches) != 1:
+        failures.append(f"cargo-command-launch-count:{len(command_launches)}")
+    elif not _command_array_launch_is_non_dry_run(lines, command_launches[0]):
+        failures.append(f"cargo-command-policy:{command_launches[0] + 1}")
+    return failures
+
+
+def _cargo_build_is_non_dry_run(lines: list[str], line_index: int) -> bool:
+    significant = [
+        _shell_code(line).strip()
+        for line in lines[max(0, line_index - 5) : line_index]
+        if _shell_code(line).strip()
+    ]
+    non_dry_if = re.compile(r"if\s+!\s*\$\{?dry_run\}?\s*;\s*then")
+    dry_if = re.compile(r"if\s+\$\{?dry_run\}?\s*;\s*then")
+    for reverse_index, statement in enumerate(reversed(significant)):
+        if non_dry_if.fullmatch(statement):
+            return True
+        if statement == "fi" or dry_if.fullmatch(statement):
+            return False
+        if statement == "else":
+            earlier = significant[: len(significant) - reverse_index - 1]
+            return any(dry_if.fullmatch(candidate) for candidate in reversed(earlier))
+    return False
+
+
+def _command_array_launch_is_non_dry_run(
+    lines: list[str], line_index: int
+) -> bool:
+    if _non_dry_run_branch_lines(lines)[line_index]:
+        return True
+    scopes = _function_scopes(lines)
+    scope = scopes[line_index]
+    start = max(0, line_index - 18)
+    prefix = "\n".join(
+        _shell_code(lines[index]).strip()
+        for index in range(start, line_index)
+        if scopes[index] == scope
+    )
+    return (
+        re.search(
+            r"if\s+\$\{?dry_run\}?\s*;\s*then\b"
+            r"(?:(?!\bfi\b).)*\b(?:return\s+0|continue)\b"
+            r"(?:(?!\bfi\b).)*\bfi\b",
+            prefix,
+            re.DOTALL,
+        )
+        is not None
+    )
+
+
+def _non_dry_run_branch_lines(lines: list[str]) -> list[bool]:
+    policies: list[str] = []
+    result: list[bool] = []
+    dry = re.compile(r"if\s+\$\{?dry_run\}?\s*;\s*then")
+    non_dry = re.compile(r"if\s+!\s*\$\{?dry_run\}?\s*;\s*then")
+    for code in _shell_code_lines(lines):
+        statement = code.strip()
+        if re.fullmatch(r"fi\s*;?", statement):
+            if policies:
+                policies.pop()
+            result.append(any(policy == "non-dry" for policy in policies))
+            continue
+        if re.match(r"^elif\b", statement):
+            if policies:
+                policies[-1] = "unknown"
+        elif re.fullmatch(r"else\s*;?", statement):
+            if policies:
+                policies[-1] = {
+                    "dry": "non-dry",
+                    "non-dry": "dry",
+                }.get(policies[-1], "unknown")
+        elif re.match(r"^if\b", statement):
+            if non_dry.fullmatch(statement):
+                policies.append("non-dry")
+            elif dry.fullmatch(statement):
+                policies.append("dry")
+            else:
+                policies.append("unknown")
+        result.append(any(policy == "non-dry" for policy in policies))
+    return result
+
+
+def _has_then_token(statement: str) -> bool:
+    return re.search(r"(?:^|[;\s])then(?:$|[;\s])", statement) is not None
+
+
+def _shell_code(line: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, character in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in "'\"":
+            quote = character
+        elif character == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index]
+    return line
+
+
+def _shell_code_lines(lines: list[str]) -> list[str]:
+    """Mask bodies of the repository's multiline single-quoted awk programs."""
+    code_lines: list[str] = []
+    in_multiline_single_quote = False
+    for line in lines:
+        quote_offsets = [
+            index
+            for index, character in enumerate(line)
+            if character == "'" and (index == 0 or line[index - 1] != "\\")
+        ]
+        if in_multiline_single_quote:
+            if len(quote_offsets) % 2 == 1:
+                in_multiline_single_quote = False
+                code_lines.append(_shell_code(line[quote_offsets[-1] + 1 :]))
+            else:
+                code_lines.append("")
+            continue
+        if len(quote_offsets) % 2 == 1:
+            in_multiline_single_quote = True
+            code_lines.append(_shell_code(line[: quote_offsets[0]]))
+        else:
+            code_lines.append(_shell_code(line))
+    return code_lines
 
 
 def _shell_function_name(line: str) -> str | None:

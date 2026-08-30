@@ -164,6 +164,119 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                         [],
                     )
 
+    def test_hidden_or_unknown_analyzer_occurrences_are_rejected(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        anchor = '        if ! analyze_current_capture "${final_analysis[@]}"; then'
+        hidden = source.replace(
+            anchor,
+            '        if $dry_run; then\n'
+            '            analyze_current_capture>/dev/null 2>&1\n'
+            f'        fi\n{anchor}',
+            1,
+        )
+        hidden_failures = production_runner_invocation_failures(
+            runner_name, hidden
+        )
+        self.assertTrue(
+            any("controlled by dry_run" in failure for failure in hidden_failures),
+            hidden_failures,
+        )
+        unknown_mutations = (
+            source + "\n# analyze_current_capture hidden occurrence\n",
+            source + '\nunused="analyze_current_capture"\n',
+        )
+        for mutated in unknown_mutations:
+            with self.subTest():
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any("unclassified analyzer occurrence" in failure for failure in failures),
+                    failures,
+                )
+
+    def test_transport_analysis_pipeline_has_exactly_one_sink(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutations = (
+            source.replace("    local sink=(cat)", '    local sink=(tee "$json")', 1),
+            source.replace('        sink=(tee "$json")', "        sink=(cat)", 1),
+            source.replace(
+                '        sink=(tee "$json")', '        sink=(tee "$capture")', 1
+            ),
+            source.replace(
+                '    analyze_current_capture "$@" | "${sink[@]}"',
+                '    analyze_current_capture "$@" | tee /dev/null | "${sink[@]}"',
+                1,
+            ),
+        )
+        for mutated in mutations:
+            with self.subTest():
+                failures = production_runner_invocation_failures(runner_name, mutated)
+                self.assertTrue(
+                    any("exact analyzer-to-sink policy" in failure for failure in failures),
+                    failures,
+                )
+
+    def test_transport_sink_policy_accepts_equivalent_whitespace(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace("    local sink=(cat)", "  local   sink=( cat )", 1)
+        mutated = mutated.replace(
+            '        sink=(tee "$json")', '      sink=( tee   "$json" )', 1
+        )
+        mutated = mutated.replace(
+            '    analyze_current_capture "$@" | "${sink[@]}"',
+            '  analyze_current_capture   "$@"   |   "${sink[@]}"',
+            1,
+        )
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_cargo_command_array_launch_must_keep_its_non_dry_policy(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace(
+            '            if $dry_run; then\n'
+            '                print_command "${command[@]}" --ddgi-debug-view "$view" \\\n'
+            '                    --environment-irradiance-capture "$path"\n'
+            '                continue',
+            '            if $dry_run; then\n'
+            '                print_command "${command[@]}" --ddgi-debug-view "$view" \\\n'
+            '                    --environment-irradiance-capture "$path"\n'
+            '                "${command[@]}" || true\n'
+            '                continue',
+            1,
+        )
+        failures = production_runner_invocation_failures(runner_name, mutated)
+        self.assertTrue(
+            any("unauthorized process launch" in failure for failure in failures),
+            failures,
+        )
+
+    def test_process_launch_inventory_rejects_direct_app_commands(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutations = (
+            source + "\nre-flora --version\n",
+            source + '\n"$repo_root/target/release/re-flora" --version\n',
+            source + '\n"/tmp/reviewer/re-flora" --version\n',
+            source + '\n"/tmp/reviewer/cargo" --version\n',
+            source + "\n# cargo --version\n",
+            source + "\ncargo --version\n",
+        )
+        for mutated in mutations:
+            with self.subTest():
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any("unauthorized process launch" in failure for failure in failures),
+                    failures,
+                )
+
     def test_indented_function_closing_brace_ends_scope(self) -> None:
         runner_name = "check_ddgi_inflight_terrain_edits.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -176,6 +289,19 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             "    fi\n"
             "    }\n\n"
             'for spacing in "${spacings[@]}"; do',
+            1,
+        )
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_conditional_closing_fi_accepts_trailing_comment(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace(
+            '    cargo build --release --manifest-path "$repo_root/Cargo.toml"\nfi',
+            '    cargo build --release --manifest-path "$repo_root/Cargo.toml"\n'
+            "fi # production-only build",
             1,
         )
         self.assertEqual(

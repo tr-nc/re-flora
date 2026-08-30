@@ -44,13 +44,20 @@ The typed current-only CLI behavior above is the schema seal.
 The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
 runners and rejects missing canonical call sites, unexpected helper scopes, or later function
 overrides. Its deliberately narrow structural parser also rejects canonical analysis execution
-inside any `if`/`elif`/`else` chain whose condition names `dry_run`; this closes dry-only execution
-bypasses without claiming general Bash reachability. Each runner's
+inside any single-line, backslash-continued, or multiline `if`/`elif`/`else` chain whose assembled
+condition names `dry_run`; `else` inherits ownership from the whole chain. A raw identifier
+inventory rejects analyzer mentions that the controlled parser cannot classify as the sealed
+wrapper or a canonical command-position invocation, including calls adjacent to redirection. This
+closes maintained source-form bypasses without claiming general Bash reachability. Each runner's
 `--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
 the corresponding production matrix would execute, and the behavioral tests pin those per-runner
-command counts and representative branch arguments. A whole-tree manifest proves no filesystem
-side effects, while `cargo` and the Cargo package binary are shadowed by fail-fast sentinels to
-prove dry-run launches neither the build tool nor the app.
+command counts and representative branch arguments. Transport additionally seals the dry-run
+`cat` sink, production `tee "$json"` sink, and exactly one two-stage analyzer-to-sink pipeline. A
+whole-tree manifest proves no filesystem side effects. The controlled source grammar inventories
+raw `cargo` and `re-flora` launch tokens, permits only the maintained canonical Cargo build/run
+forms behind their non-dry policy, and rejects direct app launches; fail-fast PATH, repository
+absolute-path, and external absolute-path sentinels dynamically cover those known entrypoints.
+This does not prove arbitrary variable-encoded Bash execution.
 
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
 it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
@@ -60,7 +67,11 @@ the deep analyzer module, while the production interface makes schema selection 
 For dry-run parity specifically, line-local regex expansion was rejected because it cannot see an
 outer conditional; centralizing every capture/file policy behind one helper was rejected because
 it would widen that helper beyond analysis execution. The selected narrow conditional-stack seam
-tracks only the repository's controlled function and `if`/`elif`/`else` structure.
+tracks only the repository's controlled function, pending condition headers, and
+`if`/`elif`/`else` structure. For launch guarding, PATH-only substitution was rejected because
+absolute paths bypass it; general process tracing was rejected as platform-coupled and much wider
+than this CPU contract. The selected source-token inventory plus known-entrypoint sentinels keeps
+the interface narrow while covering both maintained path forms.
 
 The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
 supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any
