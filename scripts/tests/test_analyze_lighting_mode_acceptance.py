@@ -127,7 +127,12 @@ def valid_artifact(
         for layer in phase["layers"]:
             lines.append("[[phases.layers]]")
             for key, value in layer.items():
-                lines.append(f'{key} = "{value}"' if isinstance(value, str) else f"{key} = {value}")
+                if isinstance(value, str):
+                    lines.append(f'{key} = "{value}"')
+                elif type(value) is bool:
+                    lines.append(f"{key} = {str(value).lower()}")
+                else:
+                    lines.append(f"{key} = {value}")
     artifact(path, "\n".join(lines) + "\n", bytes(payload))
 
 
@@ -540,6 +545,24 @@ class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
                     "suffix": "unclaimed suffix",
                 }[case]
                 with self.assertRaisesRegex(ValueError, expected):
+                    analyzer.analyze(path)
+
+    def test_rejects_boolean_layer_descriptor_integers(self) -> None:
+        for field in ("width", "height", "offset", "length"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "capture.rflma"
+
+                def corrupt_descriptor(
+                    phases: list[dict[str, object]], _: bytearray
+                ) -> None:
+                    layers = phases[0]["layers"]
+                    assert isinstance(layers, list)
+                    layer = layers[0]
+                    assert isinstance(layer, dict)
+                    layer[field] = True
+
+                valid_artifact(path, corrupt_descriptor)
+                with self.assertRaisesRegex(ValueError, "invalid dimensions or range"):
                     analyzer.analyze(path)
 
 

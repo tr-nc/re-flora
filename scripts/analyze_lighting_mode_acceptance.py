@@ -186,7 +186,7 @@ def _phase_layers(
         offset = descriptor.get("offset")
         length = descriptor.get("length")
         _require(
-            all(isinstance(value, int) and value >= 0 for value in (width, height, offset, length)),
+            all(type(value) is int and value >= 0 for value in (width, height, offset, length)),
             f"{kind} descriptor contains invalid dimensions or range",
         )
         _require(width > 0 and height > 0, f"{kind} extent is empty")
