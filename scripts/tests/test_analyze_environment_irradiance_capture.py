@@ -971,7 +971,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(
-            "comparison environment irradiance plane is not bit-exact",
+            "comparison environment irradiance and terrain hit-mask plane "
+            "is not bit-exact",
             json.loads(result.stdout)["validation_failures"],
         )
 
@@ -1048,6 +1049,47 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(
             report["validation_failures"],
             ["comparison terrain-shadow receiver plane is not bit-exact"],
+        )
+
+    def test_comparison_names_world_alpha_as_exact_sun_visibility(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v8.rfirr"
+            second_path = Path(directory) / "second-v8.rfirr"
+            voxel = 1.0 / 256.0
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)]
+            shadows = [(1.0, 1.0, 1.0, 1.0)]
+            self.write_capture_v8(
+                first_path,
+                irradiance,
+                [(1.0, 2.0, 3.0, 0.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+            self.write_capture_v8(
+                second_path,
+                irradiance,
+                [(1.0, 2.0, 3.0, 1.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+
+            result = self.run_analyzer(
+                first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["comparison"]["world_payload_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            [
+                "comparison world XYZ and exact-sun-visibility plane "
+                "is not bit-exact"
+            ],
         )
 
     def test_cli_gates_direct_light_roi_delta_from_environment_identical_baseline(

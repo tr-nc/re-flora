@@ -1803,8 +1803,14 @@ def main() -> int:
                 f"metadata_mismatches={comparison['metadata_mismatches']}"
             )
         for field, label in (
-            ("environment_irradiance_bit_exact", "environment irradiance plane"),
-            ("world_payload_bit_exact", "world XYZ and terrain hit-mask plane"),
+            (
+                "environment_irradiance_bit_exact",
+                "environment irradiance and terrain hit-mask plane",
+            ),
+            (
+                "world_payload_bit_exact",
+                "world XYZ and exact-sun-visibility plane",
+            ),
             ("terrain_shadow_receiver_bit_exact", "terrain-shadow receiver plane"),
             ("direct_sun_shadow_bit_exact", "direct-sun shadow plane"),
         ):
