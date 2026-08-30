@@ -1924,15 +1924,15 @@ impl PipelineTopology {
     ) -> Result<Vec<PreparedDdgiConsumerGeneration>> {
         let mut writes = vec![DescriptorWrite {
             name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(resources.probe_metadata),
+            resource: DescriptorResource::Buffer(resources.probe_metadata()),
         }];
         for (name, texture) in [
             (
                 "ddgi_global_sky_irradiance",
-                resources.global_sky_irradiance,
+                resources.global_sky_irradiance(),
             ),
-            ("ddgi_irradiance_atlas", resources.irradiance_atlas),
-            ("ddgi_visibility_atlas", resources.visibility_atlas),
+            ("ddgi_irradiance_atlas", resources.irradiance_atlas()),
+            ("ddgi_visibility_atlas", resources.visibility_atlas()),
         ] {
             writes.push(DescriptorWrite {
                 name,
@@ -1956,11 +1956,13 @@ impl PipelineTopology {
         resources: DdgiConsumerResources<'_>,
         next_generation: &mut u64,
     ) -> Result<u64> {
+        let publication = resources.publication();
+        let build_token = publication.generation().build_token();
+        let field = publication.field();
         anyhow::ensure!(
-            resources.field.field().geometry_revision() == resources.build_token.terrain_revision()
-                && resources.field.field().spacing_voxels()
-                    == resources.build_token.spacing_voxels(),
-            "DDGI consumer resources do not match their build token"
+            field.field().geometry_revision() == build_token.terrain_revision()
+                && field.field().spacing_voxels() == build_token.spacing_voxels(),
+            "DDGI consumer publication does not match its owner-validated generation"
         );
         let prepared = self.prepare_ddgi_consumers(resources)?;
         let consumers = self.ddgi_consumers()?;

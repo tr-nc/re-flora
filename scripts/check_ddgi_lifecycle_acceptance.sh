@@ -12,6 +12,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 radiance_validator="$repo_root/scripts/validate_ddgi_radiance_lifecycle.py"
+density_validator="$repo_root/scripts/validate_ddgi_density_lifecycle.py"
 failures=0
 dry_run=false
 if [[ $# -eq 1 && "$1" == "--dry-run" ]]; then
@@ -155,41 +156,29 @@ check_density() {
     if $dry_run; then
         return 0
     fi
-    require_markers DENSITY "$console" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=baseline" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=density-midflight" \
-        "old_field_visible=true active_available=true" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density" \
-        "queued_density_spacing_voxels=16" \
-        "obsolete_density_consumer_visible=false active_available=true" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=complete" \
-        "first_consumer_visible_16_epoch=0" || return 1
+    local lifecycle="$run_dir/density-changes.lifecycle.json"
+    if ! python3 "$density_validator" "$console" >"$lifecycle"; then
+        echo "[DDGI_LIFECYCLE] FAIL group=DENSITY ordered lifecycle validation" >&2
+        return 1
+    fi
+    local identity
+    identity="$(python3 - "$lifecycle" <<'PY'
+import json
+import sys
 
-    local preemption complete
-    preemption="$(grep -F '[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density' "$console" | tail -n 1)"
-    complete="$(grep -F '[DDGI_ACCEPT][DENSITY] checkpoint=complete' "$console" | tail -n 1)"
-    local obsolete_token field_serial source_field_serial geometry_revision
-    obsolete_token="$(field_value "$preemption" obsolete_density_token_serial)"
-    field_serial="$(field_value "$complete" field_serial)"
-    source_field_serial="$(field_value "$complete" source_field_serial)"
-    geometry_revision="$(field_value "$complete" geometry_revision)"
-    local checkpoint build_token_serial
-    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
-    build_token_serial="$(field_value "$checkpoint" build_token_serial)"
-    [[ -n "$obsolete_token" && -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
-        echo "[DDGI_LIFECYCLE] FAIL group=DENSITY could not extract lifecycle identity" >&2
-        return 1
-    }
-    if grep -Eq "\[DDGI\] staging promoted .*token_serial=${obsolete_token}([^0-9]|$)" "$console"; then
-        echo "[DDGI_LIFECYCLE] FAIL group=DENSITY obsolete density token promoted token_serial=$obsolete_token" >&2
-        return 1
-    fi
-    if grep -Eq "\[DDGI\]\[CONSUMERS\].*(active_token_serial=${obsolete_token}([^0-9]|$)|token_serial=(Some\()?${obsolete_token}([^0-9]|$))" "$console"; then
-        echo "[DDGI_LIFECYCLE] FAIL group=DENSITY obsolete density token became consumer-active token_serial=$obsolete_token" >&2
-        return 1
-    fi
+with open(sys.argv[1], encoding="utf-8") as source:
+    lifecycle = json.load(source)
+print("\t".join(str(lifecycle[name]) for name in (
+    "field_serial",
+    "source_field_serial",
+    "geometry_revision",
+    "build_token_serial",
+    "obsolete_density_token_serial",
+)))
+PY
+)" || return 1
+    local field_serial source_field_serial geometry_revision build_token_serial obsolete_token
+    IFS=$'\t' read -r field_serial source_field_serial geometry_revision build_token_serial obsolete_token <<<"$identity"
 
     "$analyzer" "$capture" \
         --expect-version 8 \

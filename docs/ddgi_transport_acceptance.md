@@ -21,6 +21,42 @@ Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 Old capture versions remain readable for committed historical evidence, but all current-runtime
 acceptance requires v8 `Converging` / `Converged` metadata and `update_epoch`.
 
+## Resident publication ownership
+
+The physical Volume owns one composite resident publication: its owner-issued generation root,
+current field, atlas/sky slots, build token, and latched radiance revision are validated together.
+There is no separate raw `published_field` authority. Atlas completion and staging promotion each
+mint a linear permit only after that complete tuple and the scheduler/coordinator transition pass
+preflight. Descriptor code can borrow resources only through the permit. A descriptor error drops
+the permit without committing the Volume or scheduler; after descriptor success, consuming the
+permit is an infallible ownership transition.
+
+This E1 branch still writes and analyzes RFIRR v8. The later E3 semantic merge owns the v10
+current-only runner (with its documented v9 compatibility boundary); lifecycle work here must not
+rewrite that runner back to v8 when the branches are collected.
+
+The density runner feeds its console to one ordered parser rather than accepting independent marker
+matches. The parser advances through baseline, obsolete-density preemption, private terrain e0,
+terrain promotion and consumer publication, recovered same-generation observation, density retry,
+density promotion and consumer publication, then final capture/summary. Duplicate or shuffled
+checkpoints, mixed token lineages, and any obsolete-token promotion/consumer event fail closed.
+Promotion, consumer, and capture markers carry the owner-issued generation token, epoch-zero root,
+current field serial, and radiance revision. The parser binds those values to the private geometry
+root and baseline radiance rather than trusting `same_generation=true`. Geometry e0 retains the
+baseline field as its cross-generation history source; the retried density e0 must have no source.
+Runtime e0 capture markers may precede their App checkpoint, so the parser buffers them and closes
+the set only after every identity is known. It requires exactly one capture for the baseline,
+terrain, and retried density generations. The preempted density generation never completes and is
+forbidden from publishing a capture; its midflight and preemption markers instead prove that it
+never became consumer-visible. The four generation tokens must be distinct and strictly ordered
+before capture matching. Each buffered capture also retains its arrival phase: baseline capture
+must immediately precede the baseline checkpoint, terrain capture must follow preemption and
+immediately precede the private checkpoint, and retried-density capture must follow retry token
+declaration and immediately precede promotion. Capture markers parse `target` as a field and accept
+only the exact value `e0`. A private epoch-zero current field must equal its epoch-zero root.
+Terrain promotion cannot regress behind the observed private-current epoch; at the same epoch it
+must publish that exact private-current field.
+
 ## Transport matrix
 
 The matrix runs spacing 32 and 16 and includes:
@@ -122,7 +158,8 @@ so startup-volume epochs or records from another field cannot contaminate the ta
 - the final radiance epoch zero uses the expected prior complete source;
 - a density update leaves spacing 32 active while spacing 16 builds;
 - a geometry edit preempts the first density candidate without making it consumer-visible;
-- the latest geometry epoch zero publishes before the density retry;
+- the latest geometry epoch zero completes privately, the same typed generation survives local
+  recovery and publishes, and only then does the density retry begin;
 - spacing 16 first becomes visible only as a complete epoch-zero field.
 
 ## Terrain-edit continuity
@@ -135,14 +172,15 @@ indirect continuity worked.
 
 ## Response latency and static sleep
 
-On the NVIDIA GeForce RTX 3060 Ti, three matched release runs of
+On the NVIDIA GeForce RTX 3060 Ti, three historical matched release runs of
 `terrain-edits-closed` produced six complete edit-to-epoch-zero promotions in `31-36 ms`, with
 median `34.5 ms` and p95 `36 ms`. The retained two-stage baseline log contains `87 ms` and `88 ms`
-for the same two edits, median `87.5 ms`; the observed first-valid-field latency is therefore about
-`60.6%` lower. The old baseline has only two observations, so this is a response-latency result,
-not a broad frame-performance claim. Atomic descriptor/resource publication itself remained
-`0.0095 ms` median. Current evidence is under `target/ddgi-temporal-lifecycle-final/`; the baseline
-is under `target/ddgi-temporal-lifecycle-baseline/`.
+for the same two edits, median `87.5 ms`. These samples predate localized recovery and therefore do
+not measure the current edit-to-consumer-publication interval. They remain historical first-valid
+field evidence, not a broad frame-performance claim. Atomic descriptor/resource publication itself
+remained `0.0095 ms` median. The historical evidence is under
+`target/ddgi-temporal-lifecycle-final/`; the baseline is under
+`target/ddgi-temporal-lifecycle-baseline/`.
 
 A separate five-second static portal run under that historical 64-epoch policy reached
 `Converged e63` and recorded zero scheduler claims after the terminal publication. Camera/display

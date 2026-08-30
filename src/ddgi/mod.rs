@@ -63,9 +63,10 @@ pub(crate) use resources::DdgiConsumerResources;
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
-    DdgiLocalLightTraceTotals, DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch,
-    DdgiResourceBytes, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiFieldGeneration, DdgiFieldPublication, DdgiLocalLightTraceTotals, DdgiProbePriority,
+    DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes, DdgiTraceStats,
+    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
+    DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
@@ -73,11 +74,13 @@ pub(crate) use runtime::{
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
+#[cfg(test)]
+pub(crate) use scheduler::DdgiSchedulerError;
 #[allow(unused_imports)]
 pub use scheduler::{
     DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldState, DdgiScheduledWorkKind,
 };
-pub(crate) use scheduler::{DdgiScheduledWork, DdgiSchedulerError, DdgiTransportScheduler};
+pub(crate) use scheduler::{DdgiScheduledWork, DdgiTransportScheduler};
 pub(crate) use terrain_refresh::DdgiTerrainRefresh;
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState};
 pub use voxel_visibility::DdgiVoxelVisibility;

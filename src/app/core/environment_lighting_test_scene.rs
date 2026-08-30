@@ -3,8 +3,8 @@ use super::App;
 use crate::app::world_edits::{TerrainRemovalEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
-    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason, DdgiRefreshState,
-    DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
+    DdgiBuildKind, DdgiFieldGeneration, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason,
+    DdgiRefreshState, DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::lighting::{
@@ -373,12 +373,18 @@ enum TestScenePhase {
         obsolete_density_field: DdgiFieldIdentity,
         target_revision: u32,
     },
-    WaitingForDensityGeometryPublished {
+    WaitingForDensityGeometryEpochZero {
         baseline: DdgiFieldIdentity,
         obsolete_density_token_serial: u64,
         obsolete_density_field: DdgiFieldIdentity,
         terrain_token_serial: u64,
         target_revision: u32,
+    },
+    WaitingForDensityGeometryPublished {
+        baseline: DdgiFieldIdentity,
+        obsolete_density_token_serial: u64,
+        terrain_token_serial: u64,
+        geometry_generation: DdgiFieldGeneration,
     },
     WaitingForDensityRetryMidflight {
         geometry_field: DdgiFieldIdentity,
@@ -470,13 +476,18 @@ fn assert_initial_epoch_zero(
     assert_eq!(field.source(), None);
 }
 
-fn assert_geometry_epoch_zero(
-    field: DdgiFieldIdentity,
+fn assert_geometry_generation_epoch_zero(
+    generation: DdgiFieldGeneration,
     source: DdgiFieldIdentity,
     geometry_revision: u32,
 ) {
+    let build_token = generation.build_token();
+    let field = generation.epoch_zero_field();
     let key = field.field();
     let source_key = source.field();
+    assert_eq!(build_token.kind(), DdgiBuildKind::Terrain);
+    assert_eq!(build_token.terrain_revision(), geometry_revision);
+    assert_eq!(build_token.spacing_voxels(), source_key.spacing_voxels());
     assert_eq!(key.geometry_revision(), geometry_revision);
     assert_eq!(key.radiance_revision(), source_key.radiance_revision());
     assert_eq!(key.spacing_voxels(), source_key.spacing_voxels());
@@ -672,9 +683,18 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityGeometryReplacement {
                 target_revision, ..
             }
-            | TestScenePhase::WaitingForDensityGeometryPublished {
+            | TestScenePhase::WaitingForDensityGeometryEpochZero {
                 target_revision, ..
             } => Some(target_revision),
+            TestScenePhase::WaitingForDensityGeometryPublished {
+                geometry_generation,
+                ..
+            } => Some(
+                geometry_generation
+                    .epoch_zero_field()
+                    .field()
+                    .geometry_revision(),
+            ),
             TestScenePhase::WaitingForDensityRetryMidflight { geometry_field, .. }
             | TestScenePhase::WaitingForDensityFinalPublished { geometry_field, .. } => {
                 Some(geometry_field.field().geometry_revision())
@@ -892,6 +912,9 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityMidflight { .. } => "waiting-for-density-midflight",
             TestScenePhase::WaitingForDensityGeometryReplacement { .. } => {
                 "waiting-for-density-geometry-replacement"
+            }
+            TestScenePhase::WaitingForDensityGeometryEpochZero { .. } => {
+                "waiting-for-density-geometry-epoch-zero"
             }
             TestScenePhase::WaitingForDensityGeometryPublished { .. } => {
                 "waiting-for-density-geometry-published"
@@ -1532,7 +1555,7 @@ impl App {
                 let r4_revision =
                     next_nonzero_revision(next_nonzero_revision(r2.field().radiance_revision()));
                 let active = self.tracer.ddgi_runtime_status().active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 assert_eq!(active.building_field, Some(r2));
                 assert_eq!(
                     active.radiance_revision,
@@ -1583,7 +1606,7 @@ impl App {
             MultiSourceTestStage::AwaitBaseline => {
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let baseline = active.published_field?;
+                let baseline = active.published_field()?;
                 if !is_converged_field(baseline)
                     || active.stage != DdgiVolumeStage::Ready
                     || active.building_field.is_some()
@@ -1809,7 +1832,7 @@ impl App {
                 }
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let field = active.published_field?;
+                let field = active.published_field()?;
                 if field.field().radiance_revision()
                     != transport.local_lights.info.transport_revision
                     || field.field().geometry_revision() != state.terrain_revision
@@ -2322,7 +2345,7 @@ impl App {
                 }
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let field = active.published_field?;
+                let field = active.published_field()?;
                 if field.field().radiance_revision()
                     != transport.local_lights.info.transport_revision
                     || field.field().geometry_revision() != state.terrain_revision
@@ -2487,7 +2510,7 @@ impl App {
                     let runtime = self.tracer.ddgi_runtime_status();
                     let baseline = runtime
                         .active()
-                        .published_field
+                        .published_field()
                         .expect("density lifecycle requires an initial published field");
                     assert_eq!(baseline.field().geometry_revision(), terrain_revision);
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
@@ -2540,7 +2563,7 @@ impl App {
             TestScenePhase::WaitingForRadianceBaseline { terrain_revision } => {
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let Some(r1) = active.published_field else {
+                let Some(r1) = active.published_field() else {
                     return;
                 };
                 if !is_converged_field(r1)
@@ -2599,7 +2622,7 @@ impl App {
                 PointLightTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -3119,7 +3142,7 @@ impl App {
                         return;
                     }
                     let active = status.active();
-                    let Some(point_on_field) = active.published_field else {
+                    let Some(point_on_field) = active.published_field() else {
                         return;
                     };
                     if point_on_field.field().radiance_revision()
@@ -3408,7 +3431,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(final_field) = active.published_field else {
+                    let Some(final_field) = active.published_field() else {
                         return;
                     };
                     if final_field.field().radiance_revision()
@@ -3495,7 +3518,7 @@ impl App {
                 VoxelEmissiveTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -3949,7 +3972,7 @@ impl App {
                         return;
                     }
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4099,7 +4122,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4168,7 +4191,7 @@ impl App {
                 RasterEmitterTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -4315,7 +4338,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4658,7 +4681,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4727,7 +4750,7 @@ impl App {
                 let status = self.tracer.ddgi_runtime_status();
                 assert!(status.staging().is_none());
                 let active = status.active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 let Some(r2) = active.building_field else {
                     return;
                 };
@@ -4784,7 +4807,7 @@ impl App {
             }
             TestScenePhase::WaitingForRadianceR3Observed { r1, r2 } => {
                 let active = self.tracer.ddgi_runtime_status().active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 assert_eq!(active.building_field, Some(r2));
                 let r3_revision = next_nonzero_revision(r2.field().radiance_revision());
                 if self.tracer.ddgi_latest_radiance_revision() != Some(r3_revision) {
@@ -4807,7 +4830,7 @@ impl App {
                 if self.tracer.ddgi_latest_radiance_revision() != Some(r4_revision) {
                     return;
                 }
-                match active.published_field {
+                match active.published_field() {
                     Some(published) if published == r1 => {
                         assert_eq!(active.building_field, Some(r2));
                         return;
@@ -4847,8 +4870,8 @@ impl App {
             }
             TestScenePhase::WaitingForRadianceR4Published { r1, r2, r4 } => {
                 let active = self.tracer.ddgi_runtime_status().active();
-                if active.published_field != Some(r4) {
-                    assert_eq!(active.published_field, Some(r2));
+                if active.published_field() != Some(r4) {
+                    assert_eq!(active.published_field(), Some(r2));
                     assert_eq!(active.building_field, Some(r4));
                     return;
                 }
@@ -4873,7 +4896,7 @@ impl App {
             TestScenePhase::WaitingForDensityMidflight { baseline } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(baseline));
+                assert_eq!(active.published_field(), Some(baseline));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert!(runtime.active_consumers_are_available());
                 let Some(staging) = runtime.staging() else {
@@ -4959,7 +4982,7 @@ impl App {
             } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(baseline));
+                assert_eq!(active.published_field(), Some(baseline));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert_ne!(
                     runtime.active_token_serial(),
@@ -5004,7 +5027,7 @@ impl App {
                     token.serial(),
                     target_revision,
                 );
-                TestScenePhase::WaitingForDensityGeometryPublished {
+                TestScenePhase::WaitingForDensityGeometryEpochZero {
                     baseline,
                     obsolete_density_token_serial,
                     obsolete_density_field,
@@ -5012,7 +5035,7 @@ impl App {
                     target_revision,
                 }
             }
-            TestScenePhase::WaitingForDensityGeometryPublished {
+            TestScenePhase::WaitingForDensityGeometryEpochZero {
                 baseline,
                 obsolete_density_token_serial,
                 obsolete_density_field,
@@ -5025,29 +5048,114 @@ impl App {
                     Some(obsolete_density_token_serial)
                 );
                 assert_ne!(
-                    runtime.active().published_field,
+                    runtime.active().published_field(),
                     Some(obsolete_density_field),
                     "obsolete density field became consumer-visible"
                 );
-                if runtime.active_token_serial() != Some(terrain_token_serial) {
-                    assert_eq!(runtime.active().published_field, Some(baseline));
-                    assert_eq!(runtime.active().grid.spacing_voxels(), 32);
-                    assert!(runtime.active_consumers_are_available());
-                    return;
-                }
-                let geometry_field = runtime
-                    .active()
-                    .published_field
-                    .expect("terrain epoch zero must be published before promotion");
-                assert_geometry_epoch_zero(geometry_field, baseline, target_revision);
+                assert_ne!(
+                    runtime.active_token_serial(),
+                    Some(terrain_token_serial),
+                    "terrain generation promoted before acceptance observed its private epoch zero"
+                );
+                assert_eq!(runtime.active().published_field(), Some(baseline));
+                assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
-                log_acceptance_field("DENSITY", "geometry-e0-published", geometry_field);
+                let staging = runtime.staging().expect(
+                    "terrain generation must remain private until local recovery completes",
+                );
+                let Some(publication) = staging.publication else {
+                    return;
+                };
+                let geometry_generation = publication.generation();
+                assert_eq!(
+                    geometry_generation.build_token().serial(),
+                    terrain_token_serial
+                );
+                assert_geometry_generation_epoch_zero(
+                    geometry_generation,
+                    baseline,
+                    target_revision,
+                );
+                let epoch_zero = geometry_generation.epoch_zero_field();
+                log_acceptance_field("DENSITY", "geometry-e0-private-field", epoch_zero);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial={} generation_token_serial={} obsolete_density_token_serial={} geometry_revision={} radiance_revision={} epoch_zero_field_serial={} source_field_serial={} private_current_field_serial={} private_current_update_epoch={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
+                    geometry_generation.build_token().serial(),
                     obsolete_density_token_serial,
                     target_revision,
+                    epoch_zero.field().radiance_revision(),
+                    epoch_zero.field().serial(),
+                    epoch_zero
+                        .source()
+                        .map_or(0, |source| source.serial()),
+                    publication.field().field().serial(),
+                    publication.field().field().update_epoch(),
+                );
+                TestScenePhase::WaitingForDensityGeometryPublished {
+                    baseline,
+                    obsolete_density_token_serial,
+                    terrain_token_serial,
+                    geometry_generation,
+                }
+            }
+            TestScenePhase::WaitingForDensityGeometryPublished {
+                baseline,
+                obsolete_density_token_serial,
+                terrain_token_serial,
+                geometry_generation,
+            } => {
+                let runtime = self.tracer.ddgi_runtime_status();
+                assert_ne!(
+                    runtime.active_token_serial(),
+                    Some(obsolete_density_token_serial)
+                );
+                if runtime.active_token_serial() != Some(terrain_token_serial) {
+                    assert_eq!(runtime.active().published_field(), Some(baseline));
+                    assert_eq!(runtime.active().grid.spacing_voxels(), 32);
+                    assert!(runtime.active_consumers_are_available());
+                    if let Some(private_publication) =
+                        runtime.staging().and_then(|staging| staging.publication)
+                    {
+                        assert_eq!(
+                            private_publication.generation(),
+                            geometry_generation,
+                            "private terrain recovery changed transport generation"
+                        );
+                    }
+                    return;
+                }
+                let publication = runtime
+                    .active()
+                    .publication
+                    .expect("promoted terrain Volume must retain its field publication");
+                assert_eq!(publication.generation(), geometry_generation);
+                let geometry_field = publication.field();
+                assert!(
+                    geometry_field.field().update_epoch() > 0,
+                    "localized recovery must not expose the raw geometry epoch zero"
+                );
+                assert!(runtime.active_consumers_are_available());
+                assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
+                log_acceptance_field(
+                    "DENSITY",
+                    "geometry-recovery-published-field",
+                    geometry_field,
+                );
+                log::info!(
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-recovery-published terrain_token_serial={} generation_token_serial={} obsolete_density_token_serial={} geometry_revision={} radiance_revision={} epoch_zero_field_serial={} published_field_serial={} published_update_epoch={} same_generation=true active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    terrain_token_serial,
+                    geometry_generation.build_token().serial(),
+                    obsolete_density_token_serial,
+                    geometry_generation
+                        .epoch_zero_field()
+                        .field()
+                        .geometry_revision(),
+                    geometry_field.field().radiance_revision(),
+                    geometry_generation.epoch_zero_field().field().serial(),
+                    geometry_field.field().serial(),
+                    geometry_field.field().update_epoch(),
                 );
                 TestScenePhase::WaitingForDensityRetryMidflight {
                     geometry_field,
@@ -5062,7 +5170,7 @@ impl App {
             } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(geometry_field));
+                assert_eq!(active.published_field(), Some(geometry_field));
                 assert_eq!(runtime.active_token_serial(), Some(terrain_token_serial));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert!(runtime.active_consumers_are_available());
@@ -5110,12 +5218,14 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight active_token_serial={} active_field_serial={} active_geometry_revision={} active_spacing_voxels=32 density_token_serial={} density_field_serial={} density_spacing_voxels=16 progress={}/{} old_field_visible=true active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight active_token_serial={} active_field_serial={} active_geometry_revision={} active_radiance_revision={} active_spacing_voxels=32 density_token_serial={} density_field_serial={} density_radiance_revision={} density_spacing_voxels=16 progress={}/{} old_field_visible=true active_available=true",
                     terrain_token_serial,
                     geometry_field.field().serial(),
                     geometry_field.field().geometry_revision(),
+                    geometry_field.field().radiance_revision(),
                     token.serial(),
                     density_field.field().serial(),
+                    density_field.field().radiance_revision(),
                     staging.filtered_probe_count,
                     staging.grid.probe_count(),
                 );
@@ -5141,7 +5251,7 @@ impl App {
                 );
                 if runtime.active_token_serial() != Some(density_token_serial) {
                     assert_eq!(runtime.active_token_serial(), Some(terrain_token_serial));
-                    assert_eq!(runtime.active().published_field, Some(geometry_field));
+                    assert_eq!(runtime.active().published_field(), Some(geometry_field));
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     if let Some(staging_token) =
                         runtime.staging().and_then(|staging| staging.build_token)
@@ -5155,7 +5265,7 @@ impl App {
                     return;
                 }
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(density_field));
+                assert_eq!(active.published_field(), Some(density_field));
                 assert_eq!(active.grid.spacing_voxels(), 16);
                 assert_initial_epoch_zero(
                     density_field,
@@ -5168,11 +5278,12 @@ impl App {
                 assert!(runtime.active_consumers_are_available());
                 log_acceptance_field("DENSITY", "complete", density_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} spacing_voxels=16",
+                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} radiance_revision={} spacing_voxels=16",
                     obsolete_density_token_serial,
                     terrain_token_serial,
                     density_token_serial,
                     density_field.field().geometry_revision(),
+                    density_field.field().radiance_revision(),
                 );
                 TestScenePhase::Ready
             }
@@ -5186,7 +5297,7 @@ impl App {
             TestScenePhase::WaitingForPattSeamProbeField { target_revision } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                let Some(field) = active.published_field else {
+                let Some(field) = active.published_field() else {
                     return;
                 };
                 if field.field().geometry_revision() != target_revision
@@ -5523,7 +5634,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey};
+    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
     #[test]
     fn initial_test_scene_requires_a_visible_terrain_publication() {
@@ -5647,6 +5758,27 @@ mod tests {
         .unwrap();
 
         assert_initial_epoch_zero(epoch_zero, 2, 1, 16);
+    }
+
+    #[test]
+    fn density_geometry_acceptance_uses_the_owner_validated_private_epoch_zero() {
+        let baseline_source =
+            DdgiFieldKey::new(9, 1, 1, 32, DdgiFieldState::Converging, 3).unwrap();
+        let baseline = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(10, 1, 1, 32, DdgiFieldState::Converging, 4).unwrap(),
+            Some(baseline_source),
+        )
+        .unwrap();
+        let epoch_zero = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(11, 2, 1, 32, DdgiFieldState::Converging, 0).unwrap(),
+            Some(baseline.field()),
+        )
+        .unwrap();
+        let token = DdgiBuildToken::for_test(3, 2, 32, DdgiBuildKind::Terrain);
+        let publication = DdgiFieldPublication::for_test(token, epoch_zero);
+
+        assert_geometry_generation_epoch_zero(publication.generation(), baseline, 2);
+        assert_eq!(publication.generation().epoch_zero_field(), epoch_zero);
     }
 
     #[test]

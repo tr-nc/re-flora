@@ -87,6 +87,17 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2)
                     self.assertIn("usage:", result.stderr)
 
+    def test_density_gate_delegates_to_the_ordered_parser_without_marker_greps(
+        self,
+    ) -> None:
+        source = RUNNER.read_text()
+        density = source.split("check_density() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("validate_ddgi_density_lifecycle.py", source)
+        self.assertIn('python3 "$density_validator" "$console"', density)
+        self.assertNotIn("require_markers", density)
+        self.assertNotIn("grep ", density)
+        self.assertNotIn("tail ", density)
+
 
 if __name__ == "__main__":
     unittest.main()

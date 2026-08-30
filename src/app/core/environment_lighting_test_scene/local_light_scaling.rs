@@ -199,7 +199,7 @@ impl App {
                 );
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let baseline = active.published_field?;
+                let baseline = active.published_field()?;
                 if !is_converged_field(baseline)
                     || active.stage != DdgiVolumeStage::Ready
                     || active.building_field.is_some()
@@ -377,7 +377,7 @@ impl App {
                 }
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let field = active.published_field?;
+                let field = active.published_field()?;
                 if field.field().radiance_revision()
                     != transport.local_lights.info.transport_revision
                     || field.field().geometry_revision() != state.terrain_revision

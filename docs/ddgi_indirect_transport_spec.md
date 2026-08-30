@@ -29,7 +29,9 @@ unpublished staging work -> Converging e0 -> Converging e1 ... -> Converged
 ```
 
 - `Building` is physical work owned by Active/Staging volume resources. It is not a field state.
-- `Converging` means a complete finite field for the requested revision is already published.
+- `Converging` means a complete finite field for the requested revision is published inside its
+  owning Volume. A Staging field remains private until the Volume publication policy permits an
+  atomic consumer swap.
 - `Converged` means the field has gone to sleep after satisfying the threshold policy or exhausting
   the finite temporal sample budget.
 - `update_epoch` counts complete temporal samples for one geometry/radiance/spacing identity. It is
@@ -50,13 +52,19 @@ For geometry and density updates, epoch zero:
 - records terrain albedo times exact direct-sun irradiance on front-face hits;
 - uses zero indirect history and zero history retention;
 - writes both irradiance and visibility to a private destination;
-- publishes atomically after the entire atlas validates.
+- becomes the immutable generation root after the entire atlas validates.
 
-This replaces the old rule that waited for two complete full-volume updates before publication.
-The prior Active volume remains bound while Staging builds, so editing never deliberately blanks all
-indirect lighting. Exact voxel visibility follows the latest published terrain while stale
+Epoch zero no longer waits for a second transport-bounce stage before becoming a complete field.
+The prior Active volume remains bound while Staging builds, so editing never deliberately blanks
+all indirect lighting. Exact voxel visibility follows the latest published terrain while stale
 irradiance, relocation, and moment visibility remain explicitly owned by the older field until the
-replacement epoch zero promotes.
+replacement Volume promotes.
+
+Density changes have no localized topology-recovery window, so their complete epoch zero promotes
+directly. Geometry edits retain the epoch-zero root privately while bounded local recovery advances
+the same owner-validated generation. The recovered descendant, not the raw geometry epoch zero,
+becomes consumer-visible. Its typed publication carries the physical build token and exact private
+epoch-zero root, so acceptance can prove the lineage without inferring it from serial arithmetic.
 
 Geometry publication is strict latest-revision-wins. One physical Staging update runs at a time;
 new edits coalesce, obsolete candidates cannot promote, and geometry preempts density and temporal
@@ -148,15 +156,17 @@ The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` c
   multi-epoch propagation behavior at spacing 32 and 16;
 - forward/reverse epoch-zero captures verify batch-order independence;
 - terrain-edit, radiance-change, and density-change scenarios verify resident-field continuity,
-  coalescing, preemption, and first-epoch publication;
+  coalescing, preemption, private geometry epoch-zero provenance, and direct density epoch-zero
+  publication;
 - terminal correctness captures explicitly target `Converged`; the Moment-only thin-wall
   exact-reference P99 ceilings are `0.400` at spacing 32 and `0.375` at spacing 16;
 - general renderer validation follows `cargo fmt --check`, `cargo check`, `cargo test`, and a hidden
   muted release run with log inspection.
 
-Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
-`31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were
-`87/88 ms` (median `87.5 ms`). Publication bookkeeping itself remained `0.0095 ms` median.
+Three historical matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero
+promotions at `31-36 ms` (median `34.5 ms`, p95 `36 ms`). Those samples predate the localized
+recovery publication policy and remain historical response-latency evidence only. Publication
+bookkeeping itself remained `0.0095 ms` median.
 Under the historical 64-epoch policy, a five-second static portal run recorded zero scheduler claims
 after `Converged e63`; that observation demonstrates sleeping behavior only. It is not the current
 sample-budget contract.
