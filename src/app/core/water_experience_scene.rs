@@ -1,23 +1,22 @@
+use super::water::{
+    EXPERIENCE_INITIAL_FLUID_MAX_WS as INITIAL_FLUID_MAX_WS,
+    EXPERIENCE_INITIAL_FLUID_MIN_WS as INITIAL_FLUID_MIN_WS,
+};
 use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::geom::{build_bvh, Cuboid};
 use anyhow::Result;
 use glam::Vec3;
-use re_flora_water::PondWaterConfig;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const BASIN_OUTER_MIN_WS: Vec3 = Vec3::new(0.32, 0.08, 0.32);
 const BASIN_OUTER_MAX_WS: Vec3 = Vec3::new(1.68, 0.90, 1.68);
 const BASIN_INNER_MIN_WS: Vec3 = Vec3::new(0.42, 0.28, 0.42);
 const BASIN_INNER_MAX_WS: Vec3 = Vec3::new(1.58, 1.35, 1.58);
-const INITIAL_FLUID_MIN_WS: Vec3 = Vec3::new(0.48, 0.32, 0.48);
-const INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new(1.52, 0.72, 1.52);
 const CAMERA_POSITION_WS: Vec3 = Vec3::new(1.0, 1.85, 2.35);
 const CAMERA_TARGET_WS: Vec3 = Vec3::new(1.0, 0.57, 1.0);
 const EXPERIENCE_TIME_OF_DAY: f32 = 0.42;
-const EXPERIENCE_PARTICLE_COUNT: usize = 10_000;
-const EXPERIENCE_SUBSTEP_HZ: f32 = 60.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WaterExperiencePhase {
@@ -37,16 +36,6 @@ impl WaterExperienceScene {
             expected_particle_count,
             phase: WaterExperiencePhase::WaitingForCompleteFrame,
         }
-    }
-
-    pub(super) fn configure_water(config: &mut PondWaterConfig) {
-        *config = config
-            .clone()
-            .with_particle_count(EXPERIENCE_PARTICLE_COUNT)
-            .with_initial_fluid_bounds(INITIAL_FLUID_MIN_WS, INITIAL_FLUID_MAX_WS)
-            .with_substep_hz(EXPERIENCE_SUBSTEP_HZ)
-            .with_terrain_collision_margin_cells(0.0)
-            .with_linear_damping_per_sec(1.5);
     }
 
     fn is_waiting(&self) -> bool {
@@ -163,34 +152,13 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use re_flora_water::collider::WaterBoxCollider;
+    use crate::app::core::water::EXPERIENCE_PARTICLE_COUNT;
 
     fn assert_vec3_close(actual: Vec3, expected: Vec3) {
         assert!(
             actual.abs_diff_eq(expected, 1.0e-6),
             "expected {expected:?}, got {actual:?}"
         );
-    }
-
-    #[test]
-    fn experience_water_config_is_deterministic_and_has_free_surface_headroom() {
-        let mut config =
-            PondWaterConfig::default().with_collider_bounds(Vec3::ZERO, Vec3::splat(2.0));
-
-        WaterExperienceScene::configure_water(&mut config);
-
-        assert_eq!(config.particle_count, EXPERIENCE_PARTICLE_COUNT);
-        assert_eq!(config.substep_dt, EXPERIENCE_SUBSTEP_HZ.recip());
-        assert_eq!(config.terrain_collision_margin_cells, 0.0);
-        assert_eq!(config.linear_damping_per_sec, 1.5);
-        assert_eq!(
-            config.initial_fluid_bounds,
-            Some(WaterBoxCollider::new(
-                INITIAL_FLUID_MIN_WS,
-                INITIAL_FLUID_MAX_WS
-            ))
-        );
-        assert!(INITIAL_FLUID_MAX_WS.y < config.collider.max_ws.y);
     }
 
     #[test]

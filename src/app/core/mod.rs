@@ -103,7 +103,7 @@ use crate::wind::{WindResponseCurve, WindSource};
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer, window::WindowState, DenoiserBenchScene,
-    EnvironmentLightingTestCase, WaterProfilePreference,
+    EnvironmentLightingTestCase,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -115,7 +115,6 @@ use re_flora_vkn::{
     SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
-use re_flora_water::PondWaterConfig;
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
@@ -1347,48 +1346,23 @@ impl App {
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
-        // Start with the chosen profile and proportional world grid. For the implicit
-        // default run, apply persisted GUI water sliders, then let explicit CLI
-        // overrides win on top.
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
-        let world_grid_dim = UVec3::new(
-            (world_extent.x * cells_per_unit).ceil() as u32,
-            (world_extent.y * cells_per_unit).ceil() as u32,
-            (world_extent.z * cells_per_unit).ceil() as u32,
-        );
-        let mut water_config = match options.water_profile {
-            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default()
-                .with_collider_bounds(Vec3::ZERO, world_extent)
-                .with_grid_dim(world_grid_dim),
-            Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
-                .with_substep_hz(60.0)
-                .with_terrain_collision_margin_cells(0.0)
-                .with_linear_damping_per_sec(1.5)
-                .with_collider_bounds(Vec3::ZERO, world_extent)
-                .with_grid_dim(world_grid_dim),
-        };
-        let water_gui_config_applied = options.water_profile.is_none() && !options.water_experience;
-        if water_gui_config_applied {
-            water::apply_water_gui_adjustables_to_config(
-                &mut water_config,
-                &debug_settings.adjustables,
-            );
-        }
-        if options.water_experience {
-            water_experience_scene::WaterExperienceScene::configure_water(&mut water_config);
-        }
-        let water_profile_config = (options.water_profile.is_some() || options.water_experience)
-            .then(|| water_config.clone());
-        let water_runtime_overrides =
-            water::WaterRuntimeOverrides::from_options(options, water_profile_config);
-        water_runtime_overrides.apply(&mut water_config);
+        let water_launch = water::WaterLaunchRequest::from_options(
+            options,
+            &debug_settings.adjustables,
+            world_extent,
+            cells_per_unit,
+        )
+        .resolve();
+        let water_config = water_launch.effective;
+        let water_runtime_overrides = water_launch.runtime_overrides;
 
         log::info!(
             "[WATER] config profile={:?} experience={} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid={:?} cells_per_unit={}",
-            options.water_profile,
-            options.water_experience,
-            water_gui_config_applied,
+            water_launch.profile,
+            water_launch.experience,
+            water_launch.gui_config_applied,
             water_config.particle_count,
             water_config.grid_dim,
             water_config.substep_dt,
@@ -1411,7 +1385,7 @@ impl App {
             water_config.collider.min_ws,
             water_config.collider.max_ws,
             water_config.initial_fluid_bounds,
-            cells_per_unit,
+            water_launch.cells_per_unit,
         );
         let water_experience_scene = options.water_experience.then(|| {
             water_experience_scene::WaterExperienceScene::new(water_config.particle_count)

@@ -1,8 +1,14 @@
 use crate::app::GuiAdjustables;
 use crate::AppOptions;
+use glam::{UVec3, Vec3};
 use re_flora_water::PondWaterConfig;
 
-#[derive(Clone, Debug)]
+pub(in crate::app::core) const EXPERIENCE_PARTICLE_COUNT: usize = 10_000;
+const EXPERIENCE_SUBSTEP_HZ: f32 = 60.0;
+pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MIN_WS: Vec3 = Vec3::new(0.48, 0.32, 0.48);
+pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new(1.52, 0.72, 1.52);
+
+#[derive(Clone, Debug, Default)]
 pub(in crate::app::core) struct WaterRuntimeOverrides {
     profile: Option<PondWaterConfig>,
     particle_count: Option<usize>,
@@ -18,12 +24,9 @@ pub(in crate::app::core) struct WaterRuntimeOverrides {
 }
 
 impl WaterRuntimeOverrides {
-    pub(in crate::app::core) fn from_options(
-        options: &AppOptions,
-        profile: Option<PondWaterConfig>,
-    ) -> Self {
+    fn from_options(options: &AppOptions) -> Self {
         Self {
-            profile,
+            profile: None,
             particle_count: options.water_particles,
             particle_edge_len: options.water_particle_edge_len,
             grid_dim: options.water_grid,
@@ -72,6 +75,126 @@ impl WaterRuntimeOverrides {
             config.j_min = j_min;
         }
     }
+}
+
+/// The typed facts needed to select one effective water configuration.
+///
+/// `AppOptions` is translated here and never crosses the `WaterRuntime` seam. The priority rule is
+/// deliberately executable in one place: base world config, then named profile or persisted GUI,
+/// then the deterministic experience, and finally explicit CLI overrides.
+pub(in crate::app::core) struct WaterLaunchRequest {
+    profile: Option<crate::WaterProfilePreference>,
+    experience: bool,
+    base: PondWaterConfig,
+    persisted_gui_effective: PondWaterConfig,
+    cells_per_unit: f32,
+    overrides: WaterRuntimeOverrides,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::app::core) struct ResolvedWaterLaunch {
+    pub(in crate::app::core) effective: PondWaterConfig,
+    pub(in crate::app::core) runtime_overrides: WaterRuntimeOverrides,
+    pub(in crate::app::core) profile: Option<crate::WaterProfilePreference>,
+    pub(in crate::app::core) experience: bool,
+    pub(in crate::app::core) gui_config_applied: bool,
+    pub(in crate::app::core) cells_per_unit: f32,
+}
+
+impl WaterLaunchRequest {
+    pub(in crate::app::core) fn from_options(
+        options: &AppOptions,
+        persisted_gui: &GuiAdjustables,
+        world_extent: Vec3,
+        cells_per_unit: f32,
+    ) -> Self {
+        Self::from_launch_facts(
+            options.water_profile,
+            options.water_experience,
+            persisted_gui,
+            world_extent,
+            cells_per_unit,
+            WaterRuntimeOverrides::from_options(options),
+        )
+    }
+
+    fn from_launch_facts(
+        profile: Option<crate::WaterProfilePreference>,
+        experience: bool,
+        persisted_gui: &GuiAdjustables,
+        world_extent: Vec3,
+        cells_per_unit: f32,
+        overrides: WaterRuntimeOverrides,
+    ) -> Self {
+        let world_grid_dim = UVec3::new(
+            (world_extent.x * cells_per_unit).ceil() as u32,
+            (world_extent.y * cells_per_unit).ceil() as u32,
+            (world_extent.z * cells_per_unit).ceil() as u32,
+        );
+        let base = PondWaterConfig::default()
+            .with_collider_bounds(Vec3::ZERO, world_extent)
+            .with_grid_dim(world_grid_dim);
+        let mut persisted_gui_effective = base.clone();
+        apply_water_gui_adjustables_to_config(&mut persisted_gui_effective, persisted_gui);
+        Self {
+            profile,
+            experience,
+            base,
+            persisted_gui_effective,
+            cells_per_unit,
+            overrides,
+        }
+    }
+
+    pub(in crate::app::core) fn resolve(mut self) -> ResolvedWaterLaunch {
+        let mut effective = self.base;
+
+        if matches!(
+            self.profile,
+            Some(crate::WaterProfilePreference::Performance)
+        ) {
+            effective = effective
+                .with_substep_hz(60.0)
+                .with_terrain_collision_margin_cells(0.0)
+                .with_linear_damping_per_sec(1.5);
+        }
+
+        let gui_config_applied = self.profile.is_none() && !self.experience;
+        if gui_config_applied {
+            effective = self.persisted_gui_effective;
+        }
+        if self.experience {
+            apply_water_experience_config(&mut effective);
+        }
+
+        // A selected profile is also the live baseline: later GUI changes cannot silently replace
+        // an explicit launch mode. Explicit overrides are replayed after every GUI observation.
+        self.overrides.profile =
+            (self.profile.is_some() || self.experience).then(|| effective.clone());
+        self.overrides.apply(&mut effective);
+
+        ResolvedWaterLaunch {
+            effective,
+            runtime_overrides: self.overrides,
+            profile: self.profile,
+            experience: self.experience,
+            gui_config_applied,
+            cells_per_unit: self.cells_per_unit,
+        }
+    }
+}
+
+pub(super) fn apply_water_experience_config(config: &mut PondWaterConfig) {
+    *config = config
+        .clone()
+        .with_particle_count(EXPERIENCE_PARTICLE_COUNT)
+        .with_initial_fluid_bounds(
+            EXPERIENCE_INITIAL_FLUID_MIN_WS,
+            EXPERIENCE_INITIAL_FLUID_MAX_WS,
+        )
+        .with_substep_hz(EXPERIENCE_SUBSTEP_HZ)
+        .with_terrain_collision_margin_cells(0.0)
+        .with_linear_damping_per_sec(1.5);
 }
 
 pub(in crate::app::core) fn apply_water_gui_adjustables_to_config(
@@ -174,23 +297,104 @@ fn finite_clamped(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec3;
+
+    fn request(
+        profile: Option<crate::WaterProfilePreference>,
+        experience: bool,
+        gui: GuiAdjustables,
+        overrides: WaterRuntimeOverrides,
+    ) -> WaterLaunchRequest {
+        WaterLaunchRequest::from_launch_facts(
+            profile,
+            experience,
+            &gui,
+            Vec3::splat(2.0),
+            32.0,
+            overrides,
+        )
+    }
+
+    fn no_overrides() -> WaterRuntimeOverrides {
+        WaterRuntimeOverrides::default()
+    }
+
+    #[test]
+    fn implicit_launch_applies_persisted_gui_water_config() {
+        let mut gui = GuiAdjustables::default();
+        gui.water_damping.value = 0.25;
+
+        let resolved = request(None, false, gui, no_overrides()).resolve();
+
+        assert!(resolved.gui_config_applied);
+        assert_eq!(resolved.effective.linear_damping_per_sec, 0.25);
+        assert_eq!(resolved.effective.collider.max_ws, Vec3::splat(2.0));
+        assert_eq!(resolved.effective.grid_dim, glam::UVec3::splat(64));
+    }
+
+    #[test]
+    fn named_profile_replaces_persisted_gui_water_config() {
+        let mut gui = GuiAdjustables::default();
+        gui.water_damping.value = 0.25;
+
+        let resolved = request(
+            Some(crate::WaterProfilePreference::Performance),
+            false,
+            gui,
+            no_overrides(),
+        )
+        .resolve();
+
+        assert!(!resolved.gui_config_applied);
+        assert_eq!(resolved.effective.substep_dt, 60.0_f32.recip());
+        assert_eq!(resolved.effective.terrain_collision_margin_cells, 0.0);
+        assert_eq!(resolved.effective.linear_damping_per_sec, 1.5);
+    }
+
+    #[test]
+    fn experience_launch_is_deterministic() {
+        let mut gui = GuiAdjustables::default();
+        gui.water_damping.value = 0.25;
+
+        let resolved = request(None, true, gui, no_overrides()).resolve();
+
+        assert!(!resolved.gui_config_applied);
+        assert_eq!(resolved.effective.particle_count, 10_000);
+        assert_eq!(resolved.effective.substep_dt, 60.0_f32.recip());
+        assert_eq!(resolved.effective.linear_damping_per_sec, 1.5);
+        assert_eq!(
+            resolved.effective.initial_fluid_bounds.unwrap().min_ws,
+            Vec3::new(0.48, 0.32, 0.48)
+        );
+    }
+
+    #[test]
+    fn explicit_override_wins_over_profile_and_experience() {
+        let overrides = WaterRuntimeOverrides {
+            particle_count: Some(1234),
+            damping_per_sec: Some(0.75),
+            ..no_overrides()
+        };
+
+        let resolved = request(
+            Some(crate::WaterProfilePreference::Performance),
+            true,
+            GuiAdjustables::default(),
+            overrides,
+        )
+        .resolve();
+
+        assert_eq!(resolved.effective.particle_count, 1234);
+        assert_eq!(resolved.effective.linear_damping_per_sec, 0.75);
+    }
 
     #[test]
     fn runtime_overrides_do_not_mutate_persisted_desired_water_values() {
         let desired_damping = 0.25;
         let mut effective = PondWaterConfig::default().with_linear_damping_per_sec(desired_damping);
         let overrides = WaterRuntimeOverrides {
-            profile: None,
-            particle_count: None,
-            particle_edge_len: None,
-            grid_dim: None,
-            substep_hz: None,
-            terrain_margin_cells: None,
             damping_per_sec: Some(1.5),
-            terrain_tangent_damping_per_sec: None,
-            stiffness: None,
-            gamma: None,
-            j_min: None,
+            ..WaterRuntimeOverrides::default()
         };
 
         overrides.apply(&mut effective);
