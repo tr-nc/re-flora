@@ -49,9 +49,13 @@ the set only after every identity is known. It requires exactly one capture for 
 terrain, and retried density generations. The preempted density generation never completes and is
 forbidden from publishing a capture; its midflight and preemption markers instead prove that it
 never became consumer-visible. The four generation tokens must be distinct and strictly ordered
-before capture matching. A private epoch-zero current field must equal its epoch-zero root. Terrain
-promotion cannot regress behind the observed private-current epoch; at the same epoch it must
-publish that exact private-current field.
+before capture matching. Each buffered capture also retains its arrival phase: baseline capture
+must immediately precede the baseline checkpoint, terrain capture must follow preemption and
+immediately precede the private checkpoint, and retried-density capture must follow retry token
+declaration and immediately precede promotion. Capture markers parse `target` as a field and accept
+only the exact value `e0`. A private epoch-zero current field must equal its epoch-zero root.
+Terrain promotion cannot regress behind the observed private-current epoch; at the same epoch it
+must publish that exact private-current field.
 
 ## Transport matrix
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import NoReturn
@@ -42,6 +43,12 @@ CHECKPOINT_PHASE = {
         Phase.COMPLETE,
     )
 }
+
+
+@dataclass(frozen=True)
+class _Capture:
+    fields: dict[str, str]
+    arrival_phase: Phase | None
 
 
 class DensityLifecycleError(ValueError):
@@ -90,7 +97,7 @@ class _Lifecycle:
         self.next_index = 0
         self.seen: set[Phase] = set()
         self.values: dict[str, int] = {}
-        self.captures: list[dict[str, str]] = []
+        self.captures: list[_Capture] = []
 
     def event(self, phase: Phase, fields: dict[str, str]) -> None:
         if phase in self.seen:
@@ -345,6 +352,7 @@ class _Lifecycle:
             _fail(f"mixed-log consumer token {token}")
 
     def capture(self, fields: dict[str, str]) -> None:
+        _literal(fields, "target", "e0")
         _required(
             fields,
             "build_token_serial",
@@ -359,7 +367,10 @@ class _Lifecycle:
             "update_epoch",
             "publication",
         )
-        self.captures.append(fields)
+        arrival_phase = (
+            ORDER[self.next_index] if self.next_index < len(ORDER) else None
+        )
+        self.captures.append(_Capture(fields, arrival_phase))
 
     def finish(self) -> dict[str, int]:
         if self.next_index != len(ORDER):
@@ -387,6 +398,7 @@ class _Lifecycle:
                 0,
                 self.values["baseline_geometry_revision"],
                 32,
+                Phase.BASELINE,
             ),
             self.values["terrain_token_serial"]: (
                 "terrain",
@@ -394,6 +406,7 @@ class _Lifecycle:
                 self.values["baseline_field_serial"],
                 self.values["geometry_revision"],
                 32,
+                Phase.GEOMETRY_PRIVATE,
             ),
             self.values["density_token_serial"]: (
                 "density",
@@ -401,12 +414,14 @@ class _Lifecycle:
                 0,
                 self.values["geometry_revision"],
                 16,
+                Phase.DENSITY_PROMOTION,
             ),
         }
         seen: set[int] = set()
         for capture in self.captures:
-            token = _integer(capture, "build_token_serial")
-            generation = _integer(capture, "generation_token_serial")
+            fields = capture.fields
+            token = _integer(fields, "build_token_serial")
+            generation = _integer(fields, "generation_token_serial")
             if token != generation:
                 _fail(
                     f"capture build token {token} differs from generation token {generation}"
@@ -418,9 +433,19 @@ class _Lifecycle:
             if token in seen:
                 _fail(f"duplicate capture for generation token {token}")
             seen.add(token)
-            label, root, source, geometry, spacing = expected[token]
+            label, root, source, geometry, spacing, arrival_phase = expected[token]
+            if capture.arrival_phase != arrival_phase:
+                actual = (
+                    capture.arrival_phase.value
+                    if capture.arrival_phase is not None
+                    else "end-of-lifecycle"
+                )
+                _fail(
+                    f"{label} capture window expected immediately before "
+                    f"{arrival_phase.value}, got {actual}"
+                )
             for field_name in ("epoch_zero_field_serial", "field_serial"):
-                actual = _integer(capture, field_name)
+                actual = _integer(fields, field_name)
                 if actual != root:
                     _fail(
                         f"{label} capture {field_name} expected {root}, got {actual}"
@@ -431,14 +456,14 @@ class _Lifecycle:
                 ("radiance_revision", self.values["radiance_revision"]),
                 ("spacing_voxels", spacing),
             ):
-                actual = _integer(capture, field_name)
+                actual = _integer(fields, field_name)
                 if actual != value:
                     _fail(
                         f"{label} capture {field_name} expected {value}, got {actual}"
                     )
-            _literal(capture, "state", "Converging")
-            _literal(capture, "update_epoch", "0")
-            _literal(capture, "publication", "Published")
+            _literal(fields, "state", "Converging")
+            _literal(fields, "update_epoch", "0")
+            _literal(fields, "publication", "Published")
         missing = set(expected) - seen
         if missing:
             _fail(f"missing capture generations: {sorted(missing)}")
@@ -468,7 +493,7 @@ class _Lifecycle:
 def validate_density_lifecycle(console: Path) -> dict[str, int]:
     lifecycle = _Lifecycle()
     for line in console.read_text(errors="replace").splitlines():
-        if "[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0" in line:
+        if "[ENV_IRRADIANCE_CAPTURE] checkpoint " in line:
             lifecycle.capture(_fields(line))
             continue
         if "[DDGI] staging promoted " in line:
