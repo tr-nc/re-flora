@@ -18,6 +18,7 @@ on:
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
+      - "src/environment_lighting.rs"
   push:
     branches:
       - main
@@ -36,6 +37,7 @@ on:
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
+      - "src/environment_lighting.rs"
 
 permissions:
   contents: read
@@ -189,6 +191,9 @@ jobs:
 
       - name: Check native Slang build
         run: cargo check --locked
+
+      - name: Run environment lighting source gates
+        run: timeout 10m cargo test --locked environment_lighting::tests::
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py
