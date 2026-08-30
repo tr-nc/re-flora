@@ -805,12 +805,11 @@ def parse_curve(
             f"{console_path}, found {len(population_matches)}"
         )
     population_match = population_matches[0]
-    following_validation_offset = text.find(
-        VALIDATION_MARKER, population_match.end()
-    )
-    if (
-        population_match.start() <= policy_matches[0].start()
-        or following_validation_offset < 0
+    first_validation_offset = text.find(VALIDATION_MARKER)
+    if not (
+        policy_matches[0].end()
+        < population_match.start()
+        < first_validation_offset
     ):
         raise ValueError(
             f"DDGI relocation population in {console_path} must follow initialization "

@@ -499,7 +499,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
-        self.assertIn("global validation order", result.stderr)
+        self.assertIn("must precede full-atlas validation", result.stderr)
 
     def test_rejects_runtime_illegal_field_identity_in_each_process_stream(self) -> None:
         def mutate_old_identity(text: str, mutation: str) -> str:
@@ -1775,7 +1775,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
-                self.assertIn("global validation order", result.stderr)
+                self.assertIn("must precede full-atlas validation", result.stderr)
 
     def test_unrelated_non_marker_process_logs_remain_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
