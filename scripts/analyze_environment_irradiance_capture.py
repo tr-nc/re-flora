@@ -28,6 +28,22 @@ PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
+CURRENT_RFIRR_VERSION = 10
+
+
+def parse_expected_rfirr_version(value: str) -> int:
+    if value == "current":
+        return CURRENT_RFIRR_VERSION
+    try:
+        return int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "expected an integer RFIRR version or 'current'"
+        ) from error
+
+
+def is_current_capture(capture: Capture) -> bool:
+    return capture.version == CURRENT_RFIRR_VERSION
 
 
 def local_recovery_retention_q16(
@@ -1786,7 +1802,7 @@ def main() -> int:
             "to have no more than this combined direct-shadow transmittance range"
         ),
     )
-    parser.add_argument("--expect-version", type=int)
+    parser.add_argument("--expect-version", type=parse_expected_rfirr_version)
     parser.add_argument("--require-filter-history-retain-blend", action="store_true")
     parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
     parser.add_argument("--expect-filter-blend-retention-q16", type=int)

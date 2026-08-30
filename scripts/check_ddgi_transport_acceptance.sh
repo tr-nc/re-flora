@@ -108,7 +108,7 @@ run_analysis() {
     local command=(
         "$analyzer" "$capture"
         --correctness
-        --expect-version 10
+        --expect-version current
         --expect-debug-view final
         --require-nonnegative-rgb
         "$@"

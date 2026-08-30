@@ -28,15 +28,19 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def require_v10_capture(
+def require_current_capture(
     capture: analyzer.Capture, checkpoint: str, failures: list[str]
 ) -> None:
-    require(capture.version == 10, f"{checkpoint}: capture is not v10", failures)
+    require(
+        analyzer.is_current_capture(capture),
+        f"{checkpoint}: capture is not current RFIRR",
+        failures,
+    )
     require(
         capture.filter_evidence is not None
         and capture.grid_dimensions is not None
         and capture.configured_history_retention_q16 is not None,
-        f"{checkpoint}: v10 DDGI filter proof is incomplete",
+        f"{checkpoint}: current DDGI filter proof is incomplete",
         failures,
     )
 
@@ -81,7 +85,7 @@ def validate(
     for checkpoint in CHECKPOINTS:
         capture = captures[checkpoint]
         identity = identities[checkpoint]
-        require_v10_capture(capture, checkpoint, failures)
+        require_current_capture(capture, checkpoint, failures)
         require_required_planes_finite(capture, checkpoint, failures)
         require(
             capture.spacing_voxels == spacing_voxels,

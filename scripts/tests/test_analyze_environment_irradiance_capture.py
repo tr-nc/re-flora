@@ -1327,6 +1327,37 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertIn("version: expected 3, got 4", failures)
         self.assertIn("spacing_voxels: expected 32, got 16", failures)
 
+    def test_cli_resolves_current_version_at_the_analyzer_boundary(self) -> None:
+        v10_fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
+        ).read_text()
+        v9_fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v9.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "current-v10.rfirr"
+            capture_path.write_bytes(bytes.fromhex(v10_fixture_hex))
+            stale_path = Path(directory) / "published-v9.rfirr"
+            stale_path.write_bytes(bytes.fromhex(v9_fixture_hex))
+
+            accepted = self.run_analyzer(
+                capture_path, "--expect-version", "current"
+            )
+            rejected = self.run_analyzer(
+                stale_path, "--expect-version", "current"
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(
+            json.loads(accepted.stdout)["capture"]["version"],
+            analyzer.CURRENT_RFIRR_VERSION,
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "version: expected 10, got 9",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "capture-v3.rfirr"

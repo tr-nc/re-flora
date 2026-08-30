@@ -17,7 +17,7 @@ import validate_ddgi_radiance_lifecycle as validator  # noqa: E402
 
 
 class ValidateDdgiRadianceLifecycleTests(unittest.TestCase):
-    def test_lifecycle_validator_requires_v10_owner_evidence(self) -> None:
+    def test_lifecycle_validator_requires_current_owner_evidence(self) -> None:
         fixture_hex = (
             Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
         ).read_text()
@@ -27,12 +27,12 @@ class ValidateDdgiRadianceLifecycleTests(unittest.TestCase):
             capture = analyzer.load_capture(capture_path)
 
         failures: list[str] = []
-        validator.require_v10_capture(capture, "golden", failures)
+        validator.require_current_capture(capture, "golden", failures)
         self.assertEqual(failures, [])
 
         failures = []
-        validator.require_v10_capture(replace(capture, version=9), "old", failures)
-        self.assertEqual(failures, ["old: capture is not v10"])
+        validator.require_current_capture(replace(capture, version=9), "old", failures)
+        self.assertEqual(failures, ["old: capture is not current RFIRR"])
 
     def test_required_planes_reject_a_nan_at_the_same_outside_roi_pixel(self) -> None:
         finite_plane = b"".join(
