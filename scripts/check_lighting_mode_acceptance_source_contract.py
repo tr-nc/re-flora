@@ -151,10 +151,10 @@ def _function_parameters(tokens: list[str], name: str) -> list[list[str]]:
     return parameters
 
 
-def _call_count(tokens: list[str], name: str) -> int:
+def _method_reference_count(tokens: list[str], name: str) -> int:
     count = 0
     for index, token in enumerate(tokens):
-        if token != name or index + 1 >= len(tokens) or tokens[index + 1] != "(":
+        if token != name:
             continue
         if index > 0 and tokens[index - 1] == "fn":
             continue
@@ -189,39 +189,36 @@ def audit(sources: dict[str, str]) -> list[str]:
         sites = [
             path
             for path, tokens in external.items()
-            for _ in range(_call_count(tokens, method))
+            for _ in range(_method_reference_count(tokens, method))
         ]
         if sites != [CALLER]:
             errors.append(f"{method} call sites must be exactly [{CALLER}], got {sites}")
 
-    primitive_update_parameters = (
-        ("frame_serial_idx", ":", "u32"),
-        ("dither_strength_lsb", ":", "f32"),
-        ("raster_flora_ddgi_lighting", ":", "bool"),
-        ("path_tracing_reference", ":", "bool"),
-        ("path_tracing_max_bounces", ":", "u32"),
-        ("path_tracing_ambient_light", ":", "Vec3"),
-    )
-    typed_update_sites: list[str] = []
-    for path, tokens in external.items():
-        for parameters in _function_parameters(tokens, "update_buffers"):
-            if _contains(parameters, ("lighting_frame", ":", "&", "ResolvedLightingFrameInputs")):
-                typed_update_sites.append(path)
-            for primitive in primitive_update_parameters:
-                if _contains(parameters, primitive):
-                    errors.append(f"primitive update_buffers bypass {primitive[0]}: {path}")
-    if typed_update_sites != ["src/tracer/mod.rs"]:
-        errors.append(f"expected one typed update_buffers consumer, got {typed_update_sites}")
+    update_declarations = [
+        (path, parameters)
+        for path, tokens in external.items()
+        for parameters in _function_parameters(tokens, "update_buffers")
+    ]
+    if len(update_declarations) != 1 or update_declarations[0][0] != "src/tracer/mod.rs":
+        errors.append(
+            "update_buffers declaration must be unique in src/tracer/mod.rs, got "
+            f"{[path for path, _ in update_declarations]}"
+        )
+    elif not _contains(update_declarations[0][1], ("&", "ResolvedLightingFrameInputs")):
+        errors.append("update_buffers lacks typed ResolvedLightingFrameInputs capability")
 
-    typed_buffer_sites: list[str] = []
-    for path, tokens in external.items():
-        for parameters in _function_parameters(tokens, "update_gui_input"):
-            if _contains(parameters, ("raster_lighting_mode", ":", "RasterLightingMode")):
-                typed_buffer_sites.append(path)
-            if _contains(parameters, ("raster_flora_ddgi_lighting", ":", "bool")):
-                errors.append(f"raster mode lowered before GPU sink: {path}")
-    if typed_buffer_sites != ["src/tracer/buffer_updater.rs"]:
-        errors.append(f"expected one typed update_gui_input sink, got {typed_buffer_sites}")
+    gui_declarations = [
+        (path, parameters)
+        for path, tokens in external.items()
+        for parameters in _function_parameters(tokens, "update_gui_input")
+    ]
+    if len(gui_declarations) != 1 or gui_declarations[0][0] != "src/tracer/buffer_updater.rs":
+        errors.append(
+            "update_gui_input declaration must be unique in src/tracer/buffer_updater.rs, got "
+            f"{[path for path, _ in gui_declarations]}"
+        )
+    elif "RasterLightingMode" not in gui_declarations[0][1]:
+        errors.append("update_gui_input lacks typed RasterLightingMode capability")
 
     if "ResolvedLightingFrameInputs" in tokenized.get(ENVIRONMENT_OWNER, []):
         errors.append(f"acceptance resolved input leaked into {ENVIRONMENT_OWNER}")

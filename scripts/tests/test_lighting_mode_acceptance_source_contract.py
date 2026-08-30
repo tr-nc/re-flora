@@ -62,10 +62,15 @@ class LightingModeAcceptanceSourceContractTests(unittest.TestCase):
             "let second = LightingModeAcceptanceRuntime::frame_plan(&runtime);",
             "let second = LightingModeAcceptanceFramePlan::resolve_timing(plan, live);",
             "let second = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live);",
+            "let f = LightingModeAcceptanceRuntime::frame_plan; f(&runtime);",
+            "let f = LightingModeAcceptanceFramePlan::resolve_timing; f(plan, live);",
+            "let f = LightingModeAcceptanceRenderPlan::resolve_lighting; f(render, live);",
             "pub fn update_buffers(&mut self, frame_serial_idx: u32, dither_strength_lsb: f32, path_tracing_reference: bool) -> Result<()> { todo!() }",
             "pub(crate) async unsafe fn update_buffers(\n&mut self,\nframe_serial_idx\n:\nu32,\ndither_strength_lsb: f32\n) -> Result<()> { todo!() }",
             "fn update_buffers(&mut self, path_tracing_reference: bool, path_tracing_max_bounces: u32) -> Result<()> { todo!() }",
+            "fn update_buffers(&mut self, foo: bool) -> Result<()> { todo!() }",
             "pub(super) fn update_gui_input(raster_flora_ddgi_lighting: bool) -> Result<()> { todo!() }",
+            "async fn update_gui_input(foo: bool) -> Result<()> { todo!() }",
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation):
