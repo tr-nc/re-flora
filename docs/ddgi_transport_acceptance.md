@@ -37,9 +37,9 @@ Each `check_ddgi*.sh` runner defines the same normalized `analyze_current_captur
 body directly executes the current-only entry and every analysis branch invokes that function in
 command position. Dry-run and production execution share those call sites; the wrapper alone turns
 execution into command emission for dry-run. Transport's narrow `execute_analysis` helper changes
-only the output sink (`cat` or `command tee "$json"`) around its single analyzer invocation. The
-`command` builtin prevents a Bash function or alias from shadowing the production sink while still
-using PATH.
+only the output sink (`cat` or `/usr/bin/env tee "$json"`) around its single analyzer invocation.
+Absolute `/usr/bin/env` owns external-tool resolution, preventing Bash functions from shadowing the
+production sink while retaining PATH lookup.
 `scripts/rfirr_production_runner_contract.py` is intentionally only a
 source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
 The typed current-only CLI behavior above is the schema seal.
@@ -54,16 +54,18 @@ closes maintained source-form bypasses without claiming general Bash reachabilit
 `--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
 the corresponding production matrix would execute, and the behavioral tests pin those per-runner
 command counts and representative branch arguments. Transport additionally seals the dry-run
-`cat` sink, production `command tee "$json"` sink, and exactly one two-stage analyzer-to-sink
+`cat` sink, production `/usr/bin/env tee "$json"` sink, and exactly one two-stage analyzer-to-sink
 pipeline, with an executable function-shadow test for the production sink. A whole-tree manifest
 proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
 makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
-controlled grammar recognizes `$dry_run` and `${dry_run...}` expansions by base variable, rejects
-unknown occurrences and all later assignment/unset attempts, and keeps the wrapper's current
-analyzer path immutable. It also inventories raw `cargo` and `re-flora` launch tokens, permits only
-maintained `command cargo` build/run forms behind their non-dry policy, and rejects direct app or
-bare/shadowable Cargo launches. Fail-fast PATH, repository absolute-path, and external
-absolute-path sentinels dynamically cover those known entrypoints. This does not prove arbitrary
+controlled lexical pass discards comments and inactive quoted/escaped literals, retains actual
+parameter expansions, and parses each braced expansion's exact base identifier (including length,
+indirection, operator, and array forms). It inventories only actual parameter expansion,
+assignment, unset, and readonly facts, rejecting all later policy/root mutation while allowing
+prose that names them. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
+build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
+launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
+sentinels dynamically cover those known entrypoints. This does not prove arbitrary
 variable-encoded Bash execution.
 
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
@@ -79,8 +81,8 @@ tracks only the repository's controlled function, pending condition headers, and
 absolute paths bypass it; general process tracing was rejected as platform-coupled and much wider
 than this CPU contract. The selected source-token inventory plus known-entrypoint sentinels keeps
 the interface narrow while covering both maintained path forms. Readonly policy/root authority and
-the Bash `command` builtin close mutable-name and function-shadow seams without exposing new runner
-parameters.
+the absolute `/usr/bin/env` owner close mutable-name and function-shadow seams without exposing new
+runner parameters.
 
 The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
 supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any

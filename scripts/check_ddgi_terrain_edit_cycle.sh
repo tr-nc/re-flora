@@ -29,7 +29,7 @@ readonly dry_run
 spacings=(32 16)
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 failures=0
@@ -40,7 +40,7 @@ run_case() {
     local capture="$run_dir/terrain-edits-spacing${spacing}-${mode}.rfirr"
     local console="$run_dir/terrain-edits-spacing${spacing}-${mode}.console.log"
     command=(
-        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scenario"
         --environment-probe-spacing-voxels "$spacing"
@@ -59,7 +59,7 @@ run_case() {
     echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running mode=$mode lifecycle"
     set +e
     RUST_LOG="warn,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
+        "${command[@]}" 2>&1 | /usr/bin/env tee "$console"
     command_status=${PIPESTATUS[0]}
     set -e
 

@@ -88,23 +88,21 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     failures,
                 )
 
-    def test_unknown_dry_run_occurrences_fail_closed(self) -> None:
+    def test_literal_authority_names_do_not_create_shell_authority(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         for mutated in (
             source + "\nprintf '%s' dry_run\n",
-            source + "\n# dry_run hidden policy reference\n",
-            source + "\n# ${dry_run:-false} hidden policy expansion\n",
-            source + "\nprintf '%s' '${dry_run:-false}'\n",
-            source + "\nprintf '%s' \\$dry_run\n",
+            source + "\n# dry_run and repo_root are immutable\n",
+            source + "\n# ${dry_run:-false} and $repo_root are literals\n",
+            source + "\nprintf '%s' '${dry_run:-false} $repo_root'\n",
+            source + "\nprintf '%s' \\$dry_run \\$repo_root\n",
+            source + '\nprintf \'%s\' "dry_run and repo_root are immutable"\n',
         ):
             with self.subTest():
-                failures = production_runner_invocation_failures(
-                    runner_name, mutated
-                )
-                self.assertTrue(
-                    any("unclassified dry_run occurrence" in failure for failure in failures),
-                    failures,
+                self.assertEqual(
+                    production_runner_invocation_failures(runner_name, mutated),
+                    [],
                 )
 
     def test_canonical_parameter_expansion_guard_is_accepted(self) -> None:
@@ -119,6 +117,46 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         )
         self.assertEqual(
             production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_parameter_expansion_base_identifier_is_exact(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        anchor = '        if ! analyze_current_capture "${final_analysis[@]}"; then'
+        call = 'analyze_current_capture "${final_analysis[@]}"'
+        for expansion in (
+            "${dry_run:-false}",
+            "${#dry_run}",
+            "${!dry_run}",
+            "${dry_run[0]:-false}",
+        ):
+            with self.subTest(expansion=expansion):
+                mutated = source.replace(
+                    anchor,
+                    f"        if {expansion}; then\n"
+                    f"            {call}\n"
+                    "        elif false; then",
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any("controlled by dry_run" in failure for failure in failures),
+                    failures,
+                )
+
+        dry_runner = source.replace(
+            anchor,
+            "        if ${dry_runner:-false}; then\n"
+            f"            {call}\n"
+            "        elif false; then",
+            1,
+        )
+        failures = production_runner_invocation_failures(runner_name, dry_runner)
+        self.assertFalse(
+            any("controlled by dry_run" in failure for failure in failures),
+            failures,
         )
 
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
@@ -275,11 +313,11 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         mutations = (
             source.replace("    local sink=(cat)", '    local sink=(tee "$json")', 1),
             source.replace(
-                '        sink=(command tee "$json")', "        sink=(cat)", 1
+                '        sink=(/usr/bin/env tee "$json")', "        sink=(cat)", 1
             ),
             source.replace(
-                '        sink=(command tee "$json")',
-                '        sink=(command tee "$capture")',
+                '        sink=(/usr/bin/env tee "$json")',
+                '        sink=(/usr/bin/env tee "$capture")',
                 1,
             ),
             source.replace(
@@ -301,8 +339,8 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutated = source.replace("    local sink=(cat)", "  local   sink=( cat )", 1)
         mutated = mutated.replace(
-            '        sink=(command tee "$json")',
-            '      sink=( command   tee   "$json" )',
+            '        sink=(/usr/bin/env tee "$json")',
+            '      sink=( /usr/bin/env   tee   "$json" )',
             1,
         )
         mutated = mutated.replace(
@@ -343,11 +381,18 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             source + '\n"$repo_root/target/release/re-flora" --version\n',
             source + '\n"/tmp/reviewer/re-flora" --version\n',
             source + '\n"/tmp/reviewer/cargo" --version\n',
-            source + "\n# cargo --version\n",
             source + "\ncargo --version\n",
             source + "\ncommand_not_really cargo --version\n",
             source + "\ncargo() { true; }\n",
             source + "\nalias cargo=true\n",
+            source + "\ncommand() { true; }\n",
+            source
+            + "\ncommand() {\n"
+            + '    if [[ "$1" == tee ]]; then shift; cat; else "$@"; fi\n'
+            + "}\n",
+            source + "\ntee() { cat; }\n",
+            source + "\npython3() { true; }\n",
+            source + "\ntee /tmp/output\n",
         )
         for mutated in mutations:
             with self.subTest():
@@ -358,6 +403,52 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     any("unauthorized process launch" in failure for failure in failures),
                     failures,
                 )
+
+    def test_process_authority_names_in_comments_are_ignored(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source + "\n# cargo and re-flora launch authority\n"
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_transport_normalization_python_is_env_owned(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        self.assertEqual(source.count("/usr/bin/env python3"), 2)
+        mutated = source.replace("/usr/bin/env python3", "python3", 1)
+        failures = production_runner_invocation_failures(runner_name, mutated)
+        self.assertTrue(
+            any("unauthorized process launch" in failure for failure in failures),
+            failures,
+        )
+
+    def test_runner_cargo_and_decision_tee_have_no_bare_launches(self) -> None:
+        for runner in PRODUCTION_RUNNERS:
+            source = runner.read_text(encoding="utf-8")
+            with self.subTest(runner=runner.name, tool="cargo"):
+                mutated = source.replace("/usr/bin/env cargo", "cargo", 1)
+                failures = production_runner_invocation_failures(
+                    runner.name, mutated
+                )
+                self.assertTrue(
+                    any("unauthorized process launch" in failure for failure in failures),
+                    failures,
+                )
+            if "/usr/bin/env tee" in source:
+                with self.subTest(runner=runner.name, tool="tee"):
+                    mutated = source.replace("/usr/bin/env tee", "tee", 1)
+                    failures = production_runner_invocation_failures(
+                        runner.name, mutated
+                    )
+                    self.assertTrue(
+                        any(
+                            "unauthorized process launch" in failure
+                            or "exact analyzer-to-sink policy" in failure
+                            for failure in failures
+                        ),
+                        failures,
+                    )
 
     def test_indented_function_closing_brace_ends_scope(self) -> None:
         runner_name = "check_ddgi_inflight_terrain_edits.sh"
@@ -381,8 +472,8 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutated = source.replace(
-            '    command cargo build --release --manifest-path "$repo_root/Cargo.toml"\nfi',
-            '    command cargo build --release --manifest-path "$repo_root/Cargo.toml"\n'
+            '    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"\nfi',
+            '    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"\n'
             "fi # production-only build",
             1,
         )

@@ -30,7 +30,7 @@ spacings=(32 16)
 repeats=(1 2)
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 failures=0
@@ -40,7 +40,7 @@ run_case() {
     local capture="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat${repeat}.rfirr"
     local console="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat${repeat}.console.log"
     command=(
-        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene terrain-edits-inflight
         --environment-probe-spacing-voxels "$spacing"
@@ -54,7 +54,7 @@ run_case() {
         echo "[DDGI_INFLIGHT_EDIT] spacing=$spacing repeat=$repeat running"
         set +e
         RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-            "${command[@]}" 2>&1 | tee "$console"
+            "${command[@]}" 2>&1 | /usr/bin/env tee "$console"
         command_status=${PIPESTATUS[0]}
         set -e
 

@@ -33,7 +33,7 @@ fi
 readonly dry_run
 
 command=(
-    command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+    /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
     --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
     --environment-lighting-test-scene terrain-edits-closed
     --environment-probe-spacing-voxels 32
@@ -48,7 +48,7 @@ if $dry_run; then
     printf '\n'
 else
     mkdir -p "$run_dir"
-    command cargo build --quiet --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --quiet --release --manifest-path "$repo_root/Cargo.toml"
 
     set +e
     RUST_LOG="warn,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \

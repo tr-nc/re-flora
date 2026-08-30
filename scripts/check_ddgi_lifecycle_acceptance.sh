@@ -31,7 +31,7 @@ readonly dry_run
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -69,7 +69,7 @@ run_hidden() {
     local console="$6"
     shift 6
     local command=(
-        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scene"
         --environment-probe-spacing-voxels "$spacing_voxels"
@@ -86,7 +86,7 @@ run_hidden() {
     fi
     set +e
     RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
+        "${command[@]}" 2>&1 | /usr/bin/env tee "$console"
     local command_status=${PIPESTATUS[0]}
     set -e
     if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then

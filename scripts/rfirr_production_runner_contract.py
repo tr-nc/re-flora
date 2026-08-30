@@ -14,10 +14,6 @@ from collections import Counter
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
 ANALYZER_IDENTIFIER = re.compile(r"\banalyze_current_capture\b")
-DRY_RUN_IDENTIFIER = re.compile(r"\bdry_run\b")
-DRY_RUN_EXPANSION = re.compile(r"\$(?:dry_run\b|\{dry_run(?:[^}]*)\})")
-REPO_ROOT_IDENTIFIER = re.compile(r"\brepo_root\b")
-REPO_ROOT_EXPANSION = re.compile(r"\$(?:repo_root\b|\{repo_root\})")
 SHELL_FUNCTION = re.compile(
     r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
     r"(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{\s*$"
@@ -106,11 +102,15 @@ TRANSPORT_EXECUTION_CALL = re.compile(
 )
 CARGO_IDENTIFIER = re.compile(r"\bcargo\b")
 APP_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_-])re-flora(?![A-Za-z0-9_-])")
+TOOL_FUNCTION_DEFINITION = re.compile(
+    r"^\s*(?:function\s+)?(command|cargo|tee|python3)"
+    r"(?:\s*\(\s*\))?\s*\{"
+)
 CANONICAL_CARGO_BUILD = re.compile(
-    r'^\s*command cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
+    r'^\s*/usr/bin/env cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
 )
 CANONICAL_CARGO_RUN = re.compile(
-    r'^\s*command cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
+    r'^\s*/usr/bin/env cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
 )
 CANONICAL_REPO_ROOT = (
     'readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
@@ -248,7 +248,6 @@ def _dry_run_controlled_analysis_calls(
     scopes = _function_scopes(lines)
     code_lines = _shell_code_lines(lines)
     previous_scope: str | None = None
-    dry_run_token = DRY_RUN_EXPANSION
     analyzer_call = ANALYZER_IDENTIFIER
     transport_execution = re.compile(r"\bexecute_analysis(?:\s|$)")
 
@@ -270,21 +269,19 @@ def _dry_run_controlled_analysis_calls(
         if re.match(r"^elif\b", stripped):
             if frames:
                 frames[-1]["in_condition"] = not _has_then_token(stripped)
-                if _active_shell_expansions(stripped, dry_run_token):
+                if _references_parameter(stripped, "dry_run"):
                     frames[-1]["dry_run"] = True
         elif re.match(r"^else(?:\s*;|\s*$)", stripped):
             pass
         elif re.match(r"^if\b", stripped):
             frames.append(
                 {
-                    "dry_run": bool(
-                        _active_shell_expansions(stripped, dry_run_token)
-                    ),
+                    "dry_run": _references_parameter(stripped, "dry_run"),
                     "in_condition": not _has_then_token(stripped),
                 }
             )
         elif frames and bool(frames[-1]["in_condition"]):
-            if _active_shell_expansions(stripped, dry_run_token):
+            if _references_parameter(stripped, "dry_run"):
                 frames[-1]["dry_run"] = True
             if _has_then_token(stripped):
                 frames[-1]["in_condition"] = False
@@ -372,44 +369,49 @@ def _immutable_authority_failures(
     ):
         authority_failures.append("dry_run-lifecycle")
 
+    canonical_dry_lines = {
+        "dry_run=false",
+        "dry_run=true",
+        "readonly dry_run",
+    }
     for line_number, line in enumerate(lines, 1):
-        dry_occurrences = tuple(DRY_RUN_IDENTIFIER.finditer(line))
-        dry_expansions = _active_shell_expansions(line, DRY_RUN_EXPANSION)
-        canonical_dry_line = line.strip() in {
-            "dry_run=false",
-            "dry_run=true",
-            "readonly dry_run",
-        }
-        if dry_occurrences and not canonical_dry_line:
-            covered = {
-                occurrence.start()
-                for expansion in dry_expansions
-                for occurrence in dry_occurrences
-                if expansion.start() <= occurrence.start() < expansion.end()
-            }
-            if len(covered) != len(dry_occurrences):
+        for authority in _authority_operations(line):
+            if authority == "dry_run" and line.strip() not in canonical_dry_lines:
                 authority_failures.append(f"dry_run:{line_number}")
                 unknown_dry_run.append(str(line_number))
-
-        root_occurrences = tuple(REPO_ROOT_IDENTIFIER.finditer(line))
-        root_expansions = _active_shell_expansions(line, REPO_ROOT_EXPANSION)
-        if root_occurrences and line.strip() != CANONICAL_REPO_ROOT:
-            covered = {
-                occurrence.start()
-                for expansion in root_expansions
-                for occurrence in root_occurrences
-                if expansion.start() <= occurrence.start() < expansion.end()
-            }
-            if len(covered) != len(root_occurrences):
+            elif authority == "repo_root" and line.strip() != CANONICAL_REPO_ROOT:
                 authority_failures.append(f"repo_root:{line_number}")
 
     return authority_failures, unknown_dry_run
 
 
-def _active_shell_expansions(
-    line: str, expansion_pattern: re.Pattern[str]
-) -> tuple[re.Match[str], ...]:
-    expansions: list[re.Match[str]] = []
+def _authority_operations(line: str) -> tuple[str, ...]:
+    active = _shell_active_text(line)
+    operation = re.compile(
+        r"(?:^|[;&|]\s*|\b(?:then|do|else)\s+)"
+        r"(?:"
+        r"(?:(?:readonly|declare|typeset|export|local)(?:\s+-[A-Za-z]+)*\s+)?"
+        r"(?P<assignment>dry_run|repo_root)\s*="
+        r"|readonly(?:\s+-[A-Za-z]+)*\s+(?P<readonly>dry_run|repo_root)\b"
+        r"|unset(?:\s+-[A-Za-z]+)*\s+(?P<unset>dry_run|repo_root)\b)"
+    )
+    return tuple(
+        next(group for group in match.groups() if group is not None)
+        for match in operation.finditer(active)
+    )
+
+
+def _references_parameter(line: str, expected_base: str) -> bool:
+    return any(
+        base == expected_base
+        for _, _, base in _active_parameter_expansions(line)
+    )
+
+
+def _active_parameter_expansions(
+    line: str,
+) -> tuple[tuple[int, int, str], ...]:
+    expansions: list[tuple[int, int, str]] = []
     quote: str | None = None
     index = 0
     while index < len(line):
@@ -417,29 +419,118 @@ def _active_shell_expansions(
         if character == "\\" and quote != "'":
             index += 2
             continue
-        if quote is not None:
-            if character == quote:
+        if quote == "'":
+            if character == "'":
                 quote = None
-            elif character == "$" and quote == '"':
-                expansion = expansion_pattern.match(line, index)
-                if expansion is not None:
-                    expansions.append(expansion)
-                    index = expansion.end()
-                    continue
             index += 1
             continue
-        if character in "'\"":
-            quote = character
-        elif character == "#" and (index == 0 or line[index - 1].isspace()):
+        if character == '"':
+            quote = None if quote == '"' else '"'
+            index += 1
+            continue
+        if quote is None and character == "'":
+            quote = "'"
+            index += 1
+            continue
+        if quote is None and character == "#" and (
+            index == 0 or line[index - 1].isspace()
+        ):
             break
-        elif character == "$":
-            expansion = expansion_pattern.match(line, index)
-            if expansion is not None:
-                expansions.append(expansion)
-                index = expansion.end()
-                continue
-        index += 1
+        if character != "$":
+            index += 1
+            continue
+        parsed = _parameter_expansion_at(line, index)
+        if parsed is None:
+            index += 1
+            continue
+        end, base = parsed
+        if base is not None:
+            expansions.append((index, end, base))
+        index = end
     return tuple(expansions)
+
+
+def _parameter_expansion_at(
+    line: str, start: int
+) -> tuple[int, str | None] | None:
+    if start + 1 >= len(line):
+        return None
+    if line[start + 1] == "{":
+        end = _braced_parameter_end(line, start + 1)
+        if end is None:
+            return None
+        content = line[start + 2 : end - 1]
+        if content.startswith(("#", "!")):
+            content = content[1:]
+        base = re.match(r"[A-Za-z_][A-Za-z0-9_]*", content)
+        return end, base.group(0) if base is not None else None
+    base = re.match(r"[A-Za-z_][A-Za-z0-9_]*", line[start + 1 :])
+    if base is None:
+        return None
+    return start + 1 + base.end(), base.group(0)
+
+
+def _braced_parameter_end(line: str, opening_brace: int) -> int | None:
+    depth = 1
+    index = opening_brace + 1
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+            continue
+        if line.startswith("${", index):
+            depth += 1
+            index += 2
+            continue
+        if line[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return None
+
+
+def _shell_active_text(line: str) -> str:
+    active = list(line)
+    quote: str | None = None
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if character == "\\" and quote != "'":
+            active[index] = " "
+            if index + 1 < len(line):
+                active[index + 1] = " "
+            index += 2
+            continue
+        if quote == "'":
+            active[index] = " "
+            if character == "'":
+                quote = None
+            index += 1
+            continue
+        if character == '"':
+            active[index] = " "
+            quote = None if quote == '"' else '"'
+            index += 1
+            continue
+        if quote is None and character == "'":
+            active[index] = " "
+            quote = "'"
+            index += 1
+            continue
+        if quote is None and character == "#" and (
+            index == 0 or line[index - 1].isspace()
+        ):
+            for offset in range(index, len(active)):
+                active[offset] = " "
+            break
+        if quote == '"':
+            parsed = _parameter_expansion_at(line, index) if character == "$" else None
+            if parsed is not None:
+                index = parsed[0]
+                continue
+            active[index] = " "
+        index += 1
+    return "".join(active)
 
 
 def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
@@ -450,7 +541,7 @@ def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
     ]
     dry_sink = re.compile(r"local\s+sink=\(\s*cat\s*\)")
     production_sink = re.compile(
-        r'sink=\(\s*command\s+tee\s+"\$json"\s*\)'
+        r'sink=\(\s*/usr/bin/env\s+tee\s+"\$json"\s*\)'
     )
     sink_assignments = [
         (index, statement)
@@ -526,19 +617,42 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
     cargo_builds = 0
     cargo_runs = 0
     for line_number, line in enumerate(lines, 1):
-        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(line))
+        active = _shell_active_text(line)
+        code = _shell_code(line)
+        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(code))
         if cargo_occurrences:
             if len(cargo_occurrences) != 1:
                 failures.append(f"cargo:{line_number}")
-            elif CANONICAL_CARGO_BUILD.fullmatch(line):
+            elif CANONICAL_CARGO_BUILD.fullmatch(code):
                 cargo_builds += 1
                 if not _cargo_build_is_non_dry_run(lines, line_number - 1):
                     failures.append(f"cargo-build-policy:{line_number}")
-            elif CANONICAL_CARGO_RUN.fullmatch(line):
+            elif CANONICAL_CARGO_RUN.fullmatch(code):
                 cargo_runs += 1
             else:
                 failures.append(f"cargo:{line_number}")
-        if APP_IDENTIFIER.search(line) is not None:
+        function_name = _shell_function_name(line)
+        if (
+            function_name in {"command", "cargo", "tee", "python3"}
+            or TOOL_FUNCTION_DEFINITION.match(active)
+            or re.match(
+                r"^\s*alias\s+(?:command|cargo|tee|python3)\s*=", active
+            )
+        ):
+            failures.append(f"tool-shadow:{line_number}")
+        tee_occurrences = tuple(re.finditer(r"\btee\b", active))
+        if tee_occurrences and not (
+            len(tee_occurrences) == 1
+            and re.search(r"/usr/bin/env\s+tee\b", active) is not None
+        ):
+            failures.append(f"tee:{line_number}")
+        python_occurrences = tuple(re.finditer(r"\bpython3\b", active))
+        if python_occurrences and not (
+            len(python_occurrences) == 1
+            and re.search(r"/usr/bin/env\s+python3\b", active) is not None
+        ):
+            failures.append(f"python3:{line_number}")
+        if APP_IDENTIFIER.search(code) is not None:
             failures.append(f"re-flora:{line_number}")
     if cargo_builds != 1:
         failures.append(f"cargo-build-count:{cargo_builds}")
@@ -564,17 +678,18 @@ def _cargo_build_is_non_dry_run(lines: list[str], line_index: int) -> bool:
         for line in lines[max(0, line_index - 5) : line_index]
         if _shell_code(line).strip()
     ]
-    reference = r"(?:\$dry_run|\$\{dry_run(?:[^}]*)\})"
-    non_dry_if = re.compile(rf"if\s+!\s*{reference}\s*;\s*then")
-    dry_if = re.compile(rf"if\s+{reference}\s*;\s*then")
     for reverse_index, statement in enumerate(reversed(significant)):
-        if non_dry_if.fullmatch(statement):
+        policy = _dry_run_condition_policy(statement)
+        if policy == "non-dry":
             return True
-        if statement == "fi" or dry_if.fullmatch(statement):
+        if statement == "fi" or policy == "dry":
             return False
         if statement == "else":
             earlier = significant[: len(significant) - reverse_index - 1]
-            return any(dry_if.fullmatch(candidate) for candidate in reversed(earlier))
+            return any(
+                _dry_run_condition_policy(candidate) == "dry"
+                for candidate in reversed(earlier)
+            )
     return False
 
 
@@ -586,29 +701,54 @@ def _command_array_launch_is_non_dry_run(
     scopes = _function_scopes(lines)
     scope = scopes[line_index]
     start = max(0, line_index - 18)
-    prefix = "\n".join(
+    scoped = [
         _shell_code(lines[index]).strip()
         for index in range(start, line_index)
         if scopes[index] == scope
-    )
-    return (
-        re.search(
-            r"if\s+(?:\$dry_run|\$\{dry_run(?:[^}]*)\})\s*;\s*then\b"
-            r"(?:(?!\bfi\b).)*\b(?:return\s+0|continue)\b"
-            r"(?:(?!\bfi\b).)*\bfi\b",
-            prefix,
-            re.DOTALL,
-        )
-        is not None
-    )
+    ]
+    return _has_completed_dry_run_exit_guard(scoped)
+
+
+def _has_completed_dry_run_exit_guard(statements: list[str]) -> bool:
+    for start, statement in enumerate(statements):
+        if _dry_run_condition_policy(statement) != "dry":
+            continue
+        depth = 0
+        exits = False
+        for nested in statements[start:]:
+            if re.match(r"^if\b", nested):
+                depth += 1
+            if depth == 1 and re.search(r"\b(?:return\s+0|continue)\b", nested):
+                exits = True
+            if re.fullmatch(r"fi\s*;?", nested):
+                depth -= 1
+                if depth == 0:
+                    return exits
+    return False
+
+
+def _dry_run_condition_policy(statement: str) -> str:
+    if_header = re.match(r"^if\b", statement)
+    if if_header is None:
+        return "unknown"
+    expansions = [
+        expansion
+        for expansion in _active_parameter_expansions(statement)
+        if expansion[2] == "dry_run"
+    ]
+    if len(expansions) != 1:
+        return "unknown"
+    prefix = statement[if_header.end() : expansions[0][0]].strip()
+    if prefix == "":
+        return "dry"
+    if prefix == "!":
+        return "non-dry"
+    return "unknown"
 
 
 def _non_dry_run_branch_lines(lines: list[str]) -> list[bool]:
     policies: list[str] = []
     result: list[bool] = []
-    reference = r"(?:\$dry_run|\$\{dry_run(?:[^}]*)\})"
-    dry = re.compile(rf"if\s+{reference}\s*;\s*then")
-    non_dry = re.compile(rf"if\s+!\s*{reference}\s*;\s*then")
     for code in _shell_code_lines(lines):
         statement = code.strip()
         if re.fullmatch(r"fi\s*;?", statement):
@@ -626,9 +766,10 @@ def _non_dry_run_branch_lines(lines: list[str]) -> list[bool]:
                     "non-dry": "dry",
                 }.get(policies[-1], "unknown")
         elif re.match(r"^if\b", statement):
-            if non_dry.fullmatch(statement):
+            policy = _dry_run_condition_policy(statement)
+            if policy == "non-dry":
                 policies.append("non-dry")
-            elif dry.fullmatch(statement):
+            elif policy == "dry":
                 policies.append("dry")
             else:
                 policies.append("unknown")

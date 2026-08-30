@@ -35,7 +35,7 @@ echo "[DDGI_RUNTIME_EDIT] direct-sun-evidence=v6-direct-light-plane sunlit_min_m
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 scenario_for_state() {
@@ -81,7 +81,7 @@ run_capture() {
     local capture="$run_dir/${state}-spacing${spacing}-${label}.rfirr"
     local console="$run_dir/${state}-spacing${spacing}-${label}.console.log"
     local command=(
-        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scenario"
         --environment-probe-spacing-voxels "$spacing"
@@ -102,7 +102,7 @@ run_capture() {
     echo "[DDGI_RUNTIME_EDIT] state=$state spacing=$spacing view=$view label=$label"
     set +e
     RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
+        "${command[@]}" 2>&1 | /usr/bin/env tee "$console"
     local command_status=${PIPESTATUS[0]}
     set -e
     if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then

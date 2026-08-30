@@ -46,7 +46,7 @@ print_command() {
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 failures=0
@@ -80,7 +80,7 @@ for case_name in "${cases[@]}"; do
                 ;;
         esac
         command=(
-            command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+            /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
             --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
             --environment-lighting-test-scene "$case_name"
             --environment-probe-spacing-voxels "$spacing"

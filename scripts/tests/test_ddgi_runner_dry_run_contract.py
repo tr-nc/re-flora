@@ -566,6 +566,8 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
                 "dry_run=false\n"
+                "command() { printf command-shadow >&2; }\n"
+                "cargo() { printf cargo-shadow >&2; }\n"
                 "tee() { cat; }\n"
                 "analyze_current_capture() { printf '%s' '{\"schema\":10}'; }\n"
                 f"{execute_analysis}\n"
@@ -586,7 +588,7 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
             self.assertEqual(result.stdout, '{"schema":10}')
             self.assertEqual(output.read_text(encoding="utf-8"), '{"schema":10}')
 
-    def test_command_cargo_bypasses_function_shadow_and_respects_path(self) -> None:
+    def test_env_cargo_bypasses_function_shadow_and_respects_path(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             root_path = Path(root)
             sentinel_directory = root_path / "bin"
@@ -605,7 +607,9 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                 [
                     "bash",
                     "-c",
-                    "cargo() { printf function-cargo; }; command cargo --version",
+                    "command() { printf command-shadow; }; "
+                    "cargo() { printf function-cargo; }; "
+                    "/usr/bin/env cargo --version",
                 ],
                 check=False,
                 capture_output=True,
@@ -616,6 +620,23 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "path-cargo:--version")
+
+    def test_env_python_bypasses_function_shadow(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "python3() { printf function-python; }; "
+                "/usr/bin/env python3 -c 'print(\"env-python\")'",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "env-python\n")
 
     def test_dry_run_cargo_launch_mutation_has_explicit_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as root:

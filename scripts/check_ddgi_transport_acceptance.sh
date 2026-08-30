@@ -53,7 +53,7 @@ echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filte
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -79,7 +79,7 @@ run_capture() {
     capture="$(capture_path "$case_name" "$spacing" "$target" "$order")"
     local console="${capture%.rfirr}.console.log"
     local command=(
-        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$case_name"
         --environment-probe-spacing-voxels "$spacing"
@@ -97,7 +97,7 @@ run_capture() {
 
     set +e
     RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
+        "${command[@]}" 2>&1 | /usr/bin/env tee "$console"
     local command_status=${PIPESTATUS[0]}
     set -e
     if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then
@@ -115,7 +115,7 @@ execute_analysis() {
     shift
     local sink=(cat)
     if ! $dry_run; then
-        sink=(command tee "$json")
+        sink=(/usr/bin/env tee "$json")
     fi
     analyze_current_capture "$@" | "${sink[@]}"
 }
@@ -274,8 +274,8 @@ fi
 
 normalization_evidence_checker="$repo_root/scripts/check_ddgi_sky_normalization_evidence.py"
 if $dry_run; then
-    print_command python3 "$normalization_evidence_checker"
-elif ! python3 "$normalization_evidence_checker"; then
+    print_command /usr/bin/env python3 "$normalization_evidence_checker"
+elif ! /usr/bin/env python3 "$normalization_evidence_checker"; then
     failures=$((failures + 1))
 fi
 
