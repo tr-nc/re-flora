@@ -1,10 +1,11 @@
 # Garden Tree Publication
 
-Tree placement is one garden change even though its observable result spans foliage rendering,
-fruit physics, attached-fruit rendering, local-sun shadow history, canopy audio, leaf emitters, and
-the canonical tree record. `GardenTrees` owns that invariant. A tree is canonical only after every
-earlier publication action succeeds; a failed action compensates the already-applied actions while
-the previous canonical record remains authoritative.
+Tree placement is one garden change even though its observable result spans trunk voxels and their
+visible-terrain publication, foliage rendering, fruit physics, attached-fruit rendering, local-sun
+shadow history, canopy audio, leaf emitters, and the canonical tree record. `GardenTrees` owns that
+invariant. A tree is canonical only after every earlier publication action succeeds; a failed
+action compensates the already-applied actions while the previous canonical record remains
+authoritative.
 
 ## Interface designs considered
 
@@ -25,13 +26,14 @@ extra generation/version machinery would be speculative, so this design is rejec
 
 ### Canonical owner with a closed publication plan
 
-`GardenTrees::{place, replace, remove}` is the selected interface. Placement compilation produces
-one `PreparedTreePublication` whose fields are meaningful tree facts, not caller-selected service
-arguments. `GardenTrees` executes a closed `TreePublicationAction` sequence through one internal
-executor. That executor alone maps actions to typed publication primitives. The production and
-recording hosts implement those same primitives, so an omitted or exchanged production mapping
-changes the recorded behavior without duplicating the action match. Leaf clusters and the canonical
-record commit together after the final observer-publication primitive succeeds.
+`GardenTrees::{place, replace, replace_batch, remove}` is the selected interface. Placement
+compilation produces one `PreparedTreePublication` whose fields are meaningful tree facts, not
+caller-selected service arguments. `GardenTrees` executes a closed `TreePublicationAction`
+sequence through one internal executor. That executor alone maps actions to typed publication
+primitives. The production and recording hosts implement those same primitives, so an omitted or
+exchanged production mapping changes the recorded behavior without duplicating the action match.
+Leaf clusters and the canonical record commit together only after trunk and observer publication
+succeed.
 
 This design has the smallest caller interface, keeps protocol changes local to one owner, and uses
 a real seam because production and recording adapters both exist. It deliberately does not add a
@@ -40,15 +42,18 @@ adequate meanings.
 
 ## Publication contract
 
-Placement and replacement publish foliage, fruit lifecycle, attached fruit, shadow invalidation,
-and canopy audio in that order, then atomically make the prepared record and leaf clusters
-canonical. Removal publishes the inverse physical effects in the same ownership order and removes
-the canonical record last. Every fallible input is checked before the first action. If an execution
-action still fails, the production host restores the previous canonical publication (or removes a
-partially placed new tree); compensation failure is reported together with the original error.
-Canopy Voice realization is strict within that transaction: one failed generation spawn removes
-every Voice created by the same synchronization, and checkpoint restoration propagates physical
-realization failures instead of accepting a lifecycle-only restoration.
+Placement and replacement checkpoint and publish trunk voxels first, then publish foliage, fruit
+lifecycle, attached fruit, shadow invalidation, and canopy audio in that order. They make the
+prepared record and leaf clusters canonical only after the whole physical transaction commits.
+Removal publishes the inverse physical effects through the same owner and removes the canonical
+record last. Every fallible input is checked before the first action. If an execution action still
+fails, the production host restores the previous trunk, observer, fruit-body, and audio publication
+(or removes a partially placed new tree); compensation failure is reported together with the
+original error.
 
-The world-edit transaction that publishes trunk voxels remains an upstream prerequisite. It has a
-separate terrain publication contract and is not hidden inside the tree-observer publication seam.
+Age rebuild uses one `replace_batch` transaction. It clears all old trunks before stamping any new
+trunk so overlapping trees cannot erase one another, delays every canonical commit until all
+observers succeed, and restores the entire physical batch if any tree fails. Canopy Voice
+realization is strict within the same transaction: one failed generation spawn removes every Voice
+created by that synchronization, and checkpoint restoration propagates physical realization
+failures instead of accepting a lifecycle-only restoration.
