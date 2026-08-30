@@ -964,6 +964,44 @@ mod tests {
     }
 
     #[test]
+    fn generic_ddgi_consumer_keeps_moment_visibility_until_raster_acceptance() {
+        const CALL: &str = "ddgiQueryVisibilityWeight(";
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let route = query
+            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .expect("generic production query route")
+            .1
+            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
+            .expect("terrain-smooth route follows generic route")
+            .0;
+        assert_eq!(route.matches(CALL).count(), 1);
+        let arguments = route
+            .split_once(CALL)
+            .expect("generic route must call the visibility owner")
+            .1;
+        let mut depth = 0usize;
+        let mut argument_start = 0usize;
+        let mut parsed = Vec::new();
+        for (index, character) in arguments.char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' if depth == 0 => {
+                    parsed.push(arguments[argument_start..index].trim());
+                    break;
+                }
+                ')' => depth -= 1,
+                ',' if depth == 0 => {
+                    parsed.push(arguments[argument_start..index].trim());
+                    argument_start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[2], "DDGI_VISIBILITY_MOMENT");
+    }
+
+    #[test]
     fn ddgi_production_routes_resolve_invalidation_before_global_sky() {
         // Temporary route gate. Runtime acceptance in R13 replaces this source-level owner check.
         fn assert_domain_route(route: &str) {
@@ -1127,6 +1165,95 @@ mod tests {
             .0;
         assert!(moisture_origin.contains("terrainRayOriginAlongNormal("));
         assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
+    }
+
+    #[test]
+    fn ddgi_production_filters_consume_shared_policy_actions() {
+        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
+            let retained = filter
+                .split_once("if (historyPolicy.retain_source)")
+                .expect("retained partition gate")
+                .1
+                .split_once("if (metadata.state_and_reserved.x")
+                .expect("metadata validation follows retained partition")
+                .0;
+            assert!(retained.contains(retained_copy));
+            assert_eq!(retained.matches("return;").count(), 1);
+
+            let blended = filter
+                .split_once("if (historyPolicy.blend_history)")
+                .expect("history blend gate")
+                .1
+                .split_once("store")
+                .expect("atlas store follows history blend")
+                .0;
+            assert!(blended.contains(history_blend));
+        }
+
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        assert_eq!(visibility.matches("ddgiFilterVisibilitySample(").count(), 1);
+        assert_eq!(visibility.matches("ddgiFilterHistoryPolicy(").count(), 1);
+        assert_eq!(irradiance.matches("ddgiFilterHistoryPolicy(").count(), 1);
+        assert!(visibility.contains(
+            "if (!sample.accepted) continue;\n        float hitDistance = sample.distance;"
+        ));
+        assert_history_usage(
+            visibility,
+            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
+            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
+        );
+        assert_history_usage(
+            irradiance,
+            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
+            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
+        );
+    }
+
+    #[test]
+    fn terrain_debug_modes_keep_their_production_query_wiring() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let debug_route = tracer
+            .split_once("float3 ddgiTerrainDebugValue(")
+            .expect("terrain debug owner")
+            .1
+            .split_once("void getPixelColor(")
+            .expect("production pixel route follows debug owner")
+            .0;
+        let unoccluded = debug_route
+            .split_once("if (view == DDGI_DEBUG_UNOCCLUDED_IRRADIANCE)")
+            .expect("unoccluded mode")
+            .1
+            .split_once("if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)")
+            .expect("equal-weight mode follows unoccluded")
+            .0;
+        let equal_weight = debug_route
+            .split_once("if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)")
+            .expect("equal-weight mode")
+            .1
+            .split_once("if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)")
+            .expect("raw-cage mode follows equal-weight")
+            .0;
+        let raw_cage = debug_route
+            .split_once("if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)")
+            .expect("raw-cage mode")
+            .1
+            .split_once("if (view >= DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT")
+            .expect("spatial diagnostics follow raw cage")
+            .0;
+        assert_eq!(
+            unoccluded
+                .matches("sampleDdgiUnoccludedTerrainReference(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            equal_weight
+                .matches("sampleDdgiEqualWeightTerrainReference(")
+                .count(),
+            1
+        );
+        assert_eq!(raw_cage.matches("sampleDdgiRawCageIrradiance(").count(), 1);
     }
 
     #[test]
