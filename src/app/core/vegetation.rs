@@ -932,7 +932,19 @@ enum TreePublicationActionOutput {
 #[derive(Clone, Copy, Debug, Default)]
 struct TreeTrunkPublicationOutcome {
     mutation_elapsed: std::time::Duration,
-    publication_elapsed: std::time::Duration,
+    visible_publication_elapsed: std::time::Duration,
+}
+
+impl TreeTrunkPublicationOutcome {
+    fn from_total_elapsed(
+        mutation_elapsed: std::time::Duration,
+        total_elapsed: std::time::Duration,
+    ) -> Self {
+        Self {
+            mutation_elapsed,
+            visible_publication_elapsed: total_elapsed.saturating_sub(mutation_elapsed),
+        }
+    }
 }
 
 trait TreePublicationPrimitiveHost {
@@ -1106,13 +1118,14 @@ impl PreparedTreePublication {
 #[derive(Debug)]
 struct TreePublicationReceipt {
     trunk_mutation_elapsed: std::time::Duration,
-    trunk_publication_elapsed: std::time::Duration,
+    visible_terrain_publication_elapsed: std::time::Duration,
     leaf_publication_elapsed: std::time::Duration,
     fruit_publication_elapsed: std::time::Duration,
     shadow_invalidation_elapsed: std::time::Duration,
     cluster_elapsed: std::time::Duration,
     audio_elapsed: std::time::Duration,
-    canonical_commit_elapsed: std::time::Duration,
+    leaf_emitter_commit_elapsed: std::time::Duration,
+    canonical_record_commit_elapsed: std::time::Duration,
     canopy_audio_source_count: usize,
     rebuild_bound: UAabb3,
     leaf_anchor_count: usize,
@@ -1125,11 +1138,16 @@ struct TreePublicationReceipt {
 struct TreePlacementPerformance {
     total_start: Instant,
     compile_elapsed: std::time::Duration,
-    trunk_elapsed: std::time::Duration,
-    rebuild_elapsed: std::time::Duration,
+    trunk_mutation_elapsed: std::time::Duration,
+    visible_terrain_publication_elapsed: std::time::Duration,
     trunk_count: usize,
     rebuild_chunk_count: usize,
     benchmark_gui_tree: bool,
+}
+
+struct TreeCanonicalCommitTiming {
+    leaf_emitter_elapsed: std::time::Duration,
+    canonical_record_elapsed: std::time::Duration,
 }
 
 impl TreePublicationReceipt {
@@ -1304,7 +1322,12 @@ impl GardenTrees {
         retained
     }
 
-    fn commit_placement(&mut self, tree_id: u32, record: TreeRecord) {
+    fn commit_placement(&mut self, tree_id: u32, record: TreeRecord) -> TreeCanonicalCommitTiming {
+        let leaf_emitter_started_at = Instant::now();
+        self.leaf_emitters.upsert(tree_id, &record.leaf_clusters);
+        let leaf_emitter_elapsed = leaf_emitter_started_at.elapsed();
+
+        let canonical_record_started_at = Instant::now();
         if tree_id == self.next_tree_id {
             self.next_tree_id += 1;
         }
@@ -1312,9 +1335,12 @@ impl GardenTrees {
             self.unindex_trunk(tree_id, &previous);
         }
         self.previous_bound = self.previous_bound.union_with(&record.bound);
-        self.leaf_emitters.upsert(tree_id, &record.leaf_clusters);
         self.index_trunk(tree_id, &record);
         self.records.insert(tree_id, record);
+        TreeCanonicalCommitTiming {
+            leaf_emitter_elapsed,
+            canonical_record_elapsed: canonical_record_started_at.elapsed(),
+        }
     }
 
     fn commit_removal(&mut self, tree_id: u32) -> Option<TreeRecord> {
@@ -1436,13 +1462,14 @@ impl GardenTrees {
 
             receipts.push(TreePublicationReceipt {
                 trunk_mutation_elapsed: trunk_outcome.mutation_elapsed / publications.len() as u32,
-                trunk_publication_elapsed: trunk_outcome.publication_elapsed,
+                visible_terrain_publication_elapsed: trunk_outcome.visible_publication_elapsed,
                 leaf_publication_elapsed,
                 fruit_publication_elapsed,
                 shadow_invalidation_elapsed,
                 cluster_elapsed: publication.cluster_elapsed,
                 audio_elapsed,
-                canonical_commit_elapsed: std::time::Duration::ZERO,
+                leaf_emitter_commit_elapsed: std::time::Duration::ZERO,
+                canonical_record_commit_elapsed: std::time::Duration::ZERO,
                 canopy_audio_source_count,
                 rebuild_bound: publication.rebuild_bound,
                 leaf_anchor_count: publication.leaf_anchor_count,
@@ -1465,13 +1492,10 @@ impl GardenTrees {
                 )),
             };
         }
-        let canonical_commit_start = Instant::now();
-        for publication in publications {
-            self.commit_placement(publication.tree_id, publication.record);
-        }
-        let canonical_commit_elapsed = canonical_commit_start.elapsed() / receipts.len() as u32;
-        for receipt in &mut receipts {
-            receipt.canonical_commit_elapsed = canonical_commit_elapsed;
+        for (receipt, publication) in receipts.iter_mut().zip(publications) {
+            let timing = self.commit_placement(publication.tree_id, publication.record);
+            receipt.leaf_emitter_commit_elapsed = timing.leaf_emitter_elapsed;
+            receipt.canonical_record_commit_elapsed = timing.canonical_record_elapsed;
         }
         Ok(receipts)
     }
@@ -1792,10 +1816,10 @@ impl TreeTrunkPhysicalPrimitiveHost for AppTreeTrunkPhysicalHost<'_> {
             ))
             .with_context(|| format!("executing {:?} tree trunk change", change.direction))?
             .context("tree trunk publication must produce a visible world edit")?;
-        Ok(TreeTrunkPublicationOutcome {
-            mutation_elapsed: outcome.mutation_elapsed,
-            publication_elapsed: started_at.elapsed(),
-        })
+        Ok(TreeTrunkPublicationOutcome::from_total_elapsed(
+            outcome.mutation_elapsed,
+            started_at.elapsed(),
+        ))
     }
 }
 
@@ -2434,8 +2458,9 @@ impl App {
                 TreePlacementPerformance {
                     total_start,
                     compile_elapsed,
-                    trunk_elapsed: receipt.trunk_mutation_elapsed,
-                    rebuild_elapsed: receipt.trunk_publication_elapsed,
+                    trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                    visible_terrain_publication_elapsed: receipt
+                        .visible_terrain_publication_elapsed,
                     trunk_count,
                     rebuild_chunk_count: rebuild_chunk_ids.len(),
                     benchmark_gui_tree: false,
@@ -2495,17 +2520,13 @@ impl App {
                 trees.place(publication, host)
             }
         })?;
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("tree_gui_rebuild", receipt.trunk_publication_elapsed);
         Self::record_tree_publication_performance(
             &receipt,
             TreePlacementPerformance {
                 total_start,
                 compile_elapsed,
-                trunk_elapsed: receipt.trunk_mutation_elapsed,
-                rebuild_elapsed: receipt.trunk_publication_elapsed,
+                trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                visible_terrain_publication_elapsed: receipt.visible_terrain_publication_elapsed,
                 trunk_count,
                 rebuild_chunk_count: rebuild_chunk_ids.len(),
                 benchmark_gui_tree: true,
@@ -3248,6 +3269,10 @@ impl App {
                 "tree_gui_shadow_invalidation",
                 receipt.shadow_invalidation_elapsed,
             );
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_visible_terrain_publication",
+                receipt.visible_terrain_publication_elapsed,
+            );
             crate::util::BENCH
                 .lock()
                 .unwrap()
@@ -3259,20 +3284,25 @@ impl App {
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_leaf_emitter", receipt.canonical_commit_elapsed);
+                .record("tree_gui_leaf_emitter", receipt.leaf_emitter_commit_elapsed);
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_canonical_record_commit",
+                receipt.canonical_record_commit_elapsed,
+            );
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms leaves {:.2}ms fruit {:.2}ms shadow {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms leaves {:.2}ms fruit {:.2}ms shadow {:.2}ms visible_terrain {:.2}ms cluster {:.2}ms audio {:.2}ms leaf_emitter {:.2}ms canonical_record {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
                 performance.total_start.elapsed().as_secs_f32() * 1000.0,
                 performance.compile_elapsed.as_secs_f32() * 1000.0,
-                performance.trunk_elapsed.as_secs_f32() * 1000.0,
+                performance.trunk_mutation_elapsed.as_secs_f32() * 1000.0,
                 receipt.leaf_publication_elapsed.as_secs_f32() * 1000.0,
                 receipt.fruit_publication_elapsed.as_secs_f32() * 1000.0,
                 receipt.shadow_invalidation_elapsed.as_secs_f32() * 1000.0,
-                performance.rebuild_elapsed.as_secs_f32() * 1000.0,
+                performance.visible_terrain_publication_elapsed.as_secs_f32() * 1000.0,
                 receipt.cluster_elapsed.as_secs_f32() * 1000.0,
                 receipt.audio_elapsed.as_secs_f32() * 1000.0,
-                receipt.canonical_commit_elapsed.as_secs_f32() * 1000.0,
+                receipt.leaf_emitter_commit_elapsed.as_secs_f32() * 1000.0,
+                receipt.canonical_record_commit_elapsed.as_secs_f32() * 1000.0,
                 performance.trunk_count,
                 receipt.leaf_anchor_count,
                 receipt.leaf_instance_count,
@@ -3335,19 +3365,13 @@ impl App {
                 trees.place(publication, host)
             }
         })?;
-        if benchmark_gui_tree {
-            crate::util::BENCH
-                .lock()
-                .unwrap()
-                .record("tree_gui_rebuild", receipt.trunk_publication_elapsed);
-        }
         Self::record_tree_publication_performance(
             &receipt,
             TreePlacementPerformance {
                 total_start,
                 compile_elapsed,
-                trunk_elapsed: receipt.trunk_mutation_elapsed,
-                rebuild_elapsed: receipt.trunk_publication_elapsed,
+                trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                visible_terrain_publication_elapsed: receipt.visible_terrain_publication_elapsed,
                 trunk_count,
                 rebuild_chunk_count: affected_chunks.len(),
                 benchmark_gui_tree,
@@ -3953,6 +3977,27 @@ mod tests {
         );
         assert_eq!(TreePublicationAction::PublishTrunks.metric(), None);
         assert_eq!(TreePublicationAction::CommitPublication.metric(), None);
+    }
+
+    #[test]
+    fn trunk_timing_subtracts_mutation_from_visible_publication_instead_of_double_counting() {
+        let outcome = TreeTrunkPublicationOutcome::from_total_elapsed(
+            std::time::Duration::from_millis(5),
+            std::time::Duration::from_millis(13),
+        );
+
+        assert_eq!(
+            outcome.mutation_elapsed,
+            std::time::Duration::from_millis(5)
+        );
+        assert_eq!(
+            outcome.visible_publication_elapsed,
+            std::time::Duration::from_millis(8)
+        );
+        assert_eq!(
+            outcome.mutation_elapsed + outcome.visible_publication_elapsed,
+            std::time::Duration::from_millis(13)
+        );
     }
 
     #[test]
