@@ -8,6 +8,8 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "config/camera_snapshots.toml"
+      - "config/ddgi_convergence_acceptance.toml"
+      - "docs/ddgi_convergence_calibration.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -16,7 +18,9 @@ on:
       - "scripts/analyze_bd2_blue_voxel.py"
       - "scripts/check_bd2_blue_voxel.sh"
       - "scripts/check_ddgi*.sh"
+      - "scripts/check_ddgi_sky_normalization_evidence.py"
       - "scripts/install_slang.py"
+      - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
       - "scripts/summarize_ddgi_convergence.py"
       - "scripts/tests/**"
@@ -25,9 +29,12 @@ on:
       - "shader/**"
       - "src/app/core/environment_lighting_test_scene.rs"
       - "src/app/core/loading.rs"
+      - "src/app/core/mod.rs"
+      - "src/app/core/visible_terrain.rs"
       - "src/ddgi/**"
       - "src/environment_lighting.rs"
       - "src/main.rs"
+      - "src/run_log.rs"
       - "src/tracer/mod.rs"
   push:
     branches:
@@ -37,6 +44,8 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "config/camera_snapshots.toml"
+      - "config/ddgi_convergence_acceptance.toml"
+      - "docs/ddgi_convergence_calibration.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -45,7 +54,9 @@ on:
       - "scripts/analyze_bd2_blue_voxel.py"
       - "scripts/check_bd2_blue_voxel.sh"
       - "scripts/check_ddgi*.sh"
+      - "scripts/check_ddgi_sky_normalization_evidence.py"
       - "scripts/install_slang.py"
+      - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
       - "scripts/summarize_ddgi_convergence.py"
       - "scripts/tests/**"
@@ -54,9 +65,12 @@ on:
       - "shader/**"
       - "src/app/core/environment_lighting_test_scene.rs"
       - "src/app/core/loading.rs"
+      - "src/app/core/mod.rs"
+      - "src/app/core/visible_terrain.rs"
       - "src/ddgi/**"
       - "src/environment_lighting.rs"
       - "src/main.rs"
+      - "src/run_log.rs"
       - "src/tracer/mod.rs"
 
 permissions:
@@ -222,6 +236,20 @@ jobs:
 
       - name: Run process-bound log marker gate
         run: timeout 10m cargo test --locked startup_log_tests::
+
+      - name: Run DDGI convergence evidence gates
+        run: |
+          timeout 10m cargo test --locked ddgi_convergence_evidence_tests::
+          timeout 10m cargo test --locked runtime_convergence_budget_matches_the_acceptance_contract
+          timeout 10m cargo test --locked validated_publication_exposes_only_a_typed_terminal_reason
+
+      - name: Run DDGI process and convergence policy gates
+        run: >-
+          timeout 5m python3 -m unittest
+          scripts.tests.test_validate_capture_process_evidence
+          scripts.tests.test_summarize_ddgi_convergence
+          scripts.tests.test_check_ddgi_transport_acceptance
+          scripts.tests.test_ddgi_capture_process_integration
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py
