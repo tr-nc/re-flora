@@ -19,7 +19,6 @@ def valid_lines() -> list[str]:
         line("[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0 build_token_serial=1 generation_token_serial=1 epoch_zero_field_serial=1 field_serial=1 source_field_serial=0 geometry_revision=2 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=0 publication=Published"),
         line("[DDGI_ACCEPT][DENSITY] checkpoint=baseline field_serial=1 geometry_revision=2 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=0 source_field_serial=0 source_state=none"),
         line("[DDGI_ACCEPT][DENSITY] checkpoint=density-midflight active_token_serial=1 active_field_serial=1 active_geometry_revision=2 active_spacing_voxels=32 obsolete_density_token_serial=2 obsolete_density_field_serial=3 obsolete_density_spacing_voxels=16 old_field_visible=true active_available=true"),
-        line("[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0 build_token_serial=2 generation_token_serial=2 epoch_zero_field_serial=3 field_serial=3 source_field_serial=0 geometry_revision=2 radiance_revision=1 spacing_voxels=16 state=Converging update_epoch=0 publication=Published"),
         line("[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density obsolete_density_token_serial=2 obsolete_density_field_serial=3 terrain_token_serial=3 target_geometry_revision=3 terrain_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true"),
         line("[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0 build_token_serial=3 generation_token_serial=3 epoch_zero_field_serial=5 field_serial=5 source_field_serial=1 geometry_revision=3 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=0 publication=Published"),
         line("[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial=3 generation_token_serial=3 obsolete_density_token_serial=2 geometry_revision=3 radiance_revision=1 epoch_zero_field_serial=5 source_field_serial=1 private_current_field_serial=5 private_current_update_epoch=0 active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true"),
@@ -54,65 +53,65 @@ class ValidateDdgiDensityLifecycleTests(unittest.TestCase):
 
     def test_rejects_shuffled_complete_promotion_publication_private_preemption(self) -> None:
         lines = valid_lines()
-        shuffled = [lines[0], lines[1], lines[11], lines[4], lines[6], lines[3], lines[2], *lines[7:11], lines[12]]
+        shuffled = [lines[0], lines[1], lines[10], lines[3], lines[5], lines[2], *lines[6:10], lines[11]]
         with self.assertRaisesRegex(DensityLifecycleError, "out of order"):
             self.validate(shuffled)
 
     def test_rejects_duplicate_checkpoint(self) -> None:
         lines = valid_lines()
-        lines.insert(7, lines[6])
+        lines.insert(6, lines[5])
         with self.assertRaisesRegex(DensityLifecycleError, "duplicate"):
             self.validate(lines)
 
     def test_rejects_mixed_log_identity(self) -> None:
         lines = valid_lines()
-        lines[9] = lines[9].replace("terrain_token_serial=3", "terrain_token_serial=33")
+        lines[8] = lines[8].replace("terrain_token_serial=3", "terrain_token_serial=33")
         with self.assertRaisesRegex(DensityLifecycleError, "terrain token"):
             self.validate(lines)
 
     def test_rejects_obsolete_token_promotion_even_between_checkpoints(self) -> None:
         lines = valid_lines()
-        lines.insert(5, line("[DDGI] staging promoted token_serial=2 kind=Density spacing_voxels=16 geometry_revision=2 published_update_epoch=0"))
+        lines.insert(4, line("[DDGI] staging promoted token_serial=2 kind=Density spacing_voxels=16 geometry_revision=2 published_update_epoch=0"))
         with self.assertRaisesRegex(DensityLifecycleError, "obsolete density token"):
             self.validate(lines)
 
     def test_rejects_future_obsolete_promotion_before_its_identity_is_declared(self) -> None:
         lines = valid_lines()
-        lines.insert(2, lines[12].replace("token_serial=4", "token_serial=2"))
+        lines.insert(2, lines[11].replace("token_serial=4", "token_serial=2"))
         with self.assertRaisesRegex(DensityLifecycleError, "promotion"):
             self.validate(lines)
 
     def test_rejects_mixed_consumer_before_candidate_identity_is_declared(self) -> None:
         lines = valid_lines()
-        lines.insert(2, lines[13].replace("active_token_serial=4", "active_token_serial=99"))
+        lines.insert(2, lines[12].replace("active_token_serial=4", "active_token_serial=99"))
         with self.assertRaisesRegex(DensityLifecycleError, "consumer"):
             self.validate(lines)
 
     def test_rejects_coordinated_geometry_field_rewrite_without_owner_markers(self) -> None:
         lines = valid_lines()
-        lines[9] = lines[9].replace("published_field_serial=10", "published_field_serial=999")
-        lines[10] = lines[10].replace("active_field_serial=10", "active_field_serial=999")
+        lines[8] = lines[8].replace("published_field_serial=10", "published_field_serial=999")
+        lines[9] = lines[9].replace("active_field_serial=10", "active_field_serial=999")
         with self.assertRaisesRegex(DensityLifecycleError, "field"):
             self.validate(lines)
 
     def test_rejects_promotion_and_consumer_radiance_rewrite(self) -> None:
         lines = valid_lines()
+        lines[6] = lines[6].replace("radiance_revision=1", "radiance_revision=99")
         lines[7] = lines[7].replace("radiance_revision=1", "radiance_revision=99")
-        lines[8] = lines[8].replace("radiance_revision=1", "radiance_revision=99")
         with self.assertRaisesRegex(DensityLifecycleError, "radiance"):
             self.validate(lines)
 
     def test_every_later_checkpoint_is_bound_to_baseline_radiance(self) -> None:
         mutations = (
-            (6, "radiance_revision=1"),
-            (9, "radiance_revision=1"),
-            (10, "active_radiance_revision=1"),
-            (10, "density_radiance_revision=1"),
+            (5, "radiance_revision=1"),
+            (8, "radiance_revision=1"),
+            (9, "active_radiance_revision=1"),
+            (9, "density_radiance_revision=1"),
+            (10, "radiance_revision=1"),
             (11, "radiance_revision=1"),
             (12, "radiance_revision=1"),
             (13, "radiance_revision=1"),
             (14, "radiance_revision=1"),
-            (15, "radiance_revision=1"),
         )
         for index, identity in mutations:
             with self.subTest(index=index, identity=identity):
@@ -123,45 +122,67 @@ class ValidateDdgiDensityLifecycleTests(unittest.TestCase):
 
     def test_rejects_final_density_epoch_with_a_source(self) -> None:
         lines = valid_lines()
-        lines[14] = lines[14].replace("source_field_serial=0", "source_field_serial=10")
+        lines[13] = lines[13].replace("source_field_serial=0", "source_field_serial=10")
         with self.assertRaisesRegex(DensityLifecycleError, "source"):
             self.validate(lines)
 
     def test_rejects_geometry_epoch_zero_from_a_nonbaseline_history_source(self) -> None:
         lines = valid_lines()
-        lines[6] = lines[6].replace("source_field_serial=1", "source_field_serial=999")
+        lines[5] = lines[5].replace("source_field_serial=1", "source_field_serial=999")
         with self.assertRaisesRegex(DensityLifecycleError, "source"):
             self.validate(lines)
 
     def test_rejects_private_current_epoch_regression_at_promotion(self) -> None:
         lines = valid_lines()
-        lines[6] = lines[6].replace("private_current_update_epoch=0", "private_current_update_epoch=6")
+        lines[5] = lines[5].replace("private_current_update_epoch=0", "private_current_update_epoch=6")
         with self.assertRaisesRegex(DensityLifecycleError, "private current"):
             self.validate(lines)
 
     def test_same_epoch_promotion_must_publish_the_private_current_field(self) -> None:
         lines = valid_lines()
-        lines[6] = lines[6].replace("private_current_field_serial=5", "private_current_field_serial=999").replace("private_current_update_epoch=0", "private_current_update_epoch=5")
+        lines[5] = lines[5].replace("private_current_field_serial=5", "private_current_field_serial=999").replace("private_current_update_epoch=0", "private_current_update_epoch=5")
         with self.assertRaisesRegex(DensityLifecycleError, "private current"):
             self.validate(lines)
 
     def test_rejects_missing_private_current_field(self) -> None:
         lines = valid_lines()
-        lines[6] = lines[6].replace(" private_current_field_serial=5", "")
+        lines[5] = lines[5].replace(" private_current_field_serial=5", "")
         with self.assertRaisesRegex(DensityLifecycleError, "missing fields"):
             self.validate(lines)
 
     def test_rejects_unknown_complete_epoch_zero_capture_after_baseline(self) -> None:
         lines = valid_lines()
-        unknown = lines[11].replace("build_token_serial=4", "build_token_serial=99").replace("generation_token_serial=4", "generation_token_serial=99").replace("epoch_zero_field_serial=12", "epoch_zero_field_serial=99").replace("field_serial=12", "field_serial=99")
+        unknown = lines[10].replace("build_token_serial=4", "build_token_serial=99").replace("generation_token_serial=4", "generation_token_serial=99").replace("epoch_zero_field_serial=12", "epoch_zero_field_serial=99").replace("field_serial=12", "field_serial=99")
         lines.insert(2, unknown)
         with self.assertRaisesRegex(DensityLifecycleError, "unknown capture"):
             self.validate(lines)
 
     def test_rejects_duplicate_terrain_epoch_zero_capture(self) -> None:
         lines = valid_lines()
-        lines.insert(6, lines[5])
+        lines.insert(5, lines[4])
         with self.assertRaisesRegex(DensityLifecycleError, "duplicate capture"):
+            self.validate(lines)
+
+    def test_rejects_epoch_zero_capture_for_preempted_density(self) -> None:
+        lines = valid_lines()
+        lines.insert(3, line("[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0 build_token_serial=2 generation_token_serial=2 epoch_zero_field_serial=3 field_serial=3 source_field_serial=0 geometry_revision=2 radiance_revision=1 spacing_voxels=16 state=Converging update_epoch=0 publication=Published"))
+        with self.assertRaisesRegex(DensityLifecycleError, "obsolete density capture"):
+            self.validate(lines)
+
+    def test_rejects_nonmonotonic_generation_tokens_before_capture_matching(self) -> None:
+        lines = valid_lines()
+        lines[0] = lines[0].replace("token_serial=1", "token_serial=5")
+        lines[2] = lines[2].replace("active_token_serial=1", "active_token_serial=5")
+        lines.insert(3, line("[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0 build_token_serial=2 generation_token_serial=2 epoch_zero_field_serial=3 field_serial=3 source_field_serial=0 geometry_revision=2 radiance_revision=1 spacing_voxels=16 state=Converging update_epoch=0 publication=Published"))
+        with self.assertRaisesRegex(DensityLifecycleError, "strictly increasing"):
+            self.validate(lines)
+
+    def test_private_epoch_zero_current_field_must_equal_its_root(self) -> None:
+        lines = valid_lines()
+        lines[5] = lines[5].replace(
+            "private_current_field_serial=5", "private_current_field_serial=999"
+        )
+        with self.assertRaisesRegex(DensityLifecycleError, "epoch-zero root"):
             self.validate(lines)
 
 

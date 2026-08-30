@@ -159,12 +159,19 @@ class _Lifecycle:
         self.values["geometry_epoch_zero_field_serial"] = _integer(
             fields, "epoch_zero_field_serial"
         )
-        self.values["geometry_private_current_field_serial"] = _integer(
+        private_current_field = _integer(
             fields, "private_current_field_serial"
         )
         private_epoch = _integer(fields, "private_current_update_epoch")
         if private_epoch < 0:
             _fail("private geometry publication has a negative epoch")
+        if (
+            private_epoch == 0
+            and private_current_field
+            != self.values["geometry_epoch_zero_field_serial"]
+        ):
+            _fail("private epoch-zero current field differs from its epoch-zero root")
+        self.values["geometry_private_current_field_serial"] = private_current_field
         self.values["geometry_private_current_update_epoch"] = private_epoch
         _literal(fields, "active_spacing_voxels", "32")
         _literal(fields, "queued_density_spacing_voxels", "16")
@@ -359,6 +366,20 @@ class _Lifecycle:
             _fail(
                 f"incomplete density lifecycle; expected {ORDER[self.next_index].value}"
             )
+        generation_tokens = (
+            self.values["active_token_serial"],
+            self.values["obsolete_density_token_serial"],
+            self.values["terrain_token_serial"],
+            self.values["density_token_serial"],
+        )
+        if any(
+            earlier >= later
+            for earlier, later in zip(generation_tokens, generation_tokens[1:])
+        ):
+            _fail(
+                "generation tokens must be strictly increasing: "
+                "active < obsolete density < terrain < retried density"
+            )
         expected = {
             self.values["active_token_serial"]: (
                 "baseline",
@@ -366,13 +387,6 @@ class _Lifecycle:
                 0,
                 self.values["baseline_geometry_revision"],
                 32,
-            ),
-            self.values["obsolete_density_token_serial"]: (
-                "obsolete density",
-                self.values["obsolete_density_field_serial"],
-                0,
-                self.values["baseline_geometry_revision"],
-                16,
             ),
             self.values["terrain_token_serial"]: (
                 "terrain",
@@ -397,6 +411,8 @@ class _Lifecycle:
                 _fail(
                     f"capture build token {token} differs from generation token {generation}"
                 )
+            if token == self.values["obsolete_density_token_serial"]:
+                _fail("obsolete density capture was published after preemption")
             if token not in expected:
                 _fail(f"unknown capture generation token {token}")
             if token in seen:
