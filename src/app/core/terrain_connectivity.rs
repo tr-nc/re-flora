@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 pub(super) mod bench;
+mod detachment;
 
 // Most releases resolve from one contiguous readback. Components that cross this
 // fast-path halo continue through lazily loaded tiles below.
