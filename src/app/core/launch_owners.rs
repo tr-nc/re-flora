@@ -1093,4 +1093,99 @@ mod tests {
 
         assert!(error.contains("second camera automation"));
     }
+
+    fn denoiser_capture_options() -> DenoiserCaptureOptions {
+        DenoiserCaptureOptions {
+            report_path: "unused-denoiser-report.toml".to_owned(),
+            warmup_frames: 0,
+            capture_frames: 2,
+        }
+    }
+
+    fn camera_denoiser_owners() -> LaunchOwners {
+        prepare_startup_owners(
+            AutomationPlan {
+                camera: CameraAutomation::DenoiserBenchmark {
+                    snapshot: "tree".to_owned(),
+                    benchmark: CameraDenoiserOptions {
+                        capture: denoiser_capture_options(),
+                        camera_motion: CameraMotion::Scripted,
+                    },
+                },
+                benchmarks: BenchmarkPlan::default(),
+            },
+            Scenario::Garden,
+        )
+        .unwrap()
+    }
+
+    fn foliage_denoiser_owners() -> LaunchOwners {
+        prepare_startup_owners(
+            AutomationPlan::default(),
+            Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
+                capture: denoiser_capture_options(),
+            }),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn denoiser_frame_transaction_keeps_camera_and_foliage_ownership_exclusive() {
+        let mut camera = camera_denoiser_owners();
+        let camera_frame = camera.begin_denoiser_frame();
+        assert!(matches!(
+            camera_frame,
+            DenoiserFrameTxn::Camera {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                motion: CameraFrameMotion::Scripted {
+                    capture_frame: 0,
+                    is_last: false,
+                },
+                ..
+            }
+        ));
+
+        let mut foliage = foliage_denoiser_owners();
+        let foliage_frame = foliage.begin_denoiser_frame();
+        assert!(matches!(
+            foliage_frame,
+            DenoiserFrameTxn::Foliage {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                timeline: FixedVisualFrame {
+                    frame_delta_seconds,
+                    visual_time_seconds: 0.0,
+                },
+                ..
+            } if frame_delta_seconds > 0.0
+        ));
+    }
+
+    #[test]
+    fn failed_denoiser_record_does_not_present_or_advance_the_owned_transaction() {
+        for mut owners in [camera_denoiser_owners(), foliage_denoiser_owners()] {
+            let transaction = owners.begin_denoiser_frame();
+            let error = owners
+                .finish_denoiser_frame(
+                    transaction,
+                    DenoiserCaptureOutcome::Frame(DenoiserFrame::new(2, 2, vec![0; 3])),
+                )
+                .expect_err("invalid frame bytes must reject the transaction");
+            assert!(error.to_string().contains("expected"));
+
+            assert!(matches!(
+                owners.begin_denoiser_frame(),
+                DenoiserFrameTxn::Camera {
+                    capture: DenoiserCaptureStep::Record { frame: 0 },
+                    ..
+                } | DenoiserFrameTxn::Foliage {
+                    capture: DenoiserCaptureStep::Record { frame: 0 },
+                    timeline: FixedVisualFrame {
+                        visual_time_seconds: 0.0,
+                        ..
+                    },
+                    ..
+                }
+            ));
+        }
+    }
 }
