@@ -4,7 +4,7 @@
 //! 437,205-voxel detached hollow canopy, then represent at most 16,384 voxels as particles, without
 //! exceeding interactive frame budgets? This module is activated only by the diagnostic CLI.
 
-use super::super::launch_owners::{DiagnosticScenarioOwner, ScenarioOwner};
+use super::super::launch_owners::ScenarioOwner;
 use super::*;
 use crate::cli::{TerrainConnectivityBenchMode, TerrainConnectivityBenchOptions};
 use crate::particles::{
@@ -581,31 +581,14 @@ struct VisualSpawnResult {
 }
 
 impl ScenarioOwner {
-    fn dispatch_connectivity<R>(
-        &mut self,
-        operation: impl for<'owner> FnOnce(Option<&'owner mut TerrainConnectivityBench>) -> R,
-    ) -> R {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                operation(Some(bench))
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => operation(None),
-        }
-    }
-
     fn plan_connectivity_action(
         &mut self,
         facts: ConnectivityFacts,
     ) -> anyhow::Result<ConnectivityAction> {
-        self.dispatch_connectivity(|bench| match bench {
-            Some(bench) => bench.next_action(facts),
-            None => Ok(ConnectivityAction::None),
-        })
+        match self {
+            Self::Connectivity(bench) => bench.next_action(facts),
+            Self::Standard(_) => Ok(ConnectivityAction::None),
+        }
     }
 
     fn apply_connectivity_execution(
@@ -616,8 +599,8 @@ impl ScenarioOwner {
         let manual_release_handled = matches!(&result, ConnectivityResult::ManualReleaseHandled(_));
         let observation_requested =
             matches!(&result, ConnectivityResult::CompletedFrameObserved { .. });
-        self.dispatch_connectivity(|bench| match bench {
-            Some(bench) => {
+        match self {
+            Self::Connectivity(bench) => {
                 bench.apply_result(result)?;
                 Ok(ConnectivityEffect {
                     manual_release_handled,
@@ -626,11 +609,11 @@ impl ScenarioOwner {
                         && bench.options.mode != TerrainConnectivityBenchMode::Manual,
                 })
             }
-            None => {
+            Self::Standard(_) => {
                 ensure_inactive_connectivity_result(result)?;
                 Ok(ConnectivityEffect::default())
             }
-        })
+        }
     }
 
     pub(in crate::app::core) fn record_connectivity_gpu_submission(
@@ -638,11 +621,10 @@ impl ScenarioOwner {
         frame_slot: usize,
         frame: u64,
     ) {
-        self.dispatch_connectivity(|bench| {
-            if let Some(bench) = bench {
-                bench.record_gpu_submission(frame_slot, frame);
-            }
-        });
+        match self {
+            Self::Connectivity(bench) => bench.record_gpu_submission(frame_slot, frame),
+            Self::Standard(_) => {}
+        }
     }
 
     pub(in crate::app::core) fn observe_connectivity_gpu_completion(
@@ -650,39 +632,41 @@ impl ScenarioOwner {
         frame_slot: usize,
         results: &GpuProfilerFrameResults,
     ) {
-        self.dispatch_connectivity(|bench| {
-            if let Some(bench) = bench {
-                bench.observe_gpu_completion(frame_slot, results);
-            }
-        });
+        match self {
+            Self::Connectivity(bench) => bench.observe_gpu_completion(frame_slot, results),
+            Self::Standard(_) => {}
+        }
     }
 
     pub(in crate::app::core) fn allows_ambient_particle_emitters(&mut self) -> bool {
-        self.dispatch_connectivity(|bench| {
-            bench.is_none_or(|bench| bench.state == BenchState::Complete)
-        })
+        match self {
+            Self::Connectivity(bench) => bench.state == BenchState::Complete,
+            Self::Standard(_) => true,
+        }
     }
 
     fn plan_manual_connectivity_release(
         &mut self,
         facts: ManualReleaseFacts,
     ) -> anyhow::Result<ConnectivityAction> {
-        self.dispatch_connectivity(|bench| match bench {
-            Some(bench) if bench.options.mode == TerrainConnectivityBenchMode::Manual => {
+        match self {
+            Self::Connectivity(bench)
+                if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
+            {
                 Ok(bench.plan_manual_release(facts))
             }
-            Some(_) | None => Ok(ConnectivityAction::None),
-        })
+            Self::Connectivity(_) | Self::Standard(_) => Ok(ConnectivityAction::None),
+        }
     }
 
     fn plan_completed_connectivity_frame(
         &mut self,
         record: CpuFrameRecord,
     ) -> anyhow::Result<ConnectivityAction> {
-        self.dispatch_connectivity(|bench| match bench {
-            Some(bench) => Ok(bench.plan_completed_frame(record)),
-            None => Ok(ConnectivityAction::None),
-        })
+        match self {
+            Self::Connectivity(bench) => Ok(bench.plan_completed_frame(record)),
+            Self::Standard(_) => Ok(ConnectivityAction::None),
+        }
     }
 }
 
@@ -1934,9 +1918,7 @@ mod tests {
             observe_frames: 1,
             voxel_budget: 8,
         };
-        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-            TerrainConnectivityBench::new(options),
-        ));
+        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(options));
         let action = owner
             .plan_connectivity_action(ConnectivityFacts {
                 frame: 17,
@@ -1958,25 +1940,23 @@ mod tests {
         ));
         assert!(matches!(
             owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench {
-                    state: BenchState::InstallFixture,
-                    ..
-                }
-            ))
+            ScenarioOwner::Connectivity(TerrainConnectivityBench {
+                state: BenchState::InstallFixture,
+                ..
+            })
         ));
     }
 
     #[test]
     fn failed_physical_result_does_not_commit_connectivity_owner_state() {
-        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Bounded,
                 available_particles: 8,
                 warmup_frames: 1,
                 observe_frames: 1,
                 voxel_budget: 8,
-            }),
+            },
         ));
         let facts = ConnectivityFacts {
             frame: 23,
@@ -2001,12 +1981,10 @@ mod tests {
         assert!(error.to_string().contains("injected fixture failure"));
         assert!(matches!(
             owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench {
-                    state: BenchState::InstallFixture,
-                    ..
-                }
-            ))
+            ScenarioOwner::Connectivity(TerrainConnectivityBench {
+                state: BenchState::InstallFixture,
+                ..
+            })
         ));
         assert!(matches!(
             owner.plan_connectivity_action(facts).unwrap(),
@@ -2016,18 +1994,16 @@ mod tests {
 
     #[test]
     fn manual_release_is_planned_as_an_owned_app_execution() {
-        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Manual,
                 available_particles: 8,
                 warmup_frames: 1,
                 observe_frames: 1,
                 voxel_budget: 8,
-            }),
+            },
         ));
-        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
-            &mut owner
-        else {
+        let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
         bench.state = BenchState::AwaitingManualEdit;
@@ -2057,29 +2033,25 @@ mod tests {
             .contains("injected manual snapshot failure"));
         assert!(matches!(
             owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench {
-                    state: BenchState::AwaitingManualEdit,
-                    ..
-                }
-            ))
+            ScenarioOwner::Connectivity(TerrainConnectivityBench {
+                state: BenchState::AwaitingManualEdit,
+                ..
+            })
         ));
     }
 
     #[test]
     fn completed_frame_validation_is_an_owned_app_execution() {
-        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Bounded,
                 available_particles: 8,
                 warmup_frames: 1,
                 observe_frames: 1,
                 voxel_budget: 8,
-            }),
+            },
         ));
-        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
-            &mut owner
-        else {
+        let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
         bench.state = BenchState::Observing { event_frame: 40 };
@@ -2116,8 +2088,7 @@ mod tests {
         assert!(error
             .to_string()
             .contains("injected fixture validation failure"));
-        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = owner
-        else {
+        let ScenarioOwner::Connectivity(bench) = owner else {
             panic!("test constructed the wrong scenario owner");
         };
         assert_eq!(bench.state, BenchState::Observing { event_frame: 40 });
@@ -2126,14 +2097,14 @@ mod tests {
 
     #[test]
     fn gpu_completion_observes_the_source_frame_from_the_exact_submission_slot() {
-        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Bounded,
                 available_particles: 8,
                 warmup_frames: 1,
                 observe_frames: 1,
                 voxel_budget: 8,
-            }),
+            },
         ));
         let results = GpuProfilerFrameResults {
             scopes: Vec::new(),
@@ -2145,8 +2116,7 @@ mod tests {
 
         owner.observe_connectivity_gpu_completion(3, &results);
 
-        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = owner
-        else {
+        let ScenarioOwner::Connectivity(bench) = owner else {
             panic!("test constructed the wrong scenario owner");
         };
         assert_eq!(
@@ -2161,25 +2131,25 @@ mod tests {
 
     #[test]
     fn only_an_active_connectivity_diagnostic_reserves_ambient_particle_capacity() {
-        let mut connectivity =
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
-                    mode: TerrainConnectivityBenchMode::Bounded,
-                    available_particles: 8,
-                    warmup_frames: 1,
-                    observe_frames: 1,
-                    voxel_budget: 8,
-                }),
-            ));
-        let mut garden =
-            ScenarioOwner::World(super::super::super::launch_owners::WorldScenarioOwner::Garden);
+        let mut connectivity = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            },
+        ));
+        let mut garden = ScenarioOwner::Standard(
+            super::super::super::launch_owners::StandardScenarioOwner::World(
+                super::super::super::launch_owners::WorldScenarioOwner::Garden,
+            ),
+        );
 
         assert!(!connectivity.allows_ambient_particle_emitters());
         assert!(garden.allows_ambient_particle_emitters());
 
-        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
-            &mut connectivity
-        else {
+        let ScenarioOwner::Connectivity(bench) = &mut connectivity else {
             panic!("test constructed the wrong scenario owner");
         };
         bench.state = BenchState::Complete;
@@ -2187,22 +2157,24 @@ mod tests {
     }
 
     #[test]
-    fn scenario_owner_localizes_connectivity_identity_in_one_nested_dispatch() {
-        let mut connectivity =
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
-                    mode: TerrainConnectivityBenchMode::Bounded,
-                    available_particles: 8,
-                    warmup_frames: 1,
-                    observe_frames: 1,
-                    voxel_budget: 8,
-                }),
-            ));
-        let mut garden =
-            ScenarioOwner::World(super::super::super::launch_owners::WorldScenarioOwner::Garden);
+    fn connectivity_protocol_is_exposed_only_by_the_dedicated_owner_variant() {
+        let connectivity = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+            TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            },
+        ));
+        let garden = ScenarioOwner::Standard(
+            super::super::super::launch_owners::StandardScenarioOwner::World(
+                super::super::super::launch_owners::WorldScenarioOwner::Garden,
+            ),
+        );
 
-        assert!(connectivity.dispatch_connectivity(|bench| bench.is_some()));
-        assert!(!garden.dispatch_connectivity(|bench| bench.is_some()));
+        assert!(matches!(connectivity, ScenarioOwner::Connectivity(_)));
+        assert!(matches!(garden, ScenarioOwner::Standard(_)));
     }
 
     #[test]

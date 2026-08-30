@@ -109,15 +109,19 @@ pub(super) enum TestSceneOwner {
 
 pub(super) enum DiagnosticScenarioOwner {
     CanopyAudio(CanopyAudioDiagnosticRuntime),
-    TerrainConnectivity(TerrainConnectivityBench),
     FoliageShadow(DenoiserBench),
 }
 
-pub(super) enum ScenarioOwner {
+pub(super) enum StandardScenarioOwner {
     World(WorldScenarioOwner),
     Water(WaterScenarioOwner),
     TestScene(TestSceneOwner),
     Diagnostic(DiagnosticScenarioOwner),
+}
+
+pub(super) enum ScenarioOwner {
+    Standard(StandardScenarioOwner),
+    Connectivity(TerrainConnectivityBench),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,93 +352,134 @@ impl WaterEventMut<'_> {
 impl ScenarioOwner {
     pub(super) fn loading_directive(&self) -> LoadingDirective {
         match self {
-            Self::World(WorldScenarioOwner::Garden) => LoadingDirective::Garden,
-            Self::World(WorldScenarioOwner::House(_)) => LoadingDirective::House,
-            Self::Water(WaterScenarioOwner::Experience(_)) => LoadingDirective::WaterExperience,
-            Self::Water(WaterScenarioOwner::EditSoak(_))
-            | Self::TestScene(_)
-            | Self::Diagnostic(_) => LoadingDirective::Garden,
+            Self::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Garden)) => {
+                LoadingDirective::Garden
+            }
+            Self::Standard(StandardScenarioOwner::World(WorldScenarioOwner::House(_))) => {
+                LoadingDirective::House
+            }
+            Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::Experience(_))) => {
+                LoadingDirective::WaterExperience
+            }
+            Self::Standard(
+                StandardScenarioOwner::Water(WaterScenarioOwner::EditSoak(_))
+                | StandardScenarioOwner::TestScene(_)
+                | StandardScenarioOwner::Diagnostic(_),
+            )
+            | Self::Connectivity(_) => LoadingDirective::Garden,
         }
     }
 
     pub(super) fn test_scene_event(&self) -> TestSceneEvent<'_> {
         match self {
-            Self::TestScene(TestSceneOwner::Environment(scene)) => {
-                TestSceneEvent::Environment(scene)
+            Self::Standard(StandardScenarioOwner::TestScene(TestSceneOwner::Environment(
+                scene,
+            ))) => TestSceneEvent::Environment(scene),
+            Self::Standard(StandardScenarioOwner::TestScene(TestSceneOwner::Hybrid(scene))) => {
+                TestSceneEvent::Hybrid(scene)
             }
-            Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneEvent::Hybrid(scene),
-            Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneEvent::None,
+            Self::Standard(
+                StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::Water(_)
+                | StandardScenarioOwner::Diagnostic(_),
+            )
+            | Self::Connectivity(_) => TestSceneEvent::None,
         }
     }
 
     pub(super) fn test_scene_event_mut(&mut self) -> TestSceneEventMut<'_> {
         match self {
-            Self::TestScene(TestSceneOwner::Environment(scene)) => {
-                TestSceneEventMut::Environment(scene)
+            Self::Standard(StandardScenarioOwner::TestScene(TestSceneOwner::Environment(
+                scene,
+            ))) => TestSceneEventMut::Environment(scene),
+            Self::Standard(StandardScenarioOwner::TestScene(TestSceneOwner::Hybrid(scene))) => {
+                TestSceneEventMut::Hybrid(scene)
             }
-            Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneEventMut::Hybrid(scene),
-            Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneEventMut::None,
+            Self::Standard(
+                StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::Water(_)
+                | StandardScenarioOwner::Diagnostic(_),
+            )
+            | Self::Connectivity(_) => TestSceneEventMut::None,
         }
     }
 
     pub(super) fn foliage_capture_event(&self) -> FoliageCaptureEvent<'_> {
         match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(bench)) => {
-                FoliageCaptureEvent::Active(bench)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_),
+            Self::Standard(StandardScenarioOwner::Diagnostic(
+                DiagnosticScenarioOwner::FoliageShadow(bench),
+            )) => FoliageCaptureEvent::Active(bench),
+            Self::Standard(
+                StandardScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_))
+                | StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::Water(_)
+                | StandardScenarioOwner::TestScene(_),
             )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => FoliageCaptureEvent::None,
+            | Self::Connectivity(_) => FoliageCaptureEvent::None,
         }
     }
 
     pub(super) fn foliage_capture_event_mut(&mut self) -> FoliageCaptureEventMut<'_> {
         match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(bench)) => {
-                FoliageCaptureEventMut::Active(bench)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_),
+            Self::Standard(StandardScenarioOwner::Diagnostic(
+                DiagnosticScenarioOwner::FoliageShadow(bench),
+            )) => FoliageCaptureEventMut::Active(bench),
+            Self::Standard(
+                StandardScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_))
+                | StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::Water(_)
+                | StandardScenarioOwner::TestScene(_),
             )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => FoliageCaptureEventMut::None,
+            | Self::Connectivity(_) => FoliageCaptureEventMut::None,
         }
     }
 
     pub(super) fn water_event(&self) -> WaterEvent<'_> {
         match self {
-            Self::Water(WaterScenarioOwner::Experience(owner)) => WaterEvent::Experience(owner),
-            Self::Water(WaterScenarioOwner::EditSoak(owner)) => WaterEvent::EditSoak(owner),
-            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => WaterEvent::None,
+            Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::Experience(owner))) => {
+                WaterEvent::Experience(owner)
+            }
+            Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::EditSoak(owner))) => {
+                WaterEvent::EditSoak(owner)
+            }
+            Self::Standard(
+                StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::TestScene(_)
+                | StandardScenarioOwner::Diagnostic(_),
+            )
+            | Self::Connectivity(_) => WaterEvent::None,
         }
     }
 
     pub(super) fn water_event_mut(&mut self) -> WaterEventMut<'_> {
         match self {
-            Self::Water(WaterScenarioOwner::Experience(owner)) => WaterEventMut::Experience(owner),
-            Self::Water(WaterScenarioOwner::EditSoak(owner)) => WaterEventMut::EditSoak(owner),
-            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => WaterEventMut::None,
+            Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::Experience(owner))) => {
+                WaterEventMut::Experience(owner)
+            }
+            Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::EditSoak(owner))) => {
+                WaterEventMut::EditSoak(owner)
+            }
+            Self::Standard(
+                StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::TestScene(_)
+                | StandardScenarioOwner::Diagnostic(_),
+            )
+            | Self::Connectivity(_) => WaterEventMut::None,
         }
     }
 
     pub(super) fn audio_event(&mut self) -> AudioEvent<'_> {
         match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)) => {
-                AudioEvent::Canopy(runtime)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::TerrainConnectivity(_)
-                | DiagnosticScenarioOwner::FoliageShadow(_),
+            Self::Standard(StandardScenarioOwner::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(runtime),
+            )) => AudioEvent::Canopy(runtime),
+            Self::Standard(
+                StandardScenarioOwner::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(_))
+                | StandardScenarioOwner::World(_)
+                | StandardScenarioOwner::Water(_)
+                | StandardScenarioOwner::TestScene(_),
             )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => AudioEvent::None,
+            | Self::Connectivity(_) => AudioEvent::None,
         }
     }
 }
@@ -456,28 +501,34 @@ pub(in crate::app) fn prepare_startup_owners(
 ) -> Result<StartupOwners, String> {
     let AutomationPlan { camera, benchmarks } = automation;
     let scenario_owner = match scenario {
-        Scenario::Garden => ScenarioOwner::World(WorldScenarioOwner::Garden),
-        Scenario::CanopyAudioDiagnostic { constrained_budget } => {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(
+        Scenario::Garden => {
+            ScenarioOwner::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Garden))
+        }
+        Scenario::CanopyAudioDiagnostic { constrained_budget } => ScenarioOwner::Standard(
+            StandardScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(
                 CanopyAudioDiagnosticRuntime::new(constrained_budget),
+            )),
+        ),
+        Scenario::WaterExperience => ScenarioOwner::Standard(StandardScenarioOwner::Water(
+            WaterScenarioOwner::Experience(WaterExperienceOwner::Pending),
+        )),
+        Scenario::WaterEditSoak => ScenarioOwner::Standard(StandardScenarioOwner::Water(
+            WaterScenarioOwner::EditSoak(water::WaterEditSoak::default()),
+        )),
+        Scenario::EnvironmentLighting(case) => {
+            ScenarioOwner::Standard(StandardScenarioOwner::TestScene(
+                TestSceneOwner::Environment(EnvironmentLightingTestScene::new(case)),
             ))
         }
-        Scenario::WaterExperience => ScenarioOwner::Water(WaterScenarioOwner::Experience(
-            WaterExperienceOwner::Pending,
+        Scenario::HybridTransparency => ScenarioOwner::Standard(StandardScenarioOwner::TestScene(
+            TestSceneOwner::Hybrid(HybridTransparencyTestScene::new()),
         )),
-        Scenario::WaterEditSoak => {
-            ScenarioOwner::Water(WaterScenarioOwner::EditSoak(water::WaterEditSoak::default()))
+        Scenario::House => ScenarioOwner::Standard(StandardScenarioOwner::World(
+            WorldScenarioOwner::House(HouseSceneOwner),
+        )),
+        Scenario::TerrainConnectivityBenchmark(options) => {
+            ScenarioOwner::Connectivity(TerrainConnectivityBench::new(options))
         }
-        Scenario::EnvironmentLighting(case) => ScenarioOwner::TestScene(
-            TestSceneOwner::Environment(EnvironmentLightingTestScene::new(case)),
-        ),
-        Scenario::HybridTransparency => {
-            ScenarioOwner::TestScene(TestSceneOwner::Hybrid(HybridTransparencyTestScene::new()))
-        }
-        Scenario::House => ScenarioOwner::World(WorldScenarioOwner::House(HouseSceneOwner)),
-        Scenario::TerrainConnectivityBenchmark(options) => ScenarioOwner::Diagnostic(
-            DiagnosticScenarioOwner::TerrainConnectivity(TerrainConnectivityBench::new(options)),
-        ),
         Scenario::FoliageShadowBenchmark(options) => {
             let CameraAutomation::None = camera else {
                 return Err(
@@ -491,8 +542,8 @@ pub(in crate::app) fn prepare_startup_owners(
                     },
                     benchmarks,
                 },
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(
-                    DenoiserBench::new_foliage(options),
+                scenario: ScenarioOwner::Standard(StandardScenarioOwner::Diagnostic(
+                    DiagnosticScenarioOwner::FoliageShadow(DenoiserBench::new_foliage(options)),
                 )),
             });
         }
@@ -558,23 +609,25 @@ mod tests {
 
     fn owner_kind(owner: ScenarioOwner) -> OwnerKind {
         match owner {
-            ScenarioOwner::World(world) => match world {
-                WorldScenarioOwner::Garden => OwnerKind::Garden,
-                WorldScenarioOwner::House(_) => OwnerKind::House,
+            ScenarioOwner::Standard(standard) => match standard {
+                StandardScenarioOwner::World(world) => match world {
+                    WorldScenarioOwner::Garden => OwnerKind::Garden,
+                    WorldScenarioOwner::House(_) => OwnerKind::House,
+                },
+                StandardScenarioOwner::Water(water) => match water {
+                    WaterScenarioOwner::Experience(_) => OwnerKind::WaterExperience,
+                    WaterScenarioOwner::EditSoak(_) => OwnerKind::WaterEditSoak,
+                },
+                StandardScenarioOwner::TestScene(test_scene) => match test_scene {
+                    TestSceneOwner::Environment(_) => OwnerKind::Environment,
+                    TestSceneOwner::Hybrid(_) => OwnerKind::Hybrid,
+                },
+                StandardScenarioOwner::Diagnostic(diagnostic) => match diagnostic {
+                    DiagnosticScenarioOwner::CanopyAudio(_) => OwnerKind::CanopyAudio,
+                    DiagnosticScenarioOwner::FoliageShadow(_) => OwnerKind::FoliageShadow,
+                },
             },
-            ScenarioOwner::Water(water) => match water {
-                WaterScenarioOwner::Experience(_) => OwnerKind::WaterExperience,
-                WaterScenarioOwner::EditSoak(_) => OwnerKind::WaterEditSoak,
-            },
-            ScenarioOwner::TestScene(test_scene) => match test_scene {
-                TestSceneOwner::Environment(_) => OwnerKind::Environment,
-                TestSceneOwner::Hybrid(_) => OwnerKind::Hybrid,
-            },
-            ScenarioOwner::Diagnostic(diagnostic) => match diagnostic {
-                DiagnosticScenarioOwner::CanopyAudio(_) => OwnerKind::CanopyAudio,
-                DiagnosticScenarioOwner::TerrainConnectivity(_) => OwnerKind::TerrainConnectivity,
-                DiagnosticScenarioOwner::FoliageShadow(_) => OwnerKind::FoliageShadow,
-            },
+            ScenarioOwner::Connectivity(_) => OwnerKind::TerrainConnectivity,
         }
     }
 
@@ -697,10 +750,7 @@ mod tests {
             },
         ));
 
-        assert!(matches!(
-            owner,
-            ScenarioOwner::Connectivity(_)
-        ));
+        assert!(matches!(owner, ScenarioOwner::Connectivity(_)));
         assert!(matches!(
             owner_for(Scenario::Garden),
             ScenarioOwner::Standard(_)
@@ -708,7 +758,7 @@ mod tests {
 
         let source = include_str!("launch_owners.rs");
         assert!(
-            !source.contains("dispatch_connectivity"),
+            !source.contains(concat!("dispatch_", "connectivity")),
             "standard scenarios must not pass through a borrowed connectivity dispatcher",
         );
     }
