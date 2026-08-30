@@ -68,7 +68,7 @@ impl TerrainPersistenceRuntime {
                 .or_else(|| options.terrain_save_path.clone())
                 .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
             disabled_reason: options
-                .glass_voxel_test_scene
+                .glass_experiment_enabled()
                 .then_some(GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON),
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,
@@ -435,21 +435,23 @@ mod tests {
 
     #[test]
     fn glass_voxel_experiment_disables_runtime_persistence_without_freezing_the_world() {
-        let options = crate::AppOptions::try_from_arg_strings(vec![
-            "re-flora".to_owned(),
-            "--glass-voxel-test-scene".to_owned(),
-        ])
-        .unwrap();
-        let mut runtime = TerrainPersistenceRuntime::from_options(&options).unwrap();
+        for scene_flag in ["--glass-voxel-test-scene", "--house-scene"] {
+            let options = crate::AppOptions::try_from_arg_strings(vec![
+                "re-flora".to_owned(),
+                scene_flag.to_owned(),
+            ])
+            .unwrap();
+            let mut runtime = TerrainPersistenceRuntime::from_options(&options).unwrap();
 
-        assert!(!runtime.can_start_operation());
-        assert!(!runtime.begin_save());
-        assert!(runtime.allows_world_updates());
-        assert!(runtime.allows_water_simulation());
-        assert_eq!(
-            runtime.status_label(),
-            "Disabled: Glass voxel experiment cannot be persisted",
-        );
+            assert!(!runtime.can_start_operation());
+            assert!(!runtime.begin_save());
+            assert!(runtime.allows_world_updates());
+            assert!(runtime.allows_water_simulation());
+            assert_eq!(
+                runtime.status_label(),
+                "Disabled: Glass voxel experiment cannot be persisted",
+            );
+        }
     }
 
     #[test]

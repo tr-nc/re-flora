@@ -587,6 +587,7 @@ pub struct App {
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
     glass_voxel_test_scene: Option<glass_voxel_test_scene::GlassVoxelTestScene>,
+    glass_experiment_enabled: bool,
     house_scene_requested: bool,
     visible_terrain_revision: u32,
     shutdown_started: bool,
@@ -603,7 +604,7 @@ pub struct App {
 
 impl App {
     fn voxel_material_mode(&self) -> crate::voxel_material::VoxelMaterialMode {
-        if self.glass_voxel_test_scene.is_some() {
+        if self.glass_experiment_enabled {
             crate::voxel_material::VoxelMaterialMode::GlassExperiment
         } else {
             crate::voxel_material::VoxelMaterialMode::Standard
@@ -1171,7 +1172,7 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             contree_pool_sizes.node_pool_size_in_bytes,
             contree_pool_sizes.leaf_pool_size_in_bytes,
-            if options.glass_voxel_test_scene {
+            if options.glass_experiment_enabled() {
                 crate::voxel_material::VoxelMaterialMode::GlassExperiment
             } else {
                 crate::voxel_material::VoxelMaterialMode::Standard
@@ -1242,7 +1243,7 @@ impl App {
                             | EnvironmentLightingTestCase::LocalLightScaling
                     )
                 ),
-                glass_experiment_enabled: options.glass_voxel_test_scene,
+                glass_experiment_enabled: options.glass_experiment_enabled(),
                 glass_debug_view: options.glass_debug_view.as_u32(),
             },
             spatial_sound_manager.clone(),
@@ -1605,6 +1606,7 @@ impl App {
                     options.camera_snapshot.is_none(),
                 )
             }),
+            glass_experiment_enabled: options.glass_experiment_enabled(),
             house_scene_requested: options.house_scene,
             visible_terrain_revision: 0,
             shutdown_started: false,
@@ -3492,7 +3494,7 @@ impl App {
                     }
                 }
 
-                if self.glass_voxel_test_scene.is_none() && self.terrain_moisture.has_chunks() {
+                if !self.glass_experiment_enabled && self.terrain_moisture.has_chunks() {
                     let moisture_spread_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
                             profiler.begin_scope(
@@ -4191,7 +4193,7 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
 
-                if self.glass_voxel_test_scene.is_none() && self.terrain_moisture.has_chunks() {
+                if !self.glass_experiment_enabled && self.terrain_moisture.has_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                         profiler.begin_scope(
                             frame_slot,

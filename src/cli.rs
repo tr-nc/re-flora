@@ -370,7 +370,7 @@ pub struct AppOptions {
     pub glass_coverage: GlassCoverage,
     /// Select a diagnostic visualization for the experimental Glass resolve.
     pub glass_debug_view: GlassDebugView,
-    /// Build the authored house scene on freshly generated terrain.
+    /// Build the authored house scene with experimental Glass window panes.
     pub house_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
@@ -426,6 +426,10 @@ impl AppOptions {
 
     pub fn try_from_args() -> Result<Self, String> {
         Self::try_from_arg_strings(std::env::args().collect())
+    }
+
+    pub(crate) fn glass_experiment_enabled(&self) -> bool {
+        self.glass_voxel_test_scene || self.house_scene
     }
 
     fn from_arg_strings(args: Vec<String>) -> Self {
@@ -734,12 +738,13 @@ impl AppOptions {
             );
         }
         if house_scene
-            && (environment_lighting_test_scene.is_some()
+            && (terrain_save_path.is_some()
+                || environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
                 || water_edit_soak)
         {
             return Err(
-                "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
+                "Do not combine --house-scene with terrain persistence, another terrain-stamping scene, or --water-edit-soak"
                     .to_owned(),
             );
         }
@@ -1211,7 +1216,7 @@ Options:
   --glass-coverage <percent> Select fixed target screen coverage: 0, 10, 25, or 50 (default: 50)
   --glass-debug-view <view>  Experimental view: final, glass-front, opaque-provenance, screen-validity
                               Use screenshot preset 'glass-test-scene' to retain its fixed camera
-  --house-scene               Build the terrain-integrated Hobbit hill house
+  --house-scene               Build the Hobbit hill house with experimental Glass windows
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
@@ -1725,6 +1730,7 @@ mod tests {
         let options = parse(&["re-flora", "--glass-voxel-test-scene"]);
 
         assert!(options.glass_voxel_test_scene);
+        assert!(options.glass_experiment_enabled());
         assert_eq!(options.glass_coverage, GlassCoverage::Fifty);
         assert_eq!(options.glass_debug_view, GlassDebugView::Final);
     }
@@ -1840,20 +1846,26 @@ mod tests {
     fn parses_house_scene_and_rejects_snapshot_input() {
         let options = parse(&["re-flora", "--house-scene"]);
         assert!(options.house_scene);
+        assert!(options.glass_experiment_enabled());
 
-        let incompatible = AppOptions::try_from_arg_strings(
-            [
-                "re-flora",
-                "--terrain-load",
-                "target/input.rflterrain",
-                "--house-scene",
-            ]
-            .iter()
-            .map(|arg| (*arg).to_owned())
-            .collect(),
-        )
-        .unwrap_err();
-        assert!(incompatible.contains("Do not combine --terrain-load"));
+        for persistence_args in [
+            ["--terrain-load", "target/input.rflterrain"],
+            ["--terrain-save", "target/output.rflterrain"],
+        ] {
+            let incompatible = AppOptions::try_from_arg_strings(
+                [
+                    "re-flora",
+                    persistence_args[0],
+                    persistence_args[1],
+                    "--house-scene",
+                ]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+            )
+            .unwrap_err();
+            assert!(incompatible.contains("Do not combine"));
+        }
     }
 
     #[test]

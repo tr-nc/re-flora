@@ -21,10 +21,11 @@ results; it does not replace or modify that guide.
 - Rasterization remains the opaque/raster producer. Glass uses compute/software voxel ray
   tracing only. No Vulkan/DXR hardware ray tracing, BLAS/TLAS, acceleration-structure
   descriptors, or ray queries were introduced.
-- `VOXEL_TYPE_SAND` (ID 3) is reinterpreted only under
-  `--glass-voxel-test-scene`. The scene is deterministic, persistence is fail-closed, and
-  experimental soil bits are canonicalized. No voxel ID, save schema, or stats schema was
-  added.
+- `VOXEL_TYPE_SAND` (ID 3) is reinterpreted only under the explicit
+  `--glass-voxel-test-scene` or `--house-scene` modes. The dedicated test scene remains the
+  deterministic acceptance workload; the Hobbit scene authors one-voxel-thick panes in both
+  round windows. Persistence is fail-closed and experimental soil bits are canonicalized. No
+  voxel ID, save schema, or stats schema was added.
 - Feature OFF keeps the ordinary Sand material and its soil, smoothing, footsteps, backpack,
   acoustics, material, and persistence consumers on their original path. Standard and Glass
   primary tracers are separate compile-time shader variants, so Glass output bindings are
@@ -40,6 +41,14 @@ results; it does not replace or modify that guide.
   Probe transport is straight-through with Fresnel/Beer; local-light finite segments accumulate
   RGB transmittance. Direct sun intentionally skips Glass, with no Glass shadow or caustics.
   Optical revision is part of the immutable DDGI transport snapshot.
+
+### Hobbit house integration
+
+`--house-scene` now enables the same compile-time-specialized Glass renderer and stamps Sand ID 3
+only into the two round window openings after the openings are carved. The door remains open, the
+procedural terrain generator continues to emit Dirt and Rock rather than Sand, and terrain
+persistence is disabled for the scene. Starting without either Glass scene flag still selects the
+ordinary Sand material and the feature-OFF renderer graph.
 
 ## Fixed-scene acceptance
 
