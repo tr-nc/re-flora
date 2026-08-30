@@ -2386,6 +2386,30 @@ mod tests {
     }
 
     #[test]
+    fn fixture_atlas_writes_reject_empty_out_of_world_and_wrong_byte_count() {
+        let reject =
+            |origin, dim, data| match FixtureAtlasWrite::new(UVec3::splat(8), origin, dim, data) {
+                Ok(_) => panic!("invalid fixture atlas write unexpectedly prepared"),
+                Err(error) => error,
+            };
+
+        let empty = reject(UVec3::ZERO, UVec3::ZERO, Vec::new());
+        assert!(empty
+            .to_string()
+            .contains("cannot prepare an empty atlas write"));
+
+        let outside = reject(UVec3::splat(7), UVec3::splat(2), vec![7; 8]);
+        assert!(outside
+            .to_string()
+            .contains("atlas write is outside the world"));
+
+        let wrong_bytes = reject(UVec3::ZERO, UVec3::splat(2), vec![7; 7]);
+        assert!(wrong_bytes
+            .to_string()
+            .contains("atlas write has 7 bytes, expected 8"));
+    }
+
+    #[test]
     fn failed_physical_result_does_not_commit_connectivity_owner_state() {
         let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
             mode: TerrainConnectivityBenchMode::Bounded,

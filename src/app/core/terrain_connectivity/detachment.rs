@@ -324,6 +324,46 @@ mod tests {
     }
 
     #[test]
+    fn sealed_prepare_rejects_empty_and_out_of_world_atlas_regions() {
+        let cases = [
+            (
+                UVec3::ZERO,
+                UVec3::ZERO,
+                Vec::new(),
+                "cannot prepare an empty atlas write",
+            ),
+            (
+                UVec3::splat(7),
+                UVec3::splat(2),
+                vec![7; 8],
+                "atlas write is outside the world",
+            ),
+        ];
+
+        for (origin, dim, atlas_data, expected_error) in cases {
+            let request = TerrainDetachmentRequest::single_region(
+                UVec3::splat(8),
+                origin,
+                dim,
+                atlas_data,
+                Vec::new(),
+                0,
+                UAabb3::new(UVec3::ZERO, UVec3::ONE),
+            );
+            let rejected = match PreparedTerrainDetachment::prepare(request) {
+                Ok(_) => panic!("invalid atlas region unexpectedly prepared"),
+                Err(rejected) => rejected,
+            };
+
+            assert!(
+                rejected.error.to_string().contains(expected_error),
+                "unexpected atlas validation error: {:#}",
+                rejected.error,
+            );
+        }
+    }
+
+    #[test]
     fn sealed_prepare_owns_the_exact_valid_region_payload() {
         let world_dim = UVec3::splat(8);
         let atlas_data = vec![7; 8];
