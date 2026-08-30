@@ -2999,6 +2999,26 @@ mod tests {
     }
 
     #[test]
+    fn garden_tree_final_action_failure_cannot_commit_canonical_identity_early() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost {
+            fail_action: Some(TreePublicationAction::CommitCanonicalTree),
+            ..RecordingTreePublicationHost::default()
+        };
+
+        let error = garden
+            .place(prepared_tree(3, 75, 705), &mut host)
+            .expect_err("final publication action should be able to abort canonical commit");
+
+        assert!(format!("{error:#}").contains("injected action failure"));
+        let mut expected = placement_events(TreePublicationOperation::Place, 3);
+        expected.push((TreePublicationAction::Compensate, 3));
+        assert_eq!(host.events, expected);
+        assert_eq!(garden.canonical_canopy_generation(3), None);
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
     fn garden_tree_removal_failure_compensates_and_keeps_identity_canonical() {
         let mut garden = GardenTrees::new(LeafEmitterDesc::default());
         let mut host = RecordingTreePublicationHost::default();
@@ -3026,6 +3046,26 @@ mod tests {
             ]
         );
         assert_eq!(garden.canonical_canopy_generation(9), Some(81));
+        assert_eq!(garden.len(), 1);
+    }
+
+    #[test]
+    fn garden_tree_final_removal_action_failure_cannot_remove_identity_early() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(10, 91, 901), &mut host).unwrap();
+        host.events.clear();
+        host.fail_action = Some(TreePublicationAction::RemoveCanonicalTree);
+
+        garden
+            .remove(10, &mut host)
+            .expect_err("final removal action should be able to abort canonical removal");
+
+        assert_eq!(
+            host.events.last(),
+            Some(&(TreePublicationAction::Compensate, 10))
+        );
+        assert_eq!(garden.canonical_canopy_generation(10), Some(91));
         assert_eq!(garden.len(), 1);
     }
 
