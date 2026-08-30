@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+import stat
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,6 +22,86 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def run_fake_runner(
+        self, *, fail_dogleg: bool = False, fail_runtime_child: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts"
+            fake_bin = root / "bin"
+            scripts.mkdir()
+            fake_bin.mkdir()
+
+            def executable(path: Path, contents: str) -> None:
+                path.write_text(contents, encoding="utf-8")
+                path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+            executable(scripts / RUNNER.name, RUNNER.read_text(encoding="utf-8"))
+            executable(
+                fake_bin / "cargo",
+                """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "build" ]]; then exit 0; fi
+arguments=("$@")
+for ((index = 0; index < ${#arguments[@]}; ++index)); do
+    if [[ "${arguments[$index]}" == "--environment-irradiance-capture" ]]; then
+        capture="${arguments[$((index + 1))]}"
+        mkdir -p "$(dirname "$capture")"
+        : >"$capture"
+    fi
+done
+""",
+            )
+            executable(
+                scripts / "analyze_environment_irradiance_capture.py",
+                """#!/usr/bin/env bash
+if [[ "${FAKE_FAIL_DOGLEG:-0}" == 1 && "$1" == *dogleg* ]]; then exit 1; fi
+printf '{}\n'
+""",
+            )
+            executable(
+                scripts / "summarize_ddgi_convergence.py",
+                """#!/usr/bin/env bash
+arguments=("$@")
+for ((index = 0; index < ${#arguments[@]}; ++index)); do
+    if [[ "${arguments[$index]}" == "--output" ]]; then
+        : >"${arguments[$((index + 1))]}"
+    fi
+done
+""",
+            )
+            executable(
+                scripts / "check_ddgi_correctness.sh", "#!/usr/bin/env bash\nexit 0\n"
+            )
+            executable(
+                scripts / "check_ddgi_runtime_terrain_edits.sh",
+                f"#!/usr/bin/env bash\nexit {1 if fail_runtime_child else 0}\n",
+            )
+            executable(
+                scripts / "check_ddgi_lifecycle_acceptance.sh",
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            (scripts / "check_ddgi_sky_normalization_evidence.py").write_text(
+                "raise SystemExit(0)\n", encoding="utf-8"
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "DDGI_TRANSPORT_ACCEPTANCE_OUTPUT_DIR": str(root / "output"),
+                    "FAKE_FAIL_DOGLEG": "1" if fail_dogleg else "0",
+                }
+            )
+            return subprocess.run(
+                [str(scripts / RUNNER.name)],
+                cwd=root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
     def test_dry_run_exposes_the_required_transport_matrix(self) -> None:
         result = self.run_runner("--dry-run")
@@ -58,12 +141,12 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
-            "filter-history-action=REQUIRED",
+            "filter-history-outcome=REQUIRED",
             "--expect-version 8",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
-            "direct-sun-framebuffer=PROVEN",
+            "direct-sun-framebuffer=REQUIRED",
             "convergence_provenance=docs/ddgi_convergence_calibration.md",
             "summarize_ddgi_convergence.py",
             "--consecutive-epochs 2",
@@ -73,6 +156,8 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         ):
             self.assertIn(contract, output)
         self.assertNotIn("filter-history-action=PROVEN", output)
+        self.assertNotIn("filter-history-outcome=ACCEPTED", output)
+        self.assertNotIn("direct-sun-framebuffer=PROVEN", output)
 
     def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,
@@ -97,6 +182,26 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         self.assertNotIn(
             "filter-history-action=PROVEN", result.stdout + result.stderr
         )
+
+    def test_dogleg_failure_never_claims_filter_history_outcome(self) -> None:
+        result = self.run_fake_runner(fail_dogleg=True)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn(
+            "filter-history-outcome=ACCEPTED", result.stdout + result.stderr
+        )
+        self.assertNotIn("filter-history-action=PROVEN", result.stdout + result.stderr)
+
+    def test_direct_sun_proof_follows_successful_runtime_child(self) -> None:
+        failed = self.run_fake_runner(fail_runtime_child=True)
+        succeeded = self.run_fake_runner()
+
+        self.assertEqual(failed.returncode, 1)
+        self.assertNotIn("direct-sun-framebuffer=PROVEN", failed.stdout + failed.stderr)
+        self.assertEqual(succeeded.returncode, 0, succeeded.stderr)
+        self.assertEqual(succeeded.stdout.count("direct-sun-framebuffer=PROVEN"), 1)
+        self.assertEqual(succeeded.stdout.count("filter-history-outcome=ACCEPTED"), 1)
+        self.assertNotIn("filter-history-action=PROVEN", succeeded.stdout)
 
 
 if __name__ == "__main__":
