@@ -1724,6 +1724,14 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
+fn prepare_initial_environment_lighting_test_scene(
+    case: EnvironmentLightingTestCase,
+) -> Result<WorldEditTransaction> {
+    TestSceneGeometry::build(case)
+        .compile()
+        .context("compile deterministic environment-lighting test scene")
+}
+
 fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditTransaction> {
     Ok(WorldEditTransaction::terrain_change(
         vec![stamp_cuboids(
@@ -1940,16 +1948,22 @@ impl App {
     fn publish_initial_environment_lighting_test_scene(
         &mut self,
         case: EnvironmentLightingTestCase,
-    ) -> Result<u32> {
+        transaction: WorldEditTransaction,
+    ) -> u32 {
         log::info!(
             "[ENV_LIGHT_TEST] constructing static case={} before probe initialization",
             case.label(),
         );
-        TestSceneGeometry::build(case)
-            .compile()
-            .context("compile deterministic environment-lighting test scene")
-            .and_then(|transaction| self.execute_world_edit(transaction))
-            .and_then(require_initial_test_scene_publication)?;
+        let publication = self.execute_world_edit(transaction).unwrap_or_else(|error| {
+            panic!(
+                "[ENV_LIGHT_TEST] initial physical world edit failed after mutation may have started; retry is unsafe: {error:#}"
+            )
+        });
+        require_initial_test_scene_publication(publication).unwrap_or_else(|error| {
+            panic!(
+                "[ENV_LIGHT_TEST] initial physical world edit did not publish; retry is unsafe: {error:#}"
+            )
+        });
         let rebuild_bound = test_rebuild_bound(case);
         let terrain_revision = self.visible_terrain_revision;
         log::info!(
@@ -1964,7 +1978,7 @@ impl App {
             terrain_revision,
             SETTLE_FRAMES,
         );
-        Ok(terrain_revision)
+        terrain_revision
     }
 
     pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(
@@ -1978,17 +1992,16 @@ impl App {
             return Ok(());
         }
         let case = attempt.request().case;
-        let terrain_revision = match self
-            .publish_initial_environment_lighting_test_scene(case)
-            .context("publish initial environment-lighting test scene")
-        {
-            Ok(terrain_revision) => terrain_revision,
+        let transaction = match prepare_initial_environment_lighting_test_scene(case) {
+            Ok(transaction) => transaction,
             Err(error) => {
                 return self
                     .launch_owners
                     .apply_environment_phase_result(Err(attempt.fail(error)));
             }
         };
+        let terrain_revision =
+            self.publish_initial_environment_lighting_test_scene(case, transaction);
         let request = attempt.request_mut();
         request.initial_publication = Some(InitialTestScenePublication::new(terrain_revision));
         request.phase = TestScenePhase::Settling {
@@ -6288,8 +6301,8 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::core::VOXEL_DIM_PER_CHUNK;
     use crate::app::core::launch_owners;
+    use crate::app::core::VOXEL_DIM_PER_CHUNK;
     use crate::cli::{AutomationPlan, Scenario};
     use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
@@ -6303,10 +6316,9 @@ mod tests {
 
     #[test]
     fn initial_test_scene_preflight_is_complete_before_world_mutation() {
-        let plan = prepare_initial_environment_lighting_test_scene(
-            EnvironmentLightingTestCase::Sealed,
-        )
-        .unwrap();
+        let plan =
+            prepare_initial_environment_lighting_test_scene(EnvironmentLightingTestCase::Sealed)
+                .unwrap();
 
         assert_eq!(
             plan.affected_voxels(VOXEL_DIM_PER_CHUNK).unwrap(),
