@@ -84,15 +84,14 @@ impl DdgiFrameWork {
 }
 
 /// Typed result of reconciling one deferred physical batch completion.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct DdgiBatchCompletion {
-    pub batch: DdgiRayBatch,
     pub stats: Option<DdgiTraceStats>,
     pub radiance_snapshot: Option<crate::environment_lighting::DdgiRadianceSnapshot>,
     pub probe_count: u32,
     pub build_token: Option<DdgiBuildToken>,
     pub status: DdgiRuntimeVolumeStatus,
-    pub validated_publication: Option<DdgiValidatedPublication>,
+    validated_publication: Option<DdgiValidatedPublication>,
     pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
 }
@@ -201,12 +200,16 @@ impl fmt::Display for DdgiConvergenceTerminalEvidence {
 }
 
 impl DdgiBatchCompletion {
-    pub(crate) fn is_stale(self) -> bool {
+    pub(crate) fn is_stale(&self) -> bool {
         self.stats.is_none()
     }
 
-    fn emit_convergence_evidence(self) {
-        if let Some(publication) = self.validated_publication {
+    pub(crate) fn validated_publication(&self) -> Option<DdgiValidatedPublication> {
+        self.validated_publication
+    }
+
+    pub(crate) fn commit_convergence_evidence(&mut self) {
+        if let Some(publication) = self.validated_publication.take() {
             publication.emit_convergence_evidence();
         }
     }
@@ -1158,7 +1161,6 @@ impl DdgiRuntime {
         let before = self.volumes().builder().status();
         if !self.volumes().builder().pending_trace_stats_batch_is(batch) {
             return Ok(DdgiBatchCompletion {
-                batch,
                 stats: None,
                 radiance_snapshot: None,
                 probe_count: before.grid.probe_count(),
@@ -1319,8 +1321,7 @@ impl DdgiRuntime {
         }
 
         let after = self.volumes().builder().status();
-        let completion = DdgiBatchCompletion {
-            batch,
+        Ok(DdgiBatchCompletion {
             stats: Some(stats),
             radiance_snapshot: Some(radiance_snapshot),
             probe_count: after.grid.probe_count(),
@@ -1329,9 +1330,7 @@ impl DdgiRuntime {
             validated_publication,
             consumer_descriptor_generation,
             capture_observed,
-        };
-        completion.emit_convergence_evidence();
-        Ok(completion)
+        })
     }
 }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import unittest
 from pathlib import Path
 
@@ -10,15 +11,36 @@ WORKFLOW = ROOT / ".github/workflows/shader-validation.yml"
 
 class ShaderValidationWorkflowTests(unittest.TestCase):
     @staticmethod
-    def event_route(workflow: str, event: str, following: str) -> str:
-        start = workflow.index(f"  {event}:\n")
-        following_header = (
-            f"\n{following}:\n"
-            if following == "permissions"
-            else f"  {following}:\n"
-        )
-        end = workflow.index(following_header, start)
-        return workflow[start:end]
+    def yaml_sequence(workflow: str, path: tuple[str, ...]) -> list[str]:
+        lines = workflow.splitlines()
+        start = 0
+        end = len(lines)
+        for depth, key in enumerate(path):
+            indent = depth * 2
+            header = " " * indent + key + ":"
+            match = next(
+                index
+                for index in range(start, end)
+                if lines[index].split("#", 1)[0].rstrip() == header
+            )
+            start = match + 1
+            end = next(
+                (
+                    index
+                    for index in range(start, end)
+                    if (content := lines[index].split("#", 1)[0].rstrip())
+                    and len(content) - len(content.lstrip()) <= indent
+                ),
+                end,
+            )
+        item_indent = " " * (len(path) * 2)
+        values = []
+        for line in lines[start:end]:
+            content = line.split("#", 1)[0].rstrip()
+            if content.startswith(item_indent + "- "):
+                value = content[len(item_indent) + 2 :]
+                values.append(ast.literal_eval(value) if value.startswith('"') else value)
+        return values
 
     def test_policy_inputs_and_targeted_rust_gates_are_continuous(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -30,7 +52,6 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "config/ddgi_convergence_acceptance.toml",
             "docs/ddgi_convergence_calibration.md",
             "docs/ddgi_indirect_transport_spec.md",
-            "docs/ddgi_migration_plan.md",
             "docs/ddgi_transport_acceptance.md",
             "scripts/analyze_bd2_blue_voxel.py",
             "scripts/check_bd2_blue_voxel.sh",
@@ -81,19 +102,23 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
 
     def test_migration_document_routes_through_pull_request_and_push(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        path = '      - "docs/ddgi_migration_plan.md"'
-        pull_request = self.event_route(workflow, "pull_request", "push")
-        push = self.event_route(workflow, "push", "permissions")
+        migration = "docs/ddgi_migration_plan.md"
+        for event in ("pull_request", "push"):
+            self.assertEqual(
+                self.yaml_sequence(workflow, ("on", event, "paths")).count(migration),
+                1,
+            )
 
-        self.assertEqual(pull_request.count(path), 1)
-        self.assertEqual(push.count(path), 1)
-        for event, following in (("pull_request", "push"), ("push", "permissions")):
-            route = self.event_route(workflow, event, following)
-            mutated = workflow.replace(route, route.replace(path, "", 1), 1)
-            with self.assertRaises(AssertionError):
-                self.assertEqual(
-                    self.event_route(mutated, event, following).count(path), 1
-                )
+        real_route = '      - "docs/ddgi_migration_plan.md"'
+        for event in ("pull_request", "push"):
+            event_header = f"  {event}:\n"
+            event_start = workflow.index(event_header)
+            route = workflow.index(real_route, event_start)
+            mutated = workflow[:route] + "      # " + workflow[route:]
+            self.assertNotIn(
+                migration,
+                self.yaml_sequence(mutated, ("on", event, "paths")),
+            )
 
 
 if __name__ == "__main__":

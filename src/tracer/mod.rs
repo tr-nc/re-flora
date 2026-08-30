@@ -2494,7 +2494,7 @@ impl Tracer {
         }
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let completion = {
+            let mut completion = {
                 let topology = &self.pipeline_topology;
                 let next_generation = &mut self.descriptor_generation;
                 self.ddgi_runtime
@@ -2557,7 +2557,7 @@ impl Tracer {
                     probe_count,
                     radiance_snapshot,
                 )?;
-                if let Some(publication) = completion.validated_publication {
+                if let Some(publication) = completion.validated_publication() {
                     let work = publication.work();
                     let field = publication.field();
                     let atlas_stats = publication.atlas_validation();
@@ -2621,6 +2621,7 @@ impl Tracer {
                     }
                 }
             }
+            completion.commit_convergence_evidence();
         }
 
         self.start_next_ddgi_scheduled_work()?;
