@@ -426,7 +426,7 @@ impl ScenarioOwner {
     pub(in crate::app::core) fn allows_ambient_particle_emitters(&self) -> bool {
         match self {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                !bench.active()
+                bench.state == BenchState::Complete
             }
             Self::Diagnostic(
                 DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
@@ -667,10 +667,6 @@ impl TerrainConnectivityBench {
             bounded_job: None,
             pending_visual_voxels: None,
         }
-    }
-
-    pub(in crate::app::core) fn active(&self) -> bool {
-        self.state != BenchState::Complete
     }
 
     fn begin_manual_release(
