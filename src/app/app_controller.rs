@@ -7,14 +7,14 @@ use winit::{
 };
 
 pub struct AppController {
-    plan: Option<RunPlan>,
+    plan: RunPlan,
     initialized: Option<App>,
 }
 
 impl AppController {
     pub fn new(plan: RunPlan) -> Self {
         Self {
-            plan: Some(plan),
+            plan,
             initialized: None,
         }
     }
@@ -28,10 +28,19 @@ impl ApplicationHandler for AppController {
             world,
             automation,
             scenario,
-        } = self.plan.take().expect("launch plan is consumed once");
-        let owners = prepare_startup_owners(automation, scenario)
+        } = &self.plan;
+        let owners = prepare_startup_owners(automation.clone(), scenario.clone())
             .unwrap_or_else(|error| panic!("invalid launch ownership: {error}"));
-        self.initialized = Some(App::new(event_loop, platform, world, audio, owners).unwrap());
+        self.initialized = Some(
+            App::new(
+                event_loop,
+                platform.clone(),
+                world.clone(),
+                audio.clone(),
+                owners,
+            )
+            .unwrap(),
+        );
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
