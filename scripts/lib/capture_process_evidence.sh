@@ -28,6 +28,7 @@ run_capture_with_process_evidence() {
         echo "capture process produced no artifact: $capture" >&2
         return 1
     fi
+    local preserved_run_log="${console%.console.log}.run.log"
     "$repo_root/scripts/validate_capture_process_evidence.py" \
-        "${validator_args[@]}" "$console"
+        "${validator_args[@]}" --preserve-run-log "$preserved_run_log" "$console"
 }

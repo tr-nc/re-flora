@@ -29,6 +29,12 @@ class DdgiCaptureProcessIntegrationTests(unittest.TestCase):
                 self.assertIn("re_flora::run_log_binding=info", source)
                 self.assertNotIn("grep -Eiq '(^|[^[:alpha:]])(ERROR", source)
 
+        helper = (SCRIPTS / "lib" / "capture_process_evidence.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--preserve-run-log", helper)
+        self.assertIn('${console%.console.log}.run.log', helper)
+
     def test_sky_normalization_reuses_the_canonical_fatal_matcher(self) -> None:
         source = (SCRIPTS / "check_ddgi_sky_normalization_evidence.py").read_text(
             encoding="utf-8"

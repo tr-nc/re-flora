@@ -25,6 +25,8 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
         include_startup: bool = True,
         run_log_name: str = "run.log",
         truncate_run_log_after_marker: bool = False,
+        preserve_run_log: bool = False,
+        invalid_preserve_target: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -62,17 +64,29 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
                 marker + (marker if duplicate_marker else "") + body + console_extra,
                 encoding="utf-8",
             )
-            return subprocess.run(
+            preserved = root / "preserved" / "bound.run.log"
+            if invalid_preserve_target:
+                preserved.parent.write_text("not a directory", encoding="utf-8")
+            result = subprocess.run(
                 [
                     "python3",
                     str(VALIDATOR),
                     *(["--require-test-scene-startup"] if include_startup else []),
+                    *(
+                        ["--preserve-run-log", str(preserved)]
+                        if preserve_run_log
+                        else []
+                    ),
                     str(console),
                 ],
                 check=False,
                 capture_output=True,
                 text=True,
             )
+            if preserve_run_log and result.returncode == 0:
+                self.assertEqual(preserved.read_bytes(), run_log.read_bytes())
+                self.assertIn(f"preserved_run_log={preserved}", result.stdout)
+            return result
 
     def test_accepts_one_clean_process_bound_log_with_ordered_identity(self) -> None:
         result = self.validate()
@@ -82,6 +96,18 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
     def test_accepts_a_canonical_process_bound_log_path_with_spaces(self) -> None:
         result = self.validate(run_log_name="run evidence.log")
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_preserves_the_exact_bound_run_log_with_the_capture_artifacts(self) -> None:
+        result = self.validate(preserve_run_log=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_fails_closed_when_the_bound_run_log_cannot_be_preserved(self) -> None:
+        result = self.validate(
+            preserve_run_log=True,
+            invalid_preserve_target=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot preserve bound run log", result.stderr)
 
     def test_generic_binding_does_not_require_test_scene_startup(self) -> None:
         result = self.validate(include_startup=False)

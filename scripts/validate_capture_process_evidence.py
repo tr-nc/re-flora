@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -107,6 +108,7 @@ def validate(console_path: Path, *, require_test_scene_startup: bool) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--require-test-scene-startup", action="store_true")
+    parser.add_argument("--preserve-run-log", type=Path)
     parser.add_argument("console", type=Path)
     args = parser.parse_args()
     try:
@@ -117,7 +119,24 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"capture process evidence invalid: {error}", file=sys.stderr)
         return 1
-    print(f"[CAPTURE_PROCESS] console={args.console} run_log={run_log} status=PASS")
+    preserved = None
+    if args.preserve_run_log is not None:
+        try:
+            destination = args.preserve_run_log.absolute()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination != run_log:
+                shutil.copy2(run_log, destination)
+            preserved = destination
+        except OSError as error:
+            print(
+                f"capture process evidence invalid: cannot preserve bound run log: {error}",
+                file=sys.stderr,
+            )
+            return 1
+    suffix = f" preserved_run_log={preserved}" if preserved is not None else ""
+    print(
+        f"[CAPTURE_PROCESS] console={args.console} run_log={run_log}{suffix} status=PASS"
+    )
     return 0
 
 
