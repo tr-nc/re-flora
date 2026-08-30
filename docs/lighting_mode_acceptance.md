@@ -21,12 +21,14 @@ Each stage copies the real `compute_output_tex` (`R32_UINT` RGBE), `compute_dept
 diagnostic shader flag or counter participates in the proof. Logs describe the transaction but are
 not evidence.
 
-The committed `r13-e2-production-v1` calibration is fail closed. The analyzer requires exact
+The checked-in `r13-e2-production-v1` candidate calibration is fail closed. It is not production
+calibrated until a fresh artifact from this revision passes on the target GPU lane. The analyzer requires exact
 identity and depth/alpha masks across all stages; bit-exact non-target pairs A/D and B/C for terrain;
 bit-exact non-target pairs A/B and C/D for raster; and at least 16 changed masked pixels (and a
 changed ratio of at least `1e-6`) on both independent comparisons for each target toggle. Unknown
 schemas/calibrations, missing or malformed raw layers, empty masks, non-finite depth, one-sided
-effects, and identity drift fail.
+effects, and identity drift fail. If production calibration changes either threshold, record the measured
+masked populations and two-sided changed counts in the commit that updates this calibration ID.
 
 Run the single-process acceptance through:
 
