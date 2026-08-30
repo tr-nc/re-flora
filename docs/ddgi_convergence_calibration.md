@@ -113,9 +113,13 @@ synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's cons
 The mirror requires nonzero field serial/radiance revision/spacing and rejects Converged epoch
 zero. Every numeric field must fit its Rust type; delta and threshold floats must round to a finite,
 nonnegative `f32`. Validated atlas records require zero non-finite/negative counts, positive complete
-8x8/10x10 coverage, and the runtime policy's thresholds and required consecutive count. Across
-records, field serials are globally unique and strictly increasing, identities are contiguous, and
-each identity's epoch, consecutive-below count, and Converging/Converged state follow the production
+8x8/10x10 coverage, and the runtime policy's thresholds and required consecutive count. Threshold
+tokens must exactly equal the production `f32` policy rendered with the wire's eight decimal places;
+nearby decimal values are not treated as equivalent. The initialization policy uses Rust's shortest
+round-tripping `f32` display instead, so the parser compares its reconstructed `f32` exactly with the
+top-level contract rather than applying the evidence format or a numeric tolerance. Across records,
+field serials are globally unique and strictly increasing, identities are contiguous, and each
+identity's epoch, consecutive-below count, and Converging/Converged state follow the production
 classification state machine. A displayed delta is ambiguous only when its configured eight-place
 decimal rounding cell crosses the actual Rust `f32` threshold; clearly above or below cells have one
 possible streak outcome. The first process-bound validation record is the source-free initial

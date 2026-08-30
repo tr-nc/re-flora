@@ -147,6 +147,26 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertIn("invalid DDGI convergence acceptance epoch contract", result.stderr)
 
+    def test_rejects_top_level_policy_f32_drift_inside_the_old_tolerance(self) -> None:
+        mutations = {
+            "absolute": ("absolute_threshold = 0.0025", "absolute_threshold = 0.00250004"),
+            "relative": ("relative_threshold = 0.02", "relative_threshold = 0.02000004"),
+        }
+        source = SCRIPTS.parent / "config" / "ddgi_convergence_acceptance.toml"
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                contract = run_dir / "contract.toml"
+                self.write_curve(run_dir)
+                contract.write_text(source.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output, contract=contract)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("drifted from acceptance contract", result.stderr)
+
     def test_rejects_runtime_epoch_count_drift_from_the_acceptance_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
@@ -525,6 +545,59 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
+
+    def test_rejects_noncanonical_validation_threshold_tokens(self) -> None:
+        mutations = {
+            "absolute": ("abs_threshold=0.00250000", "abs_threshold=0.00250004"),
+            "relative": ("rel_threshold=0.02000000", "rel_threshold=0.02000004"),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                console = run_dir / "sealed-spacing32-converged-forward.console.log"
+                old_identity = next(
+                    line
+                    for line in console.read_text().splitlines()
+                    if "full-atlas validated" in line and "geometry_revision=1" in line
+                )
+                injected = old_identity.replace(before, after, 1)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(old_identity, injected, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("policy drift", result.stderr)
+
+    def test_rejects_runtime_policy_f32_drift_inside_the_old_tolerance(self) -> None:
+        mutations = {
+            "absolute": (
+                "convergence_max_absolute_rgb_delta=0.0025",
+                "convergence_max_absolute_rgb_delta=0.00250004",
+            ),
+            "relative": (
+                "convergence_max_relative_rgb_delta=0.02",
+                "convergence_max_relative_rgb_delta=0.02000004",
+            ),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("drifted from acceptance contract", result.stderr)
 
     def test_rejects_production_impossible_history_state_and_consecutive_sequences(
         self,

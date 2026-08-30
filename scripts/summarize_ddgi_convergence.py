@@ -125,6 +125,10 @@ def possible_below_threshold(
     return possible
 
 
+def validation_float_token(value: float, decimal_places: int) -> str:
+    return f"{rust_f32(value):.{decimal_places}f}"
+
+
 def load_validation_wire_contract(path: Path) -> ValidationWireContract:
     contract = tomllib.loads(path.read_text())
     wire = contract.get("validation_wire")
@@ -194,7 +198,13 @@ def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
     for field in ("absolute_threshold", "relative_threshold", "relative_floor"):
         runtime_value = float(getattr(policy, field))
         contract_value = float(getattr(contract, field))
-        if not close(runtime_value, contract_value):
+        try:
+            matches = rust_f32(runtime_value) == rust_f32(contract_value)
+        except OverflowError as error:
+            raise ValueError(
+                f"acceptance convergence {field} is not representable as Rust f32"
+            ) from error
+        if not matches:
             raise ValueError(
                 f"runtime convergence {field} drifted from acceptance contract: "
                 f"runtime={runtime_value} contract={contract_value}"
@@ -293,10 +303,6 @@ def require_global_validation_legality(
             raise ValueError(
                 f"validated atlas record in {evidence_path} has incomplete coverage"
             )
-        if not close(float(record["absolute_threshold"]), policy.absolute_threshold):
-            raise ValueError(f"validation record in {evidence_path} has absolute policy drift")
-        if not close(float(record["relative_threshold"]), policy.relative_threshold):
-            raise ValueError(f"validation record in {evidence_path} has relative policy drift")
         if record["required_consecutive_epochs"] != policy.consecutive_epochs:
             raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
 
@@ -431,6 +437,20 @@ def parse_curve(
                     f"malformed full-atlas validation line in {console_path}: {line}"
                 )
             values = match.groupdict()
+            expected_absolute_threshold = validation_float_token(
+                policy.absolute_threshold, wire.decimal_places
+            )
+            expected_relative_threshold = validation_float_token(
+                policy.relative_threshold, wire.decimal_places
+            )
+            if values["absolute_threshold"] != expected_absolute_threshold:
+                raise ValueError(
+                    f"validation record in {console_path} has absolute Rust f32 policy drift"
+                )
+            if values["relative_threshold"] != expected_relative_threshold:
+                raise ValueError(
+                    f"validation record in {console_path} has relative Rust f32 policy drift"
+                )
             records.append(
                 {
                     "field_serial": int(values["field_serial"]),
