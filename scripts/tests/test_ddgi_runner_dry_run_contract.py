@@ -216,6 +216,36 @@ def _multiline_dry_run_only_analysis_mutation(runner: str, source: str) -> str:
     return mutated
 
 
+def _parameter_expansion_dry_run_only_analysis_mutation(
+    runner: str, source: str
+) -> str:
+    mutated = _dry_run_only_analysis_mutation(runner, source)
+    false_branch = mutated.index("elif false; then")
+    dry_header = mutated.rfind("if $dry_run; then", 0, false_branch)
+    if dry_header == -1:
+        raise AssertionError(f"missing inserted dry-run header for {runner}")
+    return (
+        mutated[:dry_header]
+        + "if ${dry_run:-false}; then"
+        + mutated[dry_header + len("if $dry_run; then") :]
+    )
+
+
+def _function_source(source: str, function_name: str) -> str:
+    lines = source.splitlines()
+    start = next(
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == f"{function_name}() {{"
+    )
+    end = next(
+        index
+        for index in range(start + 1, len(lines))
+        if lines[index].strip() == "}"
+    )
+    return "\n".join(lines[start : end + 1])
+
+
 def _tree_manifest(root: Path) -> dict[Path, tuple[object, ...]]:
     manifest: dict[Path, tuple[object, ...]] = {}
 
@@ -343,6 +373,21 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(
                     len(_analysis_lines(result)), EXPECTED_ANALYSES[runner.name]
+                )
+
+    def test_parameter_expansion_dry_run_branches_are_rejected(self) -> None:
+        for runner in RUNNERS:
+            with self.subTest(runner=runner.name):
+                source = runner.read_text(encoding="utf-8")
+                mutated = _parameter_expansion_dry_run_only_analysis_mutation(
+                    runner.name, source
+                )
+                failures = production_runner_invocation_failures(
+                    runner.name, mutated
+                )
+                self.assertTrue(
+                    any("controlled by dry_run" in failure for failure in failures),
+                    failures,
                 )
 
     def test_single_line_dry_run_short_circuit_is_rejected(self) -> None:
@@ -507,6 +552,70 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                 _assert_no_guarded_command(marker)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(_tree_manifest(root_path), before)
+
+    def test_transport_production_sink_bypasses_tee_function_shadow(self) -> None:
+        source = (SCRIPTS / "check_ddgi_transport_acceptance.sh").read_text(
+            encoding="utf-8"
+        )
+        execute_analysis = _function_source(source, "execute_analysis")
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            output = root_path / "analysis.json"
+            harness = root_path / "sink-contract.sh"
+            harness.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "dry_run=false\n"
+                "tee() { cat; }\n"
+                "analyze_current_capture() { printf '%s' '{\"schema\":10}'; }\n"
+                f"{execute_analysis}\n"
+                f'execute_analysis "{output}"\n',
+                encoding="utf-8",
+            )
+            os.chmod(harness, 0o755)
+
+            result = subprocess.run(
+                [str(harness)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '{"schema":10}')
+            self.assertEqual(output.read_text(encoding="utf-8"), '{"schema":10}')
+
+    def test_command_cargo_bypasses_function_shadow_and_respects_path(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            sentinel_directory = root_path / "bin"
+            sentinel_directory.mkdir()
+            cargo = sentinel_directory / "cargo"
+            cargo.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'path-cargo:%s' \"$*\"\n",
+                encoding="utf-8",
+            )
+            os.chmod(cargo, 0o755)
+            env = dict(os.environ)
+            env["PATH"] = f"{sentinel_directory}:{env['PATH']}"
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "cargo() { printf function-cargo; }; command cargo --version",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "path-cargo:--version")
 
     def test_dry_run_cargo_launch_mutation_has_explicit_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as root:

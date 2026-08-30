@@ -48,6 +48,76 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             {runner.name for runner in PRODUCTION_RUNNERS},
         )
 
+    def test_runner_policy_and_root_authorities_are_readonly(self) -> None:
+        for runner in PRODUCTION_RUNNERS:
+            source = runner.read_text(encoding="utf-8")
+            with self.subTest(runner=runner.name):
+                self.assertEqual(
+                    source.count(
+                        'readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
+                    ),
+                    1,
+                )
+                self.assertEqual(source.count("readonly dry_run"), 1)
+
+    def test_state_and_root_reassignment_or_unset_are_rejected(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutations = (
+            source.replace("readonly dry_run", "dry_run=false", 1),
+            source + "\ndry_run=false\n",
+            source + "\nunset dry_run\n",
+            source.replace("readonly repo_root=", "repo_root=", 1),
+            source.replace(
+                'execute_analysis() {',
+                'saved_repo_root="$repo_root"\n'
+                'repo_root=/tmp/reviewer\n'
+                'repo_root="$saved_repo_root"\n\n'
+                'execute_analysis() {',
+                1,
+            ),
+            source + "\nunset repo_root\n",
+        )
+        for mutated in mutations:
+            with self.subTest():
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any("immutable runner authority" in failure for failure in failures),
+                    failures,
+                )
+
+    def test_unknown_dry_run_occurrences_fail_closed(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for mutated in (
+            source + "\nprintf '%s' dry_run\n",
+            source + "\n# dry_run hidden policy reference\n",
+        ):
+            with self.subTest():
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any("unclassified dry_run occurrence" in failure for failure in failures),
+                    failures,
+                )
+
+    def test_canonical_parameter_expansion_guard_is_accepted(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace(
+            "    if $dry_run; then\n"
+            '        print_command "${command[@]}"',
+            "    if ${dry_run:-false}; then\n"
+            '        print_command "${command[@]}"',
+            1,
+        )
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -201,9 +271,13 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutations = (
             source.replace("    local sink=(cat)", '    local sink=(tee "$json")', 1),
-            source.replace('        sink=(tee "$json")', "        sink=(cat)", 1),
             source.replace(
-                '        sink=(tee "$json")', '        sink=(tee "$capture")', 1
+                '        sink=(command tee "$json")', "        sink=(cat)", 1
+            ),
+            source.replace(
+                '        sink=(command tee "$json")',
+                '        sink=(command tee "$capture")',
+                1,
             ),
             source.replace(
                 '    analyze_current_capture "$@" | "${sink[@]}"',
@@ -224,7 +298,9 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutated = source.replace("    local sink=(cat)", "  local   sink=( cat )", 1)
         mutated = mutated.replace(
-            '        sink=(tee "$json")', '      sink=( tee   "$json" )', 1
+            '        sink=(command tee "$json")',
+            '      sink=( command   tee   "$json" )',
+            1,
         )
         mutated = mutated.replace(
             '    analyze_current_capture "$@" | "${sink[@]}"',
@@ -266,6 +342,9 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             source + '\n"/tmp/reviewer/cargo" --version\n',
             source + "\n# cargo --version\n",
             source + "\ncargo --version\n",
+            source + "\ncommand_not_really cargo --version\n",
+            source + "\ncargo() { true; }\n",
+            source + "\nalias cargo=true\n",
         )
         for mutated in mutations:
             with self.subTest():
@@ -299,8 +378,8 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutated = source.replace(
-            '    cargo build --release --manifest-path "$repo_root/Cargo.toml"\nfi',
-            '    cargo build --release --manifest-path "$repo_root/Cargo.toml"\n'
+            '    command cargo build --release --manifest-path "$repo_root/Cargo.toml"\nfi',
+            '    command cargo build --release --manifest-path "$repo_root/Cargo.toml"\n'
             "fi # production-only build",
             1,
         )

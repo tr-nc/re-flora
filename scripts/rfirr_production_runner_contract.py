@@ -14,6 +14,10 @@ from collections import Counter
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
 ANALYZER_IDENTIFIER = re.compile(r"\banalyze_current_capture\b")
+DRY_RUN_IDENTIFIER = re.compile(r"\bdry_run\b")
+DRY_RUN_EXPANSION = re.compile(r"\$(?:dry_run\b|\{dry_run(?:[^}]*)\})")
+REPO_ROOT_IDENTIFIER = re.compile(r"\brepo_root\b")
+REPO_ROOT_EXPANSION = re.compile(r"\$(?:repo_root\b|\{repo_root\})")
 SHELL_FUNCTION = re.compile(
     r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
     r"(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{\s*$"
@@ -103,10 +107,13 @@ TRANSPORT_EXECUTION_CALL = re.compile(
 CARGO_IDENTIFIER = re.compile(r"\bcargo\b")
 APP_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_-])re-flora(?![A-Za-z0-9_-])")
 CANONICAL_CARGO_BUILD = re.compile(
-    r'^\s*cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
+    r'^\s*command cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
 )
 CANONICAL_CARGO_RUN = re.compile(
-    r'^\s*cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
+    r'^\s*command cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
+)
+CANONICAL_REPO_ROOT = (
+    'readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
 )
 
 
@@ -154,6 +161,17 @@ def production_runner_invocation_failures(
         failures.append(
             "runner has unclassified analyzer occurrence at "
             + ", ".join(unknown_occurrences)
+        )
+    authority_failures, unknown_dry_run = _immutable_authority_failures(lines)
+    if authority_failures:
+        failures.append(
+            "runner violates immutable runner authority at "
+            + ", ".join(authority_failures)
+        )
+    if unknown_dry_run:
+        failures.append(
+            "runner has unclassified dry_run occurrence at "
+            + ", ".join(unknown_dry_run)
         )
     if runner_name == "check_ddgi_transport_acceptance.sh":
         if not (
@@ -230,7 +248,7 @@ def _dry_run_controlled_analysis_calls(
     scopes = _function_scopes(lines)
     code_lines = _shell_code_lines(lines)
     previous_scope: str | None = None
-    dry_run_token = re.compile(r"\$(?:dry_run\b|\{dry_run\})")
+    dry_run_token = DRY_RUN_EXPANSION
     analyzer_call = ANALYZER_IDENTIFIER
     transport_execution = re.compile(r"\bexecute_analysis(?:\s|$)")
 
@@ -326,6 +344,66 @@ def _unclassified_analyzer_occurrences(lines: list[str]) -> list[str]:
     return unknown
 
 
+def _immutable_authority_failures(
+    lines: list[str],
+) -> tuple[list[str], list[str]]:
+    authority_failures: list[str] = []
+    unknown_dry_run: list[str] = []
+
+    root_definitions = [
+        index
+        for index, line in enumerate(lines)
+        if line.strip() == CANONICAL_REPO_ROOT
+    ]
+    if root_definitions != [3]:
+        authority_failures.append("repo_root-definition")
+
+    dry_false = [index for index, line in enumerate(lines) if line.strip() == "dry_run=false"]
+    dry_true = [index for index, line in enumerate(lines) if line.strip() == "dry_run=true"]
+    dry_readonly = [
+        index for index, line in enumerate(lines) if line.strip() == "readonly dry_run"
+    ]
+    if not (
+        len(dry_false) == len(dry_true) == len(dry_readonly) == 1
+        and dry_false[0] < dry_true[0] < dry_readonly[0]
+        and _shell_code(lines[dry_readonly[0] - 1]).strip() == "fi"
+    ):
+        authority_failures.append("dry_run-lifecycle")
+
+    for line_number, line in enumerate(lines, 1):
+        dry_occurrences = tuple(DRY_RUN_IDENTIFIER.finditer(line))
+        dry_expansions = tuple(DRY_RUN_EXPANSION.finditer(line))
+        canonical_dry_line = line.strip() in {
+            "dry_run=false",
+            "dry_run=true",
+            "readonly dry_run",
+        }
+        if dry_occurrences and not canonical_dry_line:
+            covered = {
+                occurrence.start()
+                for expansion in dry_expansions
+                for occurrence in dry_occurrences
+                if expansion.start() <= occurrence.start() < expansion.end()
+            }
+            if len(covered) != len(dry_occurrences):
+                authority_failures.append(f"dry_run:{line_number}")
+                unknown_dry_run.append(str(line_number))
+
+        root_occurrences = tuple(REPO_ROOT_IDENTIFIER.finditer(line))
+        root_expansions = tuple(REPO_ROOT_EXPANSION.finditer(line))
+        if root_occurrences and line.strip() != CANONICAL_REPO_ROOT:
+            covered = {
+                occurrence.start()
+                for expansion in root_expansions
+                for occurrence in root_occurrences
+                if expansion.start() <= occurrence.start() < expansion.end()
+            }
+            if len(covered) != len(root_occurrences):
+                authority_failures.append(f"repo_root:{line_number}")
+
+    return authority_failures, unknown_dry_run
+
+
 def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
     statements = [
         _shell_code(line).strip()
@@ -333,7 +411,9 @@ def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
         if _shell_code(line).strip()
     ]
     dry_sink = re.compile(r"local\s+sink=\(\s*cat\s*\)")
-    production_sink = re.compile(r'sink=\(\s*tee\s+"\$json"\s*\)')
+    production_sink = re.compile(
+        r'sink=\(\s*command\s+tee\s+"\$json"\s*\)'
+    )
     sink_assignments = [
         (index, statement)
         for index, statement in enumerate(statements)
@@ -446,8 +526,9 @@ def _cargo_build_is_non_dry_run(lines: list[str], line_index: int) -> bool:
         for line in lines[max(0, line_index - 5) : line_index]
         if _shell_code(line).strip()
     ]
-    non_dry_if = re.compile(r"if\s+!\s*\$\{?dry_run\}?\s*;\s*then")
-    dry_if = re.compile(r"if\s+\$\{?dry_run\}?\s*;\s*then")
+    reference = r"(?:\$dry_run|\$\{dry_run(?:[^}]*)\})"
+    non_dry_if = re.compile(rf"if\s+!\s*{reference}\s*;\s*then")
+    dry_if = re.compile(rf"if\s+{reference}\s*;\s*then")
     for reverse_index, statement in enumerate(reversed(significant)):
         if non_dry_if.fullmatch(statement):
             return True
@@ -474,7 +555,7 @@ def _command_array_launch_is_non_dry_run(
     )
     return (
         re.search(
-            r"if\s+\$\{?dry_run\}?\s*;\s*then\b"
+            r"if\s+(?:\$dry_run|\$\{dry_run(?:[^}]*)\})\s*;\s*then\b"
             r"(?:(?!\bfi\b).)*\b(?:return\s+0|continue)\b"
             r"(?:(?!\bfi\b).)*\bfi\b",
             prefix,
@@ -487,8 +568,9 @@ def _command_array_launch_is_non_dry_run(
 def _non_dry_run_branch_lines(lines: list[str]) -> list[bool]:
     policies: list[str] = []
     result: list[bool] = []
-    dry = re.compile(r"if\s+\$\{?dry_run\}?\s*;\s*then")
-    non_dry = re.compile(r"if\s+!\s*\$\{?dry_run\}?\s*;\s*then")
+    reference = r"(?:\$dry_run|\$\{dry_run(?:[^}]*)\})"
+    dry = re.compile(rf"if\s+{reference}\s*;\s*then")
+    non_dry = re.compile(rf"if\s+!\s*{reference}\s*;\s*then")
     for code in _shell_code_lines(lines):
         statement = code.strip()
         if re.fullmatch(r"fi\s*;?", statement):

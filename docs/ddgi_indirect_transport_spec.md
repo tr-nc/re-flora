@@ -175,12 +175,16 @@ control-flow reachability. The source tripwire additionally rejects canonical an
 under a syntactic `dry_run` `if`/`elif`/`else` chain. Its controlled grammar carries pending
 single-line, backslash-continued, or multiline headers through an independent `then`, treats the
 whole chain (including `else`) as dry-run-owned, inventories every raw analyzer identifier, and
-locks transport to `cat` in dry-run, `tee "$json"` in production, and one two-stage
+locks transport to `cat` in dry-run, `command tee "$json"` in production, and one two-stage
 analyzer-to-sink pipeline. Behavioral dry-run tests require an unchanged whole repository tree.
-For process launches, the source contract fail-closes raw `cargo`/`re-flora` command tokens to the
-maintained canonical Cargo build/run forms and their non-dry execution policy; PATH plus repository
-and external absolute-path sentinels dynamically cover those known launch entrypoints. This is not
-a claim about arbitrary Bash variable encoding or general process tracing.
+After argument parsing, each runner makes `dry_run` readonly; its root path is a single readonly
+canonical assignment. The source contract recognizes parameter expansions whose base variable is
+`dry_run`, rejects unknown policy/root occurrences and every later assignment or unset, and thus
+keeps the wrapper's analyzer path immutable. For process launches, it fail-closes raw
+`cargo`/`re-flora` command tokens to `command cargo` build/run forms and their non-dry execution
+policy. `command` bypasses Bash function/alias shadows while retaining PATH lookup; PATH plus
+repository and external absolute-path sentinels dynamically cover those known launch entrypoints.
+This is not a claim about arbitrary Bash variable encoding or general process tracing.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

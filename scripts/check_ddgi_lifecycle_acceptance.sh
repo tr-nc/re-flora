@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
@@ -27,10 +27,11 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -68,7 +69,7 @@ run_hidden() {
     local console="$6"
     shift 6
     local command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scene"
         --environment-probe-spacing-voxels "$spacing_voxels"

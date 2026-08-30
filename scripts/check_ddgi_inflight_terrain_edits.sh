@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
@@ -24,12 +24,13 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 spacings=(32 16)
 repeats=(1 2)
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 failures=0
@@ -39,7 +40,7 @@ run_case() {
     local capture="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat${repeat}.rfirr"
     local console="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat${repeat}.console.log"
     command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene terrain-edits-inflight
         --environment-probe-spacing-voxels "$spacing"

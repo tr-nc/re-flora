@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
@@ -25,6 +25,7 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 # Committed exact-gate calibration. These are correctness limits, not environment overrides;
 # provenance and the tighter spacing-specific observations live in the companion document.
@@ -52,7 +53,7 @@ echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filte
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    command cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -78,7 +79,7 @@ run_capture() {
     capture="$(capture_path "$case_name" "$spacing" "$target" "$order")"
     local console="${capture%.rfirr}.console.log"
     local command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        command cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$case_name"
         --environment-probe-spacing-voxels "$spacing"
@@ -114,7 +115,7 @@ execute_analysis() {
     shift
     local sink=(cat)
     if ! $dry_run; then
-        sink=(tee "$json")
+        sink=(command tee "$json")
     fi
     analyze_current_capture "$@" | "${sink[@]}"
 }

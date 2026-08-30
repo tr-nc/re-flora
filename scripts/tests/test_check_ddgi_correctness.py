@@ -56,7 +56,9 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertIn("views=8", output)
 
         capture_commands = [
-            line for line in output.splitlines() if line.startswith("cargo run ")
+            line
+            for line in output.splitlines()
+            if line.startswith("command cargo run ")
         ]
         self.assertEqual(len(capture_commands), 48)
         for case_name in ("sealed", "portal", "walls"):

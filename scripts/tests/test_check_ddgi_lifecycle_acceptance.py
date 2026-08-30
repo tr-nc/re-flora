@@ -50,7 +50,7 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
             self.assertFalse(output_root.exists())
 
         output = result.stdout
-        self.assertEqual(output.count("cargo run --quiet --release"), 3)
+        self.assertEqual(output.count("command cargo run --quiet --release"), 3)
         self.assertIn(
             "--environment-lighting-test-scene radiance-changes", output
         )
