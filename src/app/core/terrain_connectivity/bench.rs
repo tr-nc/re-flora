@@ -2217,6 +2217,25 @@ mod tests {
     }
 
     #[test]
+    fn scenario_owner_localizes_connectivity_identity_in_one_nested_dispatch() {
+        let mut connectivity =
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                    mode: TerrainConnectivityBenchMode::Bounded,
+                    available_particles: 8,
+                    warmup_frames: 1,
+                    observe_frames: 1,
+                    voxel_budget: 8,
+                }),
+            ));
+        let mut garden =
+            ScenarioOwner::World(super::super::super::launch_owners::WorldScenarioOwner::Garden);
+
+        assert!(connectivity.dispatch_connectivity(|bench| bench.is_some()));
+        assert!(!garden.dispatch_connectivity(|bench| bench.is_some()));
+    }
+
+    #[test]
     fn oversized_bounded_trace_is_explicitly_pending_then_detached() {
         let mut job = fixture_job();
         let first = job.advance(PARTICLE_CAPACITY);
