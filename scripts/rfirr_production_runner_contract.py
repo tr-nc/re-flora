@@ -13,30 +13,13 @@ from collections import Counter
 
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
-FUNCTION_HEADER = "analyze_current_capture() {"
-DRY_RUN_HEADER = "    if $dry_run; then"
-DRY_RUN_PRINT = "        printf '%q ' analyze_current_capture \"$@\" >&2"
-DRY_RUN_NEWLINE = "        printf '\\n' >&2"
-DRY_RUN_RETURN = "        return 0"
-DRY_RUN_END = "    fi"
-DIRECT_CALL = (
-    '    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"'
-)
-FUNCTION_END = "}"
-CANONICAL_FUNCTION = [
-    FUNCTION_HEADER,
-    DRY_RUN_HEADER,
-    DRY_RUN_PRINT,
-    DRY_RUN_NEWLINE,
-    DRY_RUN_RETURN,
-    DRY_RUN_END,
-    DIRECT_CALL,
-    FUNCTION_END,
-]
 FUNCTION_INVOCATION = re.compile(
     r"^\s*(?:(?:if|elif)\b.*?\s!\s+)?analyze_current_capture(?:\s|$)"
 )
-SHELL_FUNCTION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{$")
+SHELL_FUNCTION = re.compile(
+    r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\))\s*\{\s*$"
+)
 CURRENT_FUNCTION_DEFINITION = re.compile(
     r"^\s*(?:function\s+analyze_current_capture(?:\s*\(\s*\))?(?:\s|$)"
     r"|analyze_current_capture\s*\(\s*\))"
@@ -64,7 +47,7 @@ RUNNER_INVOCATION_INVENTORY: dict[str, dict[str, int]] = {
         "check_flora_consumer": 1,
     },
     "check_ddgi_terrain_edit_cycle.sh": {"run_case": 2},
-    "check_ddgi_transport_acceptance.sh": {"run_analysis": 1},
+    "check_ddgi_transport_acceptance.sh": {"execute_analysis": 1},
 }
 RUNNER_PRODUCTION_DEPENDENCIES: dict[str, frozenset[str]] = {
     "check_ddgi_correctness.sh": frozenset(
@@ -100,7 +83,24 @@ RUNNER_PRODUCTION_DEPENDENCIES: dict[str, frozenset[str]] = {
     ),
 }
 PRODUCTION_SCRIPT_REFERENCE = re.compile(
-    r"\$repo_root/(scripts/[A-Za-z0-9_.-]+\.(?:py|sh))"
+    r"\$(?:repo_root|\{repo_root\})/(scripts/[A-Za-z0-9_.-]+\.(?:py|sh))"
+)
+CANONICAL_FUNCTION_BODY = (
+    re.compile(r"^if\s+\$dry_run\s*;\s*then$"),
+    re.compile(
+        r"^printf\s+'%q '\s+analyze_current_capture\s+\"\$@\"\s+>&2$"
+    ),
+    re.compile(r"^printf\s+'\\n'\s+>&2$"),
+    re.compile(r"^return\s+0$"),
+    re.compile(r"^fi$"),
+    re.compile(
+        r'^"\$(?:repo_root|\{repo_root\})/scripts/'
+        r'analyze_current_environment_irradiance_capture\.py"\s+"\$@"$'
+    ),
+)
+TRANSPORT_EXECUTION_CALL = re.compile(
+    r'^if\s+!\s+execute_analysis\s+"\$json"\s+'
+    r'"\$\{arguments\[@\]\}"\s*;\s*then$'
 )
 
 
@@ -115,9 +115,8 @@ def production_runner_invocation_failures(
         for index, line in enumerate(lines)
         if CURRENT_FUNCTION_DEFINITION.match(line) is not None
     ]
-    sealed = any(
-        lines[index : index + len(CANONICAL_FUNCTION)] == CANONICAL_FUNCTION
-        for index in definitions
+    sealed = len(definitions) == 1 and _canonical_function_is_sealed(
+        lines, definitions[0]
     )
     overrides = [
         line for line in lines if CURRENT_FUNCTION_OVERRIDE.match(line) is not None
@@ -138,6 +137,15 @@ def production_runner_invocation_failures(
             "runner current-schema invocation inventory differs from "
             f"{expected_inventory}"
         )
+    if runner_name == "check_ddgi_transport_acceptance.sh" and not (
+        _scope_lines(lines, "run_analysis")
+        and sum(
+            TRANSPORT_EXECUTION_CALL.fullmatch(line.strip()) is not None
+            for line in _scope_lines(lines, "run_analysis")
+        )
+        == 1
+    ):
+        failures.append("transport runner lacks its shared analysis execution seam")
     expected_dependencies = RUNNER_PRODUCTION_DEPENDENCIES.get(runner_name)
     actual_dependencies = frozenset(PRODUCTION_SCRIPT_REFERENCE.findall(source))
     if expected_dependencies is None:
@@ -177,9 +185,9 @@ def _invocation_inventory(lines: list[str]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     function_scope: str | None = None
     for line in lines:
-        function = SHELL_FUNCTION.match(line)
-        if function is not None:
-            function_scope = function.group(1)
+        function_name = _shell_function_name(line)
+        if function_name is not None:
+            function_scope = function_name
             continue
         if line == "}" and function_scope is not None:
             function_scope = None
@@ -191,3 +199,38 @@ def _invocation_inventory(lines: list[str]) -> dict[str, int]:
         ):
             counts[function_scope or TOP_LEVEL] += 1
     return dict(counts)
+
+
+def _shell_function_name(line: str) -> str | None:
+    function = SHELL_FUNCTION.fullmatch(line)
+    if function is None:
+        return None
+    return function.group(1) or function.group(2)
+
+
+def _scope_lines(lines: list[str], scope: str) -> list[str]:
+    inside = False
+    body: list[str] = []
+    for line in lines:
+        function_name = _shell_function_name(line)
+        if function_name is not None:
+            inside = function_name == scope
+            continue
+        if inside and re.fullmatch(r"\s*}\s*", line):
+            return body
+        if inside:
+            body.append(line)
+    return []
+
+
+def _canonical_function_is_sealed(lines: list[str], definition: int) -> bool:
+    body: list[str] = []
+    for line in lines[definition + 1 :]:
+        if re.fullmatch(r"\s*}\s*", line):
+            break
+        if line.strip() and not line.lstrip().startswith("#"):
+            body.append(line.strip())
+    return len(body) == len(CANONICAL_FUNCTION_BODY) and all(
+        pattern.fullmatch(statement) is not None
+        for pattern, statement in zip(CANONICAL_FUNCTION_BODY, body, strict=True)
+    )

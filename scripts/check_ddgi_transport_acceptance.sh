@@ -109,24 +109,30 @@ run_capture() {
     fi
 }
 
+execute_analysis() {
+    local json="$1"
+    shift
+    local sink=(cat)
+    if ! $dry_run; then
+        sink=(tee "$json")
+    fi
+    analyze_current_capture "$@" | "${sink[@]}"
+}
+
 run_analysis() {
     local label="$1"
     local capture="$2"
     shift 2
     local json="${capture%.rfirr}.analysis.json"
-    local command=(
-        analyze_current_capture "$capture"
+    local arguments=(
+        "$capture"
         --correctness
         --expect-debug-view final
         --require-nonnegative-rgb
         "$@"
     )
     echo "[DDGI_TRANSPORT] analyze label=$label json=$json"
-    if $dry_run; then
-        print_command "${command[@]}"
-        return 0
-    fi
-    if ! "${command[@]}" | tee "$json"; then
+    if ! execute_analysis "$json" "${arguments[@]}"; then
         echo "[DDGI_TRANSPORT] FAIL analysis label=$label" >&2
         return 1
     fi

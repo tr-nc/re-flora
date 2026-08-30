@@ -27,7 +27,7 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         result = self.run_runner("--dry-run")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
+        output = result.stdout + result.stderr
         expected_views = (
             "final",
             "moment-visibility",

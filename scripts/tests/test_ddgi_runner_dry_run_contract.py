@@ -80,8 +80,8 @@ def _replace_nth(source: str, old: str, new: str, occurrence: int) -> str:
 def _if_false_mutation(runner: str, source: str) -> str:
     if runner == "check_ddgi_correctness.sh":
         return source.replace(
-            '            print_command "${final_analysis[@]}"',
-            '            if false; then print_command "${final_analysis[@]}"; fi',
+            '        if ! analyze_current_capture "${final_analysis[@]}"; then',
+            '        if false && ! analyze_current_capture "${final_analysis[@]}"; then',
             1,
         )
     if runner == "check_ddgi_inflight_terrain_edits.sh":
@@ -108,8 +108,8 @@ fi'''
         return source.replace(old, f"if false; then\n{old}\nfi", 1)
     if runner == "check_ddgi_runtime_terrain_edits.sh":
         return source.replace(
-            '        printf \'%q \' "${analysis[@]}"',
-            '        if false; then printf \'%q \' "${analysis[@]}"; fi',
+            '    if ! analyze_current_capture "${analysis[@]}"; then',
+            '    if false && ! analyze_current_capture "${analysis[@]}"; then',
             1,
         )
     if runner == "check_ddgi_terrain_edit_cycle.sh":
@@ -121,9 +121,10 @@ fi'''
             1,
         )
     if runner == "check_ddgi_transport_acceptance.sh":
-        old = '        print_command "${command[@]}"'
-        return _replace_nth(
-            source, old, '        if false; then print_command "${command[@]}"; fi', 2
+        return source.replace(
+            '    if ! execute_analysis "$json" "${arguments[@]}"; then',
+            '    if false && ! execute_analysis "$json" "${arguments[@]}"; then',
+            1,
         )
     raise AssertionError(f"missing mutation for {runner}")
 
@@ -164,8 +165,38 @@ class DdgiRunnerDryRunContractTests(unittest.TestCase):
                     os.chmod(target, 0o755)
                 result = self.run_runner(scripts / runner.name)
                 self.assertNotEqual(
+                    (scripts / runner.name).read_text(encoding="utf-8"),
+                    runner.read_text(encoding="utf-8"),
+                )
+                self.assertNotEqual(
                     len(_analysis_lines(result)), EXPECTED_ANALYSES[runner.name]
                 )
+
+    def test_dry_run_creates_no_capture_tree_or_files(self) -> None:
+        for runner in RUNNERS:
+            with self.subTest(runner=runner.name), tempfile.TemporaryDirectory() as root:
+                scripts = Path(root) / "scripts"
+                scripts.mkdir()
+                for production_runner in RUNNERS:
+                    target = scripts / production_runner.name
+                    target.write_bytes(production_runner.read_bytes())
+                    os.chmod(target, 0o755)
+
+                before = {
+                    path.relative_to(root)
+                    for path in Path(root).rglob("*")
+                    if path.is_file()
+                }
+                result = self.run_runner(scripts / runner.name)
+                after = {
+                    path.relative_to(root)
+                    for path in Path(root).rglob("*")
+                    if path.is_file()
+                }
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(after, before)
+                self.assertFalse((Path(root) / "target").exists())
 
 
 if __name__ == "__main__":

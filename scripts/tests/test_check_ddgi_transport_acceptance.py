@@ -24,7 +24,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         result = self.run_runner("--dry-run")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
+        output = result.stdout + result.stderr
         for spacing in (32, 16):
             for stage in ("e0", "e1", "converged"):
                 self.assertIn(
@@ -92,10 +92,15 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--max-roi-luminance-mean 0.00002",
             "--min-roi-luminance-gain 0.000035",
         ):
-            self.assertIn(contract, result.stdout)
+            self.assertIn(contract, result.stdout + result.stderr)
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
         self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
-        self.assertEqual(result.stdout.count("--expect-lifecycle-state converged"), 8)
+        self.assertEqual(
+            (result.stdout + result.stderr).count(
+                "--expect-lifecycle-state converged"
+            ),
+            8,
+        )
 
     def test_failed_invocation_never_claims_filter_history_proof(self) -> None:
         result = self.run_runner("--invalid")

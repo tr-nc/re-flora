@@ -287,7 +287,6 @@ check_captures() {
         thresholds+=(--min-luminance-p99 0.10)
     fi
     local analysis=(
-        analyze_current_capture
         "$first" --correctness
         --compare "$second" --reference "$reference" "${thresholds[@]}"
     )
@@ -297,12 +296,7 @@ check_captures() {
             --require-filter-local-recovery-policy
         )
     fi
-    if $dry_run; then
-        printf '%q ' "${analysis[@]}"
-        printf '\n'
-        return 0
-    fi
-    if ! "${analysis[@]}"; then
+    if ! analyze_current_capture "${analysis[@]}"; then
         echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing environment determinism/luminance/reference threshold" >&2
         return 1
     fi

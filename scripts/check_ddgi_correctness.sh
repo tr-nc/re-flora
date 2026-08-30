@@ -117,7 +117,7 @@ for case_name in "${cases[@]}"; do
             unoccluded_gain_threshold=0.005
         fi
         final_analysis=(
-            analyze_current_capture "$first"
+            "$first"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view final
@@ -134,7 +134,7 @@ for case_name in "${cases[@]}"; do
             # environment output numerically instead of treating unrelated plane hashes as
             # the DDGI determinism contract.
             stability_analysis=(
-                analyze_current_capture "$first"
+                "$first"
                 --correctness
                 --require-nonnegative-rgb
                 --expect-debug-view final
@@ -146,7 +146,7 @@ for case_name in "${cases[@]}"; do
             final_analysis+=(--compare "$second")
         fi
         visibility_analysis=(
-            analyze_current_capture "$moment"
+            "$moment"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view moment-visibility
@@ -154,19 +154,19 @@ for case_name in "${cases[@]}"; do
             "${visibility_thresholds[@]}"
         )
         exact_visibility_analysis=(
-            analyze_current_capture "$exact_visibility"
+            "$exact_visibility"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view exact-visibility
         )
         exact_irradiance_analysis=(
-            analyze_current_capture "$exact_irradiance"
+            "$exact_irradiance"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view exact-irradiance
         )
         unoccluded_analysis=(
-            analyze_current_capture "$unoccluded"
+            "$unoccluded"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view unoccluded-irradiance
@@ -174,7 +174,7 @@ for case_name in "${cases[@]}"; do
             --min-debug-roi-luminance-gain "$unoccluded_gain_threshold"
         )
         equal_weight_analysis=(
-            analyze_current_capture "$equal_weight"
+            "$equal_weight"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view equal-weight-irradiance
@@ -182,58 +182,46 @@ for case_name in "${cases[@]}"; do
             "${debug_difference_thresholds[@]}"
         )
         raw_cage_analysis=(
-            analyze_current_capture "$raw_cage"
+            "$raw_cage"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view raw-cage-irradiance
             --reference "$equal_weight"
             "${debug_difference_thresholds[@]}"
         )
-        if $dry_run; then
-            print_command "${final_analysis[@]}"
-            if (( ${#stability_analysis[@]} != 0 )); then
-                print_command "${stability_analysis[@]}"
-            fi
-            print_command "${visibility_analysis[@]}"
-            print_command "${exact_visibility_analysis[@]}"
-            print_command "${exact_irradiance_analysis[@]}"
-            print_command "${unoccluded_analysis[@]}"
-            print_command "${equal_weight_analysis[@]}"
-            print_command "${raw_cage_analysis[@]}"
-            continue
-        fi
         if $capture_failed; then
             continue
         fi
-        if [[ ! -f "$first" || ! -f "$second" || ! -f "$moment" || \
+        if ! $dry_run && [[ ! -f "$first" || ! -f "$second" || ! -f "$moment" || \
               ! -f "$exact_visibility" || ! -f "$exact_irradiance" || \
               ! -f "$unoccluded" || ! -f "$equal_weight" || ! -f "$raw_cage" ]]; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing missing capture; backend likely never became ready" >&2
             failures=$((failures + 1))
             continue
         fi
-        if ! "${final_analysis[@]}"; then
+        if ! analyze_current_capture "${final_analysis[@]}"; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing invalid, nondeterministic, or incompatible irradiance capture" >&2
             failures=$((failures + 1))
             continue
         fi
-        if (( ${#stability_analysis[@]} != 0 )) && \
-           ! "${stability_analysis[@]}"; then
-            echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing numerically unstable production irradiance" >&2
-            failures=$((failures + 1))
-            continue
+        if (( ${#stability_analysis[@]} != 0 )); then
+            if ! analyze_current_capture "${stability_analysis[@]}"; then
+                echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing numerically unstable production irradiance" >&2
+                failures=$((failures + 1))
+                continue
+            fi
         fi
-        if ! "${visibility_analysis[@]}"; then
+        if ! analyze_current_capture "${visibility_analysis[@]}"; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing invalid or incompatible visibility capture" >&2
             failures=$((failures + 1))
             continue
         fi
         debug_route_failed=false
-        if ! "${exact_visibility_analysis[@]}"; then debug_route_failed=true; fi
-        if ! "${exact_irradiance_analysis[@]}"; then debug_route_failed=true; fi
-        if ! "${unoccluded_analysis[@]}"; then debug_route_failed=true; fi
-        if ! "${equal_weight_analysis[@]}"; then debug_route_failed=true; fi
-        if ! "${raw_cage_analysis[@]}"; then debug_route_failed=true; fi
+        if ! analyze_current_capture "${exact_visibility_analysis[@]}"; then debug_route_failed=true; fi
+        if ! analyze_current_capture "${exact_irradiance_analysis[@]}"; then debug_route_failed=true; fi
+        if ! analyze_current_capture "${unoccluded_analysis[@]}"; then debug_route_failed=true; fi
+        if ! analyze_current_capture "${equal_weight_analysis[@]}"; then debug_route_failed=true; fi
+        if ! analyze_current_capture "${raw_cage_analysis[@]}"; then debug_route_failed=true; fi
         if $debug_route_failed; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing debug route acceptance" >&2
             failures=$((failures + 1))

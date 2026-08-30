@@ -35,7 +35,10 @@ numeric compatibility remains available only through
 
 Each `check_ddgi*.sh` runner defines the same normalized `analyze_current_capture` function: its
 body directly executes the current-only entry and every analysis branch invokes that function in
-command position. `scripts/rfirr_production_runner_contract.py` is intentionally only a
+command position. Dry-run and production execution share those call sites; the wrapper alone turns
+execution into command emission for dry-run. Transport's narrow `execute_analysis` helper changes
+only the output sink (`cat` or `tee`) around its single analyzer invocation.
+`scripts/rfirr_production_runner_contract.py` is intentionally only a
 source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
 The typed current-only CLI behavior above is the schema seal.
 The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
@@ -43,7 +46,7 @@ runners and rejects missing canonical call sites, unexpected helper scopes, or l
 overrides. It does not prove reachability through arbitrary Bash control flow. Each runner's
 `--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
 the corresponding production matrix would execute, and the behavioral tests pin those per-runner
-command counts and representative branch arguments.
+command counts and representative branch arguments without creating capture files or directories.
 
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
 it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic

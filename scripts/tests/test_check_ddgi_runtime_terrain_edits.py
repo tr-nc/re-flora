@@ -19,7 +19,7 @@ class CheckDdgiRuntimeTerrainEditsTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
+        output = result.stdout + result.stderr
         for spacing in (32, 16):
             evidence_capture = (
                 f"sequential-reopened-spacing{spacing}-final-a.rfirr"

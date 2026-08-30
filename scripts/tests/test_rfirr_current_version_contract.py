@@ -116,6 +116,54 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     production_runner_invocation_failures(runner_name, mutated), []
                 )
 
+    def test_canonical_function_accepts_equivalent_bash_definition_forms(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for header in (
+            "analyze_current_capture(){",
+            "analyze_current_capture () {",
+            "function analyze_current_capture {",
+            "function analyze_current_capture() {",
+        ):
+            with self.subTest(header=header):
+                mutated = source.replace("analyze_current_capture() {", header, 1)
+                mutated = mutated.replace(
+                    '    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"',
+                    '  "$repo_root/scripts/analyze_current_environment_irradiance_capture.py"   "$@"',
+                    1,
+                )
+                self.assertEqual(
+                    production_runner_invocation_failures(runner_name, mutated), []
+                )
+
+    def test_dependency_inventory_accepts_braced_repo_root_literals(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace("$repo_root/scripts/", "${repo_root}/scripts/")
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_scope_inventory_accepts_equivalent_helper_definition_forms(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for function_name in ("execute_analysis", "run_analysis"):
+            canonical = f"{function_name}() {{"
+            for header in (
+                f"{function_name}(){{",
+                f"{function_name} () {{",
+                f"function {function_name} {{",
+                f"function {function_name}() {{",
+            ):
+                with self.subTest(function=function_name, header=header):
+                    mutated = source.replace(canonical, header, 1)
+                    self.assertEqual(
+                        production_runner_invocation_failures(
+                            runner_name, mutated
+                        ),
+                        [],
+                    )
+
     def test_runner_dependency_inventory_closes_over_all_production_helpers(self) -> None:
         sources = {
             runner.name: runner.read_text(encoding="utf-8")

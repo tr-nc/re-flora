@@ -168,7 +168,10 @@ Their normalized direct-call function is guarded only as a source-wiring tripwir
 ownership comes from the current-only analyzer interface, not from static shell interpretation.
 The seven production runners also expose a CPU-only `--dry-run` contract that executes their normal
 matrix construction and emits the current-analyzer command at each canonical analysis call site.
-That proves the maintained normal-entry inventory, not arbitrary Bash control-flow reachability.
+Dry-run and production use the same call sites; only the canonical wrapper changes execution into
+emission, while transport's narrow execution-policy helper selects an output sink around one
+analyzer invocation. That proves the maintained normal-entry inventory, not arbitrary Bash
+control-flow reachability.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were
