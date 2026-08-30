@@ -221,22 +221,6 @@ impl ScenarioOwner {
             _ => None,
         }
     }
-
-    pub(super) fn take_terrain_connectivity(&mut self) -> Option<TerrainConnectivityBench> {
-        if matches!(self, Self::TerrainConnectivityBenchmark(_)) {
-            match std::mem::replace(self, Self::Garden) {
-                Self::TerrainConnectivityBenchmark(bench) => Some(bench),
-                _ => unreachable!("matched terrain-connectivity scenario"),
-            }
-        } else {
-            None
-        }
-    }
-
-    pub(super) fn restore_terrain_connectivity(&mut self, bench: TerrainConnectivityBench) {
-        debug_assert!(matches!(self, Self::Garden));
-        *self = Self::TerrainConnectivityBenchmark(bench);
-    }
 }
 
 pub(in crate::app) struct StartupOwners {

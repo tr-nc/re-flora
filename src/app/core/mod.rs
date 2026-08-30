@@ -4522,17 +4522,14 @@ impl App {
                         );
                     }
                 }
-                if let Some(mut bench) = self.scenario_owner.take_terrain_connectivity() {
-                    let complete = bench
-                        .observe_completed_frame(self, frame_timing_snapshot)
+                let complete =
+                    TerrainConnectivityBench::observe_completed_frame(self, frame_timing_snapshot)
                         .unwrap_or_else(|err| {
                             panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
                         });
-                    self.scenario_owner.restore_terrain_connectivity(bench);
-                    if complete {
-                        self.on_terminate(event_loop);
-                        return;
-                    }
+                if complete {
+                    self.on_terminate(event_loop);
+                    return;
                 }
                 if let Some(render_start_time) = self.render_start_time {
                     let elapsed = render_start_time.elapsed().as_secs_f32();
