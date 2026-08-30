@@ -27,15 +27,17 @@ only from a borrowed `ResolvedLightingFrameInputs`. The opaque state is neither 
 and its only observation borrows it. This preserves startup DDGI without giving Tracer a mode
 constructor or an absence fallback.
 
-Three seams were compared for proving that the opaque state stays non-`Copy` and non-`Clone`.
+Three seams were compared for proving that the opaque state remains owner-issued-only: it is not
+`Copy`, `Clone`, or `Default`.
 Extending the Python source checker with alias-aware trait resolution was rejected because it is a
 shallow, incomplete Rust parser. Encoding the property indirectly in a field type cannot honestly
 prevent manual trait implementations, while Rust negative impls are unstable. The selected seam is
 `::static_assertions::assert_not_impl_any!` as an unconditional production-configuration item
-directly after the canonical owner struct, with `::core::marker::Copy` and
-`::core::clone::Clone` named absolutely: rustc owns alias resolution, local name shadowing,
+directly after the canonical owner struct, with `::core::marker::Copy`, `::core::clone::Clone`, and
+`::core::default::Default` named absolutely: rustc owns alias resolution, local name shadowing,
 derives, manual implementations, generic target identity, and every normal build configuration.
-The source checker only guards the placement and exact absolute macro/target/trait paths of that
+This prevents absence/default construction from bypassing the owner-issued initial capability. The
+source checker only guards the placement and exact absolute macro/target/trait paths of that
 compile-time assertion; it does not interpret trait impls.
 
 Rust privacy is the primary seal. Three raster-state seams were compared. Denying selected alias
@@ -53,8 +55,8 @@ structure-drift tripwire: it checks private resolved fields, external constructi
 capsule signatures, the App-to-Tracer initial move, the non-optional opaque Tracer field and its
 single current capsule-factory assignment, inline GPU getter shape, and that current production
 source contains no second `gui_input` write. It also ensures the owner retains the unconditional,
-module-root rustc-backed non-`Copy`/non-`Clone` assertion immediately after the canonical state
-without attempting to reproduce Rust trait semantics.
+module-root rustc-backed non-`Copy`/non-`Clone`/non-`Default` assertion immediately after the
+canonical state without attempting to reproduce Rust trait semantics.
 It deliberately does not infer control flow, require a plan-call spelling, or claim to detect
 arbitrary shadowing and aliasing; it is not a proof of whole-program dataflow. Pure Rust logic tests
 cover live and fixed plan resolution. The

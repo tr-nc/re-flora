@@ -470,7 +470,7 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _struct_expression_count(tokens, type_name):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
-    non_copy_assertion = (
+    owner_issued_only_assertion = (
         ":",
         ":",
         "static_assertions",
@@ -500,12 +500,23 @@ def audit(sources: dict[str, str]) -> list[str]:
         ":",
         ":",
         "Clone",
+        ",",
+        ":",
+        ":",
+        "core",
+        ":",
+        ":",
+        "default",
+        ":",
+        ":",
+        "Default",
         ")",
         ";",
     )
     assertion_count = sum(
-        tuple(owner[index : index + len(non_copy_assertion)]) == non_copy_assertion
-        for index in range(len(owner) - len(non_copy_assertion) + 1)
+        tuple(owner[index : index + len(owner_issued_only_assertion)])
+        == owner_issued_only_assertion
+        for index in range(len(owner) - len(owner_issued_only_assertion) + 1)
     )
     state_struct = _module_root_struct(owner, "ResolvedRasterLightingState")
     assertion_is_adjacent = False
@@ -514,18 +525,16 @@ def audit(sources: dict[str, str]) -> list[str]:
         state_opening = owner.index("{", state_index + 2)
         state_closing = _closing(owner, state_opening, "{", "}")
         if state_closing is not None:
+            assertion_start = state_closing + 1
+            assertion_end = assertion_start + len(owner_issued_only_assertion)
             assertion_is_adjacent = (
-                tuple(
-                    owner[
-                        state_closing + 1 : state_closing + 1 + len(non_copy_assertion)
-                    ]
-                )
-                == non_copy_assertion
+                tuple(owner[assertion_start:assertion_end])
+                == owner_issued_only_assertion
             )
     if assertion_count != 1 or not assertion_is_adjacent:
         errors.append(
             "resolved state must be followed by one unconditional module-root "
-            "rustc non-Copy/Clone assertion"
+            "rustc owner-issued-only assertion"
         )
 
     initial_state = _module_root_function(owner, "initial_raster_lighting_state")

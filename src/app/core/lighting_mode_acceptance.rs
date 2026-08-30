@@ -107,7 +107,8 @@ pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
 ::static_assertions::assert_not_impl_any!(
-    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone
+    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone,
+    ::core::default::Default
 );
 
 pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {

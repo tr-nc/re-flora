@@ -31,7 +31,8 @@ pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
 ::static_assertions::assert_not_impl_any!(
-    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone
+    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone,
+    ::core::default::Default
 );
 pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
     ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Ddgi }
@@ -269,29 +270,33 @@ impl Tracer {
                 ].replace(before, after)
                 self.assertNotEqual(checker.audit(sources), [])
 
-    def test_rustc_non_copy_assertion_is_the_guarded_owner_artifact(self) -> None:
+    def test_rustc_owner_issued_only_assertion_is_the_guarded_artifact(self) -> None:
         sources = baseline_sources()
         sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
             "src/app/core/lighting_mode_acceptance.rs"
         ].replace(
             "::static_assertions::assert_not_impl_any!(\n"
-            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone,\n"
+            "    ::core::default::Default\n"
             ");",
             "",
         )
         self.assertNotEqual(checker.audit(sources), [])
 
-    def test_non_copy_assertion_paths_cannot_be_shadowed(self) -> None:
+    def test_owner_issued_only_assertion_paths_cannot_be_shadowed(self) -> None:
         self.assertEqual(checker.audit(baseline_sources()), [])
         absolute = (
             "::static_assertions::assert_not_impl_any!(\n"
-            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone,\n"
+            "    ::core::default::Default\n"
             ");"
         )
         mutations = (
             absolute.replace("::static_assertions", "static_assertions"),
             absolute.replace("::core::marker::Copy", "Copy"),
             absolute.replace("::core::clone::Clone", "Clone"),
+            absolute.replace("::core::default::Default", "Default"),
+            absolute.replace(",\n    ::core::default::Default", ""),
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation):
@@ -310,11 +315,12 @@ mod static_assertions {
 """ + sources["src/app/core/lighting_mode_acceptance.rs"]
         self.assertEqual(checker.audit(sources), [])
 
-    def test_non_copy_assertion_must_be_unconditional_module_root_item(self) -> None:
+    def test_owner_issued_only_assertion_must_be_unconditional_root_item(self) -> None:
         self.assertEqual(checker.audit(baseline_sources()), [])
         assertion = (
             "::static_assertions::assert_not_impl_any!(\n"
-            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone,\n"
+            "    ::core::default::Default\n"
             ");"
         )
         replacements = (
