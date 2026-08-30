@@ -459,7 +459,7 @@ mod app_executor {
                 };
                 ConnectivityResult::FixtureInstalled {
                     frame,
-                    outcome: match app.prepare_connectivity_fixture_installation(request) {
+                    outcome: match PreparedFixtureInstallation::prepare(request) {
                         Ok(prepared) => Ok(prepared.commit(app)),
                         Err(failure) => Err(failure),
                     },
@@ -1843,14 +1843,17 @@ struct PreparedFixtureInstallation {
     started: Instant,
 }
 
-impl App {
-    fn prepare_connectivity_fixture_installation(
-        &mut self,
+impl PreparedFixtureInstallation {
+    fn prepare(
         request: FixtureInstallRequest,
     ) -> Result<PreparedFixtureInstallation, FailedConnectivityAction<FixtureInstallRequest>> {
         let started = Instant::now();
         let prepared = (|| {
-            anyhow::ensure!(request.available_particles <= PARTICLE_CAPACITY);
+            anyhow::ensure!(
+                request.available_particles <= PARTICLE_CAPACITY,
+                "fixture particle capacity {} exceeds {PARTICLE_CAPACITY}",
+                request.available_particles,
+            );
             let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
             let mut atlas_writes = Vec::with_capacity(if request.manual { 3 } else { 2 });
             let mut publications = Vec::with_capacity(if request.manual { 2 } else { 1 });
