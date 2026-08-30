@@ -1993,6 +1993,57 @@ mod tests {
     }
 
     #[test]
+    fn failed_snapshot_read_returns_the_exact_request_for_retry() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Bounded,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        bench.state = BenchState::Warmup {
+            ready_after_frame: 0,
+        };
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let request = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::ReadBoundedSnapshot { bound, seed } => {
+                SnapshotReadRequest { bound, seed }
+            }
+            _ => panic!("bounded warmup did not plan a snapshot read"),
+        };
+
+        let error = bench
+            .apply_result(ConnectivityResult::SnapshotRead(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected snapshot read failure"),
+                },
+            )))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("injected snapshot read failure"));
+        assert_eq!(
+            bench.state,
+            BenchState::Warmup {
+                ready_after_frame: 0
+            }
+        );
+        assert!(matches!(
+            bench.next_action(facts).unwrap(),
+            ConnectivityAction::ReadBoundedSnapshot { bound, seed }
+                if bound == isolation_bound() && seed == FIXTURE_ORIGIN
+        ));
+    }
+
+    #[test]
     fn manual_release_is_planned_as_an_owned_app_execution() {
         let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
             TerrainConnectivityBenchOptions {
