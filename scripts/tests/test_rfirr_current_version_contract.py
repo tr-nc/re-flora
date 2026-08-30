@@ -16,6 +16,7 @@ PRODUCTION_RUNNERS = tuple(sorted(SCRIPTS.glob("check_ddgi*.sh")))
 sys.path.insert(0, str(SCRIPTS))
 
 from rfirr_production_runner_contract import (  # noqa: E402
+    RUNNER_INVOCATION_INVENTORY,
     production_runner_invocation_failures,
 )
 
@@ -35,10 +36,18 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         for runner in PRODUCTION_RUNNERS:
             source = runner.read_text(encoding="utf-8")
             with self.subTest(runner=runner.name):
-                self.assertEqual(production_runner_invocation_failures(source), [])
+                self.assertEqual(
+                    production_runner_invocation_failures(runner.name, source), []
+                )
+
+        self.assertEqual(
+            set(RUNNER_INVOCATION_INVENTORY),
+            {runner.name for runner in PRODUCTION_RUNNERS},
+        )
 
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
-        source = (SCRIPTS / "check_ddgi_correctness.sh").read_text(encoding="utf-8")
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         direct_call = (
             '    "$repo_root/scripts/'
             'analyze_current_environment_irradiance_capture.py" "$@"'
@@ -55,7 +64,54 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         )
         for mutated in mutations:
             with self.subTest():
-                self.assertNotEqual(production_runner_invocation_failures(mutated), [])
+                self.assertNotEqual(
+                    production_runner_invocation_failures(runner_name, mutated), []
+                )
+
+    def test_every_inventory_rejects_deleted_or_replaced_analysis_branches(self) -> None:
+        for runner in PRODUCTION_RUNNERS:
+            source = runner.read_text(encoding="utf-8")
+            invocation = next(
+                line
+                for line in source.splitlines()
+                if "analyze_current_capture" in line
+                and "()" not in line
+                and "analyze_current_environment" not in line
+            )
+            for replacement in (f"# {invocation}", invocation.replace("analyze_current_capture", "true", 1)):
+                with self.subTest(runner=runner.name, replacement=replacement.strip()):
+                    mutated = source.replace(invocation, replacement, 1)
+                    self.assertNotEqual(
+                        production_runner_invocation_failures(runner.name, mutated), []
+                    )
+
+    def test_unused_helper_call_cannot_replace_a_real_inventory_branch(self) -> None:
+        runner_name = "check_ddgi_runtime_terrain_edits.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        real_call = "        analyze_current_capture"
+        mutated = source.replace(real_call, "        true", 1)
+        mutated += "\nunused_analysis() {\n    analyze_current_capture \"$@\"\n}\n"
+
+        self.assertNotEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
+    def test_alternate_or_late_function_overrides_are_rejected(self) -> None:
+        runner_name = "check_ddgi_transport_acceptance.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutations = (
+            source.replace(
+                "analyze_current_capture() {", "analyze_current_capture () {", 1
+            ),
+            source + "\nfunction analyze_current_capture { true; }\n",
+            source + "\nalias analyze_current_capture=true\n",
+            source + "\nanalyze_current_capture=true\n",
+        )
+        for mutated in mutations:
+            with self.subTest():
+                self.assertNotEqual(
+                    production_runner_invocation_failures(runner_name, mutated), []
+                )
 
     def test_current_schema_entry_accepts_current_and_rejects_v9(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

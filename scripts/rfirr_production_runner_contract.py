@@ -8,6 +8,7 @@ The current-only CLI remains the schema seal for every argv it receives.
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
@@ -20,30 +21,94 @@ FUNCTION_END = "}"
 FUNCTION_INVOCATION = re.compile(
     r"^\s*(?:(?:if|elif)\b.*?\s!\s+)?analyze_current_capture(?:\s|$)"
 )
+SHELL_FUNCTION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{$")
+CURRENT_FUNCTION_DEFINITION = re.compile(
+    r"^\s*(?:function\s+analyze_current_capture(?:\s|$)"
+    r"|analyze_current_capture\s*\(\s*\))"
+)
+CURRENT_FUNCTION_OVERRIDE = re.compile(
+    r"^\s*(?:"
+    r"alias\s+analyze_current_capture\s*="
+    r"|(?:export\s+|readonly\s+|declare\s+|typeset\s+)?"
+    r"analyze_current_capture\s*="
+    r"|unset\s+-f\s+analyze_current_capture(?:\s|$)"
+    r")"
+)
+TOP_LEVEL = "<top-level>"
+RUNNER_INVOCATION_INVENTORY: dict[str, dict[str, int]] = {
+    "check_ddgi_correctness.sh": {TOP_LEVEL: 8},
+    "check_ddgi_inflight_terrain_edits.sh": {"run_case": 1, TOP_LEVEL: 1},
+    "check_ddgi_lifecycle_acceptance.sh": {
+        "check_radiance": 1,
+        "check_density": 1,
+    },
+    "check_ddgi_local_terrain_convergence.sh": {TOP_LEVEL: 1},
+    "check_ddgi_runtime_terrain_edits.sh": {
+        "check_captures": 1,
+        "check_inflight_stale_active_captures": 1,
+        "check_flora_consumer": 1,
+    },
+    "check_ddgi_terrain_edit_cycle.sh": {"run_case": 2},
+    "check_ddgi_transport_acceptance.sh": {"run_analysis": 1},
+}
 
 
-def production_runner_invocation_failures(source: str) -> list[str]:
-    """Require one normalized seal and at least one command-position invocation."""
+def production_runner_invocation_failures(
+    runner_name: str, source: str
+) -> list[str]:
+    """Require the normalized seal and the runner's explicit call-site inventory."""
     lines = source.splitlines()
     failures: list[str] = []
-    definitions = [index for index, line in enumerate(lines) if line == FUNCTION_HEADER]
+    definitions = [
+        index
+        for index, line in enumerate(lines)
+        if CURRENT_FUNCTION_DEFINITION.match(line) is not None
+    ]
     sealed = any(
         lines[index : index + 3] == [FUNCTION_HEADER, DIRECT_CALL, FUNCTION_END]
         for index in definitions
     )
-    if len(definitions) != 1 or not sealed or source.count(CURRENT_ENTRY) != 1:
+    overrides = [
+        line for line in lines if CURRENT_FUNCTION_OVERRIDE.match(line) is not None
+    ]
+    if (
+        len(definitions) != 1
+        or not sealed
+        or overrides
+        or source.count(CURRENT_ENTRY) != 1
+    ):
         failures.append("runner lacks the unique direct current-schema function seal")
 
-    invocations = [
-        line
-        for line in lines
-        if not line.lstrip().startswith("#")
-        and FUNCTION_INVOCATION.match(line) is not None
-    ]
-    if not invocations:
-        failures.append("runner has no command-position current-schema invocation")
+    expected_inventory = RUNNER_INVOCATION_INVENTORY.get(runner_name)
+    if expected_inventory is None:
+        failures.append(f"runner has no declared invocation inventory: {runner_name}")
+    elif _invocation_inventory(lines) != expected_inventory:
+        failures.append(
+            "runner current-schema invocation inventory differs from "
+            f"{expected_inventory}"
+        )
     if COMPATIBILITY_ENTRY in source:
         failures.append("runner names the compatibility analyzer")
     if "--expect-version" in source:
         failures.append("runner exposes RFIRR version selection")
     return failures
+
+
+def _invocation_inventory(lines: list[str]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    function_scope: str | None = None
+    for line in lines:
+        function = SHELL_FUNCTION.match(line)
+        if function is not None:
+            function_scope = function.group(1)
+            continue
+        if line == "}" and function_scope is not None:
+            function_scope = None
+            continue
+        if (
+            function_scope != "analyze_current_capture"
+            and not line.lstrip().startswith("#")
+            and FUNCTION_INVOCATION.match(line) is not None
+        ):
+            counts[function_scope or TOP_LEVEL] += 1
+    return dict(counts)
