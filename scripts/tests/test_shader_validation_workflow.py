@@ -29,6 +29,16 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         self.fail(f"route {route.strip()} not found under {event}")
 
     def test_owner_changes_route_to_executable_fedora_evidence_tests(self) -> None:
+        required_runners = {
+            "scripts/check_ddgi_correctness.sh",
+            "scripts/check_ddgi_inflight_terrain_edits.sh",
+            "scripts/check_ddgi_lifecycle_acceptance.sh",
+            "scripts/check_ddgi_local_terrain_convergence.sh",
+            "scripts/check_ddgi_runtime_terrain_edits.sh",
+            "scripts/check_ddgi_terrain_edit_cycle.sh",
+            "scripts/check_ddgi_transport_acceptance.sh",
+        }
+        self.assertTrue(required_runners.issubset(contract.REQUIRED_OWNER_PATHS))
         self.assertEqual(
             contract.workflow_contract_failures(
                 WORKFLOW.read_text(encoding="utf-8")
@@ -94,6 +104,24 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
                     self.assertIn(
                         f"{event} does not route {representative}", failures
                     )
+
+    def test_runner_glob_cannot_be_narrowed_to_only_correctness(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        route = '      - "scripts/check_ddgi*.sh"\n'
+        narrowed = '      - "scripts/check_ddgi_correctness.sh"\n'
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                mutated = self.remove_event_route(source, event, route)
+                event_header = f"  {event}:\n"
+                event_offset = mutated.index(event_header)
+                paths_offset = mutated.index("    paths:\n", event_offset)
+                insertion = paths_offset + len("    paths:\n")
+                mutated = mutated[:insertion] + narrowed + mutated[insertion:]
+                failures = contract.workflow_contract_failures(mutated)
+                self.assertIn(
+                    f"{event} does not route scripts/check_ddgi_inflight_terrain_edits.sh",
+                    failures,
+                )
 
     def test_glob_subset_supports_zero_directory_double_star_and_rejects_specials(
         self,
@@ -292,6 +320,32 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
                 self.assertIn(
                     f"Fedora job does not run {command}",
                     contract.workflow_contract_failures(mutated_source),
+                )
+
+    def test_quoted_step_keys_are_normalized_before_capability_checks(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        step_header = "      - name: Decode Rust DDGI evidence fixture\n"
+        quoted_valid = source.replace(
+            step_header,
+            '      - "name": Decode Rust DDGI evidence fixture\n',
+            1,
+        ).replace(f"        run: {command}", f'        "run": {command}', 1)
+        self.assertEqual(contract.workflow_contract_failures(quoted_valid), [])
+
+        mutations = {
+            "if": '        "if": false\n',
+            "env": '        "env": {"PATH": "/tmp/fake"}\n',
+            "shell": '        "shell": echo {0}\n',
+            "continue": '        "continue-on-error": true\n',
+            "working-directory": '        "working-directory": /tmp\n',
+        }
+        for name, field in mutations.items():
+            with self.subTest(name=name):
+                mutated = source.replace(step_header, step_header + field, 1)
+                self.assertIn(
+                    f"Fedora job does not run {command}",
+                    contract.workflow_contract_failures(mutated),
                 )
 
 

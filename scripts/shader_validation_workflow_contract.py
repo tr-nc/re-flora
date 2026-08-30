@@ -7,13 +7,27 @@ import re
 
 
 REQUIRED_OWNER_PATHS = (
+    ".github/workflows/shader-validation.yml",
+    "docs/ddgi_indirect_transport_spec.md",
+    "docs/ddgi_transport_acceptance.md",
     "scripts/analyze_environment_irradiance_capture.py",
     "scripts/analyze_current_environment_irradiance_capture.py",
     "scripts/check_ddgi_correctness.sh",
+    "scripts/check_ddgi_inflight_terrain_edits.sh",
+    "scripts/check_ddgi_lifecycle_acceptance.sh",
+    "scripts/check_ddgi_local_terrain_convergence.sh",
+    "scripts/check_ddgi_runtime_terrain_edits.sh",
+    "scripts/check_ddgi_terrain_edit_cycle.sh",
+    "scripts/check_ddgi_transport_acceptance.sh",
     "scripts/rfirr_production_runner_contract.py",
     "scripts/shader_validation_workflow_contract.py",
     "scripts/summarize_ddgi_convergence.py",
+    "scripts/tests/test_check_ddgi_correctness.py",
+    "scripts/tests/test_check_ddgi_lifecycle_acceptance.py",
+    "scripts/tests/test_check_ddgi_runtime_terrain_edits.py",
+    "scripts/tests/test_check_ddgi_transport_acceptance.py",
     "scripts/tests/test_rfirr_current_version_contract.py",
+    "scripts/tests/test_shader_validation_workflow.py",
     "scripts/validate_ddgi_radiance_lifecycle.py",
     "src/app/core/ddgi_spatial_weight_readback.rs",
     "src/app/core/environment_irradiance_capture.rs",
@@ -39,10 +53,34 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
+def _mapping_entry(
+    line: str, indent: int, *, list_item: bool = False
+) -> tuple[str, str] | None:
+    if _indent(line) != indent or not line.strip() or line.lstrip().startswith("#"):
+        return None
+    content = line.strip()
+    if list_item:
+        if not content.startswith("- "):
+            return None
+        content = content[2:].lstrip()
+    if content.startswith(("\"", "'")):
+        quote = content[0]
+        closing = content.find(quote, 1)
+        if closing == -1 or not content[closing + 1 :].lstrip().startswith(":"):
+            return None
+        key = content[1:closing]
+        value = content[closing + 1 :].lstrip()[1:].strip()
+        return key, value
+    key, separator, value = content.partition(":")
+    if not separator or not key:
+        return None
+    return key.strip(), value.strip()
+
+
 def _mapping_block(lines: list[str], key: str, indent: int) -> list[str]:
-    header = f"{' ' * indent}{key}:"
     for index, line in enumerate(lines):
-        if line == header:
+        entry = _mapping_entry(line, indent)
+        if entry == (key, ""):
             end = index + 1
             while end < len(lines):
                 candidate = lines[end]
@@ -143,11 +181,11 @@ def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
 def _field(
     lines: list[str], key: str, indent: int
 ) -> tuple[str, tuple[str, ...]] | None:
-    prefix = f"{key}:"
     for index, line in enumerate(lines):
-        if _indent(line) != indent or not line.strip().startswith(prefix):
+        entry = _mapping_entry(line, indent)
+        if entry is None or entry[0] != key:
             continue
-        value = line.strip().split(":", 1)[1].split("#", 1)[0].strip()
+        value = entry[1].split("#", 1)[0].strip()
         if value not in {"|", ">", "|-", ">-"}:
             return "scalar", ((value.strip('"\''),) if value else ())
         values: list[str] = []
@@ -179,17 +217,13 @@ def _step_single_command(step: list[str]) -> str | None:
 def _step_keys(step: list[str]) -> tuple[str, ...]:
     keys: list[str] = []
     for index, line in enumerate(step):
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if index == 0 and _indent(line) == 6 and line.strip().startswith("- "):
-            candidate = line.strip()[2:]
-        elif _indent(line) == 8:
-            candidate = line.strip()
-        else:
-            continue
-        match = re.match(r"([A-Za-z0-9_-]+):", candidate)
-        if match is not None:
-            keys.append(match.group(1))
+        entry = _mapping_entry(
+            line,
+            6 if index == 0 else 8,
+            list_item=index == 0,
+        )
+        if entry is not None:
+            keys.append(entry[0])
     return tuple(keys)
 
 
@@ -197,10 +231,13 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
     environment = _mapping_block(lines, "env", 0)
     entries: list[tuple[str, str]] = []
     for line in environment:
-        if _indent(line) != 2 or not line.strip() or line.lstrip().startswith("#"):
+        entry = _mapping_entry(line, 2)
+        if entry is None:
+            if line.strip() and not line.lstrip().startswith("#"):
+                return False
             continue
-        key, separator, value = line.strip().partition(":")
-        if not separator:
+        key, value = entry
+        if not key:
             return False
         entries.append((key, value.strip().strip('"\'')))
     return entries == [("CARGO_TERM_COLOR", "always")]
