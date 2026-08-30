@@ -190,9 +190,9 @@ mod convergence_evidence {
 
     impl Pending {
         fn emit(self) {
-            if log::log_enabled!(target: TARGET, log::Level::Debug) {
+            if ::log::log_enabled!(target: TARGET, ::log::Level::Debug) {
                 for line in self.0.lines() {
-                    log::debug!(target: TARGET, "{line}");
+                    ::log::debug!(target: TARGET, "{line}");
                 }
             }
         }

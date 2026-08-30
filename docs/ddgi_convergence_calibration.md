@@ -73,6 +73,9 @@ interface, while language negative impls remain unstable. The source tripwire th
 only the exact direct-item assertion placement and payload, including absolute paths to the macro
 crate and `core::fmt` traits. Owner-local traits or modules therefore cannot shadow the rustc-owned
 proof, and the tripwire does not duplicate Rust trait semantics.
+Within its deliberately controlled Rust source grammar, the same tripwire requires absolute
+`::log` paths, one child-private log gate and sink, and no other use of the convergence target.
+This is a local structure guard, not a general Rust name resolver or control-flow proof.
 The private emitter checks that its dedicated target is enabled at Debug level before constructing
 the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 

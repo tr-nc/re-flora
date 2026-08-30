@@ -347,6 +347,8 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     emit_body = [token.value for token in runtime[emit_open + 1 : emit_close]]
     expected_emit_body = [
         "if",
+        ":",
+        ":",
         "log",
         ":",
         ":",
@@ -357,6 +359,8 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
         ":",
         "TARGET",
         ",",
+        ":",
+        ":",
         "log",
         ":",
         ":",
@@ -377,6 +381,8 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
         "(",
         ")",
         "{",
+        ":",
+        ":",
         "log",
         ":",
         ":",
@@ -395,6 +401,40 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     ]
     if emit_body != expected_emit_body:
         raise AssertionError("private emitter must match the canonical debug-gated sink body")
+
+    child_log_macros = []
+    for index in range(module_open, module_close - 4):
+        if (
+            runtime[index].value == "log"
+            and runtime[index + 1].value == ":"
+            and runtime[index + 2].value == ":"
+            and runtime[index + 3].kind == "IDENT"
+            and runtime[index + 4].value == "!"
+        ):
+            child_log_macros.append((index, runtime[index + 3].value))
+    expected_gate = find_sequence(
+        runtime, (":", ":", "log", ":", ":", "log_enabled", "!"), emit_open, emit_close
+    ) + 2
+    expected_sink = find_sequence(
+        runtime, (":", ":", "log", ":", ":", "debug", "!"), emit_open, emit_close
+    ) + 2
+    if child_log_macros != [(expected_gate, "log_enabled"), (expected_sink, "debug")]:
+        raise AssertionError("private child must contain only the canonical log gate and sink")
+
+    target_identifiers = [
+        index
+        for index in range(module_open, module_close)
+        if runtime[index].kind == "IDENT" and runtime[index].value == "TARGET"
+    ]
+    target_definition = find_sequence(runtime, ("const", "TARGET", ":"), module_open, module_close) + 1
+    gate_target = find_sequence(
+        runtime, ("target", ":", "TARGET"), expected_gate, emit_close
+    ) + 2
+    sink_target = find_sequence(
+        runtime, ("target", ":", "TARGET"), expected_sink, emit_close
+    ) + 2
+    if target_identifiers != [target_definition, gate_target, sink_target]:
+        raise AssertionError("TARGET must be owned only by its const and canonical emitter")
 
     target_literal = "re_flora::ddgi_convergence_evidence"
     target_literals = [
@@ -443,7 +483,7 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
                 )
                 if has_target:
                     targeted_sinks.append((path, index, tokens[index + 3].value))
-    if targeted_sinks != [(RUNTIME, find_sequence(runtime, ("log", ":", ":", "debug", "!"), emit_open, emit_close), "debug")]:
+    if targeted_sinks != [(RUNTIME, expected_sink, "debug")]:
         raise AssertionError("convergence target must have one canonical private debug sink")
 
     complete = find_sequence(runtime, ("fn", "complete_pending_batch", "("))
@@ -752,12 +792,12 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
 
         emitter_mutations = {
             "disabled-gate": sources[RUNTIME].replace(
-                "if log::log_enabled!(target: TARGET, log::Level::Debug) {", "if false {", 1
+                "if ::log::log_enabled!(target: TARGET, ::log::Level::Debug) {", "if false {", 1
             ),
             "outer-loop": sources[RUNTIME].replace(
-                "            if log::log_enabled!(target: TARGET, log::Level::Debug) {",
+                "            if ::log::log_enabled!(target: TARGET, ::log::Level::Debug) {",
                 "            for _ in 0..2 {\n"
-                "                if log::log_enabled!(target: TARGET, log::Level::Debug) {",
+                "                if ::log::log_enabled!(target: TARGET, ::log::Level::Debug) {",
                 1,
             ).replace(
                 "                }\n            }\n        }\n    }\n\n    impl Evidence",
@@ -765,20 +805,38 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 1,
             ),
             "zero-sink": sources[RUNTIME].replace(
-                '                    log::debug!(target: TARGET, "{line}");',
+                '                    ::log::debug!(target: TARGET, "{line}");',
                 "                    let _ = line;",
                 1,
             ),
             "double-sink": sources[RUNTIME].replace(
-                '                    log::debug!(target: TARGET, "{line}");',
-                '                    log::debug!(target: TARGET, "{line}");\n'
-                '                    log::debug!(target: TARGET, "{line}");',
+                '                    ::log::debug!(target: TARGET, "{line}");',
+                '                    ::log::debug!(target: TARGET, "{line}");\n'
+                '                    ::log::debug!(target: TARGET, "{line}");',
                 1,
             ),
             "second-target-sink": sources[RUNTIME].replace(
-                '                    log::debug!(target: TARGET, "{line}");',
-                '                    log::debug!(target: TARGET, "{line}");\n'
-                '                    log::info!(target: TARGET, "{line}");',
+                '                    ::log::debug!(target: TARGET, "{line}");',
+                '                    ::log::debug!(target: TARGET, "{line}");\n'
+                '                    ::log::info!(target: TARGET, "{line}");',
+                1,
+            ),
+            "relative-log-path": sources[RUNTIME]
+            .replace("::log::log_enabled!", "log::log_enabled!", 1)
+            .replace("::log::Level::Debug", "log::Level::Debug", 1)
+            .replace("::log::debug!", "log::debug!", 1),
+            "prepare-extra-log": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    fn decoy() {\n"
+                "        ::log::log!(target: TARGET, ::log::Level::Debug, \"decoy\");\n"
+                "    }\n\n"
+                "    pub(super) fn prepare(",
+                1,
+            ),
+            "extra-target-reference": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    const EXTRA_TARGET_REFERENCE: &str = TARGET;\n\n"
+                "    pub(super) fn prepare(",
                 1,
             ),
         }
