@@ -1285,15 +1285,8 @@ impl DdgiRuntime {
 
     /// Consumes proof that physical ownership already swapped before committing logical ownership.
     fn commit_physical_promotion(&mut self, promotion: DdgiVolumePromotion) -> DdgiVolume {
-        self.commit_promoted_publication(promotion.token(), promotion.publication());
-        promotion.into_retired_active()
-    }
-
-    fn commit_promoted_publication(
-        &mut self,
-        token: DdgiBuildToken,
-        publication: super::DdgiFieldPublication,
-    ) {
+        let token = promotion.token();
+        let publication = promotion.publication();
         assert!(
             self.terrain_refresh.token_can_promote(token),
             "preflighted DDGI token lost coordinator authority"
@@ -1313,6 +1306,7 @@ impl DdgiRuntime {
         assert!(self.terrain_refresh.mark_promoted(token));
         self.completed_staging_publication = None;
         self.active_publication = DdgiActivePublication::Published(completed);
+        promotion.into_retired_active()
     }
 
     pub(crate) fn status(&self) -> DdgiRuntimeStatus {
@@ -2200,7 +2194,7 @@ mod tests {
     }
 
     #[test]
-    fn promotion_moves_the_exact_staging_publication_and_filter_checkpoint() {
+    fn promotion_preflight_carries_the_exact_staging_publication_and_filter_checkpoint() {
         let (mut runtime, _, _) = initialized_runtime();
         let previous_active = runtime.active_publication.published().unwrap();
         runtime.observe_visible_terrain(8, edit_bound(200, 220));
@@ -2222,17 +2216,31 @@ mod tests {
             DdgiCapturePublication::Published,
         ));
         let staged = runtime.completed_staging_publication.unwrap();
-        runtime.commit_promoted_publication(replacement.token(), staged.field);
-
-        let promoted = runtime.active_publication.published().unwrap();
-        assert_eq!(promoted.generation, replacement);
-        assert_ne!(promoted.generation, previous_active.generation);
-        assert_eq!(promoted.field, staged.field);
+        let authorized = runtime
+            .preflight_staging_publication(replacement.token(), staged.field)
+            .unwrap();
+        assert_eq!(authorized.generation, replacement);
+        assert_ne!(authorized.generation, previous_active.generation);
+        assert_eq!(authorized.field, staged.field);
         assert_eq!(
-            promoted.capture_checkpoint.unwrap().filter_proof,
+            authorized.authored_lighting.revision(),
+            staged.authored_lighting.revision()
+        );
+        assert_eq!(
+            authorized.capture_checkpoint.unwrap().filter_proof,
             Some(proof)
         );
-        assert!(runtime.completed_staging_publication.is_none());
+        let current_active = runtime.active_publication.published().unwrap();
+        assert_eq!(current_active.generation, previous_active.generation);
+        assert_eq!(current_active.field, previous_active.field);
+        let remaining_staging = runtime.completed_staging_publication.unwrap();
+        assert_eq!(remaining_staging.generation, staged.generation);
+        assert_eq!(remaining_staging.field, staged.field);
+        assert_eq!(
+            remaining_staging.capture_checkpoint,
+            staged.capture_checkpoint
+        );
+        assert!(runtime.token_can_promote(replacement.token()));
     }
 
     #[test]
