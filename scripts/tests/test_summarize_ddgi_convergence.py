@@ -237,9 +237,24 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         def relocation_line(text: str) -> str:
             return next(line for line in text.splitlines() if "relocation stats" in line)
 
+        def move_population_after_first_validation(text: str) -> str:
+            population = relocation_line(text)
+            without_population = text.replace(population + "\n", "")
+            first_validation = next(
+                line
+                for line in without_population.splitlines()
+                if "full-atlas validated" in line
+            )
+            return without_population.replace(
+                first_validation + "\n",
+                first_validation + "\n" + population + "\n",
+                1,
+            )
+
         mutations = {
             "missing": lambda text: text.replace(relocation_line(text) + "\n", ""),
             "duplicate": lambda text: text + relocation_line(text) + "\n",
+            "mid-curve": move_population_after_first_validation,
             "late": lambda text: (
                 text.replace(relocation_line(text) + "\n", "")
                 + relocation_line(text)
@@ -261,7 +276,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 self.assertIn(
                     "must precede full-atlas validation"
-                    if name == "late"
+                    if name in ("mid-curve", "late")
                     else "exactly one authoritative DDGI relocation population",
                     result.stderr,
                 )
