@@ -206,21 +206,30 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
             "DdgiBatchCompletion", ":",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
+            ",", ":", ":", "core", ":", ":", "marker", ":", ":", "Copy",
+            ",", ":", ":", "core", ":", ":", "clone", ":", ":", "Clone",
+            ",", ":", ":", "core", ":", ":", "default", ":", ":", "Default",
         ),
         (
             "Pending", ":",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
+            ",", ":", ":", "core", ":", ":", "marker", ":", ":", "Copy",
+            ",", ":", ":", "core", ":", ":", "clone", ":", ":", "Clone",
+            ",", ":", ":", "core", ":", ":", "default", ":", ":", "Default",
         ),
         (
             "Evidence", ":",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
             ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
+            ",", ":", ":", "core", ":", ":", "marker", ":", ":", "Copy",
+            ",", ":", ":", "core", ":", ":", "clone", ":", ":", "Clone",
+            ",", ":", ":", "core", ":", ":", "default", ":", ":", "Default",
         ),
     ]
     if [payload for _, payload in opaque_assertions] != expected_opaque_payloads:
         raise AssertionError(
-            "production rustc must own the exact Debug/Display assertions for the opaque types"
+            "production rustc must own the exact opaque capability trait assertions"
         )
 
     def declaration_end(type_name: str, start: int, end: int) -> int:
@@ -585,25 +594,50 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
     def test_rustc_negative_trait_assertions_are_exact_owner_contracts(self) -> None:
         sources = production_sources()
         assertions = {
-            "completion": "DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display",
-            "pending": "Pending: ::core::fmt::Debug, ::core::fmt::Display",
-            "evidence": "Evidence: ::core::fmt::Debug, ::core::fmt::Display",
+            "completion": (
+                "DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display, "
+                "::core::marker::Copy,\n"
+                "    ::core::clone::Clone, ::core::default::Default"
+            ),
+            "pending": (
+                "Pending: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,\n"
+                "        ::core::clone::Clone, ::core::default::Default"
+            ),
+            "evidence": (
+                "Evidence: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,\n"
+                "        ::core::clone::Clone, ::core::default::Default"
+            ),
         }
+        completion_item = (
+            "::static_assertions::assert_not_impl_any!(\n"
+            f"    {assertions['completion']}\n"
+            ");"
+        )
+        pending_item = (
+            "::static_assertions::assert_not_impl_any!(\n"
+            f"        {assertions['pending']}\n"
+            "    );"
+        )
+        evidence_item = (
+            "::static_assertions::assert_not_impl_any!(\n"
+            f"        {assertions['evidence']}\n"
+            "    );"
+        )
         mutations = {
             "missing-completion": sources[RUNTIME].replace(assertions["completion"], "", 1),
             "wrong-pending-target": sources[RUNTIME].replace(
                 assertions["pending"],
-                "Prepared: ::core::fmt::Debug, ::core::fmt::Display",
+                assertions["pending"].replace("Pending", "Prepared", 1),
                 1,
             ),
             "missing-evidence-display": sources[RUNTIME].replace(
                 assertions["evidence"],
-                "Evidence: ::core::fmt::Debug",
+                assertions["evidence"].replace("::core::fmt::Display, ", "", 1),
                 1,
             ),
             "wrong-completion-trait": sources[RUNTIME].replace(
                 assertions["completion"],
-                "DdgiBatchCompletion: ::core::fmt::Debug, Clone",
+                assertions["completion"].replace("::core::clone::Clone", "Clone", 1),
                 1,
             ),
             "relative-macro-crate": sources[RUNTIME].replace(
@@ -612,40 +646,33 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 1,
             ),
             "relative-trait-path": sources[RUNTIME].replace(
-                "::core::fmt::Debug, ::core::fmt::Display",
-                "Debug, Display",
+                assertions["completion"],
+                "DdgiBatchCompletion: Debug, Display, Copy, Clone, Default",
                 1,
             ),
             "cfg-test-completion": sources[RUNTIME].replace(
-                "::static_assertions::assert_not_impl_any!(\n"
-                "    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display\n"
-                ");",
-                "#[cfg(test)]\n"
-                "::static_assertions::assert_not_impl_any!(\n"
-                "    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display\n"
-                ");",
+                completion_item,
+                "#[cfg(test)]\n" + completion_item,
                 1,
             ),
             "nested-cfg-any-pending": sources[RUNTIME].replace(
-                "::static_assertions::assert_not_impl_any!(\n"
-                "        Pending: ::core::fmt::Debug, ::core::fmt::Display\n"
-                "    );",
+                pending_item,
                 "#[cfg(any())]\n"
                 "    mod disabled_seal {\n"
                 "        ::static_assertions::assert_not_impl_any!(\n"
-                "            super::Pending: ::core::fmt::Debug, ::core::fmt::Display\n"
+                "            super::Pending: ::core::fmt::Debug, ::core::fmt::Display,\n"
+                "            ::core::marker::Copy, ::core::clone::Clone, ::core::default::Default\n"
                 "        );\n"
                 "    }",
                 1,
             ),
             "nested-test-module-evidence": sources[RUNTIME].replace(
-                "::static_assertions::assert_not_impl_any!(\n"
-                "        Evidence: ::core::fmt::Debug, ::core::fmt::Display\n"
-                "    );",
+                evidence_item,
                 "#[cfg(test)]\n"
                 "    mod seal_tests {\n"
                 "        ::static_assertions::assert_not_impl_any!(\n"
-                "            super::Evidence: ::core::fmt::Debug, ::core::fmt::Display\n"
+                "            super::Evidence: ::core::fmt::Debug, ::core::fmt::Display,\n"
+                "            ::core::marker::Copy, ::core::clone::Clone, ::core::default::Default\n"
                 "        );\n"
                 "    }",
                 1,

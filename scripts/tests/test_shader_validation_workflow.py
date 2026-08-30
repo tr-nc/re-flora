@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/shader-validation.yml"
 OWNER_PATHS = (
     ".github/workflows/shader-validation.yml",
+    "Cargo.lock",
+    "Cargo.toml",
     "config/ddgi_convergence_acceptance.toml",
     "docs/ddgi_convergence_calibration.md",
     "docs/ddgi_indirect_transport_spec.md",

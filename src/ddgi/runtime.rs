@@ -94,7 +94,8 @@ pub(crate) struct DdgiBatchCompletion {
     pub capture_observed: bool,
 }
 ::static_assertions::assert_not_impl_any!(
-    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display
+    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,
+    ::core::clone::Clone, ::core::default::Default
 );
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,7 +139,8 @@ mod convergence_evidence {
 
     pub(super) struct Pending(Evidence);
     ::static_assertions::assert_not_impl_any!(
-        Pending: ::core::fmt::Debug, ::core::fmt::Display
+        Pending: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,
+        ::core::clone::Clone, ::core::default::Default
     );
 
     pub(super) struct Prepared {
@@ -146,14 +148,14 @@ mod convergence_evidence {
         pub(super) pending: Pending,
     }
 
-    #[derive(Clone, Copy)]
     struct Evidence {
         publication: DdgiValidatedPublication,
         consecutive_below_threshold: u32,
         terminal_reason: Option<DdgiConvergenceReason>,
     }
     ::static_assertions::assert_not_impl_any!(
-        Evidence: ::core::fmt::Debug, ::core::fmt::Display
+        Evidence: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,
+        ::core::clone::Clone, ::core::default::Default
     );
 
     pub(super) fn prepare(

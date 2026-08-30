@@ -64,9 +64,11 @@ Tracer cannot reconstruct its count or terminal identity. Child-module Rust test
 one-line Published and ordered two-line Converged results. The Python source tripwire reads only
 `src/ddgi/runtime.rs` and `src/tracer/mod.rs`; it is deliberately limited to the private capability,
 single child log sink, same-receiver consuming commit, and canonical commit-last position.
-Rustc owns the opaque types' non-`Debug`/non-`Display` proof through production-configuration,
-owner-local compile-time negative trait assertions. Each assertion is an unconfigured module-root
-item adjacent to its owned struct, so an ordinary non-test build enforces the seal. A source-level
+Rustc owns the opaque types' non-`Debug`/non-`Display` and non-`Copy`/non-`Clone`/non-`Default`
+proof through production-configuration, owner-local compile-time negative trait assertions. The
+latter traits seal the pending capability against duplication or default fabrication. Each
+assertion is an unconfigured module-root item adjacent to its owned struct, so an ordinary non-test
+build enforces the seal. A source-level
 trait parser was rejected because imports and aliases require Rust name resolution and generic
 wrappers create false positives; representation marker fields would enlarge the production
 interface, while language negative impls remain unstable. The source tripwire therefore checks
