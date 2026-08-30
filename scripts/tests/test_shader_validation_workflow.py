@@ -1,73 +1,78 @@
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS = ROOT / "scripts"
 WORKFLOW = ROOT / ".github" / "workflows" / "shader-validation.yml"
+sys.path.insert(0, str(SCRIPTS))
 
-REQUIRED_OWNER_PATHS = (
-    "src/app/core/environment_irradiance_capture.rs",
-    "src/app/core/mod.rs",
-    "src/ddgi/**",
-    "src/ddgi/resources.rs",
-    "src/environment_lighting.rs",
-    "src/tracer/**",
-    "scripts/validate_ddgi_radiance_lifecycle.py",
-    "scripts/summarize_ddgi_convergence.py",
-)
-REQUIRED_FEDORA_COMMANDS = (
-    "cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity",
-    "cargo test --locked ddgi::resources::tests::filter_",
-    "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness",
-)
-
-
-def between(source: str, start: str, end: str) -> str:
-    return source.split(start, 1)[1].split(end, 1)[0]
-
-
-def workflow_contract_failures(source: str) -> list[str]:
-    failures: list[str] = []
-    pull_request = between(source, "  pull_request:\n", "  push:\n")
-    push = between(source, "  push:\n", "\npermissions:\n")
-    fedora = between(source, "  fedora:\n", "  python-policy-tests:\n")
-
-    for route_name, route in (("pull_request", pull_request), ("push", push)):
-        for owner_path in REQUIRED_OWNER_PATHS:
-            if f'      - "{owner_path}"' not in route:
-                failures.append(f"{route_name} does not route {owner_path}")
-
-    for command in REQUIRED_FEDORA_COMMANDS:
-        if command not in fedora:
-            failures.append(f"Fedora job does not run {command}")
-    return failures
+import shader_validation_workflow_contract as contract  # noqa: E402
 
 
 class ShaderValidationWorkflowTests(unittest.TestCase):
     def test_owner_changes_route_to_executable_fedora_evidence_tests(self) -> None:
         self.assertEqual(
-            workflow_contract_failures(WORKFLOW.read_text(encoding="utf-8")),
+            contract.workflow_contract_failures(
+                WORKFLOW.read_text(encoding="utf-8")
+            ),
             [],
         )
 
-    def test_contract_detects_removed_route_and_misplaced_fedora_command(self) -> None:
+    def test_glob_removal_reports_the_actual_unrouted_owner(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
-        missing_route = source.replace(
-            '      - "src/ddgi/resources.rs"\n', "", 1
-        )
-        self.assertIn(
-            "pull_request does not route src/ddgi/resources.rs",
-            workflow_contract_failures(missing_route),
-        )
+        missing_ddgi_route = source.replace('      - "src/ddgi/**"\n', "")
 
-        command = REQUIRED_FEDORA_COMMANDS[-1]
-        misplaced_command = source.replace(command, "true", 1)
+        failures = contract.workflow_contract_failures(missing_ddgi_route)
+
         self.assertIn(
-            f"Fedora job does not run {command}",
-            workflow_contract_failures(misplaced_command),
+            "pull_request does not route src/ddgi/resources.rs", failures
         )
+        self.assertIn("push does not route src/ddgi/resources.rs", failures)
+
+    def test_comments_other_fields_other_jobs_and_disabled_steps_are_not_runs(
+        self,
+    ) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        run_line = f"          {command}"
+
+        mutations = {
+            "comment": source.replace(run_line, f"          # {command}", 1),
+            "other-field": source.replace(
+                run_line,
+                "          true\n"
+                "        env:\n"
+                f'          MOVED_COMMAND: "{command}"',
+                1,
+            ),
+            "other-job": source.replace(run_line, "          true", 1).replace(
+                "      - name: Run Slang CPU tests\n",
+                "      - name: Unrelated desktop command\n"
+                f"        run: {command}\n\n"
+                "      - name: Run Slang CPU tests\n",
+                1,
+            ),
+            "disabled-step": source.replace(
+                "      - name: Run DDGI owner evidence codec tests\n",
+                "      - name: Run DDGI owner evidence codec tests\n"
+                "        if: false\n",
+                1,
+            ),
+            "disabled-job": source.replace(
+                "  fedora:\n", "  fedora:\n    if: false\n", 1
+            ),
+        }
+
+        for mutation, mutated_source in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assertIn(
+                    f"Fedora job does not run {command}",
+                    contract.workflow_contract_failures(mutated_source),
+                )
 
 
 if __name__ == "__main__":
