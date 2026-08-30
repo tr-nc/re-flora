@@ -233,6 +233,39 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 self.assertIn(error, result.stderr)
 
+    def test_rejects_missing_duplicate_or_late_relocation_population(self) -> None:
+        def relocation_line(text: str) -> str:
+            return next(line for line in text.splitlines() if "relocation stats" in line)
+
+        mutations = {
+            "missing": lambda text: text.replace(relocation_line(text) + "\n", ""),
+            "duplicate": lambda text: text + relocation_line(text) + "\n",
+            "late": lambda text: (
+                text.replace(relocation_line(text) + "\n", "")
+                + relocation_line(text)
+                + "\n"
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(mutate(path.read_text()))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn(
+                    "must precede full-atlas validation"
+                    if name == "late"
+                    else "exactly one authoritative DDGI relocation population",
+                    result.stderr,
+                )
+
     def test_rejects_atlas_layout_coverage_that_exceeds_the_validation_wire(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
