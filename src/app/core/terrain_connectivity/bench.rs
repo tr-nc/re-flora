@@ -408,8 +408,16 @@ impl ScenarioOwner {
         frame_slot: usize,
         frame: u64,
     ) {
-        if let Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = self {
-            bench.record_gpu_submission(frame_slot, frame);
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                bench.record_gpu_submission(frame_slot, frame);
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => {}
         }
     }
 
@@ -418,8 +426,16 @@ impl ScenarioOwner {
         frame_slot: usize,
         results: &GpuProfilerFrameResults,
     ) {
-        if let Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = self {
-            bench.observe_gpu_completion(frame_slot, results);
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                bench.observe_gpu_completion(frame_slot, results);
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => {}
         }
     }
 
