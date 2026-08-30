@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import fnmatch
+import re
 
 
 REQUIRED_OWNER_PATHS = (
@@ -69,14 +69,39 @@ def _routes(patterns: tuple[str, ...], path: str) -> bool:
     for pattern in patterns:
         excluded = pattern.startswith("!")
         candidate = pattern[1:] if excluded else pattern
-        if fnmatch.fnmatchcase(path, candidate):
+        if _github_path_matches(candidate, path):
             routed = not excluded
     return routed
 
 
+def _github_path_matches(pattern: str, path: str) -> bool:
+    """Match the slash semantics used by GitHub workflow path filters."""
+    expression: list[str] = ["^"]
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "*":
+            if index + 1 < len(pattern) and pattern[index + 1] == "*":
+                expression.append(".*")
+                index += 2
+            else:
+                expression.append("[^/]*")
+                index += 1
+        elif character == "?":
+            expression.append("[^/]")
+            index += 1
+        else:
+            expression.append(re.escape(character))
+            index += 1
+    expression.append("$")
+    return re.match("".join(expression), path) is not None
+
+
 def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
     job_block = _mapping_block(lines, job, 2)
-    if _statically_disabled(job_block, 4):
+    if _field(job_block, "if", 4) is not None or _has_default_shell(
+        job_block, 4
+    ):
         return []
     steps_block = _mapping_block(job_block, "steps", 4)
     steps: list[list[str]] = []
@@ -114,26 +139,17 @@ def _field(
     return None
 
 
-def _field_is_true(lines: list[str], key: str, indent: int) -> bool:
-    field = _field(lines, key, indent)
-    if field is None or len(field[1]) != 1:
-        return False
-    value = field[1][0].strip('"\'').lower()
-    return value in {"true", "${{ true }}"}
-
-
-def _statically_disabled(lines: list[str], indent: int) -> bool:
-    field = _field(lines, "if", indent)
-    if field is None or len(field[1]) != 1:
-        return False
-    value = field[1][0].strip('"\'').lower()
-    return value in {"false", "${{ false }}"}
+def _has_default_shell(lines: list[str], indent: int) -> bool:
+    defaults = _mapping_block(lines, "defaults", indent)
+    run_defaults = _mapping_block(defaults, "run", indent + 2)
+    return _field(run_defaults, "shell", indent + 4) is not None
 
 
 def _step_single_command(step: list[str]) -> str | None:
-    if _statically_disabled(step, 8):
-        return None
-    if _field_is_true(step, "continue-on-error", 8):
+    if any(
+        _field(step, field, 8) is not None
+        for field in ("if", "continue-on-error", "shell")
+    ):
         return None
     run = _field(step, "run", 8)
     if run is None or run[0] != "scalar" or len(run[1]) != 1:
@@ -150,12 +166,14 @@ def workflow_contract_failures(source: str) -> list[str]:
             if not _routes(patterns, owner_path):
                 failures.append(f"{event} does not route {owner_path}")
 
-    fedora_commands = {
+    fedora_commands = [
         command
         for step in _step_blocks(lines, "fedora")
         if (command := _step_single_command(step)) is not None
-    }
+    ]
+    if _has_default_shell(lines, 0):
+        fedora_commands = []
     for command in REQUIRED_FEDORA_COMMANDS:
-        if command not in fedora_commands:
+        if fedora_commands.count(command) != 1:
             failures.append(f"Fedora job does not run {command}")
     return failures
