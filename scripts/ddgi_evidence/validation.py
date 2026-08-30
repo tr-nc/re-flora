@@ -7,7 +7,10 @@ from enum import Enum
 from pathlib import Path
 from typing import NoReturn
 
-from runtime_log_diagnostics import first_fatal_diagnostic
+try:
+    from runtime_log_diagnostics import first_fatal_diagnostic
+except ModuleNotFoundError:  # package import from the repository root
+    from scripts.runtime_log_diagnostics import first_fatal_diagnostic
 
 from .model import ScenarioValidation, ValidateRadianceLifecycle, ValidateScenarioLog
 
@@ -473,6 +476,468 @@ def validate_radiance_event_stream(text: str, spacing_voxels: int) -> dict[str, 
     return lifecycle.finish()
 
 
+class DensityLifecycleError(ValueError):
+    """The log is not one ordered density replacement lifecycle."""
+
+
+class _DensityPhase(Enum):
+    BASELINE = "baseline"
+    DENSITY_MIDFLIGHT = "density-midflight"
+    GEOMETRY_PREEMPTED = "geometry-preempted-density"
+    GEOMETRY_PRIVATE = "geometry-e0-private"
+    TERRAIN_PROMOTION = "terrain-promotion"
+    TERRAIN_CONSUMERS = "terrain-consumers"
+    GEOMETRY_PUBLISHED = "geometry-recovery-published"
+    DENSITY_RETRY = "density-retry-midflight"
+    DENSITY_PROMOTION = "density-promotion"
+    DENSITY_CONSUMERS = "density-consumers"
+    COMPLETE = "complete"
+    SUMMARY = "summary"
+
+
+DENSITY_ORDER = tuple(_DensityPhase)
+
+
+@dataclass(frozen=True)
+class _DensityCapture:
+    fields: dict[str, str]
+    arrival: _DensityPhase | None
+
+
+class _DensityStream:
+    def __init__(self) -> None:
+        self.index = 0
+        self.seen: set[_DensityPhase] = set()
+        self.values: dict[str, int] = {}
+        self.captures: list[_DensityCapture] = []
+
+    def event(self, phase: _DensityPhase, fields: dict[str, str]) -> None:
+        if phase in self.seen:
+            raise DensityLifecycleError(f"duplicate lifecycle event {phase.value}")
+        expected = DENSITY_ORDER[self.index] if self.index < len(DENSITY_ORDER) else None
+        if expected is not phase:
+            label = expected.value if expected else "end-of-lifecycle"
+            raise DensityLifecycleError(
+                f"lifecycle event {phase.value} is out of order; expected {label}"
+            )
+        self.seen.add(phase)
+        self.index += 1
+        getattr(self, phase.name.lower())(fields)
+
+    def baseline(self, fields: dict[str, str]) -> None:
+        self.values["baseline_field_serial"] = _integer(fields, "field_serial")
+        self.values["baseline_geometry_revision"] = _integer(
+            fields, "geometry_revision"
+        )
+        self.values["radiance_revision"] = _integer(fields, "radiance_revision")
+        self._literals(
+            fields,
+            spacing_voxels="32",
+            state="Converging",
+            update_epoch="0",
+            source_field_serial="0",
+        )
+
+    def density_midflight(self, fields: dict[str, str]) -> None:
+        self._same(fields, "active_field_serial", "baseline_field_serial")
+        self._same(
+            fields, "active_geometry_revision", "baseline_geometry_revision"
+        )
+        self._literals(
+            fields,
+            active_spacing_voxels="32",
+            obsolete_density_spacing_voxels="16",
+            old_field_visible="true",
+            active_available="true",
+        )
+        for name in (
+            "active_token_serial",
+            "obsolete_density_token_serial",
+            "obsolete_density_field_serial",
+        ):
+            self.values[name] = _integer(fields, name)
+
+    def geometry_preempted(self, fields: dict[str, str]) -> None:
+        self._same(fields, "obsolete_density_token_serial")
+        self._same(fields, "obsolete_density_field_serial")
+        terrain = _integer(fields, "terrain_token_serial")
+        if terrain <= self.values["obsolete_density_token_serial"]:
+            raise DensityLifecycleError(
+                "terrain token did not supersede the obsolete density token"
+            )
+        self.values["terrain_token_serial"] = terrain
+        self.values["geometry_revision"] = _integer(
+            fields, "target_geometry_revision"
+        )
+        self._literals(
+            fields,
+            terrain_spacing_voxels="32",
+            queued_density_spacing_voxels="16",
+            obsolete_density_consumer_visible="false",
+            active_available="true",
+        )
+
+    def geometry_private(self, fields: dict[str, str]) -> None:
+        self._same(fields, "terrain_token_serial")
+        self._same(fields, "generation_token_serial", "terrain_token_serial")
+        self._same(fields, "obsolete_density_token_serial")
+        self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        source = _integer(fields, "source_field_serial")
+        if source != self.values["baseline_field_serial"]:
+            raise DensityLifecycleError("geometry epoch-zero source field changed")
+        root = _integer(fields, "epoch_zero_field_serial")
+        current = _integer(fields, "private_current_field_serial")
+        epoch = _integer(fields, "private_current_update_epoch")
+        if epoch < 0:
+            raise DensityLifecycleError("private current epoch is negative")
+        if epoch == 0 and current != root:
+            raise DensityLifecycleError(
+                "private current field differs from its epoch-zero root"
+            )
+        self.values.update(
+            geometry_epoch_zero_field_serial=root,
+            geometry_private_current_field_serial=current,
+            geometry_private_current_update_epoch=epoch,
+        )
+        self._literals(
+            fields,
+            active_spacing_voxels="32",
+            queued_density_spacing_voxels="16",
+            obsolete_density_consumer_visible="false",
+            active_available="true",
+        )
+
+    def terrain_promotion(self, fields: dict[str, str]) -> None:
+        self._same(fields, "token_serial", "terrain_token_serial")
+        self._same(fields, "generation_token_serial", "terrain_token_serial")
+        self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._same(
+            fields,
+            "epoch_zero_field_serial",
+            "geometry_epoch_zero_field_serial",
+        )
+        self._literals(fields, kind="Terrain", spacing_voxels="32")
+        epoch = _integer(fields, "published_update_epoch")
+        if epoch == 0:
+            raise DensityLifecycleError("raw geometry epoch zero became visible")
+        private_epoch = self.values["geometry_private_current_update_epoch"]
+        if epoch < private_epoch:
+            raise DensityLifecycleError("promotion regressed behind private current epoch")
+        published = _integer(fields, "published_field_serial")
+        if (
+            epoch == private_epoch
+            and published != self.values["geometry_private_current_field_serial"]
+        ):
+            raise DensityLifecycleError(
+                "promotion changed the private current field at the same epoch"
+            )
+        self.values["geometry_published_update_epoch"] = epoch
+        self.values["geometry_published_field_serial"] = published
+
+    def terrain_consumers(self, fields: dict[str, str]) -> None:
+        for actual, expected in (
+            ("active_token_serial", "terrain_token_serial"),
+            ("generation_token_serial", "terrain_token_serial"),
+            ("geometry_revision", "geometry_revision"),
+            ("radiance_revision", "radiance_revision"),
+            ("epoch_zero_field_serial", "geometry_epoch_zero_field_serial"),
+            ("published_field_serial", "geometry_published_field_serial"),
+            ("update_epoch", "geometry_published_update_epoch"),
+        ):
+            self._same(fields, actual, expected)
+        _literal(fields, "spacing_voxels", "32")
+
+    def geometry_published(self, fields: dict[str, str]) -> None:
+        for actual, expected in (
+            ("terrain_token_serial", "terrain_token_serial"),
+            ("generation_token_serial", "terrain_token_serial"),
+            ("obsolete_density_token_serial", "obsolete_density_token_serial"),
+            ("geometry_revision", "geometry_revision"),
+            ("radiance_revision", "radiance_revision"),
+            ("epoch_zero_field_serial", "geometry_epoch_zero_field_serial"),
+            ("published_field_serial", "geometry_published_field_serial"),
+            ("published_update_epoch", "geometry_published_update_epoch"),
+        ):
+            self._same(fields, actual, expected)
+        self._literals(
+            fields,
+            same_generation="true",
+            active_spacing_voxels="32",
+            queued_density_spacing_voxels="16",
+            obsolete_density_consumer_visible="false",
+            active_available="true",
+        )
+
+    def density_retry(self, fields: dict[str, str]) -> None:
+        for actual, expected in (
+            ("active_token_serial", "terrain_token_serial"),
+            ("active_field_serial", "geometry_published_field_serial"),
+            ("active_geometry_revision", "geometry_revision"),
+            ("active_radiance_revision", "radiance_revision"),
+            ("density_radiance_revision", "radiance_revision"),
+        ):
+            self._same(fields, actual, expected)
+        self._literals(
+            fields,
+            active_spacing_voxels="32",
+            density_spacing_voxels="16",
+            old_field_visible="true",
+            active_available="true",
+        )
+        token = _integer(fields, "density_token_serial")
+        if token <= self.values["terrain_token_serial"]:
+            raise DensityLifecycleError(
+                "retried density token did not supersede terrain token"
+            )
+        self.values["density_token_serial"] = token
+        self.values["density_field_serial"] = _integer(
+            fields, "density_field_serial"
+        )
+
+    def density_promotion(self, fields: dict[str, str]) -> None:
+        for actual, expected in (
+            ("token_serial", "density_token_serial"),
+            ("generation_token_serial", "density_token_serial"),
+            ("geometry_revision", "geometry_revision"),
+            ("radiance_revision", "radiance_revision"),
+            ("epoch_zero_field_serial", "density_field_serial"),
+            ("published_field_serial", "density_field_serial"),
+        ):
+            self._same(fields, actual, expected)
+        self._literals(
+            fields,
+            kind="Density",
+            spacing_voxels="16",
+            published_update_epoch="0",
+        )
+
+    def density_consumers(self, fields: dict[str, str]) -> None:
+        for actual, expected in (
+            ("active_token_serial", "density_token_serial"),
+            ("generation_token_serial", "density_token_serial"),
+            ("geometry_revision", "geometry_revision"),
+            ("radiance_revision", "radiance_revision"),
+            ("epoch_zero_field_serial", "density_field_serial"),
+            ("published_field_serial", "density_field_serial"),
+        ):
+            self._same(fields, actual, expected)
+        self._literals(fields, spacing_voxels="16", update_epoch="0")
+
+    def complete(self, fields: dict[str, str]) -> None:
+        self._same(fields, "field_serial", "density_field_serial")
+        self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._literals(
+            fields,
+            spacing_voxels="16",
+            state="Converging",
+            update_epoch="0",
+            source_field_serial="0",
+            source_state="none",
+        )
+        self.values["field_serial"] = _integer(fields, "field_serial")
+        self.values["source_field_serial"] = 0
+
+    def summary(self, fields: dict[str, str]) -> None:
+        for name in (
+            "obsolete_density_token_serial",
+            "terrain_token_serial",
+            "density_token_serial",
+            "geometry_revision",
+            "radiance_revision",
+        ):
+            self._same(fields, name)
+        self._literals(
+            fields,
+            obsolete_density_consumer_visible="false",
+            first_consumer_visible_16_epoch="0",
+            spacing_voxels="16",
+        )
+
+    def promotion(self, fields: dict[str, str]) -> None:
+        token = _integer(fields, "token_serial")
+        if token == self.values.get("obsolete_density_token_serial"):
+            raise DensityLifecycleError("obsolete density token was promoted")
+        if token == self.values.get("terrain_token_serial"):
+            self.event(_DensityPhase.TERRAIN_PROMOTION, fields)
+        elif token == self.values.get("density_token_serial"):
+            self.event(_DensityPhase.DENSITY_PROMOTION, fields)
+        elif _DensityPhase.BASELINE in self.seen:
+            raise DensityLifecycleError(f"mixed-log promotion token {token}")
+        else:
+            raise DensityLifecycleError(f"unknown promotion token {token}")
+
+    def consumers(self, fields: dict[str, str]) -> None:
+        token = _integer(fields, "active_token_serial")
+        if token == self.values.get("obsolete_density_token_serial"):
+            raise DensityLifecycleError("obsolete density token became active")
+        if token == self.values.get("terrain_token_serial"):
+            self.event(_DensityPhase.TERRAIN_CONSUMERS, fields)
+        elif token == self.values.get("density_token_serial"):
+            self.event(_DensityPhase.DENSITY_CONSUMERS, fields)
+        elif _DensityPhase.BASELINE in self.seen:
+            raise DensityLifecycleError(f"mixed-log consumer token {token}")
+        else:
+            raise DensityLifecycleError(f"unknown consumer token {token}")
+
+    def capture(self, fields: dict[str, str]) -> None:
+        _literal(fields, "target", "e0")
+        _required(
+            fields,
+            "build_token_serial",
+            "generation_token_serial",
+            "epoch_zero_field_serial",
+            "field_serial",
+            "source_field_serial",
+            "geometry_revision",
+            "radiance_revision",
+            "spacing_voxels",
+            "state",
+            "update_epoch",
+            "publication",
+        )
+        arrival = DENSITY_ORDER[self.index] if self.index < len(DENSITY_ORDER) else None
+        self.captures.append(_DensityCapture(fields, arrival))
+
+    def finish(self) -> dict[str, int]:
+        if self.index != len(DENSITY_ORDER):
+            raise DensityLifecycleError(
+                f"incomplete density lifecycle; expected {DENSITY_ORDER[self.index].value}"
+            )
+        tokens = tuple(
+            self.values[name]
+            for name in (
+                "active_token_serial",
+                "obsolete_density_token_serial",
+                "terrain_token_serial",
+                "density_token_serial",
+            )
+        )
+        if any(left >= right for left, right in zip(tokens, tokens[1:])):
+            raise DensityLifecycleError(
+                "generation tokens must be strictly increasing: active < obsolete "
+                "density < terrain < retried density"
+            )
+        expected = {
+            self.values["active_token_serial"]: (
+                "baseline",
+                self.values["baseline_field_serial"],
+                0,
+                self.values["baseline_geometry_revision"],
+                32,
+                _DensityPhase.BASELINE,
+            ),
+            self.values["terrain_token_serial"]: (
+                "terrain",
+                self.values["geometry_epoch_zero_field_serial"],
+                self.values["baseline_field_serial"],
+                self.values["geometry_revision"],
+                32,
+                _DensityPhase.GEOMETRY_PRIVATE,
+            ),
+            self.values["density_token_serial"]: (
+                "density",
+                self.values["density_field_serial"],
+                0,
+                self.values["geometry_revision"],
+                16,
+                _DensityPhase.DENSITY_PROMOTION,
+            ),
+        }
+        seen: set[int] = set()
+        for capture in self.captures:
+            fields = capture.fields
+            token = _integer(fields, "build_token_serial")
+            if token != _integer(fields, "generation_token_serial"):
+                raise DensityLifecycleError("capture generation token drift")
+            if token == self.values["obsolete_density_token_serial"]:
+                raise DensityLifecycleError("obsolete density capture was published")
+            if token not in expected:
+                raise DensityLifecycleError(f"unknown capture generation token {token}")
+            if token in seen:
+                raise DensityLifecycleError(f"duplicate capture for generation token {token}")
+            seen.add(token)
+            label, root, source, geometry, spacing, arrival = expected[token]
+            if capture.arrival is not arrival:
+                actual = capture.arrival.value if capture.arrival else "end-of-lifecycle"
+                raise DensityLifecycleError(
+                    f"{label} capture window expected before {arrival.value}, got {actual}"
+                )
+            for name in ("epoch_zero_field_serial", "field_serial"):
+                if _integer(fields, name) != root:
+                    raise DensityLifecycleError(f"{label} capture field drift")
+            for name, value in (
+                ("source_field_serial", source),
+                ("geometry_revision", geometry),
+                ("radiance_revision", self.values["radiance_revision"]),
+                ("spacing_voxels", spacing),
+            ):
+                if _integer(fields, name) != value:
+                    raise DensityLifecycleError(f"{label} capture {name} drift")
+            self._literals(
+                fields,
+                state="Converging",
+                update_epoch="0",
+                publication="Published",
+            )
+        missing = set(expected) - seen
+        if missing:
+            raise DensityLifecycleError(f"missing capture generations: {sorted(missing)}")
+        self.values["build_token_serial"] = self.values["density_token_serial"]
+        return dict(self.values)
+
+    def _same(
+        self, fields: dict[str, str], actual: str, expected: str | None = None
+    ) -> None:
+        expected = expected or actual
+        value = _integer(fields, actual)
+        if value != self.values[expected]:
+            label = expected.replace("_serial", "").replace("_", " ")
+            raise DensityLifecycleError(
+                f"{label} changed: expected {self.values[expected]}, got {value}"
+            )
+
+    @staticmethod
+    def _literals(fields: dict[str, str], **expected: str) -> None:
+        for name, value in expected.items():
+            _literal(fields, name, value)
+
+
+def validate_density_lifecycle(console: Path) -> dict[str, int]:
+    lifecycle = _DensityStream()
+    checkpoint_map = {
+        "baseline": _DensityPhase.BASELINE,
+        "density-midflight": _DensityPhase.DENSITY_MIDFLIGHT,
+        "geometry-preempted-density": _DensityPhase.GEOMETRY_PREEMPTED,
+        "geometry-e0-private": _DensityPhase.GEOMETRY_PRIVATE,
+        "geometry-recovery-published": _DensityPhase.GEOMETRY_PUBLISHED,
+        "density-retry-midflight": _DensityPhase.DENSITY_RETRY,
+        "complete": _DensityPhase.COMPLETE,
+    }
+    try:
+        for line in console.read_text(errors="replace").splitlines():
+            fields = _fields(line)
+            if "[ENV_IRRADIANCE_CAPTURE] checkpoint " in line:
+                lifecycle.capture(fields)
+            elif "[DDGI] staging promoted " in line:
+                lifecycle.promotion(_fields(line.split(" published_source=", 1)[0]))
+            elif "[DDGI][CONSUMERS] consumer_set=" in line:
+                lifecycle.consumers(_fields(line.split(" source=", 1)[0]))
+            elif "[DDGI_ACCEPT][DENSITY]" in line:
+                checkpoint = fields.get("checkpoint")
+                if checkpoint in checkpoint_map:
+                    lifecycle.event(checkpoint_map[checkpoint], fields)
+                elif "[DDGI_ACCEPT][DENSITY] complete " in line:
+                    lifecycle.event(_DensityPhase.SUMMARY, fields)
+        return lifecycle.finish()
+    except DensityLifecycleError:
+        raise
+    except ValueError as error:
+        raise DensityLifecycleError(str(error)) from error
+
+
 def _last_match(pattern: str, text: str, label: str) -> re.Match[str]:
     matches = list(re.finditer(pattern, text, re.MULTILINE))
     if not matches:
@@ -770,8 +1235,6 @@ def validate_scenario_log(action: ValidateScenarioLog) -> dict[str, int]:
         case ScenarioValidation.RADIANCE_STREAM:
             return validate_radiance_event_stream(text, action.spacing_voxels)
         case ScenarioValidation.DENSITY_STREAM:
-            from validate_ddgi_density_lifecycle import validate_density_lifecycle
-
             return validate_density_lifecycle(action.console)
         case ScenarioValidation.LOCAL_RECOVERY:
             return _validate_local(action, text)
@@ -787,15 +1250,202 @@ def validate_scenario_log(action: ValidateScenarioLog) -> dict[str, int]:
 
 
 def validate_radiance_lifecycle(action: ValidateRadianceLifecycle) -> str:
-    from validate_ddgi_radiance_lifecycle import validate
+    try:
+        import analyze_environment_irradiance_capture as analyzer
+    except ModuleNotFoundError:
+        from scripts import analyze_environment_irradiance_capture as analyzer
 
-    report = validate(
-        action.capture,
-        action.spacing_voxels,
-        action.sunlit_roi,
-        action.minimum_direct_light_delta,
-    )
-    failures = report["validation_failures"]
+    checkpoints = ("baseline", "r2-next-frame", "r4-next-frame", "final")
+
+    def checkpoint_path(checkpoint: str) -> Path:
+        if checkpoint == "final":
+            return action.capture
+        return action.capture.with_name(
+            f"{action.capture.stem}.{checkpoint}{action.capture.suffix}"
+        )
+
+    paths = {checkpoint: checkpoint_path(checkpoint) for checkpoint in checkpoints}
+    captures = {
+        checkpoint: analyzer.load_capture(path) for checkpoint, path in paths.items()
+    }
+    identities = {}
+    failures: list[str] = []
+    for checkpoint, path in paths.items():
+        identity_path = Path(f"{path}.identity.json")
+        with identity_path.open(encoding="utf-8") as identity_file:
+            identity = json.load(identity_file)
+        identities[checkpoint] = identity
+        capture = captures[checkpoint]
+        if not analyzer.is_current_capture(capture):
+            failures.append(f"{checkpoint}: capture is not current RFIRR")
+        if not (
+            capture.filter_evidence is not None
+            and capture.grid_dimensions is not None
+            and capture.configured_history_retention_q16 is not None
+        ):
+            failures.append(f"{checkpoint}: current DDGI filter proof is incomplete")
+        if not analyzer.required_capture_planes_finite(capture):
+            failures.append(
+                f"{checkpoint}: required capture planes contain non-finite values"
+            )
+        if capture.spacing_voxels != action.spacing_voxels:
+            failures.append(
+                f"{checkpoint}: spacing is not {action.spacing_voxels}"
+            )
+        if identity.get("schema") != "re-flora-ddgi-radiance-capture-v1":
+            failures.append(f"{checkpoint}: wrong identity schema")
+        if identity.get("checkpoint") != checkpoint:
+            failures.append(f"{checkpoint}: sidecar checkpoint mismatch")
+        field = identity["active_field"]
+        lifecycle_state = analyzer.LIFECYCLE_STATE_LABELS.get(
+            capture.lifecycle_state
+        )
+        if not (
+            field["field_serial"] == capture.field_serial
+            and field["geometry_revision"] == capture.geometry_revision
+            and field["radiance_revision"] == capture.radiance_revision
+            and field["spacing_voxels"] == capture.spacing_voxels
+            and str(field["lifecycle_state"]).lower() == lifecycle_state
+            and field["update_epoch"] == capture.update_epoch
+            and field["source_field_serial"] == capture.source_field_serial
+            and field["source_radiance_revision"]
+            == capture.source_radiance_revision
+        ):
+            failures.append(
+                f"{checkpoint}: sidecar active field does not match v10 header"
+            )
+
+    baseline = identities["baseline"]
+    r2 = identities["r2-next-frame"]
+    r4 = identities["r4-next-frame"]
+    final = identities["final"]
+    baseline_revision = baseline["active_field"]["radiance_revision"]
+    for checkpoint, identity in (("r2-next-frame", r2), ("r4-next-frame", r4)):
+        if identity["capture_frame"] != identity["mutation_frame"] + 1:
+            failures.append(
+                f"{checkpoint}: capture is not the first rendered frame after mutation"
+            )
+        if identity["active_field"] != baseline["active_field"]:
+            failures.append(
+                f"{checkpoint}: old consumer-visible DDGI field changed"
+            )
+    baseline_sun = baseline["live_snapshot"]
+    for checkpoint, changed in (
+        ("r2-next-frame", r2["live_snapshot"]),
+        ("r4-next-frame", r4["live_snapshot"]),
+    ):
+        for name in ("sun_direction", "sun_color", "sun_luminance"):
+            if changed[name] == baseline_sun[name]:
+                failures.append(f"{checkpoint}: {name} did not dynamically change")
+    if not (
+        r2["live_radiance_revision"] == baseline_revision + 1
+        and r2["latest_radiance_revision"] == baseline_revision + 1
+    ):
+        failures.append("r2-next-frame: live/latest revision is not r2")
+    if not (
+        r2["building_field"]["radiance_revision"] == baseline_revision + 1
+        and r2["builder_latched_radiance_revision"] == baseline_revision + 1
+        and r2["builder_latched_snapshot"] == r2["live_snapshot"]
+    ):
+        failures.append("r2-next-frame: builder did not latch the exact r2 snapshot")
+    if not (
+        r4["live_radiance_revision"] == baseline_revision + 3
+        and r4["latest_radiance_revision"] == baseline_revision + 3
+    ):
+        failures.append("r4-next-frame: latest-wins revision is not r4")
+    if not (
+        r4["building_field"] == r2["building_field"]
+        and r4["builder_latched_radiance_revision"] == baseline_revision + 1
+        and r4["builder_latched_snapshot"] == r2["live_snapshot"]
+    ):
+        failures.append(
+            "r4-next-frame: in-flight r2 identity or latched snapshot mutated"
+        )
+    final_active = final["active_field"]
+    r2_building = r2["building_field"]
+    if not (
+        final["live_radiance_revision"] == baseline_revision + 3
+        and final["latest_radiance_revision"] == baseline_revision + 3
+        and final_active["radiance_revision"] == baseline_revision + 3
+    ):
+        failures.append("final: latest r4 is not consumer-active")
+    if not (
+        final_active["source_field_serial"] == r2_building["field_serial"]
+        and final_active["field_serial"] == r2_building["field_serial"] + 1
+    ):
+        failures.append("final: r3 allocated a field or r4 did not consume r2")
+
+    frame_comparisons = {}
+    direct_comparisons = {}
+    for checkpoint in ("r2-next-frame", "r4-next-frame"):
+        frame = analyzer.compare_radiance_frame(
+            captures[checkpoint], captures["baseline"]
+        )
+        direct = analyzer.compare_direct_light_baseline(
+            captures[checkpoint], captures["baseline"], action.sunlit_roi
+        )
+        frame_comparisons[checkpoint] = frame
+        direct_comparisons[checkpoint] = direct
+        if not frame["compatible"]:
+            failures.append(f"{checkpoint}: field metadata changed")
+        if not frame["environment_payload_bit_exact"]:
+            failures.append(f"{checkpoint}: old DDGI irradiance payload changed")
+        if not (
+            frame["world_xyz_bit_exact"]
+            and frame["terrain_hit_mask_bit_exact"]
+        ):
+            failures.append(
+                f"{checkpoint}: world XYZ or terrain hit mask changed"
+            )
+        if not (
+            direct["compatible"]
+            and direct["sunlit_roi_luminance_absolute_delta"]
+            >= action.minimum_direct_light_delta
+        ):
+            failures.append(
+                f"{checkpoint}: direct-light ROI delta is below "
+                f"{action.minimum_direct_light_delta:g}"
+            )
+    report = {
+        "base_capture": str(action.capture),
+        "spacing_voxels": action.spacing_voxels,
+        "sunlit_roi": list(action.sunlit_roi),
+        "min_direct_delta": action.minimum_direct_light_delta,
+        "frame_comparisons": frame_comparisons,
+        "direct_comparisons": direct_comparisons,
+        "identities": identities,
+        "validation_failures": failures,
+    }
     if failures:
         raise ValueError("; ".join(str(failure) for failure in failures))
     return json.dumps(report, indent=2, sort_keys=True) + "\n"
+
+
+def require_current_capture(capture, checkpoint: str, failures: list[str]) -> None:
+    try:
+        import analyze_environment_irradiance_capture as analyzer
+    except ModuleNotFoundError:
+        from scripts import analyze_environment_irradiance_capture as analyzer
+
+    if not analyzer.is_current_capture(capture):
+        failures.append(f"{checkpoint}: capture is not current RFIRR")
+    if not (
+        capture.filter_evidence is not None
+        and capture.grid_dimensions is not None
+        and capture.configured_history_retention_q16 is not None
+    ):
+        failures.append(f"{checkpoint}: current DDGI filter proof is incomplete")
+
+
+def require_required_planes_finite(
+    capture, checkpoint: str, failures: list[str]
+) -> None:
+    try:
+        import analyze_environment_irradiance_capture as analyzer
+    except ModuleNotFoundError:
+        from scripts import analyze_environment_irradiance_capture as analyzer
+
+    if not analyzer.required_capture_planes_finite(capture):
+        failures.append(
+            f"{checkpoint}: required capture planes contain non-finite values"
+        )

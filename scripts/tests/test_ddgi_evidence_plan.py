@@ -12,7 +12,7 @@ import sys
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
-from ddgi_evidence.executor import RecordingHost, execute  # noqa: E402
+from ddgi_evidence.executor import ActionResult, RecordingHost, execute  # noqa: E402
 from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
     Capture,
@@ -96,6 +96,70 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             self.assertEqual(
                 sum(command.kind == "analysis" for command in host.commands), 78
             )
+
+    def test_failure_keys_accumulate_the_full_correctness_capture_matrix(self) -> None:
+        class FailingCaptureHost(RecordingHost):
+            def capture(self, action, repo_root):
+                super().capture(action, repo_root)
+                return ActionResult(False, "fixture capture failure")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            host = FailingCaptureHost(stdout=io.StringIO(), stderr=io.StringIO())
+            report = execute(plan(self.request(Suite.CORRECTNESS, root)), host)
+
+        self.assertEqual(len(report.failures), 48)
+        self.assertEqual(
+            sum(command.kind == "capture" for command in host.commands), 48
+        )
+        self.assertEqual(
+            sum(command.kind == "analysis" for command in host.commands), 0
+        )
+
+    def test_transport_claims_are_emitted_only_after_their_required_stages(self) -> None:
+        class SelectiveFailureHost(RecordingHost):
+            def __init__(self, failed_suite: Suite, failed_scenario: str = "") -> None:
+                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
+                self.failed_suite = failed_suite
+                self.failed_scenario = failed_scenario
+
+            def capture(self, action, repo_root):
+                recorded = super().capture(action, repo_root)
+                if action.suite is self.failed_suite and (
+                    not self.failed_scenario
+                    or action.scenario == self.failed_scenario
+                ):
+                    return ActionResult(False, "selected fixture failure")
+                return recorded
+
+        with tempfile.TemporaryDirectory() as temporary:
+            execution_plan = plan(
+                self.request(Suite.TRANSPORT, Path(temporary))
+            )
+            dogleg = execute(
+                execution_plan,
+                SelectiveFailureHost(Suite.TRANSPORT, "dogleg"),
+            )
+            runtime = execute(
+                execution_plan,
+                SelectiveFailureHost(Suite.RUNTIME_TERRAIN_EDITS),
+            )
+
+        self.assertFalse(
+            any("filter-history-outcome=ACCEPTED" in claim for claim in dogleg.claims)
+        )
+        self.assertTrue(
+            any("direct-sun-framebuffer=PROVEN" in claim for claim in dogleg.claims)
+        )
+        self.assertTrue(
+            any("filter-history-outcome=ACCEPTED" in claim for claim in runtime.claims)
+        )
+        self.assertFalse(
+            any("direct-sun-framebuffer=PROVEN" in claim for claim in runtime.claims)
+        )
+        self.assertFalse(
+            any("filter-history-action=PROVEN" in claim for claim in runtime.claims)
+        )
 
 
 if __name__ == "__main__":

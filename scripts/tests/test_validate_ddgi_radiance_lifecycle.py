@@ -13,7 +13,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 import analyze_environment_irradiance_capture as analyzer  # noqa: E402
-import validate_ddgi_radiance_lifecycle as validator  # noqa: E402
+from ddgi_evidence import validation as validator  # noqa: E402
 
 
 class ValidateDdgiRadianceLifecycleTests(unittest.TestCase):

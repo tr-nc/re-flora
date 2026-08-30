@@ -5,7 +5,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.validate_ddgi_density_lifecycle import (
+from scripts.ddgi_evidence.validation import (
     DensityLifecycleError,
     validate_density_lifecycle,
 )

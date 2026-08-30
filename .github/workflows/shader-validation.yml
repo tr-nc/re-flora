@@ -26,16 +26,12 @@ on:
       - "scripts/analyze_current_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
       - "scripts/check_ddgi_sky_normalization_evidence.py"
-      - "scripts/rfirr_production_runner_contract.py"
+      - "scripts/ddgi_evidence/**"
       - "scripts/shader_validation_workflow_contract.py"
       - "scripts/summarize_ddgi_convergence.py"
-      - "scripts/validate_ddgi_radiance_lifecycle.py"
-      - "scripts/validate_ddgi_density_lifecycle.py"
       - "scripts/install_slang.py"
-      - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
-      - "scripts/validate_capture_process_evidence.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/**"
@@ -80,16 +76,12 @@ on:
       - "scripts/analyze_current_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
       - "scripts/check_ddgi_sky_normalization_evidence.py"
-      - "scripts/rfirr_production_runner_contract.py"
+      - "scripts/ddgi_evidence/**"
       - "scripts/shader_validation_workflow_contract.py"
       - "scripts/summarize_ddgi_convergence.py"
-      - "scripts/validate_ddgi_radiance_lifecycle.py"
-      - "scripts/validate_ddgi_density_lifecycle.py"
       - "scripts/install_slang.py"
-      - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
-      - "scripts/validate_capture_process_evidence.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/**"
@@ -283,10 +275,12 @@ jobs:
       - name: Run DDGI process and convergence policy gates
         run: >-
           timeout 5m python3 -m unittest
-          scripts.tests.test_validate_capture_process_evidence
+          scripts.tests.test_ddgi_evidence_plan
+          scripts.tests.test_ddgi_evidence_cli
+          scripts.tests.test_ddgi_evidence_validation
+          scripts.tests.test_validate_ddgi_density_lifecycle
+          scripts.tests.test_validate_ddgi_radiance_lifecycle
           scripts.tests.test_summarize_ddgi_convergence
-          scripts.tests.test_check_ddgi_transport_acceptance
-          scripts.tests.test_ddgi_capture_process_integration
           scripts.tests.test_ddgi_indirect_transport_spec
           scripts.tests.test_runtime_log_diagnostics
           scripts.tests.test_check_latest_run_log

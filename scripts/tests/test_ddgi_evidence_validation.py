@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 import sys
@@ -11,6 +12,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from ddgi_evidence.validation import (  # noqa: E402
     RadianceLifecycleError,
+    validate_process_evidence,
     validate_radiance_event_stream,
 )
 
@@ -88,6 +90,69 @@ class RadianceLifecycleStreamTests(unittest.TestCase):
             ),
             "first rendered frame",
         )
+
+
+class ProcessEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def logged(module: str, payload: str) -> str:
+        return f"[12:34:56.789 INFO {module}] {payload}\n"
+
+    def fixture(self, root: Path, *, dirty_console: bool = False) -> tuple[Path, Path]:
+        run_log = (root / "canonical run.log").resolve()
+        marker = self.logged("re_flora", f"[RUN_LOG] path={run_log}")
+        events = "".join(
+            (
+                self.logged(
+                    "re_flora::app::core::environment_lighting_test_scene",
+                    "[ENV_LIGHT_TEST] static terrain ready case=sealed "
+                    "terrain_revision=2 settling_frames=2",
+                ),
+                self.logged(
+                    "re_flora::tracer",
+                    "[DDGI] initialization requested terrain_revision=2 "
+                    "spacing_voxels=32",
+                ),
+                self.logged(
+                    "re_flora::app::core::environment_lighting_test_scene",
+                    "[ENV_LIGHT_TEST] first DDGI build verified "
+                    "build_token_serial=1 geometry_revision=2 "
+                    "visible_terrain_publication_revision=2",
+                ),
+                self.logged(
+                    "re_flora::app::core::environment_irradiance_capture",
+                    "[ENV_IRRADIANCE_CAPTURE] saved path=/tmp/capture.rfirr",
+                ),
+                self.logged(
+                    "re_flora::app::core",
+                    "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run",
+                ),
+            )
+        )
+        run_log.write_text(marker + events, encoding="utf-8")
+        console = root / "capture.console.log"
+        console.write_text(
+            marker + events + ("VUID-dirty\n" if dirty_console else ""),
+            encoding="utf-8",
+        )
+        return console, run_log
+
+    def test_process_evidence_binds_clean_console_to_canonical_run_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            console, run_log = self.fixture(Path(temporary))
+            self.assertEqual(
+                validate_process_evidence(
+                    console, require_test_scene_startup=True
+                ),
+                run_log,
+            )
+
+    def test_process_evidence_rejects_a_dirty_console(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            console, _ = self.fixture(Path(temporary), dirty_console=True)
+            with self.assertRaisesRegex(ValueError, "fatal or validation"):
+                validate_process_evidence(
+                    console, require_test_scene_startup=True
+                )
 
 
 if __name__ == "__main__":

@@ -25,14 +25,14 @@ OWNER_PATHS = (
     "scripts/perf_suite.py",
     "scripts/runtime_log_diagnostics.py",
     "scripts/summarize_ddgi_convergence.py",
-    "scripts/tests/test_check_ddgi_transport_acceptance.py",
-    "scripts/tests/test_ddgi_convergence_capsule_source.py",
-    "scripts/tests/test_ddgi_capture_process_integration.py",
+    "scripts/ddgi_evidence/plan.py",
+    "scripts/ddgi_evidence/executor.py",
+    "scripts/ddgi_evidence/validation.py",
     "scripts/tests/test_ddgi_indirect_transport_spec.py",
     "scripts/tests/test_summarize_ddgi_convergence.py",
     "scripts/tests/test_shader_validation_workflow.py",
-    "scripts/tests/test_validate_capture_process_evidence.py",
-    "scripts/validate_capture_process_evidence.py",
+    "scripts/tests/test_ddgi_evidence_plan.py",
+    "scripts/tests/test_ddgi_evidence_validation.py",
     "src/ddgi/mod.rs",
     "src/ddgi/resources.rs",
     "src/ddgi/runtime.rs",
@@ -139,7 +139,7 @@ class ConvergenceShaderValidationWorkflowTests(unittest.TestCase):
             "scripts/perf_suite.py",
             "scripts/runtime_log_diagnostics.py",
             "scripts/summarize_ddgi_convergence.py",
-            "scripts/validate_capture_process_evidence.py",
+            "scripts/ddgi_evidence/**",
             "src/app/core/mod.rs",
             "src/app/core/environment_lighting_test_scene.rs",
             "src/app/core/environment_irradiance_capture.rs",
@@ -152,7 +152,7 @@ class ConvergenceShaderValidationWorkflowTests(unittest.TestCase):
             self.assertEqual(workflow.count(f'      - "{path}"'), 2, path)
         self.assertIn('      - "shader/**"', workflow)
         self.assertIn('      - "scripts/check_ddgi*.sh"', workflow)
-        self.assertIn('      - "scripts/lib/**"', workflow)
+        self.assertIn('      - "scripts/ddgi_evidence/**"', workflow)
         self.assertIn('      - "scripts/tests/**"', workflow)
         self.assertIn("timeout 10m cargo test --locked environment_lighting::tests::", workflow)
         self.assertIn(
@@ -173,10 +173,12 @@ class ConvergenceShaderValidationWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(f"timeout 10m cargo test --locked {gate}", workflow)
         for gate in (
-            "scripts.tests.test_validate_capture_process_evidence",
+            "scripts.tests.test_ddgi_evidence_plan",
+            "scripts.tests.test_ddgi_evidence_cli",
+            "scripts.tests.test_ddgi_evidence_validation",
+            "scripts.tests.test_validate_ddgi_density_lifecycle",
+            "scripts.tests.test_validate_ddgi_radiance_lifecycle",
             "scripts.tests.test_summarize_ddgi_convergence",
-            "scripts.tests.test_check_ddgi_transport_acceptance",
-            "scripts.tests.test_ddgi_capture_process_integration",
             "scripts.tests.test_ddgi_indirect_transport_spec",
             "scripts.tests.test_runtime_log_diagnostics",
             "scripts.tests.test_check_latest_run_log",
@@ -344,7 +346,7 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
             ),
             (
                 '      - "scripts/tests/**"\n',
-                "scripts/tests/test_rfirr_current_version_contract.py",
+                "scripts/tests/test_ddgi_evidence_plan.py",
             ),
         )
         for event in ("pull_request", "push"):

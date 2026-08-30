@@ -33,65 +33,37 @@ escaped or dynamically expanded shell arguments cannot select a historical schem
 numeric compatibility remains available only through
 `scripts/analyze_environment_irradiance_capture.py` for historical fixtures and tests.
 
-Each `check_ddgi*.sh` runner defines the same normalized `analyze_current_capture` function: its
-body directly executes the current-only entry and every analysis branch invokes that function in
-command position. Dry-run and production execution share those call sites; the wrapper alone turns
-execution into command emission for dry-run. Transport's narrow `execute_analysis` helper changes
-only the output sink (`cat` or `/usr/bin/env tee "$json"`) around its single analyzer invocation.
-Absolute `/usr/bin/env` owns external-tool resolution, preventing Bash functions from shadowing the
-production sink while retaining PATH lookup.
-`scripts/rfirr_production_runner_contract.py` is intentionally only a
-source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
-The typed current-only CLI behavior above is the schema seal.
-The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
-runners and rejects missing canonical call sites, unexpected helper scopes, or later function
-overrides. Its deliberately narrow structural parser also rejects canonical analysis execution
-inside any single-line, backslash-continued, or multiline `if`/`elif`/`else` chain whose assembled
-condition names `dry_run`; `else` inherits ownership from the whole chain. A raw identifier
-inventory rejects analyzer mentions that the controlled parser cannot classify as the sealed
-wrapper or a canonical command-position invocation, including calls adjacent to redirection. This
-closes maintained source-form bypasses without claiming general Bash reachability. Each runner's
-`--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
-the corresponding production matrix would execute, and the behavioral tests pin those per-runner
-command counts and representative branch arguments. Transport additionally seals the dry-run
-`cat` sink, production `/usr/bin/env tee "$json"` sink, and exactly one two-stage analyzer-to-sink
-pipeline, with an executable function-shadow test for the production sink. A whole-tree manifest
-proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
-makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
-controlled stateful lexical pass tracks comments and quotes across lines. Its control stream masks
-ordinary double-quoted text, `$()` child-shell bodies, and legacy backtick bodies, so none can inject
-an outer `fi`; every shell-active backtick substitution is rejected while quoted/commented prose
-remains data. Separate code/active streams retain `$()` child commands and real expansions for
-authority auditing. Braced expansions are recursively inventoried by exact base identifier, including nested
-fallbacks. It inventories actual simple, compound, arithmetic, parameter, and loop-variable
-assignment, unset, readonly, and expansion facts while excluding `[[...]]` comparisons. Its logical
-command/argv policy recognizes maintained group/control bodies, unwraps `exec`/`command`/`env`, and
-explicitly rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
-`read`, `readarray`/`mapfile`, `getopts`, or `let`, and every declaration nameref. Literal writes to
-other variables, comparisons, comments, and quoted prose remain allowed. This is a fail-closed
-allowance for the maintained grammar, not a proof of arbitrary Bash. Parsed executable/argv tuples
-permit only maintained `/usr/bin/env cargo` build/run, decision `tee`, and normalization `python3`
-forms; quoted or wrapped alternatives fail closed. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
-build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
-launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
-sentinels dynamically cover those known entrypoints. This does not prove arbitrary
-variable-encoded Bash execution.
+All seven `check_ddgi*.sh` files are four-line adapters into `scripts/ddgi_evidence/`. The typed
+module owns two stable interfaces: `plan(RunRequest) -> ExecutionPlan` expands a closed `Suite` into
+typed stages and actions, while `execute(plan, host) -> RunReport` applies that same plan through
+either `SubprocessHost` or the zero-side-effect `RecordingHost`. Environment variables are decoded
+once into suite-specific closed options. Arbitrary commands, callbacks, schema registries, and
+numeric version selection are not representable in the plan.
 
-Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
-it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
-evaluation still prevents a general static proof and would add a large dependency surface. The
-selected seam is the production-only current-schema entry above: all analysis behavior remains in
-the deep analyzer module, while the production interface makes schema selection unrepresentable.
-For dry-run parity specifically, line-local regex expansion was rejected because it cannot see an
-outer conditional; centralizing every capture/file policy behind one helper was rejected because
-it would widen that helper beyond analysis execution. The selected narrow conditional-stack seam
-tracks only the repository's controlled function, pending condition headers, and
-`if`/`elif`/`else` structure. For launch guarding, PATH-only substitution was rejected because
-absolute paths bypass it; general process tracing was rejected as platform-coupled and much wider
-than this CPU contract. The selected source-token inventory plus known-entrypoint sentinels keeps
-the interface narrow while covering both maintained path forms. Readonly policy/root authority and
-the absolute `/usr/bin/env` owner close mutable-name and function-shadow seams without exposing new
-runner parameters.
+`SubprocessHost` launches every process with an argv vector and `shell=False`. Capture actions bind
+the process console to its canonical run log and preserve both beside the `.rfirr`; analysis actions
+invoke only the current-schema entry and tee transport JSON to its committed artifact path.
+`RecordingHost` observes the same actions and argv without creating a directory or file. Typed
+`FactRef` values carry revisions and publication tokens from ordered scenario validation into later
+analysis actions, and typed `FailureKey` values preserve case-level aggregation. `Claim` stages emit
+`ACCEPTED` or `PROVEN` only after their required evidence stages succeed.
+
+The transport plan includes correctness, runtime-recovery, and lifecycle as nested typed plans,
+rather than recursively launching shell scripts. Behavioral tests pin the seven capture/analysis
+inventories (`48/44`, `4/6`, `3/3`, `1/1`, `29/11`, `4/4`, and recursive transport `100/78`), exact
+representative argv, exit `0/1/2`, four-line wrappers, and a whole-tree dry-run manifest. The
+radiance lifecycle is one ordered typed stream: it rejects duplicate or reordered checkpoints,
+field/revision drift, an obsolete r3 publication, consumer-visible in-flight mutation, and direct-
+sun capture later than the first rendered frame after mutation. Process-bound console/run-log,
+density, local recovery, terrain edit, stale-active, and Flora consumer validation live behind the
+same validation module.
+
+The deleted alternative was a custom 1,482-line Bash-source interpreter plus source-mutation tests.
+It could prove only one maintained source shape, not the argv that production executed. A complete
+shell AST was also rejected because dynamic shell evaluation would still make the proof partial and
+would add a large dependency surface. The typed plan makes invalid orchestration unrepresentable,
+gives production and dry-run two real adapters at one seam, and concentrates command construction,
+failure policy, and evidence ordering in one module.
 
 The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
 supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any
