@@ -2752,6 +2752,7 @@ mod tests {
         events: Vec<(TreePublicationAction, u32)>,
         fail_prepare: bool,
         fail_action: Option<TreePublicationAction>,
+        fail_compensation: bool,
     }
 
     impl TreePublicationHost for RecordingTreePublicationHost {
@@ -2786,6 +2787,7 @@ mod tests {
         fn compensate(&mut self, tree_id: u32, _previous: Option<&TreeRecord>) -> Result<()> {
             self.events
                 .push((TreePublicationAction::Compensate, tree_id));
+            anyhow::ensure!(!self.fail_compensation, "injected compensation failure");
             Ok(())
         }
     }
@@ -2996,6 +2998,29 @@ mod tests {
         );
         assert_eq!(garden.canonical_canopy_generation(0), Some(71));
         assert_eq!(garden.len(), 1);
+    }
+
+    #[test]
+    fn garden_tree_reports_original_and_compensation_failures_without_committing() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost {
+            fail_action: Some(TreePublicationAction::PublishCanopyAudio),
+            fail_compensation: true,
+            ..RecordingTreePublicationHost::default()
+        };
+
+        let error = garden
+            .place(prepared_tree(3, 73, 703), &mut host)
+            .expect_err("action and compensation failures should both be reported");
+
+        let message = format!("{error:#}");
+        assert!(message.contains("injected action failure"), "{message}");
+        assert!(
+            message.contains("injected compensation failure"),
+            "{message}"
+        );
+        assert_eq!(garden.canonical_canopy_generation(3), None);
+        assert_eq!(garden.len(), 0);
     }
 
     #[test]
