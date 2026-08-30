@@ -151,6 +151,30 @@ class AtlasTexelLayout:
             raise ValueError("invalid DDGI convergence atlas texel layout dimensions")
         return cls(interior, stored)
 
+    def complete_coverage(
+        self, population: ProbePopulation, source: Path
+    ) -> ValidatedAtlasCoverage:
+        coverage = ValidatedAtlasCoverage(
+            interior_texel_count=(
+                population.valid_count * self.interior_texels_per_valid_probe
+            ),
+            stored_texel_count=(
+                population.valid_count * self.stored_texels_per_valid_probe
+            ),
+        )
+        u32_max = (1 << 32) - 1
+        if (
+            coverage.interior_texel_count > u32_max
+            or coverage.stored_texel_count > u32_max
+        ):
+            raise ValueError(
+                f"DDGI valid-probe atlas coverage exceeds Rust u32 in {source}: "
+                f"valid_probes={population.valid_count} "
+                f"interior_texels={coverage.interior_texel_count} "
+                f"stored_texels={coverage.stored_texel_count}"
+            )
+        return coverage
+
 
 @dataclass(frozen=True)
 class ValidatedAtlasCoverage:
@@ -170,14 +194,7 @@ class ValidatedAtlasCoverage:
         layout: AtlasTexelLayout,
         source: Path,
     ) -> None:
-        expected = ValidatedAtlasCoverage(
-            interior_texel_count=(
-                population.valid_count * layout.interior_texels_per_valid_probe
-            ),
-            stored_texel_count=(
-                population.valid_count * layout.stored_texels_per_valid_probe
-            ),
-        )
+        expected = layout.complete_coverage(population, source)
         if self != expected:
             raise ValueError(
                 f"validated atlas record in {source} has incomplete coverage of the "
