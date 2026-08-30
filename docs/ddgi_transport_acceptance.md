@@ -44,6 +44,11 @@ Promotion, consumer, and capture markers carry the owner-issued generation token
 current field serial, and radiance revision. The parser binds those values to the private geometry
 root and baseline radiance rather than trusting `same_generation=true`. Geometry e0 retains the
 baseline field as its cross-generation history source; the retried density e0 must have no source.
+Runtime e0 capture markers may precede their App checkpoint, so the parser buffers them and closes
+the set only after every identity is known. It then requires exactly one capture for the baseline,
+obsolete density, terrain, and retried density generations and rejects every unknown or duplicate
+generation. Terrain promotion cannot regress behind the observed private-current epoch; at the
+same epoch it must publish that exact private-current field.
 
 ## Transport matrix
 

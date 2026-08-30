@@ -159,9 +159,13 @@ class _Lifecycle:
         self.values["geometry_epoch_zero_field_serial"] = _integer(
             fields, "epoch_zero_field_serial"
         )
+        self.values["geometry_private_current_field_serial"] = _integer(
+            fields, "private_current_field_serial"
+        )
         private_epoch = _integer(fields, "private_current_update_epoch")
         if private_epoch < 0:
             _fail("private geometry publication has a negative epoch")
+        self.values["geometry_private_current_update_epoch"] = private_epoch
         _literal(fields, "active_spacing_voxels", "32")
         _literal(fields, "queued_density_spacing_voxels", "16")
         self._unavailable_obsolete(fields)
@@ -181,10 +185,23 @@ class _Lifecycle:
         epoch = _integer(fields, "published_update_epoch")
         if epoch == 0:
             _fail("raw geometry epoch zero became consumer-visible")
+        private_epoch = self.values["geometry_private_current_update_epoch"]
+        if epoch < private_epoch:
+            _fail(
+                "terrain promotion regressed behind private current epoch: "
+                f"private current {private_epoch}, promoted {epoch}"
+            )
+        published_field = _integer(fields, "published_field_serial")
+        if (
+            epoch == private_epoch
+            and published_field
+            != self.values["geometry_private_current_field_serial"]
+        ):
+            _fail(
+                "terrain promotion changed the private current field at the same epoch"
+            )
         self.values["geometry_published_update_epoch"] = epoch
-        self.values["geometry_published_field_serial"] = _integer(
-            fields, "published_field_serial"
-        )
+        self.values["geometry_published_field_serial"] = published_field
 
     def terrain_consumers(self, fields: dict[str, str]) -> None:
         self._same(fields, "active_token_serial", expected_name="terrain_token_serial")
@@ -342,28 +359,74 @@ class _Lifecycle:
             _fail(
                 f"incomplete density lifecycle; expected {ORDER[self.next_index].value}"
             )
-        matching = [
-            capture
-            for capture in self.captures
-            if _integer(capture, "build_token_serial")
-            == self.values["density_token_serial"]
-            and _integer(capture, "field_serial") == self.values["field_serial"]
-        ]
-        if len(matching) != 1:
-            _fail(f"expected exactly one final density capture, found {len(matching)}")
-        capture = matching[0]
-        _literal(capture, "state", "Converging")
-        _literal(capture, "update_epoch", "0")
-        _literal(capture, "publication", "Published")
-        self._same(
-            capture, "generation_token_serial", expected_name="density_token_serial"
-        )
-        self._same(capture, "epoch_zero_field_serial", expected_name="field_serial")
-        self._same(capture, "geometry_revision")
-        self._same(capture, "radiance_revision")
-        _literal(capture, "source_field_serial", "0")
-        _literal(capture, "spacing_voxels", "16")
-        self.values["build_token_serial"] = _integer(capture, "build_token_serial")
+        expected = {
+            self.values["active_token_serial"]: (
+                "baseline",
+                self.values["baseline_field_serial"],
+                0,
+                self.values["baseline_geometry_revision"],
+                32,
+            ),
+            self.values["obsolete_density_token_serial"]: (
+                "obsolete density",
+                self.values["obsolete_density_field_serial"],
+                0,
+                self.values["baseline_geometry_revision"],
+                16,
+            ),
+            self.values["terrain_token_serial"]: (
+                "terrain",
+                self.values["geometry_epoch_zero_field_serial"],
+                self.values["baseline_field_serial"],
+                self.values["geometry_revision"],
+                32,
+            ),
+            self.values["density_token_serial"]: (
+                "density",
+                self.values["density_field_serial"],
+                0,
+                self.values["geometry_revision"],
+                16,
+            ),
+        }
+        seen: set[int] = set()
+        for capture in self.captures:
+            token = _integer(capture, "build_token_serial")
+            generation = _integer(capture, "generation_token_serial")
+            if token != generation:
+                _fail(
+                    f"capture build token {token} differs from generation token {generation}"
+                )
+            if token not in expected:
+                _fail(f"unknown capture generation token {token}")
+            if token in seen:
+                _fail(f"duplicate capture for generation token {token}")
+            seen.add(token)
+            label, root, source, geometry, spacing = expected[token]
+            for field_name in ("epoch_zero_field_serial", "field_serial"):
+                actual = _integer(capture, field_name)
+                if actual != root:
+                    _fail(
+                        f"{label} capture {field_name} expected {root}, got {actual}"
+                    )
+            for field_name, value in (
+                ("source_field_serial", source),
+                ("geometry_revision", geometry),
+                ("radiance_revision", self.values["radiance_revision"]),
+                ("spacing_voxels", spacing),
+            ):
+                actual = _integer(capture, field_name)
+                if actual != value:
+                    _fail(
+                        f"{label} capture {field_name} expected {value}, got {actual}"
+                    )
+            _literal(capture, "state", "Converging")
+            _literal(capture, "update_epoch", "0")
+            _literal(capture, "publication", "Published")
+        missing = set(expected) - seen
+        if missing:
+            _fail(f"missing capture generations: {sorted(missing)}")
+        self.values["build_token_serial"] = self.values["density_token_serial"]
         return dict(self.values)
 
     def _same(
