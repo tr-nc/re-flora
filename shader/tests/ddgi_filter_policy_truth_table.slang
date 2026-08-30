@@ -1,4 +1,5 @@
 import ddgi_filter_policy;
+import ddgi_filter_execution;
 
 bool nearlyEqual(float a, float b)
 {
@@ -7,31 +8,31 @@ bool nearlyEqual(float a, float b)
 
 export __extern_cpp int main()
 {
-    DdgiFilterVisibilitySample nearby = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision nearby = ddgiFilterVisibilityDecision(
         2.0, 4.0, 100.0);
-    DdgiFilterVisibilitySample backface = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision backface = ddgiFilterVisibilityDecision(
         -10.0, 4.0, 100.0);
-    DdgiFilterVisibilitySample distantGeometry = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision distantGeometry = ddgiFilterVisibilityDecision(
         8.0, 4.0, 100.0);
     float skyThreshold = 100.0 * 0.999;
-    DdgiFilterVisibilitySample belowSkyThreshold = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision belowSkyThreshold = ddgiFilterVisibilityDecision(
         skyThreshold - 0.001, 4.0, 100.0);
-    DdgiFilterVisibilitySample atSkyThreshold = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision atSkyThreshold = ddgiFilterVisibilityDecision(
         skyThreshold, 4.0, 100.0);
-    DdgiFilterVisibilitySample aboveSkyThreshold = ddgiFilterVisibilitySample(
+    DdgiFilterVisibilityDecision aboveSkyThreshold = ddgiFilterVisibilityDecision(
         skyThreshold + 0.001, 4.0, 100.0);
 
-    DdgiFilterHistoryPolicy noHistory = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision noHistory = ddgiFilterHistoryDecision(
         0u, 1u, false, 0u, 0.9);
-    DdgiFilterHistoryPolicy noHistoryRecovery = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision noHistoryRecovery = ddgiFilterHistoryDecision(
         0u, 1u, true, 0u, 0.9);
-    DdgiFilterHistoryPolicy retainedPartition = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision retainedPartition = ddgiFilterHistoryDecision(
         1u, 1u, false, 2u, 0.9);
-    DdgiFilterHistoryPolicy firstRecovery = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision firstRecovery = ddgiFilterHistoryDecision(
         1u, 1u, true, 0u, 0.9);
-    DdgiFilterHistoryPolicy laterRecovery = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision laterRecovery = ddgiFilterHistoryDecision(
         1u, 1u, true, 2u, 0.9);
-    DdgiFilterHistoryPolicy globalUpdate = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision globalUpdate = ddgiFilterHistoryDecision(
         1u, 0u, false, 0u, 1.5);
     bool localBoxPolicy = ddgiFilterProbeNeedsLocalRefresh(
             float3(1.0), 1u, float3(0.0), float3(1.0)) &&
@@ -40,23 +41,54 @@ export __extern_cpp int main()
         !ddgiFilterProbeNeedsLocalRefresh(
             float3(0.5), 0u, float3(0.0), float3(1.0));
 
-    bool distancePolicy = nearby.accepted && nearlyEqual(nearby.distance, 2.0) &&
-        backface.accepted && nearlyEqual(backface.distance, 2.0) &&
-        !distantGeometry.accepted && !belowSkyThreshold.accepted &&
-        atSkyThreshold.accepted && nearlyEqual(atSkyThreshold.distance, 4.0) &&
-        aboveSkyThreshold.accepted && nearlyEqual(aboveSkyThreshold.distance, 4.0);
-    bool historyPolicy = !noHistory.blend_history && !noHistory.retain_source &&
-        !noHistoryRecovery.blend_history && !noHistoryRecovery.retain_source &&
-        !retainedPartition.blend_history && retainedPartition.retain_source &&
-        firstRecovery.blend_history && !firstRecovery.retain_source &&
+    bool distancePolicy = nearby.owner_version == DDGI_FILTER_POLICY_OWNER_VERSION &&
+        nearby.action == DdgiFilterVisibilityAction::Accept &&
+        nearlyEqual(nearby.distance, 2.0) &&
+        backface.action == DdgiFilterVisibilityAction::Accept &&
+        nearlyEqual(backface.distance, 2.0) &&
+        distantGeometry.action == DdgiFilterVisibilityAction::Reject &&
+        belowSkyThreshold.action == DdgiFilterVisibilityAction::Reject &&
+        atSkyThreshold.action == DdgiFilterVisibilityAction::Accept &&
+        nearlyEqual(atSkyThreshold.distance, 4.0) &&
+        aboveSkyThreshold.action == DdgiFilterVisibilityAction::Accept &&
+        nearlyEqual(aboveSkyThreshold.distance, 4.0);
+    bool historyPolicy =
+        noHistory.owner_version == DDGI_FILTER_POLICY_OWNER_VERSION &&
+        noHistory.action == DdgiFilterHistoryAction::Replace &&
+        noHistoryRecovery.action == DdgiFilterHistoryAction::Replace &&
+        retainedPartition.action == DdgiFilterHistoryAction::Retain &&
+        firstRecovery.action == DdgiFilterHistoryAction::Blend &&
         nearlyEqual(firstRecovery.retention, 0.0) &&
+        laterRecovery.action == DdgiFilterHistoryAction::Blend &&
         nearlyEqual(laterRecovery.retention, 2.0 / 3.0) &&
-        nearlyEqual(globalUpdate.retention, 1.0) &&
-        !(noHistory.blend_history && noHistory.retain_source) &&
-        !(noHistoryRecovery.blend_history && noHistoryRecovery.retain_source) &&
-        !(retainedPartition.blend_history && retainedPartition.retain_source) &&
-        !(firstRecovery.blend_history && firstRecovery.retain_source) &&
-        !(laterRecovery.blend_history && laterRecovery.retain_source) &&
-        !(globalUpdate.blend_history && globalUpdate.retain_source);
-    return distancePolicy && historyPolicy && localBoxPolicy ? 0 : 1;
+        globalUpdate.action == DdgiFilterHistoryAction::Blend &&
+        nearlyEqual(globalUpdate.retention, 1.0);
+
+    float4 fresh = float4(2.0, 4.0, 6.0, 1.0);
+    float4 source = float4(10.0, 12.0, 14.0, 1.0);
+    bool historyExecution =
+        all(ddgiCommitHistory(noHistory, fresh, source) == fresh) &&
+        all(ddgiCommitHistory(retainedPartition, fresh, source) == source) &&
+        all(ddgiCommitHistory(
+            ddgiFilterHistoryDecision(1u, 1u, true, 1u, 0.9),
+            fresh, source) == float4(6.0, 8.0, 10.0, 1.0));
+
+    float weightedDistance = 3.0;
+    float weightedSquaredDistance = 9.0;
+    float accumulatedWeight = 1.5;
+    ddgiAccumulateVisibility(
+        nearby, 0.5, weightedDistance, weightedSquaredDistance,
+        accumulatedWeight);
+    bool acceptedExecution = nearlyEqual(weightedDistance, 4.0) &&
+        nearlyEqual(weightedSquaredDistance, 11.0) &&
+        nearlyEqual(accumulatedWeight, 2.0);
+    ddgiAccumulateVisibility(
+        distantGeometry, 100.0, weightedDistance, weightedSquaredDistance,
+        accumulatedWeight);
+    bool rejectedExecution = nearlyEqual(weightedDistance, 4.0) &&
+        nearlyEqual(weightedSquaredDistance, 11.0) &&
+        nearlyEqual(accumulatedWeight, 2.0);
+
+    return distancePolicy && historyPolicy && localBoxPolicy &&
+        historyExecution && acceptedExecution && rejectedExecution ? 0 : 1;
 }
