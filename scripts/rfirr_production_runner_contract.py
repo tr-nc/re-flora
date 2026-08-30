@@ -100,17 +100,9 @@ TRANSPORT_EXECUTION_CALL = re.compile(
     r'^if\s+!\s+execute_analysis\s+"\$json"\s+'
     r'"\$\{arguments\[@\]\}"\s*;\s*then$'
 )
-CARGO_IDENTIFIER = re.compile(r"\bcargo\b")
-APP_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_-])re-flora(?![A-Za-z0-9_-])")
 TOOL_FUNCTION_DEFINITION = re.compile(
     r"^\s*(?:function\s+)?(command|cargo|tee|python3)"
     r"(?:\s*\(\s*\))?\s*\{"
-)
-CANONICAL_CARGO_BUILD = re.compile(
-    r'^\s*/usr/bin/env cargo build (?:--quiet )?--release --manifest-path "\$repo_root/Cargo\.toml"\s*$'
-)
-CANONICAL_CARGO_RUN = re.compile(
-    r'^\s*/usr/bin/env cargo run --quiet --release --manifest-path "\$repo_root/Cargo\.toml" --\s*$'
 )
 CANONICAL_REPO_ROOT = (
     'readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
@@ -498,6 +490,8 @@ def _forbidden_dynamic_authority(
     for line_number, code, active in _logical_shell_lines(
         code_lines, active_lines
     ):
+        if "`" in active:
+            failures.append((line_number, "backtick-command-substitution"))
         if not active.strip() and not code.lstrip().startswith(("'", '"')):
             continue
         command_sources = (code, *_command_substitution_bodies(code))
@@ -613,7 +607,7 @@ def _logical_shell_lines(
         continued = code.rstrip().endswith("\\")
         code_parts.append(code.rstrip()[:-1] if continued else code)
         active_parts.append(active.rstrip()[:-1] if continued else active)
-        if continued:
+        if continued or _has_open_shell_quote("\n".join(code_parts)):
             continue
         logical.append(
             (start_line, " ".join(code_parts), " ".join(active_parts))
@@ -625,6 +619,22 @@ def _logical_shell_lines(
     return tuple(logical)
 
 
+def _has_open_shell_quote(code: str) -> bool:
+    quote: str | None = None
+    index = 0
+    while index < len(code):
+        character = code[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote is None and character in "'\"":
+            quote = character
+        elif quote == character:
+            quote = None
+        index += 1
+    return quote is not None
+
+
 def _shell_commands(code: str) -> tuple[tuple[str, ...], ...]:
     commands: list[tuple[str, ...]] = []
     segment: list[str] = []
@@ -633,8 +643,11 @@ def _shell_commands(code: str) -> tuple[tuple[str, ...], ...]:
             segment.append(token)
             continue
         while segment and segment[0] in {
+            "{",
             "if",
             "elif",
+            "while",
+            "until",
             "then",
             "else",
             "do",
@@ -662,14 +675,20 @@ def _is_shell_assignment_word(token: str) -> bool:
 
 def _resolved_shell_command(command: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
     words = list(command)
-    while words and words[0] in {"builtin", "command"}:
-        words.pop(0)
-        while words and words[0].startswith("-"):
+    while words:
+        if words[0] in {"builtin", "command", "exec"}:
             words.pop(0)
-    if words and words[0] == "/usr/bin/env":
-        words.pop(0)
-        while words and (words[0].startswith("-") or _is_shell_assignment_word(words[0])):
+            while words and words[0].startswith("-"):
+                words.pop(0)
+            continue
+        if words[0] in {"env", "/usr/bin/env"}:
             words.pop(0)
+            while words and (
+                words[0].startswith("-") or _is_shell_assignment_word(words[0])
+            ):
+                words.pop(0)
+            continue
+        break
     if not words:
         return "", ()
     return words[0], tuple(words[1:])
@@ -963,18 +982,6 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
     for line_number, (line, code, active) in enumerate(
         zip(lines, code_lines, active_lines, strict=True), 1
     ):
-        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(active))
-        if cargo_occurrences:
-            if len(cargo_occurrences) != 1:
-                failures.append(f"cargo:{line_number}")
-            elif CANONICAL_CARGO_BUILD.fullmatch(code):
-                cargo_builds += 1
-                if not _cargo_build_is_non_dry_run(lines, line_number - 1):
-                    failures.append(f"cargo-build-policy:{line_number}")
-            elif CANONICAL_CARGO_RUN.fullmatch(code):
-                cargo_runs += 1
-            else:
-                failures.append(f"cargo:{line_number}")
         function_name = _shell_function_name(line)
         if (
             function_name in {"command", "cargo", "tee", "python3"}
@@ -984,29 +991,62 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
             )
         ):
             failures.append(f"tool-shadow:{line_number}")
-        tee_occurrences = tuple(re.finditer(r"\btee\b", active))
-        if tee_occurrences and not (
-            len(tee_occurrences) == 1
-            and re.search(r"/usr/bin/env\s+tee\b", active) is not None
-        ):
-            failures.append(f"tee:{line_number}")
-        python_occurrences = tuple(re.finditer(r"\bpython3\b", active))
-        if python_occurrences and not (
-            len(python_occurrences) == 1
-            and re.search(r"/usr/bin/env\s+python3\b", active) is not None
-        ):
-            failures.append(f"python3:{line_number}")
-        if APP_IDENTIFIER.search(active) is not None:
-            failures.append(f"re-flora:{line_number}")
-        command_words = (
-            _shell_command_words(code)
-            if active.strip() or code.lstrip().startswith(("'", '"'))
-            else ()
-        )
-        for executable in command_words:
+    for line_number, code, _ in _logical_shell_lines(code_lines, active_lines):
+        for command in _shell_commands(code):
+            executable, arguments = _resolved_shell_command(command)
             basename = executable.rsplit("/", 1)[-1]
-            if basename in {"cargo", "re-flora"}:
-                failures.append(f"command:{line_number}")
+            referenced_tools = {
+                word.rsplit("/", 1)[-1]
+                for word in command
+                if word.rsplit("/", 1)[-1]
+                in {"cargo", "tee", "python3", "re-flora"}
+            }
+            if basename == "cargo":
+                if _canonical_external_tool_command(command, "cargo", arguments):
+                    if _canonical_cargo_build_arguments(arguments):
+                        cargo_builds += 1
+                        if not _cargo_build_is_non_dry_run(lines, line_number - 1):
+                            failures.append(f"cargo-build-policy:{line_number}")
+                    elif _canonical_cargo_run_arguments(arguments):
+                        cargo_runs += 1
+                    else:
+                        failures.append(f"cargo:{line_number}")
+                else:
+                    failures.append(f"cargo:{line_number}")
+            elif basename == "tee":
+                if not (
+                    _canonical_external_tool_command(command, "tee", arguments)
+                    and arguments in (("$console",), ("$json",))
+                ):
+                    failures.append(f"tee:{line_number}")
+            elif basename == "python3":
+                if not (
+                    _canonical_external_tool_command(command, "python3", arguments)
+                    and arguments == ("$normalization_evidence_checker",)
+                ):
+                    failures.append(f"python3:{line_number}")
+            elif basename == "re-flora":
+                failures.append(f"re-flora:{line_number}")
+            elif command == (
+                "print_command",
+                "/usr/bin/env",
+                "python3",
+                "$normalization_evidence_checker",
+            ):
+                referenced_tools.discard("python3")
+            elif command == (
+                "(",
+                "/usr/bin/env",
+                "tee",
+                "$json",
+                ")",
+            ):
+                referenced_tools.discard("tee")
+            if referenced_tools and basename not in referenced_tools:
+                failures.append(
+                    f"tool-reference:{line_number}:"
+                    + ",".join(sorted(referenced_tools))
+                )
     if cargo_builds != 1:
         failures.append(f"cargo-build-count:{cargo_builds}")
     if cargo_runs != 1:
@@ -1023,6 +1063,36 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
     elif not _command_array_launch_is_non_dry_run(lines, command_launches[0]):
         failures.append(f"cargo-command-policy:{command_launches[0] + 1}")
     return failures
+
+
+def _canonical_external_tool_command(
+    command: tuple[str, ...], tool: str, arguments: tuple[str, ...]
+) -> bool:
+    return command == ("/usr/bin/env", tool, *arguments)
+
+
+def _canonical_cargo_build_arguments(arguments: tuple[str, ...]) -> bool:
+    return arguments in (
+        ("build", "--release", "--manifest-path", "$repo_root/Cargo.toml"),
+        (
+            "build",
+            "--quiet",
+            "--release",
+            "--manifest-path",
+            "$repo_root/Cargo.toml",
+        ),
+    )
+
+
+def _canonical_cargo_run_arguments(arguments: tuple[str, ...]) -> bool:
+    return arguments == (
+        "run",
+        "--quiet",
+        "--release",
+        "--manifest-path",
+        "$repo_root/Cargo.toml",
+        "--",
+    )
 
 
 def _cargo_build_is_non_dry_run(lines: list[str], line_index: int) -> bool:
@@ -1152,6 +1222,7 @@ def _shell_lex_lines(
     structural_lines: list[str] = []
     quote: str | None = None
     command_substitutions: list[dict[str, object]] = []
+    backtick_resume_quote: str | None = None
     for line in lines:
         code = [" "] * len(line)
         active = [" "] * len(line)
@@ -1159,6 +1230,19 @@ def _shell_lex_lines(
         index = 0
         while index < len(line):
             character = line[index]
+            if backtick_resume_quote is not None:
+                code[index] = character
+                active[index] = character
+                if character == "\\" and index + 1 < len(line):
+                    code[index + 1] = line[index + 1]
+                    active[index + 1] = line[index + 1]
+                    index += 2
+                    continue
+                if character == "`":
+                    quote = None if backtick_resume_quote == "<unquoted>" else backtick_resume_quote
+                    backtick_resume_quote = None
+                index += 1
+                continue
             if quote == "'":
                 code[index] = character
                 if character == "'":
@@ -1172,6 +1256,13 @@ def _shell_lex_lines(
                     index += 2
                     continue
                 if character == '"':
+                    quote = None
+                    index += 1
+                    continue
+                if character == "`":
+                    code[index] = character
+                    active[index] = character
+                    backtick_resume_quote = '"'
                     quote = None
                     index += 1
                     continue
@@ -1211,6 +1302,11 @@ def _shell_lex_lines(
                 )
                 index += 2
                 continue
+            if character == "`":
+                structural[index] = " "
+                backtick_resume_quote = "<unquoted>"
+                index += 1
+                continue
             if command_substitutions and character == "(":
                 command_substitutions[-1]["depth"] = (
                     int(command_substitutions[-1]["depth"]) + 1
@@ -1246,30 +1342,6 @@ def _shell_lex_lines(
 
 def _starts_shell_comment(line: str, index: int) -> bool:
     return index == 0 or line[index - 1].isspace() or line[index - 1] in ";|&()"
-
-
-def _shell_command_words(code: str) -> tuple[str, ...]:
-    tokens = _shell_tokens(code)
-    commands: list[str] = []
-    expect_command = True
-    for token in tokens:
-        if token in {";", "|", "||", "&", "&&"}:
-            expect_command = True
-            continue
-        if token in {"if", "elif", "then", "else", "do", "!", "("}:
-            expect_command = True
-            continue
-        if token in {")", "fi", "done", "{", "}"}:
-            continue
-        if expect_command:
-            if re.fullmatch(
-                r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?(?:\+=|=).+",
-                token,
-            ):
-                continue
-            commands.append(token)
-            expect_command = False
-    return tuple(commands)
 
 
 def _shell_tokens(code: str) -> tuple[str, ...]:

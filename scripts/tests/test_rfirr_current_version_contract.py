@@ -220,6 +220,52 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     failures,
                 )
 
+    def test_backtick_body_cannot_pop_a_real_dry_run_frame(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        anchor = '        if ! analyze_current_capture "${final_analysis[@]}"; then'
+        mutated = source.replace(
+            anchor,
+            "        if $dry_run; then\n"
+            "            ignored=`if true\n"
+            "            then printf '%s' prose\n"
+            "            fi`\n"
+            '            analyze_current_capture "${final_analysis[@]}"\n'
+            "        elif false; then",
+            1,
+        )
+        failures = production_runner_invocation_failures(runner_name, mutated)
+        self.assertTrue(
+            any("controlled by dry_run" in failure for failure in failures),
+            failures,
+        )
+        self.assertTrue(
+            any("immutable runner authority" in failure for failure in failures),
+            failures,
+        )
+
+    def test_backticks_are_rejected_only_when_shell_active(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        active = source + "\nignored=`printf '%s' prose`\n"
+        failures = production_runner_invocation_failures(runner_name, active)
+        self.assertTrue(
+            any("immutable runner authority" in failure for failure in failures),
+            failures,
+        )
+        for prose in (
+            "# literal `printf prose`",
+            "printf '%s' '`printf prose`'",
+            'printf \'%s\' "literal \\`printf prose\\`"',
+        ):
+            with self.subTest(prose=prose):
+                self.assertEqual(
+                    production_runner_invocation_failures(
+                        runner_name, source + "\n" + prose + "\n"
+                    ),
+                    [],
+                )
+
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -620,6 +666,48 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     failures,
                 )
 
+    def test_group_control_and_wrapped_dynamic_commands_are_rejected(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for mutation in (
+            "{ eval 'dry_run=false'; }",
+            "{ printf -v dry_run false; }",
+            "while false; do eval 'dry_run=false'; done",
+            "until true; do printf -v repo_root /tmp/reviewer; done",
+            "exec bash -c 'touch /tmp/reviewer'",
+            "command eval 'dry_run=false'",
+            "/usr/bin/env eval 'repo_root=/tmp/reviewer'",
+            "env bash -c 'touch /tmp/reviewer'",
+            "exec /usr/bin/env bash -c 'touch /tmp/reviewer'",
+        ):
+            with self.subTest(mutation=mutation):
+                failures = production_runner_invocation_failures(
+                    runner_name, source + "\n" + mutation + "\n"
+                )
+                self.assertTrue(
+                    any(
+                        "immutable runner authority" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
+    def test_brace_expansion_and_control_words_as_prose_are_allowed(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for statement in (
+            "printf '%s' file{1,2}",
+            "printf '%s' '{ eval dry_run=false; } while until exec'",
+            'printf \'%s\' "{ eval dry_run=false; } while until exec"',
+        ):
+            with self.subTest(statement=statement):
+                self.assertEqual(
+                    production_runner_invocation_failures(
+                        runner_name, source + "\n" + statement + "\n"
+                    ),
+                    [],
+                )
+
     def test_dynamic_authority_and_code_loading_constructs_fail_closed(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -723,6 +811,24 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                         ),
                         failures,
                     )
+
+    def test_quoted_or_wrapped_external_tools_are_not_canonical_launches(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for launch in (
+            'command "cargo" --version',
+            '/usr/bin/env "cargo" --version',
+            'command "tee" /tmp/out',
+            '/usr/bin/env "python3" -c \'print(1)\'',
+        ):
+            with self.subTest(launch=launch):
+                failures = production_runner_invocation_failures(
+                    runner_name, source + "\n" + launch + "\n"
+                )
+                self.assertTrue(
+                    any("unauthorized process launch" in failure for failure in failures),
+                    failures,
+                )
 
     def test_indented_function_closing_brace_ends_scope(self) -> None:
         runner_name = "check_ddgi_inflight_terrain_edits.sh"

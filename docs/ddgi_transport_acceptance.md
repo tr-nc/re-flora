@@ -59,15 +59,19 @@ pipeline, with an executable function-shadow test for the production sink. A who
 proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
 makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
 controlled stateful lexical pass tracks comments and quotes across lines. Its control stream masks
-ordinary double-quoted text and command-substitution child-shell bodies, so neither can inject an
-outer `fi`; separate code/active streams retain child commands and real expansions for authority
-auditing. Braced expansions are recursively inventoried by exact base identifier, including nested
+ordinary double-quoted text, `$()` child-shell bodies, and legacy backtick bodies, so none can inject
+an outer `fi`; every shell-active backtick substitution is rejected while quoted/commented prose
+remains data. Separate code/active streams retain `$()` child commands and real expansions for
+authority auditing. Braced expansions are recursively inventoried by exact base identifier, including nested
 fallbacks. It inventories actual simple, compound, arithmetic, parameter, and loop-variable
-assignment, unset, readonly, and expansion facts while excluding `[[...]]` comparisons. Its logical command/argv policy explicitly
-rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
+assignment, unset, readonly, and expansion facts while excluding `[[...]]` comparisons. Its logical
+command/argv policy recognizes maintained group/control bodies, unwraps `exec`/`command`/`env`, and
+explicitly rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
 `read`, `readarray`/`mapfile`, `getopts`, or `let`, and every declaration nameref. Literal writes to
 other variables, comparisons, comments, and quoted prose remain allowed. This is a fail-closed
-allowance for the maintained grammar, not a proof of arbitrary Bash. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
+allowance for the maintained grammar, not a proof of arbitrary Bash. Parsed executable/argv tuples
+permit only maintained `/usr/bin/env cargo` build/run, decision `tee`, and normalization `python3`
+forms; quoted or wrapped alternatives fail closed. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
 build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
 launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
 sentinels dynamically cover those known entrypoints. This does not prove arbitrary

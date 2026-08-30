@@ -179,18 +179,22 @@ locks transport to `cat` in dry-run, `/usr/bin/env tee "$json"` in production, a
 analyzer-to-sink pipeline. Behavioral dry-run tests require an unchanged whole repository tree.
 After argument parsing, each runner makes `dry_run` readonly; its root path is a single readonly
 canonical assignment. Its controlled stateful lexical pass distinguishes comments and quote state
-across lines. Control structure is scoped to the outer runner: ordinary double-quoted text and
-command-substitution child-shell bodies cannot contribute an outer `if`/`fi`, while the full
-code/active streams retain real parameter expansions and child commands for authority auditing.
+across lines. Control structure is scoped to the outer runner: ordinary double-quoted text, `$()`
+child-shell bodies, and legacy backtick bodies cannot contribute an outer `if`/`fi`. Every
+shell-active backtick substitution is rejected while quoted/commented prose remains data; the full
+code/active streams retain real parameter expansions and `$()` child commands for authority auditing.
 Braced expansions are recursively enumerated by exact base identifier, including length,
 indirection, operator, array, and nested fallback forms; only base `dry_run` owns a dry-run chain.
 Actual policy/root simple, compound, arithmetic, parameter, or loop-variable assignment, unset,
 readonly, and expansion facts are inventoried. `[[...]]` comparisons remain non-assigning. A separate logical
-command/argv seam fail-closes code loading (`eval`, `source`, `.`, and shell `-c`), authority targets
+command/argv seam recognizes maintained group/control bodies, unwraps `exec`/`command`/`env`, and
+fail-closes code loading (`eval`, `source`, `.`, and shell `-c`), authority targets
 of `printf -v`, `read`, `readarray`/`mapfile`, `getopts`, and `let`, dynamic writer targets, and all
 `declare`/`typeset`/`local` namerefs. Non-authority literal targets and command names contained only
 in comments or quoted data remain allowed. Together these rules keep the wrapper's analyzer path
-immutable without claiming arbitrary Bash interpretation. `/usr/bin/env` owns external tool
+immutable without claiming arbitrary Bash interpretation. Parsed executable/argv tuples permit only
+the maintained `/usr/bin/env cargo` build/run, decision `tee`, and normalization `python3` forms;
+quoted or wrapped alternatives fail closed. `/usr/bin/env` owns external tool
 resolution for Cargo, decision-related
 `tee` sinks, and transport normalization Python: it bypasses shell functions while retaining PATH
 lookup. Direct shebang analyzers already use the same owner. PATH plus repository and external
