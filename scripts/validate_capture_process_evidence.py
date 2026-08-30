@@ -9,10 +9,12 @@ import sys
 from pathlib import Path
 
 
-RUN_LOG_MARKER = re.compile(r"\[RUN_LOG\] path=(\S+)")
+RUN_LOG_MARKER = re.compile(r"^\[RUN_LOG\] path=(?P<path>.+?)\s*$", re.MULTILINE)
 FATAL_DIAGNOSTIC = re.compile(
-    r"\bERROR\b|\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
-    r"VUID-|\bdevice\s+lost\b|\bstale\s+readback\b",
+    r"\b(?:VK_)?ERROR(?:_[A-Z0-9]+)+\b|\bERROR\b|"
+    r"\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
+    r"VUID-|\bdevice\s+lost\b|\bdestroyed\s+descriptor\b|"
+    r"\bstale\s+readback\b",
     re.IGNORECASE | re.MULTILINE,
 )
 PUBLICATION = re.compile(
@@ -25,6 +27,10 @@ VERIFICATION = re.compile(
     r"\[ENV_LIGHT_TEST\] first DDGI build verified .*?geometry_revision=(\d+) "
     r"visible_terrain_publication_revision=(\d+)"
 )
+CAPTURE_SAVED = re.compile(r"\[ENV_IRRADIANCE_CAPTURE\] saved\b")
+CAPTURE_COMPLETE = re.compile(
+    r"\[ENV_IRRADIANCE_CAPTURE\] complete; exiting one-shot capture run\b"
+)
 
 
 def exactly_one(pattern: re.Pattern[str], text: str, label: str) -> re.Match[str]:
@@ -34,10 +40,10 @@ def exactly_one(pattern: re.Pattern[str], text: str, label: str) -> re.Match[str
     return matches[0]
 
 
-def validate(console_path: Path) -> Path:
+def validate(console_path: Path, *, require_test_scene_startup: bool) -> Path:
     console = console_path.read_text(encoding="utf-8", errors="replace")
     marker = exactly_one(RUN_LOG_MARKER, console, "process-bound [RUN_LOG] marker")
-    run_log_path = Path(marker.group(1))
+    run_log_path = Path(marker.group("path"))
     if not run_log_path.is_absolute():
         raise ValueError(f"process-bound run log path is not absolute: {run_log_path}")
     try:
@@ -50,7 +56,7 @@ def validate(console_path: Path) -> Path:
         )
     run_log = canonical_run_log.read_text(encoding="utf-8", errors="replace")
     log_marker = exactly_one(RUN_LOG_MARKER, run_log, "run-log [RUN_LOG] marker")
-    if Path(log_marker.group(1)) != canonical_run_log:
+    if Path(log_marker.group("path")) != canonical_run_log:
         raise ValueError("console and run-log [RUN_LOG] markers disagree")
 
     for label, text in (("console", console), ("run log", run_log)):
@@ -60,35 +66,54 @@ def validate(console_path: Path) -> Path:
                 f"{label} contains fatal or validation diagnostic: {diagnostic.group(0).strip()}"
             )
 
-    publication = exactly_one(PUBLICATION, console, "test-scene terrain publication")
-    initialization = exactly_one(INITIALIZATION, console, "first DDGI initialization")
-    verification = exactly_one(VERIFICATION, console, "first DDGI build verification")
-    revisions = (
-        int(publication.group(1)),
-        int(initialization.group(1)),
-        int(verification.group(1)),
-        int(verification.group(2)),
-    )
-    if len(set(revisions)) != 1:
-        raise ValueError(
-            "test-scene publication and first DDGI build revisions differ: "
-            f"publication={revisions[0]} initialization={revisions[1]} "
-            f"build={revisions[2]} verified_publication={revisions[3]}"
+        saved = exactly_one(CAPTURE_SAVED, text, f"{label} capture saved event")
+        complete = exactly_one(
+            CAPTURE_COMPLETE, text, f"{label} capture completion event"
         )
-    if not (publication.start() < initialization.start() < verification.start()):
-        raise ValueError(
-            "test-scene Visible Terrain Publication must precede first DDGI initialization "
-            "and typed build verification"
-        )
+        if saved.start() >= complete.start():
+            raise ValueError(f"{label} capture completion precedes capture save")
+
+    if require_test_scene_startup:
+        for label, text in (("console", console), ("run log", run_log)):
+            publication = exactly_one(
+                PUBLICATION, text, f"{label} test-scene terrain publication"
+            )
+            initialization = exactly_one(
+                INITIALIZATION, text, f"{label} first DDGI initialization"
+            )
+            verification = exactly_one(
+                VERIFICATION, text, f"{label} first DDGI build verification"
+            )
+            revisions = (
+                int(publication.group(1)),
+                int(initialization.group(1)),
+                int(verification.group(1)),
+                int(verification.group(2)),
+            )
+            if len(set(revisions)) != 1:
+                raise ValueError(
+                    f"{label} test-scene publication and first DDGI build revisions differ: "
+                    f"publication={revisions[0]} initialization={revisions[1]} "
+                    f"build={revisions[2]} verified_publication={revisions[3]}"
+                )
+            if not (publication.start() < initialization.start() < verification.start()):
+                raise ValueError(
+                    f"{label} test-scene Visible Terrain Publication must precede first "
+                    "DDGI initialization and typed build verification"
+                )
     return canonical_run_log
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--require-test-scene-startup", action="store_true")
     parser.add_argument("console", type=Path)
     args = parser.parse_args()
     try:
-        run_log = validate(args.console)
+        run_log = validate(
+            args.console,
+            require_test_scene_startup=args.require_test_scene_startup,
+        )
     except (OSError, ValueError) as error:
         print(f"capture process evidence invalid: {error}", file=sys.stderr)
         return 1
