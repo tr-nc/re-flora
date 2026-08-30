@@ -30,6 +30,7 @@ pub(crate) struct ResolvedLightingFrameInputs {
 pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
+static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
 pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
     ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Ddgi }
 }
@@ -40,11 +41,6 @@ impl ResolvedLightingFrameInputs {
 }
 impl ResolvedRasterLightingState {
     pub(crate) fn is_ddgi(&self) -> bool { self.raster_lighting_mode.is_ddgi() }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
 }
 """,
         "src/app/core/mod.rs": """
@@ -280,6 +276,26 @@ impl Tracer {
             "",
         )
         self.assertNotEqual(checker.audit(sources), [])
+
+    def test_non_copy_assertion_must_be_unconditional_module_root_item(self) -> None:
+        assertion = (
+            "static_assertions::assert_not_impl_any!"
+            "(ResolvedRasterLightingState: Copy, Clone);"
+        )
+        replacements = (
+            f"#[cfg(any())]\n{assertion}",
+            f"#[cfg_attr(not(test), cfg(any()))]\n{assertion}",
+            f"#[cfg(any())]\nmod disabled_proof {{ {assertion} }}",
+            f"#[cfg(test)]\nmod tests {{ {assertion} }}",
+            f"mod nested {{ {assertion} }}",
+        )
+        for replacement in replacements:
+            with self.subTest(replacement=replacement):
+                sources = baseline_sources()
+                sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
+                    "src/app/core/lighting_mode_acceptance.rs"
+                ].replace(assertion, replacement)
+                self.assertNotEqual(checker.audit(sources), [])
 
     def test_source_checker_does_not_guess_trait_alias_or_generic_semantics(self) -> None:
         sources = baseline_sources()

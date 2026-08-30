@@ -187,23 +187,6 @@ def _struct_body(tokens: list[str], name: str) -> list[str] | None:
     return None if root_struct is None else root_struct[1]
 
 
-def _module_root_module(tokens: list[str], name: str) -> tuple[int, list[str]] | None:
-    matches: list[tuple[int, list[str]]] = []
-    brace_depth = 0
-    for index, token in enumerate(tokens[:-1]):
-        if brace_depth == 0 and tokens[index : index + 2] == ["mod", name]:
-            opening = index + 2
-            if opening < len(tokens) and tokens[opening] == "{":
-                closing = _closing(tokens, opening, "{", "}")
-                if closing is not None:
-                    matches.append((index, tokens[opening + 1 : closing]))
-        if token == "{":
-            brace_depth += 1
-        elif token == "}" and brace_depth:
-            brace_depth -= 1
-    return matches[0] if len(matches) == 1 else None
-
-
 def _module_root_function(
     tokens: list[str], name: str
 ) -> tuple[int, Function] | None:
@@ -487,7 +470,6 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _struct_expression_count(tokens, type_name):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
-    tests_module = _module_root_module(owner, "tests")
     non_copy_assertion = (
         "static_assertions",
         ":",
@@ -503,29 +485,30 @@ def audit(sources: dict[str, str]) -> list[str]:
         ")",
         ";",
     )
-    if tests_module is None:
-        errors.append("owner missing one module-root tests module")
-    else:
-        tests_index, tests_body = tests_module
-        if owner[max(0, tests_index - 7) : tests_index] != [
-            "#",
-            "[",
-            "cfg",
-            "(",
-            "test",
-            ")",
-            "]",
-        ]:
-            errors.append("owner tests module must remain cfg(test)")
-        assertion_count = sum(
-            tuple(tests_body[index : index + len(non_copy_assertion)])
-            == non_copy_assertion
-            for index in range(len(tests_body) - len(non_copy_assertion) + 1)
-        )
-        if assertion_count != 1:
-            errors.append(
-                "owner tests must contain one rustc non-Copy/Clone assertion for resolved state"
+    assertion_count = sum(
+        tuple(owner[index : index + len(non_copy_assertion)]) == non_copy_assertion
+        for index in range(len(owner) - len(non_copy_assertion) + 1)
+    )
+    state_struct = _module_root_struct(owner, "ResolvedRasterLightingState")
+    assertion_is_adjacent = False
+    if state_struct is not None:
+        state_index, _ = state_struct
+        state_opening = owner.index("{", state_index + 2)
+        state_closing = _closing(owner, state_opening, "{", "}")
+        if state_closing is not None:
+            assertion_is_adjacent = (
+                tuple(
+                    owner[
+                        state_closing + 1 : state_closing + 1 + len(non_copy_assertion)
+                    ]
+                )
+                == non_copy_assertion
             )
+    if assertion_count != 1 or not assertion_is_adjacent:
+        errors.append(
+            "resolved state must be followed by one unconditional module-root "
+            "rustc non-Copy/Clone assertion"
+        )
 
     initial_state = _module_root_function(owner, "initial_raster_lighting_state")
     if initial_state is None:

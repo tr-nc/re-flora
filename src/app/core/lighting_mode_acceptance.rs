@@ -106,6 +106,7 @@ pub(crate) struct ResolvedLightingFrameInputs {
 pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
+static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
 
 pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
     ResolvedRasterLightingState {
@@ -734,8 +735,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
     use std::process::Command;
-
-    static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct FrameInputs {
