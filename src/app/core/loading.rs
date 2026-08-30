@@ -408,7 +408,7 @@ impl App {
             }
         }
 
-        if self.denoiser_event().is_foliage_shadow() {
+        if self.denoiser_frame_plan().is_foliage_shadow() {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {
                     panic!("[FOLIAGE_SHADOW_BENCH] receiver setup failed: {err:#}")

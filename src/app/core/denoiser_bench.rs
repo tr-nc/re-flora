@@ -111,6 +111,22 @@ pub(super) struct DenoiserBench {
     capture_started: Option<Instant>,
 }
 
+pub(super) struct DenoiserFrame {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+impl DenoiserFrame {
+    pub(super) fn new(width: u32, height: u32, rgba: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            rgba,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DenoiserMode {
     Camera(CameraMotion),
@@ -176,10 +192,6 @@ impl DenoiserBench {
     }
 
     pub(super) fn hides_ui(&self) -> bool {
-        self.mode.is_foliage_shadow()
-    }
-
-    pub(super) fn is_foliage_shadow(&self) -> bool {
         self.mode.is_foliage_shadow()
     }
 
@@ -297,6 +309,10 @@ impl DenoiserBench {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    pub(super) fn record_completed_frame(&mut self, frame: DenoiserFrame) -> Result<bool> {
+        self.record_frame(frame.width, frame.height, &frame.rgba)
     }
 
     fn write_report(&mut self) -> Result<()> {

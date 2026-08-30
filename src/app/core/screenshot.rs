@@ -1,4 +1,4 @@
-use super::denoiser_bench::DenoiserBench;
+use super::denoiser_bench::DenoiserFrame;
 use crate::{tracer::Tracer, ScreenshotOptions};
 use anyhow::{Context, Result};
 use re_flora_vkn::{
@@ -280,11 +280,11 @@ impl PendingDenoiserFrame {
         Ok(Self { readback })
     }
 
-    pub(super) fn complete(self, benchmark: &mut DenoiserBench) -> Result<bool> {
+    pub(super) fn complete(self) -> Result<DenoiserFrame> {
         let width = self.readback.width;
         let height = self.readback.height;
         let rgba = read_swapchain_rgba(&self.readback)?;
-        benchmark.record_frame(width, height, &rgba)
+        Ok(DenoiserFrame::new(width, height, rgba))
     }
 }
 
