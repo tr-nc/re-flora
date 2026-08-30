@@ -126,9 +126,22 @@ if [[ $app_status -eq 124 ]]; then
         "$app_status" "$timeout_seconds" "$run_log" >&2
     exit 3
 fi
-if "$rg_bin" -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >/dev/null 2>&1; then
+fatal_log_pattern='error|panic|vuid-|validation|device([[:space:]_-]+)?lost|stale[[:space:]_-]+readback'
+set +e
+fatal_log_matches="$(
+    "$rg_bin" -i -n -e "$fatal_log_pattern" "$app_output" "$run_log" 2>&1
+)"
+fatal_log_status=$?
+set -e
+if [[ $fatal_log_status -eq 0 ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=error-marker\n' >&2
-    "$rg_bin" -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >&2 || true
+    printf '%s\n' "$fatal_log_matches" >&2
+    exit 3
+fi
+if [[ $fatal_log_status -gt 1 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=fatal-log-scan-failed rg-status=%s\n' \
+        "$fatal_log_status" >&2
+    printf '%s\n' "$fatal_log_matches" >&2
     exit 3
 fi
 if [[ $app_status -ne 0 ]]; then

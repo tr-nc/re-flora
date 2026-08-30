@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -18,6 +19,99 @@ def executable(path: Path, source: str) -> Path:
 
 
 class LightingModeAcceptanceRunnerTests(unittest.TestCase):
+    def test_exit_zero_with_artifact_rejects_case_insensitive_fatal_log_markers(self) -> None:
+        markers = (
+            "eRrOr: mixed-case failure",
+            "PaNiC in worker",
+            "vUiD-vkCmdDispatch-None-00000",
+            "Validation failure",
+            "DEVICE LOST while reading back",
+            "Stale ReadBack observed",
+        )
+        for marker in markers:
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                artifact = root / "capture.rflma"
+                bound_log = root / "bound.run.log"
+                bound_log.write_text(marker + "\n")
+                cargo = executable(
+                    root / "cargo",
+                    "#!/usr/bin/env bash\n"
+                    "artifact=\"${@: -1}\"\n"
+                    "printf artifact > \"$artifact\"\n"
+                    "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+                )
+                analyzer = executable(
+                    root / "analyzer",
+                    "#!/usr/bin/env bash\n"
+                    "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+                )
+                result = subprocess.run(
+                    [str(RUNNER), str(artifact)],
+                    cwd=REPO_ROOT,
+                    env={
+                        **os.environ,
+                        "REFLORA_CARGO": str(cargo),
+                        "REFLORA_ANALYZER": str(analyzer),
+                        "BOUND_RUN_LOG": str(bound_log),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reason=error-marker", result.stderr)
+            self.assertIn(marker, result.stderr)
+
+    def test_fatal_log_rg_io_failure_is_not_treated_as_no_match(self) -> None:
+        real_rg = shutil.which("rg")
+        self.assertIsNotNone(real_rg)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean\n")
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf artifact > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            analyzer = executable(
+                root / "analyzer",
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+            )
+            failing_rg = executable(
+                root / "rg",
+                "#!/usr/bin/env bash\n"
+                "if [[ \" $* \" == *' -i '* ]]; then\n"
+                "  printf 'simulated rg I/O failure\\n' >&2\n"
+                "  exit 2\n"
+                "fi\n"
+                f"exec '{real_rg}' \"$@\"\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(analyzer),
+                    "REFLORA_RG": str(failing_rg),
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=fatal-log-scan-failed", result.stderr)
+        self.assertIn("simulated rg I/O failure", result.stderr)
+
     def test_dry_run_declares_one_release_hidden_app_transaction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "capture.rflma"
