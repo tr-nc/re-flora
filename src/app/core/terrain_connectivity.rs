@@ -1,7 +1,11 @@
-use super::{App, VisibleTerrainChange, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{
+    visible_terrain::VisibleTerrainPublication, App, VisibleTerrainChange, CHUNK_DIM,
+    VOXEL_DIM_PER_CHUNK,
+};
 use crate::app::world_edits::BuildEdit;
 use crate::builder::{PlainBuilder, VOXEL_TYPE_MASK};
 use crate::geom::UAabb3;
+use anyhow::Context;
 use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -320,6 +324,157 @@ fn prepare_detached_voxel_clear(
     Ok(dirty_tiles)
 }
 
+struct PreparedAtlasWrite {
+    origin: UVec3,
+    dim: UVec3,
+    data: Vec<u8>,
+}
+
+impl PreparedAtlasWrite {
+    fn new(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            dim.cmpgt(UVec3::ZERO).all(),
+            "terrain detachment cannot prepare an empty atlas write"
+        );
+        anyhow::ensure!(
+            origin.cmple(world_dim).all() && dim.cmple(world_dim - origin).all(),
+            "terrain detachment atlas write is outside the world: origin={origin:?} dim={dim:?} world={world_dim:?}"
+        );
+        let expected = usize::try_from(voxel_count(UAabb3::new(origin, origin + dim)))?;
+        anyhow::ensure!(
+            data.len() == expected,
+            "terrain detachment atlas write has {} bytes, expected {expected}",
+            data.len()
+        );
+        Ok(Self { origin, dim, data })
+    }
+}
+
+pub(super) struct PreparedTerrainDetachment {
+    atlas_writes: Vec<PreparedAtlasWrite>,
+    publication: VisibleTerrainPublication,
+    visual_voxels: Vec<(UVec3, u8)>,
+    detached_voxels: usize,
+}
+
+pub(super) struct CommittedTerrainDetachment {
+    pub(super) invalidation_us: f64,
+    pub(super) publication_us: f64,
+    pub(super) particle_spawn_us: f64,
+    pub(super) detached_voxels: usize,
+    pub(super) spawned_particles: usize,
+}
+
+impl PreparedTerrainDetachment {
+    fn from_all_selected_voxels(
+        plain_builder: &mut PlainBuilder,
+        world_dim: UVec3,
+        selected_voxels: Vec<(UVec3, u8)>,
+        affected_bound: UAabb3,
+    ) -> anyhow::Result<Self> {
+        let atlas_writes =
+            prepare_detached_voxel_clear(plain_builder, world_dim, &selected_voxels)?
+                .into_iter()
+                .map(|(origin, dim, data)| PreparedAtlasWrite::new(world_dim, origin, dim, data))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+        Self::from_prepared_parts(
+            atlas_writes,
+            selected_voxels.len(),
+            selected_voxels,
+            affected_bound,
+        )
+    }
+
+    pub(super) fn from_cleared_and_visual_voxels(
+        plain_builder: &mut PlainBuilder,
+        world_dim: UVec3,
+        cleared_voxels: &[(UVec3, u8)],
+        visual_voxels: Vec<(UVec3, u8)>,
+        affected_bound: UAabb3,
+    ) -> anyhow::Result<Self> {
+        let atlas_writes = prepare_detached_voxel_clear(plain_builder, world_dim, cleared_voxels)?
+            .into_iter()
+            .map(|(origin, dim, data)| PreparedAtlasWrite::new(world_dim, origin, dim, data))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Self::from_prepared_parts(
+            atlas_writes,
+            cleared_voxels.len(),
+            visual_voxels,
+            affected_bound,
+        )
+    }
+
+    fn from_prepared_parts(
+        atlas_writes: Vec<PreparedAtlasWrite>,
+        detached_voxels: usize,
+        visual_voxels: Vec<(UVec3, u8)>,
+        affected_bound: UAabb3,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !atlas_writes.is_empty(),
+            "terrain detachment requires at least one prepared atlas write"
+        );
+        anyhow::ensure!(
+            visual_voxels.len() <= detached_voxels,
+            "terrain detachment cannot visualize more voxels than it clears"
+        );
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                affected_bound,
+            )])?
+            .context("terrain detachment has no visible terrain chunks")?;
+        let publication = VisibleTerrainPublication::edit(change)?;
+        Ok(Self {
+            atlas_writes,
+            publication,
+            visual_voxels,
+            detached_voxels,
+        })
+    }
+
+    pub(super) fn commit(self, app: &mut App) -> CommittedTerrainDetachment {
+        let Self {
+            atlas_writes,
+            publication,
+            visual_voxels,
+            detached_voxels,
+        } = self;
+        let invalidation_started = Instant::now();
+        for write in atlas_writes {
+            app.plain_builder
+                .write_chunk_atlas_region(write.origin, write.dim, &write.data)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {error:#}"
+                    )
+                });
+        }
+        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let publication_started = Instant::now();
+        app.commit_prepared_visible_terrain(publication);
+        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let particle_started = Instant::now();
+        let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
+        let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
+        assert_eq!(
+            spawned_particles,
+            visual_voxels.len(),
+            "terrain connectivity cleared {detached_voxels} voxels but spawned only {spawned_particles} of {} visual particles",
+            visual_voxels.len(),
+        );
+
+        CommittedTerrainDetachment {
+            invalidation_us,
+            publication_us,
+            particle_spawn_us,
+            detached_voxels,
+            spawned_particles,
+        }
+    }
+}
+
 impl App {
     pub(super) fn observe_player_terrain_publication_for_connectivity(&mut self, bound: UAabb3) {
         self.terrain_connectivity
@@ -460,46 +615,22 @@ impl App {
             detached_min,
             detached_max.saturating_add(UVec3::ONE).min(world_dim),
         );
-        let dirty_tiles =
-            prepare_detached_voxel_clear(&mut self.plain_builder, world_dim, &selected_voxels)?;
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                detached_bound,
-            )])?
-            .expect("detached terrain voxels always define a visible rebuild");
+        let prepared = PreparedTerrainDetachment::from_all_selected_voxels(
+            &mut self.plain_builder,
+            world_dim,
+            selected_voxels,
+            detached_bound,
+        )?;
 
-        // Everything above is preparation and may fail without changing authoritative terrain.
-        // The first atlas write enters a non-rollbackable commit: publication and particle count
-        // failures are terminal invariants rather than retryable errors.
-        for (origin, dim, data) in dirty_tiles {
-            self.plain_builder
-                .write_chunk_atlas_region(origin, dim, &data)
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {err:#}"
-                    )
-                });
-        }
-        self.publish_visible_terrain(change).unwrap_or_else(|err| {
-            panic!(
-                "terrain connectivity Visible Terrain Publication failed after atlas commit: {err:#}"
-            )
-        });
-
-        let spawned = self.spawn_detached_terrain_voxel_particles(&selected_voxels);
-        assert_eq!(
-            spawned,
-            selected_voxels.len(),
-            "terrain connectivity cleared {} voxels but spawned only {} particles",
-            selected_voxels.len(),
-            spawned,
-        );
+        // This consumes the only commit capability. Preparation above is fallible and mutation-free;
+        // after the first atlas write, physical/publication failures are terminal invariants.
+        let committed = prepared.commit(self);
         log::info!(
             "[TERRAIN_CONNECTIVITY] mode={} checked_voxels={} detached_voxels={} spawned_particles={} skipped_components={} elapsed_ms={:.2}",
             mode,
             analysis_voxels,
-            selected_voxels.len(),
-            spawned,
+            committed.detached_voxels,
+            committed.spawned_particles,
             skipped_components,
             started.elapsed().as_secs_f64() * 1000.0,
         );

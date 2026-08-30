@@ -1617,34 +1617,15 @@ impl App {
             app.particle_system.available_capacity(),
         );
         let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let invalidation_started = Instant::now();
-        for (origin, dim, data) in
-            prepare_detached_voxel_clear(&mut app.plain_builder, world_dim, &component.voxels)?
-        {
-            app.plain_builder
-                .write_chunk_atlas_region(origin, dim, &data)?;
-        }
-        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let publication_started = Instant::now();
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                fixture_bound(),
-            )])?
-            .context("fixture invalidation has no visible terrain chunks")?;
-        app.publish_visible_terrain(change)?;
-        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let particle_started = Instant::now();
-        let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
-        let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
-        anyhow::ensure!(
-            spawned_particles == visual_voxels.len(),
-            "bench sampled {} visual voxels but spawned {} particles",
-            visual_voxels.len(),
-            spawned_particles,
-        );
+        let sampled_voxels = visual_voxels.len();
+        let prepared = PreparedTerrainDetachment::from_cleared_and_visual_voxels(
+            &mut app.plain_builder,
+            world_dim,
+            &component.voxels,
+            visual_voxels,
+            fixture_bound(),
+        )?;
+        let committed = prepared.commit(app);
 
         Ok(EventStages {
             total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
@@ -1652,14 +1633,14 @@ impl App {
             trace_readback_us,
             classification_us,
             sampling_us,
-            invalidation_us,
-            publication_us,
-            particle_spawn_us,
+            invalidation_us: committed.invalidation_us,
+            publication_us: committed.publication_us,
+            particle_spawn_us: committed.particle_spawn_us,
             classified_voxels: component.voxels.len(),
             trace_readback_tiles,
-            invalidated_voxels: component.voxels.len(),
-            sampled_voxels: visual_voxels.len(),
-            spawned_particles,
+            invalidated_voxels: committed.detached_voxels,
+            sampled_voxels,
+            spawned_particles: committed.spawned_particles,
             revision_before,
             revision_after: app.visible_terrain_revision,
             ..EventStages::default()
