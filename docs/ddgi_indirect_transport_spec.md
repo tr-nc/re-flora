@@ -103,7 +103,7 @@ After every full epoch the runtime scans all valid stored irradiance texels. A f
 - maximum relative RGB delta is at most `0.02`, using relative floor `0.05`;
 - both thresholds pass for two consecutive epochs.
 
-Epoch 63 is a hard finite backstop (64 complete temporal samples). Reaching it publishes the latest
+Epoch 127 is the hard finite backstop (128 complete temporal samples). Reaching it publishes the latest
 finite field and transitions to `Converged` with reason `SampleBudget`; it does not falsely claim
 that the numerical thresholds passed. This distinction is recorded in logs and convergence
 evidence.
@@ -156,8 +156,10 @@ The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` c
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were
-`87/88 ms` (median `87.5 ms`). Publication bookkeeping itself remained `0.0095 ms` median. A
-five-second static portal run also recorded zero scheduler claims after `Converged e63`.
+`87/88 ms` (median `87.5 ms`). Publication bookkeeping itself remained `0.0095 ms` median.
+Under the historical 64-epoch policy, a five-second static portal run recorded zero scheduler claims
+after `Converged e63`; that observation demonstrates sleeping behavior only. It is not the current
+sample-budget contract.
 
 See [DDGI transport acceptance](ddgi_transport_acceptance.md) and
 [DDGI convergence calibration](ddgi_convergence_calibration.md) for commands and measured evidence.
