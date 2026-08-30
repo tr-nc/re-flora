@@ -28,6 +28,17 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+def require_v9_capture(
+    capture: analyzer.Capture, checkpoint: str, failures: list[str]
+) -> None:
+    require(capture.version == 9, f"{checkpoint}: capture is not v9", failures)
+    require(
+        capture.filter_evidence is not None,
+        f"{checkpoint}: owner-generated filter evidence is missing",
+        failures,
+    )
+
+
 def field_matches_capture(
     field: dict[str, object], capture: analyzer.Capture
 ) -> bool:
@@ -58,7 +69,7 @@ def validate(
     for checkpoint in CHECKPOINTS:
         capture = captures[checkpoint]
         identity = identities[checkpoint]
-        require(capture.version == 8, f"{checkpoint}: capture is not v8", failures)
+        require_v9_capture(capture, checkpoint, failures)
         require(
             capture.spacing_voxels == spacing_voxels,
             f"{checkpoint}: spacing is not {spacing_voxels}",
@@ -76,7 +87,7 @@ def validate(
         )
         require(
             field_matches_capture(identity["active_field"], capture),
-            f"{checkpoint}: sidecar active field does not match v8 header",
+            f"{checkpoint}: sidecar active field does not match v9 header",
             failures,
         )
 

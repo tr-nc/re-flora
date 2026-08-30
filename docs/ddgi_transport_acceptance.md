@@ -9,17 +9,19 @@ missing subordinate checker is a failure.
 
 Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `.rfirr` capture v8 contains pre-albedo environment irradiance, world position plus exact sun
+- `.rfirr` capture v9 contains pre-albedo environment irradiance, world position plus exact sun
   visibility, the raster terrain's independent direct-light RGB, and marcher receiver-center XYZ
   plus terrain VSM transmittance, followed by terrain/leaf/cloud/combined direct-shadow
-  transmittance;
+  transmittance. Its filter extension records exact owner-version masks, action partitions, and
+  Blend retention `sum+max` witnesses from one complete GPU-produced epoch;
 - `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
 - `.console.log` records scheduling, source/destination slots, per-epoch retention, full-atlas
   validation, atomic publication, and terminal sleep reason;
 - `convergence-calibration.json` contains every validated convergence curve.
 
 Old capture versions remain readable for committed historical evidence, but all current-runtime
-acceptance requires v8 `Converging` / `Converged` metadata and `update_epoch`.
+acceptance requires v9 `Converging` / `Converged` metadata, `update_epoch`, and owner-generated
+filter evidence. Source-shape tests remain wiring guards only; they are not runtime proof.
 
 ## Transport matrix
 
@@ -104,6 +106,10 @@ finite, nonnegative, and available while Staging progresses. It also requires on
 update, latest-geometry promotion, shared terrain/Flora identity, and no partially filtered atlas
 publication. Exact direct sun remains a separate capture plane and is not accepted as evidence that
 indirect continuity worked.
+
+For the real `sequential-reopened` local-recovery captures, the analyzer derives the required Q16
+retention independently from the captured update epoch using `epoch / (epoch + 1)`. The runner does
+not carry an `e1` or `e8` retention constant: e1 derives to `32768`, while e8 derives to `58254`.
 
 ## Response latency and static sleep
 

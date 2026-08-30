@@ -142,8 +142,10 @@ Active/Staging promotion occur only for one complete field.
 
 The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` capture analysis:
 
-- capture v8 records lifecycle state, epoch, source identity, revisions, publication, batch order,
-  full-atlas deltas, and source-separated terrain/leaf/cloud direct-shadow transmittance;
+- capture v9 records lifecycle state, epoch, source identity, revisions, publication, batch order,
+  full-atlas deltas, source-separated terrain/leaf/cloud direct-shadow transmittance, and exact
+  owner-generated filter evidence. History evidence retains action partitions plus Q16 retention
+  sum/max witnesses; owner masks must contain only the expected owner-version bit;
 - sealed, portal, donor, and dogleg scenes exercise no-created-energy, leak, color-transfer, and
   multi-epoch propagation behavior at spacing 32 and 16;
 - forward/reverse epoch-zero captures verify batch-order independence;
@@ -153,6 +155,9 @@ The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` c
   exact-reference P99 ceilings are `0.400` at spacing 32 and `0.375` at spacing 16;
 - general renderer validation follows `cargo fmt --check`, `cargo check`, `cargo test`, and a hidden
   muted release run with log inspection.
+
+Source-shape audits only guard production wiring into the owner terminal store/accumulate seam.
+They do not constitute runtime action proof; that claim requires a complete RFIRR v9 GPU epoch.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

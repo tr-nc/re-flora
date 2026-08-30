@@ -68,6 +68,9 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
         self.assertNotIn("--environment-probe-rebuild-spacing-voxels", output)
         self.assertIn("--environment-irradiance-capture-target e0", output)
         self.assertIn("[DDGI_LIFECYCLE] dry-run complete scenarios=3", output)
+        runner_source = RUNNER.read_text()
+        self.assertNotIn("--expect-version 8", runner_source)
+        self.assertEqual(runner_source.count("--expect-version 9"), 2)
 
     def test_rejects_unknown_arguments_without_running_cargo(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
