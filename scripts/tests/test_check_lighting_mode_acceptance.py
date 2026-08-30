@@ -30,6 +30,47 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertIn("--hidden --mute --lighting-mode-acceptance", result.stdout)
         self.assertIn("analyzer-command=", result.stdout)
 
+    def test_reports_analyzer_red_instead_of_overwriting_it_as_missing_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            log_pointer = root / "latest-run-log.txt"
+            cargo = root / "cargo"
+            cargo.write_text(
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf artifact > \"$artifact\"\n"
+                "run_log=\"$artifact.run.log\"\n"
+                "printf clean-run-log > \"$run_log\"\n"
+                "printf '%s\\n' \"$run_log\" > \"$REFLORA_LOG_POINTER\"\n"
+            )
+            cargo.chmod(0o755)
+            analyzer = root / "analyzer"
+            analyzer.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' '[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=raw-alpha-drift' >&2\n"
+                "exit 1\n"
+            )
+            analyzer.chmod(0o755)
+
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(analyzer),
+                    "REFLORA_LOG_POINTER": str(log_pointer),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verdict=RED reason=raw-alpha-drift", result.stderr)
+        self.assertNotIn("missing-artifact-or-run-log", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

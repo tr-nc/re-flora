@@ -17,13 +17,14 @@ fi
 
 cargo_bin="${REFLORA_CARGO:-cargo}"
 app_output="${artifact}.app.log"
-analyzer="$repo_root/scripts/analyze_lighting_mode_acceptance.py"
+analyzer="${REFLORA_ANALYZER:-$repo_root/scripts/analyze_lighting_mode_acceptance.py}"
+log_pointer="${REFLORA_LOG_POINTER:-$repo_root/target/re-flora-logs/latest-run-log.txt}"
 command=(
     "$cargo_bin" run --release --
     --hidden --mute
     --lighting-mode-acceptance "$artifact"
 )
-analysis=(python3 "$analyzer" "$artifact")
+analysis=("$analyzer" "$artifact")
 
 printf 'cargo-command='
 printf ' %q' "${command[@]}"
@@ -41,6 +42,11 @@ if [[ -e "$artifact" || -e "$app_output" ]]; then
     exit 2
 fi
 mkdir -p "$(dirname "$artifact")"
+run_started_epoch="$(date +%s)"
+previous_run_log=""
+if [[ -f "$log_pointer" ]]; then
+    previous_run_log="$(sed -n '1p' "$log_pointer")"
+fi
 
 if ! RUST_LOG="warn,re_flora::app::core::lighting_mode_acceptance=info" \
     "${command[@]}" >"$app_output" 2>&1; then
@@ -48,8 +54,11 @@ if ! RUST_LOG="warn,re_flora::app::core::lighting_mode_acceptance=info" \
     tail -n 80 "$app_output" >&2 || true
     exit 3
 fi
-run_log="$(sed -n 's/.*Run log saved to //p' "$app_output" | tail -n 1)"
-if [[ -z "$run_log" || ! -f "$run_log" || ! -s "$artifact" ]]; then
+run_log=""
+if [[ -f "$log_pointer" ]] && [[ "$(stat -c %Y "$log_pointer")" -ge "$run_started_epoch" ]]; then
+    run_log="$(sed -n '1p' "$log_pointer")"
+fi
+if [[ -z "$run_log" || "$run_log" == "$previous_run_log" || ! -f "$run_log" || ! -s "$artifact" ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=missing-artifact-or-run-log\n' >&2
     exit 3
 fi
@@ -59,6 +68,15 @@ if rg -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run
     exit 3
 fi
 
-"${analysis[@]}"
+set +e
+analysis_output="$("${analysis[@]}" 2>&1)"
+analysis_status=$?
+set -e
+if [[ $analysis_status -ne 0 ]]; then
+    printf '%s\n' "$analysis_output" >&2
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ANALYZER_FAILED reason=see-analyzer-verdict\n' >&2
+    exit "$analysis_status"
+fi
+printf '%s\n' "$analysis_output"
 printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=GREEN artifact=%s log=%s\n' \
     "$artifact" "$run_log"

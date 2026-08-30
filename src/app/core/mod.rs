@@ -4303,7 +4303,7 @@ impl App {
                             self.debug_settings.adjustables.lod_distance.value,
                             self.debug_settings.adjustables.flora_draw_distance.value,
                             self.debug_settings.adjustables.grass_render_mode.value,
-                            self.time_info.time_since_start(),
+                            visual_time_since_start,
                             flora_color_tables,
                             leaf_color_tables,
                             &self.render_flags,

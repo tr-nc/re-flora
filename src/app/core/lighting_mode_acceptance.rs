@@ -1,3 +1,19 @@
+use crate::tracer::{LightingModeProductionLayers, LightingModeProductionReadback, Tracer};
+use crate::LightingModeAcceptanceOptions;
+use anyhow::{Context, Result};
+use serde::Serialize;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+const ARTIFACT_MAGIC: &[u8; 8] = b"RFLMA01\0";
+const ARTIFACT_SCHEMA: &str = "re-flora-lighting-mode-acceptance-v1";
+const CALIBRATION_ID: &str = "r13-e2-production-v1";
+const FIXTURE_ID: &str = "foliage-shadow-r13-e2-v1";
+const FIXED_VISUAL_TIME_SECONDS: f32 = 0.0;
+const FIXED_TIME_OF_DAY: f32 = 0.47;
+const FIXED_SAMPLING_SERIAL: u32 = 0x5246_1302;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TerrainLightingMode {
     Ddgi,
@@ -607,19 +623,19 @@ mod tests {
             LightingModeAcceptanceError::IdentityDrift
         );
     }
-}
-use crate::tracer::{LightingModeProductionLayers, LightingModeProductionReadback, Tracer};
-use crate::LightingModeAcceptanceOptions;
-use anyhow::{Context, Result};
-use serde::Serialize;
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
 
-const ARTIFACT_MAGIC: &[u8; 8] = b"RFLMA01\0";
-const ARTIFACT_SCHEMA: &str = "re-flora-lighting-mode-acceptance-v1";
-const CALIBRATION_ID: &str = "r13-e2-production-v1";
-const FIXTURE_ID: &str = "foliage-shadow-r13-e2-v1";
-const FIXED_VISUAL_TIME_SECONDS: f32 = 0.0;
-const FIXED_TIME_OF_DAY: f32 = 0.47;
-const FIXED_SAMPLING_SERIAL: u32 = 0x5246_1302;
+    #[test]
+    fn production_raster_trace_uses_the_frozen_acceptance_visual_time() {
+        let core = include_str!("mod.rs");
+        let trace_call = core
+            .split(".record_trace_after_shadow_prepass(")
+            .nth(1)
+            .expect("production trace call must remain wired")
+            .split("flora_color_tables")
+            .next()
+            .expect("trace time must precede flora color tables");
+
+        assert!(trace_call.contains("visual_time_since_start"));
+        assert!(!trace_call.contains("self.time_info.time_since_start()"));
+    }
+}
