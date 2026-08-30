@@ -51,8 +51,9 @@ use self::frame_timing::{
 };
 use self::lighting_mode_acceptance::{
     EffectiveLightingControls, LightingModeAcceptanceDdgiFieldObservation,
-    LightingModeAcceptanceDdgiObservation, LightingModeAcceptanceIdentity,
-    LightingModeAcceptanceLightingObservation, LightingModeAcceptanceRenderObservation,
+    LightingModeAcceptanceDdgiObservation, LightingModeAcceptanceFramePlan,
+    LightingModeAcceptanceIdentity, LightingModeAcceptanceLightingObservation,
+    LightingModeAcceptanceRenderObservation, LightingModeAcceptanceRenderPlan,
     LightingModeAcceptanceRuntime, LightingModeAcceptanceSceneObservation, LiveFrameTiming,
     LiveLightingFrameInputs, PendingLightingModeCapture, ResolvedFrameTiming,
 };
@@ -2474,13 +2475,16 @@ impl App {
                     .as_ref()
                     .and_then(DenoiserBench::visual_time_seconds)
                     .unwrap_or(time_since_start);
-                let (resolved_timing, lighting_render_plan) = self
-                    .lighting_mode_acceptance
-                    .frame_plan()
-                    .resolve_timing(LiveFrameTiming {
-                        visual_time_seconds: visual_time_since_start,
-                        frame_delta_seconds: frame_delta_time,
-                    });
+                let lighting_frame_plan =
+                    LightingModeAcceptanceRuntime::frame_plan(&self.lighting_mode_acceptance);
+                let (resolved_timing, lighting_render_plan) =
+                    LightingModeAcceptanceFramePlan::resolve_timing(
+                        lighting_frame_plan,
+                        LiveFrameTiming {
+                            visual_time_seconds: visual_time_since_start,
+                            frame_delta_seconds: frame_delta_time,
+                        },
+                    );
                 let visual_time_since_start = resolved_timing.visual_time_seconds();
                 let frame_delta_time = resolved_timing.frame_delta_seconds();
                 if self.terrain_persistence.allows_world_updates() {
@@ -3524,8 +3528,9 @@ impl App {
                     )
                 });
 
-                let resolved_lighting =
-                    lighting_render_plan.resolve_lighting(LiveLightingFrameInputs {
+                let resolved_lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(
+                    lighting_render_plan,
+                    LiveLightingFrameInputs {
                         time_of_day: self.world_clock.live_time_of_day(),
                         sampling_serial: self.time_info.total_frame_count() as u32,
                         dither_strength_lsb: self
@@ -3551,7 +3556,8 @@ impl App {
                                 .raster_flora_ddgi_lighting
                                 .value,
                         ),
-                    });
+                    },
+                );
                 let effective_time_of_day = resolved_lighting.time_of_day();
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     effective_time_of_day,

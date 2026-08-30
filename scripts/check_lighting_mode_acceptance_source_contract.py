@@ -12,7 +12,11 @@ TRACER_OWNER = "src/tracer/mod.rs"
 BUFFER_UPDATER_OWNER = "src/tracer/buffer_updater.rs"
 ENVIRONMENT_OWNER = "src/environment_lighting.rs"
 RESOLVED_TYPES = ("ResolvedLightingFrameInputs", "ResolvedFrameTiming")
-PLAN_METHODS = ("frame_plan", "resolve_timing", "resolve_lighting")
+PLAN_REFERENCES = (
+    ("LightingModeAcceptanceRuntime", "frame_plan"),
+    ("LightingModeAcceptanceFramePlan", "resolve_timing"),
+    ("LightingModeAcceptanceRenderPlan", "resolve_lighting"),
+)
 
 
 class Function(NamedTuple):
@@ -276,30 +280,25 @@ def _inherent_impl_functions(tokens: list[str], type_name: str) -> list[Function
     return functions
 
 
-def _direct_named_parameter(
+def _direct_named_parameters(
     function: Function, expected_type: tuple[str, ...]
-) -> str | None:
+) -> list[str]:
+    names: list[str] = []
     for parameter in function.parameters:
         if ":" not in parameter:
             continue
         colon = parameter.index(":")
         if colon == 1 and tuple(parameter[colon + 1 :]) == expected_type:
-            return parameter[0]
-    return None
+            names.append(parameter[0])
+    return names
 
 
-def _method_reference_count(tokens: list[str], name: str) -> int:
-    count = 0
-    for index, token in enumerate(tokens):
-        if token != name:
-            continue
-        if index > 0 and tokens[index - 1] == "fn":
-            continue
-        dotted = index > 0 and tokens[index - 1] == "."
-        associated = index > 1 and tokens[index - 2 : index] == [":", ":"]
-        if dotted or associated:
-            count += 1
-    return count
+def _qualified_reference_count(tokens: list[str], type_name: str, method: str) -> int:
+    sequence = (type_name, ":", ":", method)
+    return sum(
+        tuple(tokens[index : index + len(sequence)]) == sequence
+        for index in range(len(tokens) - len(sequence) + 1)
+    )
 
 
 def _call_arguments(tokens: list[str], prefix: tuple[str, ...]) -> list[list[tuple[str, ...]]]:
@@ -325,6 +324,85 @@ def _canonical_function(
     return matches[0] if len(matches) == 1 else None
 
 
+def _function_body(tokens: list[str], function: Function) -> list[str]:
+    if function.body_start is None or function.body_end is None:
+        return []
+    return tokens[function.body_start + 1 : function.body_end]
+
+
+def _shadows(body: list[str], parameter_name: str) -> bool:
+    for index, token in enumerate(body):
+        if token != "let":
+            continue
+        cursor = index + 1
+        while cursor < len(body) and body[cursor] not in ("=", ";"):
+            if body[cursor] == parameter_name:
+                return True
+            cursor += 1
+    return False
+
+
+def _struct_field(argument: tuple[str, ...], field_name: str) -> tuple[str, ...] | None:
+    if tuple(argument[:3]) != ("&", "GuiInput", "{") or argument[-1:] != ("}",):
+        return None
+    for field in _split_top_level(list(argument[3:-1]), ","):
+        if len(field) >= 3 and field[0] == field_name and field[1] == ":":
+            return field[2:]
+    return None
+
+
+def _statement_bounds(tokens: list[str], index: int) -> tuple[int, int]:
+    start = index
+    while start > 0 and tokens[start - 1] not in (";", "{"):
+        start -= 1
+    end = index
+    while end < len(tokens) and tokens[end] not in (";", "}"):
+        end += 1
+    return start, end
+
+
+def _gui_input_aliases(tokens: list[str]) -> set[str]:
+    aliases = {"gui_input"}
+    changed = True
+    while changed:
+        changed = False
+        for index, token in enumerate(tokens):
+            if token != "let":
+                continue
+            cursor = index + 1
+            if cursor < len(tokens) and tokens[cursor] == "mut":
+                cursor += 1
+            if cursor >= len(tokens) or not tokens[cursor].replace("_", "a").isalnum():
+                continue
+            name = tokens[cursor]
+            while cursor < len(tokens) and tokens[cursor] not in ("=", ";"):
+                cursor += 1
+            if cursor >= len(tokens) or tokens[cursor] != "=":
+                continue
+            end = cursor + 1
+            while end < len(tokens) and tokens[end] != ";":
+                end += 1
+            if any(alias in tokens[cursor + 1 : end] for alias in aliases) and name not in aliases:
+                aliases.add(name)
+                changed = True
+    return aliases
+
+
+def _gui_input_write_indices(tokens: list[str]) -> list[int]:
+    aliases = _gui_input_aliases(tokens)
+    writes: list[int] = []
+    for index, token in enumerate(tokens):
+        if token != "fill_uniform":
+            continue
+        start, end = _statement_bounds(tokens, index)
+        statement = tokens[start:end]
+        is_method = index > 0 and tokens[index - 1] == "."
+        is_ufcs = index > 1 and tokens[index - 2 : index] == [":", ":"]
+        if (is_method or is_ufcs) and any(alias in statement for alias in aliases):
+            writes.append(index)
+    return writes
+
+
 def audit(sources: dict[str, str]) -> list[str]:
     errors: list[str] = []
     tokenized = {path: tokenize(source) for path, source in sources.items()}
@@ -345,14 +423,16 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _contains(tokens, (type_name, "{")):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
-    for method in PLAN_METHODS:
+    for type_name, method in PLAN_REFERENCES:
         sites = [
             path
             for path, tokens in external.items()
-            for _ in range(_method_reference_count(tokens, method))
+            for _ in range(_qualified_reference_count(tokens, type_name, method))
         ]
         if sites != [CALLER]:
-            errors.append(f"{method} call sites must be exactly [{CALLER}], got {sites}")
+            errors.append(
+                f"{type_name}::{method} references must be exactly [{CALLER}], got {sites}"
+            )
 
     tracer_tokens = tokenized.get(TRACER_OWNER, [])
     update_buffers = _canonical_function(tracer_tokens, "Tracer", "update_buffers")
@@ -363,35 +443,48 @@ def audit(sources: dict[str, str]) -> list[str]:
             errors.append("Tracer::update_buffers must use the production non-generic entry")
         if ("&", "mut", "self") not in update_buffers.parameters:
             errors.append("Tracer::update_buffers requires &mut self receiver")
-        lighting_parameter = _direct_named_parameter(
+        lighting_parameters = _direct_named_parameters(
             update_buffers, ("&", "ResolvedLightingFrameInputs")
         )
-        if lighting_parameter is None:
+        if len(lighting_parameters) != 1:
             errors.append(
-                "Tracer::update_buffers requires a direct &ResolvedLightingFrameInputs parameter"
+                "Tracer::update_buffers requires exactly one direct "
+                "&ResolvedLightingFrameInputs parameter"
             )
-        elif update_buffers.body_start is not None and update_buffers.body_end is not None:
-            body = tracer_tokens[update_buffers.body_start + 1 : update_buffers.body_end]
-            if not _contains(
+        else:
+            lighting_parameter = lighting_parameters[0]
+            body = _function_body(tracer_tokens, update_buffers)
+            updater_calls = _call_arguments(
                 body,
                 (
-                    "let",
-                    "raster_lighting_mode",
-                    "=",
-                    lighting_parameter,
-                    ".",
-                    "raster_lighting_mode",
+                    "crate",
+                    ":",
+                    ":",
+                    "tracer",
+                    ":",
+                    ":",
+                    "buffer_updater",
+                    ":",
+                    ":",
+                    "BufferUpdater",
+                    ":",
+                    ":",
+                    "update_gui_input",
                     "(",
-                    ")",
-                    ";",
                 ),
-            ):
-                errors.append("Tracer::update_buffers must resolve the typed raster lighting mode")
-            updater_calls = _call_arguments(
-                body, ("BufferUpdater", ":", ":", "update_gui_input", "(")
             )
-            if len(updater_calls) != 1 or ("raster_lighting_mode",) not in updater_calls[0]:
-                errors.append("Tracer::update_buffers must route the typed mode to BufferUpdater")
+            updater_reference_count = sum(
+                token == "update_gui_input" for token in body
+            )
+            if (
+                updater_reference_count != 1
+                or len(updater_calls) != 1
+                or (lighting_parameter,) not in updater_calls[0]
+            ):
+                errors.append(
+                    "Tracer::update_buffers must route its capsule through the module-qualified "
+                    "production BufferUpdater"
+                )
 
     updater_tokens = tokenized.get(BUFFER_UPDATER_OWNER, [])
     update_gui_input = _canonical_function(updater_tokens, "BufferUpdater", "update_gui_input")
@@ -402,44 +495,127 @@ def audit(sources: dict[str, str]) -> list[str]:
             errors.append("BufferUpdater::update_gui_input must use the production non-generic entry")
         if any("self" in parameter for parameter in update_gui_input.parameters):
             errors.append("BufferUpdater::update_gui_input must remain an associated function")
-        raster_parameter = _direct_named_parameter(update_gui_input, ("RasterLightingMode",))
-        if raster_parameter is None:
+        lighting_parameters = _direct_named_parameters(
+            update_gui_input, ("&", "ResolvedLightingFrameInputs")
+        )
+        resource_parameters = _direct_named_parameters(
+            update_gui_input, ("&", "TracerResources")
+        )
+        if len(lighting_parameters) != 1:
             errors.append(
-                "BufferUpdater::update_gui_input requires a direct RasterLightingMode parameter"
+                "BufferUpdater::update_gui_input requires exactly one direct "
+                "&ResolvedLightingFrameInputs parameter"
             )
-        elif update_gui_input.body_start is not None and update_gui_input.body_end is not None:
-            body = updater_tokens[update_gui_input.body_start + 1 : update_gui_input.body_end]
-            if not _contains(
+        if len(resource_parameters) != 1:
+            errors.append(
+                "BufferUpdater::update_gui_input requires exactly one direct &TracerResources "
+                "parameter"
+            )
+        primitive_names = {
+            "raster_lighting_mode",
+            "path_tracing_reference",
+            "path_tracing_max_bounces",
+            "path_tracing_ambient_light",
+        }
+        if any(
+            "RasterLightingMode" in parameter
+            or (parameter and parameter[0] in primitive_names)
+            for parameter in update_gui_input.parameters
+        ):
+            errors.append("BufferUpdater::update_gui_input exposes a primitive lighting bypass")
+        if len(lighting_parameters) == 1 and len(resource_parameters) == 1:
+            lighting_parameter = lighting_parameters[0]
+            resources_parameter = resource_parameters[0]
+            body = _function_body(updater_tokens, update_gui_input)
+            for parameter_name in (lighting_parameter, resources_parameter):
+                if _shadows(body, parameter_name):
+                    errors.append(
+                        f"BufferUpdater::update_gui_input shadows parameter {parameter_name}"
+                    )
+            sink_calls = _call_arguments(
                 body,
                 (
-                    "raster_flora_ddgi_lighting",
-                    ":",
-                    raster_parameter,
+                    resources_parameter,
                     ".",
-                    "is_ddgi",
+                    "uniforms",
+                    ".",
+                    "gui_input",
+                    ".",
+                    "fill_uniform",
                     "(",
-                    ")",
-                    "as",
-                    "u32",
                 ),
+            )
+            fill_uniform_reference_count = sum(token == "fill_uniform" for token in body)
+            if (
+                fill_uniform_reference_count != 1
+                or len(sink_calls) != 1
+                or len(sink_calls[0]) != 1
             ):
-                errors.append("GUI uniform mode must derive from the typed RasterLightingMode")
+                errors.append("BufferUpdater::update_gui_input requires one direct inline GUI sink")
+            else:
+                argument = sink_calls[0][0]
+                expected_fields = {
+                    "raster_flora_ddgi_lighting": (
+                        lighting_parameter,
+                        ".",
+                        "raster_lighting_mode",
+                        "(",
+                        ")",
+                        ".",
+                        "is_ddgi",
+                        "(",
+                        ")",
+                        "as",
+                        "u32",
+                    ),
+                    "path_tracing_reference": (
+                        lighting_parameter,
+                        ".",
+                        "path_tracing_reference",
+                        "(",
+                        ")",
+                        "as",
+                        "u32",
+                    ),
+                    "path_tracing_max_bounces": (
+                        lighting_parameter,
+                        ".",
+                        "path_tracing_max_bounces",
+                        "(",
+                        ")",
+                    ),
+                    "path_tracing_ambient_light": (
+                        lighting_parameter,
+                        ".",
+                        "path_tracing_ambient_light",
+                        "(",
+                        ")",
+                        ".",
+                        "to_array",
+                        "(",
+                        ")",
+                    ),
+                }
+                for field_name, expected in expected_fields.items():
+                    if _struct_field(argument, field_name) != expected:
+                        errors.append(
+                            f"GUI uniform field {field_name} must derive inline from "
+                            f"{lighting_parameter}"
+                        )
 
-    sink_sites: list[tuple[str, int]] = []
+    write_sites: list[tuple[str, int]] = []
     for path, tokens in tokenized.items():
-        for index in range(len(tokens) - 3):
-            if tokens[index : index + 4] == ["gui_input", ".", "fill_uniform", "("]:
-                sink_sites.append((path, index))
-    if len(sink_sites) != 1:
-        errors.append(f"gui_input.fill_uniform sink must be globally unique, got {sink_sites}")
-    elif update_gui_input is None or sink_sites[0][0] != BUFFER_UPDATER_OWNER:
-        errors.append("gui_input.fill_uniform sink must belong to BufferUpdater::update_gui_input")
+        write_sites.extend((path, index) for index in _gui_input_write_indices(tokens))
+    if len(write_sites) != 1:
+        errors.append(f"current production source must contain one gui_input write, got {write_sites}")
+    elif update_gui_input is None or write_sites[0][0] != BUFFER_UPDATER_OWNER:
+        errors.append("current gui_input write must belong to BufferUpdater::update_gui_input")
     elif not (
         update_gui_input.body_start is not None
         and update_gui_input.body_end is not None
-        and update_gui_input.body_start < sink_sites[0][1] < update_gui_input.body_end
+        and update_gui_input.body_start < write_sites[0][1] < update_gui_input.body_end
     ):
-        errors.append("gui_input.fill_uniform sink must be inside BufferUpdater::update_gui_input")
+        errors.append("current gui_input write must be inside BufferUpdater::update_gui_input")
 
     if "ResolvedLightingFrameInputs" in tokenized.get(ENVIRONMENT_OWNER, []):
         errors.append(f"acceptance resolved input leaked into {ENVIRONMENT_OWNER}")

@@ -17,6 +17,8 @@ def baseline_sources() -> dict[str, str]:
     return {
         "src/app/core/lighting_mode_acceptance.rs": """
 pub(crate) enum RasterLightingMode { Ddgi, Legacy }
+pub(super) struct LightingModeAcceptanceFramePlan { timing: u32 }
+pub(super) struct LightingModeAcceptanceRenderPlan { lighting: u32 }
 pub(super) struct ResolvedFrameTiming {
     visual_time_seconds: f32,
     frame_delta_seconds: f32,
@@ -27,8 +29,9 @@ pub(crate) struct ResolvedLightingFrameInputs {
 }
 """,
         "src/app/core/mod.rs": """
-let (timing, render) = runtime.frame_plan().resolve_timing(live_timing);
-let lighting = render.resolve_lighting(live_lighting);
+let plan = LightingModeAcceptanceRuntime::frame_plan(&runtime);
+let (timing, render) = LightingModeAcceptanceFramePlan::resolve_timing(plan, live_timing);
+let lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live_lighting);
 tracer.update_buffers(&time, &lighting, lights);
 """,
         "src/tracer/mod.rs": """
@@ -38,8 +41,11 @@ impl Tracer {
         &mut self,
         lighting_frame: &ResolvedLightingFrameInputs,
     ) -> Result<()> {
-        let raster_lighting_mode = lighting_frame.raster_lighting_mode();
-        BufferUpdater::update_gui_input(resources, raster_lighting_mode)
+        self.raster_lighting_mode = lighting_frame.raster_lighting_mode();
+        crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
+            resources,
+            lighting_frame,
+        )
     }
 }
 """,
@@ -48,11 +54,13 @@ pub struct BufferUpdater;
 impl BufferUpdater {
     pub fn update_gui_input(
         resources: &TracerResources,
-        raster_lighting_mode: RasterLightingMode,
-        path_tracing_reference: bool,
+        lighting_frame: &ResolvedLightingFrameInputs,
     ) -> Result<()> {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            raster_flora_ddgi_lighting: raster_lighting_mode.is_ddgi() as u32,
+            raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
+            path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
+            path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
+            path_tracing_ambient_light: lighting_frame.path_tracing_ambient_light().to_array(),
         })
     }
 }
@@ -65,20 +73,13 @@ class LightingModeAcceptanceSourceContractTests(unittest.TestCase):
     def test_current_recursive_source_tree_satisfies_contract(self) -> None:
         self.assertEqual(checker.audit(checker.read_sources(REPO_ROOT / "src")), [])
 
-    def test_fifth_module_construction_destructure_and_plan_bypasses_are_rejected(self) -> None:
+    def test_external_capsule_construction_and_qualified_plan_bypasses_are_rejected(self) -> None:
         mutations = (
             "let forged = ResolvedLightingFrameInputs { time_of_day: 0.0, sampling_serial: 1 };",
             "let ResolvedFrameTiming { visual_time_seconds, frame_delta_seconds } = timing;",
-            "let second = runtime.frame_plan();",
-            "let second = plan.resolve_timing(live);",
-            "let second = render.resolve_lighting(live);",
-            "let second = LightingModeAcceptanceRuntime::frame_plan(&runtime);",
-            "let second = LightingModeAcceptanceFramePlan::resolve_timing(plan, live);",
-            "let second = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live);",
             "let f = LightingModeAcceptanceRuntime::frame_plan; f(&runtime);",
             "let f = LightingModeAcceptanceFramePlan::resolve_timing; f(plan, live);",
             "let f = LightingModeAcceptanceRenderPlan::resolve_lighting; f(render, live);",
-            "let second = runtime.r#frame_plan();",
             "let f = LightingModeAcceptanceRuntime::r#frame_plan; f(&runtime);",
         )
         for mutation in mutations:
@@ -87,111 +88,160 @@ class LightingModeAcceptanceSourceContractTests(unittest.TestCase):
                 sources["src/app/sibling.rs"] = mutation
                 self.assertNotEqual(checker.audit(sources), [])
 
-    def test_canonical_typed_entries_require_inherent_impl_receiver_and_direct_types(self) -> None:
-        mutations = (
-            (
-                "src/tracer/mod.rs",
-                "impl Tracer {",
-                "impl WrongTracer {",
-            ),
-            (
-                "src/tracer/mod.rs",
-                "&mut self,",
-                "&self,",
-            ),
-            (
-                "src/tracer/mod.rs",
-                "lighting_frame: &ResolvedLightingFrameInputs,",
-                "dummy: fn(&ResolvedLightingFrameInputs), renamed: bool,",
-            ),
-            (
-                "src/tracer/mod.rs",
-                "BufferUpdater::update_gui_input(resources, raster_lighting_mode)",
-                "BufferUpdater::update_gui_input(resources, RasterLightingMode::Legacy)",
-            ),
-            (
-                "src/tracer/mod.rs",
-                "fn update_buffers(",
-                "fn r#update_buffers<T>(",
-            ),
-            (
-                "src/tracer/mod.rs",
-                "impl Tracer {",
-                """impl Tracer {
-    fn r#update_buffers<T>(&mut self, direct: &ResolvedLightingFrameInputs)
-    where T: Copy { todo!() }
-""",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "impl BufferUpdater {",
-                "impl WrongBufferUpdater {",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "raster_lighting_mode: RasterLightingMode,",
-                "&self, raster_lighting_mode: RasterLightingMode,",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "raster_lighting_mode: RasterLightingMode,",
-                "RasterLightingMode: bool,",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "raster_lighting_mode: RasterLightingMode,",
-                "dummy: Option<RasterLightingMode>, raster_lighting_mode: bool,",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "raster_lighting_mode.is_ddgi() as u32",
-                "false as u32",
-            ),
-            (
-                "src/tracer/buffer_updater.rs",
-                "fn update_gui_input(",
-                "fn r#update_gui_input<T>(",
-            ),
-        )
-        for path, before, after in mutations:
-            with self.subTest(path=path, after=after):
-                sources = baseline_sources()
-                sources[path] = sources[path].replace(before, after)
-                self.assertNotEqual(checker.audit(sources), [])
-
-    def test_unrelated_update_helper_names_do_not_join_the_capability_contract(self) -> None:
+    def test_unrelated_receivers_may_reuse_plan_method_names(self) -> None:
         sources = baseline_sources()
-        sources["src/builder/plain.rs"] = """
-fn update_buffers<T>(value: T) where T: Copy { let _ = value; }
-fn update_gui_input(foo: bool) { let _ = foo; }
+        sources["src/app/sibling.rs"] = """
+let a = scheduler.frame_plan();
+let b = timer.resolve_timing(live);
+let c = renderer.resolve_lighting(live);
+let d = Scheduler::frame_plan(&scheduler);
+let e = Timer::resolve_timing(timer, live);
+let f = Renderer::resolve_lighting(renderer, live);
 """
         self.assertEqual(checker.audit(sources), [])
 
-    def test_gui_uniform_sink_is_unique_and_inside_the_typed_buffer_updater_entry(self) -> None:
+    def test_tracer_routes_its_direct_capsule_to_the_module_qualified_updater(self) -> None:
         mutations = (
             (
-                "src/tracer/buffer_updater.rs",
-                "resources.uniforms.gui_input.fill_uniform",
-                "resources.uniforms.other_input.fill_uniform",
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "dummy: fn(&ResolvedLightingFrameInputs), lighting_frame: bool,",
             ),
             (
-                "src/app/sibling.rs",
-                "",
-                "fn bypass(resources: &Resources) { resources.uniforms.gui_input.fill_uniform(&value); }",
+                "crate::tracer::buffer_updater::BufferUpdater::update_gui_input(",
+                "BufferUpdater::update_gui_input(",
             ),
             (
-                "src/app/sibling.rs",
-                "",
-                "fn raw_bypass(resources: &Resources) { resources.uniforms.r#gui_input.r#fill_uniform(&value); }",
+                "            lighting_frame,\n        )",
+                "            forged_lighting_frame,\n        )",
+            ),
+            (
+                "pub struct Tracer;",
+                "use bypass::OtherUpdater as BufferUpdater;\npub struct Tracer;",
+            ),
+            (
+                "crate::tracer::buffer_updater::BufferUpdater::update_gui_input(",
+                """BypassUpdater::update_gui_input(resources, forged);
+        crate::tracer::buffer_updater::BufferUpdater::update_gui_input(""",
             ),
         )
-        for path, before, after in mutations:
-            with self.subTest(path=path, after=after):
+        for before, after in mutations:
+            with self.subTest(after=after):
                 sources = baseline_sources()
-                if before:
-                    sources[path] = sources[path].replace(before, after)
-                else:
-                    sources[path] = after
+                sources["src/tracer/mod.rs"] = sources["src/tracer/mod.rs"].replace(before, after)
+                if "OtherUpdater" in after:
+                    sources["src/tracer/mod.rs"] = sources["src/tracer/mod.rs"].replace(
+                        "crate::tracer::buffer_updater::BufferUpdater::update_gui_input(",
+                        "BufferUpdater::update_gui_input(",
+                    )
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_updater_requires_one_direct_capsule_and_no_primitive_mode_parameter(self) -> None:
+        mutations = (
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "dummy: fn(&ResolvedLightingFrameInputs), lighting_frame: bool,",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, dummy: RasterLightingMode,",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, dummy: Option<RasterLightingMode>,",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, path_tracing_reference: bool,",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, path_tracing_max_bounces: u32,",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, path_tracing_ambient_light: Vec3,",
+            ),
+        )
+        for before, after in mutations:
+            with self.subTest(after=after):
+                sources = baseline_sources()
+                sources["src/tracer/buffer_updater.rs"] = sources[
+                    "src/tracer/buffer_updater.rs"
+                ].replace(before, after)
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_each_lighting_uniform_value_must_use_its_inline_capsule_getter(self) -> None:
+        mutations = (
+            ("lighting_frame.raster_lighting_mode().is_ddgi() as u32", "forged_raster"),
+            ("lighting_frame.path_tracing_reference() as u32", "forged_path"),
+            ("lighting_frame.path_tracing_max_bounces()", "forged_bounces"),
+            (
+                "lighting_frame.path_tracing_ambient_light().to_array()",
+                "forged_ambient",
+            ),
+        )
+        for before, after in mutations:
+            with self.subTest(after=after):
+                sources = baseline_sources()
+                sources["src/tracer/buffer_updater.rs"] = sources[
+                    "src/tracer/buffer_updater.rs"
+                ].replace(before, after)
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_updater_rejects_parameter_shadow_and_forged_or_decoy_uniform_values(self) -> None:
+        mutations = (
+            (
+                "    ) -> Result<()> {",
+                "    ) -> Result<()> { let lighting_frame = forged;",
+            ),
+            (
+                "    ) -> Result<()> {",
+                "    ) -> Result<()> { let resources = forged;",
+            ),
+            (
+                "resources.uniforms.gui_input.fill_uniform(&GuiInput {",
+                "resources.uniforms.gui_input.fill_uniform(&forged);\nother.fill_uniform(&GuiInput {",
+            ),
+            (
+                "resources.uniforms.gui_input.fill_uniform(&GuiInput {",
+                "other.fill_uniform(&decoy);\n        resources.uniforms.gui_input.fill_uniform(&GuiInput {",
+            ),
+        )
+        for before, after in mutations:
+            with self.subTest(after=after):
+                sources = baseline_sources()
+                sources["src/tracer/buffer_updater.rs"] = sources[
+                    "src/tracer/buffer_updater.rs"
+                ].replace(before, after)
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_shadowed_mode_and_capsule_decoy_cannot_authorize_a_forged_uniform(self) -> None:
+        sources = baseline_sources()
+        updater = sources["src/tracer/buffer_updater.rs"].replace(
+            "lighting_frame.raster_lighting_mode().is_ddgi() as u32",
+            "raster_lighting_mode.is_ddgi() as u32",
+        )
+        updater = updater.replace(
+            "resources.uniforms.gui_input.fill_uniform(&GuiInput {",
+            """let raster_lighting_mode = RasterLightingMode::Legacy;
+        let decoy = lighting_frame.raster_lighting_mode().is_ddgi() as u32;
+        resources.uniforms.gui_input.fill_uniform(&GuiInput {""",
+        )
+        sources["src/tracer/buffer_updater.rs"] = updater
+        self.assertNotEqual(checker.audit(sources), [])
+
+    def test_second_gui_input_writes_are_rejected_across_common_alias_forms(self) -> None:
+        mutations = (
+            "resources.uniforms.gui_input.fill_uniform(&value);",
+            "let sink = &resources.uniforms.gui_input; sink.fill_uniform(&value);",
+            "let receiver = &resources.uniforms.gui_input; let alias = receiver; alias.fill_uniform(&value);",
+            "Buffer::fill_uniform(&resources.uniforms.gui_input, &value);",
+            "(&resources.uniforms.gui_input).fill_uniform(&value);",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                sources = baseline_sources()
+                sources["src/app/sibling.rs"] = f"fn bypass(resources: &Resources) {{ {mutation} }}"
                 self.assertNotEqual(checker.audit(sources), [])
 
     def test_owner_resolved_fields_reject_every_pub_visibility_form(self) -> None:
@@ -203,17 +253,17 @@ fn update_gui_input(foo: bool) { let _ = foo; }
                 ].replace("    time_of_day: f32,", f"    {visibility}time_of_day: f32,")
                 self.assertNotEqual(checker.audit(sources), [])
 
-    def test_comments_strings_raw_strings_and_chars_are_not_source_contract_evidence(self) -> None:
+    def test_comments_literals_and_raw_strings_are_not_contract_evidence(self) -> None:
         sources = baseline_sources()
         sources["src/app/decoys.rs"] = r'''
-// runtime.frame_plan().resolve_timing(live).resolve_lighting(live)
+// LightingModeAcceptanceRuntime::frame_plan(&runtime)
 /* ResolvedLightingFrameInputs { forged: true }
-   /* nested LightingModeAcceptanceRuntime::frame_plan(&runtime); */
+   /* Buffer::fill_uniform(&resources.uniforms.gui_input, &value); */
 */
 const TEXT: &str = "ResolvedFrameTiming { pub(crate) visual_time_seconds: f32 }";
-const RAW: &str = r###"pub(crate) async fn update_buffers(frame_serial_idx: u32)"###;
-const BYTE_RAW: &[u8] = br##"r#frame_plan ResolvedLightingFrameInputs { forged: true }"##;
-const C_RAW: &CStr = cr#"r#update_gui_input resources.uniforms.gui_input.fill_uniform"#;
+const RAW: &str = r###"LightingModeAcceptanceFramePlan::resolve_timing(plan, live)"###;
+const BYTE_RAW: &[u8] = br##"resources.uniforms.gui_input.fill_uniform"##;
+const C_RAW: &CStr = cr#"LightingModeAcceptanceRenderPlan::resolve_lighting"#;
 const CHARS: [char; 3] = ['{', '}', '.'];
 fn lifetime<'a>(value: &'a str) -> &'a str { value }
 '''

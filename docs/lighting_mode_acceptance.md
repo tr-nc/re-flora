@@ -13,22 +13,25 @@ acceptance-only factory; Tracer ownership would reverse the dependency by making
 fixture timing and phase policy; acceptance ownership keeps the fixed bundle, resolution order,
 identity, and private construction in one module. Callers can consume the resolved views but cannot
 construct or destructure them. `RasterLightingMode` remains typed through Tracer and is lowered only
-when `BufferUpdater` writes the production GPU uniform.
+when the opaque resolved lighting capsule is consumed by `BufferUpdater` at the production GPU
+uniform seam.
 
 Rust privacy is the primary seal. Three source-audit seams were compared. A repository-wide unique
 bare function name was rejected because ordinary builder helpers legitimately share names such as
 `update_buffers`. Fixed paths plus substring presence were rejected because they cannot prove the
 receiver, a direct parameter type, or sink ownership. The selected seam parses the canonical
-`Tracer` and `BufferUpdater` inherent implementations, requires their direct typed capability
-parameters, follows the typed raster mode into the production uniform value, and requires the final
-`gui_input.fill_uniform` sink to be globally unique and inside that typed entry. The audit also
-guards the unique plan-resolution route, but does not reserve unrelated helper names across the
-repository.
+`Tracer` and `BufferUpdater` inherent implementations. `Tracer` passes its opaque
+`ResolvedLightingFrameInputs` directly through a module-and-type-qualified production call;
+`BufferUpdater` consumes that capsule in one inline `GuiInput` construction, so the four lighting
+uniform values are never an independently forgeable primitive bundle at that seam.
 
-`scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file for that
-capability-and-sink seal. The shader-validation workflow routes all `src/**` changes, this checker,
-its tests, and this document through the same CPU contract gate; adding a new Rust module therefore
-cannot bypass the audit through an omitted path filter.
+Rust type checking and the capsule's private construction are the ownership guarantee.
+`scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file only as a
+structure-drift tripwire: it checks the canonical qualified plan references, capsule signatures,
+inline getter shape, and that current production source contains no second `gui_input` write. It is
+not a proof of arbitrary Rust aliasing or whole-program dataflow. The shader-validation workflow
+routes all `src/**` changes, this checker, its tests, and this document through the same CPU contract
+gate; adding a new Rust module therefore cannot bypass the audit through an omitted path filter.
 
 One release-hidden process waits for a converged DDGI field, latches the camera, visible-terrain
 revision, DDGI field, lighting revisions, and extents, then records these stages after a settling
@@ -44,7 +47,8 @@ frame:
 Each stage copies the real `compute_output_tex` (`R32_UINT` RGBE), `compute_depth_tex`
 (`R32_SFLOAT`), and `gfx_output_tex` (`R8G8B8A8_UNORM`) after the production trace/raster work. No
 diagnostic shader flag or counter participates in the proof. Logs describe the transaction but are
-not evidence.
+not evidence. Only the analyzed A-D raw GPU artifact proves that the production toggles have the
+calibrated effects; neither the Rust type seam nor the source-drift tripwire substitutes for it.
 
 The checked-in `r13-e2-production-v1` candidate calibration is fail closed. It is not production
 calibrated until a fresh artifact from this revision passes on the target GPU lane. The analyzer requires exact

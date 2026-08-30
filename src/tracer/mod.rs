@@ -2111,9 +2111,6 @@ impl Tracer {
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
         let raster_lighting_mode = lighting_frame.raster_lighting_mode();
-        let path_tracing_reference = lighting_frame.path_tracing_reference();
-        let path_tracing_max_bounces = lighting_frame.path_tracing_max_bounces();
-        let path_tracing_ambient_light = lighting_frame.path_tracing_ambient_light();
         self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
@@ -2268,14 +2265,11 @@ impl Tracer {
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
-        BufferUpdater::update_gui_input(
+        crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             flora_growth_override_enabled,
             flora_growth_override,
-            raster_lighting_mode,
-            path_tracing_reference,
-            path_tracing_max_bounces,
-            path_tracing_ambient_light,
+            lighting_frame,
             terrain_ray_origin_offset_world,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max,
