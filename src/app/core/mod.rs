@@ -44,9 +44,6 @@ use self::denoiser_bench::{
     CAMERA_YAW_PER_FRAME_RADIANS,
 };
 use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
-pub(crate) use self::environment_irradiance_capture::{
-    CaptureReadbackAuthorization, CaptureShadingView,
-};
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
@@ -3527,14 +3524,12 @@ impl App {
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
                     .begin_frame(&self.tracer, self.environment_lighting_test_scene.as_ref());
-                // Preserve the established argument layout while the consuming capture seam wraps
-                // this pre-existing, intentionally centralized buffer publication call.
-                #[rustfmt::skip]
-                let (buffer_update, rendered_environment_irradiance_capture_frame) =
-                    environment_irradiance_capture_plan.render(|effective_ddgi_debug_view| self.tracer.update_buffers(
+                let capture_buffers_ready = self
+                    .tracer
+                    .update_buffers(
                         &self.time_info,
                         &self.local_lights.snapshot(),
-                        effective_ddgi_debug_view,
+                        environment_irradiance_capture_plan,
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -4026,8 +4021,8 @@ impl App {
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
                         TERRAIN_EDIT_PREVIEW_ALPHA,
-                    ));
-                buffer_update.unwrap();
+                    )
+                    .unwrap();
                 self.tracer.record_host_buffer_writes(cmdbuf);
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
@@ -4207,9 +4202,10 @@ impl App {
                     )
                 });
                 let mut gpu_profiler_for_trace = self.gpu_profiler.take();
-                cpu_timings
+                let rendered_environment_irradiance_capture_frame = cpu_timings
                     .time_if(frame_perf_enabled, FrameCpuScope::RenderTraceRecord, || {
                         self.tracer.record_trace_after_shadow_prepass(
+                            capture_buffers_ready,
                             cmdbuf,
                             self.surface_builder.get_resources(),
                             self.debug_settings.adjustables.lod_distance.value,

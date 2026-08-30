@@ -1,3 +1,4 @@
+use super::capture_frame::{CaptureBufferPublicationHost, CaptureShadingView};
 use crate::ddgi::DdgiVolumeGrid;
 use crate::environment_lighting::EnvironmentLightingState;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
@@ -14,6 +15,41 @@ use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
 
 pub struct BufferUpdater;
+
+pub(super) struct CaptureShadingInfoPublication<'a> {
+    pub(super) resources: &'a TracerResources,
+    pub(super) environment: EnvironmentLightingState,
+    pub(super) environment_probe_grid: DdgiVolumeGrid,
+    pub(super) voxels_per_world_unit: glam::UVec3,
+    pub(super) ddgi_ready: bool,
+    pub(super) ddgi_geometry_revision: u32,
+    pub(super) environment_irradiance_capture_enabled: bool,
+    pub(super) ddgi_irradiance_tile_columns: u32,
+    pub(super) ddgi_visibility_tile_columns: u32,
+    pub(super) ddgi_terrain_hard_origin: u32,
+    pub(super) ddgi_receiver_visibility_bias_world: f32,
+    pub(super) ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
+}
+
+impl CaptureBufferPublicationHost for CaptureShadingInfoPublication<'_> {
+    fn publish_capture_shading_view(&mut self, view: CaptureShadingView) -> Result<()> {
+        BufferUpdater::update_shading_info(
+            self.resources,
+            self.environment,
+            self.environment_probe_grid,
+            self.voxels_per_world_unit,
+            self.ddgi_ready,
+            self.ddgi_geometry_revision,
+            self.environment_irradiance_capture_enabled,
+            self.ddgi_irradiance_tile_columns,
+            self.ddgi_visibility_tile_columns,
+            view.as_u32(),
+            self.ddgi_terrain_hard_origin,
+            self.ddgi_receiver_visibility_bias_world,
+            self.ddgi_invalidation_voxel_bound,
+        )
+    }
+}
 
 impl BufferUpdater {
     pub fn update_camera_info(

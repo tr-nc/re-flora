@@ -6,7 +6,10 @@ use crate::ddgi::{
     DdgiVolumeStage,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
-use crate::tracer::{Tracer, ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT};
+use crate::tracer::{
+    CaptureFrameIdentity, CaptureFramePlan, CaptureFramePlanner, RenderedCaptureFrame, Tracer,
+    ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT,
+};
 use anyhow::{ensure, Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation, VulkanContext};
 use std::io::Write;
@@ -146,53 +149,17 @@ struct ArmedCheckpoint {
     requested_view: DdgiDebugView,
 }
 
-#[derive(Debug, PartialEq)]
-pub(super) struct CaptureFramePlan {
-    effective_view: DdgiDebugView,
+struct PlannedCaptureFrame {
+    identity: CaptureFrameIdentity,
     armed_checkpoint: Option<ArmedCheckpoint>,
 }
-
-#[derive(Debug, PartialEq)]
-pub(super) struct RenderedCaptureFrame {
-    armed_checkpoint: Option<ArmedCheckpoint>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct CaptureShadingView(DdgiDebugView);
-
-pub(crate) struct CaptureReadbackAuthorization {
-    _private: (),
-}
-
-impl CaptureShadingView {
-    pub(crate) fn as_u32(&self) -> u32 {
-        self.0.as_u32()
-    }
-}
-
-impl CaptureFramePlan {
-    pub(super) fn render<T>(
-        self,
-        render: impl FnOnce(CaptureShadingView) -> T,
-    ) -> (T, RenderedCaptureFrame) {
-        let output = render(CaptureShadingView(self.effective_view));
-        (
-            output,
-            RenderedCaptureFrame {
-                armed_checkpoint: self.armed_checkpoint,
-            },
-        )
-    }
-}
-::static_assertions::assert_not_impl_any!(CaptureFramePlan: Clone, Copy);
-::static_assertions::assert_not_impl_any!(RenderedCaptureFrame: Clone, Copy);
-::static_assertions::assert_not_impl_any!(CaptureShadingView: Clone, Copy);
-::static_assertions::assert_not_impl_any!(CaptureReadbackAuthorization: Clone, Copy);
 
 pub(super) struct EnvironmentIrradianceCaptureRuntime {
     base_path: Option<String>,
     requested_view: DdgiDebugView,
     phase: CaptureViewPhase,
+    frame_planner: CaptureFramePlanner,
+    planned_frame: Option<PlannedCaptureFrame>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -394,6 +361,8 @@ impl EnvironmentIrradianceCaptureRuntime {
             base_path,
             requested_view,
             phase,
+            frame_planner: CaptureFramePlanner::new(),
+            planned_frame: None,
         }
     }
 
@@ -405,37 +374,52 @@ impl EnvironmentIrradianceCaptureRuntime {
         &mut self,
         checkpoint: Option<ReadyCaptureCheckpoint>,
     ) -> CaptureFramePlan {
+        assert!(
+            self.planned_frame.is_none(),
+            "capture frame must finish before planning its successor"
+        );
         let requested_view = self.requested_view;
         let candidate = checkpoint.map(|checkpoint| ArmedCheckpoint {
             checkpoint,
             requested_view,
         });
-        match self.phase {
+        let (effective_view, armed_checkpoint) = match self.phase {
             CaptureViewPhase::Disabled
             | CaptureViewPhase::Recording
-            | CaptureViewPhase::Complete => CaptureFramePlan {
-                effective_view: requested_view,
-                armed_checkpoint: None,
-            },
+            | CaptureViewPhase::Complete => (requested_view, None),
             CaptureViewPhase::WaitingForCheckpoint | CaptureViewPhase::Armed(_) => {
                 self.phase = candidate.map_or(
                     CaptureViewPhase::WaitingForCheckpoint,
                     CaptureViewPhase::Armed,
                 );
-                CaptureFramePlan {
-                    effective_view: candidate
-                        .map_or(DdgiDebugView::Final, |armed| armed.requested_view),
-                    armed_checkpoint: candidate,
-                }
+                (
+                    candidate.map_or(DdgiDebugView::Final, |armed| armed.requested_view),
+                    candidate,
+                )
             }
-        }
+        };
+        let (identity, plan) = self.frame_planner.plan(effective_view);
+        self.planned_frame = Some(PlannedCaptureFrame {
+            identity,
+            armed_checkpoint,
+        });
+        plan
     }
 
     fn finish_frame_for_checkpoint(
         &mut self,
         frame: RenderedCaptureFrame,
         checkpoint: Option<ReadyCaptureCheckpoint>,
-    ) -> Option<ArmedCheckpoint> {
+    ) -> Option<(ArmedCheckpoint, RenderedCaptureFrame)> {
+        let planned_frame = self
+            .planned_frame
+            .take()
+            .expect("capture frame must have been planned before it can finish");
+        assert_eq!(
+            planned_frame.identity,
+            frame.identity(),
+            "rendered capture frame does not match the runtime plan"
+        );
         if matches!(
             self.phase,
             CaptureViewPhase::Disabled | CaptureViewPhase::Recording | CaptureViewPhase::Complete
@@ -450,10 +434,10 @@ impl EnvironmentIrradianceCaptureRuntime {
             CaptureViewPhase::Armed(phase_checkpoint),
             Some(frame_checkpoint),
             Some(current_checkpoint),
-        ) = (self.phase, frame.armed_checkpoint, candidate)
+        ) = (self.phase, planned_frame.armed_checkpoint, candidate)
         {
             if phase_checkpoint == frame_checkpoint && frame_checkpoint == current_checkpoint {
-                return Some(current_checkpoint);
+                return Some((current_checkpoint, frame));
             }
         }
         self.phase = candidate.map_or(
@@ -487,7 +471,7 @@ impl EnvironmentIrradianceCaptureRuntime {
         &mut self,
         frame: RenderedCaptureFrame,
         source: &impl CaptureCheckpointSource,
-    ) -> Option<ArmedCheckpoint> {
+    ) -> Option<(ArmedCheckpoint, RenderedCaptureFrame)> {
         let checkpoint = Self::ready_checkpoint(source);
         self.finish_frame_for_checkpoint(frame, checkpoint)
     }
@@ -509,7 +493,7 @@ impl EnvironmentIrradianceCaptureRuntime {
         test_scene: Option<&EnvironmentLightingTestScene>,
         capture_frame: u64,
     ) -> Result<Option<PendingEnvironmentIrradianceCapture>> {
-        let Some(armed) = self.finish_frame_from_source(
+        let Some((armed, rendered_frame)) = self.finish_frame_from_source(
             frame,
             &ProductionCaptureCheckpointSource { tracer, test_scene },
         ) else {
@@ -541,7 +525,7 @@ impl EnvironmentIrradianceCaptureRuntime {
         tracer.record_environment_irradiance_capture_readback(
             cmdbuf,
             &readback.buffer,
-            CaptureReadbackAuthorization { _private: () },
+            rendered_frame,
         );
         self.phase = CaptureViewPhase::Recording;
         log::info!(
@@ -811,6 +795,7 @@ mod tests {
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
         DdgiFieldState,
     };
+    use crate::tracer::RecordingCaptureFrameHost;
 
     fn checkpoint(serial: u64, state: DdgiFieldState, epoch: u32) -> DdgiCaptureCheckpoint {
         let geometry_revision = 41;
@@ -895,12 +880,33 @@ mod tests {
     }
 
     fn render(plan: CaptureFramePlan) -> (DdgiDebugView, RenderedCaptureFrame) {
-        let mut observed = None;
-        let ((), rendered) = plan.render(|effective_view| observed = Some(effective_view.0));
-        (
-            observed.expect("capture frame plan must invoke its render step exactly once"),
-            rendered,
-        )
+        let mut host = RecordingCaptureFrameHost::default();
+        let rendered = host.record(plan).unwrap();
+        assert_eq!(host.trace_records(), 1);
+        let [effective_view] = host.published_views() else {
+            panic!("capture frame plan must publish exactly one shading view");
+        };
+        (*effective_view, rendered)
+    }
+
+    fn finish_checkpoint(
+        runtime: &mut EnvironmentIrradianceCaptureRuntime,
+        frame: RenderedCaptureFrame,
+        checkpoint: Option<ReadyCaptureCheckpoint>,
+    ) -> Option<ArmedCheckpoint> {
+        runtime
+            .finish_frame_for_checkpoint(frame, checkpoint)
+            .map(|(armed, _)| armed)
+    }
+
+    fn finish_source(
+        runtime: &mut EnvironmentIrradianceCaptureRuntime,
+        frame: RenderedCaptureFrame,
+        source: &impl CaptureCheckpointSource,
+    ) -> Option<ArmedCheckpoint> {
+        runtime
+            .finish_frame_from_source(frame, source)
+            .map(|(armed, _)| armed)
     }
 
     #[test]
@@ -916,19 +922,14 @@ mod tests {
     }
 
     #[test]
-    fn frame_plan_delivers_the_effective_view_only_through_a_consuming_render_step() {
+    fn frame_plan_delivers_the_effective_view_only_through_buffer_and_trace_owners() {
         let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
             Some("capture.rfirr".to_owned()),
             DdgiDebugView::ExactVisibility,
         );
-        let plan = runtime.begin_frame_for_checkpoint(None);
-        let mut rendered_view = None;
+        let (rendered_view, _rendered) = render(runtime.begin_frame_for_checkpoint(None));
 
-        let ((), _rendered) = plan.render(|effective_view| {
-            rendered_view = Some(effective_view.0);
-        });
-
-        assert_eq!(rendered_view, Some(DdgiDebugView::Final));
+        assert_eq!(rendered_view, DdgiDebugView::Final);
     }
 
     #[test]
@@ -941,7 +942,7 @@ mod tests {
 
         assert_eq!(effective_view, DdgiDebugView::ExactVisibility);
         assert_eq!(
-            runtime.finish_frame_from_source(rendered, &source(None, None, None)),
+            finish_source(&mut runtime, rendered, &source(None, None, None)),
             None,
         );
     }
@@ -956,7 +957,7 @@ mod tests {
         let (_, waiting_frame) = render(runtime.begin_frame_for_checkpoint(None));
 
         assert_eq!(
-            runtime.finish_frame_for_checkpoint(waiting_frame, Some(ready(ready_checkpoint))),
+            finish_checkpoint(&mut runtime, waiting_frame, Some(ready(ready_checkpoint))),
             None,
         );
 
@@ -964,7 +965,7 @@ mod tests {
             render(runtime.begin_frame_for_checkpoint(Some(ready(ready_checkpoint))));
         assert_eq!(effective_view, DdgiDebugView::ExactVisibility);
         assert_eq!(
-            runtime.finish_frame_for_checkpoint(capture_frame, Some(ready(ready_checkpoint))),
+            finish_checkpoint(&mut runtime, capture_frame, Some(ready(ready_checkpoint))),
             Some(ArmedCheckpoint {
                 checkpoint: ready(ready_checkpoint),
                 requested_view: DdgiDebugView::ExactVisibility,
@@ -983,7 +984,7 @@ mod tests {
         let (_, e0_frame) = render(runtime.begin_frame_for_checkpoint(Some(e0)));
 
         assert_eq!(
-            runtime.finish_frame_for_checkpoint(e0_frame, Some(e1)),
+            finish_checkpoint(&mut runtime, e0_frame, Some(e1)),
             None,
             "pixels rendered against e0 must not be labeled e1",
         );
@@ -991,7 +992,7 @@ mod tests {
         let (effective_view, e1_frame) = render(runtime.begin_frame_for_checkpoint(Some(e1)));
         assert_eq!(effective_view, DdgiDebugView::ExactIrradiance);
         assert_eq!(
-            runtime.finish_frame_for_checkpoint(e1_frame, Some(e1)),
+            finish_checkpoint(&mut runtime, e1_frame, Some(e1)),
             Some(ArmedCheckpoint {
                 checkpoint: e1,
                 requested_view: DdgiDebugView::ExactIrradiance,
@@ -1008,7 +1009,7 @@ mod tests {
         let converged = ready(checkpoint(89, DdgiFieldState::Converged, 6));
         let (_, armed_frame) = render(runtime.begin_frame_for_checkpoint(Some(converged)));
 
-        assert_eq!(runtime.finish_frame_for_checkpoint(armed_frame, None), None,);
+        assert_eq!(finish_checkpoint(&mut runtime, armed_frame, None), None,);
         assert_eq!(
             render(runtime.begin_frame_for_checkpoint(None)).0,
             DdgiDebugView::Final,
@@ -1031,13 +1032,12 @@ mod tests {
         let (_, baseline_frame) = render(runtime.begin_frame_from_source(&baseline));
 
         assert_eq!(
-            runtime.finish_frame_from_source(baseline_frame, &r2),
+            finish_source(&mut runtime, baseline_frame, &r2),
             None,
             "radiance identity changes must invalidate an armed frame",
         );
         let (_, r2_frame) = render(runtime.begin_frame_from_source(&r2));
-        let captured = runtime
-            .finish_frame_from_source(r2_frame, &r2)
+        let captured = finish_source(&mut runtime, r2_frame, &r2)
             .expect("a full frame with one radiance identity must capture");
         assert_eq!(
             captured.checkpoint.radiance_request,
@@ -1061,13 +1061,12 @@ mod tests {
         let (_, terrain_41_frame) = render(runtime.begin_frame_from_source(&terrain_41));
 
         assert_eq!(
-            runtime.finish_frame_from_source(terrain_41_frame, &terrain_42),
+            finish_source(&mut runtime, terrain_41_frame, &terrain_42),
             None,
             "inflight target changes must invalidate an armed frame",
         );
         let (_, terrain_42_frame) = render(runtime.begin_frame_from_source(&terrain_42));
-        let captured = runtime
-            .finish_frame_from_source(terrain_42_frame, &terrain_42)
+        let captured = finish_source(&mut runtime, terrain_42_frame, &terrain_42)
             .expect("a full frame with one inflight target must capture");
         assert_eq!(captured.checkpoint.radiance_request, None);
         assert_eq!(captured.checkpoint.inflight_target_revision, Some(42));
@@ -1084,16 +1083,14 @@ mod tests {
 
         assert_eq!(effective_view, DdgiDebugView::Final);
         assert_eq!(
-            runtime.finish_frame_for_checkpoint(waiting_frame, Some(converged)),
+            finish_checkpoint(&mut runtime, waiting_frame, Some(converged)),
             None,
         );
 
         let (effective_view, capture_frame) =
             render(runtime.begin_frame_for_checkpoint(Some(converged)));
         assert_eq!(effective_view, DdgiDebugView::Final);
-        assert!(runtime
-            .finish_frame_for_checkpoint(capture_frame, Some(converged))
-            .is_some());
+        assert!(finish_checkpoint(&mut runtime, capture_frame, Some(converged)).is_some());
     }
 
     #[test]
