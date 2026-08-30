@@ -2479,15 +2479,21 @@ mod tests {
             .unwrap();
 
         let request = match action {
-            ConnectivityAction::HandleManualRelease(
-                plan @ ManualReleasePlan::Prepare {
-                    frame: 41,
-                    revision_before: 12,
-                    ..
-                },
-            ) => plan,
+            ConnectivityAction::HandleManualRelease(request)
+                if matches!(
+                    request.payload(),
+                    ManualReleasePlan::Prepare {
+                        frame: 41,
+                        revision_before: 12,
+                        ..
+                    }
+                ) =>
+            {
+                request
+            }
             _ => panic!("manual release did not plan an owned preparation"),
         };
+        let request_address = request.payload() as *const ManualReleasePlan;
         let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
@@ -2509,18 +2515,26 @@ mod tests {
                 ..
             })
         ));
+        let retried = owner
+            .plan_manual_connectivity_release(ManualReleaseFacts {
+                frame: 99,
+                visible_revision: 77,
+            })
+            .unwrap();
+        let ConnectivityAction::HandleManualRelease(retried) = retried else {
+            panic!("failed manual release was not replanned")
+        };
+        assert_eq!(
+            retried.payload() as *const ManualReleasePlan,
+            request_address
+        );
         assert!(matches!(
-            owner
-                .plan_manual_connectivity_release(ManualReleaseFacts {
-                    frame: 41,
-                    visible_revision: 12,
-                })
-                .unwrap(),
-            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
+            retried.payload(),
+            ManualReleasePlan::Prepare {
                 frame: 41,
                 revision_before: 12,
                 ..
-            })
+            }
         ));
     }
 
@@ -2556,15 +2570,14 @@ mod tests {
         };
 
         let request = match owner.plan_completed_connectivity_frame(record).unwrap() {
-            ConnectivityAction::ObserveCompletedFrame {
-                record,
-                expected_fixture_solids: Some(expected_fixture_solids),
-            } => CompletedFrameRequest {
-                record,
-                expected_fixture_solids: Some(expected_fixture_solids),
-            },
+            ConnectivityAction::ObserveCompletedFrame(request)
+                if request.payload().expected_fixture_solids == Some(0) =>
+            {
+                request
+            }
             _ => panic!("completed frame did not plan fixture validation"),
         };
+        let request_address = request.payload() as *const CompletedFramePayload;
         let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
@@ -2587,13 +2600,20 @@ mod tests {
             BenchState::Observing { event_frame: 40 }
         ));
         assert_eq!(bench.high_water.terrain_collider, 0);
-        assert!(matches!(
-            bench.plan_completed_frame(record),
-            ConnectivityAction::ObserveCompletedFrame {
-                record: CpuFrameRecord { frame: 41, .. },
-                expected_fixture_solids: Some(0),
-            }
-        ));
+        let mut changed_record = record;
+        changed_record.frame = 99;
+        changed_record.visible_revision = 77;
+        let ConnectivityAction::ObserveCompletedFrame(retried) =
+            bench.plan_completed_frame(changed_record)
+        else {
+            panic!("failed completed-frame observation was not replanned")
+        };
+        assert_eq!(
+            retried.payload() as *const CompletedFramePayload,
+            request_address
+        );
+        assert_eq!(retried.payload().record.frame, 41);
+        assert_eq!(retried.payload().record.visible_revision, 10);
     }
 
     #[test]
