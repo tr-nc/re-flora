@@ -129,7 +129,11 @@ geometry, density, or radiance revision changes are required to restart work.
 
 `scripts/check_ddgi_sky_normalization_evidence.py` keeps the original `E/pi` presentation-parity
 evidence pinned to its historical commits. Those v3-v5 stage labels are retained only because they
-describe the old artifacts; they do not reintroduce a current runtime stage path.
+describe the old artifacts; they do not reintroduce a current runtime stage path. Its private
+legacy-v2 comparator proves only fixed-command Final payload RGB deltas and an exact hit mask for
+the two audited commits. Those captures have no world/identity planes, so this historical evidence
+does not claim capture-v8 reference correctness and cannot weaken the current analyzer's v8-only
+reference contract.
 
 ## Reproduction
 

@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from analyze_environment_irradiance_capture import (
-    compare_reference,
+    PIXEL,
+    Capture,
     load_capture,
     summarize,
 )
@@ -61,11 +62,114 @@ AUTHORED_SCENE_MARKER = (
     "target=(0.650,0.780,1.100) time_of_day=0.455705 auto_cycle=false "
     "voxel_color_variance=0.000"
 )
+LEGACY_V2_PROOF_SCOPE = (
+    "fixed-command legacy-v2 final payload RGB and hit-mask difference only; "
+    "does not prove world identity or capture-v8 reference correctness"
+)
 ERROR_MARKER = re.compile(
     r"(^|[^A-Za-z])(ERROR|panic|VUID-|validation error|stale readback)",
     re.IGNORECASE | re.MULTILINE,
 )
 SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _percentile(sorted_values: list[float], fraction: float) -> float:
+    if not sorted_values:
+        return 0.0
+    index = math.ceil(fraction * len(sorted_values)) - 1
+    return sorted_values[max(0, min(index, len(sorted_values) - 1))]
+
+
+def compare_legacy_v2_payloads(
+    approximate: Capture, reference: Capture
+) -> dict[str, object]:
+    fields = ("version", "width", "height", "backend", "spacing_voxels", "debug_view")
+    metadata_mismatches = [
+        field
+        for field in fields
+        if getattr(approximate, field) != getattr(reference, field)
+    ]
+    for field, expected in (("version", 2), ("debug_view", 0)):
+        if getattr(approximate, field) != expected and field not in metadata_mismatches:
+            metadata_mismatches.append(field)
+        if getattr(reference, field) != expected and field not in metadata_mismatches:
+            metadata_mismatches.append(field)
+    approximate_pixels = list(PIXEL.iter_unpack(approximate.payload))
+    reference_pixels = list(PIXEL.iter_unpack(reference.payload))
+    payloads_finite = all(
+        math.isfinite(value)
+        for pixel in approximate_pixels + reference_pixels
+        for value in pixel
+    )
+    hit_mask_matches = all(
+        approximate_pixel[3] == reference_pixel[3]
+        for approximate_pixel, reference_pixel in zip(
+            approximate_pixels, reference_pixels
+        )
+    ) and len(approximate_pixels) == len(reference_pixels)
+    compatible = not metadata_mismatches and payloads_finite and hit_mask_matches
+
+    luminance_errors: list[float] = []
+    luminance_overestimates: list[float] = []
+    channel_errors: list[float] = []
+    peak_error = (-1.0, 0, 0)
+    peak_overestimate = (0.0, 0, 0)
+    if payloads_finite:
+        for index, (approximate_pixel, reference_pixel) in enumerate(
+            zip(approximate_pixels, reference_pixels)
+        ):
+            ar, ag, ab, approximate_hit = approximate_pixel
+            rr, rg, rb, reference_hit = reference_pixel
+            if approximate_hit <= 0.5 or reference_hit <= 0.5:
+                continue
+            rgb_error = (abs(ar - rr), abs(ag - rg), abs(ab - rb))
+            luminance_error = (
+                0.2126 * rgb_error[0]
+                + 0.7152 * rgb_error[1]
+                + 0.0722 * rgb_error[2]
+            )
+            approximate_luminance = 0.2126 * ar + 0.7152 * ag + 0.0722 * ab
+            reference_luminance = 0.2126 * rr + 0.7152 * rg + 0.0722 * rb
+            overestimate = max(0.0, approximate_luminance - reference_luminance)
+            x = index % approximate.width
+            y = index // approximate.width
+            if luminance_error > peak_error[0]:
+                peak_error = (luminance_error, x, y)
+            if overestimate > peak_overestimate[0]:
+                peak_overestimate = (overestimate, x, y)
+            luminance_errors.append(luminance_error)
+            luminance_overestimates.append(overestimate)
+            channel_errors.append(max(rgb_error))
+    luminance_errors.sort()
+    luminance_overestimates.sort()
+    channel_errors.sort()
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": metadata_mismatches,
+        "hit_mask_matches": hit_mask_matches,
+        "sample_count": len(luminance_errors),
+        "luminance_error_mean": (
+            sum(luminance_errors) / len(luminance_errors) if luminance_errors else 0.0
+        ),
+        "luminance_error_p99": _percentile(luminance_errors, 0.99),
+        "luminance_error_max": luminance_errors[-1] if luminance_errors else 0.0,
+        "luminance_error_peak_xy": [peak_error[1], peak_error[2]],
+        "luminance_overestimate_mean": (
+            sum(luminance_overestimates) / len(luminance_overestimates)
+            if luminance_overestimates
+            else 0.0
+        ),
+        "luminance_overestimate_p99": _percentile(luminance_overestimates, 0.99),
+        "luminance_overestimate_max": (
+            luminance_overestimates[-1] if luminance_overestimates else 0.0
+        ),
+        "luminance_overestimate_peak_xy": [
+            peak_overestimate[1],
+            peak_overestimate[2],
+        ],
+        "channel_error_p99": _percentile(channel_errors, 0.99),
+        "channel_error_max": channel_errors[-1] if channel_errors else 0.0,
+    }
 
 
 def file_sha256(path: Path) -> str:
@@ -113,7 +217,7 @@ def collect_case(artifact_root: Path, spacing: int) -> dict[str, Any]:
     }
     for record, relative in zip(records.values(), names.values()):
         record["path"] = relative
-    comparison = compare_reference(captures["after"], captures["before"])
+    comparison = compare_legacy_v2_payloads(captures["after"], captures["before"])
     console = {}
     for label in ("before", "after"):
         relative = f"{label}/portal-spacing{spacing}-sky-only.console.log"
@@ -206,6 +310,8 @@ def validate_evidence(
     capture_contract = evidence.get("capture_contract", {})
     if capture_contract.get("field") != "pre-transport-sky-only":
         failures.append("capture field must be pre-transport-sky-only")
+    if capture_contract.get("proof_scope") != LEGACY_V2_PROOF_SCOPE:
+        failures.append("legacy v2 proof scope is missing or overstated")
     if capture_contract.get("spacings_voxels") != list(SPACINGS):
         failures.append("capture spacings must be exactly [32, 16]")
     if capture_contract.get("command_template") != COMMAND_TEMPLATE:
