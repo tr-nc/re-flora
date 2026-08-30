@@ -66,6 +66,16 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def _require_render_extent(value: object) -> tuple[int, int]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and all(type(dimension) is int and dimension > 0 for dimension in value),
+        "phase render_extent must contain exactly two positive integers",
+    )
+    return value[0], value[1]
+
+
 def _load(path: Path) -> tuple[dict[str, Any], bytes]:
     raw = path.read_bytes()
     _require(len(raw) >= 16, "artifact is shorter than its fixed header")
@@ -85,8 +95,15 @@ def _phase_layers(
 ) -> dict[str, memoryview]:
     descriptors = phase.get("layers")
     _require(isinstance(descriptors, list), "phase has no raw production layers")
+    _require(
+        all(isinstance(descriptor, dict) for descriptor in descriptors),
+        "phase raw production layer descriptor is malformed",
+    )
+    kinds = [descriptor.get("kind") for descriptor in descriptors]
+    _require(len(kinds) == len(set(kinds)), "phase has a duplicate raw production layer kind")
     by_kind = {descriptor.get("kind"): descriptor for descriptor in descriptors}
     _require(set(by_kind) == set(LAYERS), "phase raw production layer set is incomplete")
+    render_width, render_height = _require_render_extent(phase.get("render_extent"))
     result: dict[str, memoryview] = {}
     for kind, (expected_format, bytes_per_pixel) in LAYERS.items():
         descriptor = by_kind[kind]
@@ -100,6 +117,10 @@ def _phase_layers(
             f"{kind} descriptor contains invalid dimensions or range",
         )
         _require(width > 0 and height > 0, f"{kind} extent is empty")
+        _require(
+            (width, height) == (render_width, render_height),
+            f"{kind} extent does not match phase render_extent",
+        )
         _require(length == width * height * bytes_per_pixel, f"{kind} byte length mismatch")
         _require(offset + length <= len(payload), f"{kind} payload range exceeds artifact")
         span = (offset, offset + length)
