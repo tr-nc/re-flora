@@ -23,7 +23,7 @@ FUNCTION_INVOCATION = re.compile(
 )
 SHELL_FUNCTION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{$")
 CURRENT_FUNCTION_DEFINITION = re.compile(
-    r"^\s*(?:function\s+analyze_current_capture(?:\s|$)"
+    r"^\s*(?:function\s+analyze_current_capture(?:\s*\(\s*\))?(?:\s|$)"
     r"|analyze_current_capture\s*\(\s*\))"
 )
 CURRENT_FUNCTION_OVERRIDE = re.compile(
@@ -51,6 +51,42 @@ RUNNER_INVOCATION_INVENTORY: dict[str, dict[str, int]] = {
     "check_ddgi_terrain_edit_cycle.sh": {"run_case": 2},
     "check_ddgi_transport_acceptance.sh": {"run_analysis": 1},
 }
+RUNNER_PRODUCTION_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "check_ddgi_correctness.sh": frozenset(
+        {"scripts/analyze_current_environment_irradiance_capture.py"}
+    ),
+    "check_ddgi_inflight_terrain_edits.sh": frozenset(
+        {"scripts/analyze_current_environment_irradiance_capture.py"}
+    ),
+    "check_ddgi_lifecycle_acceptance.sh": frozenset(
+        {
+            "scripts/analyze_current_environment_irradiance_capture.py",
+            "scripts/validate_ddgi_radiance_lifecycle.py",
+        }
+    ),
+    "check_ddgi_local_terrain_convergence.sh": frozenset(
+        {"scripts/analyze_current_environment_irradiance_capture.py"}
+    ),
+    "check_ddgi_runtime_terrain_edits.sh": frozenset(
+        {"scripts/analyze_current_environment_irradiance_capture.py"}
+    ),
+    "check_ddgi_terrain_edit_cycle.sh": frozenset(
+        {"scripts/analyze_current_environment_irradiance_capture.py"}
+    ),
+    "check_ddgi_transport_acceptance.sh": frozenset(
+        {
+            "scripts/analyze_current_environment_irradiance_capture.py",
+            "scripts/check_ddgi_correctness.sh",
+            "scripts/check_ddgi_lifecycle_acceptance.sh",
+            "scripts/check_ddgi_runtime_terrain_edits.sh",
+            "scripts/check_ddgi_sky_normalization_evidence.py",
+            "scripts/summarize_ddgi_convergence.py",
+        }
+    ),
+}
+PRODUCTION_SCRIPT_REFERENCE = re.compile(
+    r"\$repo_root/(scripts/[A-Za-z0-9_.-]+\.(?:py|sh))"
+)
 
 
 def production_runner_invocation_failures(
@@ -87,11 +123,39 @@ def production_runner_invocation_failures(
             "runner current-schema invocation inventory differs from "
             f"{expected_inventory}"
         )
+    expected_dependencies = RUNNER_PRODUCTION_DEPENDENCIES.get(runner_name)
+    actual_dependencies = frozenset(PRODUCTION_SCRIPT_REFERENCE.findall(source))
+    if expected_dependencies is None:
+        failures.append(f"runner has no declared dependency inventory: {runner_name}")
+    elif actual_dependencies != expected_dependencies:
+        failures.append(
+            "runner production evidence dependencies differ from "
+            f"{sorted(expected_dependencies)}"
+        )
     if COMPATIBILITY_ENTRY in source:
         failures.append("runner names the compatibility analyzer")
     if "--expect-version" in source:
         failures.append("runner exposes RFIRR version selection")
     return failures
+
+
+def production_evidence_dependencies(sources: dict[str, str]) -> frozenset[str]:
+    """Return the declared transitive closure for the seven production runners."""
+    pending = list(sources)
+    visited: set[str] = set()
+    dependencies: set[str] = {f"scripts/{name}" for name in sources}
+    while pending:
+        runner_name = pending.pop()
+        if runner_name in visited:
+            continue
+        visited.add(runner_name)
+        declared = RUNNER_PRODUCTION_DEPENDENCIES.get(runner_name, frozenset())
+        dependencies.update(declared)
+        for dependency in declared:
+            child_name = dependency.removeprefix("scripts/")
+            if child_name in sources and child_name not in visited:
+                pending.append(child_name)
+    return frozenset(dependencies)
 
 
 def _invocation_inventory(lines: list[str]) -> dict[str, int]:

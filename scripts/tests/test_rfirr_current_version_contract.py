@@ -17,8 +17,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 from rfirr_production_runner_contract import (  # noqa: E402
     RUNNER_INVOCATION_INVENTORY,
+    RUNNER_PRODUCTION_DEPENDENCIES,
+    production_evidence_dependencies,
     production_runner_invocation_failures,
 )
+from shader_validation_workflow_contract import REQUIRED_OWNER_PATHS  # noqa: E402
 
 
 class RfirrCurrentVersionContractTests(unittest.TestCase):
@@ -100,10 +103,10 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         runner_name = "check_ddgi_transport_acceptance.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
         mutations = (
-            source.replace(
-                "analyze_current_capture() {", "analyze_current_capture () {", 1
-            ),
+            source + "\nanalyze_current_capture(){ true; }\n",
+            source + "\nanalyze_current_capture () { true; }\n",
             source + "\nfunction analyze_current_capture { true; }\n",
+            source + "\nfunction analyze_current_capture() { true; }\n",
             source + "\nalias analyze_current_capture=true\n",
             source + "\nanalyze_current_capture=true\n",
         )
@@ -111,6 +114,22 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             with self.subTest():
                 self.assertNotEqual(
                     production_runner_invocation_failures(runner_name, mutated), []
+                )
+
+    def test_runner_dependency_inventory_closes_over_all_production_helpers(self) -> None:
+        sources = {
+            runner.name: runner.read_text(encoding="utf-8")
+            for runner in PRODUCTION_RUNNERS
+        }
+        self.assertEqual(set(RUNNER_PRODUCTION_DEPENDENCIES), set(sources))
+        dependencies = production_evidence_dependencies(sources)
+        self.assertIn("scripts/check_ddgi_sky_normalization_evidence.py", dependencies)
+        self.assertTrue(dependencies.issubset(REQUIRED_OWNER_PATHS))
+
+        for runner_name, source in sources.items():
+            with self.subTest(runner=runner_name):
+                self.assertEqual(
+                    production_runner_invocation_failures(runner_name, source), []
                 )
 
     def test_current_schema_entry_accepts_current_and_rejects_v9(self) -> None:

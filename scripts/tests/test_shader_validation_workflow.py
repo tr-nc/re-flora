@@ -123,6 +123,56 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
                     failures,
                 )
 
+    def test_sky_normalization_dependency_requires_its_own_route(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        route = '      - "scripts/check_ddgi_sky_normalization_evidence.py"\n'
+        owner = "scripts/check_ddgi_sky_normalization_evidence.py"
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                mutated = self.remove_event_route(source, event, route)
+                self.assertIn(
+                    f"{event} does not route {owner}",
+                    contract.workflow_contract_failures(mutated),
+                )
+
+    def test_on_and_jobs_must_be_unique_root_parents(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        mutations = {
+            "renamed-on": source.replace("on:\n", "decoy:\n", 1),
+            "renamed-jobs": source.replace("jobs:\n", "decoy:\n", 1),
+            "decoy-events": source.replace(
+                "  pull_request:\n", "  disabled_pull_request:\n", 1
+            ).replace(
+                "on:\n",
+                "decoy:\n"
+                "  pull_request:\n"
+                "    paths:\n"
+                '      - "scripts/**"\n'
+                "  push:\n"
+                "    paths:\n"
+                '      - "scripts/**"\n'
+                "on:\n",
+                1,
+            ),
+            "decoy-fedora": source.replace(
+                "  fedora:\n", "  disabled_fedora:\n", 1
+            ).replace(
+                "jobs:\n",
+                "decoy:\n"
+                "  fedora:\n"
+                "    container: fedora:43\n"
+                "    steps:\n"
+                "      - name: Decode Rust DDGI evidence fixture\n"
+                f"        run: {command}\n"
+                "jobs:\n",
+                1,
+            ),
+        }
+        for name, mutated in mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(contract.workflow_contract_failures(mutated), [])
+
     def test_glob_subset_supports_zero_directory_double_star_and_rejects_specials(
         self,
     ) -> None:

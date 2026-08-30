@@ -17,6 +17,7 @@ REQUIRED_OWNER_PATHS = (
     "scripts/check_ddgi_lifecycle_acceptance.sh",
     "scripts/check_ddgi_local_terrain_convergence.sh",
     "scripts/check_ddgi_runtime_terrain_edits.sh",
+    "scripts/check_ddgi_sky_normalization_evidence.py",
     "scripts/check_ddgi_terrain_edit_cycle.sh",
     "scripts/check_ddgi_transport_acceptance.sh",
     "scripts/rfirr_production_runner_contract.py",
@@ -92,9 +93,30 @@ def _mapping_block(lines: list[str], key: str, indent: int) -> list[str]:
     return []
 
 
-def _route_patterns(lines: list[str], event: str) -> tuple[str, ...]:
-    event_block = _mapping_block(lines, event, 2)
-    paths_block = _mapping_block(event_block, "paths", 4)
+def _mapping_blocks(lines: list[str], key: str, indent: int) -> list[list[str]]:
+    blocks: list[list[str]] = []
+    for index, line in enumerate(lines):
+        if _mapping_entry(line, indent) != (key, ""):
+            continue
+        end = index + 1
+        while end < len(lines):
+            candidate = lines[end]
+            if candidate.strip() and not candidate.lstrip().startswith("#"):
+                if _indent(candidate) <= indent:
+                    break
+            end += 1
+        blocks.append(lines[index + 1 : end])
+    return blocks
+
+
+def _route_patterns(on_block: list[str], event: str) -> tuple[str, ...]:
+    event_blocks = _mapping_blocks(on_block, event, 2)
+    if len(event_blocks) != 1:
+        return ()
+    paths_blocks = _mapping_blocks(event_blocks[0], "paths", 4)
+    if len(paths_blocks) != 1:
+        return ()
+    paths_block = paths_blocks[0]
     patterns: list[str] = []
     for line in paths_block:
         if _indent(line) != 6:
@@ -151,8 +173,11 @@ def _supported_route_pattern(pattern: str) -> bool:
     )
 
 
-def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
-    job_block = _mapping_block(lines, job, 2)
+def _step_blocks(jobs_block: list[str], job: str) -> list[list[str]]:
+    job_blocks = _mapping_blocks(jobs_block, job, 2)
+    if len(job_blocks) != 1:
+        return []
+    job_block = job_blocks[0]
     container = _field(job_block, "container", 4)
     if (
         container != ("scalar", ("fedora:43",))
@@ -246,8 +271,15 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
 def workflow_contract_failures(source: str) -> list[str]:
     lines = source.splitlines()
     failures: list[str] = []
+    on_blocks = _mapping_blocks(lines, "on", 0)
+    if len(on_blocks) != 1:
+        failures.append("workflow must have one root on mapping")
+    on_block = on_blocks[0] if len(on_blocks) == 1 else []
     for event in ("pull_request", "push"):
-        patterns = _route_patterns(lines, event)
+        event_blocks = _mapping_blocks(on_block, event, 2)
+        if len(event_blocks) != 1:
+            failures.append(f"root on must have one {event} mapping")
+        patterns = _route_patterns(on_block, event)
         for pattern in patterns:
             if not _supported_route_pattern(pattern):
                 failures.append(f"{event} uses unsupported route pattern {pattern}")
@@ -255,9 +287,15 @@ def workflow_contract_failures(source: str) -> list[str]:
             if not _routes(patterns, owner_path):
                 failures.append(f"{event} does not route {owner_path}")
 
+    jobs_blocks = _mapping_blocks(lines, "jobs", 0)
+    if len(jobs_blocks) != 1:
+        failures.append("workflow must have one root jobs mapping")
+    jobs_block = jobs_blocks[0] if len(jobs_blocks) == 1 else []
+    if len(_mapping_blocks(jobs_block, "fedora", 2)) != 1:
+        failures.append("root jobs must have one fedora mapping")
     fedora_commands = [
         command
-        for step in _step_blocks(lines, "fedora")
+        for step in _step_blocks(jobs_block, "fedora")
         if (command := _step_single_command(step)) is not None
     ]
     if _has_default_shell(lines, 0) or not _global_environment_is_safe(lines):
