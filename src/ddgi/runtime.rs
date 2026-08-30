@@ -101,6 +101,7 @@ pub(crate) struct DdgiValidatedPublication {
     work: DdgiScheduledWork,
     field: DdgiFieldIdentity,
     atlas_validation: DdgiAtlasValidationStats,
+    consecutive_below_threshold: u32,
     kind: DdgiValidatedPublicationKind,
 }
 
@@ -127,6 +128,10 @@ impl DdgiValidatedPublication {
 
     pub(crate) fn atlas_validation(self) -> DdgiAtlasValidationStats {
         self.atlas_validation
+    }
+
+    pub(crate) fn consecutive_below_threshold(self) -> u32 {
+        self.consecutive_below_threshold
     }
 
     pub(crate) fn terminal(self) -> Option<DdgiConvergenceTerminal> {
@@ -205,20 +210,34 @@ fn build_validated_publication(
     outcome: DdgiValidatedIterationOutcome,
     atlas_validation: DdgiAtlasValidationStats,
 ) -> DdgiValidatedPublication {
-    let (work, field, kind) = match outcome {
-        DdgiValidatedIterationOutcome::Published { work, field, .. } => {
-            (work, field, DdgiValidatedPublicationKind::Published)
-        }
+    let (work, field, consecutive_below_threshold, kind) = match outcome {
+        DdgiValidatedIterationOutcome::Published {
+            work,
+            field,
+            consecutive_below_threshold,
+        } => (
+            work,
+            field,
+            consecutive_below_threshold,
+            DdgiValidatedPublicationKind::Published,
+        ),
         DdgiValidatedIterationOutcome::Converged {
             work,
             field,
+            consecutive_below_threshold,
             reason,
-        } => (work, field, DdgiValidatedPublicationKind::Converged(reason)),
+        } => (
+            work,
+            field,
+            consecutive_below_threshold,
+            DdgiValidatedPublicationKind::Converged(reason),
+        ),
     };
     DdgiValidatedPublication {
         work,
         field,
         atlas_validation,
+        consecutive_below_threshold,
         kind,
     }
 }
@@ -1626,12 +1645,14 @@ mod tests {
         );
         assert_eq!(published.field(), field);
         assert_eq!(published.atlas_validation(), atlas_validation);
+        assert_eq!(published.consecutive_below_threshold(), 1);
         assert_eq!(published.terminal(), None);
 
         let converged = build_validated_publication(
             DdgiValidatedIterationOutcome::Converged {
                 work,
                 field,
+                consecutive_below_threshold: 7,
                 reason: DdgiConvergenceReason::Threshold,
             },
             atlas_validation,
@@ -1639,6 +1660,7 @@ mod tests {
         let terminal = converged.terminal().unwrap();
         assert_eq!(converged.field(), field);
         assert_eq!(converged.atlas_validation(), atlas_validation);
+        assert_eq!(converged.consecutive_below_threshold(), 7);
         assert_eq!(terminal.field(), field);
         assert_eq!(terminal.reason(), DdgiConvergenceReason::Threshold);
     }

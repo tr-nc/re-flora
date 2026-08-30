@@ -321,6 +321,41 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                         result.stderr,
                     )
 
+    def test_rejects_same_line_duplicate_evidence_in_each_process_stream(self) -> None:
+        def duplicate_evidence_line(text: str, marker: str) -> str:
+            lines = text.splitlines()
+            index = next(index for index, line in enumerate(lines) if marker in line)
+            lines[index] = f"{lines[index]} {lines[index]}"
+            return "\n".join(lines) + "\n"
+
+        for marker in ("full-atlas validated", " terminal "):
+            for mutated_sources in (("console",), ("runlog",), ("console", "runlog")):
+                with (
+                    self.subTest(marker=marker, mutated_sources=mutated_sources),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    run_dir = Path(directory)
+                    output = run_dir / "summary.json"
+                    self.write_curve(run_dir)
+                    paths = {
+                        "console": run_dir
+                        / "sealed-spacing32-converged-forward.console.log",
+                        "runlog": run_dir
+                        / "sealed-spacing32-converged-forward.run.log",
+                    }
+                    for source in mutated_sources:
+                        path = paths[source]
+                        path.write_text(duplicate_evidence_line(path.read_text(), marker))
+
+                    result = self.run_summarizer(run_dir, output)
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output.exists())
+                    self.assertIn(
+                        "exactly one DDGI convergence evidence marker",
+                        result.stderr,
+                    )
+
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)

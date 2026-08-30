@@ -16,6 +16,8 @@ from pathlib import Path
 DEFAULT_CASES = ("sealed", "portal", "donor", "dogleg")
 DEFAULT_SPACINGS = (32, 16)
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_acceptance.toml"
+VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
+TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
 VALIDATION_PATTERN = re.compile(
     r"field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
@@ -29,13 +31,13 @@ VALIDATION_PATTERN = re.compile(
     r"scanned_stored_texels=(?P<scanned>\d+) "
     r"abs_threshold=(?P<absolute_threshold>[0-9.eE+-]+) "
     r"rel_threshold=(?P<relative_threshold>[0-9.eE+-]+) "
-    r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)"
+    r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)\s*$"
 )
 TERMINAL_PATTERN = re.compile(
     r"terminal field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
-    r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)"
+    r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)\s*$"
 )
 POLICY_PATTERN = re.compile(
     r"initialization requested .*?"
@@ -161,7 +163,15 @@ def parse_curve(
     )
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
     for line in text.splitlines():
-        if "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated" in line:
+        evidence_marker_count = line.count(VALIDATION_MARKER) + line.count(
+            TERMINAL_MARKER
+        )
+        if evidence_marker_count not in (0, 1):
+            raise ValueError(
+                f"expected exactly one DDGI convergence evidence marker on each "
+                f"physical line in {console_path}: {line}"
+            )
+        if VALIDATION_MARKER in line:
             match = VALIDATION_PATTERN.search(line)
             if match is None:
                 raise ValueError(
@@ -188,7 +198,7 @@ def parse_curve(
                     "required_consecutive_epochs": int(values["required"]),
                 }
             )
-        if "[DDGI_CONVERGENCE_EVIDENCE] terminal" in line:
+        if TERMINAL_MARKER in line:
             match = TERMINAL_PATTERN.search(line)
             if match is None:
                 raise ValueError(f"malformed convergence line in {console_path}: {line}")

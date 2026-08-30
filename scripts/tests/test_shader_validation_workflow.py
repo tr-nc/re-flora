@@ -13,6 +13,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertEqual(workflow.count('      - "src/environment_lighting.rs"'), 2)
+        self.assertEqual(workflow.count('      - "src/ddgi/**"'), 2)
         for path in (
             "config/camera_snapshots.toml",
             "config/ddgi_convergence_acceptance.toml",

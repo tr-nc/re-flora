@@ -2659,7 +2659,6 @@ impl Tracer {
                     let work = publication.work();
                     let field = publication.field();
                     let atlas_stats = publication.atlas_validation();
-                    let status = completion.status;
                     let key = field.field();
                     let validation_evidence = DdgiConvergenceValidationEvidence {
                         field_serial: key.serial(),
@@ -2669,7 +2668,7 @@ impl Tracer {
                         state: key.state(),
                         update_epoch: key.update_epoch(),
                         stats: atlas_stats,
-                        consecutive_below_threshold: status.consecutive_below_threshold,
+                        consecutive_below_threshold: publication.consecutive_below_threshold(),
                     };
                     log::debug!(
                         target: DDGI_CONVERGENCE_EVIDENCE_TARGET,

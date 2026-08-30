@@ -799,6 +799,7 @@ pub enum DdgiValidatedIterationOutcome {
     Converged {
         work: DdgiScheduledWork,
         field: DdgiFieldIdentity,
+        consecutive_below_threshold: u32,
         reason: DdgiConvergenceReason,
     },
 }
@@ -1981,6 +1982,7 @@ impl DdgiVolume {
                 Ok(DdgiValidatedIterationOutcome::Converged {
                     work: iteration.work,
                     field,
+                    consecutive_below_threshold,
                     reason,
                 })
             }

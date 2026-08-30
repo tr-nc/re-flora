@@ -49,6 +49,7 @@ spacing 16.
 Runtime terrain, Flora, and Leaves intentionally use Moment visibility only; exact segment
 visibility remains a transport and diagnostic oracle. The terminal `walls` gate therefore records
 the accepted Moment-only leakage ceiling rather than the older Full/Moment-times-Exact ceiling. In
+the historical 64-epoch evidence under
 `target/ddgi-temporal-final-correctness-converged/20260816T174539Z-229568/`, converged e63
 environment payloads repeated bit-exactly and measured exact-reference luminance-error P99
 `0.391190` at spacing 32 and `0.365590` at spacing 16. The guarded ceilings are `0.400` and `0.375`.
@@ -125,8 +126,9 @@ not a broad frame-performance claim. Atomic descriptor/resource publication itse
 `0.0095 ms` median. Current evidence is under `target/ddgi-temporal-lifecycle-final/`; the baseline
 is under `target/ddgi-temporal-lifecycle-baseline/`.
 
-A separate five-second static portal run reached `Converged e63` and recorded zero scheduler claims
-after the terminal publication. Camera/display frames alone therefore do not keep DDGI awake;
+A separate five-second static portal run under that historical 64-epoch policy reached
+`Converged e63` and recorded zero scheduler claims after the terminal publication. Camera/display
+frames alone therefore do not keep DDGI awake;
 geometry, density, or radiance revision changes are required to restart work.
 
 ## Sky normalization
