@@ -211,6 +211,61 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(output.exists())
 
+    def test_reviewer_split_io_injected_marker_fails_in_either_process_stream(
+        self,
+    ) -> None:
+        injected = "".join(
+            ("[DDGI_CONVERGENCE_", "EVIDENCE]", " injected-before-commit\n")
+        )
+        for mutated_stream in ("console", "runlog"):
+            with (
+                self.subTest(mutated_stream=mutated_stream),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                path = run_dir / (
+                    "sealed-spacing32-converged-forward.console.log"
+                    if mutated_stream == "console"
+                    else "sealed-spacing32-converged-forward.run.log"
+                )
+                path.write_text(injected + path.read_text())
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("malformed DDGI convergence evidence", result.stderr)
+
+    def test_reviewer_parent_sink_duplicate_validation_fails_in_both_streams(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            console = run_dir / "sealed-spacing32-converged-forward.console.log"
+            run_log = run_dir / "sealed-spacing32-converged-forward.run.log"
+            canonical_validation = next(
+                line
+                for line in console.read_text().splitlines()
+                if "full-atlas validated" in line and "update_epoch=4" in line
+            )
+            injected = "".join(
+                (
+                    "[DDGI_CONVERGENCE_",
+                    canonical_validation.removeprefix("[DDGI_CONVERGENCE_"),
+                )
+            )
+            for path in (console, run_log):
+                path.write_text(injected + "\n" + path.read_text())
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_rejects_incomplete_or_changed_preserved_run_log_evidence(self) -> None:
         mutations = (
             ("truncated", lambda text: text.splitlines()[0] + "\n"),

@@ -56,6 +56,18 @@ Run:
 scripts/check_ddgi_transport_acceptance.sh
 ```
 
+Three evidence seams were compared for this acceptance wire:
+
+- Extending the Python source parser to every `std::io`, print, file, alias, helper, or FFI output
+  path was rejected. It would be an incomplete Rust effect analyzer with unbounded false-negative
+  and false-positive cases.
+- Replacing logs with a private artifact writer could become a deep module if convergence evidence
+  needs a first-class binary artifact. It is not the current seam: path binding, atomic write,
+  flush/error semantics, and capture provenance would change the acceptance wire in a larger slice.
+- The selected seam keeps the private canonical macro/log producer as a local structure tripwire
+  and makes independently parsed console plus process-bound run log the runtime authority. This
+  preserves the existing wire while rejecting malformed, extra, or stream-inconsistent evidence.
+
 The runtime keeps convergence facts, exact evidence-line construction, and log emission inside a
 private child module. Batch completion carries only an opaque, non-debuggable pending capability;
 after Tracer's final fallible batch observation succeeds, its last batch-block statement consumes
@@ -77,16 +89,21 @@ interface, while language negative impls remain unstable. The source tripwire th
 only the exact direct-item assertion placement and payload, including absolute paths to the macro
 crate and `core::fmt` traits. Owner-local traits or modules therefore cannot shadow the rustc-owned
 proof, and the tripwire does not duplicate Rust trait semantics.
-Within its deliberately controlled Rust source grammar, the same tripwire requires absolute
-`::log` paths, one child-private log gate and sink, fixed owner-local formatting/vector macros, and
-no other macro or use of the convergence target. This is a local structure guard, not a general
-Rust name resolver or control-flow proof.
+Within the private child module's deliberately controlled Rust source grammar, the same tripwire
+requires absolute `::log` paths, one canonical child-private log gate and sink, and the fixed
+owner-local formatting/vector macros. It does not claim global sink or marker uniqueness and does
+not inspect arbitrary parent `std::io`, print, file, alias, helper, or FFI output. Those effects are
+outside the source tripwire and are rejected at the dual-stream runtime acceptance seam. This is a
+local structure guard, not a general Rust name resolver, effect analyzer, or control-flow proof.
 The private emitter checks that its dedicated target is enabled at Debug level before constructing
 the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 
 The convergence summarizer independently parses both the capture console and its preserved,
-process-bound `.run.log`, then requires byte-semantic equality of the policy, ordered validation
-curve, and terminal identity. Console-only evidence cannot qualify. It validates:
+process-bound `.run.log`, then requires semantic equality of the policy, ordered validation curve,
+and terminal identity. Every physical line containing the convergence marker must be exactly one
+canonical validation or terminal record. Consequently raw stdout/stderr injection, direct run-log
+injection, and synchronized duplicate records fail closed even when the source tripwire cannot see
+how bytes were produced. Console-only or run-log-only evidence cannot qualify. It validates:
 
 - one authoritative typed runtime-policy record per process, checked against the shared acceptance
   contract with no runner-owned epoch-count copy;

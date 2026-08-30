@@ -16,6 +16,7 @@ from pathlib import Path
 DEFAULT_CASES = ("sealed", "portal", "donor", "dogleg")
 DEFAULT_SPACINGS = (32, 16)
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_acceptance.toml"
+EVIDENCE_MARKER = "[DDGI_CONVERGENCE_EVIDENCE]"
 VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
 TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
 VALIDATION_PATTERN = re.compile(
@@ -165,13 +166,17 @@ def parse_curve(
     )
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
     for line in text.splitlines():
-        evidence_marker_count = line.count(VALIDATION_MARKER) + line.count(
-            TERMINAL_MARKER
-        )
+        evidence_marker_count = line.count(EVIDENCE_MARKER)
         if evidence_marker_count not in (0, 1):
             raise ValueError(
                 f"expected exactly one DDGI convergence evidence marker on each "
                 f"physical line in {console_path}: {line}"
+            )
+        if evidence_marker_count == 1 and not (
+            VALIDATION_MARKER in line or TERMINAL_MARKER in line
+        ):
+            raise ValueError(
+                f"malformed DDGI convergence evidence in {console_path}: {line}"
             )
         if VALIDATION_MARKER in line:
             match = VALIDATION_PATTERN.search(line)

@@ -429,15 +429,19 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
 
     child_macros = [
         (index, macro_path(index))
-        for index in range(module_open, module_close)
+        for index in range(module_open + 1, module_close - 1)
         if runtime[index].value == "!"
+        and runtime[index - 1].kind == "IDENT"
+        and runtime[index + 1].value in ("(", "[", "{")
     ]
-    expected_gate = find_sequence(
+    expected_gate_start = find_sequence(
         runtime, (":", ":", "log", ":", ":", "log_enabled", "!"), emit_open, emit_close
-    ) + 6
-    expected_sink = find_sequence(
+    )
+    expected_gate = expected_gate_start + 6
+    expected_sink_start = find_sequence(
         runtime, (":", ":", "log", ":", ":", "debug", "!"), emit_open, emit_close
-    ) + 6
+    )
+    expected_sink = expected_sink_start + 6
     evidence_impl = find_sequence(runtime, ("impl", "Evidence", "{"), module_open, module_close)
     evidence_impl_open = evidence_impl + 2
     evidence_impl_close = matching(runtime, evidence_impl_open, "{", "}")
@@ -466,16 +470,22 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     if [path for _, path in child_macros] != expected_child_macro_paths:
         raise AssertionError("private child macro capability inventory changed")
 
-    level_log = find_sequence(
+    expected_level_start = find_sequence(
         runtime, (":", ":", "log", ":", ":", "Level"), emit_open, emit_close
-    ) + 2
-    child_log_identifiers = [
-        index
-        for index in range(module_open, module_close)
-        if runtime[index].kind == "IDENT" and runtime[index].value == "log"
+    )
+    child_log_paths = [
+        (index, runtime[index + 5].value)
+        for index in range(module_open, module_close - 5)
+        if tuple(token.value for token in runtime[index : index + 5])
+        == (":", ":", "log", ":", ":")
+        and runtime[index + 5].kind == "IDENT"
     ]
-    if child_log_identifiers != [expected_gate - 4, level_log, expected_sink - 4]:
-        raise AssertionError("private child log identifiers escaped the canonical emitter")
+    if child_log_paths != [
+        (expected_gate_start, "log_enabled"),
+        (expected_level_start, "Level"),
+        (expected_sink_start, "debug"),
+    ]:
+        raise AssertionError("private child qualified log paths escaped the canonical emitter")
 
     target_identifiers = [
         index
@@ -494,53 +504,21 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
 
     target_literal = "re_flora::ddgi_convergence_evidence"
     target_literals = [
-        (path, index)
-        for path, tokens in token_sets.items()
-        for index, token in enumerate(tokens)
-        if token.kind == "STRING" and token.value == target_literal
+        index
+        for index in range(module_open, module_close)
+        if runtime[index].kind == "STRING" and runtime[index].value == target_literal
     ]
-    if len(target_literals) != 1 or target_literals[0][0] != RUNTIME:
-        raise AssertionError("private child module must uniquely own the convergence log target")
-    if not module_open < target_literals[0][1] < module_close:
-        raise AssertionError("convergence log target escaped the private child module")
+    if len(target_literals) != 1:
+        raise AssertionError("private child module must own one canonical convergence log target")
 
     marker_literals = [
-        (path, index)
-        for path, tokens in token_sets.items()
-        for index, token in enumerate(tokens)
-        if token.kind == "STRING" and "[DDGI_CONVERGENCE_EVIDENCE]" in token.value
+        index
+        for index in range(module_open, module_close)
+        if runtime[index].kind == "STRING"
+        and "[DDGI_CONVERGENCE_EVIDENCE]" in runtime[index].value
     ]
-    if len(marker_literals) != 2 or any(path != RUNTIME for path, _ in marker_literals):
-        raise AssertionError("private child module must uniquely own both evidence markers")
-    if any(not module_open < index < module_close for _, index in marker_literals):
-        raise AssertionError("convergence evidence marker escaped the private child module")
-
-    targeted_sinks = []
-    for path, tokens in token_sets.items():
-        for index in range(len(tokens) - 5):
-            if (
-                tokens[index].value == "log"
-                and tokens[index + 1].value == ":"
-                and tokens[index + 2].value == ":"
-                and tokens[index + 3].value in ("trace", "debug", "info", "warn", "error")
-                and tokens[index + 4].value == "!"
-                and tokens[index + 5].value == "("
-            ):
-                close = matching(tokens, index + 5, "(", ")")
-                arguments = tokens[index + 6 : close]
-                has_target = any(
-                    arguments[position].value == "target"
-                    and arguments[position + 1].value == ":"
-                    and arguments[position + 2].value == "TARGET"
-                    for position in range(len(arguments) - 2)
-                ) or any(
-                    item.kind == "STRING" and item.value == target_literal
-                    for item in arguments
-                )
-                if has_target:
-                    targeted_sinks.append((path, index, tokens[index + 3].value))
-    if targeted_sinks != [(RUNTIME, expected_sink - 4, "debug")]:
-        raise AssertionError("convergence target must have one canonical private debug sink")
+    if len(marker_literals) != 2:
+        raise AssertionError("private child module must own both canonical evidence markers")
 
     complete = find_sequence(runtime, ("fn", "complete_pending_batch", "("))
     complete_open = next(
@@ -852,10 +830,6 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
             + "\nfn parent_commit(mut alias: DdgiBatchCompletion) {\n"
             "    DdgiBatchCompletion::commit_convergence_evidence(&mut alias);\n"
             "}\n",
-            "extra-target-outside-child": sources[RUNTIME]
-            + '\nconst EXTRA_TARGET: &str = "re_flora::ddgi_convergence_evidence";\n',
-            "extra-marker-outside-child": sources[RUNTIME]
-            + '\nconst EXTRA_MARKER: &str = "[DDGI_CONVERGENCE_EVIDENCE] decoy";\n',
         }
         for name, runtime in boundary_mutations.items():
             with self.subTest(name=name):
@@ -927,6 +901,18 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 "    pub(super) fn prepare(",
                 1,
             ),
+            "aliased-log-import": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    use ::log::log as emit_decoy;\n\n"
+                "    pub(super) fn prepare(",
+                1,
+            ),
+            "logger-api": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    fn injected() { let _ = ::log::logger(); }\n\n"
+                "    pub(super) fn prepare(",
+                1,
+            ),
             "extra-eprintln": sources[RUNTIME].replace(
                 "    pub(super) fn prepare(",
                 "    fn injected() { eprintln!(\"injected\"); }\n\n"
@@ -941,6 +927,38 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 mutated[RUNTIME] = runtime
                 with self.assertRaises(AssertionError):
                     audit_convergence_evidence(mutated)
+
+    def test_non_macro_bangs_and_local_log_names_are_outside_the_source_seam(self) -> None:
+        sources = production_sources()
+        benign = dict(sources)
+        benign[RUNTIME] = benign[RUNTIME].replace(
+            "    pub(super) fn prepare(",
+            "    fn benign(log: bool, other: bool) -> bool { !log != other }\n\n"
+            "    pub(super) fn prepare(",
+            1,
+        )
+
+        audit_convergence_evidence(benign)
+
+    def test_arbitrary_parent_output_is_owned_by_dual_stream_runtime_validation(
+        self,
+    ) -> None:
+        sources = production_sources()
+        outside_source_seam = dict(sources)
+        outside_source_seam[RUNTIME] += (
+            "\nfn reviewer_parent_sinks(mut output: impl ::std::io::Write) {\n"
+            "    let _ = output.write_all(\n"
+            "        concat!(\"[DDGI_CONVERGENCE_\", \"EVIDENCE] injected\").as_bytes(),\n"
+            "    );\n"
+            "    ::log::debug!(\n"
+            "        target: concat!(\"re_flora::ddgi_\", \"convergence_evidence\"),\n"
+            "        \"{}\",\n"
+            "        concat!(\"[DDGI_CONVERGENCE_\", \"EVIDENCE] injected\"),\n"
+            "    );\n"
+            "}\n"
+        )
+
+        audit_convergence_evidence(outside_source_seam)
 
 
 if __name__ == "__main__":

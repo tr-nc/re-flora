@@ -28,6 +28,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         *,
         fail_dogleg: bool = False,
         fail_runtime_child: bool = False,
+        fail_summarizer: bool = False,
         fail_tee: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
@@ -103,6 +104,7 @@ printf '{}\n'
             executable(
                 scripts / "summarize_ddgi_convergence.py",
                 """#!/usr/bin/env bash
+if [[ "${FAKE_FAIL_SUMMARIZER:-0}" == 1 ]]; then exit 47; fi
 arguments=("$@")
 for ((index = 0; index < ${#arguments[@]}; ++index)); do
     if [[ "${arguments[$index]}" == "--output" ]]; then
@@ -131,6 +133,7 @@ done
                     "PATH": f"{fake_bin}:{environment['PATH']}",
                     "DDGI_TRANSPORT_ACCEPTANCE_OUTPUT_DIR": str(root / "output"),
                     "FAKE_FAIL_DOGLEG": "1" if fail_dogleg else "0",
+                    "FAKE_FAIL_SUMMARIZER": "1" if fail_summarizer else "0",
                 }
             )
             return subprocess.run(
@@ -237,6 +240,12 @@ done
         self.assertEqual(result.returncode, 1)
         self.assertIn("tee_status=9", result.stderr)
         self.assertNotIn("filter-history-outcome=ACCEPTED", result.stdout)
+
+    def test_transport_requires_the_dual_stream_convergence_summarizer(self) -> None:
+        result = self.run_fake_runner(fail_summarizer=True)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL convergence provenance summary", result.stderr)
 
     def test_direct_sun_proof_follows_successful_runtime_child(self) -> None:
         failed = self.run_fake_runner(fail_runtime_child=True)
