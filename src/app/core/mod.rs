@@ -898,10 +898,6 @@ impl App {
     }
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
-        let source_frame = self
-            .scenario_owner
-            .connectivity_event()
-            .source_frame(frame_slot);
         let Some(profiler) = &self.gpu_profiler else {
             return;
         };
@@ -922,8 +918,7 @@ impl App {
                     );
                 }
                 self.scenario_owner
-                    .connectivity_event()
-                    .observe_gpu_results(source_frame, &results);
+                    .observe_connectivity_gpu_completion(frame_slot, &results);
                 self.gpu_profiler_latest_results = Some(results);
             }
             Ok(None) => {}
@@ -3499,9 +3494,10 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                self.scenario_owner
-                    .connectivity_event()
-                    .note_gpu_frame_started(frame_slot, self.time_info.total_frame_count());
+                self.scenario_owner.record_connectivity_gpu_submission(
+                    frame_slot,
+                    self.time_info.total_frame_count(),
+                );
                 let cmdbuf = frame.command_buffer();
                 let frame_extent_generation = frame.frame_extent_generation();
                 assert_eq!(

@@ -396,6 +396,26 @@ impl ScenarioOwner {
             ) => ensure_inactive_connectivity_result(result),
         }
     }
+
+    pub(in crate::app::core) fn record_connectivity_gpu_submission(
+        &mut self,
+        frame_slot: usize,
+        frame: u64,
+    ) {
+        if let Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = self {
+            bench.record_gpu_submission(frame_slot, frame);
+        }
+    }
+
+    pub(in crate::app::core) fn observe_connectivity_gpu_completion(
+        &mut self,
+        frame_slot: usize,
+        results: &GpuProfilerFrameResults,
+    ) {
+        if let Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = self {
+            bench.observe_gpu_completion(frame_slot, results);
+        }
+    }
 }
 
 fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
@@ -1001,25 +1021,19 @@ impl TerrainConnectivityBench {
         }
     }
 
-    pub(in crate::app::core) fn gpu_source_frame(&self, frame_slot: usize) -> Option<u64> {
-        self.gpu_source_frame_by_slot
-            .get(frame_slot)
-            .copied()
-            .flatten()
-    }
-
-    pub(in crate::app::core) fn note_gpu_frame_started(&mut self, frame_slot: usize, frame: u64) {
+    fn record_gpu_submission(&mut self, frame_slot: usize, frame: u64) {
         if self.gpu_source_frame_by_slot.len() <= frame_slot {
             self.gpu_source_frame_by_slot.resize(frame_slot + 1, None);
         }
         self.gpu_source_frame_by_slot[frame_slot] = Some(frame);
     }
 
-    pub(in crate::app::core) fn observe_gpu_results(
-        &mut self,
-        source_frame: Option<u64>,
-        results: &GpuProfilerFrameResults,
-    ) {
+    fn observe_gpu_completion(&mut self, frame_slot: usize, results: &GpuProfilerFrameResults) {
+        let source_frame = self
+            .gpu_source_frame_by_slot
+            .get(frame_slot)
+            .copied()
+            .flatten();
         let Some(source_frame) = source_frame else {
             return;
         };
@@ -1841,6 +1855,41 @@ mod tests {
             .expect("failed execution must leave the owner awaiting its exact result")
             .to_string()
             .contains("awaiting an action result"));
+    }
+
+    #[test]
+    fn gpu_completion_observes_the_source_frame_from_the_exact_submission_slot() {
+        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            }),
+        ));
+        let results = GpuProfilerFrameResults {
+            scopes: Vec::new(),
+            dropped_scope_count: 0,
+            timestamp_period_ns: 1.0,
+        };
+        owner.record_connectivity_gpu_submission(0, 31);
+        owner.record_connectivity_gpu_submission(3, 47);
+
+        owner.observe_connectivity_gpu_completion(3, &results);
+
+        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = owner
+        else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        assert_eq!(
+            bench
+                .pre_event_gpu
+                .back()
+                .expect("the exact submitted slot must produce one observation")
+                .source_frame,
+            47
+        );
     }
 
     #[test]

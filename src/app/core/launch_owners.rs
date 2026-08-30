@@ -12,7 +12,6 @@ use crate::audio::{
     CanopyAudioDiagnosticPose, CanopyAudioTelemetrySnapshot, CanopyAudioTrajectoryPhase,
 };
 use crate::cli::{AutomationPlan, CameraAutomation, Scenario};
-use re_flora_vkn::GpuProfilerFrameResults;
 
 pub(super) struct AutomationOwners {
     pub(super) capture: CaptureOwner,
@@ -245,31 +244,6 @@ pub(super) enum ConnectivityEvent<'a> {
 }
 
 impl ConnectivityEvent<'_> {
-    pub(super) fn source_frame(&self, frame_slot: usize) -> Option<u64> {
-        match self {
-            Self::None => None,
-            Self::Active(bench) => bench.gpu_source_frame(frame_slot),
-        }
-    }
-
-    pub(super) fn note_gpu_frame_started(&mut self, frame_slot: usize, frame: u64) {
-        match self {
-            Self::None => {}
-            Self::Active(bench) => bench.note_gpu_frame_started(frame_slot, frame),
-        }
-    }
-
-    pub(super) fn observe_gpu_results(
-        &mut self,
-        source_frame: Option<u64>,
-        results: &GpuProfilerFrameResults,
-    ) {
-        match self {
-            Self::None => {}
-            Self::Active(bench) => bench.observe_gpu_results(source_frame, results),
-        }
-    }
-
     pub(super) fn isolates_particle_capacity(&self) -> bool {
         match self {
             Self::None => false,
