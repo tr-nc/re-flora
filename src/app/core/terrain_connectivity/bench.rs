@@ -321,6 +321,17 @@ enum ConnectivityAction {
     SpawnVisualVoxels {
         voxels: Vec<(UVec3, u8)>,
     },
+    HandleManualRelease(ManualReleasePlan),
+}
+
+enum ManualReleasePlan {
+    Ignore,
+    Prepare {
+        frame: u64,
+        revision_before: u32,
+        bound: UAabb3,
+        seed: UVec3,
+    },
 }
 
 struct BoundedCommitPayload {
@@ -347,6 +358,7 @@ enum ConnectivityResult {
     AtomicityValidated(anyhow::Result<AtomicityValidationResult>),
     BoundedCommitted(anyhow::Result<EventStages>),
     VisualVoxelsSpawned(anyhow::Result<VisualSpawnResult>),
+    ManualReleaseHandled(anyhow::Result<Option<ManualReleasePrepared>>),
     #[cfg(test)]
     ExecutionFailed(anyhow::Error),
 }
@@ -462,6 +474,39 @@ mod app_executor {
                     })
                 })())
             }
+            ConnectivityAction::HandleManualRelease(plan) => {
+                let outcome = match plan {
+                    ManualReleasePlan::Ignore => Ok(None),
+                    ManualReleasePlan::Prepare {
+                        frame,
+                        revision_before,
+                        bound,
+                        seed,
+                    } => {
+                        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+                        let App {
+                            terrain_connectivity,
+                            plain_builder,
+                            ..
+                        } = app;
+                        terrain_connectivity.transact_player_release(world_dim, || {
+                            let snapshot_started = Instant::now();
+                            let snapshot = plain_builder
+                                .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
+                            Ok(ManualReleasePrepared {
+                                frame,
+                                revision_before,
+                                snapshot: SnapshotReadResult {
+                                    job: BoundedTopologyJob::new(bound, snapshot, seed)?,
+                                    snapshot_readback_us: snapshot_started.elapsed().as_secs_f64()
+                                        * 1_000_000.0,
+                                },
+                            })
+                        })
+                    }
+                };
+                ConnectivityResult::ManualReleaseHandled(outcome)
+            }
         };
         ConnectivityExecution(result)
     }
@@ -481,6 +526,12 @@ struct FixtureInstallResult {
 struct SnapshotReadResult {
     job: BoundedTopologyJob,
     snapshot_readback_us: f64,
+}
+
+struct ManualReleasePrepared {
+    frame: u64,
+    revision_before: u32,
+    snapshot: SnapshotReadResult,
 }
 
 struct AtomicityValidationResult {
@@ -516,10 +567,14 @@ impl ScenarioOwner {
         execution: ConnectivityExecution,
     ) -> anyhow::Result<ConnectivityEffect> {
         let result = execution.into_result();
+        let manual_release_handled = matches!(&result, ConnectivityResult::ManualReleaseHandled(_));
         match self {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
                 bench.apply_result(result)?;
-                Ok(ConnectivityEffect::default())
+                Ok(ConnectivityEffect {
+                    manual_release_handled,
+                    ..ConnectivityEffect::default()
+                })
             }
             Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
                 ensure_inactive_connectivity_result(result)?;
@@ -584,24 +639,15 @@ impl ScenarioOwner {
         }
     }
 
-    fn try_begin_manual_connectivity_release(
+    fn plan_manual_connectivity_release(
         &mut self,
-        terrain_connectivity: &mut TerrainConnectivityRuntime,
-        plain_builder: &mut PlainBuilder,
         facts: ManualReleaseFacts,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<ConnectivityAction> {
         match self {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench))
                 if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
             {
-                bench
-                    .begin_manual_release(
-                        terrain_connectivity,
-                        plain_builder,
-                        facts.frame,
-                        facts.visible_revision,
-                    )
-                    .map(|_| true)
+                Ok(bench.plan_manual_release(facts))
             }
             Self::Diagnostic(
                 DiagnosticScenarioOwner::CanopyAudio(_)
@@ -610,7 +656,7 @@ impl ScenarioOwner {
             )
             | Self::World(_)
             | Self::Water(_)
-            | Self::TestScene(_) => Ok(false),
+            | Self::TestScene(_) => Ok(ConnectivityAction::None),
         }
     }
 
@@ -641,6 +687,7 @@ fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Re
         | ConnectivityResult::AtomicityValidated(_)
         | ConnectivityResult::BoundedCommitted(_)
         | ConnectivityResult::VisualVoxelsSpawned(_)
+        | ConnectivityResult::ManualReleaseHandled(_)
         | ConnectivityResult::FixtureInstalled { .. } => {
             anyhow::bail!("inactive scenario received a connectivity result")
         }
@@ -657,17 +704,14 @@ impl App {
             frame: self.time_info.total_frame_count(),
             visible_revision: self.visible_terrain_revision,
         };
-        let App {
-            scenario_owner,
-            terrain_connectivity,
-            plain_builder,
-            ..
-        } = self;
-        scenario_owner.try_begin_manual_connectivity_release(
-            terrain_connectivity,
-            plain_builder,
-            facts,
-        )
+        let action = self
+            .scenario_owner
+            .plan_manual_connectivity_release(facts)?;
+        let execution = self.execute_connectivity_action(action);
+        let effect = self
+            .scenario_owner
+            .apply_connectivity_execution(execution)?;
+        Ok(effect.manual_release_handled)
     }
 
     pub(in crate::app::core) fn observe_completed_connectivity_benchmark_frame(
@@ -738,50 +782,17 @@ impl TerrainConnectivityBench {
         }
     }
 
-    fn begin_manual_release(
-        &mut self,
-        terrain_connectivity: &mut TerrainConnectivityRuntime,
-        plain_builder: &mut PlainBuilder,
-        frame: u64,
-        revision_before: u32,
-    ) -> anyhow::Result<()> {
-        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-        if terrain_connectivity
-            .take_player_release(world_dim)
-            .is_none()
-        {
-            return Ok(());
+    fn plan_manual_release(&self, facts: ManualReleaseFacts) -> ConnectivityAction {
+        if self.state == BenchState::AwaitingManualEdit {
+            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
+                frame: facts.frame,
+                revision_before: facts.visible_revision,
+                bound: isolation_bound(),
+                seed: manual_canopy_seed(),
+            })
+        } else {
+            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Ignore)
         }
-        if self.state != BenchState::AwaitingManualEdit {
-            log::warn!(
-                "[TERRAIN_CONNECTIVITY_MANUAL] ignored edit release while state={:?}",
-                self.state
-            );
-            return Ok(());
-        }
-
-        let snapshot_started = Instant::now();
-        let bound = isolation_bound();
-        let snapshot = plain_builder.read_chunk_atlas_region(bound.min(), bound.dimensions())?;
-        let snapshot_readback_us = snapshot_started.elapsed().as_secs_f64() * 1_000_000.0;
-        self.bounded_job = Some(BoundedTopologyJob::new(
-            bound,
-            snapshot,
-            manual_canopy_seed(),
-        )?);
-        self.state = BenchState::Tracing {
-            release_frame: frame,
-            revision_before,
-            snapshot_readback_us,
-            classification_us: 0.0,
-        };
-        log::info!(
-            "[TERRAIN_CONNECTIVITY_MANUAL] phase=job_start release_frame={} revision={} voxel_budget={}",
-            frame,
-            revision_before,
-            self.options.voxel_budget,
-        );
-        Ok(())
     }
 
     fn next_action(&mut self, facts: ConnectivityFacts) -> anyhow::Result<ConnectivityAction> {
@@ -989,6 +1000,29 @@ impl TerrainConnectivityBench {
             #[cfg(test)]
             (_, ConnectivityResult::ExecutionFailed(error)) => Err(error),
             (_, ConnectivityResult::None) => Ok(()),
+            (state, ConnectivityResult::ManualReleaseHandled(outcome)) => {
+                let Some(prepared) = outcome? else {
+                    return Ok(());
+                };
+                anyhow::ensure!(
+                    state == BenchState::AwaitingManualEdit,
+                    "manual connectivity release completed while state={state:?}"
+                );
+                self.bounded_job = Some(prepared.snapshot.job);
+                self.state = BenchState::Tracing {
+                    release_frame: prepared.frame,
+                    revision_before: prepared.revision_before,
+                    snapshot_readback_us: prepared.snapshot.snapshot_readback_us,
+                    classification_us: 0.0,
+                };
+                log::info!(
+                    "[TERRAIN_CONNECTIVITY_MANUAL] phase=job_start release_frame={} revision={} voxel_budget={}",
+                    prepared.frame,
+                    prepared.revision_before,
+                    self.options.voxel_budget,
+                );
+                Ok(())
+            }
             (
                 BenchState::InstallFixture,
                 ConnectivityResult::FixtureInstalled { frame, outcome },

@@ -75,6 +75,23 @@ impl TerrainConnectivityRuntime {
         Some(TerrainConnectivityRequest::PlayerEdit { edited, block })
     }
 
+    fn transact_player_release<T>(
+        &mut self,
+        world_dim: UVec3,
+        execute: impl FnOnce() -> anyhow::Result<T>,
+    ) -> anyhow::Result<Option<T>> {
+        let Some(request) = self.take_player_release(world_dim) else {
+            return Ok(None);
+        };
+        match execute() {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                self.restore(request);
+                Err(error)
+            }
+        }
+    }
+
     fn take_loaded_world(&mut self, world_dim: UVec3) -> Option<TerrainConnectivityRequest> {
         if !matches!(self.pending, Some(PendingTerrainConnectivity::LoadedWorld)) {
             return None;
