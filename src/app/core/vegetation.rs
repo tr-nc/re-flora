@@ -1152,6 +1152,7 @@ pub(super) struct GardenTrees {
     next_tree_id: u32,
     next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
+    staged_tuned_mature_desc: Option<TreeDesc>,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
 }
@@ -1164,6 +1165,7 @@ impl GardenTrees {
             next_tree_id: 1,
             next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
+            staged_tuned_mature_desc: None,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
         }
@@ -1176,6 +1178,7 @@ impl GardenTrees {
             next_tree_id: self.next_tree_id,
             next_canopy_acoustic_generation: self.next_canopy_acoustic_generation,
             tuned_tree_id: self.tuned_tree_id,
+            staged_tuned_mature_desc: None,
             previous_bound: self.previous_bound,
             leaf_emitters: self.leaf_emitters.empty_like(),
         }
@@ -1210,10 +1213,19 @@ impl GardenTrees {
         self.records.get(&self.tuned_tree_id).cloned()
     }
 
-    fn age_rebuild_sources(&self) -> Vec<(u32, TreeRecord)> {
+    fn take_age_rebuild_sources(&mut self) -> Vec<(u32, TreeRecord)> {
+        let staged_tuned_mature_desc = self.staged_tuned_mature_desc.take();
         self.records
             .iter()
-            .map(|(&tree_id, record)| (tree_id, record.clone()))
+            .map(|(&tree_id, record)| {
+                let mut record = record.clone();
+                if tree_id == self.tuned_tree_id {
+                    if let Some(staged) = &staged_tuned_mature_desc {
+                        record.mature_desc = staged.clone();
+                    }
+                }
+                (tree_id, record)
+            })
             .collect()
     }
 
@@ -1226,10 +1238,10 @@ impl GardenTrees {
     }
 
     fn stage_tuned_description(&mut self, mature_desc: TreeDesc) -> bool {
-        let Some(record) = self.records.get_mut(&self.tuned_tree_id) else {
+        if !self.records.contains_key(&self.tuned_tree_id) {
             return false;
-        };
-        record.mature_desc = mature_desc;
+        }
+        self.staged_tuned_mature_desc = Some(mature_desc);
         true
     }
 
@@ -2377,7 +2389,7 @@ impl App {
     }
 
     pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
-        let records = self.trees.age_rebuild_sources();
+        let records = self.trees.take_age_rebuild_sources();
         if records.is_empty() {
             return Ok(());
         }
@@ -3807,6 +3819,21 @@ mod tests {
         publication
     }
 
+    fn prepared_age_source(
+        tree_id: u32,
+        source: TreeRecord,
+        generation: u64,
+    ) -> PreparedTreePublication {
+        let compiled = TreePlacementService::compile(
+            source.mature_desc.clone(),
+            source.position,
+            UAabb3::default(),
+            0.5,
+            generation,
+        );
+        PreparedTreePublication::new(tree_id, source.mature_desc, compiled)
+    }
+
     fn prepared_tree(tree_id: u32, generation: u64, seed: u64) -> PreparedTreePublication {
         let mut mature_desc = TreeDesc::default();
         mature_desc.branching.seed = seed;
@@ -4023,6 +4050,38 @@ mod tests {
             .expect_err("replacement-only overlap must be part of the checkpoint");
 
         assert_eq!(host.physical.voxels, HashSet::from([1, 3, 4]));
+    }
+
+    #[test]
+    fn staged_tuned_description_commits_with_age_or_is_discarded_after_failure() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden
+            .place(prepared_tree(0, 501, 5001), &mut host)
+            .unwrap();
+        let old_seed = garden.records[&0].mature_desc.branching.seed;
+        let mut staged_desc = garden.records[&0].mature_desc.clone();
+        staged_desc.branching.seed = 5002;
+
+        assert!(garden.stage_tuned_description(staged_desc.clone()));
+        let (_, staged_source) = garden.take_age_rebuild_sources().remove(0);
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, old_seed);
+        host.fail_primitive = Some(TreePublicationPrimitive::PublishCanopyAudio);
+        garden
+            .replace(prepared_age_source(0, staged_source, 502), &mut host)
+            .expect_err("failed age publication must not commit the staged description");
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, old_seed);
+
+        let (_, next_source) = garden.take_age_rebuild_sources().remove(0);
+        assert_eq!(next_source.mature_desc.branching.seed, old_seed);
+
+        host.fail_primitive = None;
+        assert!(garden.stage_tuned_description(staged_desc));
+        let (_, retry_source) = garden.take_age_rebuild_sources().remove(0);
+        garden
+            .replace(prepared_age_source(0, retry_source, 503), &mut host)
+            .unwrap();
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, 5002);
     }
 
     #[test]
