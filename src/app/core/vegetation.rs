@@ -936,6 +936,8 @@ struct TreeTrunkPublicationOutcome {
 }
 
 trait TreePublicationPrimitiveHost {
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()>;
+
     /// Validate and stage everything that can fail before the first observable publication action.
     fn prepare(
         &mut self,
@@ -987,6 +989,10 @@ impl<'a, H: TreePublicationPrimitiveHost> TreePublicationExecutor<'a, H> {
         previous: Option<&TreeRecord>,
     ) -> Result<()> {
         self.host.prepare(operation, tree_id, publication, previous)
+    }
+
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+        self.host.prepare_retained_trunks(retained)
     }
 
     fn execute(
@@ -1075,7 +1081,7 @@ impl PreparedTreePublication {
             .map(|position| {
                 (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self {
             tree_id,
             rebuild_bound: compiled.rebuild_bound,
@@ -1142,6 +1148,7 @@ impl TreePublicationReceipt {
 
 pub(super) struct GardenTrees {
     records: HashMap<u32, TreeRecord>,
+    trunk_tree_ids_by_chunk: HashMap<UVec3, HashSet<u32>>,
     next_tree_id: u32,
     next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
@@ -1153,6 +1160,7 @@ impl GardenTrees {
     pub(super) fn new(leaf_emitter_desc: LeafEmitterDesc) -> Self {
         Self {
             records: HashMap::new(),
+            trunk_tree_ids_by_chunk: HashMap::new(),
             next_tree_id: 1,
             next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
@@ -1164,6 +1172,7 @@ impl GardenTrees {
     fn empty_shell(&self) -> Self {
         Self {
             records: HashMap::new(),
+            trunk_tree_ids_by_chunk: HashMap::new(),
             next_tree_id: self.next_tree_id,
             next_canopy_acoustic_generation: self.next_canopy_acoustic_generation,
             tuned_tree_id: self.tuned_tree_id,
@@ -1224,18 +1233,83 @@ impl GardenTrees {
         true
     }
 
+    fn trunk_chunks(record: &TreeRecord) -> Vec<UVec3> {
+        world_ops::affected_chunk_indices_for_bound(record.bound, super::VOXEL_DIM_PER_CHUNK)
+    }
+
+    fn index_trunk(&mut self, tree_id: u32, record: &TreeRecord) {
+        for chunk_id in Self::trunk_chunks(record) {
+            self.trunk_tree_ids_by_chunk
+                .entry(chunk_id)
+                .or_default()
+                .insert(tree_id);
+        }
+    }
+
+    fn unindex_trunk(&mut self, tree_id: u32, record: &TreeRecord) {
+        let mut empty_chunks = Vec::new();
+        for chunk_id in Self::trunk_chunks(record) {
+            let Some(tree_ids) = self.trunk_tree_ids_by_chunk.get_mut(&chunk_id) else {
+                continue;
+            };
+            tree_ids.remove(&tree_id);
+            if tree_ids.is_empty() {
+                empty_chunks.push(chunk_id);
+            }
+        }
+        for chunk_id in empty_chunks {
+            self.trunk_tree_ids_by_chunk.remove(&chunk_id);
+        }
+    }
+
+    fn retained_trunks(
+        &self,
+        target_tree_ids: &HashSet<u32>,
+        dirty_bounds: &[UAabb3],
+    ) -> Vec<(u32, TreeRecord)> {
+        let mut candidate_ids = HashSet::new();
+        for bound in dirty_bounds {
+            for chunk_id in
+                world_ops::affected_chunk_indices_for_bound(*bound, super::VOXEL_DIM_PER_CHUNK)
+            {
+                if let Some(tree_ids) = self.trunk_tree_ids_by_chunk.get(&chunk_id) {
+                    candidate_ids.extend(tree_ids.iter().copied());
+                }
+            }
+        }
+        let mut retained = candidate_ids
+            .into_iter()
+            .filter(|tree_id| !target_tree_ids.contains(tree_id))
+            .filter_map(|tree_id| {
+                let record = self.records.get(&tree_id)?;
+                dirty_bounds
+                    .iter()
+                    .any(|bound| bound.intersects(&record.bound))
+                    .then(|| (tree_id, record.clone()))
+            })
+            .collect::<Vec<_>>();
+        retained.sort_unstable_by_key(|(tree_id, _)| *tree_id);
+        retained
+    }
+
     fn commit_placement(&mut self, tree_id: u32, record: TreeRecord) {
         if tree_id == self.next_tree_id {
             self.next_tree_id += 1;
         }
+        if let Some(previous) = self.records.get(&tree_id).cloned() {
+            self.unindex_trunk(tree_id, &previous);
+        }
         self.previous_bound = self.previous_bound.union_with(&record.bound);
         self.leaf_emitters.upsert(tree_id, &record.leaf_clusters);
+        self.index_trunk(tree_id, &record);
         self.records.insert(tree_id, record);
     }
 
     fn commit_removal(&mut self, tree_id: u32) -> Option<TreeRecord> {
         self.leaf_emitters.remove(tree_id);
-        self.records.remove(&tree_id)
+        let record = self.records.remove(&tree_id)?;
+        self.unindex_trunk(tree_id, &record);
+        Some(record)
     }
 
     fn observe_previous_bound(&mut self, bound: UAabb3) {
@@ -1258,7 +1332,23 @@ impl GardenTrees {
     ) -> Result<Vec<TreePublicationReceipt>> {
         anyhow::ensure!(!publications.is_empty(), "tree publication batch is empty");
         let plan = TreePublicationPlan::for_operation(operation);
+        let target_tree_ids = publications
+            .iter()
+            .map(|publication| publication.tree_id)
+            .collect::<HashSet<_>>();
+        let dirty_bounds = publications
+            .iter()
+            .flat_map(|publication| {
+                self.records
+                    .get(&publication.tree_id)
+                    .map(|record| record.bound)
+                    .into_iter()
+                    .chain(std::iter::once(publication.record.bound))
+            })
+            .collect::<Vec<_>>();
+        let retained_trunks = self.retained_trunks(&target_tree_ids, &dirty_bounds);
         let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare_retained_trunks(&retained_trunks)?;
         for publication in &publications {
             executor.prepare(
                 plan.operation,
@@ -1435,6 +1525,11 @@ impl GardenTrees {
         };
         let plan = TreePublicationPlan::for_operation(TreePublicationOperation::Remove);
         let mut executor = TreePublicationExecutor::new(host);
+        let retained_trunks = self.retained_trunks(
+            &HashSet::from([tree_id]),
+            std::slice::from_ref(&previous.bound),
+        );
+        executor.prepare_retained_trunks(&retained_trunks)?;
         executor.prepare(plan.operation, tree_id, None, Some(&previous))?;
         if let Err(error) = executor.execute(TreePublicationAction::PublishTrunks, tree_id, None) {
             return match executor.compensate() {
@@ -1609,8 +1704,11 @@ impl TreeTrunkPhysicalTransaction {
         }
     }
 
-    fn from_prepared(prepared: &[PreparedTreeCompensation]) -> Self {
-        let before = prepared
+    fn from_prepared(
+        prepared: &[PreparedTreeCompensation],
+        retained: &[(u32, TreeRecord)],
+    ) -> Self {
+        let mut before = prepared
             .iter()
             .filter_map(|state| {
                 state
@@ -1618,8 +1716,8 @@ impl TreeTrunkPhysicalTransaction {
                     .as_ref()
                     .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
             })
-            .collect();
-        let after = prepared
+            .collect::<Vec<_>>();
+        let mut after = prepared
             .iter()
             .filter_map(|state| {
                 state
@@ -1627,7 +1725,13 @@ impl TreeTrunkPhysicalTransaction {
                     .as_ref()
                     .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let retained = retained
+            .iter()
+            .map(|(tree_id, record)| TreeTrunkLayer::from_record(*tree_id, record))
+            .collect::<Vec<_>>();
+        before.extend(retained.iter().cloned());
+        after.extend(retained);
         Self::new(before, after)
     }
 
@@ -1689,6 +1793,7 @@ struct AppTreePublicationHost<'a> {
     audio_checkpoint: Option<crate::audio::TreeAudioPublicationCheckpoint>,
     fruit_checkpoints: HashMap<u32, super::physics::TreeFruitPublicationCheckpoint>,
     prepared: Vec<PreparedTreeCompensation>,
+    retained_trunks: Vec<(u32, TreeRecord)>,
     trunk_transaction: Option<TreeTrunkPhysicalTransaction>,
 }
 
@@ -1700,6 +1805,7 @@ impl AppTreePublicationHost<'_> {
             audio_checkpoint: None,
             fruit_checkpoints: HashMap::new(),
             prepared: Vec::new(),
+            retained_trunks: Vec::new(),
             trunk_transaction: None,
         }
     }
@@ -1790,6 +1896,15 @@ impl AppTreePublicationHost<'_> {
 }
 
 impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+        anyhow::ensure!(
+            self.prepared.is_empty(),
+            "retained trunks must be prepared before target trees"
+        );
+        self.retained_trunks = retained.to_vec();
+        Ok(())
+    }
+
     fn prepare(
         &mut self,
         _operation: TreePublicationOperation,
@@ -1826,7 +1941,8 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
     }
 
     fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
-        let mut transaction = TreeTrunkPhysicalTransaction::from_prepared(&self.prepared);
+        let mut transaction =
+            TreeTrunkPhysicalTransaction::from_prepared(&self.prepared, &self.retained_trunks);
         let result = transaction.publish(&mut AppTreeTrunkPhysicalHost { app: self.app });
         self.trunk_transaction = Some(transaction);
         result
@@ -1920,6 +2036,7 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
         self.audio_checkpoint = None;
         self.trunk_transaction = None;
         self.prepared.clear();
+        self.retained_trunks.clear();
         Ok(())
     }
 
@@ -1981,6 +2098,7 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
             }
         }
         self.prepared.clear();
+        self.retained_trunks.clear();
         if failures.is_empty() {
             Ok(())
         } else {
@@ -3264,6 +3382,10 @@ mod tests {
     }
 
     impl TreePublicationPrimitiveHost for RecordingTreePublicationHost {
+        fn prepare_retained_trunks(&mut self, _retained: &[(u32, TreeRecord)]) -> Result<()> {
+            Ok(())
+        }
+
         fn prepare(
             &mut self,
             operation: TreePublicationOperation,
@@ -3461,6 +3583,230 @@ mod tests {
         )
     }
 
+    struct RecordingOverlappingTreePublicationHost {
+        physical: RecordingTreeTrunkPhysicalHost,
+        prepared: Vec<PreparedTreeCompensation>,
+        retained: Vec<(u32, TreeRecord)>,
+        transaction: Option<TreeTrunkPhysicalTransaction>,
+        fail_observer_for_tree: Option<u32>,
+    }
+
+    impl TreePublicationPrimitiveHost for RecordingOverlappingTreePublicationHost {
+        fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+            self.retained = retained.to_vec();
+            Ok(())
+        }
+
+        fn prepare(
+            &mut self,
+            _operation: TreePublicationOperation,
+            tree_id: u32,
+            publication: Option<&PreparedTreePublication>,
+            previous: Option<&TreeRecord>,
+        ) -> Result<()> {
+            self.prepared.push(PreparedTreeCompensation {
+                tree_id,
+                previous: previous.cloned(),
+                replacement: publication.map(|publication| publication.record.clone()),
+            });
+            Ok(())
+        }
+
+        fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
+            let mut transaction =
+                TreeTrunkPhysicalTransaction::from_prepared(&self.prepared, &self.retained);
+            let result = transaction.publish(&mut self.physical);
+            self.transaction = Some(transaction);
+            result
+        }
+
+        fn publish_leaves(
+            &mut self,
+            _tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_fruit_lifecycle(
+            &mut self,
+            _tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_attached_fruit(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn invalidate_local_shadows(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_canopy_audio(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<usize> {
+            anyhow::ensure!(
+                self.fail_observer_for_tree != Some(tree_id),
+                "injected overlap observer failure"
+            );
+            Ok(0)
+        }
+
+        fn remove_leaves(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn remove_fruit_lifecycle(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn remove_canopy_audio(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn finalize_observer_publication(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn commit_publication(&mut self) -> Result<()> {
+            self.transaction = None;
+            self.prepared.clear();
+            self.retained.clear();
+            Ok(())
+        }
+
+        fn compensate(&mut self) -> Result<()> {
+            if let Some(mut transaction) = self.transaction.take() {
+                transaction.restore(&mut self.physical)?;
+            }
+            self.prepared.clear();
+            self.retained.clear();
+            Ok(())
+        }
+    }
+
+    fn overlapping_garden() -> (GardenTrees, RecordingOverlappingTreePublicationHost) {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let coverage = HashMap::from([
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 101,
+                },
+                HashSet::from([1, 2, 3]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 102,
+                },
+                HashSet::from([1]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 103,
+                },
+                HashSet::from([1, 2, 6]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 2,
+                    generation: 201,
+                },
+                HashSet::from([3, 4, 5]),
+            ),
+        ]);
+        let mut host = RecordingOverlappingTreePublicationHost {
+            physical: RecordingTreeTrunkPhysicalHost {
+                coverage,
+                ..RecordingTreeTrunkPhysicalHost::default()
+            },
+            prepared: Vec::new(),
+            retained: Vec::new(),
+            transaction: None,
+            fail_observer_for_tree: None,
+        };
+        garden
+            .place(prepared_tree(1, 101, 1001), &mut host)
+            .unwrap();
+        garden
+            .place(prepared_tree(2, 201, 2001), &mut host)
+            .unwrap();
+        (garden, host)
+    }
+
+    fn replacement_only_overlap_garden() -> (GardenTrees, RecordingOverlappingTreePublicationHost) {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let coverage = HashMap::from([
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 301,
+                },
+                HashSet::from([1]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 302,
+                },
+                HashSet::from([3, 5]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 2,
+                    generation: 401,
+                },
+                HashSet::from([3, 4]),
+            ),
+        ]);
+        let mut host = RecordingOverlappingTreePublicationHost {
+            physical: RecordingTreeTrunkPhysicalHost {
+                coverage,
+                ..RecordingTreeTrunkPhysicalHost::default()
+            },
+            prepared: Vec::new(),
+            retained: Vec::new(),
+            transaction: None,
+            fail_observer_for_tree: None,
+        };
+        garden
+            .place(
+                prepared_tree_with_bound(1, 301, 3001, UAabb3::new(UVec3::ZERO, UVec3::splat(10))),
+                &mut host,
+            )
+            .unwrap();
+        garden
+            .place(
+                prepared_tree_with_bound(
+                    2,
+                    401,
+                    4001,
+                    UAabb3::new(UVec3::splat(20), UVec3::splat(30)),
+                ),
+                &mut host,
+            )
+            .unwrap();
+        (garden, host)
+    }
+
+    fn prepared_tree_with_bound(
+        tree_id: u32,
+        generation: u64,
+        seed: u64,
+        bound: UAabb3,
+    ) -> PreparedTreePublication {
+        let mut publication = prepared_tree(tree_id, generation, seed);
+        publication.record.bound = bound;
+        publication.rebuild_bound = bound;
+        publication
+    }
+
     fn prepared_tree(tree_id: u32, generation: u64, seed: u64) -> PreparedTreePublication {
         let mut mature_desc = TreeDesc::default();
         mature_desc.branching.seed = seed;
@@ -3625,6 +3971,58 @@ mod tests {
             message.contains("injected restore trunk failure"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn garden_tree_removal_redraws_an_overlapping_canonical_neighbor() {
+        let (mut garden, mut host) = overlapping_garden();
+
+        garden.remove(1, &mut host).unwrap();
+
+        assert_eq!(host.physical.voxels, HashSet::from([3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_shrink_replacement_preserves_neighbor_without_old_trunk_ghosts() {
+        let (mut garden, mut host) = overlapping_garden();
+
+        garden
+            .replace(prepared_tree(1, 102, 1002), &mut host)
+            .unwrap();
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_failed_overlap_replacement_restores_target_and_neighbor_voxels() {
+        let (mut garden, mut host) = overlapping_garden();
+        host.fail_observer_for_tree = Some(1);
+
+        garden
+            .replace(prepared_tree(1, 103, 1003), &mut host)
+            .expect_err("observer failure must restore every overlapping trunk");
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 2, 3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_failed_replacement_only_overlap_restores_the_new_neighbor() {
+        let (mut garden, mut host) = replacement_only_overlap_garden();
+        host.fail_observer_for_tree = Some(1);
+
+        garden
+            .replace(
+                prepared_tree_with_bound(
+                    1,
+                    302,
+                    3002,
+                    UAabb3::new(UVec3::splat(20), UVec3::splat(25)),
+                ),
+                &mut host,
+            )
+            .expect_err("replacement-only overlap must be part of the checkpoint");
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 3, 4]));
     }
 
     #[test]
