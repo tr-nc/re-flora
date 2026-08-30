@@ -77,13 +77,18 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertIn("walls-spacing32-exact-irradiance.rfirr --max-reference-error-p99 0.40", output)
         self.assertIn("walls-spacing16-exact-irradiance.rfirr --max-reference-error-p99 0.375", output)
         self.assertIn(
-            "equal-weight-irradiance.rfirr --correctness --expect-version 8 "
+            "equal-weight-irradiance.rfirr --correctness --expect-version 9 "
             "--require-nonnegative-rgb --expect-debug-view equal-weight-irradiance "
             "--reference",
             output,
         )
         self.assertIn("unoccluded-irradiance.rfirr --min-reference-error-p99 0.01", output)
         self.assertIn("equal-weight-irradiance.rfirr --min-reference-error-p99 0.01", output)
+        self.assertEqual(
+            output.count("--min-filter-visibility-reject-count 1"),
+            2,
+            "only the two production walls final captures prove owner rejection",
+        )
 
     def test_capture_failures_are_accumulated_across_the_complete_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -276,8 +276,23 @@ check_captures() {
     else
         thresholds+=(--min-luminance-p99 0.10)
     fi
-    if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --reference "$reference" "${thresholds[@]}"; then
+    local analysis=(
+        "$repo_root/scripts/analyze_environment_irradiance_capture.py"
+        "$first" --correctness --expect-version 9
+        --compare "$second" --reference "$reference" "${thresholds[@]}"
+    )
+    if [[ "$state" == "sequential-reopened" ]]; then
+        analysis+=(
+            --require-filter-history-retain-blend
+            --expect-filter-blend-retention-q16 32768
+        )
+    fi
+    if $dry_run; then
+        printf '%q ' "${analysis[@]}"
+        printf '\n'
+        return 0
+    fi
+    if ! "${analysis[@]}"; then
         echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing environment determinism/luminance/reference threshold" >&2
         return 1
     fi
@@ -300,7 +315,7 @@ check_inflight_stale_active_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --compare-direct-light --expect-version 8 \
+        "$first" --compare "$second" --compare-direct-light --expect-version 9 \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \
@@ -359,7 +374,7 @@ for spacing in "${spacings[@]}"; do
                 case_failed=true
             fi
         done
-        if ! $dry_run && ! check_captures "$spacing" "$state"; then
+        if ! check_captures "$spacing" "$state"; then
             case_failed=true
         fi
         if $case_failed; then

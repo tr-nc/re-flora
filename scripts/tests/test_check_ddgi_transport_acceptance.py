@@ -58,8 +58,11 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
-            "filter-history-action=REQUIRED",
-            "--expect-version 8",
+            "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v9",
+            "--expect-version 9",
+            "--require-filter-history-retain-blend",
+            "--expect-filter-blend-retention-q16 32768",
+            "--min-filter-visibility-reject-count 1",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
@@ -73,6 +76,10 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         ):
             self.assertIn(contract, output)
         self.assertNotIn("filter-history-action=PROVEN", output)
+        self.assertNotIn(
+            "filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture",
+            RUNNER.read_text(),
+        )
 
     def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,

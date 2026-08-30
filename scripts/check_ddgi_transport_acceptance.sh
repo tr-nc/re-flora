@@ -35,12 +35,11 @@ dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 failures=0
-filter_history_action_proven=true
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
-echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=dogleg-e0-e1-production-capture"
+echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v9"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -109,7 +108,7 @@ run_analysis() {
     local command=(
         "$analyzer" "$capture"
         --correctness
-        --expect-version 8
+        --expect-version 9
         --expect-debug-view final
         --require-nonnegative-rgb
         "$@"
@@ -183,16 +182,14 @@ for spacing in "${spacings[@]}"; do
         --compare "$donor_e0" || true
 
     dogleg_e0="$(capture_path dogleg "$spacing" e0 forward)"
-    if ! run_stage dogleg "$spacing" e0 forward \
+    run_stage dogleg "$spacing" e0 forward \
         --expect-lifecycle-state converging \
         --expect-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${dogleg_receiver_roi[@]}" \
         --max-roi-luminance-mean "$dogleg_max_e0_luminance_mean" \
-        --max-exact-direct-sun-visibility 0; then
-        filter_history_action_proven=false
-    fi
-    if ! run_stage dogleg "$spacing" e1 forward \
+        --max-exact-direct-sun-visibility 0 || true
+    run_stage dogleg "$spacing" e1 forward \
         --expect-lifecycle-state converging \
         --expect-update-epoch 1 \
         --expect-source-state converging \
@@ -201,9 +198,7 @@ for spacing in "${spacings[@]}"; do
         --world-roi "${dogleg_receiver_roi[@]}" \
         --baseline "$dogleg_e0" \
         --min-roi-luminance-gain "$dogleg_min_e1_luminance_gain" \
-        --max-exact-direct-sun-visibility 0; then
-        filter_history_action_proven=false
-    fi
+        --max-exact-direct-sun-visibility 0 || true
 
     for convergence_case in portal donor dogleg; do
         run_stage "$convergence_case" "$spacing" converged forward \
@@ -219,10 +214,6 @@ for spacing in "${spacings[@]}"; do
         echo "[DDGI_TRANSPORT] evidence donor_reverse=$donor_reverse"
     fi
 done
-
-if ! $dry_run && $filter_history_action_proven; then
-    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture"
-fi
 
 convergence_summary="$run_dir/convergence-calibration.json"
 convergence_summary_command=(
@@ -248,14 +239,23 @@ run_child() {
     local script="$1"
     if $dry_run; then
         print_command "$script" --dry-run
+        "$script" --dry-run
     elif ! "$script"; then
         failures=$((failures + 1))
+        return 1
     fi
+    return 0
 }
 
 # Preserve the calibrated portal/walls exact-reference thresholds in the existing runner.
-run_child "$repo_root/scripts/check_ddgi_correctness.sh"
-run_child "$repo_root/scripts/check_ddgi_runtime_terrain_edits.sh"
+correctness_evidence_passed=false
+runtime_recovery_evidence_passed=false
+if run_child "$repo_root/scripts/check_ddgi_correctness.sh"; then
+    correctness_evidence_passed=true
+fi
+if run_child "$repo_root/scripts/check_ddgi_runtime_terrain_edits.sh"; then
+    runtime_recovery_evidence_passed=true
+fi
 
 normalization_evidence_checker="$repo_root/scripts/check_ddgi_sky_normalization_evidence.py"
 if $dry_run; then
@@ -279,4 +279,7 @@ fi
 echo "[DDGI_TRANSPORT] output=$run_dir failures=$failures"
 if (( failures != 0 )); then
     exit 1
+fi
+if $correctness_evidence_passed && $runtime_recovery_evidence_passed; then
+    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v9"
 fi

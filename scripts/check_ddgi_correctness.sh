@@ -111,12 +111,15 @@ for case_name in "${cases[@]}"; do
         final_analysis=(
             "$analyzer" "$first"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view final
             --reference "$exact_irradiance"
             "${thresholds[@]}"
         )
+        if [[ "$case_name" == "walls" ]]; then
+            final_analysis+=(--min-filter-visibility-reject-count 1)
+        fi
         stability_analysis=()
         if [[ "$case_name" == "walls" ]]; then
             # The converged DDGI result is numerically stable, while temporal direct-light
@@ -126,7 +129,7 @@ for case_name in "${cases[@]}"; do
             stability_analysis=(
                 "$analyzer" "$first"
                 --correctness
-                --expect-version 8
+                --expect-version 9
                 --require-nonnegative-rgb
                 --expect-debug-view final
                 --reference "$second"
@@ -139,7 +142,7 @@ for case_name in "${cases[@]}"; do
         visibility_analysis=(
             "$analyzer" "$moment"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view moment-visibility
             --reference "$exact_visibility"
@@ -148,21 +151,21 @@ for case_name in "${cases[@]}"; do
         exact_visibility_analysis=(
             "$analyzer" "$exact_visibility"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view exact-visibility
         )
         exact_irradiance_analysis=(
             "$analyzer" "$exact_irradiance"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view exact-irradiance
         )
         unoccluded_analysis=(
             "$analyzer" "$unoccluded"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view unoccluded-irradiance
             --debug-baseline "$first"
@@ -171,7 +174,7 @@ for case_name in "${cases[@]}"; do
         equal_weight_analysis=(
             "$analyzer" "$equal_weight"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view equal-weight-irradiance
             --reference "$unoccluded"
@@ -180,7 +183,7 @@ for case_name in "${cases[@]}"; do
         raw_cage_analysis=(
             "$analyzer" "$raw_cage"
             --correctness
-            --expect-version 8
+            --expect-version 9
             --require-nonnegative-rgb
             --expect-debug-view raw-cage-irradiance
             --reference "$equal_weight"
