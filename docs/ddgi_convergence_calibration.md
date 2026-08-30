@@ -56,6 +56,13 @@ Run:
 scripts/check_ddgi_transport_acceptance.sh
 ```
 
+The runtime keeps convergence payloads, marker formatting, and log emission inside a private child
+module. Batch completion carries only an opaque pending capability; after Tracer's final fallible
+batch observation succeeds, its last batch-block statement consumes that capability. Parent runtime
+code can prepare but cannot inspect or format the payload, and Tracer cannot reconstruct its count
+or terminal identity. Rust module tests own exact payload formatting; the Python source tripwire is
+deliberately limited to the private capability boundary and the canonical commit position.
+
 The convergence summarizer independently parses both the capture console and its preserved,
 process-bound `.run.log`, then requires byte-semantic equality of the policy, ordered validation
 curve, and terminal identity. Console-only evidence cannot qualify. It validates:

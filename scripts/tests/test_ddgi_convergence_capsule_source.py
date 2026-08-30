@@ -1,7 +1,7 @@
-"""Localized Rust-token tripwire for the DDGI evidence transaction ownership shape.
+"""Structural tripwire for the private DDGI convergence-evidence capability.
 
-This intentionally proves canonical owners and sequencing; it does not infer arbitrary field-name
-aliases as semantic evidence.
+Rust unit tests inside the owning module prove payload formatting. This test only proves the
+cross-module ownership and sequencing facts that Python can establish honestly.
 """
 
 from __future__ import annotations
@@ -14,9 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = "src/ddgi/runtime.rs"
 TRACER = "src/tracer/mod.rs"
+MODULE = "convergence_evidence"
 COMMIT = "commit_convergence_evidence"
-VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
-TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
 
 
 @dataclass(frozen=True)
@@ -75,11 +74,7 @@ def rust_tokens(source: str) -> list[RustToken]:
             continue
 
         string_prefix = next(
-            (
-                prefix
-                for prefix in ("b", "c", "")
-                if source.startswith(prefix + '"', index)
-            ),
+            (prefix for prefix in ("b", "c", "") if source.startswith(prefix + '"', index)),
             None,
         )
         if string_prefix is not None:
@@ -135,6 +130,18 @@ def rust_tokens(source: str) -> list[RustToken]:
     return tokens
 
 
+def matching(tokens: list[RustToken], opening: int, left: str, right: str) -> int:
+    depth = 1
+    for index in range(opening + 1, len(tokens)):
+        if tokens[index].value == left:
+            depth += 1
+        elif tokens[index].value == right:
+            depth -= 1
+            if depth == 0:
+                return index
+    raise AssertionError(f"unmatched Rust {left}")
+
+
 def production_tokens(source: str) -> list[RustToken]:
     tokens = rust_tokens(source)
     kept: list[RustToken] = []
@@ -149,15 +156,7 @@ def production_tokens(source: str) -> list[RustToken]:
                 for position in range(index + len(cfg_test_mod), len(tokens))
                 if tokens[position].value == "{"
             )
-            depth = 1
-            cursor = opening + 1
-            while depth:
-                if tokens[cursor].value == "{":
-                    depth += 1
-                elif tokens[cursor].value == "}":
-                    depth -= 1
-                cursor += 1
-            index = cursor
+            index = matching(tokens, opening, "{", "}") + 1
             continue
         token = tokens[index]
         kept.append(token)
@@ -169,191 +168,75 @@ def production_tokens(source: str) -> list[RustToken]:
     return kept
 
 
-def matching(tokens: list[RustToken], opening: int, left: str, right: str) -> int:
-    depth = 1
-    for index in range(opening + 1, len(tokens)):
-        if tokens[index].value == left:
-            depth += 1
-        elif tokens[index].value == right:
-            depth -= 1
-            if depth == 0:
-                return index
-    raise AssertionError(f"unmatched Rust {left}")
+def find_sequence(tokens: list[RustToken], values: tuple[str, ...], start=0, end=None) -> int:
+    end = len(tokens) if end is None else end
+    for index in range(start, end - len(values) + 1):
+        if tuple(token.value for token in tokens[index : index + len(values)]) == values:
+            return index
+    raise AssertionError(f"missing Rust token sequence: {' '.join(values)}")
 
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
-    token_sets = {path: production_tokens(source) for path, source in sources.items()}
-    runtime = token_sets[RUNTIME]
+    runtime = production_tokens(sources[RUNTIME])
+    tracer = production_tokens(sources[TRACER])
 
-    def display_body(type_name: str) -> tuple[int, int]:
-        owner = next(
-            index
-            for index, token in enumerate(runtime)
-            if token.value == type_name and runtime[index - 1].value == "for"
-        )
-        opening = next(
-            index for index in range(owner, len(runtime)) if runtime[index].value == "{"
-        )
-        return opening, matching(runtime, opening, "{", "}")
+    module = find_sequence(runtime, ("mod", MODULE, "{"))
+    if any(token.value == "pub" for token in runtime[max(0, module - 5) : module]):
+        raise AssertionError("convergence evidence module must remain private")
+    module_open = module + 2
+    module_close = matching(runtime, module_open, "{", "}")
 
-    marker_owners = {
-        VALIDATION_MARKER: display_body("DdgiConvergenceValidationEvidence"),
-        TERMINAL_MARKER: display_body("DdgiConvergenceTerminalEvidence"),
-    }
-    for marker, (owner_open, owner_close) in marker_owners.items():
-        occurrences = [
-            (path, index)
-            for path, tokens in token_sets.items()
-            for index, token in enumerate(tokens)
-            if token.kind == "STRING" and token.value.startswith(marker)
-        ]
-        if len(occurrences) != 1 or occurrences[0][0] != RUNTIME:
-            raise AssertionError("runtime formatter must uniquely own evidence marker literals")
-        marker_index = occurrences[0][1]
-        if not owner_open < marker_index < owner_close:
-            raise AssertionError("evidence marker literal escaped its canonical formatter")
-
-    occurrences = [
-        (path, index)
-        for path, tokens in token_sets.items()
-        for index, token in enumerate(tokens)
-        if token.kind == "IDENT" and token.value == COMMIT
-    ]
-    if len(occurrences) != 2:
-        raise AssertionError("commit capability must have one definition and one call")
-    runtime_occurrences = [index for path, index in occurrences if path == RUNTIME]
-    tracer_occurrences = [index for path, index in occurrences if path == TRACER]
-    if len(runtime_occurrences) != 1 or len(tracer_occurrences) != 1:
-        raise AssertionError("commit capability ownership is split across the wrong modules")
-
-    definition = runtime_occurrences[0]
-    if runtime[definition - 1].value != "fn":
-        raise AssertionError("runtime must own the commit capability definition")
-    capsule = next(
-        index
-        for index, token in enumerate(runtime)
-        if token.value == "DdgiValidatedPublication" and runtime[index - 1].value == "struct"
-    )
-    capsule_open = next(
-        index for index in range(capsule, len(runtime)) if runtime[index].value == "{"
-    )
-    capsule_close = matching(runtime, capsule_open, "{", "}")
-    if any(token.value == "pub" for token in runtime[capsule_open + 1 : capsule_close]):
-        raise AssertionError("validated publication capsule fields must remain private")
-
-    completion_struct = next(
-        index
-        for index, token in enumerate(runtime)
-        if token.value == "DdgiBatchCompletion" and runtime[index - 1].value == "struct"
-    )
-    completion_open = next(
-        index
-        for index in range(completion_struct, len(runtime))
-        if runtime[index].value == "{"
-    )
-    completion_close = matching(runtime, completion_open, "{", "}")
-    evidence_field = next(
-        index
-        for index in range(completion_open, completion_close)
-        if runtime[index].value == "validated_publication"
+    evidence_field = find_sequence(
+        runtime,
+        ("pending_convergence_evidence", ":", "Option", "<", MODULE, ":", ":", "Pending", ">"),
+        0,
+        module,
     )
     field_start = max(
         index
-        for index in range(completion_open, evidence_field)
+        for index in range(evidence_field)
         if runtime[index].value in ("{", ",")
     )
-    if any(
-        token.value == "pub" for token in runtime[field_start + 1 : evidence_field]
-    ):
-        raise AssertionError("completion evidence capability must remain private")
+    if any(token.value == "pub" for token in runtime[field_start:evidence_field]):
+        raise AssertionError("completion must hold the pending capability privately")
+    impl_start = find_sequence(
+        runtime,
+        ("impl", "super", ":", ":", "DdgiBatchCompletion", "{"),
+        module_open,
+        module_close,
+    )
+    impl_open = impl_start + 5
+    impl_close = matching(runtime, impl_open, "{", "}")
+    definition = find_sequence(runtime, ("fn", COMMIT, "("), impl_open, impl_close)
+    if not any(token.value == "pub" for token in runtime[impl_open:definition]):
+        raise AssertionError("Tracer needs one narrow crate-visible commit capability")
 
-    commit_open = next(
-        index for index in range(definition, len(runtime)) if runtime[index].value == "{"
-    )
-    commit_close = matching(runtime, commit_open, "{", "}")
-    commit_values = [token.value for token in runtime[commit_open:commit_close]]
-    body = commit_values[1:]
-    binding = body[4] if len(body) > 4 else ""
-    expected_body = [
-        "if",
-        "let",
-        "Some",
-        "(",
-        binding,
-        ")",
-        "=",
-        "self",
-        ".",
-        "validated_publication",
-        ".",
-        "take",
-        "(",
-        ")",
-        "{",
-        binding,
-        ".",
-        "emit_convergence_evidence",
-        "(",
-        ")",
-        ";",
-        "}",
-    ]
-    if not binding or body != expected_body:
-        raise AssertionError(
-            "commit capability must take and emit the same private publication exactly once"
-        )
-
-    emit_occurrences = [
-        (path, index)
-        for path, tokens in token_sets.items()
-        for index, token in enumerate(tokens)
-        if token.kind == "IDENT" and token.value == "emit_convergence_evidence"
-    ]
-    if len(emit_occurrences) != 2 or any(path != RUNTIME for path, _ in emit_occurrences):
-        raise AssertionError("runtime must own one evidence emitter definition and one call")
-    emit_definition = next(
-        index
-        for path, index in emit_occurrences
-        if runtime[index - 1].value == "fn"
-    )
-    emit_call = next(
-        index
-        for path, index in emit_occurrences
-        if runtime[index - 1].value == "."
-    )
-    if not commit_open < emit_call < commit_close or emit_definition == emit_call:
-        raise AssertionError("commit capability must own the unique evidence emission")
-
-    complete_pending = next(
-        index
-        for index, token in enumerate(runtime)
-        if token.value == "complete_pending_batch" and runtime[index - 1].value == "fn"
-    )
+    complete = find_sequence(runtime, ("fn", "complete_pending_batch", "("))
     complete_open = next(
-        index for index in range(complete_pending, len(runtime)) if runtime[index].value == "{"
+        index for index in range(complete, len(runtime)) if runtime[index].value == "{"
     )
     complete_close = matching(runtime, complete_open, "{", "}")
-    if any(
-        token.kind == "IDENT" and token.value == COMMIT
-        for token in runtime[complete_open + 1 : complete_close]
-    ):
-        raise AssertionError("runtime completion must return, not commit, evidence")
+    forbidden = {COMMIT, "emit_convergence_evidence"}
+    if any(token.value in forbidden for token in runtime[complete_open:complete_close]):
+        raise AssertionError("completion may prepare evidence but cannot commit or emit it")
 
-    tracer = token_sets[TRACER]
-    commit = tracer_occurrences[0]
-    if tracer[commit - 1].value != "." or tracer[commit + 1].value != "(":
-        raise AssertionError("Tracer must invoke the narrow commit capability as one method call")
-    commit_close = matching(tracer, commit + 1, "(", ")")
-    local_light = next(
+    calls = [
         index
-        for index, token in enumerate(tracer)
-        if token.value == "observe_ddgi_local_light_gpu_evidence"
+        for index in range(2, len(tracer) - 1)
+        if tracer[index].value == COMMIT
         and tracer[index - 1].value == "."
+        and tracer[index - 2].value == "completion"
+        and tracer[index + 1].value == "("
+    ]
+    if len(calls) != 1:
+        raise AssertionError("Tracer must have one canonical local completion commit call")
+    commit = calls[0]
+    call_close = matching(tracer, commit + 1, "(", ")")
+
+    local_light = find_sequence(
+        tracer, ("self", ".", "observe_ddgi_local_light_gpu_evidence", "(")
     )
-    local_open = next(
-        index for index in range(local_light, len(tracer)) if tracer[index].value == "("
-    )
-    local_close = matching(tracer, local_open, "(", ")")
+    local_close = matching(tracer, local_light + 3, "(", ")")
     if tracer[local_close + 1].value != "?" or commit <= local_close + 1:
         raise AssertionError("commit must follow successful local-light evidence")
 
@@ -368,10 +251,7 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     batch_close = matching(tracer, batch_open, "{", "}")
     if not batch_open < commit < batch_close:
         raise AssertionError("commit must remain in the batch completion block")
-    if (
-        tracer[commit_close + 1].value != ";"
-        or commit_close + 2 != batch_close
-    ):
+    if tracer[call_close + 1].value != ";" or call_close + 2 != batch_close:
         raise AssertionError("commit must be the batch block's final executable statement")
 
 
@@ -383,24 +263,17 @@ def production_sources() -> dict[str, str]:
 
 
 class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
-    def test_runtime_capsule_and_tracer_commit_form_one_evidence_transaction(self) -> None:
+    def test_private_runtime_capability_and_tracer_form_one_transaction(self) -> None:
         audit_convergence_evidence(production_sources())
 
-    def test_comments_literals_ufcs_and_early_calls_cannot_bypass_the_transaction(self) -> None:
+    def test_comments_unrelated_names_and_bad_commit_order_do_not_fool_the_seam(self) -> None:
         sources = production_sources()
         call = "completion.commit_convergence_evidence();"
         mutations = {
             "line-comment": sources[TRACER].replace(call, f"// {call}", 1),
-            "block-comment": sources[TRACER].replace(call, f"/* {call} */", 1),
-            "ufcs-second-call": sources[TRACER].replace(
-                call,
-                f"{call}\n                DdgiBatchCompletion::{COMMIT}(&mut completion);",
-                1,
-            ),
-            "raw-id-second-call": sources[TRACER].replace(
-                call,
-                f"{call}\n                completion.r#{COMMIT}();",
-                1,
+            "unrelated-name": sources[TRACER].replace(call, "other.commit_convergence_evidence();", 1),
+            "ufcs-instead": sources[TRACER].replace(
+                call, "DdgiBatchCompletion::commit_convergence_evidence(&mut completion);", 1
             ),
             "early-call": sources[TRACER]
             .replace(call, "", 1)
@@ -409,16 +282,8 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 f"{call}\n                self.observe_ddgi_local_light_gpu_evidence(",
                 1,
             ),
-            "late-bail": sources[TRACER].replace(
-                call,
-                f'{call}\n            bail!("late evidence failure");',
-                1,
-            ),
-            "late-return-err": sources[TRACER].replace(
-                call,
-                f'{call}\n            return Err(anyhow!("late evidence failure"));',
-                1,
-            ),
+            "late-bail": sources[TRACER].replace(call, f'{call}\n            bail!("late");', 1),
+            "late-return": sources[TRACER].replace(call, f'{call}\n            return Err(anyhow!("late"));', 1),
         }
         for name, tracer in mutations.items():
             with self.subTest(name=name):
@@ -427,64 +292,26 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     audit_convergence_evidence(mutated)
 
-        marker_comment = dict(sources)
-        marker_comment[RUNTIME] = (
-            sources[RUNTIME].replace(VALIDATION_MARKER, "not-evidence", 1)
-            + f"\n// {VALIDATION_MARKER}\n"
-        )
-        with self.assertRaisesRegex(AssertionError, "marker literals"):
-            audit_convergence_evidence(marker_comment)
+        noisy = dict(sources)
+        noisy[TRACER] += "\nimpl Unrelated { fn commit_convergence_evidence(&self) {} }\n"
+        audit_convergence_evidence(noisy)
 
-        marker_decoy = dict(sources)
-        marker_decoy[RUNTIME] = (
-            sources[RUNTIME].replace(VALIDATION_MARKER, "not-evidence", 1)
-            + f'\nconst UNUSED_VALIDATION_MARKER: &str = "{VALIDATION_MARKER}";\n'
-        )
-        with self.assertRaises(AssertionError):
-            audit_convergence_evidence(marker_decoy)
-
-        emission = "publication.emit_convergence_evidence();"
-        emission_mutations = {
-            "deleted-emission": sources[RUNTIME].replace(emission, "", 1),
-            "commented-emission": sources[RUNTIME].replace(
-                emission, f"// {emission}", 1
+        boundary_mutations = {
+            "visible-child-module": sources[RUNTIME].replace(
+                "mod convergence_evidence {", "pub(crate) mod convergence_evidence {", 1
             ),
-            "decoy-receiver": sources[RUNTIME].replace(
-                emission, "decoy.emit_convergence_evidence();", 1
-            ),
-            "discarded-extra-take": sources[RUNTIME].replace(
-                "if let Some(publication) = self.validated_publication.take() {",
-                "let _discarded = self.validated_publication.take();\n"
-                "        if let Some(publication) = self.validated_publication.take() {",
-                1,
-            ),
-            "direct-runtime-completion-emission": sources[RUNTIME].replace(
-                "let after = self.volumes().builder().status();",
-                "publication.emit_convergence_evidence();\n"
-                "        let after = self.volumes().builder().status();",
+            "visible-completion-capability": sources[RUNTIME].replace(
+                "    pending_convergence_evidence: Option<convergence_evidence::Pending>,",
+                "    pub(crate) pending_convergence_evidence: Option<convergence_evidence::Pending>,",
                 1,
             ),
         }
-        for name, runtime in emission_mutations.items():
+        for name, runtime in boundary_mutations.items():
             with self.subTest(name=name):
                 mutated = dict(sources)
                 mutated[RUNTIME] = runtime
                 with self.assertRaises(AssertionError):
                     audit_convergence_evidence(mutated)
-
-        noisy = dict(sources)
-        noisy[TRACER] += (
-            f'\n// {COMMIT} {VALIDATION_MARKER}\n'
-            f'const _: &str = "{COMMIT}";\n'
-            f'const _: &str = r#"{COMMIT}"#;\n'
-            f'const _: &[u8] = b"{COMMIT}";\n'
-            f'const _: &[u8] = br#"{COMMIT}"#;\n'
-            f'const _: &CStr = c"{COMMIT}";\n'
-            f'const _: &CStr = cr#"{COMMIT}"#;\n'
-            "const _: char = 'x';\n"
-            "const _: u8 = b'x';\n"
-        )
-        audit_convergence_evidence(noisy)
 
 
 if __name__ == "__main__":

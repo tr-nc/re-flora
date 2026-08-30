@@ -249,7 +249,7 @@ jobs:
         run: |
           timeout 10m cargo test --locked ddgi_convergence_evidence_tests::
           timeout 10m cargo test --locked runtime_convergence_budget_matches_the_acceptance_contract
-          timeout 10m cargo test --locked validated_publication_capsule_owns_field_validation_and_terminal_identity
+          timeout 10m cargo test --locked private_payloads_format_exact_validation_and_terminal_identity
 
       - name: Run DDGI process and convergence policy gates
         run: >-

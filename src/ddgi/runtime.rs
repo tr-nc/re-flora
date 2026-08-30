@@ -4,7 +4,7 @@ use crate::environment_lighting::{
 };
 use crate::geom::UAabb3;
 use anyhow::{Context, Result};
-use std::{fmt, time::Duration};
+use std::time::Duration;
 
 use super::resources::{
     DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
@@ -20,8 +20,6 @@ use super::{
 };
 
 const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
-const DDGI_CONVERGENCE_EVIDENCE_TARGET: &str = "re_flora::ddgi_convergence_evidence";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DdgiRuntimeVolumeTarget {
     Active,
@@ -92,6 +90,7 @@ pub(crate) struct DdgiBatchCompletion {
     pub build_token: Option<DdgiBuildToken>,
     pub status: DdgiRuntimeVolumeStatus,
     validated_publication: Option<DdgiValidatedPublication>,
+    pending_convergence_evidence: Option<convergence_evidence::Pending>,
     pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
 }
@@ -101,21 +100,6 @@ pub(crate) struct DdgiValidatedPublication {
     work: DdgiScheduledWork,
     field: DdgiFieldIdentity,
     atlas_validation: DdgiAtlasValidationStats,
-    consecutive_below_threshold: u32,
-    kind: DdgiValidatedPublicationKind,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DdgiValidatedPublicationKind {
-    Published,
-    Converged(DdgiConvergenceReason),
-}
-
-struct DdgiConvergenceValidationEvidence(DdgiValidatedPublication);
-
-struct DdgiConvergenceTerminalEvidence {
-    field: DdgiFieldIdentity,
-    reason: DdgiConvergenceReason,
 }
 
 impl DdgiValidatedPublication {
@@ -130,73 +114,6 @@ impl DdgiValidatedPublication {
     pub(crate) fn atlas_validation(self) -> DdgiAtlasValidationStats {
         self.atlas_validation
     }
-
-    fn terminal_evidence(self) -> Option<DdgiConvergenceTerminalEvidence> {
-        match self.kind {
-            DdgiValidatedPublicationKind::Published => None,
-            DdgiValidatedPublicationKind::Converged(reason) => {
-                Some(DdgiConvergenceTerminalEvidence {
-                    field: self.field,
-                    reason,
-                })
-            }
-        }
-    }
-
-    fn emit_convergence_evidence(self) {
-        log::debug!(
-            target: DDGI_CONVERGENCE_EVIDENCE_TARGET,
-            "{}",
-            DdgiConvergenceValidationEvidence(self),
-        );
-        if let Some(terminal) = self.terminal_evidence() {
-            log::debug!(target: DDGI_CONVERGENCE_EVIDENCE_TARGET, "{terminal}");
-        }
-    }
-}
-
-impl fmt::Display for DdgiConvergenceValidationEvidence {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let publication = self.0;
-        let field = publication.field.field();
-        let stats = publication.atlas_validation;
-        write!(
-            formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
-            field.serial(),
-            field.geometry_revision(),
-            field.radiance_revision(),
-            field.spacing_voxels(),
-            field.state(),
-            field.update_epoch(),
-            stats.max_absolute_rgb_delta,
-            stats.max_relative_rgb_delta,
-            stats.non_finite_count,
-            stats.negative_rgb_texel_count,
-            stats.valid_texel_count,
-            stats.scanned_stored_texel_count,
-            DDGI_CONVERGENCE_POLICY.absolute_threshold,
-            DDGI_CONVERGENCE_POLICY.relative_threshold,
-            publication.consecutive_below_threshold,
-            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
-        )
-    }
-}
-
-impl fmt::Display for DdgiConvergenceTerminalEvidence {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let field = self.field.field();
-        write!(
-            formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
-            field.serial(),
-            field.geometry_revision(),
-            field.radiance_revision(),
-            field.spacing_voxels(),
-            field.update_epoch(),
-            self.reason,
-        )
-    }
 }
 
 impl DdgiBatchCompletion {
@@ -207,10 +124,205 @@ impl DdgiBatchCompletion {
     pub(crate) fn validated_publication(&self) -> Option<DdgiValidatedPublication> {
         self.validated_publication
     }
+}
 
-    pub(crate) fn commit_convergence_evidence(&mut self) {
-        if let Some(publication) = self.validated_publication.take() {
-            publication.emit_convergence_evidence();
+mod convergence_evidence {
+    use std::fmt;
+
+    use super::{
+        DdgiAtlasValidationStats, DdgiConvergenceReason, DdgiFieldIdentity,
+        DdgiValidatedIterationOutcome, DdgiValidatedPublication, DDGI_CONVERGENCE_POLICY,
+    };
+
+    const TARGET: &str = "re_flora::ddgi_convergence_evidence";
+
+    #[derive(Debug)]
+    pub(super) struct Pending(Evidence);
+
+    pub(super) struct Prepared {
+        pub(super) publication: DdgiValidatedPublication,
+        pub(super) pending: Pending,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct Evidence {
+        publication: DdgiValidatedPublication,
+        consecutive_below_threshold: u32,
+        terminal_reason: Option<DdgiConvergenceReason>,
+    }
+
+    struct ValidationPayload(Evidence);
+
+    struct TerminalPayload {
+        field: DdgiFieldIdentity,
+        reason: DdgiConvergenceReason,
+    }
+
+    pub(super) fn prepare(
+        outcome: DdgiValidatedIterationOutcome,
+        atlas_validation: DdgiAtlasValidationStats,
+    ) -> Prepared {
+        let (work, field, consecutive_below_threshold, terminal_reason) = match outcome {
+            DdgiValidatedIterationOutcome::Published {
+                work,
+                field,
+                consecutive_below_threshold,
+            } => (work, field, consecutive_below_threshold, None),
+            DdgiValidatedIterationOutcome::Converged {
+                work,
+                field,
+                consecutive_below_threshold,
+                reason,
+            } => (work, field, consecutive_below_threshold, Some(reason)),
+        };
+        let publication = DdgiValidatedPublication {
+            work,
+            field,
+            atlas_validation,
+        };
+        Prepared {
+            publication,
+            pending: Pending(Evidence {
+                publication,
+                consecutive_below_threshold,
+                terminal_reason,
+            }),
+        }
+    }
+
+    impl Pending {
+        fn emit(self) {
+            log::debug!(target: TARGET, "{}", ValidationPayload(self.0));
+            if let Some(terminal) = self.terminal_payload() {
+                log::debug!(target: TARGET, "{terminal}");
+            }
+        }
+
+        fn terminal_payload(&self) -> Option<TerminalPayload> {
+            self.0.terminal_reason.map(|reason| TerminalPayload {
+                field: self.0.publication.field,
+                reason,
+            })
+        }
+    }
+
+    impl fmt::Display for ValidationPayload {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let evidence = self.0;
+            let field = evidence.publication.field.field();
+            let stats = evidence.publication.atlas_validation;
+            write!(
+                formatter,
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
+                field.serial(),
+                field.geometry_revision(),
+                field.radiance_revision(),
+                field.spacing_voxels(),
+                field.state(),
+                field.update_epoch(),
+                stats.max_absolute_rgb_delta,
+                stats.max_relative_rgb_delta,
+                stats.non_finite_count,
+                stats.negative_rgb_texel_count,
+                stats.valid_texel_count,
+                stats.scanned_stored_texel_count,
+                DDGI_CONVERGENCE_POLICY.absolute_threshold,
+                DDGI_CONVERGENCE_POLICY.relative_threshold,
+                evidence.consecutive_below_threshold,
+                DDGI_CONVERGENCE_POLICY.consecutive_epochs,
+            )
+        }
+    }
+
+    impl fmt::Display for TerminalPayload {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let field = self.field.field();
+            write!(
+                formatter,
+                "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
+                field.serial(),
+                field.geometry_revision(),
+                field.radiance_revision(),
+                field.spacing_voxels(),
+                field.update_epoch(),
+                self.reason,
+            )
+        }
+    }
+
+    impl super::DdgiBatchCompletion {
+        pub(crate) fn commit_convergence_evidence(&mut self) {
+            if let Some(pending) = self.pending_convergence_evidence.take() {
+                pending.emit();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler};
+
+        fn facts() -> (
+            super::super::DdgiScheduledWork,
+            DdgiFieldIdentity,
+            DdgiAtlasValidationStats,
+        ) {
+            let mut scheduler = DdgiTransportScheduler::new();
+            scheduler.observe_radiance(3);
+            scheduler.request_geometry(7, 16);
+            let work = scheduler.claim_next().unwrap().unwrap();
+            let field = DdgiFieldIdentity::new(
+                DdgiFieldKey::new(1, 7, 3, 16, DdgiFieldState::Converging, 0).unwrap(),
+                None,
+            )
+            .unwrap();
+            let stats = DdgiAtlasValidationStats {
+                max_absolute_rgb_delta: 0.001,
+                max_relative_rgb_delta: 0.005,
+                valid_texel_count: 64,
+                scanned_stored_texel_count: 100,
+                ..Default::default()
+            };
+            (work, field, stats)
+        }
+
+        #[test]
+        fn private_payloads_format_exact_validation_and_terminal_identity() {
+            let (work, field, stats) = facts();
+            let published = prepare(
+                DdgiValidatedIterationOutcome::Published {
+                    work,
+                    field,
+                    consecutive_below_threshold: 1,
+                },
+                stats,
+            );
+            assert_eq!(published.publication.field(), field);
+            assert_eq!(published.publication.atlas_validation(), stats);
+            assert_eq!(
+                ValidationPayload(published.pending.0).to_string(),
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"
+            );
+            assert!(published.pending.terminal_payload().is_none());
+
+            let converged = prepare(
+                DdgiValidatedIterationOutcome::Converged {
+                    work,
+                    field,
+                    consecutive_below_threshold: 7,
+                    reason: DdgiConvergenceReason::Threshold,
+                },
+                stats,
+            );
+            assert_eq!(
+                ValidationPayload(converged.pending.0).to_string(),
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=7/2"
+            );
+            assert_eq!(
+                converged.pending.terminal_payload().unwrap().to_string(),
+                "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold"
+            );
         }
     }
 }
@@ -257,42 +369,6 @@ fn execute_publication_transaction<S, T: Copy, P, R>(
                 committed: commit(state, candidate, published),
             })
         }
-    }
-}
-
-fn build_validated_publication(
-    outcome: DdgiValidatedIterationOutcome,
-    atlas_validation: DdgiAtlasValidationStats,
-) -> DdgiValidatedPublication {
-    let (work, field, consecutive_below_threshold, kind) = match outcome {
-        DdgiValidatedIterationOutcome::Published {
-            work,
-            field,
-            consecutive_below_threshold,
-        } => (
-            work,
-            field,
-            consecutive_below_threshold,
-            DdgiValidatedPublicationKind::Published,
-        ),
-        DdgiValidatedIterationOutcome::Converged {
-            work,
-            field,
-            consecutive_below_threshold,
-            reason,
-        } => (
-            work,
-            field,
-            consecutive_below_threshold,
-            DdgiValidatedPublicationKind::Converged(reason),
-        ),
-    };
-    DdgiValidatedPublication {
-        work,
-        field,
-        atlas_validation,
-        consecutive_below_threshold,
-        kind,
     }
 }
 
@@ -1167,6 +1243,7 @@ impl DdgiRuntime {
                 build_token: before.build_token,
                 status: before.into(),
                 validated_publication: None,
+                pending_convergence_evidence: None,
                 consumer_descriptor_generation: None,
                 capture_observed: false,
             });
@@ -1197,6 +1274,7 @@ impl DdgiRuntime {
             .builder_mut()
             .mark_trace_stats_verified(batch)?;
         let mut validated_publication = None;
+        let mut pending_convergence_evidence = None;
         let mut consumer_descriptor_generation = None;
         let mut capture_observed = false;
         if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
@@ -1248,7 +1326,8 @@ impl DdgiRuntime {
                             .expect(
                                 "preflighted DDGI field publication must not fail after consumers publish",
                             );
-                        let publication = build_validated_publication(validated, stats);
+                        let prepared = convergence_evidence::prepare(validated, stats);
+                        let publication = prepared.publication;
                         let validated_work = publication.work();
                         let field = publication.field();
                         assert_eq!(
@@ -1270,16 +1349,17 @@ impl DdgiRuntime {
                             stats,
                             DdgiCapturePublication::Published,
                         );
-                        (capture_observed, generation, publication)
+                        (capture_observed, generation, prepared)
                     },
                 )?;
                 match transaction {
                     PublicationTransactionOutcome::Published {
-                        committed: (capture_observed, generation, publication),
+                        committed: (capture_observed, generation, prepared),
                         ..
                     } => {
                         consumer_descriptor_generation = Some(generation);
-                        validated_publication = Some(publication);
+                        validated_publication = Some(prepared.publication);
+                        pending_convergence_evidence = Some(prepared.pending);
                         capture_observed
                     }
                     PublicationTransactionOutcome::Idle
@@ -1293,7 +1373,8 @@ impl DdgiRuntime {
                     stats,
                     DDGI_CONVERGENCE_POLICY,
                 )?;
-                let publication = build_validated_publication(validated, stats);
+                let prepared = convergence_evidence::prepare(validated, stats);
+                let publication = prepared.publication;
                 let validated_work = publication.work();
                 let field = publication.field();
                 assert_eq!(
@@ -1315,6 +1396,7 @@ impl DdgiRuntime {
                     DdgiCapturePublication::Published,
                 );
                 validated_publication = Some(publication);
+                pending_convergence_evidence = Some(prepared.pending);
                 capture_observed
             };
             capture_observed = observed_capture;
@@ -1328,6 +1410,7 @@ impl DdgiRuntime {
             build_token: after.build_token,
             status: after.into(),
             validated_publication,
+            pending_convergence_evidence,
             consumer_descriptor_generation,
             capture_observed,
         })
@@ -1671,59 +1754,6 @@ mod tests {
             logical: "old-logical",
             commit_calls: 0,
         }
-    }
-
-    #[test]
-    fn validated_publication_capsule_owns_field_validation_and_terminal_identity() {
-        let mut scheduler = DdgiTransportScheduler::new();
-        scheduler.observe_radiance(3);
-        scheduler.request_geometry(7, 16);
-        let work = scheduler.claim_next().unwrap().unwrap();
-        let field = field(7, 3);
-
-        let atlas_validation = DdgiAtlasValidationStats {
-            max_absolute_rgb_delta: 0.001,
-            max_relative_rgb_delta: 0.005,
-            valid_texel_count: 64,
-            scanned_stored_texel_count: 100,
-            ..Default::default()
-        };
-        let published = build_validated_publication(
-            DdgiValidatedIterationOutcome::Published {
-                work,
-                field,
-                consecutive_below_threshold: 1,
-            },
-            atlas_validation,
-        );
-        assert_eq!(published.field(), field);
-        assert_eq!(published.atlas_validation(), atlas_validation);
-        assert_eq!(
-            DdgiConvergenceValidationEvidence(published).to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"
-        );
-        assert!(published.terminal_evidence().is_none());
-
-        let converged = build_validated_publication(
-            DdgiValidatedIterationOutcome::Converged {
-                work,
-                field,
-                consecutive_below_threshold: 7,
-                reason: DdgiConvergenceReason::Threshold,
-            },
-            atlas_validation,
-        );
-        let terminal = converged.terminal_evidence().unwrap();
-        assert_eq!(converged.field(), field);
-        assert_eq!(converged.atlas_validation(), atlas_validation);
-        assert_eq!(
-            DdgiConvergenceValidationEvidence(converged).to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=7/2"
-        );
-        assert_eq!(
-            terminal.to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold"
-        );
     }
 
     #[test]

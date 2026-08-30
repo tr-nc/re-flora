@@ -1,13 +1,31 @@
 from __future__ import annotations
 
 import ast
-import fnmatch
+import re
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/shader-validation.yml"
+OWNER_PATHS = (
+    ".github/workflows/shader-validation.yml",
+    "config/ddgi_convergence_acceptance.toml",
+    "docs/ddgi_convergence_calibration.md",
+    "docs/ddgi_indirect_transport_spec.md",
+    "docs/ddgi_migration_plan.md",
+    "docs/ddgi_transport_acceptance.md",
+    "scripts/check_ddgi_local_terrain_convergence.sh",
+    "scripts/check_ddgi_transport_acceptance.sh",
+    "scripts/summarize_ddgi_convergence.py",
+    "scripts/tests/test_check_ddgi_transport_acceptance.py",
+    "scripts/tests/test_ddgi_convergence_capsule_source.py",
+    "scripts/tests/test_summarize_ddgi_convergence.py",
+    "scripts/tests/test_shader_validation_workflow.py",
+    "src/ddgi/resources.rs",
+    "src/ddgi/runtime.rs",
+    "src/tracer/mod.rs",
+)
 
 
 class ShaderValidationWorkflowTests(unittest.TestCase):
@@ -40,18 +58,54 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             content = line.split("#", 1)[0].rstrip()
             if content.startswith(item_indent + "- "):
                 value = content[len(item_indent) + 2 :]
-                values.append(ast.literal_eval(value) if value.startswith('"') else value)
+                if value.startswith(('"', "'")):
+                    value = ast.literal_eval(value)
+                values.append(value)
         return values
 
     @staticmethod
-    def path_is_included(patterns: list[str], path: str) -> bool:
+    def path_pattern(pattern: str) -> re.Pattern[str]:
+        if any(character in pattern for character in "[]{}\\"):
+            raise ValueError(f"unsupported workflow path syntax: {pattern}")
+        expression = []
+        index = 0
+        while index < len(pattern):
+            if pattern.startswith("**", index):
+                expression.append(".*")
+                index += 2
+            elif pattern[index] == "*":
+                expression.append("[^/]*")
+                index += 1
+            elif pattern[index] == "?":
+                raise ValueError(f"unsupported workflow path syntax: {pattern}")
+            else:
+                expression.append(re.escape(pattern[index]))
+                index += 1
+        return re.compile("^" + "".join(expression) + "$")
+
+    @classmethod
+    def path_is_included(cls, patterns: list[str], path: str) -> bool:
         included = False
         for pattern in patterns:
             excluded = pattern.startswith("!")
             candidate = pattern[1:] if excluded else pattern
-            if fnmatch.fnmatchcase(path, candidate):
+            if not candidate:
+                raise ValueError("empty workflow path pattern")
+            if cls.path_pattern(candidate).fullmatch(path):
                 included = not excluded
         return included
+
+    @staticmethod
+    def append_event_path(workflow: str, event: str, pattern: str, quote: str) -> str:
+        event_start = workflow.index(f"  {event}:\n")
+        paths_start = workflow.index("    paths:\n", event_start)
+        next_boundary = re.search(
+            r"(?m)^(?:  [A-Za-z_][^:]*:|[^\s#])", workflow[paths_start + 1 :]
+        )
+        if next_boundary is None:
+            raise AssertionError(f"{event} paths have no enclosing block boundary")
+        end = paths_start + 1 + next_boundary.start()
+        return workflow[:end] + f"      - {quote}{pattern}{quote}\n" + workflow[end:]
 
     def test_policy_inputs_and_targeted_rust_gates_are_continuous(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -97,7 +151,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         for gate in (
             "ddgi_convergence_evidence_tests::",
             "runtime_convergence_budget_matches_the_acceptance_contract",
-            "validated_publication_capsule_owns_field_validation_and_terminal_identity",
+            "private_payloads_format_exact_validation_and_terminal_identity",
         ):
             self.assertIn(f"timeout 10m cargo test --locked {gate}", workflow)
         for gate in (
@@ -111,39 +165,32 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 45", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
 
-    def test_migration_document_routes_through_pull_request_and_push(self) -> None:
+    def test_all_convergence_owners_route_through_pull_request_and_push(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        migration = "docs/ddgi_migration_plan.md"
         for event in ("pull_request", "push"):
             patterns = self.yaml_sequence(workflow, ("on", event, "paths"))
-            self.assertTrue(
-                self.path_is_included(patterns, migration),
-                f"{event} paths do not finally include {migration}",
-            )
-
-        real_route = '      - "docs/ddgi_migration_plan.md"'
-        for event in ("pull_request", "push"):
-            event_header = f"  {event}:\n"
-            event_start = workflow.index(event_header)
-            route = workflow.index(real_route, event_start)
-            mutated = workflow[:route] + "      # " + workflow[route:]
-            self.assertNotIn(
-                migration,
-                self.yaml_sequence(mutated, ("on", event, "paths")),
-            )
-
-            route_end = route + len(real_route)
-            excluded = (
-                workflow[:route_end]
-                + '\n      - "!docs/ddgi_migration_plan.md"'
-                + workflow[route_end:]
-            )
-            self.assertFalse(
-                self.path_is_included(
-                    self.yaml_sequence(excluded, ("on", event, "paths")),
-                    migration,
+            for owner in OWNER_PATHS:
+                self.assertTrue(
+                    self.path_is_included(patterns, owner),
+                    f"{event} paths do not finally include {owner}",
                 )
-            )
+
+                for quote in ('"', "'"):
+                    excluded = self.append_event_path(workflow, event, f"!{owner}", quote)
+                    self.assertFalse(
+                        self.path_is_included(
+                            self.yaml_sequence(excluded, ("on", event, "paths")),
+                            owner,
+                        ),
+                        f"{event} ignored a trailing {quote}-quoted exclusion for {owner}",
+                    )
+
+    def test_workflow_globs_are_slash_aware_and_unsupported_syntax_fails_closed(self) -> None:
+        self.assertTrue(self.path_is_included(["src/ddgi/**"], "src/ddgi/runtime.rs"))
+        self.assertFalse(self.path_is_included(["src/*"], "src/ddgi/runtime.rs"))
+        self.assertTrue(self.path_is_included(["src/**"], "src/ddgi/runtime.rs"))
+        with self.assertRaises(ValueError):
+            self.path_is_included(["src/[dt]*"], "src/ddgi/runtime.rs")
 
 
 if __name__ == "__main__":
