@@ -411,24 +411,71 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     if emit_body != expected_emit_body:
         raise AssertionError("private emitter must match the canonical debug-gated sink body")
 
-    child_log_macros = []
-    for index in range(module_open, module_close - 4):
-        if (
-            runtime[index].value == "log"
-            and runtime[index + 1].value == ":"
-            and runtime[index + 2].value == ":"
-            and runtime[index + 3].kind == "IDENT"
-            and runtime[index + 4].value == "!"
-        ):
-            child_log_macros.append((index, runtime[index + 3].value))
+    def macro_path(bang: int) -> str:
+        if bang == 0 or runtime[bang - 1].kind != "IDENT":
+            raise AssertionError("child macro invocation has no identifier path")
+        if bang >= module_open + 6:
+            prefix = runtime[bang - 6 : bang]
+            if (
+                tuple(token.value for token in prefix[0:2]) == (":", ":")
+                and prefix[2].kind == "IDENT"
+                and tuple(token.value for token in prefix[3:5]) == (":", ":")
+                and prefix[5].kind == "IDENT"
+            ):
+                return f"::{prefix[2].value}::{prefix[5].value}"
+        if bang >= 2 and runtime[bang - 2].value == ":":
+            raise AssertionError("child macro uses a noncanonical qualified path")
+        return runtime[bang - 1].value
+
+    child_macros = [
+        (index, macro_path(index))
+        for index in range(module_open, module_close)
+        if runtime[index].value == "!"
+    ]
     expected_gate = find_sequence(
         runtime, (":", ":", "log", ":", ":", "log_enabled", "!"), emit_open, emit_close
-    ) + 2
+    ) + 6
     expected_sink = find_sequence(
         runtime, (":", ":", "log", ":", ":", "debug", "!"), emit_open, emit_close
+    ) + 6
+    evidence_impl = find_sequence(runtime, ("impl", "Evidence", "{"), module_open, module_close)
+    evidence_impl_open = evidence_impl + 2
+    evidence_impl_close = matching(runtime, evidence_impl_open, "{", "}")
+    lines = find_sequence(runtime, ("fn", "lines", "("), evidence_impl_open, evidence_impl_close)
+    lines_open = next(
+        index for index in range(lines, evidence_impl_close) if runtime[index].value == "{"
+    )
+    lines_close = matching(runtime, lines_open, "{", "}")
+    format_and_vec = [
+        (index, path)
+        for index, path in child_macros
+        if path in ("format", "vec")
+    ]
+    if any(not lines_open < index < lines_close for index, _ in format_and_vec):
+        raise AssertionError("format and vec macros must remain owned by Evidence::lines")
+    expected_child_macro_paths = [
+        "::static_assertions::assert_not_impl_any",
+        "::static_assertions::assert_not_impl_any",
+        "::log::log_enabled",
+        "::log::debug",
+        "format",
+        "vec",
+        "vec",
+        "format",
+    ]
+    if [path for _, path in child_macros] != expected_child_macro_paths:
+        raise AssertionError("private child macro capability inventory changed")
+
+    level_log = find_sequence(
+        runtime, (":", ":", "log", ":", ":", "Level"), emit_open, emit_close
     ) + 2
-    if child_log_macros != [(expected_gate, "log_enabled"), (expected_sink, "debug")]:
-        raise AssertionError("private child must contain only the canonical log gate and sink")
+    child_log_identifiers = [
+        index
+        for index in range(module_open, module_close)
+        if runtime[index].kind == "IDENT" and runtime[index].value == "log"
+    ]
+    if child_log_identifiers != [expected_gate - 4, level_log, expected_sink - 4]:
+        raise AssertionError("private child log identifiers escaped the canonical emitter")
 
     target_identifiers = [
         index
@@ -492,7 +539,7 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
                 )
                 if has_target:
                     targeted_sinks.append((path, index, tokens[index + 3].value))
-    if targeted_sinks != [(RUNTIME, expected_sink, "debug")]:
+    if targeted_sinks != [(RUNTIME, expected_sink - 4, "debug")]:
         raise AssertionError("convergence target must have one canonical private debug sink")
 
     complete = find_sequence(runtime, ("fn", "complete_pending_batch", "("))
@@ -863,6 +910,26 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
             "extra-target-reference": sources[RUNTIME].replace(
                 "    pub(super) fn prepare(",
                 "    const EXTRA_TARGET_REFERENCE: &str = TARGET;\n\n"
+                "    pub(super) fn prepare(",
+                1,
+            ),
+            "aliased-log-concat-injection": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    use ::log::log as emit_decoy;\n"
+                "    fn injected() {\n"
+                "        emit_decoy!(\n"
+                "            target: concat!(\"re_flora::ddgi_\", \"convergence_evidence\"),\n"
+                "            ::log::Level::Debug,\n"
+                "            \"{}\",\n"
+                "            concat!(\"[DDGI_CONVERGENCE_\", \"EVIDENCE] injected\")\n"
+                "        );\n"
+                "    }\n\n"
+                "    pub(super) fn prepare(",
+                1,
+            ),
+            "extra-eprintln": sources[RUNTIME].replace(
+                "    pub(super) fn prepare(",
+                "    fn injected() { eprintln!(\"injected\"); }\n\n"
                 "    pub(super) fn prepare(",
                 1,
             ),

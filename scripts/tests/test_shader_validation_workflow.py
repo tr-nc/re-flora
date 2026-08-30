@@ -179,6 +179,19 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         for event in ("pull_request", "push"):
             patterns = self.yaml_sequence(workflow, ("on", event, "paths"))
+            future_rust_owner = "src/app/reviewer_fixture.rs"
+            self.assertTrue(
+                self.path_is_included(patterns, future_rust_owner),
+                f"{event} paths do not include future Rust owners through src/**",
+            )
+            excluded_rust = self.append_event_path(workflow, event, "!src/**", '"')
+            self.assertFalse(
+                self.path_is_included(
+                    self.yaml_sequence(excluded_rust, ("on", event, "paths")),
+                    future_rust_owner,
+                ),
+                f"{event} ignored a trailing all-Rust exclusion",
+            )
             for owner in OWNER_PATHS:
                 self.assertTrue(
                     self.path_is_included(patterns, owner),

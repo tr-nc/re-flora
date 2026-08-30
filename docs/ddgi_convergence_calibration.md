@@ -61,9 +61,11 @@ private child module. Batch completion carries only an opaque, non-debuggable pe
 after Tracer's final fallible batch observation succeeds, its last batch-block statement consumes
 that capability. Parent runtime code can prepare but cannot inspect or format the evidence, and
 Tracer cannot reconstruct its count or terminal identity. Child-module Rust tests prove the exact
-one-line Published and ordered two-line Converged results. The Python source tripwire reads only
-`src/ddgi/runtime.rs` and `src/tracer/mod.rs`; it is deliberately limited to the private capability,
-single child log sink, same-receiver consuming commit, and canonical commit-last position.
+one-line Published and ordered two-line Converged results. The Python source tripwire dynamically
+reads all `src/**/*.rs`; its global raw-identifier inventory permits only the runtime definition and
+Tracer's canonical final direct commit call. Its child-module checks are deliberately limited to
+the private capability, closed macro/log inventory, same-receiver consuming commit, and canonical
+commit-last position.
 Rustc owns the opaque types' non-`Debug`/non-`Display` and non-`Copy`/non-`Clone`/non-`Default`
 proof through production-configuration, owner-local compile-time negative trait assertions. The
 latter traits seal the pending capability against duplication or default fabrication. Each
@@ -76,8 +78,9 @@ only the exact direct-item assertion placement and payload, including absolute p
 crate and `core::fmt` traits. Owner-local traits or modules therefore cannot shadow the rustc-owned
 proof, and the tripwire does not duplicate Rust trait semantics.
 Within its deliberately controlled Rust source grammar, the same tripwire requires absolute
-`::log` paths, one child-private log gate and sink, and no other use of the convergence target.
-This is a local structure guard, not a general Rust name resolver or control-flow proof.
+`::log` paths, one child-private log gate and sink, fixed owner-local formatting/vector macros, and
+no other macro or use of the convergence target. This is a local structure guard, not a general
+Rust name resolver or control-flow proof.
 The private emitter checks that its dedicated target is enabled at Debug level before constructing
 the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 
