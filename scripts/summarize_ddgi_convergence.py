@@ -195,6 +195,27 @@ class ConvergenceProvenance:
     probe_population: ProbePopulation
     atlas_layout: AtlasTexelLayout
 
+    def report(self, coverage: ValidatedAtlasCoverage) -> dict[str, dict[str, int]]:
+        return {
+            "probe_population": {
+                "total_count": self.probe_population.total_count,
+                "valid_count": self.probe_population.valid_count,
+                "invalid_count": self.probe_population.invalid_count,
+            },
+            "atlas_texel_layout": {
+                "interior_texels_per_valid_probe": (
+                    self.atlas_layout.interior_texels_per_valid_probe
+                ),
+                "stored_texels_per_valid_probe": (
+                    self.atlas_layout.stored_texels_per_valid_probe
+                ),
+            },
+            "validated_atlas_coverage": {
+                "interior_texel_count": coverage.interior_texel_count,
+                "stored_texel_count": coverage.stored_texel_count,
+            },
+        }
+
 
 @dataclass(frozen=True)
 class TerminalIdentity:
@@ -1062,6 +1083,7 @@ def validate_curve(
             "probe_count": initialization.probe_count,
             "stage": initialization.stage,
         },
+        **provenance.report(ValidatedAtlasCoverage.from_record(final)),
         "epochs": records,
     }
 
@@ -1122,7 +1144,7 @@ def main() -> int:
         return 1
 
     result = {
-        "schema_version": 2,
+        "schema_version": 3,
         "qualified": True,
         "matrix": {
             "cases": args.cases,
