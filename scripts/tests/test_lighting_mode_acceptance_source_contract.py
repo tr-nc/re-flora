@@ -59,7 +59,13 @@ class LightingModeAcceptanceSourceContractTests(unittest.TestCase):
             "let second = runtime.frame_plan();",
             "let second = plan.resolve_timing(live);",
             "let second = render.resolve_lighting(live);",
+            "let second = LightingModeAcceptanceRuntime::frame_plan(&runtime);",
+            "let second = LightingModeAcceptanceFramePlan::resolve_timing(plan, live);",
+            "let second = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live);",
             "pub fn update_buffers(&mut self, frame_serial_idx: u32, dither_strength_lsb: f32, path_tracing_reference: bool) -> Result<()> { todo!() }",
+            "pub(crate) async unsafe fn update_buffers(\n&mut self,\nframe_serial_idx\n:\nu32,\ndither_strength_lsb: f32\n) -> Result<()> { todo!() }",
+            "fn update_buffers(&mut self, path_tracing_reference: bool, path_tracing_max_bounces: u32) -> Result<()> { todo!() }",
+            "pub(super) fn update_gui_input(raster_flora_ddgi_lighting: bool) -> Result<()> { todo!() }",
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation):
@@ -68,13 +74,26 @@ class LightingModeAcceptanceSourceContractTests(unittest.TestCase):
                 self.assertNotEqual(checker.audit(sources), [])
 
     def test_owner_resolved_fields_reject_every_pub_visibility_form(self) -> None:
-        for visibility in ("pub ", "pub(crate) ", "pub(super) "):
+        for visibility in ("pub ", "pub(crate) ", "pub(super) ", "pub\n(crate)\n"):
             with self.subTest(visibility=visibility):
                 sources = baseline_sources()
                 sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
                     "src/app/core/lighting_mode_acceptance.rs"
                 ].replace("    time_of_day: f32,", f"    {visibility}time_of_day: f32,")
                 self.assertNotEqual(checker.audit(sources), [])
+
+    def test_comments_strings_raw_strings_and_chars_are_not_source_contract_evidence(self) -> None:
+        sources = baseline_sources()
+        sources["src/app/decoys.rs"] = r'''
+// runtime.frame_plan().resolve_timing(live).resolve_lighting(live)
+/* ResolvedLightingFrameInputs { forged: true }
+   /* nested LightingModeAcceptanceRuntime::frame_plan(&runtime); */
+*/
+const TEXT: &str = "ResolvedFrameTiming { pub(crate) visual_time_seconds: f32 }";
+const RAW: &str = r###"pub(crate) async fn update_buffers(frame_serial_idx: u32)"###;
+const CHARS: [char; 3] = ['{', '}', '.'];
+'''
+        self.assertEqual(checker.audit(sources), [])
 
 
 if __name__ == "__main__":
