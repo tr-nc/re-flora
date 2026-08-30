@@ -21,9 +21,12 @@ on:
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
       - "shader/**"
       - "src/app/core/lighting_mode_acceptance.rs"
+      - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
       - "src/cli.rs"
+      - "src/environment_lighting.rs"
       - "src/main.rs"
+      - "src/tracer/extent_dependent_resources.rs"
       - "src/tracer/mod.rs"
   push:
     branches:
@@ -46,9 +49,12 @@ on:
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
       - "shader/**"
       - "src/app/core/lighting_mode_acceptance.rs"
+      - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
       - "src/cli.rs"
+      - "src/environment_lighting.rs"
       - "src/main.rs"
+      - "src/tracer/extent_dependent_resources.rs"
       - "src/tracer/mod.rs"
 
 permissions:
@@ -214,6 +220,7 @@ jobs:
           python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance
           python3 -m unittest scripts.tests.test_lighting_mode_acceptance_ci
           cargo test --locked lighting_mode_acceptance
+          cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py

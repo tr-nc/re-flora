@@ -17,9 +17,12 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
             "scripts/tests/test_check_lighting_mode_acceptance.py",
             "scripts/tests/test_lighting_mode_acceptance_ci.py",
             "src/app/core/lighting_mode_acceptance.rs",
+            "src/app/core/loading.rs",
             "src/app/core/mod.rs",
             "src/cli.rs",
+            "src/environment_lighting.rs",
             "src/main.rs",
+            "src/tracer/extent_dependent_resources.rs",
             "src/tracer/mod.rs",
         ):
             self.assertEqual(workflow.count(f'- "{path}"'), 2, path)
@@ -32,6 +35,10 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("cargo test --locked lighting_mode_acceptance", workflow)
+        self.assertIn(
+            "cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path",
+            workflow,
+        )
 
 
 if __name__ == "__main__":
