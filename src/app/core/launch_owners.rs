@@ -20,9 +20,10 @@ use super::{
 };
 pub(super) use super::{
     canopy_audio_diagnostic::{
-        AudioTelemetryMarker, CanopyAudioSetup, CanopyAudioStartObservation,
-        CanopyAudioStartResult, CanopyAudioStartTxn, CanopyAudioTelemetry,
-        CanopyAudioTrajectoryResult, CanopyAudioTrajectoryTxn,
+        AudioTelemetryMarker, CanopyAudioFrameCommand, CanopyAudioFrameEffect,
+        CanopyAudioFrameReceipt, CanopyAudioSetup, CanopyAudioStartObservation,
+        CanopyAudioStartResult, CanopyAudioStartTxn, CanopyAudioStartupPolicy,
+        CanopyAudioTelemetry, CanopyAudioTrajectoryResult, CanopyAudioTrajectoryTxn,
     },
     water::{WaterEditFrameResult, WaterEditFrameTxn},
     water_experience_scene::{
@@ -1302,6 +1303,78 @@ mod tests {
         ));
         assert_eq!(telemetry.counters.extent_responses, 4);
         assert_eq!(telemetry.counters.direct_rays, 64);
+    }
+
+    #[test]
+    fn canopy_startup_policy_and_frame_effect_are_each_consumed_once() {
+        static_assertions::assert_not_impl_any!(CanopyAudioStartupPolicy: Clone, Copy);
+        static_assertions::assert_not_impl_any!(CanopyAudioFrameCommand: Clone, Copy);
+
+        let mut owners = launch_for(Scenario::CanopyAudioDiagnostic {
+            constrained_budget: true,
+        });
+        assert!(matches!(
+            owners.take_canopy_audio_startup_policy().unwrap(),
+            CanopyAudioStartupPolicy::Diagnostic {
+                budget_stress: true,
+            }
+        ));
+        assert!(owners.take_canopy_audio_startup_policy().is_err());
+
+        let mut snapshot = CanopyAudioTelemetrySnapshot::default();
+        for time_seconds in [1.0, 1.05, 1.11] {
+            let command = owners.begin_canopy_audio_frame(glam::Vec3::ZERO, time_seconds);
+            assert!(command.pose().is_some());
+            let receipt = owners
+                .finish_canopy_audio_frame(
+                    command,
+                    CanopyAudioFrameEffect::Applied {
+                        start_observation: Some(CanopyAudioStartObservation::new(
+                            time_seconds,
+                            true,
+                            &snapshot,
+                        )),
+                        telemetry_counters: Some(CanopyAudioDiagnosticCounters::from_snapshot(
+                            &snapshot,
+                        )),
+                    },
+                )
+                .unwrap();
+            assert_eq!(receipt.started(), time_seconds == 1.11);
+        }
+
+        snapshot.petal_direct_ray_count = 7;
+        let rejected = owners.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.25);
+        assert!(rejected.phase_log().is_some());
+        owners
+            .finish_canopy_audio_frame(rejected, CanopyAudioFrameEffect::Rejected)
+            .unwrap();
+        assert!(owners
+            .begin_canopy_audio_frame(glam::Vec3::ZERO, 1.25)
+            .phase_log()
+            .is_some());
+
+        let applied = owners.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.25);
+        let receipt = owners
+            .finish_canopy_audio_frame(
+                applied,
+                CanopyAudioFrameEffect::Applied {
+                    start_observation: None,
+                    telemetry_counters: Some(CanopyAudioDiagnosticCounters::from_snapshot(
+                        &snapshot,
+                    )),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            receipt.telemetry().unwrap().marker,
+            AudioTelemetryMarker::Active(_, _)
+        ));
+        assert_eq!(receipt.telemetry().unwrap().counters.direct_rays, 7);
+        assert!(owners
+            .begin_canopy_audio_frame(glam::Vec3::ZERO, 1.25)
+            .phase_log()
+            .is_none());
     }
 
     #[test]
