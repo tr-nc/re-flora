@@ -40,17 +40,17 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             (3, 0.001, 0.005, 2),
         )
         lines.append(
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated geometry_revision=1 radiance_revision=1 "
+            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=1 radiance_revision=1 "
             "spacing_voxels=32 state=Converging update_epoch=0 source=None "
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
             "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
             "scanned_stored_texels=100 abs_threshold=0.00250000 "
             "rel_threshold=0.02000000 consecutive_below=0/2"
         )
-        for epoch, absolute, relative, consecutive in samples:
+        for field_serial, (epoch, absolute, relative, consecutive) in enumerate(samples, 2):
             lines.append(
                 "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated "
-                "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
+                f"field_serial={field_serial} geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
                 f"state={'Converged' if epoch == 3 else 'Converging'} update_epoch={epoch} "
                 f"max_abs_rgb_delta={absolute:.8f} "
                 f"max_rel_rgb_delta={relative:.8f} "
@@ -61,7 +61,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             )
         lines.append(
             "[DDGI_CONVERGENCE_EVIDENCE] terminal "
-            "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
+            "field_serial=5 geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
             f"update_epoch=3 reason={terminal_reason}"
         )
         (run_dir / f"{stem}.console.log").write_text("\n".join(lines) + "\n")
@@ -72,6 +72,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                         "lifecycle_state": "converged",
                         "update_epoch": 3,
                         "spacing_voxels": 32,
+                        "field_serial": 5,
                         "geometry_revision": 2,
                         "radiance_revision": 1,
                         "max_abs_delta": 0.001,
@@ -144,6 +145,19 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             ("missing", lambda text: "\n".join(line for line in text.splitlines() if " terminal " not in line)),
             ("duplicate", lambda text: text + next(line for line in text.splitlines() if " terminal " in line) + "\n"),
             ("epoch", lambda text: text.replace("update_epoch=3 reason=Threshold", "update_epoch=2 reason=Threshold")),
+            (
+                "terminal-field",
+                lambda text: text.replace(
+                    "terminal field_serial=5", "terminal field_serial=4"
+                ),
+            ),
+            (
+                "curve-field",
+                lambda text: text.replace(
+                    "field_serial=4 geometry_revision=2",
+                    "field_serial=40 geometry_revision=2",
+                ),
+            ),
         )
         for name, mutate in mutations:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:

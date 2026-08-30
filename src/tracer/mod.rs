@@ -133,6 +133,7 @@ use std::{fmt, time::Instant};
 const DDGI_CONVERGENCE_EVIDENCE_TARGET: &str = "re_flora::ddgi_convergence_evidence";
 
 struct DdgiConvergenceValidationEvidence {
+    field_serial: u64,
     geometry_revision: u32,
     radiance_revision: u32,
     spacing_voxels: u32,
@@ -146,7 +147,8 @@ impl fmt::Display for DdgiConvergenceValidationEvidence {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
+            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
+            self.field_serial,
             self.geometry_revision,
             self.radiance_revision,
             self.spacing_voxels,
@@ -167,6 +169,7 @@ impl fmt::Display for DdgiConvergenceValidationEvidence {
 }
 
 struct DdgiConvergenceTerminalEvidence {
+    field_serial: u64,
     geometry_revision: u32,
     radiance_revision: u32,
     spacing_voxels: u32,
@@ -178,7 +181,8 @@ impl fmt::Display for DdgiConvergenceTerminalEvidence {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
+            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
+            self.field_serial,
             self.geometry_revision,
             self.radiance_revision,
             self.spacing_voxels,
@@ -659,6 +663,7 @@ mod ddgi_convergence_evidence_tests {
     #[test]
     fn production_formatter_matches_the_convergence_summarizer_contract() {
         let validation = DdgiConvergenceValidationEvidence {
+            field_serial: 11,
             geometry_revision: 7,
             radiance_revision: 3,
             spacing_voxels: 16,
@@ -677,10 +682,11 @@ mod ddgi_convergence_evidence_tests {
         };
         assert_eq!(
             validation.to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=127 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2"
+            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=11 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=127 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2"
         );
 
         let terminal = DdgiConvergenceTerminalEvidence {
+            field_serial: 11,
             geometry_revision: 7,
             radiance_revision: 3,
             spacing_voxels: 16,
@@ -689,7 +695,7 @@ mod ddgi_convergence_evidence_tests {
         };
         assert_eq!(
             terminal.to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=127 reason=SampleBudget"
+            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=11 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=127 reason=SampleBudget"
         );
     }
 }
@@ -2632,13 +2638,14 @@ impl Tracer {
                     probe_count,
                     radiance_snapshot,
                 )?;
-                if let Some(atlas_stats) = completion.atlas_validation {
-                    let (work, field) = completion
-                        .published
-                        .expect("validated DDGI atlas must publish one typed field");
+                if let Some(publication) = completion.validated_publication {
+                    let work = publication.work();
+                    let field = publication.field();
+                    let atlas_stats = publication.atlas_validation();
                     let status = completion.status;
                     let key = field.field();
                     let validation_evidence = DdgiConvergenceValidationEvidence {
+                        field_serial: key.serial(),
                         geometry_revision: key.geometry_revision(),
                         radiance_revision: key.radiance_revision(),
                         spacing_voxels: key.spacing_voxels(),
@@ -2651,13 +2658,15 @@ impl Tracer {
                         target: DDGI_CONVERGENCE_EVIDENCE_TARGET,
                         "{validation_evidence}"
                     );
-                    if let Some(reason) = completion.convergence_reason {
+                    if let Some(terminal) = publication.terminal() {
+                        let terminal_key = terminal.field().field();
                         let terminal_evidence = DdgiConvergenceTerminalEvidence {
-                            geometry_revision: key.geometry_revision(),
-                            radiance_revision: key.radiance_revision(),
-                            spacing_voxels: key.spacing_voxels(),
-                            update_epoch: key.update_epoch(),
-                            reason,
+                            field_serial: terminal_key.serial(),
+                            geometry_revision: terminal_key.geometry_revision(),
+                            radiance_revision: terminal_key.radiance_revision(),
+                            spacing_voxels: terminal_key.spacing_voxels(),
+                            update_epoch: terminal_key.update_epoch(),
+                            reason: terminal.reason(),
                         };
                         log::debug!(
                             target: DDGI_CONVERGENCE_EVIDENCE_TARGET,

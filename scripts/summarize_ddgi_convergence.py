@@ -17,7 +17,7 @@ DEFAULT_CASES = ("sealed", "portal", "donor", "dogleg")
 DEFAULT_SPACINGS = (32, 16)
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_acceptance.toml"
 VALIDATION_PATTERN = re.compile(
-    r"geometry_revision=(?P<geometry>\d+) "
+    r"field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"state=(?P<state>\w+) update_epoch=(?P<epoch>\d+).*?"
@@ -32,7 +32,7 @@ VALIDATION_PATTERN = re.compile(
     r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)"
 )
 TERMINAL_PATTERN = re.compile(
-    r"terminal geometry_revision=(?P<geometry>\d+) "
+    r"terminal field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)"
@@ -107,6 +107,7 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
             values = match.groupdict()
             records.append(
                 {
+                    "field_serial": int(values["field_serial"]),
                     "geometry_revision": int(values["geometry"]),
                     "radiance_revision": int(values["radiance"]),
                     "spacing_voxels": int(values["spacing"]),
@@ -131,6 +132,7 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
             values = match.groupdict()
             terminals.append(
                 {
+                    "field_serial": int(values["field_serial"]),
                     "geometry_revision": int(values["geometry"]),
                     "radiance_revision": int(values["radiance"]),
                     "spacing_voxels": int(values["spacing"]),
@@ -148,6 +150,7 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
     terminal = terminals[0]
     final = records[-1]
     for field in (
+        "field_serial",
         "geometry_revision",
         "radiance_revision",
         "spacing_voxels",
@@ -180,6 +183,9 @@ def validate_curve(
         raise ValueError(f"{case_name} spacing {spacing}: capture spacing mismatch")
     geometry_revision = capture.get("geometry_revision")
     radiance_revision = capture.get("radiance_revision")
+    field_serial = capture.get("field_serial")
+    if not isinstance(field_serial, int):
+        raise ValueError(f"{case_name} spacing {spacing}: capture has no field serial")
     records = [
         record
         for record in records
@@ -195,6 +201,14 @@ def validate_curve(
     epochs = [int(record["update_epoch"]) for record in records]
     if epochs != list(range(epochs[-1] + 1)):
         raise ValueError(f"{case_name} spacing {spacing}: incomplete epoch sequence {epochs}")
+    field_serials = [int(record["field_serial"]) for record in records]
+    if len(set(field_serials)) != len(field_serials) or any(
+        left >= right for left, right in zip(field_serials, field_serials[1:])
+    ):
+        raise ValueError(
+            f"{case_name} spacing {spacing}: non-unique or unordered field serials "
+            f"{field_serials}"
+        )
 
     previous_consecutive = 0
     first_threshold_epoch: int | None = None
@@ -239,6 +253,8 @@ def validate_curve(
             first_threshold_epoch = epoch
 
     final = records[-1]
+    if final["field_serial"] != field_serial:
+        raise ValueError(f"{case_name} spacing {spacing}: capture field serial mismatch")
     final_epoch = int(final["update_epoch"])
     expected_reason = (
         "Threshold" if first_threshold_epoch == final_epoch else "SampleBudget"

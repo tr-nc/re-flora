@@ -91,11 +91,63 @@ pub(crate) struct DdgiBatchCompletion {
     pub probe_count: u32,
     pub build_token: Option<DdgiBuildToken>,
     pub status: DdgiRuntimeVolumeStatus,
-    pub atlas_validation: Option<DdgiAtlasValidationStats>,
-    pub published: Option<(DdgiScheduledWork, DdgiFieldIdentity)>,
-    pub convergence_reason: Option<DdgiConvergenceReason>,
+    pub validated_publication: Option<DdgiValidatedPublication>,
     pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiValidatedPublication {
+    work: DdgiScheduledWork,
+    field: DdgiFieldIdentity,
+    atlas_validation: DdgiAtlasValidationStats,
+    kind: DdgiValidatedPublicationKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DdgiValidatedPublicationKind {
+    Published,
+    Converged(DdgiConvergenceReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DdgiConvergenceTerminal {
+    field: DdgiFieldIdentity,
+    reason: DdgiConvergenceReason,
+}
+
+impl DdgiValidatedPublication {
+    pub(crate) fn work(self) -> DdgiScheduledWork {
+        self.work
+    }
+
+    pub(crate) fn field(self) -> DdgiFieldIdentity {
+        self.field
+    }
+
+    pub(crate) fn atlas_validation(self) -> DdgiAtlasValidationStats {
+        self.atlas_validation
+    }
+
+    pub(crate) fn terminal(self) -> Option<DdgiConvergenceTerminal> {
+        match self.kind {
+            DdgiValidatedPublicationKind::Published => None,
+            DdgiValidatedPublicationKind::Converged(reason) => Some(DdgiConvergenceTerminal {
+                field: self.field,
+                reason,
+            }),
+        }
+    }
+}
+
+impl DdgiConvergenceTerminal {
+    pub(crate) fn field(self) -> DdgiFieldIdentity {
+        self.field
+    }
+
+    pub(crate) fn reason(self) -> DdgiConvergenceReason {
+        self.reason
+    }
 }
 
 impl DdgiBatchCompletion {
@@ -149,20 +201,25 @@ fn execute_publication_transaction<S, T: Copy, P, R>(
     }
 }
 
-fn validated_publication_parts(
+fn build_validated_publication(
     outcome: DdgiValidatedIterationOutcome,
-) -> (
-    DdgiScheduledWork,
-    DdgiFieldIdentity,
-    Option<DdgiConvergenceReason>,
-) {
-    match outcome {
-        DdgiValidatedIterationOutcome::Published { work, field, .. } => (work, field, None),
+    atlas_validation: DdgiAtlasValidationStats,
+) -> DdgiValidatedPublication {
+    let (work, field, kind) = match outcome {
+        DdgiValidatedIterationOutcome::Published { work, field, .. } => {
+            (work, field, DdgiValidatedPublicationKind::Published)
+        }
         DdgiValidatedIterationOutcome::Converged {
             work,
             field,
             reason,
-        } => (work, field, Some(reason)),
+        } => (work, field, DdgiValidatedPublicationKind::Converged(reason)),
+    };
+    DdgiValidatedPublication {
+        work,
+        field,
+        atlas_validation,
+        kind,
     }
 }
 
@@ -1037,9 +1094,7 @@ impl DdgiRuntime {
                 probe_count: before.grid.probe_count(),
                 build_token: before.build_token,
                 status: before.into(),
-                atlas_validation: None,
-                published: None,
-                convergence_reason: None,
+                validated_publication: None,
                 consumer_descriptor_generation: None,
                 capture_observed: false,
             });
@@ -1069,9 +1124,7 @@ impl DdgiRuntime {
             .volumes_mut()
             .builder_mut()
             .mark_trace_stats_verified(batch)?;
-        let mut atlas_validation = None;
-        let mut published = None;
-        let mut convergence_reason = None;
+        let mut validated_publication = None;
         let mut consumer_descriptor_generation = None;
         let mut capture_observed = false;
         if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
@@ -1100,7 +1153,7 @@ impl DdgiRuntime {
             let build_token = before
                 .build_token
                 .context("validated DDGI field has no volume build token")?;
-            let (field, observed_capture) = if self.volumes().builder_is_active() {
+            let observed_capture = if self.volumes().builder_is_active() {
                 let transaction = execute_publication_transaction(
                     self,
                     PublicationDisposition::Publish(build_token),
@@ -1123,8 +1176,9 @@ impl DdgiRuntime {
                             .expect(
                                 "preflighted DDGI field publication must not fail after consumers publish",
                             );
-                        let (validated_work, field, reason) =
-                            validated_publication_parts(validated);
+                        let publication = build_validated_publication(validated, stats);
+                        let validated_work = publication.work();
+                        let field = publication.field();
                         assert_eq!(
                             field, classified,
                             "DDGI atlas classification changed during publication"
@@ -1144,17 +1198,17 @@ impl DdgiRuntime {
                             stats,
                             DdgiCapturePublication::Published,
                         );
-                        (field, capture_observed, generation, reason)
+                        (capture_observed, generation, publication)
                     },
                 )?;
                 match transaction {
                     PublicationTransactionOutcome::Published {
-                        committed: (field, capture_observed, generation, reason),
+                        committed: (capture_observed, generation, publication),
                         ..
                     } => {
                         consumer_descriptor_generation = Some(generation);
-                        convergence_reason = reason;
-                        (field, capture_observed)
+                        validated_publication = Some(publication);
+                        capture_observed
                     }
                     PublicationTransactionOutcome::Idle
                     | PublicationTransactionOutcome::Discarded(_) => {
@@ -1167,7 +1221,9 @@ impl DdgiRuntime {
                     stats,
                     DDGI_CONVERGENCE_POLICY,
                 )?;
-                let (validated_work, field, reason) = validated_publication_parts(validated);
+                let publication = build_validated_publication(validated, stats);
+                let validated_work = publication.work();
+                let field = publication.field();
                 assert_eq!(
                     field, classified,
                     "private DDGI atlas classification changed during publication"
@@ -1186,12 +1242,10 @@ impl DdgiRuntime {
                     stats,
                     DdgiCapturePublication::Published,
                 );
-                convergence_reason = reason;
-                (field, capture_observed)
+                validated_publication = Some(publication);
+                capture_observed
             };
             capture_observed = observed_capture;
-            atlas_validation = Some(stats);
-            published = Some((work, field));
         }
 
         let after = self.volumes().builder().status();
@@ -1202,9 +1256,7 @@ impl DdgiRuntime {
             probe_count: after.grid.probe_count(),
             build_token: after.build_token,
             status: after.into(),
-            atlas_validation,
-            published,
-            convergence_reason,
+            validated_publication,
             consumer_descriptor_generation,
             capture_observed,
         })
@@ -1553,30 +1605,42 @@ mod tests {
     }
 
     #[test]
-    fn validated_publication_exposes_only_a_typed_terminal_reason() {
+    fn validated_publication_capsule_owns_field_validation_and_terminal_identity() {
         let mut scheduler = DdgiTransportScheduler::new();
         scheduler.observe_radiance(3);
         scheduler.request_geometry(7, 16);
         let work = scheduler.claim_next().unwrap().unwrap();
         let field = field(7, 3);
 
-        let (_, published_field, published_reason) =
-            validated_publication_parts(DdgiValidatedIterationOutcome::Published {
+        let atlas_validation = DdgiAtlasValidationStats {
+            max_absolute_rgb_delta: 0.001,
+            ..Default::default()
+        };
+        let published = build_validated_publication(
+            DdgiValidatedIterationOutcome::Published {
                 work,
                 field,
                 consecutive_below_threshold: 1,
-            });
-        assert_eq!(published_field, field);
-        assert_eq!(published_reason, None);
+            },
+            atlas_validation,
+        );
+        assert_eq!(published.field(), field);
+        assert_eq!(published.atlas_validation(), atlas_validation);
+        assert_eq!(published.terminal(), None);
 
-        let (_, converged_field, converged_reason) =
-            validated_publication_parts(DdgiValidatedIterationOutcome::Converged {
+        let converged = build_validated_publication(
+            DdgiValidatedIterationOutcome::Converged {
                 work,
                 field,
                 reason: DdgiConvergenceReason::Threshold,
-            });
-        assert_eq!(converged_field, field);
-        assert_eq!(converged_reason, Some(DdgiConvergenceReason::Threshold));
+            },
+            atlas_validation,
+        );
+        let terminal = converged.terminal().unwrap();
+        assert_eq!(converged.field(), field);
+        assert_eq!(converged.atlas_validation(), atlas_validation);
+        assert_eq!(terminal.field(), field);
+        assert_eq!(terminal.reason(), DdgiConvergenceReason::Threshold);
     }
 
     #[test]
