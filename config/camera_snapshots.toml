@@ -23,3 +23,16 @@ yaw_deg = 60.50435
 pitch_deg = -6.837243
 fov_deg = 55.0
 fly_mode = false
+
+[[snapshots]]
+name = "bd2"
+description = "Dark-interior isolated DDGI leak acceptance fixture"
+position = [
+    0.4920328,
+    0.5331251,
+    0.65610564,
+]
+yaw_deg = -58.670998
+pitch_deg = -16.57752
+fov_deg = 55.0
+fly_mode = false
