@@ -3719,6 +3719,11 @@ impl App {
                                 .value,
                             ssr_strength: self.debug_settings.adjustables.glass_ssr_strength.value,
                             ssr_steps: self.debug_settings.adjustables.glass_ssr_steps.value,
+                            raster_reflections: self
+                                .debug_settings
+                                .adjustables
+                                .glass_raster_reflections
+                                .value,
                             per_voxel_reflection: self
                                 .debug_settings
                                 .adjustables
@@ -3738,6 +3743,11 @@ impl App {
                                 .debug_settings
                                 .adjustables
                                 .glass_refraction_strength
+                                .value,
+                            unrefracted_raster_fallback: self
+                                .debug_settings
+                                .adjustables
+                                .glass_unrefracted_raster_fallback
                                 .value,
                             alpha: self.debug_settings.adjustables.glass_alpha.value,
                             glint_strength: self

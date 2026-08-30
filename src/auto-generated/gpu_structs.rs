@@ -381,7 +381,9 @@ pub struct PushConstantFloraLod {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantGlassResolve {
     pub pass: u32,
-    pub _pad0: [u8; 12],
+    pub enable_unrefracted_raster_fallback: u32,
+    pub enable_raster_reflections: u32,
+    pub _pad0: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).

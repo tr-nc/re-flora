@@ -946,6 +946,15 @@ min = 1
 max = 64
 
 [[section.param]]
+id = "glass_raster_reflections"
+kind = "bool"
+label = "Raster Reflections (SSR)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "glass_per_voxel_reflection"
 kind = "bool"
 label = "Per-Voxel Glass"
@@ -986,6 +995,15 @@ type = "Float"
 value = 1
 min = 0
 max = 3
+
+[[section.param]]
+id = "glass_unrefracted_raster_fallback"
+kind = "bool"
+label = "Unrefracted Raster Fallback"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "glass_alpha"

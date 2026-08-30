@@ -52,6 +52,8 @@ RWStructuredBuffer<uint> glass_voxel_cache_active_count;
 struct GlassVoxelCachePushConstants
 {
     uint pass;
+    uint enable_unrefracted_raster_fallback;
+    uint enable_raster_reflections;
 };
 
 [[vk::push_constant]]
@@ -60,6 +62,10 @@ ConstantBuffer<GlassVoxelCachePushConstants> glass_voxel_cache_push;
 static const uint OPAQUE_PROVENANCE_VOXEL = 1u;
 static const uint OPAQUE_PROVENANCE_RASTER = 2u;
 static const uint OPAQUE_PROVENANCE_SKY = 3u;
+
+static const uint GLASS_SCREEN_QUERY_NONE = 0u;
+static const uint GLASS_SCREEN_QUERY_REFRACTION = 1u;
+static const uint GLASS_SCREEN_QUERY_REFLECTION = 2u;
 
 static const uint GLASS_FALLBACK_NONE = 0u;
 static const uint GLASS_FALLBACK_SCREEN_HIT = 1u;
@@ -97,7 +103,7 @@ struct GlassActivePath
     float3 throughput;
     uint serial;
     uint active;
-    uint screen_candidate;
+    uint screen_query_mode;
 };
 
 struct GlassResolveResult
@@ -123,7 +129,7 @@ GlassActivePath emptyGlassPath()
     path.throughput = float3(0.0);
     path.serial = 0u;
     path.active = 0u;
-    path.screen_candidate = 0u;
+    path.screen_query_mode = GLASS_SCREEN_QUERY_NONE;
     return path;
 }
 
@@ -334,13 +340,46 @@ bool traceGlassOpaqueScreenSegment(
     float2 endPixel;
     float endDepth;
     if (!projectGlassWorldToScreen(
-            segmentOrigin, extent, startUv, startPixel, startDepth) ||
-        !projectGlassWorldToScreen(
-            terminalEvent.position, extent, endUv, endPixel, endDepth))
+            segmentOrigin, extent, startUv, startPixel, startDepth))
     {
-        hitUv = endUv;
+        hitUv = startUv;
         hitProvenance = 0u;
         return false;
+    }
+
+    float3 segmentEnd = terminalEvent.position;
+    bool reachedTerminal = projectGlassWorldToScreen(
+        segmentEnd, extent, endUv, endPixel, endDepth);
+    if (!reachedTerminal)
+    {
+        // Reflection rays commonly leave the visible frustum before reaching their voxel-world
+        // terminal. Clip to the last projectable point so raster geometry in the visible prefix
+        // can still be tested without inventing off-screen data.
+        float inside = 0.0;
+        float outside = 1.0;
+        [unroll]
+        for (uint iteration = 0u; iteration < 16u; ++iteration)
+        {
+            float candidate = (inside + outside) * 0.5;
+            float2 candidateUv;
+            float2 candidatePixel;
+            float candidateDepth;
+            if (projectGlassWorldToScreen(
+                    lerp(segmentOrigin, terminalEvent.position, candidate),
+                    extent, candidateUv, candidatePixel, candidateDepth))
+                inside = candidate;
+            else
+                outside = candidate;
+        }
+        if (inside <= 1.0e-5 ||
+            !projectGlassWorldToScreen(
+                lerp(segmentOrigin, terminalEvent.position, inside),
+                extent, endUv, endPixel, endDepth))
+        {
+            hitUv = startUv;
+            hitProvenance = 0u;
+            return false;
+        }
     }
 
     // Walk the projected segment in screen order. Each iteration owns one contiguous
@@ -365,7 +404,7 @@ bool traceGlassOpaqueScreenSegment(
         uint provenance = opaque_provenance_tex[coordinate];
         bool finalInterval = stepIndex + 1u == stepCount;
         if (provenance != OPAQUE_PROVENANCE_RASTER &&
-            !(finalInterval &&
+            !(reachedTerminal && finalInterval &&
               terminalEvent.kind == SCENE_QUERY_EVENT_OPAQUE &&
               provenance == OPAQUE_PROVENANCE_VOXEL))
         {
@@ -403,6 +442,14 @@ bool traceGlassOpaqueScreenSegment(
     return false;
 }
 
+float3 sampleGlassPathFallback(
+    SceneQueryEvent event, float3 segmentDirection)
+{
+    return event.kind == SCENE_QUERY_EVENT_OPAQUE
+        ? glassVoxelFallback(event)
+        : glassSky(segmentDirection);
+}
+
 float3 sampleGlassUnrefractedFallback(
     float2 sourceScreenUv, SceneQueryEvent event, float3 segmentDirection,
     out uint sourceProvenance)
@@ -425,13 +472,29 @@ float3 sampleGlassUnrefractedFallback(
         return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
     }
     sourceProvenance = 0u;
-    return event.kind == SCENE_QUERY_EVENT_OPAQUE
-        ? glassVoxelFallback(event)
-        : glassSky(segmentDirection);
+    return sampleGlassPathFallback(event, segmentDirection);
+}
+
+bool glassUnrefractedRasterFallbackEnabled(uint screenQueryMode)
+{
+    return screenQueryMode == GLASS_SCREEN_QUERY_REFRACTION &&
+        glass_voxel_cache_push.enable_unrefracted_raster_fallback != 0u;
+}
+
+float3 sampleGlassConfiguredTerminalFallback(
+    uint screenQueryMode, float2 sourceScreenUv,
+    SceneQueryEvent event, float3 segmentDirection,
+    out uint terminalProvenance)
+{
+    if (glassUnrefractedRasterFallbackEnabled(screenQueryMode))
+        return sampleGlassUnrefractedFallback(
+            sourceScreenUv, event, segmentDirection, terminalProvenance);
+    terminalProvenance = 0u;
+    return sampleGlassPathFallback(event, segmentDirection);
 }
 
 float3 sampleGlassTerminalRadiance(
-    SceneQueryEvent event, uint screenCandidate, float2 sourceScreenUv,
+    SceneQueryEvent event, uint screenQueryMode, float2 sourceScreenUv,
     float3 segmentOrigin, float3 segmentDirection,
     out uint fallbackReason, out uint terminalProvenance)
 {
@@ -440,25 +503,13 @@ float3 sampleGlassTerminalRadiance(
         ? GLASS_FALLBACK_VOXEL
         : GLASS_FALLBACK_SKY;
     terminalProvenance = 0u;
-    if (screenCandidate == 0u)
-        return opaqueTerminal
-            ? glassVoxelFallback(event)
-            : glassSky(segmentDirection);
+    if (screenQueryMode == GLASS_SCREEN_QUERY_NONE)
+        return sampleGlassPathFallback(event, segmentDirection);
 
     uint width;
     uint height;
     unified_opaque_depth_tex.GetDimensions(width, height);
     uint2 extent = uint2(width, height);
-    float2 uv;
-    float2 terminalPixel;
-    float hitDepth;
-    if (!projectGlassWorldToScreen(
-            event.position, extent, uv, terminalPixel, hitDepth))
-    {
-        fallbackReason = GLASS_FALLBACK_OFFSCREEN;
-        return sampleGlassUnrefractedFallback(
-            sourceScreenUv, event, segmentDirection, terminalProvenance);
-    }
 
     float2 segmentHitUv;
     uint segmentHitProvenance;
@@ -468,7 +519,8 @@ float3 sampleGlassTerminalRadiance(
     {
         fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
         terminalProvenance = segmentHitProvenance;
-        if (segmentHitProvenance == OPAQUE_PROVENANCE_VOXEL)
+        if (segmentHitProvenance == OPAQUE_PROVENANCE_VOXEL &&
+            glassUnrefractedRasterFallbackEnabled(screenQueryMode))
         {
             uint sourceProvenance;
             float3 sourceColor = sampleGlassUnrefractedFallback(
@@ -488,9 +540,22 @@ float3 sampleGlassTerminalRadiance(
         return unified_opaque_hdr_tex.Load(int3(segmentHitCoordinate, 0)).rgb;
     }
 
+    float2 uv;
+    float2 terminalPixel;
+    float hitDepth;
+    if (!projectGlassWorldToScreen(
+            event.position, extent, uv, terminalPixel, hitDepth))
+    {
+        fallbackReason = GLASS_FALLBACK_OFFSCREEN;
+        return sampleGlassConfiguredTerminalFallback(
+            screenQueryMode, sourceScreenUv, event, segmentDirection,
+            terminalProvenance);
+    }
+
     if (!opaqueTerminal)
-        return sampleGlassUnrefractedFallback(
-            sourceScreenUv, event, segmentDirection, terminalProvenance);
+        return sampleGlassConfiguredTerminalFallback(
+            screenQueryMode, sourceScreenUv, event, segmentDirection,
+            terminalProvenance);
 
     int2 coordinate = int2(uv * float2(width, height));
     uint provenance;
@@ -500,20 +565,24 @@ float3 sampleGlassTerminalRadiance(
     {
         fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
         terminalProvenance = provenance;
-        uint sourceProvenance;
-        float3 sourceColor = sampleGlassUnrefractedFallback(
-            sourceScreenUv, event, segmentDirection, sourceProvenance);
-        if (sourceProvenance == OPAQUE_PROVENANCE_RASTER)
+        if (glassUnrefractedRasterFallbackEnabled(screenQueryMode))
         {
-            terminalProvenance = sourceProvenance;
-            return sourceColor;
+            uint sourceProvenance;
+            float3 sourceColor = sampleGlassUnrefractedFallback(
+                sourceScreenUv, event, segmentDirection, sourceProvenance);
+            if (sourceProvenance == OPAQUE_PROVENANCE_RASTER)
+            {
+                terminalProvenance = sourceProvenance;
+                return sourceColor;
+            }
         }
         return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
     }
 
     fallbackReason = rejectionReason;
-    return sampleGlassUnrefractedFallback(
-        sourceScreenUv, event, segmentDirection, terminalProvenance);
+    return sampleGlassConfiguredTerminalFallback(
+        screenQueryMode, sourceScreenUv, event, segmentDirection,
+        terminalProvenance);
 }
 
 void insertGlassPath(inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
@@ -649,7 +718,10 @@ void spawnGlassInterfacePaths(
     reflected.throughput = path.throughput * fresnel;
     reflected.serial = nextSerial++;
     reflected.active = 1u;
-    reflected.screen_candidate = 0u;
+    reflected.screen_query_mode =
+        glass_voxel_cache_push.enable_raster_reflections != 0u
+            ? GLASS_SCREEN_QUERY_REFLECTION
+            : GLASS_SCREEN_QUERY_NONE;
 
     float3 transmittedDirection;
     if (sceneQueryRefractDielectric(
@@ -662,7 +734,7 @@ void spawnGlassInterfacePaths(
         transmitted.throughput = path.throughput * (1.0 - fresnel);
         transmitted.serial = nextSerial++;
         transmitted.active = 1u;
-        transmitted.screen_candidate = path.screen_candidate;
+        transmitted.screen_query_mode = path.screen_query_mode;
         insertGlassPath(paths, transmitted, result);
     }
     else
@@ -687,7 +759,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
     cameraPath.direction = normalize(cameraRay.direction);
     cameraPath.throughput = float3(1.0);
     cameraPath.active = 1u;
-    cameraPath.screen_candidate = 1u;
+    cameraPath.screen_query_mode = GLASS_SCREEN_QUERY_REFRACTION;
     uint nextSerial = 1u;
 
     // The front event was produced by the primary pass and is reused here without another DDA.
@@ -750,7 +822,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
             uint fallbackReason;
             uint terminalProvenance;
             float3 terminal = sampleGlassTerminalRadiance(
-                event, path.screen_candidate, screenUv,
+                event, path.screen_query_mode, screenUv,
                 path.origin, path.direction,
                 fallbackReason, terminalProvenance);
             result.radiance += path.throughput * terminal;

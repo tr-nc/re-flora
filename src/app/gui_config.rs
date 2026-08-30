@@ -1227,6 +1227,14 @@ mod tests {
     }
 
     #[test]
+    fn glass_raster_visibility_comparison_controls_default_off() {
+        let settings = DebugSettings::from_config(GuiConfigLoader::load());
+
+        assert!(!settings.adjustables.glass_raster_reflections.value);
+        assert!(!settings.adjustables.glass_unrefracted_raster_fallback.value);
+    }
+
+    #[test]
     fn enabled_if_condition_follows_controller_without_mutating_dependent_value() {
         let config = GuiConfigLoader::load();
         let mut adjustables = GuiAdjustables::from_config(&config);

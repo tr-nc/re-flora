@@ -344,6 +344,28 @@ mod glass_voxel_cache_contract_tests {
             );
         }
     }
+
+    #[test]
+    fn raster_secondary_visibility_is_explicitly_switchable() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+
+        for required in [
+            "enable_unrefracted_raster_fallback",
+            "enable_raster_reflections",
+            "GLASS_SCREEN_QUERY_REFRACTION",
+            "GLASS_SCREEN_QUERY_REFLECTION",
+            "glassUnrefractedRasterFallbackEnabled",
+        ] {
+            assert!(
+                shader.contains(required),
+                "Glass raster secondary visibility is missing `{required}`",
+            );
+        }
+        assert!(
+            !shader.contains("reflected.screen_candidate = 0u;"),
+            "Fresnel reflection must not be permanently barred from raster visibility",
+        );
+    }
 }
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
@@ -378,10 +400,12 @@ pub struct GlassGuiParams {
     pub reflection_strength: f32,
     pub ssr_strength: f32,
     pub ssr_steps: u32,
+    pub raster_reflections: bool,
     pub per_voxel_reflection: bool,
     pub ssr_min_hit_thickness_voxels: f32,
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,
+    pub unrefracted_raster_fallback: bool,
     pub alpha: f32,
     pub glint_strength: f32,
 }
@@ -980,6 +1004,8 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
+    glass_raster_reflections: bool,
+    glass_unrefracted_raster_fallback: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
@@ -1343,6 +1369,8 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
+            glass_raster_reflections: false,
+            glass_unrefracted_raster_fallback: false,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
@@ -3264,6 +3292,8 @@ impl Tracer {
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
+        self.glass_raster_reflections = glass_gui_params.raster_reflections;
+        self.glass_unrefracted_raster_fallback = glass_gui_params.unrefracted_raster_fallback;
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
@@ -6631,6 +6661,10 @@ impl Tracer {
         ] {
             let push = PushConstantGlassResolve {
                 pass,
+                enable_unrefracted_raster_fallback: u32::from(
+                    self.glass_unrefracted_raster_fallback,
+                ),
+                enable_raster_reflections: u32::from(self.glass_raster_reflections),
                 ..bytemuck::Zeroable::zeroed()
             };
             pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
