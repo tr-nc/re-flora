@@ -118,10 +118,23 @@ if [[ "$run_log" != /* || ! -f "$run_log" ]]; then
     fi
     exit 3
 fi
-runtime_red="$(
+set +e
+runtime_red_matches="$(
     "$rg_bin" --no-filename -o '\[LIGHTING_MODE_ACCEPTANCE\] verdict=RED reason=.*' \
-        "$app_output" "$run_log" 2>/dev/null | awk '!seen[$0]++' || true
+        "$app_output" "$run_log" 2>&1
 )"
+runtime_red_status=$?
+set -e
+if [[ $runtime_red_status -gt 1 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=runtime-red-scan-failed rg-status=%s\n' \
+        "$runtime_red_status" >&2
+    printf '%s\n' "$runtime_red_matches" >&2
+    exit 3
+fi
+runtime_red=""
+if [[ $runtime_red_status -eq 0 ]]; then
+    runtime_red="$(printf '%s\n' "$runtime_red_matches" | awk '!seen[$0]++')"
+fi
 if [[ -n "$runtime_red" ]]; then
     printf '%s\n' "$runtime_red" >&2
     if [[ $app_status -eq 124 ]]; then
