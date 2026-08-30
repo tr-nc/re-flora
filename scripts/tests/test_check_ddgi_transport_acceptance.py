@@ -59,7 +59,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
             "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v10",
-            "analyze_current_environment_irradiance_capture.py",
+            "analyze_current_capture",
             "--require-filter-history-retain-blend",
             "--require-filter-local-recovery-policy",
             "--min-filter-visibility-reject-count 1",

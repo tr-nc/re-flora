@@ -13,6 +13,11 @@ FIXTURES = Path(__file__).with_name("fixtures")
 CURRENT_ANALYZER = SCRIPTS / "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ANALYZER = SCRIPTS / "analyze_environment_irradiance_capture.py"
 PRODUCTION_RUNNERS = tuple(sorted(SCRIPTS.glob("check_ddgi*.sh")))
+sys.path.insert(0, str(SCRIPTS))
+
+from rfirr_production_runner_contract import (  # noqa: E402
+    production_runner_invocation_failures,
+)
 
 
 class RfirrCurrentVersionContractTests(unittest.TestCase):
@@ -26,13 +31,31 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             text=True,
         )
 
-    def test_production_runners_only_name_the_current_schema_entry(self) -> None:
+    def test_production_runners_have_direct_current_schema_invocations(self) -> None:
         for runner in PRODUCTION_RUNNERS:
             source = runner.read_text(encoding="utf-8")
             with self.subTest(runner=runner.name):
-                self.assertIn(CURRENT_ANALYZER.name, source)
-                self.assertNotIn(COMPATIBILITY_ANALYZER.name, source)
-                self.assertNotIn("--expect-version", source)
+                self.assertEqual(production_runner_invocation_failures(source), [])
+
+    def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
+        source = (SCRIPTS / "check_ddgi_correctness.sh").read_text(encoding="utf-8")
+        direct_call = (
+            '    "$repo_root/scripts/'
+            'analyze_current_environment_irradiance_capture.py" "$@"'
+        )
+        mutations = (
+            source.replace(direct_call, f"    # {direct_call.strip()}", 1),
+            source.replace(
+                direct_call,
+                '    unused_analyzer="$repo_root/scripts/'
+                'analyze_current_environment_irradiance_capture.py"',
+                1,
+            ),
+            source.replace('analyze_current_capture "', 'true "'),
+        )
+        for mutated in mutations:
+            with self.subTest():
+                self.assertNotEqual(production_runner_invocation_failures(mutated), [])
 
     def test_current_schema_entry_accepts_current_and_rejects_v9(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

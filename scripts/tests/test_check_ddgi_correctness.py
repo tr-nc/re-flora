@@ -82,7 +82,7 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
             "--reference",
             output,
         )
-        self.assertIn("analyze_current_environment_irradiance_capture.py", output)
+        self.assertIn("analyze_current_capture", output)
         self.assertNotIn("--expect-version", output)
         self.assertIn("unoccluded-irradiance.rfirr --min-reference-error-p99 0.01", output)
         self.assertIn("equal-weight-irradiance.rfirr --min-reference-error-p99 0.01", output)

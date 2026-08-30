@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
+
 auto_exit="${DDGI_TRANSPORT_ACCEPTANCE_AUTO_EXIT:-120}"
 output_root="${DDGI_TRANSPORT_ACCEPTANCE_OUTPUT_DIR:-$repo_root/target/ddgi-transport-acceptance}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -32,7 +37,6 @@ convergence_max_epoch=63
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
 dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
-analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 failures=0
 
@@ -106,7 +110,7 @@ run_analysis() {
     shift 2
     local json="${capture%.rfirr}.analysis.json"
     local command=(
-        "$analyzer" "$capture"
+        analyze_current_capture "$capture"
         --correctness
         --expect-debug-view final
         --require-nonnegative-rgb

@@ -3,6 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-60}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
 terrain_hard_origin="${DDGI_CORRECTNESS_TERRAIN_HARD_ORIGIN:-}"
@@ -28,8 +33,6 @@ capture_specs=(
     equal-weight-irradiance:equal-weight-irradiance
     raw-cage-irradiance:raw-cage-irradiance
 )
-analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
-
 print_command() {
     printf '%q ' "$@"
     printf '\n'
@@ -109,7 +112,7 @@ for case_name in "${cases[@]}"; do
             unoccluded_gain_threshold=0.005
         fi
         final_analysis=(
-            "$analyzer" "$first"
+            analyze_current_capture "$first"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view final
@@ -126,7 +129,7 @@ for case_name in "${cases[@]}"; do
             # environment output numerically instead of treating unrelated plane hashes as
             # the DDGI determinism contract.
             stability_analysis=(
-                "$analyzer" "$first"
+                analyze_current_capture "$first"
                 --correctness
                 --require-nonnegative-rgb
                 --expect-debug-view final
@@ -138,7 +141,7 @@ for case_name in "${cases[@]}"; do
             final_analysis+=(--compare "$second")
         fi
         visibility_analysis=(
-            "$analyzer" "$moment"
+            analyze_current_capture "$moment"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view moment-visibility
@@ -146,19 +149,19 @@ for case_name in "${cases[@]}"; do
             "${visibility_thresholds[@]}"
         )
         exact_visibility_analysis=(
-            "$analyzer" "$exact_visibility"
+            analyze_current_capture "$exact_visibility"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view exact-visibility
         )
         exact_irradiance_analysis=(
-            "$analyzer" "$exact_irradiance"
+            analyze_current_capture "$exact_irradiance"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view exact-irradiance
         )
         unoccluded_analysis=(
-            "$analyzer" "$unoccluded"
+            analyze_current_capture "$unoccluded"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view unoccluded-irradiance
@@ -166,7 +169,7 @@ for case_name in "${cases[@]}"; do
             --min-debug-roi-luminance-gain "$unoccluded_gain_threshold"
         )
         equal_weight_analysis=(
-            "$analyzer" "$equal_weight"
+            analyze_current_capture "$equal_weight"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view equal-weight-irradiance
@@ -174,7 +177,7 @@ for case_name in "${cases[@]}"; do
             "${debug_difference_thresholds[@]}"
         )
         raw_cage_analysis=(
-            "$analyzer" "$raw_cage"
+            analyze_current_capture "$raw_cage"
             --correctness
             --require-nonnegative-rgb
             --expect-debug-view raw-cage-irradiance

@@ -164,6 +164,8 @@ The analyzer keeps the fixed RFIRR v8 reference layout and the published 252-byt
 readable, but production acceptance never infers a same-version layout from file length.
 Production runners use the current-schema analyzer entry, whose interface has no numeric version
 option; explicit historical-version selection remains confined to compatibility tests and tools.
+Their normalized direct-call function is guarded only as a source-wiring tripwire; runtime schema
+ownership comes from the current-only analyzer interface, not from static shell interpretation.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

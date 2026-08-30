@@ -3,6 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 auto_exit="${DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT:-60}"
 minimum_local_recovery_epoch="${DDGI_RUNTIME_TERRAIN_EDIT_MIN_RECOVERY_EPOCH:-4}"
 output_root="${DDGI_RUNTIME_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-runtime-terrain-edits}"
@@ -277,7 +282,7 @@ check_captures() {
         thresholds+=(--min-luminance-p99 0.10)
     fi
     local analysis=(
-        "$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
+        analyze_current_capture
         "$first" --correctness
         --compare "$second" --reference "$reference" "${thresholds[@]}"
     )
@@ -314,7 +319,7 @@ check_inflight_stale_active_captures() {
         echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing captures are not bit-exact" >&2
         return 1
     fi
-    if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+    if ! analyze_current_capture \
         "$first" --compare "$second" --compare-direct-light \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
@@ -346,7 +351,7 @@ check_flora_consumer() {
         echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=$final_revision" >&2
         return 1
     fi
-    if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+    if ! analyze_current_capture \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_RUNTIME_EDIT] FAIL flora-enabled final capture is not lit" >&2
         return 1

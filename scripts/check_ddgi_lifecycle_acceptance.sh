@@ -4,11 +4,15 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
+
 auto_exit="${DDGI_LIFECYCLE_AUTO_EXIT:-90}"
 output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-acceptance}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
-analyzer="$repo_root/scripts/analyze_current_environment_irradiance_capture.py"
 radiance_validator="$repo_root/scripts/validate_ddgi_radiance_lifecycle.py"
 failures=0
 dry_run=false
@@ -130,7 +134,7 @@ check_radiance() {
         return 1
     }
 
-    "$analyzer" "$capture" \
+    analyze_current_capture "$capture" \
         --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
@@ -196,7 +200,7 @@ check_density() {
         return 1
     fi
 
-    "$analyzer" "$capture" \
+    analyze_current_capture "$capture" \
         --expect-spacing-voxels 16 \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \

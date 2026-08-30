@@ -3,6 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 auto_exit="${DDGI_TERRAIN_EDIT_AUTO_EXIT:-60}"
 output_root="${DDGI_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-terrain-edit-cycle}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -95,12 +100,12 @@ run_case() {
         return 1
     fi
     if [[ "$mode" == "closed" ]]; then
-        if ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+        if ! analyze_current_capture \
             "$capture" --max-luminance 0.00005; then
             echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing post-close capture leaks light" >&2
             return 1
         fi
-    elif ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+    elif ! analyze_current_capture \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing reopened portal capture is not lit" >&2
         return 1

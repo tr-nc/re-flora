@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+analyze_current_capture() {
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
+
 output_root="${DDGI_LOCAL_TERRAIN_OUTPUT_DIR:-$repo_root/target/ddgi-local-terrain-convergence}"
 auto_exit="${DDGI_LOCAL_TERRAIN_AUTO_EXIT:-30}"
 minimum_recovery_epoch="${DDGI_LOCAL_TERRAIN_MIN_RECOVERY_EPOCH:-4}"
@@ -114,7 +119,7 @@ if [[ -n "$final_revision" ]]; then
     fi
 fi
 
-if [[ -f "$capture" ]] && ! "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" \
+if [[ -f "$capture" ]] && ! analyze_current_capture \
     "$capture" --max-luminance 0.00005 >/dev/null; then
     fail "closed scene retained stale light"
 fi

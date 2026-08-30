@@ -33,11 +33,21 @@ escaped or dynamically expanded shell arguments cannot select a historical schem
 numeric compatibility remains available only through
 `scripts/analyze_environment_irradiance_capture.py` for historical fixtures and tests.
 
+Each `check_ddgi*.sh` runner defines the same normalized `analyze_current_capture` function: its
+body directly executes the current-only entry and every analysis branch invokes that function in
+command position. `scripts/rfirr_production_runner_contract.py` is intentionally only a
+source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
+The typed current-only CLI behavior above is the schema seal.
+
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
 it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
 evaluation still prevents a general static proof and would add a large dependency surface. The
 selected seam is the production-only current-schema entry above: all analysis behavior remains in
 the deep analyzer module, while the production interface makes schema selection unrepresentable.
+
+The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
+supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any
+other glob special form rejects the workflow contract rather than approximating GitHub semantics.
 
 ## Transport matrix
 
