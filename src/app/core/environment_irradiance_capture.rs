@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 9;
+const CAPTURE_VERSION: u32 = 10;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 268;
@@ -61,7 +61,7 @@ impl CaptureMetadata {
         let source = checkpoint.field.source();
         let filter_evidence = checkpoint
             .filter_evidence
-            .context("RFIRR v9 requires completed owner-generated DDGI filter evidence")?;
+            .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
         ensure!(
             filter_evidence.field == checkpoint.field,
             "DDGI filter evidence does not own the captured field"
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 9);
+        assert_eq!(CAPTURE_VERSION, 10);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 268);
@@ -890,7 +890,7 @@ mod tests {
             }
         }
         let fixture_hex =
-            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v9.hex");
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v10.hex");
         let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
         let fixture: Vec<u8> = compact
             .as_bytes()

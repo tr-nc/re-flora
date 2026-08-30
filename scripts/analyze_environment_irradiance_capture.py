@@ -22,7 +22,8 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
-HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -200,7 +201,7 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6, 7, 8, 9):
+    elif version in (4, 5, 6, 7, 8, 9, 10):
         header = {
             4: HEADER_V4,
             5: HEADER_V5,
@@ -208,6 +209,7 @@ def load_capture(path: Path) -> Capture:
             7: HEADER_V7,
             8: HEADER_V8,
             9: HEADER_V9,
+            10: HEADER_V10,
         }[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
@@ -275,6 +277,101 @@ def load_capture(path: Path) -> Capture:
         if version == 9:
             (
                 evidence_present,
+                irradiance_owner_version,
+                visibility_history_owner_version,
+                visibility_sample_owner_version,
+                evidence_field_serial,
+                evidence_update_epoch,
+                evidence_probe_count,
+                visibility_written,
+                evidence_reserved,
+                irradiance_replace,
+                irradiance_retain,
+                irradiance_blend,
+                irradiance_retention_sum_q16,
+                visibility_replace,
+                visibility_retain,
+                visibility_blend,
+                visibility_retention_sum_q16,
+                visibility_samples,
+                visibility_accept,
+                visibility_reject,
+            ) = values[26:]
+            if evidence_present != 1:
+                raise ValueError(f"{path}: v9 filter evidence is missing")
+            if evidence_reserved != 0:
+                raise ValueError(f"{path}: v9 filter evidence reserved lane is nonzero")
+            if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
+                raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
+            if evidence_probe_count == 0:
+                raise ValueError(f"{path}: filter evidence has zero probes")
+            if irradiance_owner_version != 1:
+                raise ValueError(f"{path}: irradiance history owner version mismatch")
+            if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
+                raise ValueError(f"{path}: irradiance history action partition mismatch")
+            if irradiance_blend == 0:
+                if irradiance_retention_sum_q16 != 0:
+                    raise ValueError(f"{path}: irradiance retention without Blend")
+            elif irradiance_retention_sum_q16 % irradiance_blend != 0:
+                raise ValueError(f"{path}: irradiance Blend retention is not exact")
+            if visibility_written not in (0, 1):
+                raise ValueError(f"{path}: invalid visibility-written flag")
+            if visibility_written:
+                if visibility_history_owner_version != 1 or visibility_sample_owner_version != 1:
+                    raise ValueError(f"{path}: visibility owner version mismatch")
+                if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
+                    raise ValueError(f"{path}: visibility history action partition mismatch")
+                if visibility_blend == 0:
+                    if visibility_retention_sum_q16 != 0:
+                        raise ValueError(f"{path}: visibility retention without Blend")
+                elif visibility_retention_sum_q16 % visibility_blend != 0:
+                    raise ValueError(f"{path}: visibility Blend retention is not exact")
+                if visibility_samples != visibility_accept + visibility_reject:
+                    raise ValueError(f"{path}: visibility sample partition mismatch")
+            elif any(
+                value != 0
+                for value in (
+                    visibility_history_owner_version,
+                    visibility_sample_owner_version,
+                    visibility_replace,
+                    visibility_retain,
+                    visibility_blend,
+                    visibility_retention_sum_q16,
+                    visibility_samples,
+                    visibility_accept,
+                    visibility_reject,
+                )
+            ):
+                raise ValueError(f"{path}: unwritten visibility has filter evidence")
+            metadata["filter_evidence"] = {
+                "field_serial": evidence_field_serial,
+                "update_epoch": evidence_update_epoch,
+                "probe_count": evidence_probe_count,
+                "visibility_written": bool(visibility_written),
+                "irradiance_history": {
+                    "owner_version": irradiance_owner_version,
+                    "replace": irradiance_replace,
+                    "retain": irradiance_retain,
+                    "blend": irradiance_blend,
+                    "blend_retention_q16": irradiance_retention_sum_q16,
+                },
+                "visibility_history": {
+                    "owner_version": visibility_history_owner_version,
+                    "replace": visibility_replace,
+                    "retain": visibility_retain,
+                    "blend": visibility_blend,
+                    "blend_retention_q16": visibility_retention_sum_q16,
+                },
+                "visibility_samples": {
+                    "owner_version": visibility_sample_owner_version,
+                    "samples": visibility_samples,
+                    "accept": visibility_accept,
+                    "reject": visibility_reject,
+                },
+            }
+        elif version == 10:
+            (
+                evidence_present,
                 irradiance_owner_version_mask,
                 visibility_history_owner_version_mask,
                 visibility_sample_owner_version_mask,
@@ -298,9 +395,9 @@ def load_capture(path: Path) -> Capture:
                 visibility_reject,
             ) = values[26:]
             if evidence_present != 1:
-                raise ValueError(f"{path}: v9 filter evidence is missing")
+                raise ValueError(f"{path}: v10 filter evidence is missing")
             if evidence_reserved != 0:
-                raise ValueError(f"{path}: v9 filter evidence reserved lane is nonzero")
+                raise ValueError(f"{path}: v10 filter evidence reserved lane is nonzero")
             if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
                 raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
             if evidence_probe_count == 0:
@@ -386,13 +483,13 @@ def load_capture(path: Path) -> Capture:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
     expected_plane_counts = (
         (5,)
-        if version in (8, 9)
+        if version in (8, 9, 10)
         else ((4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2)))
     )
     if plane_count not in expected_plane_counts:
         expected_label = (
             "five"
-            if version in (8, 9)
+            if version in (8, 9, 10)
             else (
                 "four"
                 if version == 7
