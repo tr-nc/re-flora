@@ -138,7 +138,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["qualified"])
-        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(report["schema_version"], 3)
         self.assertEqual(report["matrix"]["curve_count"], 1)
         curve = report["curves"][0]
         self.assertEqual(curve["final_update_epoch"], 7)
@@ -146,6 +146,21 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(len(curve["epochs"]), 8)
         self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
         self.assertEqual(report["policy"]["relative_floor"], 0.05)
+        self.assertEqual(
+            curve["probe_population"],
+            {"total_count": 4913, "valid_count": 4913, "invalid_count": 0},
+        )
+        self.assertEqual(
+            curve["atlas_texel_layout"],
+            {
+                "interior_texels_per_valid_probe": 64,
+                "stored_texels_per_valid_probe": 100,
+            },
+        )
+        self.assertEqual(
+            curve["validated_atlas_coverage"],
+            {"interior_texel_count": 314432, "stored_texel_count": 491300},
+        )
 
     def test_accepts_complete_coverage_of_the_relocated_valid_population(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
