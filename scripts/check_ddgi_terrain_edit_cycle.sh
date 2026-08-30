@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 source "$repo_root/scripts/lib/capture_process_evidence.sh"
-capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 auto_exit="${DDGI_TERRAIN_EDIT_AUTO_EXIT:-60}"
 output_root="${DDGI_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-terrain-edit-cycle}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"

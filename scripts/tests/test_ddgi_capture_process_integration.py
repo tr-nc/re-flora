@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import unittest
+import re
+import stat
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -43,6 +47,60 @@ class DdgiCaptureProcessIntegrationTests(unittest.TestCase):
             "from validate_capture_process_evidence import FATAL_DIAGNOSTIC", source
         )
         self.assertNotIn("ERROR_MARKER =", source)
+
+    def test_terrain_edit_cycle_enables_initialization_evidence_in_a_real_helper_run(
+        self,
+    ) -> None:
+        source = (SCRIPTS / "check_ddgi_terrain_edit_cycle.sh").read_text(
+            encoding="utf-8"
+        )
+        rust_log = re.search(r'^capture_rust_log="([^"]+)"$', source, re.MULTILINE)
+        self.assertIsNotNone(rust_log)
+        self.assertIn("re_flora::tracer=info", rust_log.group(1))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = root / "terrain-edit.rfirr"
+            console = root / "terrain-edit.console.log"
+            canonical_log = root / "canonical run.log"
+            fake_app = root / "fake-app.sh"
+            fake_app.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+[[ "${RUST_LOG:-}" == *"re_flora::tracer=info"* ]] || exit 91
+capture="$1"
+run_log="$2"
+: >"$capture"
+: >"$run_log"
+run_log="$(realpath "$run_log")"
+events="[RUN_LOG] path=$run_log
+[ENV_LIGHT_TEST] static terrain ready case=terrain-edits terrain_revision=2 settling_frames=2
+[DDGI] initialization requested terrain_revision=2 spacing_voxels=32
+[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2
+[ENV_IRRADIANCE_CAPTURE] saved $capture
+[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
+printf '%s\n' "$events" >"$run_log"
+printf '%s\n' "$events"
+""",
+                encoding="utf-8",
+            )
+            fake_app.chmod(fake_app.stat().st_mode | stat.S_IXUSR)
+            command = f"""
+repo_root={SCRIPTS.parent!s}
+source "$repo_root/scripts/lib/capture_process_evidence.sh"
+run_capture_with_process_evidence \
+  {console!s} {capture!s} '{rust_log.group(1)}' \
+  --require-test-scene-startup -- {fake_app!s} {capture!s} '{canonical_log!s}'
+"""
+            result = subprocess.run(
+                ["bash", "-c", command],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("found 0", result.stderr)
 
 
 if __name__ == "__main__":
