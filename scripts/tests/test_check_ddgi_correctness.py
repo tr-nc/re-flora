@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -22,6 +23,73 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
             text=True,
             env=env,
         )
+
+    def run_fake_success_runner(self, dirty_source: str = "") -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts"
+            fake_bin = root / "bin"
+            scripts.mkdir()
+            fake_bin.mkdir()
+
+            def executable(path: Path, contents: str) -> None:
+                path.write_text(contents, encoding="utf-8")
+                path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+            executable(scripts / RUNNER.name, RUNNER.read_text(encoding="utf-8"))
+            executable(
+                scripts / "validate_capture_process_evidence.py",
+                (SCRIPTS / "validate_capture_process_evidence.py").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            executable(
+                scripts / "analyze_environment_irradiance_capture.py",
+                "#!/usr/bin/env bash\nprintf '{}\\n'\n",
+            )
+            executable(
+                fake_bin / "cargo",
+                """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "build" ]]; then exit 0; fi
+arguments=("$@")
+for ((index = 0; index < ${#arguments[@]}; ++index)); do
+    if [[ "${arguments[$index]}" == "--environment-irradiance-capture" ]]; then
+        capture="${arguments[$((index + 1))]}"
+        mkdir -p "$(dirname "$capture")"
+        : >"$capture"
+        run_log="${capture%.rfirr}.run.log"
+        marker="[RUN_LOG] path=$run_log"
+        events="[ENV_LIGHT_TEST] static terrain ready case=sealed terrain_revision=2 settling_frames=2
+[DDGI] initialization requested terrain_revision=2 spacing_voxels=32
+[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2"
+        run_log_extra=""
+        console_extra=""
+        if [[ "${FAKE_DIRTY_SOURCE:-}" == "runlog" ]]; then run_log_extra="VUID-dirty"; fi
+        if [[ "${FAKE_DIRTY_SOURCE:-}" == "console" ]]; then console_extra="ERROR dirty"; fi
+        printf '%s\n%s\n%s\n' "$marker" "$events" "$run_log_extra" >"$run_log"
+        printf '%s\n%s\n%s\n' "$marker" "$events" "$console_extra"
+    fi
+done
+""",
+            )
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "DDGI_CORRECTNESS_OUTPUT_DIR": str(root / "captures"),
+                    "FAKE_DIRTY_SOURCE": dirty_source,
+                }
+            )
+            return subprocess.run(
+                [str(scripts / RUNNER.name)],
+                cwd=root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
     def test_dry_run_captures_and_validates_each_observable_debug_route(self) -> None:
         result = self.run_runner("--dry-run")
@@ -116,6 +184,17 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertEqual(result.stdout.count("FAKE_CAPTURE_FAILURE"), 48)
         self.assertIn("failures=48", result.stdout)
         self.assertEqual(result.stdout.count("backend=ddgi view="), 48)
+
+    def test_exit_zero_capture_with_dirty_console_or_bound_run_log_fails(self) -> None:
+        clean = self.run_fake_success_runner()
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+
+        for dirty_source in ("console", "runlog"):
+            with self.subTest(dirty_source=dirty_source):
+                dirty = self.run_fake_success_runner(dirty_source)
+                self.assertEqual(dirty.returncode, 1)
+                self.assertIn("process evidence", dirty.stderr)
+                self.assertIn("failures=48", dirty.stdout)
 
 
 if __name__ == "__main__":

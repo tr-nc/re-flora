@@ -39,6 +39,12 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
 
             executable(scripts / RUNNER.name, RUNNER.read_text(encoding="utf-8"))
             executable(
+                scripts / "validate_capture_process_evidence.py",
+                (SCRIPTS / "validate_capture_process_evidence.py").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            executable(
                 fake_bin / "cargo",
                 """#!/usr/bin/env bash
 set -euo pipefail
@@ -49,6 +55,13 @@ for ((index = 0; index < ${#arguments[@]}; ++index)); do
         capture="${arguments[$((index + 1))]}"
         mkdir -p "$(dirname "$capture")"
         : >"$capture"
+        run_log="${capture%.rfirr}.run.log"
+        marker="[RUN_LOG] path=$run_log"
+        events="[ENV_LIGHT_TEST] static terrain ready case=sealed terrain_revision=2 settling_frames=2
+[DDGI] initialization requested terrain_revision=2 spacing_voxels=32
+[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2"
+        printf '%s\n%s\n' "$marker" "$events" >"$run_log"
+        printf '%s\n%s\n' "$marker" "$events"
     fi
 done
 """,

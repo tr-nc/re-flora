@@ -34,6 +34,7 @@ donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
 dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
+process_validator="$repo_root/scripts/validate_capture_process_evidence.py"
 failures=0
 filter_history_outcome_accepted=true
 
@@ -87,7 +88,7 @@ run_capture() {
     fi
 
     set +e
-    RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
+    RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
         "${command[@]}" 2>&1 | tee "$console"
     local command_status=${PIPESTATUS[0]}
     set -e
@@ -95,8 +96,8 @@ run_capture() {
         echo "[DDGI_TRANSPORT] FAIL capture case=$case_name spacing=$spacing target=$target order=$order status=$command_status" >&2
         return 1
     fi
-    if grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|stale readback)' "$console"; then
-        echo "[DDGI_TRANSPORT] FAIL error marker case=$case_name spacing=$spacing target=$target order=$order" >&2
+    if ! "$process_validator" "$console"; then
+        echo "[DDGI_TRANSPORT] FAIL process evidence case=$case_name spacing=$spacing target=$target order=$order" >&2
         return 1
     fi
 }

@@ -29,6 +29,7 @@ capture_specs=(
     raw-cage-irradiance:raw-cage-irradiance
 )
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+process_validator="$repo_root/scripts/validate_capture_process_evidence.py"
 
 print_command() {
     printf '%q ' "$@"
@@ -86,16 +87,25 @@ for case_name in "${cases[@]}"; do
             view="${capture_spec%%:*}"
             suffix="${capture_spec#*:}"
             path="$run_dir/${case_name}-spacing${spacing}-${suffix}.rfirr"
+            console="${path%.rfirr}.console.log"
             echo "[DDGI_CORRECTNESS] case=$case_name spacing=$spacing backend=ddgi view=$view"
             if $dry_run; then
                 print_command "${command[@]}" --ddgi-debug-view "$view" \
                     --environment-irradiance-capture "$path"
                 continue
             fi
-            if ! RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
+            set +e
+            RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
                 "${command[@]}" --ddgi-debug-view "$view" \
-                    --environment-irradiance-capture "$path"; then
+                    --environment-irradiance-capture "$path" 2>&1 | tee "$console"
+            command_status=${PIPESTATUS[0]}
+            set -e
+            if (( command_status != 0 )); then
                 echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing view=$view capture command" >&2
+                failures=$((failures + 1))
+                capture_failed=true
+            elif ! "$process_validator" "$console"; then
+                echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing view=$view process evidence" >&2
                 failures=$((failures + 1))
                 capture_failed=true
             fi

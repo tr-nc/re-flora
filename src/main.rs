@@ -37,11 +37,17 @@ pub use cli::{
 };
 use env_logger::{Env, Target};
 use std::{
-    io::Write,
-    path::PathBuf,
+    io::{self, Write},
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 use winit::event_loop::EventLoop;
+
+const RUN_LOG_BINDING_TARGET: &str = "re_flora::run_log_binding";
+
+fn run_log_binding_marker(path: &Path) -> io::Result<String> {
+    Ok(format!("[RUN_LOG] path={}", path.canonicalize()?.display()))
+}
 
 #[allow(dead_code)]
 fn backtrace_on() {
@@ -92,9 +98,29 @@ fn init_env_logger() -> Option<PathBuf> {
 
     if let Some(path) = &log_path {
         log::info!("Writing run log to {}", path.display());
+        match run_log_binding_marker(path) {
+            Ok(marker) => log::info!(target: RUN_LOG_BINDING_TARGET, "{marker}"),
+            Err(err) => eprintln!("Failed to bind run log path {}: {err}", path.display()),
+        }
     }
 
     log_path
+}
+
+#[cfg(test)]
+mod startup_log_tests {
+    use super::*;
+
+    #[test]
+    fn run_log_binding_marker_uses_the_existing_absolute_path() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let expected = file.path().canonicalize().unwrap();
+
+        assert_eq!(
+            run_log_binding_marker(file.path()).unwrap(),
+            format!("[RUN_LOG] path={}", expected.display())
+        );
+    }
 }
 
 fn handle_camera_snapshot_query_options(options: &AppOptions) -> bool {
