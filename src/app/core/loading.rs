@@ -508,3 +508,30 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_owns_the_canopy_vegetation_effect_until_one_consumption() {
+        let mut loading = LoadingState {
+            chunk_indices: Vec::new(),
+            terrain_snapshot_reader: None,
+            visible_terrain_publication: None,
+            current: 0,
+            step_label: String::new(),
+            phase: LoadingPhase::Terrain,
+            collider_total: 0,
+            canopy_audio_vegetation_startup: Some(
+                launch_owners::CanopyAudioVegetationStartup::new(true),
+            ),
+        };
+
+        let startup = loading
+            .take_canopy_audio_vegetation_startup()
+            .expect("loading must retain the owned startup effect");
+        assert!(startup.plants_budget_stress_trees());
+        assert!(loading.take_canopy_audio_vegetation_startup().is_none());
+    }
+}

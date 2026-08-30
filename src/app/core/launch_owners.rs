@@ -880,11 +880,10 @@ mod tests {
     #[test]
     fn non_diagnostic_scenarios_never_request_the_canopy_camera_pose() {
         let mut garden = launch_for(Scenario::Garden);
-        assert!(matches!(
-            garden.take_canopy_audio_startup_policy().unwrap(),
-            CanopyAudioStartupPolicy::Standard
-        ));
-        assert!(garden.take_canopy_audio_startup_policy().is_err());
+        assert!(garden
+            .take_canopy_audio_startup_plan()
+            .unwrap()
+            .is_none());
         assert!(matches!(
             garden.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0),
             CanopyAudioFrameCommand::Standard
@@ -1308,19 +1307,30 @@ mod tests {
 
     #[test]
     fn canopy_startup_policy_and_frame_effect_are_each_consumed_once() {
-        static_assertions::assert_not_impl_any!(CanopyAudioStartupPolicy: Clone, Copy);
+        static_assertions::assert_not_impl_any!(CanopyAudioStartupPlan: Clone, Copy);
+        static_assertions::assert_not_impl_any!(CanopyAudioVegetationStartup: Clone, Copy);
         static_assertions::assert_not_impl_any!(CanopyAudioFrameCommand: Clone, Copy);
 
         let mut owners = launch_for(Scenario::CanopyAudioDiagnostic {
             constrained_budget: true,
         });
+        let startup = owners
+            .take_canopy_audio_startup_plan()
+            .unwrap()
+            .expect("diagnostic launch must own its startup plan");
+        let (budget, vegetation) = startup.into_effects();
         assert!(matches!(
-            owners.take_canopy_audio_startup_policy().unwrap(),
-            CanopyAudioStartupPolicy::Diagnostic {
-                budget_stress: true,
-            }
+            budget,
+            CanopyAudioAcousticBudget::Constrained
         ));
-        assert!(owners.take_canopy_audio_startup_policy().is_err());
+        assert!(vegetation.plants_budget_stress_trees());
+        assert!(owners.take_canopy_audio_startup_plan().is_err());
+
+        let frame = owners.begin_canopy_audio_frame(glam::Vec3::ZERO, 0.0);
+        assert_eq!(frame.wind_policy(), CanopyAudioWindPolicy::Diagnostic);
+        owners
+            .finish_canopy_audio_frame(frame, CanopyAudioFrameEffect::Rejected)
+            .unwrap();
 
         let mut snapshot = CanopyAudioTelemetrySnapshot::default();
         for time_seconds in [1.0, 1.05, 1.11] {
