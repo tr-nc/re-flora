@@ -382,7 +382,8 @@ pub struct PushConstantFloraLod {
 pub struct PushConstantGlassResolve {
     pub pass: u32,
     pub enable_unrefracted_raster_fallback: u32,
-    pub _pad0: [u8; 8],
+    pub use_stored_voxel_normal: u32,
+    pub _pad0: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).

@@ -3739,6 +3739,11 @@ impl App {
                                 .adjustables
                                 .glass_unrefracted_raster_fallback
                                 .value,
+                            stored_voxel_normal: self
+                                .debug_settings
+                                .adjustables
+                                .glass_stored_voxel_normal
+                                .value,
                             alpha: self.debug_settings.adjustables.glass_alpha.value,
                             glint_strength: self
                                 .debug_settings

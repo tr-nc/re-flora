@@ -1254,6 +1254,13 @@ mod tests {
     }
 
     #[test]
+    fn glass_stored_voxel_normal_defaults_on() {
+        let settings = DebugSettings::from_config(GuiConfigLoader::load());
+
+        assert!(settings.adjustables.glass_stored_voxel_normal.value);
+    }
+
+    #[test]
     fn enabled_if_condition_follows_controller_without_mutating_dependent_value() {
         let config = GuiConfigLoader::load();
         let mut adjustables = GuiAdjustables::from_config(&config);

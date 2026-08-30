@@ -346,6 +346,39 @@ mod glass_voxel_cache_contract_tests {
     }
 
     #[test]
+    fn cached_glass_cell_uses_canonical_surface_without_retracing_world_visibility() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+        let cell_shading = shader
+            .split_once("GlassResolveResult traceGlassVoxelCellRadiance")
+            .expect("Glass cell shading function")
+            .1
+            .split_once("void shadeGlassVoxelCache")
+            .expect("end of Glass cell shading function")
+            .0;
+
+        assert!(
+            cell_shading.contains("canonicalGlassFrontEvent"),
+            "Glass cell shading must construct its canonical surface directly"
+        );
+        assert!(
+            !cell_shading.contains("walkVoxelMediaToNextEvent"),
+            "a visible Glass cell must not reacquire visibility through the world DDA"
+        );
+    }
+
+    #[test]
+    fn glass_normal_source_is_cell_owned_and_shared_by_cached_and_uncached_shading() {
+        let primary = include_str!("../../shader/slang/tracer.slang");
+        let resolve = include_str!("../../shader/slang/glass_resolve.slang");
+
+        assert!(primary.contains("packNormalOct16(storedVoxelNormal)"));
+        assert!(resolve.contains("unpackNormalOct16(packedStoredVoxelNormal)"));
+        assert!(resolve.contains("glass_voxel_cache_metadata[slot].y"));
+        assert!(resolve.contains("use_stored_voxel_normal"));
+        assert!(resolve.contains("glassCell, frontData >> 16u"));
+    }
+
+    #[test]
     fn raster_secondary_visibility_keeps_reflections_and_switches_only_refraction_fallback() {
         let shader = include_str!("../../shader/slang/glass_resolve.slang");
 
@@ -428,6 +461,7 @@ pub struct GlassGuiParams {
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,
     pub unrefracted_raster_fallback: bool,
+    pub stored_voxel_normal: bool,
     pub alpha: f32,
     pub glint_strength: f32,
 }
@@ -1027,6 +1061,7 @@ pub struct Tracer {
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
     glass_unrefracted_raster_fallback: bool,
+    glass_stored_voxel_normal: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
@@ -1391,6 +1426,7 @@ impl Tracer {
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
             glass_unrefracted_raster_fallback: false,
+            glass_stored_voxel_normal: true,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
@@ -3313,6 +3349,7 @@ impl Tracer {
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
         self.glass_unrefracted_raster_fallback = glass_gui_params.unrefracted_raster_fallback;
+        self.glass_stored_voxel_normal = glass_gui_params.stored_voxel_normal;
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
@@ -6683,6 +6720,7 @@ impl Tracer {
                 enable_unrefracted_raster_fallback: u32::from(
                     self.glass_unrefracted_raster_fallback,
                 ),
+                use_stored_voxel_normal: u32::from(self.glass_stored_voxel_normal),
                 ..bytemuck::Zeroable::zeroed()
             };
             pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));

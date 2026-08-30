@@ -2,6 +2,7 @@ import color;
 import composition_camera_effects;
 import composition_sky;
 import composition_types;
+import packer;
 import projection;
 import ray;
 import scene_query;
@@ -53,6 +54,7 @@ struct GlassVoxelCachePushConstants
 {
     uint pass;
     uint enable_unrefracted_raster_fallback;
+    uint use_stored_voxel_normal;
 };
 
 [[vk::push_constant]]
@@ -910,6 +912,110 @@ uint glassInterfaceAxis(SceneQueryEvent event)
     return 2u;
 }
 
+uint glassCanonicalFaceAxis(float3 direction)
+{
+    float3 magnitude = abs(direction);
+    uint axis = magnitude.y > magnitude.x ? 1u : 0u;
+    if (magnitude.z > magnitude[axis]) axis = 2u;
+    return axis;
+}
+
+uint glassVoxelTypeAtCell(int3 cell)
+{
+    float3 cellCenter = (float3(cell) + 0.5) / 256.0;
+    return sceneQueryVoxelTypeAtWorld(chunk_atlas, cellCenter, 256.0);
+}
+
+bool glassCellsShareMedium(uint glassVoxelType, uint neighborVoxelType)
+{
+    VoxelMaterial glassMaterial = voxelMaterial(glassVoxelType, true);
+    VoxelMaterial neighborMaterial = voxelMaterial(neighborVoxelType, true);
+    return glassMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
+        neighborMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
+        glassVoxelType == neighborVoxelType;
+}
+
+SceneQueryEvent canonicalGlassFrontEvent(
+    int3 glassCell, uint packedStoredVoxelNormal)
+{
+    float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
+    float3 direction = cellCenter - camera_info.pos.xyz;
+    if (dot(direction, direction) <= 1.0e-20)
+    {
+        direction = generateCameraRay(
+            float2(0.5), camera_info.view_proj_mat_inv).direction;
+    }
+    direction = normalize(direction);
+
+    uint cameraVoxelType = sceneQueryVoxelTypeAtWorld(
+        chunk_atlas, camera_info.pos.xyz, 256.0);
+    bool cameraInsideGlass = voxelMaterial(
+        cameraVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+
+    uint glassVoxelType = glassVoxelTypeAtCell(glassCell);
+    float3 preferredOutward = cameraInsideGlass
+        ? direction
+        : -direction;
+    bool useStoredVoxelNormal =
+        glass_voxel_cache_push.use_stored_voxel_normal != 0u;
+    float3 storedVoxelNormal = unpackNormalOct16(packedStoredVoxelNormal);
+    if (dot(storedVoxelNormal, preferredOutward) < 0.0)
+        storedVoxelNormal = -storedVoxelNormal;
+    int3 outwardStep = int3(0);
+    float bestFacing = -2.0;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        [unroll]
+        for (int side = -1; side <= 1; side += 2)
+        {
+            int3 candidateStep = int3(0);
+            candidateStep[axis] = side;
+            uint neighborVoxelType = glassVoxelTypeAtCell(
+                glassCell + candidateStep);
+            if (glassCellsShareMedium(glassVoxelType, neighborVoxelType)) continue;
+            float facing = dot(float3(candidateStep), preferredOutward);
+            if (facing > bestFacing)
+            {
+                bestFacing = facing;
+                outwardStep = candidateStep;
+            }
+        }
+    }
+    // A visible Glass cell should own a medium boundary. Retain a deterministic geometric face
+    // for malformed/interior cache entries instead of reintroducing a world visibility query.
+    if (all(outwardStep == int3(0)))
+    {
+        uint fallbackAxis = glassCanonicalFaceAxis(direction);
+        outwardStep[fallbackAxis] = direction[fallbackAxis] < 0.0 ? -1 : 1;
+        if (!cameraInsideGlass) outwardStep = -outwardStep;
+    }
+
+    if (dot(storedVoxelNormal, float3(outwardStep)) < 0.0)
+        storedVoxelNormal = -storedVoxelNormal;
+    float3 outwardNormal = useStoredVoxelNormal
+        ? storedVoxelNormal
+        : float3(outwardStep);
+    float3 incidentNormal = cameraInsideGlass ? -outwardNormal : outwardNormal;
+
+    SceneQueryEvent event;
+    event.kind = SCENE_QUERY_EVENT_INTERFACE;
+    event.incident_face_normal = incidentNormal;
+    event.from_cell = cameraInsideGlass ? glassCell : glassCell + outwardStep;
+    event.to_cell = cameraInsideGlass ? glassCell + outwardStep : glassCell;
+    event.from_voxel_type = glassVoxelTypeAtCell(event.from_cell);
+    event.to_voxel_type = glassVoxelTypeAtCell(event.to_cell);
+    event.position = cellCenter +
+        float3(outwardStep) * GLASS_VOXEL_FACE_HALF_EXTENT;
+    event.medium_distance_world = length(event.position - camera_info.pos.xyz);
+    event.dda_steps = 0u;
+    event.tied_axes =
+        (outwardStep.x != 0 ? 1u : 0u) |
+        (outwardStep.y != 0 ? 2u : 0u) |
+        (outwardStep.z != 0 ? 4u : 0u);
+    return event;
+}
+
 void glassInterfaceFaceFrame(
     int3 glassCell, SceneQueryEvent event,
     out float3 faceCenter, out float3 tangentU, out float3 tangentV)
@@ -918,12 +1024,11 @@ void glassInterfaceFaceFrame(
     tangentU = axis == 0u ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
     tangentV = axis == 2u ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0);
     VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
-    float glassSide = toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
-        ? 1.0 : -1.0;
-    float3 axisNormal = float3(0.0);
-    axisNormal[axis] = sign(event.incident_face_normal[axis]) * glassSide;
+    int3 outwardStep = toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
+        ? event.from_cell - event.to_cell
+        : event.to_cell - event.from_cell;
     faceCenter = (float3(glassCell) + 0.5) / 256.0 +
-        axisNormal * GLASS_VOXEL_FACE_HALF_EXTENT;
+        float3(outwardStep) * GLASS_VOXEL_FACE_HALF_EXTENT;
 }
 
 GlassResolveResult traceGlassFrontSample(
@@ -1011,6 +1116,7 @@ void buildGlassVoxelCache(uint2 pixel, uint2 extent)
     if (!glassVoxelCacheSlot(key, true, slot, inserted)) return;
     if (inserted)
     {
+        glass_voxel_cache_metadata[slot].y = frontData >> 16u;
         uint activeIndex;
         InterlockedAdd(glass_voxel_cache_active_count[0], 1u, activeIndex);
         if (activeIndex < GLASS_VOXEL_CACHE_CAPACITY)
@@ -1018,67 +1124,34 @@ void buildGlassVoxelCache(uint2 pixel, uint2 extent)
     }
 }
 
-GlassResolveResult traceGlassVoxelCellRadiance(int3 glassCell)
+GlassResolveResult traceGlassVoxelCellRadiance(
+    int3 glassCell, uint packedStoredVoxelNormal)
 {
-    float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
-    // One camera-to-center ray defines one geometric DDA normal and one transport color for the
-    // entire visible voxel. This is the deliberate one-normal/one-color-per-voxel invariant.
-    Ray representativeRay;
-    representativeRay.origin = camera_info.pos.xyz;
-    representativeRay.direction = normalize(cellCenter - representativeRay.origin);
-    representativeRay.inverse_direction = 1.0 / representativeRay.direction;
-
-    SceneQueryEvent frontEvent = walkVoxelMediaToNextEvent(
-        chunk_atlas, representativeRay.origin, representativeRay.direction,
-        256.0, true, SCENE_QUERY_MAX_DDA_STEPS);
+    // Visibility was already established by GlassFront. Reconstruct the cell-owned surface
+    // directly instead of retracing the world toward a center that an unrelated occluder may hide.
+    SceneQueryEvent frontEvent = canonicalGlassFrontEvent(
+        glassCell, packedStoredVoxelNormal);
     GlassResolveResult result = emptyGlassResolveResult();
-    if (frontEvent.kind == SCENE_QUERY_EVENT_INTERFACE)
+    float3 faceCenter;
+    float3 tangentU;
+    float3 tangentV;
+    glassInterfaceFaceFrame(
+        glassCell, frontEvent, faceCenter, tangentU, tangentV);
+    // Every visible pixel of this cell receives the mean of the same two deterministic surface
+    // samples, preserving one selected normal and one complete transport color per voxel.
+    [unroll]
+    for (uint sampleIndex = 0u; sampleIndex < 2u; ++sampleIndex)
     {
-        // A single-axis event owns a rectangular face. Always prefilter its transport across
-        // two symmetric positions: turning this off below a one-pixel projected footprint
-        // aliases the cell-center visibility signal into stable distance-dependent moire bands.
-        // Edge/corner events have no single face to integrate and retain their exact event ray.
-        if (countbits(frontEvent.tied_axes & 0x07u) == 1u)
-        {
-            float3 faceCenter;
-            float3 tangentU;
-            float3 tangentV;
-            glassInterfaceFaceFrame(
-                glassCell, frontEvent, faceCenter, tangentU, tangentV);
-            // Each deterministic sample still splits both Fresnel branches; their mean remains
-            // one geometric normal and one cached transport color for the entire voxel.
-            [unroll]
-            for (uint sampleIndex = 0u; sampleIndex < 2u; ++sampleIndex)
-            {
-                float u = sampleIndex != 0u ? 1.0 : -1.0;
-                float v = u;
-                float3 samplePosition = faceCenter +
-                    (tangentU * u + tangentV * v) *
-                    GLASS_VOXEL_FACE_SAMPLE_OFFSET;
-                GlassResolveResult sample = traceGlassFrontSample(
-                    samplePosition, frontEvent);
-                accumulateGlassResolveSample(sample, result);
-            }
-            averageGlassResolveSamples(2u, result);
-        }
-        else
-        {
-            result = traceGlassFrontSample(frontEvent.position, frontEvent);
-        }
+        float u = sampleIndex != 0u ? 1.0 : -1.0;
+        float v = u;
+        float3 samplePosition = faceCenter +
+            (tangentU * u + tangentV * v) *
+            GLASS_VOXEL_FACE_SAMPLE_OFFSET;
+        GlassResolveResult sample = traceGlassFrontSample(
+            samplePosition, frontEvent);
+        accumulateGlassResolveSample(sample, result);
     }
-    else if (frontEvent.kind == SCENE_QUERY_EVENT_MISS)
-    {
-        result.radiance = glassSky(representativeRay.direction);
-        result.fallback_reason = GLASS_FALLBACK_SKY;
-    }
-    else
-    {
-        result.radiance = glassSky(representativeRay.direction);
-        result.exhausted = frontEvent.kind == SCENE_QUERY_EVENT_STEP_BUDGET ? 1u : 0u;
-        result.fallback_reason = result.exhausted != 0u
-            ? GLASS_FALLBACK_EXHAUSTED
-            : GLASS_FALLBACK_SKY;
-    }
+    averageGlassResolveSamples(2u, result);
 
     return result;
 }
@@ -1091,9 +1164,8 @@ void shadeGlassVoxelCache(uint activeIndex)
     uint key = glass_voxel_cache_metadata[slot].x;
     if (key == 0u) return;
     GlassResolveResult result = traceGlassVoxelCellRadiance(
-        glassVoxelCellFromKey(key));
+        glassVoxelCellFromKey(key), glass_voxel_cache_metadata[slot].y);
 
-    glass_voxel_cache_metadata[slot].y = 0u;
     glass_voxel_cache_radiance[slot] = float4(result.radiance, 1.0);
     uint2 diagnostics = packGlassDiagnostics(result, result.radiance);
     glass_voxel_cache_metadata[slot].z = diagnostics.x;
@@ -1148,7 +1220,8 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
             {
                 // Cache insertion/readiness failure is exceptional but must preserve the same
                 // output contract: recompute the deterministic cell sample, never a pixel ray.
-                result = traceGlassVoxelCellRadiance(glassCell);
+                result = traceGlassVoxelCellRadiance(
+                    glassCell, frontData >> 16u);
                 resolvedColor = result.radiance;
                 reason = result.fallback_reason;
             }

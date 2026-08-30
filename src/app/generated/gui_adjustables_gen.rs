@@ -542,6 +542,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Glass",
+        id: "glass_stored_voxel_normal",
+        kind: "bool",
+        label: "Stored Voxel Normal",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
         id: "glass_alpha",
         kind: "float",
         label: "Alpha Multiplier",
@@ -1536,6 +1542,7 @@ pub struct GuiAdjustables {
     pub glass_ssr_footprint_pixels: crate::gui_adjustables::FloatParam,
     pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
     pub glass_unrefracted_raster_fallback: crate::gui_adjustables::BoolParam,
+    pub glass_stored_voxel_normal: crate::gui_adjustables::BoolParam,
     pub glass_alpha: crate::gui_adjustables::FloatParam,
     pub glass_glint_strength: crate::gui_adjustables::FloatParam,
     pub terrain_self_shadow_tolerance_voxels: crate::gui_adjustables::FloatParam,
@@ -1786,6 +1793,7 @@ impl GuiAdjustables {
         let mut glass_ssr_footprint_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_unrefracted_raster_fallback_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut glass_stored_voxel_normal_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_self_shadow_tolerance_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2509,6 +2517,11 @@ impl GuiAdjustables {
                     "glass_unrefracted_raster_fallback" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             glass_unrefracted_raster_fallback_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "glass_stored_voxel_normal" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            glass_stored_voxel_normal_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "glass_alpha" => {
@@ -3616,6 +3629,7 @@ impl GuiAdjustables {
             glass_ssr_footprint_pixels: glass_ssr_footprint_pixels_field.expect("Missing parameter: glass_ssr_footprint_pixels"),
             glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
             glass_unrefracted_raster_fallback: glass_unrefracted_raster_fallback_field.expect("Missing parameter: glass_unrefracted_raster_fallback"),
+            glass_stored_voxel_normal: glass_stored_voxel_normal_field.expect("Missing parameter: glass_stored_voxel_normal"),
             glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
             glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
             terrain_self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels_field.expect("Missing parameter: terrain_self_shadow_tolerance_voxels"),
@@ -4019,6 +4033,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_3_muted" => Some(&adjustables.wind_source_3_muted),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
+        "glass_stored_voxel_normal" => Some(&adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
@@ -4303,6 +4318,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_3_muted" => Some(&mut adjustables.wind_source_3_muted),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
+        "glass_stored_voxel_normal" => Some(&mut adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),

@@ -417,6 +417,39 @@ reverse-order Feature-OFF `render-steady` comparison passed all eleven gates: `f
 changed by -0.04%, `tracer.render` by -0.10%, and `frame.cpu_total` by -0.21%. Evidence is at
 `target/perf-feature-off-per-voxel-final-reverse/comparison.json`.
 
+## Canonical cell surface and normal-source A/B
+
+The per-voxel cache no longer reacquires a visible Glass cell by tracing from the camera to the
+cell center. That ray could be intercepted by the opaque window frame even though the build pass
+had already established Glass visibility, incorrectly turning the whole cached cell into sky.
+The cache now reconstructs one canonical external medium boundary directly from the cell and its
+six neighbours. Cache hits and the exceptional cache-miss path call the same cell shader.
+
+The existing Contree leaf normal is packed into the unused high 16 bits of `GlassFront` data and
+copied into the existing cache metadata word. The `Stored Voxel Normal` GUI checkbox selects that
+normal or the canonical voxel-face normal. Both modes retain the same cell, boundary, two
+deterministic sample positions, and one final color per voxel; only the interface shading normal
+changes. The default is the stored opaque-style voxel normal. This adds no image, buffer, pass,
+stat, or persistence field.
+
+At the fixed `fallback` house snapshot, the blue-pixel ratio in the left-window diagnostic ROI
+fell from 0.164406 in the cache-retrace implementation to 0.100426 with voxel-face normals and
+0.120138 with stored normals. Release captures are under `target/glass-canonical-front/`.
+
+A fixed-25% RTX 3060 Ti Release A,B,B,A comparison against `5dee3c31` passed every 5% gate:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 24.777 / 25.031 ms | 24.808 / 25.195 ms | +0.12% / +0.65% | pass |
+| `tracer.render` | 15.850 / 16.134 ms | 15.787 / 16.172 ms | -0.40% / +0.24% | pass |
+| `tracer.pass` | 8.788 / 8.835 ms | 8.760 / 8.796 ms | -0.32% / -0.44% | pass |
+| `glass.resolve` | 5.608 / 5.862 ms | 5.587 / 5.958 ms | -0.38% / +1.63% | pass |
+
+Evidence is at `target/perf-glass-canonical-normal-abba/comparison.json`. The matching
+Feature-OFF `render-steady` A,B,B,A comparison also passed all eleven configured gates;
+`frame.render` changed by -0.27%, `tracer.render` by -0.30%, and `frame.cpu_total` by +0.19%.
+Evidence is at `target/perf-glass-canonical-feature-off-abba/comparison.json`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 22,237,188 bytes (21.21 MiB):
@@ -501,6 +534,10 @@ python scripts/perf_suite.py run glass-coverage-25 \
   four auxiliary binary tests, and all 83 Python tests pass. Two repeated `not-pervox` Release
   captures pass the four-cell constancy analyzer; Glass and reverse-order Feature-OFF performance
   gates pass.
+- Canonical cell-surface and normal-source A/B: `cargo fmt --check`, `cargo check`, 686 main Rust
+  tests plus four auxiliary binary tests, and all 83 Python tests pass. Stored-normal and
+  voxel-face Release captures complete without non-finite output or runtime errors; Glass-on and
+  Feature-OFF Release A,B,B,A comparisons pass every configured gate.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root

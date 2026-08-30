@@ -988,6 +988,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "glass_stored_voxel_normal"
+kind = "bool"
+label = "Stored Voxel Normal"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "glass_alpha"
 kind = "float"
 label = "Alpha Multiplier"
