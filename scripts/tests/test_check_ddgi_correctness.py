@@ -146,6 +146,10 @@ done
             line for line in output.splitlines() if line.startswith("cargo run ")
         ]
         self.assertEqual(len(capture_commands), 48)
+        self.assertTrue(
+            all("--auto-exit 120" in line for line in capture_commands),
+            "the production convergence matrix must budget for its 128 update epochs",
+        )
         for case_name in ("sealed", "portal", "walls"):
             for spacing in (32, 16):
                 tuple_commands = [

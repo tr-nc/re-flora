@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-60}"
+auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-120}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
 terrain_hard_origin="${DDGI_CORRECTNESS_TERRAIN_HARD_ORIGIN:-}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
