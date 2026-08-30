@@ -322,6 +322,10 @@ enum ConnectivityAction {
         voxels: Vec<(UVec3, u8)>,
     },
     HandleManualRelease(ManualReleasePlan),
+    ObserveCompletedFrame {
+        record: CpuFrameRecord,
+        expected_fixture_solids: Option<usize>,
+    },
 }
 
 enum ManualReleasePlan {
@@ -359,6 +363,10 @@ enum ConnectivityResult {
     BoundedCommitted(anyhow::Result<EventStages>),
     VisualVoxelsSpawned(anyhow::Result<VisualSpawnResult>),
     ManualReleaseHandled(anyhow::Result<Option<ManualReleasePrepared>>),
+    CompletedFrameObserved {
+        record: CpuFrameRecord,
+        fixture_count: anyhow::Result<Option<FixtureCount>>,
+    },
     #[cfg(test)]
     ExecutionFailed(anyhow::Error),
 }
@@ -507,6 +515,26 @@ mod app_executor {
                 };
                 ConnectivityResult::ManualReleaseHandled(outcome)
             }
+            ConnectivityAction::ObserveCompletedFrame {
+                record,
+                expected_fixture_solids,
+            } => {
+                let fixture_count = match expected_fixture_solids {
+                    Some(expected) => {
+                        count_fixture_solids(&mut app.plain_builder).map(|remaining| {
+                            Some(FixtureCount {
+                                remaining,
+                                expected,
+                            })
+                        })
+                    }
+                    None => Ok(None),
+                };
+                ConnectivityResult::CompletedFrameObserved {
+                    record,
+                    fixture_count,
+                }
+            }
         };
         ConnectivityExecution(result)
     }
@@ -532,6 +560,12 @@ struct ManualReleasePrepared {
     frame: u64,
     revision_before: u32,
     snapshot: SnapshotReadResult,
+}
+
+#[derive(Clone, Copy)]
+struct FixtureCount {
+    remaining: usize,
+    expected: usize,
 }
 
 struct AtomicityValidationResult {
@@ -568,12 +602,16 @@ impl ScenarioOwner {
     ) -> anyhow::Result<ConnectivityEffect> {
         let result = execution.into_result();
         let manual_release_handled = matches!(&result, ConnectivityResult::ManualReleaseHandled(_));
+        let observation_requested =
+            matches!(&result, ConnectivityResult::CompletedFrameObserved { .. });
         match self {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
                 bench.apply_result(result)?;
                 Ok(ConnectivityEffect {
                     manual_release_handled,
-                    ..ConnectivityEffect::default()
+                    observation_complete: observation_requested
+                        && bench.state == BenchState::Complete
+                        && bench.options.mode != TerrainConnectivityBenchMode::Manual,
                 })
             }
             Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
@@ -660,21 +698,20 @@ impl ScenarioOwner {
         }
     }
 
-    fn observe_completed_connectivity_frame(
+    fn plan_completed_connectivity_frame(
         &mut self,
-        plain_builder: &mut PlainBuilder,
         record: CpuFrameRecord,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<ConnectivityAction> {
         match self {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.observe_completed_frame_inner(plain_builder, record)
+                Ok(bench.plan_completed_frame(record))
             }
             Self::Diagnostic(
                 DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
             )
             | Self::World(_)
             | Self::Water(_)
-            | Self::TestScene(_) => Ok(false),
+            | Self::TestScene(_) => Ok(ConnectivityAction::None),
         }
     }
 }
@@ -688,6 +725,7 @@ fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Re
         | ConnectivityResult::BoundedCommitted(_)
         | ConnectivityResult::VisualVoxelsSpawned(_)
         | ConnectivityResult::ManualReleaseHandled(_)
+        | ConnectivityResult::CompletedFrameObserved { .. }
         | ConnectivityResult::FixtureInstalled { .. } => {
             anyhow::bail!("inactive scenario received a connectivity result")
         }
@@ -735,12 +773,14 @@ impl App {
                 .ddgi_ready_for_terrain_revision(self.visible_terrain_revision),
             visible_revision: self.visible_terrain_revision,
         };
-        let App {
-            scenario_owner,
-            plain_builder,
-            ..
-        } = self;
-        scenario_owner.observe_completed_connectivity_frame(plain_builder, record)
+        let action = self
+            .scenario_owner
+            .plan_completed_connectivity_frame(record)?;
+        let execution = self.execute_connectivity_action(action);
+        let effect = self
+            .scenario_owner
+            .apply_connectivity_execution(execution)?;
+        Ok(effect.observation_complete)
     }
 
     pub(in crate::app::core) fn advance_connectivity_benchmark(&mut self) -> anyhow::Result<()> {
@@ -1158,6 +1198,16 @@ impl TerrainConnectivityBench {
                 );
                 Ok(())
             }
+            (
+                _,
+                ConnectivityResult::CompletedFrameObserved {
+                    record,
+                    fixture_count,
+                },
+            ) => {
+                self.observe_completed_frame_inner(record, fixture_count?)?;
+                Ok(())
+            }
             (state, _) => {
                 anyhow::bail!("connectivity action result does not match bench state {state:?}")
             }
@@ -1217,11 +1267,54 @@ impl TerrainConnectivityBench {
         }
     }
 
+    fn plan_completed_frame(&self, record: CpuFrameRecord) -> ConnectivityAction {
+        let expected_fixture_solids = match self.state {
+            BenchState::Observing { event_frame }
+                if record.frame.saturating_sub(event_frame)
+                    >= u64::from(self.options.observe_frames) =>
+            {
+                Some(match self.options.mode {
+                    TerrainConnectivityBenchMode::Existing => FIXTURE_VOXELS,
+                    TerrainConnectivityBenchMode::Correct
+                    | TerrainConnectivityBenchMode::Bounded
+                    | TerrainConnectivityBenchMode::Manual => 0,
+                })
+            }
+            _ => None,
+        };
+        ConnectivityAction::ObserveCompletedFrame {
+            record,
+            expected_fixture_solids,
+        }
+    }
+
     fn observe_completed_frame_inner(
         &mut self,
-        plain_builder: &mut PlainBuilder,
         record: CpuFrameRecord,
+        fixture_count: Option<FixtureCount>,
     ) -> anyhow::Result<bool> {
+        let validation_due = matches!(
+            self.state,
+            BenchState::Observing { event_frame }
+                if record.frame.saturating_sub(event_frame)
+                    >= u64::from(self.options.observe_frames)
+        );
+        let remaining = match (validation_due, fixture_count) {
+            (true, Some(count)) => {
+                anyhow::ensure!(
+                    count.remaining == count.expected,
+                    "terrain connectivity benchmark exposed a partial fixture: remaining={} expected={}",
+                    count.remaining,
+                    count.expected,
+                );
+                Some(count.remaining)
+            }
+            (false, None) => None,
+            (true, None) => anyhow::bail!("completed connectivity frame lost fixture validation"),
+            (false, Some(_)) => {
+                anyhow::bail!("connectivity fixture was validated before the observation deadline")
+            }
+        };
         match self.state {
             BenchState::InstallFixture
             | BenchState::Warmup { .. }
@@ -1268,17 +1361,8 @@ impl TerrainConnectivityBench {
                 if record.frame.saturating_sub(event_frame)
                     >= u64::from(self.options.observe_frames)
                 {
-                    let remaining = count_fixture_solids(plain_builder)?;
-                    let expected = match self.options.mode {
-                        TerrainConnectivityBenchMode::Existing => FIXTURE_VOXELS,
-                        TerrainConnectivityBenchMode::Correct
-                        | TerrainConnectivityBenchMode::Bounded
-                        | TerrainConnectivityBenchMode::Manual => 0,
-                    };
-                    anyhow::ensure!(
-                        remaining == expected,
-                        "terrain connectivity benchmark exposed a partial fixture: remaining={remaining} expected={expected}"
-                    );
+                    let remaining = remaining
+                        .context("completed connectivity frame lost validated fixture count")?;
                     let stages = self
                         .stages
                         .context("terrain connectivity benchmark completed without event stages")?;
