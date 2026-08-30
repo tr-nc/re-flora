@@ -30,7 +30,9 @@ pub(crate) struct ResolvedLightingFrameInputs {
 pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
-static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
+::static_assertions::assert_not_impl_any!(
+    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone
+);
 pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
     ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Ddgi }
 }
@@ -272,15 +274,48 @@ impl Tracer {
         sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
             "src/app/core/lighting_mode_acceptance.rs"
         ].replace(
-            "static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);",
+            "::static_assertions::assert_not_impl_any!(\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            ");",
             "",
         )
         self.assertNotEqual(checker.audit(sources), [])
 
+    def test_non_copy_assertion_paths_cannot_be_shadowed(self) -> None:
+        self.assertEqual(checker.audit(baseline_sources()), [])
+        absolute = (
+            "::static_assertions::assert_not_impl_any!(\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            ");"
+        )
+        mutations = (
+            absolute.replace("::static_assertions", "static_assertions"),
+            absolute.replace("::core::marker::Copy", "Copy"),
+            absolute.replace("::core::clone::Clone", "Clone"),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                sources = baseline_sources()
+                sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
+                    "src/app/core/lighting_mode_acceptance.rs"
+                ].replace(absolute, mutation)
+                self.assertNotEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        sources["src/app/core/lighting_mode_acceptance.rs"] = """
+mod static_assertions {
+    macro_rules! assert_not_impl_any { ($($tokens:tt)*) => {}; }
+    pub(crate) use assert_not_impl_any;
+}
+""" + sources["src/app/core/lighting_mode_acceptance.rs"]
+        self.assertEqual(checker.audit(sources), [])
+
     def test_non_copy_assertion_must_be_unconditional_module_root_item(self) -> None:
+        self.assertEqual(checker.audit(baseline_sources()), [])
         assertion = (
-            "static_assertions::assert_not_impl_any!"
-            "(ResolvedRasterLightingState: Copy, Clone);"
+            "::static_assertions::assert_not_impl_any!(\n"
+            "    ResolvedRasterLightingState: ::core::marker::Copy, ::core::clone::Clone\n"
+            ");"
         )
         replacements = (
             f"#[cfg(any())]\n{assertion}",
@@ -292,9 +327,10 @@ impl Tracer {
         for replacement in replacements:
             with self.subTest(replacement=replacement):
                 sources = baseline_sources()
-                sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
-                    "src/app/core/lighting_mode_acceptance.rs"
-                ].replace(assertion, replacement)
+                owner = sources["src/app/core/lighting_mode_acceptance.rs"]
+                mutated = owner.replace(assertion, replacement)
+                self.assertNotEqual(mutated, owner)
+                sources["src/app/core/lighting_mode_acceptance.rs"] = mutated
                 self.assertNotEqual(checker.audit(sources), [])
 
     def test_source_checker_does_not_guess_trait_alias_or_generic_semantics(self) -> None:

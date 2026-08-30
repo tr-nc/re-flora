@@ -31,11 +31,12 @@ Three seams were compared for proving that the opaque state stays non-`Copy` and
 Extending the Python source checker with alias-aware trait resolution was rejected because it is a
 shallow, incomplete Rust parser. Encoding the property indirectly in a field type cannot honestly
 prevent manual trait implementations, while Rust negative impls are unstable. The selected seam is
-`static_assertions::assert_not_impl_any!` as an unconditional production-configuration item directly
-after the canonical owner struct: rustc owns alias resolution, qualified paths, derives, manual
-implementations, generic target identity, and every normal build configuration. The source checker
-only guards the placement and exact target/traits of that compile-time assertion; it does not
-interpret trait impls.
+`::static_assertions::assert_not_impl_any!` as an unconditional production-configuration item
+directly after the canonical owner struct, with `::core::marker::Copy` and
+`::core::clone::Clone` named absolutely: rustc owns alias resolution, local name shadowing,
+derives, manual implementations, generic target identity, and every normal build configuration.
+The source checker only guards the placement and exact absolute macro/target/trait paths of that
+compile-time assertion; it does not interpret trait impls.
 
 Rust privacy is the primary seal. Three raster-state seams were compared. Denying selected alias
 tokens was rejected as too shallow; counting source occurrences globally was rejected as brittle;
