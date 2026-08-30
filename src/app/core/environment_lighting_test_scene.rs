@@ -6333,6 +6333,7 @@ mod tests {
     fn environment_phase_has_one_outstanding_attempt_and_retries_the_exact_payload() {
         static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseFailure: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhasePayload: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseIdentityPermit: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentFamilyScratch: Clone, Copy);
@@ -6397,6 +6398,7 @@ mod tests {
             assert_eq!(setup.request().family(), expected_family);
             let expected_payload = environment_payload_fingerprint(setup.request());
             owners.restore_environment_phase(setup).unwrap();
+            assert_eq!(owners.environment_phase_revision_for_test(), 0);
 
             owners.inject_environment_phase_fault_for_test(expected_family);
             let failure = owners
@@ -6417,6 +6419,7 @@ mod tests {
                 .complete_environment_phase_execution(Err(failure))
                 .expect_err("typed family failure must restore before returning its error");
             assert!(error.to_string().contains("leaf failure"));
+            assert_eq!(owners.environment_phase_revision_for_test(), 0);
 
             let retry = owners.begin_environment_phase().unwrap().unwrap();
             assert_eq!(
@@ -6426,6 +6429,7 @@ mod tests {
             owners
                 .apply_environment_phase_result(Ok(retry.complete()))
                 .unwrap();
+            assert_eq!(owners.environment_phase_revision_for_test(), 1);
             let next_frame = owners.begin_environment_phase().unwrap().unwrap();
             assert_eq!(
                 environment_payload_fingerprint(next_frame.request()),
