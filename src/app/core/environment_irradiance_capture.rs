@@ -664,6 +664,7 @@ mod tests {
             build_token: token,
             field: published,
             validation,
+            filter_evidence: None,
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Reverse,
         };

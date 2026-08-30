@@ -515,8 +515,6 @@ impl DdgiTraceStats {
         }
     }
 
-    // The production readback transaction consumes this in the next wiring slice.
-    #[allow(dead_code)]
     pub fn filter_batch_evidence(
         self,
         batch: DdgiRayBatch,
@@ -540,7 +538,6 @@ impl DdgiFilterActionCounts {
         self.replace + self.retain + self.blend
     }
 
-    #[allow(dead_code)]
     fn accumulate(&mut self, other: Self) {
         self.replace += other.replace;
         self.retain += other.retain;
@@ -584,7 +581,6 @@ impl DdgiFilterHistoryEvidence {
         })
     }
 
-    #[allow(dead_code)]
     fn accumulate(&mut self, other: Self) {
         self.probes += other.probes;
         self.actions.accumulate(other.actions);
@@ -614,7 +610,6 @@ impl DdgiFilterVisibilitySampleEvidence {
         Ok(result)
     }
 
-    #[allow(dead_code)]
     fn accumulate(&mut self, other: Self) {
         self.samples += other.samples;
         self.accept += other.accept;
@@ -689,8 +684,7 @@ impl DdgiFilterBatchEvidence {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiFilterEpochEvidence {
     pub field: DdgiFieldIdentity,
     pub probe_count: u32,
@@ -701,7 +695,6 @@ pub struct DdgiFilterEpochEvidence {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct DdgiFilterEpochAccumulator {
     field: DdgiFieldIdentity,
     seen_probes: Vec<bool>,
@@ -711,7 +704,6 @@ pub struct DdgiFilterEpochAccumulator {
     visibility_written: Option<bool>,
 }
 
-#[allow(dead_code)]
 impl DdgiFilterEpochAccumulator {
     pub fn new(field: DdgiFieldIdentity, probe_count: u32) -> Self {
         Self {
@@ -722,6 +714,10 @@ impl DdgiFilterEpochAccumulator {
             visibility_samples: Default::default(),
             visibility_written: None,
         }
+    }
+
+    pub fn field(&self) -> DdgiFieldIdentity {
+        self.field
     }
 
     pub fn observe(
