@@ -11,7 +11,8 @@ from pathlib import Path
 
 RUN_LOG_MARKER = re.compile(r"\[RUN_LOG\] path=(\S+)")
 FATAL_DIAGNOSTIC = re.compile(
-    r"(^|[^A-Za-z])(ERROR|panic|panicked|VUID-|validation error|stale readback)",
+    r"\bERROR\b|\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
+    r"VUID-|\bdevice\s+lost\b|\bstale\s+readback\b",
     re.IGNORECASE | re.MULTILINE,
 )
 PUBLICATION = re.compile(

@@ -98,10 +98,12 @@ for case_name in "${cases[@]}"; do
             RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
                 "${command[@]}" --ddgi-debug-view "$view" \
                     --environment-irradiance-capture "$path" 2>&1 | tee "$console"
-            command_status=${PIPESTATUS[0]}
+            pipeline_status=("${PIPESTATUS[@]}")
+            command_status=${pipeline_status[0]}
+            tee_status=${pipeline_status[1]}
             set -e
-            if (( command_status != 0 )); then
-                echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing view=$view capture command" >&2
+            if (( command_status != 0 || tee_status != 0 )); then
+                echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing view=$view capture pipeline app_status=$command_status tee_status=$tee_status" >&2
                 failures=$((failures + 1))
                 capture_failed=true
             elif ! "$process_validator" "$console"; then

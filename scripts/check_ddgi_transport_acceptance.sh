@@ -86,10 +86,12 @@ run_capture() {
     set +e
     RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
         "${command[@]}" 2>&1 | tee "$console"
-    local command_status=${PIPESTATUS[0]}
+    local pipeline_status=("${PIPESTATUS[@]}")
+    local command_status=${pipeline_status[0]}
+    local tee_status=${pipeline_status[1]}
     set -e
-    if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_TRANSPORT] FAIL capture case=$case_name spacing=$spacing target=$target order=$order status=$command_status" >&2
+    if (( command_status != 0 || tee_status != 0 )) || [[ ! -f "$capture" ]]; then
+        echo "[DDGI_TRANSPORT] FAIL capture case=$case_name spacing=$spacing target=$target order=$order app_status=$command_status tee_status=$tee_status" >&2
         return 1
     fi
     if ! "$process_validator" "$console"; then

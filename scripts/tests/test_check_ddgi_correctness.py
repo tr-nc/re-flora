@@ -24,7 +24,9 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
             env=env,
         )
 
-    def run_fake_success_runner(self, dirty_source: str = "") -> subprocess.CompletedProcess[str]:
+    def run_fake_success_runner(
+        self, dirty_source: str = "", *, fail_tee: bool = False
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scripts = root / "scripts"
@@ -73,6 +75,11 @@ for ((index = 0; index < ${#arguments[@]}; ++index)); do
 done
 """,
             )
+            if fail_tee:
+                executable(
+                    fake_bin / "tee",
+                    '#!/usr/bin/env bash\n/usr/bin/tee "$@"\nexit 9\n',
+                )
             environment = dict(os.environ)
             environment.update(
                 {
@@ -195,6 +202,13 @@ done
                 self.assertEqual(dirty.returncode, 1)
                 self.assertIn("process evidence", dirty.stderr)
                 self.assertIn("failures=48", dirty.stdout)
+
+    def test_tee_failure_rejects_an_otherwise_successful_capture(self) -> None:
+        result = self.run_fake_success_runner(fail_tee=True)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("tee_status=9", result.stderr)
+        self.assertIn("failures=48", result.stdout)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,35 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("fatal or validation diagnostic", result.stderr)
 
+    def test_rejects_case_and_whitespace_mutations_of_device_lost(self) -> None:
+        for diagnostic in ("device lost", "DeViCe\tLoSt", "DEVICE   LOST"):
+            for source in ("console_extra", "run_log_extra"):
+                with self.subTest(diagnostic=diagnostic, source=source):
+                    result = self.validate(**{source: diagnostic + "\n"})
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("fatal or validation diagnostic", result.stderr)
+
+    def test_accepts_benign_error_counters_and_validation_layer_status(self) -> None:
+        benign = "errors=0\nvalidation layers enabled\n"
+        for source in ("console_extra", "run_log_extra"):
+            with self.subTest(source=source):
+                result = self.validate(**{source: benign})
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_canonical_fatal_diagnostic_forms(self) -> None:
+        for diagnostic in (
+            "ERROR renderer failed",
+            "validation error: bad descriptor",
+            "validation failure: bad descriptor",
+            "panic in worker",
+            "thread panicked",
+            "VUID-vkCmdDraw-test",
+            "stale readback",
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                result = self.validate(console_extra=diagnostic + "\n")
+                self.assertEqual(result.returncode, 1)
+
     def test_rejects_missing_or_duplicate_process_binding(self) -> None:
         duplicate = self.validate(duplicate_marker=True)
         self.assertEqual(duplicate.returncode, 1)

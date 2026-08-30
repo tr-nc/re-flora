@@ -24,7 +24,11 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         )
 
     def run_fake_runner(
-        self, *, fail_dogleg: bool = False, fail_runtime_child: bool = False
+        self,
+        *,
+        fail_dogleg: bool = False,
+        fail_runtime_child: bool = False,
+        fail_tee: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -66,6 +70,11 @@ for ((index = 0; index < ${#arguments[@]}; ++index)); do
 done
 """,
             )
+            if fail_tee:
+                executable(
+                    fake_bin / "tee",
+                    '#!/usr/bin/env bash\n/usr/bin/tee "$@"\nexit 9\n',
+                )
             executable(
                 scripts / "analyze_environment_irradiance_capture.py",
                 """#!/usr/bin/env bash
@@ -203,6 +212,13 @@ done
             "filter-history-outcome=ACCEPTED", result.stdout + result.stderr
         )
         self.assertNotIn("filter-history-action=PROVEN", result.stdout + result.stderr)
+
+    def test_tee_failure_rejects_transport_capture_evidence(self) -> None:
+        result = self.run_fake_runner(fail_tee=True)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("tee_status=9", result.stderr)
+        self.assertNotIn("filter-history-outcome=ACCEPTED", result.stdout)
 
     def test_direct_sun_proof_follows_successful_runtime_child(self) -> None:
         failed = self.run_fake_runner(fail_runtime_child=True)
