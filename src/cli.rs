@@ -19,17 +19,31 @@ pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_WARMUP_FRAMES: u32 = 600;
 pub const DEFAULT_TERRAIN_CONNECTIVITY_BENCH_OBSERVE_FRAMES: u32 = 180;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DenoiserBenchScene {
-    CameraSnapshot,
+pub enum CameraMotion {
+    Fixed,
+    Scripted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DenoiserBenchMode {
+    CameraSnapshot(CameraMotion),
     FoliageShadow,
 }
 
-impl DenoiserBenchScene {
+impl DenoiserBenchMode {
     pub fn label(self) -> &'static str {
         match self {
-            Self::CameraSnapshot => "camera-snapshot",
+            Self::CameraSnapshot(_) => "camera-snapshot",
             Self::FoliageShadow => "foliage-shadow",
         }
+    }
+
+    pub fn is_foliage_shadow(self) -> bool {
+        matches!(self, Self::FoliageShadow)
+    }
+
+    pub fn has_scripted_camera_motion(self) -> bool {
+        matches!(self, Self::CameraSnapshot(CameraMotion::Scripted))
     }
 }
 
@@ -271,7 +285,6 @@ pub enum CameraAutomation {
         snapshot: String,
         benchmark: DenoiserBenchOptions,
     },
-    FoliageShadowBenchmark(DenoiserBenchOptions),
 }
 
 impl CameraAutomation {
@@ -280,7 +293,7 @@ impl CameraAutomation {
             Self::Snapshot(name)
             | Self::Screenshot { snapshot: name, .. }
             | Self::DenoiserBenchmark { snapshot: name, .. } => Some(name),
-            Self::None | Self::FoliageShadowBenchmark(_) => None,
+            Self::None => None,
         }
     }
 
@@ -293,9 +306,7 @@ impl CameraAutomation {
 
     pub fn denoiser_benchmark(&self) -> Option<&DenoiserBenchOptions> {
         match self {
-            Self::DenoiserBenchmark { benchmark, .. } | Self::FoliageShadowBenchmark(benchmark) => {
-                Some(benchmark)
-            }
+            Self::DenoiserBenchmark { benchmark, .. } => Some(benchmark),
             _ => None,
         }
     }
@@ -342,7 +353,7 @@ pub struct BenchmarkPlan {
     pub authored_flora_samples: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Scenario {
     #[default]
     Garden,
@@ -355,26 +366,34 @@ pub enum Scenario {
     HybridTransparency,
     House,
     TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions),
+    FoliageShadowBenchmark(DenoiserBenchOptions),
 }
 
 impl Scenario {
-    pub fn environment_lighting(self) -> Option<EnvironmentLightingTestCase> {
+    pub fn environment_lighting(&self) -> Option<EnvironmentLightingTestCase> {
         match self {
-            Self::EnvironmentLighting(test_case) => Some(test_case),
+            Self::EnvironmentLighting(test_case) => Some(*test_case),
             _ => None,
         }
     }
 
-    pub fn canopy_audio_diagnostic(self) -> Option<bool> {
+    pub fn canopy_audio_diagnostic(&self) -> Option<bool> {
         match self {
-            Self::CanopyAudioDiagnostic { constrained_budget } => Some(constrained_budget),
+            Self::CanopyAudioDiagnostic { constrained_budget } => Some(*constrained_budget),
             _ => None,
         }
     }
 
-    pub fn terrain_connectivity_benchmark(self) -> Option<TerrainConnectivityBenchOptions> {
+    pub fn terrain_connectivity_benchmark(&self) -> Option<TerrainConnectivityBenchOptions> {
         match self {
-            Self::TerrainConnectivityBenchmark(options) => Some(options),
+            Self::TerrainConnectivityBenchmark(options) => Some(*options),
+            _ => None,
+        }
+    }
+
+    pub fn foliage_shadow_benchmark(&self) -> Option<&DenoiserBenchOptions> {
+        match self {
+            Self::FoliageShadowBenchmark(options) => Some(options),
             _ => None,
         }
     }
@@ -385,8 +404,7 @@ pub struct DenoiserBenchOptions {
     pub report_path: String,
     pub warmup_frames: u32,
     pub capture_frames: u32,
-    pub camera_motion: bool,
-    pub scene: DenoiserBenchScene,
+    pub mode: DenoiserBenchMode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -648,20 +666,12 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                 "Do not combine --denoiser-bench with --foliage-shadow-bench. {DENOISER_BENCH_USAGE} {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
     }
-    let frame_stability_bench = denoiser_bench
-        .as_ref()
-        .map(|(_, options)| options.clone())
-        .or(foliage_shadow_bench);
     if screenshot.is_some() && denoiser_bench.is_some() {
         return Err(format!(
             "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
         ));
     }
-    if screenshot.is_some()
-        && frame_stability_bench
-            .as_ref()
-            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-    {
+    if screenshot.is_some() && foliage_shadow_bench.is_some() {
         return Err(format!(
             "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
         ));
@@ -696,9 +706,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         .any(|arg| arg == "--hybrid-transparency-test-scene");
     let house_scene = args.iter().any(|arg| arg == "--house-scene");
     let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
-    let foliage_shadow_bench_requested = frame_stability_bench
-        .as_ref()
-        .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow);
+    let foliage_shadow_bench_requested = foliage_shadow_bench.is_some();
     let canopy_audio_budget_diagnostic = args
         .iter()
         .any(|arg| arg == "--canopy-audio-budget-diagnostic");
@@ -848,9 +856,12 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
     if let Some(benchmark) = terrain_connectivity_bench {
         scenarios.push(Scenario::TerrainConnectivityBenchmark(benchmark));
     }
+    if let Some(benchmark) = foliage_shadow_bench {
+        scenarios.push(Scenario::FoliageShadowBenchmark(benchmark));
+    }
     let scenario = match scenarios.as_slice() {
         [] => Scenario::Garden,
-        [scenario] => *scenario,
+        [scenario] => scenario.clone(),
         _ => {
             return Err(
                 "Choose exactly one fixed scenario; scenario flags cannot be combined.".to_owned(),
@@ -858,16 +869,11 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         }
     };
 
-    let camera = match (screenshot_options, frame_stability_bench, camera_snapshot) {
+    let camera = match (screenshot_options, denoiser_bench, camera_snapshot) {
         (Some(capture), None, Some(snapshot)) => CameraAutomation::Screenshot { snapshot, capture },
-        (None, Some(benchmark), snapshot) => match benchmark.scene {
-            DenoiserBenchScene::CameraSnapshot => CameraAutomation::DenoiserBenchmark {
-                snapshot: snapshot.expect("camera benchmark parser owns its snapshot"),
-                benchmark,
-            },
-            DenoiserBenchScene::FoliageShadow => {
-                CameraAutomation::FoliageShadowBenchmark(benchmark)
-            }
+        (None, Some((snapshot, benchmark)), _) => CameraAutomation::DenoiserBenchmark {
+            snapshot,
+            benchmark,
         },
         (None, None, Some(snapshot)) => CameraAutomation::Snapshot(snapshot),
         (None, None, None) => CameraAutomation::None,
@@ -994,10 +1000,16 @@ fn parse_denoiser_bench_request(
             report_path,
             warmup_frames,
             capture_frames,
-            camera_motion: args
-                .iter()
-                .any(|arg| arg == "--denoiser-bench-camera-motion"),
-            scene: DenoiserBenchScene::CameraSnapshot,
+            mode: DenoiserBenchMode::CameraSnapshot(
+                if args
+                    .iter()
+                    .any(|arg| arg == "--denoiser-bench-camera-motion")
+                {
+                    CameraMotion::Scripted
+                } else {
+                    CameraMotion::Fixed
+                },
+            ),
         },
     )))
 }
@@ -1029,8 +1041,7 @@ fn parse_foliage_shadow_bench_request(
         report_path,
         warmup_frames,
         capture_frames,
-        camera_motion: false,
-        scene: DenoiserBenchScene::FoliageShadow,
+        mode: DenoiserBenchMode::FoliageShadow,
     }))
 }
 
@@ -2136,8 +2147,10 @@ mod tests {
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
-        assert!(benchmark.camera_motion);
-        assert_eq!(benchmark.scene, DenoiserBenchScene::CameraSnapshot);
+        assert_eq!(
+            benchmark.mode,
+            DenoiserBenchMode::CameraSnapshot(CameraMotion::Scripted)
+        );
     }
 
     #[test]
@@ -2154,12 +2167,11 @@ mod tests {
         ]);
 
         assert!(options.camera.snapshot_name().is_none());
-        let benchmark = options.camera.denoiser_benchmark().unwrap();
+        let benchmark = options.scenario.foliage_shadow_benchmark().unwrap();
         assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
-        assert!(!benchmark.camera_motion);
-        assert_eq!(benchmark.scene, DenoiserBenchScene::FoliageShadow);
+        assert_eq!(benchmark.mode, DenoiserBenchMode::FoliageShadow);
     }
 
     #[test]
@@ -2447,6 +2459,34 @@ mod tests {
         ] {
             let error = try_launch(&arguments).unwrap_err();
             assert!(error.contains("Duplicate"), "{arguments:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn every_pair_of_fixed_scenarios_is_rejected() {
+        let fixed_scenarios: &[(&str, &[&str])] = &[
+            ("canopy", &["--canopy-audio-diagnostic"]),
+            ("water", &["--water-experience"]),
+            ("water-edit", &["--water-edit-soak"]),
+            ("lighting", &["--environment-lighting-test-scene"]),
+            ("hybrid", &["--hybrid-transparency-test-scene"]),
+            ("house", &["--house-scene"]),
+            ("connectivity", &["--terrain-connectivity-bench", "bounded"]),
+            ("foliage-shadow", &["--foliage-shadow-bench", "report.toml"]),
+        ];
+
+        for (left_index, (left_name, left_args)) in fixed_scenarios.iter().enumerate() {
+            for (right_name, right_args) in &fixed_scenarios[left_index + 1..] {
+                let arguments = std::iter::once("re-flora")
+                    .chain(left_args.iter().copied())
+                    .chain(right_args.iter().copied())
+                    .collect::<Vec<_>>();
+                let error = try_launch(&arguments).unwrap_err();
+                assert!(
+                    error.contains("scenario") || error.contains("Do not combine"),
+                    "accepted/unclear {left_name}+{right_name}: {error}"
+                );
+            }
         }
     }
 

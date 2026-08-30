@@ -103,8 +103,8 @@ use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::{WindResponseCurve, WindSource};
 use crate::{
-    egui_renderer::EguiRenderer, window::WindowState, CameraAutomation,
-    EnvironmentLightingTestCase, RenderFlags, RunPlan, Scenario, WaterProfilePreference,
+    egui_renderer::EguiRenderer, window::WindowState, EnvironmentLightingTestCase, RenderFlags,
+    RunPlan, Scenario, WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -1081,13 +1081,14 @@ impl App {
         let water = &plan.water;
         let lighting = &plan.lighting;
         let benchmarks = &plan.benchmarks;
-        let scenario = plan.scenario;
+        let scenario = &plan.scenario;
         let environment_lighting_test = scenario.environment_lighting();
         let canopy_audio_diagnostic = scenario.canopy_audio_diagnostic();
         let water_experience = matches!(scenario, Scenario::WaterExperience);
         let water_edit_soak = matches!(scenario, Scenario::WaterEditSoak);
         let hybrid_transparency = matches!(scenario, Scenario::HybridTransparency);
         let house_scene = matches!(scenario, Scenario::House);
+        let foliage_shadow_bench = scenario.foliage_shadow_benchmark();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
@@ -1289,7 +1290,7 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
-        if matches!(camera, CameraAutomation::FoliageShadowBenchmark(_)) {
+        if foliage_shadow_bench.is_some() {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
         if canopy_audio_diagnostic.is_some() {
@@ -1561,7 +1562,11 @@ impl App {
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 lighting.spatial_weight_readback_path.clone(),
             ),
-            denoiser_bench: camera.denoiser_benchmark().cloned().map(DenoiserBench::new),
+            denoiser_bench: camera
+                .denoiser_benchmark()
+                .or(foliage_shadow_bench)
+                .cloned()
+                .map(DenoiserBench::new),
             auto_exit_delay: lifecycle.auto_exit_delay,
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
                 || canopy_audio_diagnostic.is_some())
@@ -1610,7 +1615,7 @@ impl App {
         // Test scenes provide a useful default pose, but an explicit snapshot
         // is the caller's final camera choice for screenshots and repro runs.
         app.apply_startup_camera_snapshot(camera.snapshot_name())?;
-        if matches!(camera, CameraAutomation::FoliageShadowBenchmark(_)) {
+        if foliage_shadow_bench.is_some() {
             app.configure_foliage_shadow_bench_camera()?;
         }
         app.sync_cursor_with_panels();

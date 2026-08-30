@@ -31,7 +31,7 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    CameraAutomation, DenoiserBenchOptions, DenoiserBenchScene, DisplayPlan,
+    CameraAutomation, CameraMotion, DenoiserBenchMode, DenoiserBenchOptions, DisplayPlan,
     EnvironmentLightingTestCase, LaunchCommand, LogInspection, MonitorScorePreference,
     PresentModePreference, RenderFlags, RunPlan, Scenario, ScreenshotOptions,
     TerrainPersistencePlan, WaterPlan, WaterProfilePreference,

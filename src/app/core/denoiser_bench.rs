@@ -1,4 +1,4 @@
-use crate::{DenoiserBenchOptions, DenoiserBenchScene};
+use crate::{DenoiserBenchMode, DenoiserBenchOptions};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{
@@ -143,15 +143,17 @@ impl DenoiserBench {
     }
 
     pub(super) fn hides_ui(&self) -> bool {
-        self.options.scene == DenoiserBenchScene::FoliageShadow
+        self.options.mode.is_foliage_shadow()
     }
 
     pub(super) fn is_foliage_shadow(&self) -> bool {
-        self.options.scene == DenoiserBenchScene::FoliageShadow
+        self.options.mode.is_foliage_shadow()
     }
 
     pub(super) fn fixed_frame_delta_seconds(&self) -> Option<f32> {
-        (self.options.scene == DenoiserBenchScene::FoliageShadow)
+        self.options
+            .mode
+            .is_foliage_shadow()
             .then_some(FOLIAGE_SHADOW_BENCH_FRAME_SECONDS)
     }
 
@@ -161,7 +163,7 @@ impl DenoiserBench {
     }
 
     pub(super) fn camera_motion_frame(&self) -> Option<(u32, bool)> {
-        (self.options.camera_motion && self.should_capture()).then_some((
+        (self.options.mode.has_scripted_camera_motion() && self.should_capture()).then_some((
             self.captured_frames,
             self.captured_frames + 1 == self.options.capture_frames,
         ))
@@ -177,9 +179,9 @@ impl DenoiserBench {
             width,
             height
         );
-        let analysis_region = analysis_region(self.options.scene, width, height);
+        let analysis_region = analysis_region(self.options.mode, width, height);
         let structure_analysis_region =
-            foliage_structure_analysis_region(self.options.scene, width, height);
+            foliage_structure_analysis_region(self.options.mode, width, height);
         if self.captured_frames == 0 {
             self.source_width = width;
             self.source_height = height;
@@ -188,7 +190,7 @@ impl DenoiserBench {
             self.capture_started = Some(Instant::now());
             log::info!(
                 "[DENOISER_BENCH] warmup complete scene={} after {} presented frames; capturing {} frames at {}x{} analysis={}x{}+{},{}",
-                self.options.scene.label(),
+                self.options.mode.label(),
                 self.presented_frames,
                 self.options.capture_frames,
                 width,
@@ -217,7 +219,7 @@ impl DenoiserBench {
             );
         }
 
-        if self.options.camera_motion || self.options.scene == DenoiserBenchScene::FoliageShadow {
+        if self.options.mode.has_scripted_camera_motion() || self.options.mode.is_foliage_shadow() {
             if let Some(label) = keyframe_label(self.captured_frames, self.options.capture_frames) {
                 self.keyframes.push(CapturedKeyframe {
                     frame: self.captured_frames,
@@ -230,7 +232,7 @@ impl DenoiserBench {
         }
 
         let current_luma = rgba_region_to_luma(rgba, width, analysis_region);
-        if self.options.scene == DenoiserBenchScene::FoliageShadow {
+        if self.options.mode.is_foliage_shadow() {
             self.captured_luma.extend_from_slice(&current_luma);
             let structure_region = structure_analysis_region
                 .context("foliage shadow benchmark requires a structure analysis region")?;
@@ -299,7 +301,7 @@ impl DenoiserBench {
         let structure_sample_height = structure_region.height / FOLIAGE_STRUCTURE_SAMPLE_SCALE;
         let report = DenoiserBenchReport {
             version: REPORT_VERSION,
-            scene: self.options.scene.label(),
+            scene: self.options.mode.label(),
             source_width: self.source_width,
             source_height: self.source_height,
             analysis_x: analysis_region.x,
@@ -311,18 +313,18 @@ impl DenoiserBench {
             transition_count: self.transitions.len(),
             noticeable_delta_threshold_8bit: NOTICEABLE_DELTA_8BIT,
             fresh_samples: false,
-            camera_motion: self.options.camera_motion,
-            camera_strafe_per_frame_world: if self.options.camera_motion {
+            camera_motion: self.options.mode.has_scripted_camera_motion(),
+            camera_strafe_per_frame_world: if self.options.mode.has_scripted_camera_motion() {
                 CAMERA_STRAFE_PER_FRAME_WORLD
             } else {
                 0.0
             },
-            camera_forward_per_frame_world: if self.options.camera_motion {
+            camera_forward_per_frame_world: if self.options.mode.has_scripted_camera_motion() {
                 CAMERA_FORWARD_PER_FRAME_WORLD
             } else {
                 0.0
             },
-            camera_yaw_per_frame_radians: if self.options.camera_motion {
+            camera_yaw_per_frame_radians: if self.options.mode.has_scripted_camera_motion() {
                 CAMERA_YAW_PER_FRAME_RADIANS
             } else {
                 0.0
@@ -339,7 +341,7 @@ impl DenoiserBench {
             structure_analysis_y: structure_region.y,
             structure_analysis_width: structure_region.width,
             structure_analysis_height: structure_region.height,
-            structure_sample_scale: if self.options.scene == DenoiserBenchScene::FoliageShadow {
+            structure_sample_scale: if self.options.mode.is_foliage_shadow() {
                 FOLIAGE_STRUCTURE_SAMPLE_SCALE
             } else {
                 0
@@ -366,8 +368,8 @@ impl DenoiserBench {
             .with_context(|| format!("write denoiser report {}", path.display()))?;
         log::info!(
             "[DENOISER_BENCH] complete mode=raw scene={} camera_motion={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} keyframes={} report={}",
-            self.options.scene.label(),
-            self.options.camera_motion,
+            self.options.mode.label(),
+            self.options.mode.has_scripted_camera_motion(),
             self.transitions.len(),
             report.aggregate.mean_abs_luma_delta_8bit,
             report.aggregate.mean_p95_abs_luma_delta_8bit,
@@ -380,7 +382,7 @@ impl DenoiserBench {
     }
 
     fn write_luma_sequence(&self) -> Result<String> {
-        if self.options.scene != DenoiserBenchScene::FoliageShadow {
+        if !self.options.mode.is_foliage_shadow() {
             return Ok(String::new());
         }
         let report_path = Path::new(&self.options.report_path);
@@ -411,7 +413,7 @@ impl DenoiserBench {
     }
 
     fn write_structure_luma_sequence(&self) -> Result<String> {
-        if self.options.scene != DenoiserBenchScene::FoliageShadow {
+        if !self.options.mode.is_foliage_shadow() {
             return Ok(String::new());
         }
         let report_path = Path::new(&self.options.report_path);
@@ -487,15 +489,15 @@ fn keyframe_label(frame: u32, frame_count: u32) -> Option<&'static str> {
     }
 }
 
-fn analysis_region(scene: DenoiserBenchScene, width: u32, height: u32) -> AnalysisRegion {
-    match scene {
-        DenoiserBenchScene::CameraSnapshot => AnalysisRegion {
+fn analysis_region(mode: DenoiserBenchMode, width: u32, height: u32) -> AnalysisRegion {
+    match mode {
+        DenoiserBenchMode::CameraSnapshot(_) => AnalysisRegion {
             x: 0,
             y: 0,
             width,
             height,
         },
-        DenoiserBenchScene::FoliageShadow => {
+        DenoiserBenchMode::FoliageShadow => {
             // The fixed camera places the deterministic grass patch and its canopy projection in
             // this resolution-independent rectangle. Excluding visible canopy and bare terrain
             // keeps the metric specific to the moving receiver named by the benchmark.
@@ -512,11 +514,11 @@ fn analysis_region(scene: DenoiserBenchScene, width: u32, height: u32) -> Analys
 }
 
 fn foliage_structure_analysis_region(
-    scene: DenoiserBenchScene,
+    mode: DenoiserBenchMode,
     width: u32,
     height: u32,
 ) -> Option<AnalysisRegion> {
-    if scene != DenoiserBenchScene::FoliageShadow {
+    if !mode.is_foliage_shadow() {
         return None;
     }
     // The bare terrain left of the grass receiver contains the projected crown silhouette and
@@ -690,7 +692,7 @@ mod tests {
         foliage_structure_analysis_region, keyframe_label, mean_frame_spatial_gradient,
         rgba_region_to_luma, rgba_to_luma, AnalysisRegion,
     };
-    use crate::DenoiserBenchScene;
+    use crate::DenoiserBenchMode;
 
     #[test]
     fn identical_frames_have_zero_temporal_delta() {
@@ -740,7 +742,7 @@ mod tests {
     #[test]
     fn foliage_analysis_region_tracks_the_fixed_grass_receiver() {
         assert_eq!(
-            analysis_region(DenoiserBenchScene::FoliageShadow, 1920, 1080),
+            analysis_region(DenoiserBenchMode::FoliageShadow, 1920, 1080),
             AnalysisRegion {
                 x: 576,
                 y: 324,
@@ -753,7 +755,7 @@ mod tests {
     #[test]
     fn foliage_structure_region_tracks_bare_terrain_and_has_uniform_samples() {
         assert_eq!(
-            foliage_structure_analysis_region(DenoiserBenchScene::FoliageShadow, 1920, 1080,),
+            foliage_structure_analysis_region(DenoiserBenchMode::FoliageShadow, 1920, 1080,),
             Some(AnalysisRegion {
                 x: 0,
                 y: 180,
