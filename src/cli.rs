@@ -379,138 +379,6 @@ impl Scenario {
     }
 }
 
-/// Application launch options parsed from CLI arguments.
-#[derive(Clone, Debug)]
-struct ParsedRunOptions {
-    /// Run in windowed mode instead of borderless fullscreen.
-    pub windowed: bool,
-    /// Create the native window hidden while keeping the normal render/swapchain path.
-    /// On Wayland, fall back to requesting minimization because hidden windows are unsupported.
-    pub hidden: bool,
-    /// Start with global audio output muted while keeping audio processing active.
-    pub mute: bool,
-    /// Emit opt-in, machine-parseable per-tree and per-canopy-sample audio telemetry.
-    pub canopy_audio_telemetry: bool,
-    /// Run the fixed tree/wind/listener trajectory used for canopy audio diagnosis.
-    pub canopy_audio_diagnostic: bool,
-    /// Add deterministic surrounding trees and constrain the Petal acoustic solve budget.
-    pub canopy_audio_budget_diagnostic: bool,
-    /// Select an audio output device by case-insensitive substring match.
-    pub audio_output_device: Option<String>,
-    /// Disable shadow rendering pass.
-    pub no_shadows: bool,
-    /// Disable only leaf-opacity shadow production while retaining terrain/VSM shadows.
-    pub no_leaf_shadows: bool,
-    /// Disable god ray pass.
-    pub no_god_rays: bool,
-    /// Disable lens flare passes.
-    pub no_lens_flare: bool,
-    /// Disable main tracer (black screen, for isolating other passes).
-    pub no_tracer: bool,
-    /// Disable particle simulation (butterflies, leaves).
-    pub no_particles: bool,
-    /// Disable flora/leaves graphics passes (grass, tree leaves).
-    pub no_flora: bool,
-    /// Disable procedural cloud rendering.
-    pub no_clouds: bool,
-    /// Preferred swapchain present mode override.
-    pub present_mode: Option<PresentModePreference>,
-    /// Select borderless fullscreen monitor by physical-pixel score.
-    pub monitor_score: MonitorScorePreference,
-    /// Override swapchain image count. None = auto (max(min_image_count, 3)).
-    pub swapchain_images: Option<u32>,
-    /// Save one screenshot after its render-readiness delay.
-    pub screenshot: Option<ScreenshotOptions>,
-    /// Load a terrain-only authoritative voxel snapshot during startup.
-    pub terrain_load_path: Option<String>,
-    /// Save a terrain-only authoritative voxel snapshot after startup reaches readiness.
-    pub terrain_save_path: Option<String>,
-    /// Apply a named camera snapshot at startup. Screenshot runs set this from the requested preset.
-    pub camera_snapshot: Option<String>,
-    /// Run a fixed-camera temporal stability benchmark and write a TOML report.
-    pub denoiser_bench: Option<DenoiserBenchOptions>,
-    /// Print available camera snapshot names and exit successfully.
-    pub list_camera_snapshots: bool,
-    /// Auto-exit N seconds after rendering starts. None = don't auto-exit.
-    pub auto_exit_delay: Option<f32>,
-    /// Exercise egui full, partial, replacement, and free texture generations, then exit via
-    /// the normal hidden-render path. Intended for lifecycle acceptance only.
-    pub egui_texture_lifecycle_test: bool,
-    /// Exercise coalesced programmatic window resizes through the normal swapchain/render path.
-    /// Intended for hidden resize acceptance only.
-    pub resize_lifecycle_test: bool,
-    /// Enable per-frame performance timing output to console.
-    pub perf: bool,
-    /// Launch the stable, deterministic water experience scene.
-    pub water_experience: bool,
-    /// Select a named water MLS-MPM configuration profile.
-    pub water_profile: Option<WaterProfilePreference>,
-    /// Override water MLS-MPM particle count.
-    pub water_particles: Option<usize>,
-    /// Override water MLS-MPM per-particle rest-volume cube edge length.
-    pub water_particle_edge_len: Option<f32>,
-    /// Override water MLS-MPM cubic grid dimension.
-    pub water_grid: Option<u32>,
-    /// Override water MLS-MPM fixed substep rate in Hz.
-    pub water_substep_hz: Option<f32>,
-    /// Override water-terrain collision keep-out distance in water grid cells.
-    pub water_terrain_margin_cells: Option<f32>,
-    /// Override water linear velocity damping per second.
-    pub water_damping: Option<f32>,
-    /// Override water-terrain tangential damping per second.
-    pub water_terrain_tangent_damping: Option<f32>,
-    /// Override weakly-compressible equation-of-state stiffness.
-    pub water_stiffness: Option<f32>,
-    /// Override weakly-compressible equation-of-state gamma.
-    pub water_gamma: Option<f32>,
-    /// Override minimum weakly-compressible volume ratio J.
-    pub water_j_min: Option<f32>,
-    /// Run a deterministic terrain-edit soak around the pond for water validation.
-    pub water_edit_soak: bool,
-    /// Build one deterministic static terrain case for environment-lighting validation.
-    pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
-    /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
-    pub environment_irradiance_capture_path: Option<String>,
-    /// Save fixed saved-terrain DDGI probe-contribution readback as human-readable text.
-    pub ddgi_spatial_weight_readback_path: Option<String>,
-    /// Select the complete DDGI field recorded by the one-shot irradiance capture.
-    pub environment_irradiance_capture_target: DdgiCaptureTarget,
-    /// Select deterministic forward or reverse DDGI probe-batch traversal.
-    pub ddgi_batch_order: DdgiBatchOrder,
-    /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
-    pub ddgi_debug_view: DdgiDebugView,
-    /// Select the terrain-only exact-visibility origin used for receiver diagnostics.
-    pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
-    /// Build a deterministic hybrid raster/terrain transparency regression scene.
-    pub hybrid_transparency_test_scene: bool,
-    /// Build the authored house scene on freshly generated terrain.
-    pub house_scene: bool,
-    /// Environment probe grid spacing in terrain voxels.
-    pub environment_probe_spacing_voxels: u32,
-    /// Rebuild the environment probe grid once at runtime with this spacing.
-    pub environment_probe_rebuild_spacing_voxels: Option<u32>,
-    /// Visualize the environment probe grid at startup.
-    pub environment_probe_visualization: bool,
-    /// Run the lightweight tree replacement benchmark and exit after completion.
-    pub tree_bench: bool,
-    /// Number of tree benchmark samples.
-    pub tree_bench_samples: u32,
-    /// Run the authored special-flora paint benchmark and exit after completion.
-    pub authored_flora_bench: bool,
-    /// Number of authored flora benchmark paint samples.
-    pub authored_flora_bench_samples: u32,
-    /// Run the deterministic 437,205-voxel detached-terrain release benchmark.
-    pub terrain_connectivity_bench: Option<TerrainConnectivityBenchOptions>,
-    /// Print the per-worktree run log directory and exit successfully.
-    pub print_log_dir: bool,
-    /// Print the latest run log path and exit successfully.
-    pub latest_log: bool,
-    /// Print the last N lines from the latest run log and exit successfully.
-    pub tail_latest_log: Option<usize>,
-    /// Print CLI help and exit successfully.
-    pub help: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DenoiserBenchOptions {
     pub report_path: String,
@@ -541,9 +409,7 @@ impl LaunchCommand {
         if let Some(query) = parse_query_command(&args)? {
             return Ok(query);
         }
-        ParsedRunOptions::try_from_arg_strings(args)?
-            .try_into()
-            .map(Self::Run)
+        parse_run_plan(args).map(Self::Run)
     }
 }
 
@@ -624,227 +490,87 @@ fn parse_query_command(args: &[String]) -> Result<Option<LaunchCommand>, String>
     Ok(Some(LaunchCommand::InspectLogs(inspection)))
 }
 
-impl TryFrom<ParsedRunOptions> for RunPlan {
-    type Error = String;
-
-    fn try_from(options: ParsedRunOptions) -> Result<Self, Self::Error> {
-        let render_flags = RenderFlags::from(&options);
-        let mut scenarios = Vec::new();
-        if options.canopy_audio_diagnostic {
-            scenarios.push(Scenario::CanopyAudioDiagnostic {
-                constrained_budget: options.canopy_audio_budget_diagnostic,
-            });
-        }
-        if options.water_experience {
-            scenarios.push(Scenario::WaterExperience);
-        }
-        if options.water_edit_soak {
-            scenarios.push(Scenario::WaterEditSoak);
-        }
-        if let Some(test_case) = options.environment_lighting_test_scene {
-            scenarios.push(Scenario::EnvironmentLighting(test_case));
-        }
-        if options.hybrid_transparency_test_scene {
-            scenarios.push(Scenario::HybridTransparency);
-        }
-        if options.house_scene {
-            scenarios.push(Scenario::House);
-        }
-        if let Some(benchmark) = options.terrain_connectivity_bench {
-            scenarios.push(Scenario::TerrainConnectivityBenchmark(benchmark));
-        }
-        let scenario = match scenarios.as_slice() {
-            [] => Scenario::Garden,
-            [scenario] => *scenario,
-            _ => {
-                return Err(
-                    "Choose exactly one fixed scenario; scenario flags cannot be combined."
-                        .to_owned(),
-                );
-            }
+fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
+    let parse_required_string_after = |flag: &str, label: &str| -> Result<Option<String>, String> {
+        let Some(index) = args.iter().position(|a| a == flag) else {
+            return Ok(None);
         };
-
-        let camera = match (
-            options.screenshot.clone(),
-            options.denoiser_bench.clone(),
-            options.camera_snapshot.clone(),
-        ) {
-            (Some(capture), None, Some(snapshot)) => {
-                CameraAutomation::Screenshot { snapshot, capture }
-            }
-            (None, Some(benchmark), snapshot) => match benchmark.scene {
-                DenoiserBenchScene::CameraSnapshot => CameraAutomation::DenoiserBenchmark {
-                    snapshot: snapshot.expect("camera benchmark parser owns its snapshot"),
-                    benchmark,
-                },
-                DenoiserBenchScene::FoliageShadow => {
-                    CameraAutomation::FoliageShadowBenchmark(benchmark)
-                }
-            },
-            (None, None, Some(snapshot)) => CameraAutomation::Snapshot(snapshot),
-            (None, None, None) => CameraAutomation::None,
-            _ => return Err("Choose exactly one camera automation mode.".to_owned()),
+        let Some(value) = args.get(index + 1) else {
+            return Err(format!("Missing value for {flag}. Expected {label}."));
         };
+        if value.starts_with("--") {
+            return Err(format!("Missing value for {flag}. Expected {label}."));
+        }
+        Ok(Some(value.clone()))
+    };
 
-        Ok(Self {
-            display: DisplayPlan {
-                windowed: options.windowed,
-                hidden: options.hidden,
-                present_mode: options.present_mode,
-                monitor_score: options.monitor_score,
-                swapchain_images: options.swapchain_images,
-            },
-            audio: AudioPlan {
-                muted: options.mute,
-                canopy_telemetry: options.canopy_audio_telemetry,
-                output_device: options.audio_output_device,
-            },
-            render: RenderPlan {
-                flags: render_flags,
-                perf_logging: options.perf,
-            },
-            terrain: TerrainPersistencePlan {
-                load_path: options.terrain_load_path,
-                save_path: options.terrain_save_path,
-            },
-            camera,
-            lifecycle: LifecyclePlan {
-                auto_exit_delay: options.auto_exit_delay,
-                egui_texture_test: options.egui_texture_lifecycle_test,
-                resize_test: options.resize_lifecycle_test,
-            },
-            water: WaterPlan {
-                profile: options.water_profile,
-                particles: options.water_particles,
-                particle_edge_len: options.water_particle_edge_len,
-                grid: options.water_grid,
-                substep_hz: options.water_substep_hz,
-                terrain_margin_cells: options.water_terrain_margin_cells,
-                damping: options.water_damping,
-                terrain_tangent_damping: options.water_terrain_tangent_damping,
-                stiffness: options.water_stiffness,
-                gamma: options.water_gamma,
-                j_min: options.water_j_min,
-            },
-            lighting: EnvironmentLightingPlan {
-                irradiance_capture_path: options.environment_irradiance_capture_path,
-                spatial_weight_readback_path: options.ddgi_spatial_weight_readback_path,
-                capture_target: options.environment_irradiance_capture_target,
-                batch_order: options.ddgi_batch_order,
-                debug_view: options.ddgi_debug_view,
-                terrain_hard_origin: options.ddgi_terrain_hard_origin,
-                probe_spacing_voxels: options.environment_probe_spacing_voxels,
-                rebuild_probe_spacing_voxels: options.environment_probe_rebuild_spacing_voxels,
-                visualize_probes: options.environment_probe_visualization,
-            },
-            benchmarks: BenchmarkPlan {
-                tree_samples: options.tree_bench.then_some(options.tree_bench_samples),
-                authored_flora_samples: options
-                    .authored_flora_bench
-                    .then_some(options.authored_flora_bench_samples),
-            },
-            scenario,
-        })
-    }
-}
+    let present_mode = match parse_required_string_after(
+        "--present-mode",
+        "one of: mailbox, immediate, fifo, fifo_relaxed",
+    )? {
+        Some(value) => Some(parse_present_mode_preference(&value)?),
+        None => None,
+    };
 
-impl ParsedRunOptions {
-    pub fn from_args() -> Self {
-        Self::from_arg_strings(std::env::args().collect())
-    }
-
-    pub fn try_from_args() -> Result<Self, String> {
-        Self::try_from_arg_strings(std::env::args().collect())
-    }
-
-    fn from_arg_strings(args: Vec<String>) -> Self {
-        Self::try_from_arg_strings(args).unwrap_or_else(|err| panic!("{err}"))
-    }
-
-    fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
-        let parse_required_string_after =
-            |flag: &str, label: &str| -> Result<Option<String>, String> {
-                let Some(index) = args.iter().position(|a| a == flag) else {
-                    return Ok(None);
-                };
-                let Some(value) = args.get(index + 1) else {
-                    return Err(format!("Missing value for {flag}. Expected {label}."));
-                };
-                if value.starts_with("--") {
-                    return Err(format!("Missing value for {flag}. Expected {label}."));
-                }
-                Ok(Some(value.clone()))
-            };
-
-        let present_mode = match parse_required_string_after(
-            "--present-mode",
-            "one of: mailbox, immediate, fifo, fifo_relaxed",
-        )? {
-            Some(value) => Some(parse_present_mode_preference(&value)?),
+    let water_profile =
+        match parse_required_string_after("--water-profile", "one of: default, performance")? {
+            Some(value) => Some(parse_water_profile_preference(&value)?),
             None => None,
         };
 
-        let water_profile =
-            match parse_required_string_after("--water-profile", "one of: default, performance")? {
-                Some(value) => Some(parse_water_profile_preference(&value)?),
-                None => None,
-            };
-
-        let monitor_score =
-            match parse_required_string_after("--monitor-score", "one of: highest, lowest")? {
-                Some(value) => parse_monitor_score_preference(&value)?,
-                None => MonitorScorePreference::Highest,
-            };
-        let environment_probe_spacing_voxels = match parse_required_string_after(
-            "--environment-probe-spacing-voxels",
-            "one of: 64, 32, 16, 8",
-        )? {
-            Some(value) => {
-                let parsed = value.parse::<u32>().map_err(|_| {
-                    format!(
-                        "Invalid --environment-probe-spacing-voxels '{value}'. Supported values: {}",
-                        supported_ddgi_spacings_label()
-                    )
-                })?;
-                validate_ddgi_spacing(parsed)?
-            }
-            None => DEFAULT_DDGI_SPACING_VOXELS,
+    let monitor_score =
+        match parse_required_string_after("--monitor-score", "one of: highest, lowest")? {
+            Some(value) => parse_monitor_score_preference(&value)?,
+            None => MonitorScorePreference::Highest,
         };
-        let environment_probe_rebuild_spacing_voxels = match parse_required_string_after(
-            "--environment-probe-rebuild-spacing-voxels",
-            "one of: 64, 32, 16, 8",
-        )? {
-            Some(value) => {
-                let parsed = value.parse::<u32>().map_err(|_| {
+    let environment_probe_spacing_voxels = match parse_required_string_after(
+        "--environment-probe-spacing-voxels",
+        "one of: 64, 32, 16, 8",
+    )? {
+        Some(value) => {
+            let parsed = value.parse::<u32>().map_err(|_| {
+                format!(
+                    "Invalid --environment-probe-spacing-voxels '{value}'. Supported values: {}",
+                    supported_ddgi_spacings_label()
+                )
+            })?;
+            validate_ddgi_spacing(parsed)?
+        }
+        None => DEFAULT_DDGI_SPACING_VOXELS,
+    };
+    let environment_probe_rebuild_spacing_voxels = match parse_required_string_after(
+        "--environment-probe-rebuild-spacing-voxels",
+        "one of: 64, 32, 16, 8",
+    )? {
+        Some(value) => {
+            let parsed = value.parse::<u32>().map_err(|_| {
                     format!(
                         "Invalid --environment-probe-rebuild-spacing-voxels '{value}'. Supported values: {}",
                         supported_ddgi_spacings_label()
                     )
                 })?;
-                Some(validate_ddgi_spacing(parsed)?)
-            }
-            None => None,
-        };
-        let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
-        let environment_irradiance_capture_path = parse_required_string_after(
-            "--environment-irradiance-capture",
-            "an output .rfirr path",
-        )?;
-        let ddgi_spatial_weight_readback_path =
-            parse_required_string_after("--ddgi-spatial-weight-readback", "an output text path")?;
-        let environment_irradiance_capture_target_value = parse_required_string_after(
-            "--environment-irradiance-capture-target",
-            "e0, e1, eN, converged, or published",
-        )?;
-        if environment_irradiance_capture_target_value.is_some()
-            && environment_irradiance_capture_path.is_none()
-        {
-            return Err(
-                "--environment-irradiance-capture-target requires --environment-irradiance-capture"
-                    .to_owned(),
-            );
+            Some(validate_ddgi_spacing(parsed)?)
         }
-        let environment_irradiance_capture_target =
+        None => None,
+    };
+    let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
+    let environment_irradiance_capture_path =
+        parse_required_string_after("--environment-irradiance-capture", "an output .rfirr path")?;
+    let ddgi_spatial_weight_readback_path =
+        parse_required_string_after("--ddgi-spatial-weight-readback", "an output text path")?;
+    let environment_irradiance_capture_target_value = parse_required_string_after(
+        "--environment-irradiance-capture-target",
+        "e0, e1, eN, converged, or published",
+    )?;
+    if environment_irradiance_capture_target_value.is_some()
+        && environment_irradiance_capture_path.is_none()
+    {
+        return Err(
+            "--environment-irradiance-capture-target requires --environment-irradiance-capture"
+                .to_owned(),
+        );
+    }
+    let environment_irradiance_capture_target =
             match environment_irradiance_capture_target_value {
                 Some(value) => DdgiCaptureTarget::from_cli_value(&value).ok_or_else(|| {
                     format!(
@@ -853,16 +579,14 @@ impl ParsedRunOptions {
                 })?,
                 None => DdgiCaptureTarget::default(),
             };
-        let ddgi_batch_order =
-            match parse_required_string_after("--ddgi-batch-order", "one of: forward, reverse")? {
-                Some(value) => DdgiBatchOrder::from_cli_value(&value).ok_or_else(|| {
-                    format!(
-                        "Invalid --ddgi-batch-order '{value}'. Expected one of: forward, reverse."
-                    )
-                })?,
-                None => DdgiBatchOrder::Forward,
-            };
-        let ddgi_debug_view = match parse_required_string_after(
+    let ddgi_batch_order =
+        match parse_required_string_after("--ddgi-batch-order", "one of: forward, reverse")? {
+            Some(value) => DdgiBatchOrder::from_cli_value(&value).ok_or_else(|| {
+                format!("Invalid --ddgi-batch-order '{value}'. Expected one of: forward, reverse.")
+            })?,
+            None => DdgiBatchOrder::Forward,
+        };
+    let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
             "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, moment-support, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
@@ -873,23 +597,23 @@ impl ParsedRunOptions {
             })?,
             None => DdgiDebugView::Final,
         };
-        if ddgi_spatial_weight_readback_path.is_some()
-            && ddgi_debug_view != DdgiDebugView::SpatialWeightReadback
-        {
-            return Err(
-                "--ddgi-spatial-weight-readback requires --ddgi-debug-view spatial-weight-readback"
-                    .to_owned(),
-            );
-        }
-        if ddgi_debug_view == DdgiDebugView::SpatialWeightReadback
-            && ddgi_spatial_weight_readback_path.is_none()
-        {
-            return Err(
-                "--ddgi-debug-view spatial-weight-readback requires --ddgi-spatial-weight-readback"
-                    .to_owned(),
-            );
-        }
-        let ddgi_terrain_hard_origin = match parse_required_string_after(
+    if ddgi_spatial_weight_readback_path.is_some()
+        && ddgi_debug_view != DdgiDebugView::SpatialWeightReadback
+    {
+        return Err(
+            "--ddgi-spatial-weight-readback requires --ddgi-debug-view spatial-weight-readback"
+                .to_owned(),
+        );
+    }
+    if ddgi_debug_view == DdgiDebugView::SpatialWeightReadback
+        && ddgi_spatial_weight_readback_path.is_none()
+    {
+        return Err(
+            "--ddgi-debug-view spatial-weight-readback requires --ddgi-spatial-weight-readback"
+                .to_owned(),
+        );
+    }
+    let ddgi_terrain_hard_origin = match parse_required_string_after(
             "--ddgi-terrain-hard-origin",
             "one of: surface-quarter, center-fixed, surface-fixed",
         )? {
@@ -900,133 +624,133 @@ impl ParsedRunOptions {
             })?,
             None => DdgiTerrainHardOrigin::default(),
         };
-        let screenshot = parse_screenshot_request(&args)?;
-        let denoiser_bench = parse_denoiser_bench_request(&args)?;
-        let foliage_shadow_bench = parse_foliage_shadow_bench_request(&args)?;
-        if denoiser_bench.is_some() && foliage_shadow_bench.is_some() {
-            return Err(format!(
+    let screenshot = parse_screenshot_request(&args)?;
+    let denoiser_bench = parse_denoiser_bench_request(&args)?;
+    let foliage_shadow_bench = parse_foliage_shadow_bench_request(&args)?;
+    if denoiser_bench.is_some() && foliage_shadow_bench.is_some() {
+        return Err(format!(
                 "Do not combine --denoiser-bench with --foliage-shadow-bench. {DENOISER_BENCH_USAGE} {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
-        }
-        let frame_stability_bench = denoiser_bench
+    }
+    let frame_stability_bench = denoiser_bench
+        .as_ref()
+        .map(|(_, options)| options.clone())
+        .or(foliage_shadow_bench);
+    if screenshot.is_some() && denoiser_bench.is_some() {
+        return Err(format!(
+            "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
+        ));
+    }
+    if screenshot.is_some()
+        && frame_stability_bench
             .as_ref()
-            .map(|(_, options)| options.clone())
-            .or(foliage_shadow_bench);
-        if screenshot.is_some() && denoiser_bench.is_some() {
+            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+    {
+        return Err(format!(
+            "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
+        ));
+    }
+    let camera_snapshot = if let Some(screenshot) = &screenshot {
+        if args.iter().any(|a| a == "--camera-snapshot") {
             return Err(format!(
-                "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
-            ));
-        }
-        if screenshot.is_some()
-            && frame_stability_bench
-                .as_ref()
-                .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-        {
-            return Err(format!(
-                "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
-            ));
-        }
-        let camera_snapshot = if let Some(screenshot) = &screenshot {
-            if args.iter().any(|a| a == "--camera-snapshot") {
-                return Err(format!(
                     "Do not combine --camera-snapshot with --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
                 ));
-            }
-            Some(screenshot.preset_name.clone())
-        } else if let Some((preset_name, _)) = &denoiser_bench {
-            if args.iter().any(|a| a == "--camera-snapshot") {
-                return Err(format!(
+        }
+        Some(screenshot.preset_name.clone())
+    } else if let Some((preset_name, _)) = &denoiser_bench {
+        if args.iter().any(|a| a == "--camera-snapshot") {
+            return Err(format!(
                     "Do not combine --camera-snapshot with --denoiser-bench. {DENOISER_BENCH_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
                 ));
-            }
-            Some(preset_name.clone())
-        } else {
-            parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
-        };
-        let screenshot_options = screenshot
-            .as_ref()
-            .map(|screenshot| screenshot.options.clone());
-        let terrain_load_path =
-            parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
-        let terrain_save_path =
-            parse_required_string_after("--terrain-save", "a terrain snapshot path")?;
-        let water_experience = args.iter().any(|arg| arg == "--water-experience");
-        let hybrid_transparency_test_scene = args
-            .iter()
-            .any(|arg| arg == "--hybrid-transparency-test-scene");
-        let house_scene = args.iter().any(|arg| arg == "--house-scene");
-        let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
-        let foliage_shadow_bench_requested = frame_stability_bench
-            .as_ref()
-            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow);
-        let canopy_audio_budget_diagnostic = args
-            .iter()
-            .any(|arg| arg == "--canopy-audio-budget-diagnostic");
-        let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
-            || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
-        if canopy_audio_diagnostic
-            && (terrain_load_path.is_some()
-                || water_experience
-                || environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || house_scene
-                || screenshot_options.is_some()
-                || denoiser_bench.is_some()
-                || camera_snapshot.is_some())
-        {
-            return Err("Do not combine --canopy-audio-diagnostic with another fixed scene, terrain load, screenshot, denoiser benchmark, or camera snapshot".to_owned());
         }
-        if water_experience
-            && (environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || house_scene
-                || water_edit_soak)
-        {
-            return Err(
+        Some(preset_name.clone())
+    } else {
+        parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
+    };
+    let screenshot_options = screenshot
+        .as_ref()
+        .map(|screenshot| screenshot.options.clone());
+    let terrain_load_path =
+        parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
+    let terrain_save_path =
+        parse_required_string_after("--terrain-save", "a terrain snapshot path")?;
+    let water_experience = args.iter().any(|arg| arg == "--water-experience");
+    let hybrid_transparency_test_scene = args
+        .iter()
+        .any(|arg| arg == "--hybrid-transparency-test-scene");
+    let house_scene = args.iter().any(|arg| arg == "--house-scene");
+    let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
+    let foliage_shadow_bench_requested = frame_stability_bench
+        .as_ref()
+        .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow);
+    let canopy_audio_budget_diagnostic = args
+        .iter()
+        .any(|arg| arg == "--canopy-audio-budget-diagnostic");
+    let canopy_audio_diagnostic =
+        canopy_audio_budget_diagnostic || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+    if canopy_audio_diagnostic
+        && (terrain_load_path.is_some()
+            || water_experience
+            || environment_lighting_test_scene.is_some()
+            || hybrid_transparency_test_scene
+            || house_scene
+            || screenshot_options.is_some()
+            || denoiser_bench.is_some()
+            || camera_snapshot.is_some())
+    {
+        return Err("Do not combine --canopy-audio-diagnostic with another fixed scene, terrain load, screenshot, denoiser benchmark, or camera snapshot".to_owned());
+    }
+    if water_experience
+        && (environment_lighting_test_scene.is_some()
+            || hybrid_transparency_test_scene
+            || house_scene
+            || water_edit_soak)
+    {
+        return Err(
                 "Do not combine --water-experience with terrain-stamping test scenes or --water-edit-soak"
                     .to_owned(),
             );
-        }
-        if terrain_load_path.is_some()
-            && (environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || house_scene
-                || water_edit_soak
-                || water_experience)
-        {
-            return Err(
-                "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
-                    .to_owned(),
-            );
-        }
-        if house_scene
-            && (environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || water_edit_soak)
-        {
-            return Err(
-                "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
-                    .to_owned(),
-            );
-        }
-        if foliage_shadow_bench_requested
-            && (terrain_load_path.is_some()
-                || water_experience
-                || environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || house_scene
-                || water_edit_soak
-                || camera_snapshot.is_some()
-                || args.iter().any(|arg| arg == "--no-flora"))
-        {
-            return Err("Do not combine --foliage-shadow-bench with another fixed scene, terrain load, camera snapshot, water edit soak, or --no-flora".to_owned());
-        }
+    }
+    if terrain_load_path.is_some()
+        && (environment_lighting_test_scene.is_some()
+            || hybrid_transparency_test_scene
+            || house_scene
+            || water_edit_soak
+            || water_experience)
+    {
+        return Err(
+            "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
+                .to_owned(),
+        );
+    }
+    if house_scene
+        && (environment_lighting_test_scene.is_some()
+            || hybrid_transparency_test_scene
+            || water_edit_soak)
+    {
+        return Err(
+            "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
+                .to_owned(),
+        );
+    }
+    if foliage_shadow_bench_requested
+        && (terrain_load_path.is_some()
+            || water_experience
+            || environment_lighting_test_scene.is_some()
+            || hybrid_transparency_test_scene
+            || house_scene
+            || water_edit_soak
+            || camera_snapshot.is_some()
+            || args.iter().any(|arg| arg == "--no-flora"))
+    {
+        return Err("Do not combine --foliage-shadow-bench with another fixed scene, terrain load, camera snapshot, water edit soak, or --no-flora".to_owned());
+    }
 
-        let terrain_connectivity_bench_mode = parse_required_string_after(
-            "--terrain-connectivity-bench",
-            "existing, correct, bounded, or manual",
-        )?;
-        let terrain_connectivity_bench = terrain_connectivity_bench_mode
+    let terrain_connectivity_bench_mode = parse_required_string_after(
+        "--terrain-connectivity-bench",
+        "existing, correct, bounded, or manual",
+    )?;
+    let terrain_connectivity_bench = terrain_connectivity_bench_mode
             .map(|value| {
                 TerrainConnectivityBenchMode::from_cli_value(&value).ok_or_else(|| {
                     format!(
@@ -1053,111 +777,173 @@ impl ParsedRunOptions {
                     .max(1) as usize,
             }) })
             .transpose()?;
-        if terrain_connectivity_bench.is_none()
-            && args.iter().any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "--terrain-connectivity-bench-available-particles"
-                        | "--terrain-connectivity-bench-warmup-frames"
-                        | "--terrain-connectivity-bench-observe-frames"
-                        | "--terrain-connectivity-bench-voxel-budget"
-                )
-            })
-        {
-            return Err(
-                "Terrain connectivity benchmark options require --terrain-connectivity-bench"
-                    .to_owned(),
-            );
-        }
+    if terrain_connectivity_bench.is_none()
+        && args.iter().any(|arg| {
+            matches!(
+                arg.as_str(),
+                "--terrain-connectivity-bench-available-particles"
+                    | "--terrain-connectivity-bench-warmup-frames"
+                    | "--terrain-connectivity-bench-observe-frames"
+                    | "--terrain-connectivity-bench-voxel-budget"
+            )
+        })
+    {
+        return Err(
+            "Terrain connectivity benchmark options require --terrain-connectivity-bench"
+                .to_owned(),
+        );
+    }
 
-        Ok(Self {
+    let tree_bench = args.iter().any(|argument| argument == "--tree-bench");
+    let tree_bench_samples = parse_optional_u32_after(&args, "--tree-bench-samples")?;
+    if tree_bench_samples.is_some() && !tree_bench {
+        return Err("--tree-bench-samples requires --tree-bench".to_owned());
+    }
+    let authored_flora_bench = args
+        .iter()
+        .any(|argument| argument == "--authored-flora-bench");
+    let authored_flora_bench_samples =
+        parse_optional_u32_after(&args, "--authored-flora-bench-samples")?;
+    if authored_flora_bench_samples.is_some() && !authored_flora_bench {
+        return Err("--authored-flora-bench-samples requires --authored-flora-bench".to_owned());
+    }
+
+    let mut scenarios = Vec::new();
+    if canopy_audio_diagnostic {
+        scenarios.push(Scenario::CanopyAudioDiagnostic {
+            constrained_budget: canopy_audio_budget_diagnostic,
+        });
+    }
+    if water_experience {
+        scenarios.push(Scenario::WaterExperience);
+    }
+    if water_edit_soak {
+        scenarios.push(Scenario::WaterEditSoak);
+    }
+    if let Some(test_case) = environment_lighting_test_scene {
+        scenarios.push(Scenario::EnvironmentLighting(test_case));
+    }
+    if hybrid_transparency_test_scene {
+        scenarios.push(Scenario::HybridTransparency);
+    }
+    if house_scene {
+        scenarios.push(Scenario::House);
+    }
+    if let Some(benchmark) = terrain_connectivity_bench {
+        scenarios.push(Scenario::TerrainConnectivityBenchmark(benchmark));
+    }
+    let scenario = match scenarios.as_slice() {
+        [] => Scenario::Garden,
+        [scenario] => *scenario,
+        _ => {
+            return Err(
+                "Choose exactly one fixed scenario; scenario flags cannot be combined.".to_owned(),
+            )
+        }
+    };
+
+    let camera = match (screenshot_options, frame_stability_bench, camera_snapshot) {
+        (Some(capture), None, Some(snapshot)) => CameraAutomation::Screenshot { snapshot, capture },
+        (None, Some(benchmark), snapshot) => match benchmark.scene {
+            DenoiserBenchScene::CameraSnapshot => CameraAutomation::DenoiserBenchmark {
+                snapshot: snapshot.expect("camera benchmark parser owns its snapshot"),
+                benchmark,
+            },
+            DenoiserBenchScene::FoliageShadow => {
+                CameraAutomation::FoliageShadowBenchmark(benchmark)
+            }
+        },
+        (None, None, Some(snapshot)) => CameraAutomation::Snapshot(snapshot),
+        (None, None, None) => CameraAutomation::None,
+        _ => return Err("Choose exactly one camera automation mode.".to_owned()),
+    };
+
+    let no_shadows = args.iter().any(|a| a == "--no-shadows");
+    let no_flora = args.iter().any(|a| a == "--no-flora");
+    Ok(RunPlan {
+        display: DisplayPlan {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
-            mute: args.iter().any(|a| a == "--mute"),
-            canopy_audio_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
-            canopy_audio_diagnostic,
-            canopy_audio_budget_diagnostic,
-            audio_output_device: parse_required_string_after(
-                "--audio-output-device",
-                "an output device name substring",
-            )?,
-            no_shadows: args.iter().any(|a| a == "--no-shadows"),
-            no_leaf_shadows: args.iter().any(|a| a == "--no-leaf-shadows"),
-            no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
-            no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
-            no_tracer: args.iter().any(|a| a == "--no-tracer"),
-            no_particles: args.iter().any(|a| a == "--no-particles"),
-            no_flora: args.iter().any(|a| a == "--no-flora"),
-            no_clouds: args.iter().any(|a| a == "--no-clouds"),
             present_mode,
             monitor_score,
             swapchain_images: parse_optional_u32_after(&args, "--swapchain-images")?,
-            screenshot: screenshot_options,
-            terrain_load_path,
-            terrain_save_path,
-            camera_snapshot,
-            denoiser_bench: frame_stability_bench,
-            list_camera_snapshots: false,
+        },
+        audio: AudioPlan {
+            muted: args.iter().any(|a| a == "--mute"),
+            canopy_telemetry: args.iter().any(|a| a == "--canopy-audio-telemetry"),
+            output_device: parse_required_string_after(
+                "--audio-output-device",
+                "an output device name substring",
+            )?,
+        },
+        render: RenderPlan {
+            flags: RenderFlags {
+                enable_shadows: !no_shadows,
+                enable_leaf_shadows: !no_shadows && !args.iter().any(|a| a == "--no-leaf-shadows"),
+                enable_god_rays: !args.iter().any(|a| a == "--no-god-rays"),
+                enable_lens_flare: !args.iter().any(|a| a == "--no-lens-flare"),
+                enable_tracer: !args.iter().any(|a| a == "--no-tracer"),
+                enable_flora: !no_flora,
+                enable_leaves: !no_flora,
+                enable_particles: !args.iter().any(|a| a == "--no-particles"),
+                enable_clouds: false,
+            },
+            perf_logging: args.iter().any(|a| a == "--perf"),
+        },
+        terrain: TerrainPersistencePlan {
+            load_path: terrain_load_path,
+            save_path: terrain_save_path,
+        },
+        camera,
+        lifecycle: LifecyclePlan {
             auto_exit_delay: parse_optional_f32_after(&args, "--auto-exit")?,
-            egui_texture_lifecycle_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
-            resize_lifecycle_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
-            perf: args.iter().any(|a| a == "--perf"),
-            water_experience,
-            water_profile,
-            water_particles: parse_optional_u32_after(&args, "--water-particles")?
-                .map(|v| v as usize),
-            water_particle_edge_len: parse_optional_f32_after(&args, "--water-particle-edge-len")?
-                .map(|v| v.max(1.0e-6)),
-            water_grid: parse_optional_u32_after(&args, "--water-grid")?.map(|v| v.max(4)),
-            water_substep_hz: parse_optional_f32_after(&args, "--water-substep-hz")?
-                .map(|v| v.max(1.0)),
-            water_terrain_margin_cells: parse_optional_f32_after(
-                &args,
-                "--water-terrain-margin-cells",
-            )?
-            .map(|v| v.max(0.0)),
-            water_damping: parse_optional_f32_after(&args, "--water-damping")?.map(|v| v.max(0.0)),
-            water_terrain_tangent_damping: parse_optional_f32_after(
+            egui_texture_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
+            resize_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
+        },
+        water: WaterPlan {
+            profile: water_profile,
+            particles: parse_optional_u32_after(&args, "--water-particles")?
+                .map(|value| value as usize),
+            particle_edge_len: parse_optional_f32_after(&args, "--water-particle-edge-len")?
+                .map(|value| value.max(1.0e-6)),
+            grid: parse_optional_u32_after(&args, "--water-grid")?.map(|value| value.max(4)),
+            substep_hz: parse_optional_f32_after(&args, "--water-substep-hz")?
+                .map(|value| value.max(1.0)),
+            terrain_margin_cells: parse_optional_f32_after(&args, "--water-terrain-margin-cells")?
+                .map(|value| value.max(0.0)),
+            damping: parse_optional_f32_after(&args, "--water-damping")?
+                .map(|value| value.max(0.0)),
+            terrain_tangent_damping: parse_optional_f32_after(
                 &args,
                 "--water-terrain-tangent-damping",
             )?
-            .map(|v| v.max(0.0)),
-            water_stiffness: parse_optional_f32_after(&args, "--water-stiffness")?
-                .map(|v| v.max(0.0)),
-            water_gamma: parse_optional_f32_after(&args, "--water-gamma")?.map(|v| v.max(1.0e-4)),
-            water_j_min: parse_optional_f32_after(&args, "--water-j-min")?
-                .map(|v| v.clamp(1.0e-4, 1.0)),
-            water_edit_soak,
-            environment_lighting_test_scene,
-            environment_irradiance_capture_path,
-            ddgi_spatial_weight_readback_path,
-            environment_irradiance_capture_target,
-            ddgi_batch_order,
-            ddgi_debug_view,
-            ddgi_terrain_hard_origin,
-            hybrid_transparency_test_scene,
-            house_scene,
-            environment_probe_spacing_voxels,
-            environment_probe_rebuild_spacing_voxels,
-            environment_probe_visualization: args
+            .map(|value| value.max(0.0)),
+            stiffness: parse_optional_f32_after(&args, "--water-stiffness")?
+                .map(|value| value.max(0.0)),
+            gamma: parse_optional_f32_after(&args, "--water-gamma")?.map(|value| value.max(1.0e-4)),
+            j_min: parse_optional_f32_after(&args, "--water-j-min")?
+                .map(|value| value.clamp(1.0e-4, 1.0)),
+        },
+        lighting: EnvironmentLightingPlan {
+            irradiance_capture_path: environment_irradiance_capture_path,
+            spatial_weight_readback_path: ddgi_spatial_weight_readback_path,
+            capture_target: environment_irradiance_capture_target,
+            batch_order: ddgi_batch_order,
+            debug_view: ddgi_debug_view,
+            terrain_hard_origin: ddgi_terrain_hard_origin,
+            probe_spacing_voxels: environment_probe_spacing_voxels,
+            rebuild_probe_spacing_voxels: environment_probe_rebuild_spacing_voxels,
+            visualize_probes: args
                 .iter()
                 .any(|a| a == "--environment-probe-visualization"),
-            tree_bench: args.iter().any(|a| a == "--tree-bench"),
-            tree_bench_samples: parse_optional_u32_after(&args, "--tree-bench-samples")?
-                .unwrap_or(10),
-            authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
-            authored_flora_bench_samples: parse_optional_u32_after(
-                &args,
-                "--authored-flora-bench-samples",
-            )?
-            .unwrap_or(25),
-            terrain_connectivity_bench,
-            print_log_dir: args.iter().any(|a| a == "--print-log-dir"),
-            latest_log: args.iter().any(|a| a == "--latest-log"),
-            tail_latest_log: None,
-            help: false,
-        })
-    }
+        },
+        benchmarks: BenchmarkPlan {
+            tree_samples: tree_bench.then_some(tree_bench_samples.unwrap_or(10)),
+            authored_flora_samples: authored_flora_bench
+                .then_some(authored_flora_bench_samples.unwrap_or(25)),
+        },
+        scenario,
+    })
 }
 
 fn parse_denoiser_bench_request(
@@ -1583,23 +1369,6 @@ pub struct RenderFlags {
     pub enable_clouds: bool,
 }
 
-impl From<&ParsedRunOptions> for RenderFlags {
-    fn from(options: &ParsedRunOptions) -> Self {
-        Self {
-            enable_shadows: !options.no_shadows,
-            enable_leaf_shadows: !options.no_shadows && !options.no_leaf_shadows,
-            enable_god_rays: !options.no_god_rays,
-            enable_lens_flare: !options.no_lens_flare,
-            enable_tracer: !options.no_tracer,
-            enable_flora: !options.no_flora,
-            enable_leaves: !options.no_flora,
-            enable_particles: !options.no_particles,
-            // Disabled for now; infrastructure kept for easy re-enable.
-            enable_clouds: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1610,60 +1379,56 @@ mod tests {
         )
     }
 
-    fn parse(args: &[&str]) -> ParsedRunOptions {
-        ParsedRunOptions::from_arg_strings(args.iter().map(|arg| (*arg).to_owned()).collect())
+    fn try_parse_owned(args: Vec<String>) -> Result<RunPlan, String> {
+        match LaunchCommand::try_from_arg_strings(args)? {
+            LaunchCommand::Run(plan) => Ok(plan),
+            _ => Err("expected run arguments".to_owned()),
+        }
+    }
+
+    fn parse(args: &[&str]) -> RunPlan {
+        try_parse_owned(args.iter().map(|arg| (*arg).to_owned()).collect())
+            .unwrap_or_else(|err| panic!("{err}"))
     }
 
     #[test]
     fn defaults_match_runtime_expectations() {
         let options = parse(&["re-flora"]);
 
-        assert!(!options.windowed);
-        assert!(!options.hidden);
-        assert!(!options.mute);
-        assert!(!options.canopy_audio_telemetry);
-        assert!(!options.canopy_audio_diagnostic);
-        assert!(options.audio_output_device.is_none());
-        assert!(!options.no_leaf_shadows);
-        assert!(!options.perf);
-        assert!(!options.water_experience);
-        assert!(options.present_mode.is_none());
+        assert!(!options.display.windowed);
+        assert!(!options.display.hidden);
+        assert!(!options.audio.muted);
+        assert!(!options.audio.canopy_telemetry);
+        assert_eq!(options.scenario, Scenario::Garden);
+        assert!(options.audio.output_device.is_none());
+        assert!(options.render.flags.enable_leaf_shadows);
+        assert!(!options.render.perf_logging);
+        assert!(options.display.present_mode.is_none());
         assert!(matches!(
-            options.monitor_score,
+            options.display.monitor_score,
             MonitorScorePreference::Highest
         ));
-        assert!(options.screenshot.is_none());
-        assert!(options.terrain_load_path.is_none());
-        assert!(options.terrain_save_path.is_none());
-        assert!(options.camera_snapshot.is_none());
-        assert!(!options.list_camera_snapshots);
-        assert!(!options.egui_texture_lifecycle_test);
-        assert!(!options.resize_lifecycle_test);
-        assert!(options.environment_lighting_test_scene.is_none());
-        assert!(!options.house_scene);
-        assert!(options.environment_irradiance_capture_path.is_none());
-        assert!(options.ddgi_spatial_weight_readback_path.is_none());
+        assert_eq!(options.camera, CameraAutomation::None);
+        assert!(options.terrain.load_path.is_none());
+        assert!(options.terrain.save_path.is_none());
+        assert!(!options.lifecycle.egui_texture_test);
+        assert!(!options.lifecycle.resize_test);
+        assert!(options.lighting.irradiance_capture_path.is_none());
+        assert!(options.lighting.spatial_weight_readback_path.is_none());
+        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(0));
+        assert_eq!(options.lighting.batch_order, DdgiBatchOrder::Forward);
+        assert_eq!(options.lighting.debug_view, DdgiDebugView::Final);
         assert_eq!(
-            options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Epoch(0)
-        );
-        assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
-        assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
-        assert_eq!(
-            options.ddgi_terrain_hard_origin,
+            options.lighting.terrain_hard_origin,
             DdgiTerrainHardOrigin::SurfaceFixedWorld
         );
         assert_eq!(
-            options.environment_probe_spacing_voxels,
+            options.lighting.probe_spacing_voxels,
             DEFAULT_DDGI_SPACING_VOXELS
         );
-        assert!(options.environment_probe_rebuild_spacing_voxels.is_none());
-        assert!(!options.environment_probe_visualization);
-        assert_eq!(options.tree_bench_samples, 10);
-        assert!(!options.authored_flora_bench);
-        assert_eq!(options.authored_flora_bench_samples, 25);
-        assert!(options.terrain_connectivity_bench.is_none());
-        assert!(options.tail_latest_log.is_none());
+        assert!(options.lighting.rebuild_probe_spacing_voxels.is_none());
+        assert!(!options.lighting.visualize_probes);
+        assert_eq!(options.benchmarks, BenchmarkPlan::default());
     }
 
     #[test]
@@ -1681,7 +1446,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.terrain_connectivity_bench,
+            options.scenario.terrain_connectivity_benchmark(),
             Some(TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Correct,
                 available_particles: 8192,
@@ -1703,7 +1468,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.terrain_connectivity_bench,
+            options.scenario.terrain_connectivity_benchmark(),
             Some(TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Manual,
                 available_particles: 16_384,
@@ -1723,8 +1488,7 @@ mod tests {
             "7",
         ]);
 
-        assert!(options.authored_flora_bench);
-        assert_eq!(options.authored_flora_bench_samples, 7);
+        assert_eq!(options.benchmarks.authored_flora_samples, Some(7));
     }
 
     #[test]
@@ -1735,8 +1499,8 @@ mod tests {
             "--resize-lifecycle-test",
         ]);
 
-        assert!(options.egui_texture_lifecycle_test);
-        assert!(options.resize_lifecycle_test);
+        assert!(options.lifecycle.egui_texture_test);
+        assert!(options.lifecycle.resize_test);
     }
 
     #[test]
@@ -1748,8 +1512,8 @@ mod tests {
             "--canopy-audio-diagnostic",
         ]);
 
-        assert!(options.canopy_audio_diagnostic);
-        assert!(!options.canopy_audio_telemetry);
+        assert_eq!(options.scenario.canopy_audio_diagnostic(), Some(false));
+        assert!(!options.audio.canopy_telemetry);
     }
 
     #[test]
@@ -1761,13 +1525,12 @@ mod tests {
             "--canopy-audio-budget-diagnostic",
         ]);
 
-        assert!(options.canopy_audio_diagnostic);
-        assert!(options.canopy_audio_budget_diagnostic);
+        assert_eq!(options.scenario.canopy_audio_diagnostic(), Some(true));
     }
 
     #[test]
     fn fixed_canopy_audio_diagnostic_rejects_competing_scene() {
-        let error = ParsedRunOptions::try_from_arg_strings(
+        let error = try_parse_owned(
             ["re-flora", "--canopy-audio-diagnostic", "--house-scene"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -1783,7 +1546,7 @@ mod tests {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
         assert_eq!(
-            options.environment_lighting_test_scene,
+            options.scenario.environment_lighting(),
             Some(EnvironmentLightingTestCase::Sealed)
         );
     }
@@ -1840,13 +1603,13 @@ mod tests {
             ),
         ] {
             let options = parse(&["re-flora", "--environment-lighting-test-scene", name]);
-            assert_eq!(options.environment_lighting_test_scene, Some(expected));
+            assert_eq!(options.scenario.environment_lighting(), Some(expected));
         }
     }
 
     #[test]
     fn rejects_unknown_environment_lighting_test_scene() {
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             ["re-flora", "--environment-lighting-test-scene", "dynamic"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -1867,13 +1630,10 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.environment_irradiance_capture_path.as_deref(),
+            options.lighting.irradiance_capture_path.as_deref(),
             Some("target/sealed.rfirr")
         );
-        assert_eq!(
-            options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Epoch(0)
-        );
+        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(0));
     }
 
     #[test]
@@ -1886,18 +1646,15 @@ mod tests {
             "e4",
         ]);
 
-        assert_eq!(
-            options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Epoch(4)
-        );
+        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(4));
     }
 
     #[test]
     fn parses_ddgi_batch_order() {
         let options = parse(&["re-flora", "--ddgi-batch-order", "reverse"]);
-        assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Reverse);
+        assert_eq!(options.lighting.batch_order, DdgiBatchOrder::Reverse);
 
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             ["re-flora", "--ddgi-batch-order", "inside-out"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -1910,7 +1667,7 @@ mod tests {
 
     #[test]
     fn rejects_capture_target_without_capture_path() {
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             ["re-flora", "--environment-irradiance-capture-target", "e2"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -1925,22 +1682,28 @@ mod tests {
     #[test]
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
-        assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+        assert_eq!(options.lighting.debug_view, DdgiDebugView::ExactVisibility);
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "unoccluded-irradiance"]);
-        assert_eq!(options.ddgi_debug_view, DdgiDebugView::UnoccludedIrradiance);
+        assert_eq!(
+            options.lighting.debug_view,
+            DdgiDebugView::UnoccludedIrradiance
+        );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "equal-weight-irradiance"]);
         assert_eq!(
-            options.ddgi_debug_view,
+            options.lighting.debug_view,
             DdgiDebugView::EqualWeightIrradiance
         );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
-        assert_eq!(options.ddgi_debug_view, DdgiDebugView::RawCageIrradiance);
+        assert_eq!(
+            options.lighting.debug_view,
+            DdgiDebugView::RawCageIrradiance
+        );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "moment-support"]);
-        assert_eq!(options.ddgi_debug_view, DdgiDebugView::MomentSupport);
+        assert_eq!(options.lighting.debug_view, DdgiDebugView::MomentSupport);
 
         for (value, expected) in [
             (
@@ -1980,7 +1743,7 @@ mod tests {
             } else {
                 parse(&["re-flora", "--ddgi-debug-view", value])
             };
-            assert_eq!(options.ddgi_debug_view, expected);
+            assert_eq!(options.lighting.debug_view, expected);
         }
     }
 
@@ -1995,7 +1758,7 @@ mod tests {
             ("surface-fixed", DdgiTerrainHardOrigin::SurfaceFixedWorld),
         ] {
             let options = parse(&["re-flora", "--ddgi-terrain-hard-origin", value]);
-            assert_eq!(options.ddgi_terrain_hard_origin, expected);
+            assert_eq!(options.lighting.terrain_hard_origin, expected);
         }
     }
 
@@ -2003,7 +1766,7 @@ mod tests {
     fn defaults_ddgi_terrain_hard_origin_to_surface_fixed() {
         let options = parse(&["re-flora"]);
         assert_eq!(
-            options.ddgi_terrain_hard_origin,
+            options.lighting.terrain_hard_origin,
             DdgiTerrainHardOrigin::SurfaceFixedWorld
         );
         assert_eq!(DdgiTerrainHardOrigin::default().label(), "surface-fixed");
@@ -2011,7 +1774,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_ddgi_terrain_hard_origin() {
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             ["re-flora", "--ddgi-terrain-hard-origin", "first-empty"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -2027,15 +1790,15 @@ mod tests {
     fn parses_hybrid_transparency_test_scene() {
         let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
 
-        assert!(options.hybrid_transparency_test_scene);
+        assert_eq!(options.scenario, Scenario::HybridTransparency);
     }
 
     #[test]
     fn parses_house_scene_and_rejects_snapshot_input() {
         let options = parse(&["re-flora", "--house-scene"]);
-        assert!(options.house_scene);
+        assert_eq!(options.scenario, Scenario::House);
 
-        let incompatible = ParsedRunOptions::try_from_arg_strings(
+        let incompatible = try_parse_owned(
             [
                 "re-flora",
                 "--terrain-load",
@@ -2061,18 +1824,18 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.terrain_load_path.as_deref(),
+            options.terrain.load_path.as_deref(),
             Some("target/input.rflterrain")
         );
         assert_eq!(
-            options.terrain_save_path.as_deref(),
+            options.terrain.save_path.as_deref(),
             Some("target/output.rflterrain")
         );
     }
 
     #[test]
     fn terrain_load_requires_a_path_and_rejects_stamping_scenes() {
-        let missing = ParsedRunOptions::try_from_arg_strings(
+        let missing = try_parse_owned(
             ["re-flora", "--terrain-load"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -2081,7 +1844,7 @@ mod tests {
         .unwrap_err();
         assert!(missing.contains("Missing value for --terrain-load"));
 
-        let incompatible = ParsedRunOptions::try_from_arg_strings(
+        let incompatible = try_parse_owned(
             [
                 "re-flora",
                 "--terrain-load",
@@ -2107,14 +1870,14 @@ mod tests {
             "--environment-probe-visualization",
         ]);
 
-        assert_eq!(options.environment_probe_spacing_voxels, 16);
-        assert_eq!(options.environment_probe_rebuild_spacing_voxels, Some(32));
-        assert!(options.environment_probe_visualization);
+        assert_eq!(options.lighting.probe_spacing_voxels, 16);
+        assert_eq!(options.lighting.rebuild_probe_spacing_voxels, Some(32));
+        assert!(options.lighting.visualize_probes);
     }
 
     #[test]
     fn rejects_unsupported_environment_probe_spacing() {
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             ["re-flora", "--environment-probe-spacing-voxels", "24"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -2128,7 +1891,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_environment_probe_rebuild_spacing() {
-        let result = ParsedRunOptions::try_from_arg_strings(
+        let result = try_parse_owned(
             [
                 "re-flora",
                 "--environment-probe-rebuild-spacing-voxels",
@@ -2181,27 +1944,27 @@ mod tests {
             "--water-edit-soak",
         ]);
 
-        assert!(options.hidden);
-        assert!(options.mute);
-        assert!(options.canopy_audio_telemetry);
-        assert_eq!(options.audio_output_device.as_deref(), Some("KA3"));
-        assert!(options.perf);
-        assert_eq!(options.auto_exit_delay, Some(4.0));
+        assert!(options.display.hidden);
+        assert!(options.audio.muted);
+        assert!(options.audio.canopy_telemetry);
+        assert_eq!(options.audio.output_device.as_deref(), Some("KA3"));
+        assert!(options.render.perf_logging);
+        assert_eq!(options.lifecycle.auto_exit_delay, Some(4.0));
         assert!(matches!(
-            options.water_profile,
+            options.water.profile,
             Some(WaterProfilePreference::Performance)
         ));
-        assert_eq!(options.water_particles, Some(35000));
-        assert_eq!(options.water_particle_edge_len, Some(0.05));
-        assert_eq!(options.water_grid, Some(128));
-        assert_eq!(options.water_substep_hz, Some(60.0));
-        assert_eq!(options.water_terrain_margin_cells, Some(0.0));
-        assert_eq!(options.water_damping, Some(1.5));
-        assert_eq!(options.water_terrain_tangent_damping, Some(2.0));
-        assert_eq!(options.water_stiffness, Some(12.0));
-        assert_eq!(options.water_gamma, Some(4.0));
-        assert_eq!(options.water_j_min, Some(0.25));
-        assert!(options.water_edit_soak);
+        assert_eq!(options.water.particles, Some(35000));
+        assert_eq!(options.water.particle_edge_len, Some(0.05));
+        assert_eq!(options.water.grid, Some(128));
+        assert_eq!(options.water.substep_hz, Some(60.0));
+        assert_eq!(options.water.terrain_margin_cells, Some(0.0));
+        assert_eq!(options.water.damping, Some(1.5));
+        assert_eq!(options.water.terrain_tangent_damping, Some(2.0));
+        assert_eq!(options.water.stiffness, Some(12.0));
+        assert_eq!(options.water.gamma, Some(4.0));
+        assert_eq!(options.water.j_min, Some(0.25));
+        assert_eq!(options.scenario, Scenario::WaterEditSoak);
     }
 
     #[test]
@@ -2215,15 +1978,15 @@ mod tests {
             "8",
         ]);
 
-        assert!(options.water_experience);
-        assert!(options.hidden);
-        assert!(options.mute);
-        assert_eq!(options.auto_exit_delay, Some(8.0));
+        assert_eq!(options.scenario, Scenario::WaterExperience);
+        assert!(options.display.hidden);
+        assert!(options.audio.muted);
+        assert_eq!(options.lifecycle.auto_exit_delay, Some(8.0));
     }
 
     #[test]
     fn water_experience_rejects_competing_terrain_scenes() {
-        let error = ParsedRunOptions::try_from_arg_strings(
+        let error = try_parse_owned(
             [
                 "re-flora",
                 "--water-experience",
@@ -2240,7 +2003,7 @@ mod tests {
 
     #[test]
     fn water_experience_rejects_loaded_terrain() {
-        let error = ParsedRunOptions::try_from_arg_strings(
+        let error = try_parse_owned(
             [
                 "re-flora",
                 "--water-experience",
@@ -2278,14 +2041,14 @@ mod tests {
             "5",
         ]);
 
-        assert_eq!(options.water_particle_edge_len, Some(1.0e-6));
-        assert_eq!(options.water_grid, Some(4));
-        assert_eq!(options.water_substep_hz, Some(1.0));
-        assert_eq!(options.water_terrain_margin_cells, Some(0.0));
-        assert_eq!(options.water_damping, Some(0.0));
-        assert_eq!(options.water_terrain_tangent_damping, Some(0.0));
-        assert_eq!(options.water_gamma, Some(1.0e-4));
-        assert_eq!(options.water_j_min, Some(1.0));
+        assert_eq!(options.water.particle_edge_len, Some(1.0e-6));
+        assert_eq!(options.water.grid, Some(4));
+        assert_eq!(options.water.substep_hz, Some(1.0));
+        assert_eq!(options.water.terrain_margin_cells, Some(0.0));
+        assert_eq!(options.water.damping, Some(0.0));
+        assert_eq!(options.water.terrain_tangent_damping, Some(0.0));
+        assert_eq!(options.water.gamma, Some(1.0e-4));
+        assert_eq!(options.water.j_min, Some(1.0));
     }
 
     #[test]
@@ -2310,8 +2073,8 @@ mod tests {
     fn parses_camera_snapshot_options() {
         let options = parse(&["re-flora", "--camera-snapshot", "tree-closeup"]);
 
-        assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
-        assert!(options.screenshot.is_none());
+        assert_eq!(options.camera.snapshot_name(), Some("tree-closeup"));
+        assert!(options.camera.screenshot().is_none());
     }
 
     #[test]
@@ -2326,11 +2089,11 @@ mod tests {
             "2.5",
         ]);
 
-        assert!(options.hidden);
-        assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
+        assert!(options.display.hidden);
+        assert_eq!(options.camera.snapshot_name(), Some("tree-closeup"));
         assert_eq!(
-            options.screenshot,
-            Some(ScreenshotOptions {
+            options.camera.screenshot(),
+            Some(&ScreenshotOptions {
                 path: "out.png".to_owned(),
                 delay: 2.5,
             })
@@ -2352,8 +2115,8 @@ mod tests {
             "--denoiser-bench-camera-motion",
         ]);
 
-        assert_eq!(options.camera_snapshot.as_deref(), Some("player-default"));
-        let benchmark = options.denoiser_bench.unwrap();
+        assert_eq!(options.camera.snapshot_name(), Some("player-default"));
+        let benchmark = options.camera.denoiser_benchmark().unwrap();
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
@@ -2374,8 +2137,8 @@ mod tests {
             "8",
         ]);
 
-        assert!(options.camera_snapshot.is_none());
-        let benchmark = options.denoiser_bench.unwrap();
+        assert!(options.camera.snapshot_name().is_none());
+        let benchmark = options.camera.denoiser_benchmark().unwrap();
         assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
@@ -2386,7 +2149,7 @@ mod tests {
     #[test]
     fn leaf_shadow_control_preserves_other_shadow_passes() {
         let options = parse(&["re-flora", "--no-leaf-shadows"]);
-        let flags = RenderFlags::from(&options);
+        let flags = &options.render.flags;
         assert!(flags.enable_shadows);
         assert!(!flags.enable_leaf_shadows);
         assert!(flags.enable_leaves);
@@ -2645,6 +2408,17 @@ mod tests {
         for arguments in cases {
             let error = try_launch(arguments).unwrap_err();
             assert!(error.contains("Invalid"), "{arguments:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn benchmark_sample_counts_require_their_benchmark() {
+        for arguments in [
+            ["re-flora", "--tree-bench-samples", "10"],
+            ["re-flora", "--authored-flora-bench-samples", "25"],
+        ] {
+            let error = try_launch(&arguments).unwrap_err();
+            assert!(error.contains("requires"), "{arguments:?}: {error}");
         }
     }
 
