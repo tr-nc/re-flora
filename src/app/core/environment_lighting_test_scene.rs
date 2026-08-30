@@ -6289,10 +6289,8 @@ mod tests {
             let busy = owners.begin_environment_phase().unwrap_err();
             assert_eq!(busy.family(), expected_family);
 
-            let result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> =
-                Err(failure);
             let error = owners
-                .apply_environment_phase_result(result)
+                .complete_environment_phase_execution(Err(failure))
                 .expect_err("typed family failure must restore before returning its error");
             assert!(error.to_string().contains("leaf failure"));
 
