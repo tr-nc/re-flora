@@ -947,6 +947,25 @@ mod tests {
     }
 
     #[test]
+    fn terrain_detachment_commit_requires_a_prepared_single_use_capability() {
+        let _: fn(PreparedTerrainDetachment, &mut App) -> CommittedTerrainDetachment =
+            PreparedTerrainDetachment::commit;
+        static_assertions::assert_not_impl_any!(PreparedTerrainDetachment: Clone, Copy);
+
+        assert!(PreparedAtlasWrite::new(
+            UVec3::splat(8),
+            UVec3::new(7, 7, 7),
+            UVec3::splat(2),
+            vec![0; 8],
+        )
+        .is_err());
+        assert!(
+            PreparedAtlasWrite::new(UVec3::splat(8), UVec3::ZERO, UVec3::splat(2), vec![0; 7],)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn inactive_player_hold_does_not_schedule_reconciliation() {
         let mut runtime = TerrainConnectivityRuntime::default();
         runtime.observe_player_publication(UAabb3::new(UVec3::splat(4), UVec3::splat(8)), false);
