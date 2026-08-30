@@ -481,8 +481,6 @@ pub struct App {
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     auto_exit_delay: Option<f32>,
-    canopy_audio_diagnostic_active: bool,
-    canopy_audio_budget_stress_tree_pending: Option<bool>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
     visible_terrain_revision: u32,
     shutdown_started: bool,
@@ -997,15 +995,18 @@ impl App {
             TestSceneKind::Environment(case) => Some(case),
             TestSceneKind::None | TestSceneKind::Hybrid => None,
         };
-        let canopy_audio_diagnostic = match launch_owners
-            .take_canopy_audio_startup_policy()
-            .context("take canopy audio startup policy")?
-        {
-            launch_owners::CanopyAudioStartupPolicy::Standard => None,
-            launch_owners::CanopyAudioStartupPolicy::Diagnostic { budget_stress } => {
-                Some(budget_stress)
-            }
-        };
+        let canopy_audio_startup = launch_owners
+            .take_canopy_audio_startup_plan()
+            .context("take canopy audio startup plan")?;
+        let canopy_audio_diagnostic = canopy_audio_startup.is_some();
+        let (canopy_audio_budget, canopy_audio_vegetation_startup) =
+            canopy_audio_startup.map_or(
+                (launch_owners::CanopyAudioAcousticBudget::Default, None),
+                |startup| {
+                    let (budget, vegetation) = startup.into_effects();
+                    (budget, Some(vegetation))
+                },
+            );
         let water_experience =
             launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
         let hybrid_transparency =
@@ -1121,7 +1122,7 @@ impl App {
             1024,
             contree_builder.acoustic_scene_snapshot(),
             audio.output_device.clone(),
-            if canopy_audio_diagnostic == Some(true) {
+            if canopy_audio_budget == launch_owners::CanopyAudioAcousticBudget::Constrained {
                 EnvironmentalAcousticsBudget {
                     max_processed_extents: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
                     max_direct_rays: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
@@ -1215,7 +1216,7 @@ impl App {
         if foliage_shadow_bench {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
-        if canopy_audio_diagnostic.is_some() {
+        if canopy_audio_diagnostic {
             let mut fixed_tree_desc = TreeDesc::default();
             fixed_tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED;
             debug_settings.tree.desc = fixed_tree_desc;
@@ -1272,7 +1273,7 @@ impl App {
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
         tree_audio_manager.set_canopy_telemetry_enabled(
-            audio.canopy_telemetry || canopy_audio_diagnostic.is_some(),
+            audio.canopy_telemetry || canopy_audio_diagnostic,
         );
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
@@ -1386,6 +1387,7 @@ impl App {
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,
                 collider_total: 0,
+                canopy_audio_vegetation_startup,
             }),
 
             cursor_position_physical: None,
@@ -1482,10 +1484,8 @@ impl App {
                 lighting.spatial_weight_readback_path.clone(),
             ),
             auto_exit_delay: lifecycle.auto_exit_delay,
-            canopy_audio_diagnostic_active: canopy_audio_diagnostic.is_some(),
-            canopy_audio_budget_stress_tree_pending: canopy_audio_diagnostic,
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
-                || canopy_audio_diagnostic.is_some())
+                || canopy_audio_diagnostic)
             .then_some(0.0),
             visible_terrain_revision: 0,
             shutdown_started: false,
@@ -2320,10 +2320,11 @@ impl App {
                 }
                 let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources = if self.canopy_audio_diagnostic_active {
-                    &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
-                } else {
-                    &configured_wind_sources
+                let active_wind_sources = match canopy_audio_frame.wind_policy() {
+                    launch_owners::CanopyAudioWindPolicy::Configured => &configured_wind_sources,
+                    launch_owners::CanopyAudioWindPolicy::Diagnostic => {
+                        &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
+                    }
                 };
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,

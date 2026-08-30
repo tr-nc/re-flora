@@ -8,9 +8,54 @@ use glam::Vec3;
 const ACOUSTIC_SETTLE_SECONDS: f32 = 0.1;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum CanopyAudioStartupPolicy {
-    Standard,
-    Diagnostic { budget_stress: bool },
+pub(super) enum CanopyAudioAcousticBudget {
+    Default,
+    Constrained,
+}
+
+#[derive(Debug)]
+pub(super) enum CanopyAudioVegetationStartup {
+    DiagnosticLayout,
+    BudgetStressLayout,
+}
+
+impl CanopyAudioVegetationStartup {
+    pub(super) fn plants_budget_stress_trees(&self) -> bool {
+        matches!(self, Self::BudgetStressLayout)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct CanopyAudioStartupPlan {
+    acoustic_budget: CanopyAudioAcousticBudget,
+    vegetation: CanopyAudioVegetationStartup,
+}
+
+impl CanopyAudioStartupPlan {
+    pub(super) fn diagnostic(budget_stress: bool) -> Self {
+        Self {
+            acoustic_budget: if budget_stress {
+                CanopyAudioAcousticBudget::Constrained
+            } else {
+                CanopyAudioAcousticBudget::Default
+            },
+            vegetation: if budget_stress {
+                CanopyAudioVegetationStartup::BudgetStressLayout
+            } else {
+                CanopyAudioVegetationStartup::DiagnosticLayout
+            },
+        }
+    }
+
+    pub(super) fn into_effects(self) -> (CanopyAudioAcousticBudget, CanopyAudioVegetationStartup) {
+        (self.acoustic_budget, self.vegetation)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CanopyAudioWindPolicy {
+    Configured,
+    Diagnostic,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +79,13 @@ pub(super) enum CanopyAudioFrameCommand {
 }
 
 impl CanopyAudioFrameCommand {
+    pub(super) fn wind_policy(&self) -> CanopyAudioWindPolicy {
+        match self {
+            Self::Standard => CanopyAudioWindPolicy::Configured,
+            Self::Diagnostic { .. } => CanopyAudioWindPolicy::Diagnostic,
+        }
+    }
+
     pub(super) fn pose(&self) -> Option<CanopyAudioDiagnosticPose> {
         match self {
             Self::Standard => None,
