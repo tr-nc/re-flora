@@ -367,6 +367,51 @@ struct VisualSpawnResult {
     particle_spawn_us: f64,
 }
 
+impl ScenarioOwner {
+    fn plan_connectivity_action(
+        &mut self,
+        facts: ConnectivityFacts,
+    ) -> anyhow::Result<ConnectivityAction> {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                bench.next_action(facts)
+            }
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => Ok(ConnectivityAction::None),
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            ) => Ok(ConnectivityAction::None),
+        }
+    }
+
+    fn apply_connectivity_result(&mut self, result: ConnectivityResult) -> anyhow::Result<()> {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                bench.apply_result(result)
+            }
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
+                ensure_inactive_connectivity_result(result)
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            ) => ensure_inactive_connectivity_result(result),
+        }
+    }
+}
+
+fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
+    match result {
+        ConnectivityResult::None => Ok(()),
+        ConnectivityResult::FixtureInstalled(_)
+        | ConnectivityResult::SnapshotRead(_)
+        | ConnectivityResult::ReleaseEventRun(_)
+        | ConnectivityResult::AtomicityValidated(_)
+        | ConnectivityResult::BoundedCommitted(_)
+        | ConnectivityResult::VisualVoxelsSpawned(_) => {
+            anyhow::bail!("inactive scenario received a connectivity result")
+        }
+    }
+}
+
 impl TerrainConnectivityBench {
     pub(in crate::app::core) fn new(options: TerrainConnectivityBenchOptions) -> Self {
         Self {
@@ -1686,7 +1731,7 @@ mod tests {
     }
 
     #[test]
-    fn planning_an_action_keeps_the_scenario_identity_and_records_the_awaited_result() {
+    fn scenario_owner_plans_and_applies_the_exact_connectivity_action() {
         let options = TerrainConnectivityBenchOptions {
             mode: TerrainConnectivityBenchMode::Bounded,
             available_particles: 8,
@@ -1697,27 +1742,17 @@ mod tests {
         let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
             TerrainConnectivityBench::new(options),
         ));
-        let action = match &mut owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => bench
-                .next_action(ConnectivityFacts {
-                    frame: 17,
-                    visible_revision: 4,
-                    contree_idle: true,
-                    terrain_collider_pending: 0,
-                    water_ready: true,
-                    ddgi_ready: true,
-                    available_particles: 8,
-                })
-                .unwrap(),
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                panic!("test constructed the wrong scenario")
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => {
-                panic!("test constructed the wrong scenario")
-            }
-        };
+        let action = owner
+            .plan_connectivity_action(ConnectivityFacts {
+                frame: 17,
+                visible_revision: 4,
+                contree_idle: true,
+                terrain_collider_pending: 0,
+                water_ready: true,
+                ddgi_ready: true,
+                available_particles: 8,
+            })
+            .unwrap();
 
         assert!(matches!(
             action,
@@ -1735,6 +1770,77 @@ mod tests {
                 }
             ))
         ));
+
+        owner
+            .apply_connectivity_result(ConnectivityResult::FixtureInstalled(Ok(
+                FixtureInstallResult {
+                    setup_us: 10.0,
+                    reserve_us: 5.0,
+                    available_particles: 8,
+                    visible_revision: 5,
+                },
+            )))
+            .unwrap();
+        assert!(matches!(
+            owner,
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench {
+                    state: BenchState::Warmup {
+                        ready_after_frame: 18
+                    },
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn failed_physical_result_does_not_commit_connectivity_owner_state() {
+        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            }),
+        ));
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        assert!(matches!(
+            owner.plan_connectivity_action(facts).unwrap(),
+            ConnectivityAction::InstallFixture { .. }
+        ));
+
+        let error = owner
+            .apply_connectivity_result(ConnectivityResult::FixtureInstalled(Err(anyhow::anyhow!(
+                "injected fixture failure"
+            ))))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("injected fixture failure"));
+        assert!(matches!(
+            owner,
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench {
+                    state: BenchState::AwaitingInstallResult { frame: 23 },
+                    ..
+                }
+            ))
+        ));
+        assert!(owner
+            .plan_connectivity_action(facts)
+            .err()
+            .expect("failed execution must leave the owner awaiting its exact result")
+            .to_string()
+            .contains("awaiting an action result"));
     }
 
     #[test]
