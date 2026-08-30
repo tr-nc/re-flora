@@ -6220,6 +6220,8 @@ mod tests {
             let failure = attempt.fail(anyhow::anyhow!(
                 "injected {expected_family:?} production apply failure"
             ));
+            assert_eq!(failure.attempt.request().family(), expected_family);
+            assert!(failure.error.to_string().contains("production apply failure"));
             assert_eq!(failure.family(), expected_family);
             let result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> =
                 Err(failure);
