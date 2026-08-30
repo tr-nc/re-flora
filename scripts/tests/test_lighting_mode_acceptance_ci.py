@@ -22,6 +22,8 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
             "src/cli.rs",
             "src/environment_lighting.rs",
             "src/main.rs",
+            "src/run_log.rs",
+            "src/tracer/buffer_updater.rs",
             "src/tracer/extent_dependent_resources.rs",
             "src/tracer/mod.rs",
         ):
