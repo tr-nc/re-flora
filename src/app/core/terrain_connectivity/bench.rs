@@ -1781,7 +1781,15 @@ mod tests {
     }
 
     #[test]
-    fn scenario_owner_plans_and_applies_the_exact_connectivity_action() {
+    fn production_connectivity_transaction_is_owned_by_the_app_executor() {
+        let _: fn(&mut App, ConnectivityAction) -> ConnectivityExecution =
+            App::execute_connectivity_action;
+        let _: fn(
+            &mut ScenarioOwner,
+            ConnectivityExecution,
+        ) -> anyhow::Result<ConnectivityEffect> = ScenarioOwner::apply_connectivity_execution;
+        static_assertions::assert_not_impl_any!(ConnectivityExecution: Clone, Copy);
+
         let options = TerrainConnectivityBenchOptions {
             mode: TerrainConnectivityBenchMode::Bounded,
             available_particles: 8,
@@ -1815,29 +1823,7 @@ mod tests {
             owner,
             ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
                 TerrainConnectivityBench {
-                    state: BenchState::AwaitingInstallResult { frame: 17 },
-                    ..
-                }
-            ))
-        ));
-
-        owner
-            .apply_connectivity_result(ConnectivityResult::FixtureInstalled(Ok(
-                FixtureInstallResult {
-                    setup_us: 10.0,
-                    reserve_us: 5.0,
-                    available_particles: 8,
-                    visible_revision: 5,
-                },
-            )))
-            .unwrap();
-        assert!(matches!(
-            owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench {
-                    state: BenchState::Warmup {
-                        ready_after_frame: 18
-                    },
+                    state: BenchState::InstallFixture,
                     ..
                 }
             ))
@@ -1870,9 +1856,9 @@ mod tests {
         ));
 
         let error = owner
-            .apply_connectivity_result(ConnectivityResult::FixtureInstalled(Err(anyhow::anyhow!(
-                "injected fixture failure"
-            ))))
+            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(
+                anyhow::anyhow!("injected fixture failure"),
+            ))
             .unwrap_err();
 
         assert!(error.to_string().contains("injected fixture failure"));
@@ -1880,17 +1866,15 @@ mod tests {
             owner,
             ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
                 TerrainConnectivityBench {
-                    state: BenchState::AwaitingInstallResult { frame: 23 },
+                    state: BenchState::InstallFixture,
                     ..
                 }
             ))
         ));
-        assert!(owner
-            .plan_connectivity_action(facts)
-            .err()
-            .expect("failed execution must leave the owner awaiting its exact result")
-            .to_string()
-            .contains("awaiting an action result"));
+        assert!(matches!(
+            owner.plan_connectivity_action(facts).unwrap(),
+            ConnectivityAction::InstallFixture { .. }
+        ));
     }
 
     #[test]
