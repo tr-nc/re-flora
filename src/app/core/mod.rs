@@ -1212,7 +1212,6 @@ impl App {
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
-                ddgi_debug_view: options.ddgi_debug_view,
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
                     options.environment_lighting_test_scene,
@@ -1548,6 +1547,7 @@ impl App {
             screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 options.environment_irradiance_capture_path.clone(),
+                options.ddgi_debug_view,
             ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
@@ -3521,10 +3521,14 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
+                let environment_irradiance_capture_frame = self
+                    .environment_irradiance_capture
+                    .begin_frame(&self.tracer, self.environment_lighting_test_scene.as_ref());
                 self.tracer
                     .update_buffers(
                         &self.time_info,
                         &self.local_lights.snapshot(),
+                        environment_irradiance_capture_frame.effective_view(),
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -4223,6 +4227,7 @@ impl App {
 
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
+                        environment_irradiance_capture_frame,
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,

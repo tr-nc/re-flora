@@ -810,7 +810,6 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
-    pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
 }
@@ -1515,10 +1514,6 @@ impl Tracer {
         }
     }
 
-    pub fn ddgi_debug_view(&self) -> DdgiDebugView {
-        self.desc.ddgi_debug_view
-    }
-
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
         self.ddgi_runtime
             .latest_transport_lighting()
@@ -1959,6 +1954,7 @@ impl Tracer {
         &mut self,
         time_info: &TimeInfo,
         local_lights: &LocalLightSnapshot,
+        ddgi_debug_view: DdgiDebugView,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         dither_strength_lsb: f32,
@@ -2379,7 +2375,7 @@ impl Tracer {
             self.desc.environment_irradiance_capture_enabled,
             ddgi_physical_status.irradiance_layout.tile_grid().x,
             ddgi_physical_status.visibility_layout.tile_grid().x,
-            self.desc.ddgi_debug_view.as_u32(),
+            ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             ddgi_receiver_visibility_bias_world,
             ddgi_consumer_invalidation_voxel_bound,
