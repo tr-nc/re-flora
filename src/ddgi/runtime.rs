@@ -1606,7 +1606,7 @@ pub struct DdgiRuntimeVolumeStatus {
     pub stage: DdgiVolumeStage,
     pub target_work: Option<DdgiRuntimeTargetWork>,
     pub complete_field: Option<DdgiFieldIdentity>,
-    pub published_field: Option<DdgiFieldIdentity>,
+    pub publication: Option<super::DdgiFieldPublication>,
     pub building_field: Option<DdgiFieldIdentity>,
     pub last_atlas_validation: Option<DdgiAtlasValidationStats>,
     pub global_sky_revision: u32,
@@ -1618,12 +1618,29 @@ pub struct DdgiRuntimeVolumeStatus {
 
 impl DdgiRuntimeVolumeStatus {
     pub fn is_ready(self) -> bool {
-        self.published_field.is_some()
+        self.publication.is_some()
+    }
+
+    pub fn published_field(self) -> Option<DdgiFieldIdentity> {
+        self.publication.map(super::DdgiFieldPublication::field)
     }
 }
 
 impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
     fn from(status: DdgiVolumeStatus) -> Self {
+        if let Some(publication) = status.publication {
+            let generation = publication.generation();
+            assert_eq!(
+                status.build_token,
+                Some(generation.build_token()),
+                "DDGI runtime publication escaped its physical Volume build"
+            );
+            assert_eq!(
+                generation.epoch_zero_field().field().update_epoch(),
+                0,
+                "DDGI runtime publication lost its epoch-zero generation root"
+            );
+        }
         Self {
             build_token: status.build_token,
             grid: status.grid,
@@ -1631,7 +1648,7 @@ impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
             stage: status.stage,
             target_work: status.scheduled_work.map(Into::into),
             complete_field: status.complete_field,
-            published_field: status.published_field,
+            publication: status.publication,
             building_field: status.building_field,
             last_atlas_validation: status.last_atlas_validation,
             global_sky_revision: status.global_sky_revision,
@@ -1789,7 +1806,7 @@ impl DdgiRuntimeStatus {
             format_optional(active.radiance_revision),
             active.grid.spacing_voxels(),
             active.stage,
-            format_ddgi_field(active.published_field),
+            format_ddgi_field(active.published_field()),
         )
     }
 
@@ -1812,7 +1829,7 @@ impl DdgiRuntimeStatus {
             staging.stage,
             format_ddgi_field(staging.complete_field),
             format_ddgi_field(staging.building_field),
-            format_ddgi_field(staging.published_field),
+            format_ddgi_field(staging.published_field()),
         )
     }
 
@@ -2093,6 +2110,8 @@ mod tests {
             scheduled_work: None,
             complete_field: Some(identity),
             published_field: Some(identity),
+            publication: token
+                .map(|token| crate::ddgi::DdgiFieldPublication::for_test(token, identity)),
             building_field: Some(identity),
             consecutive_below_threshold: 0,
             last_atlas_validation: None,

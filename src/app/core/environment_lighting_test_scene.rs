@@ -1532,7 +1532,7 @@ impl App {
                 let r4_revision =
                     next_nonzero_revision(next_nonzero_revision(r2.field().radiance_revision()));
                 let active = self.tracer.ddgi_runtime_status().active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 assert_eq!(active.building_field, Some(r2));
                 assert_eq!(
                     active.radiance_revision,
@@ -1583,7 +1583,7 @@ impl App {
             MultiSourceTestStage::AwaitBaseline => {
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let baseline = active.published_field?;
+                let baseline = active.published_field()?;
                 if !is_converged_field(baseline)
                     || active.stage != DdgiVolumeStage::Ready
                     || active.building_field.is_some()
@@ -1809,7 +1809,7 @@ impl App {
                 }
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let field = active.published_field?;
+                let field = active.published_field()?;
                 if field.field().radiance_revision()
                     != transport.local_lights.info.transport_revision
                     || field.field().geometry_revision() != state.terrain_revision
@@ -2322,7 +2322,7 @@ impl App {
                 }
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let field = active.published_field?;
+                let field = active.published_field()?;
                 if field.field().radiance_revision()
                     != transport.local_lights.info.transport_revision
                     || field.field().geometry_revision() != state.terrain_revision
@@ -2487,7 +2487,7 @@ impl App {
                     let runtime = self.tracer.ddgi_runtime_status();
                     let baseline = runtime
                         .active()
-                        .published_field
+                        .published_field()
                         .expect("density lifecycle requires an initial published field");
                     assert_eq!(baseline.field().geometry_revision(), terrain_revision);
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
@@ -2540,7 +2540,7 @@ impl App {
             TestScenePhase::WaitingForRadianceBaseline { terrain_revision } => {
                 let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
-                let Some(r1) = active.published_field else {
+                let Some(r1) = active.published_field() else {
                     return;
                 };
                 if !is_converged_field(r1)
@@ -2599,7 +2599,7 @@ impl App {
                 PointLightTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -3119,7 +3119,7 @@ impl App {
                         return;
                     }
                     let active = status.active();
-                    let Some(point_on_field) = active.published_field else {
+                    let Some(point_on_field) = active.published_field() else {
                         return;
                     };
                     if point_on_field.field().radiance_revision()
@@ -3408,7 +3408,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(final_field) = active.published_field else {
+                    let Some(final_field) = active.published_field() else {
                         return;
                     };
                     if final_field.field().radiance_revision()
@@ -3495,7 +3495,7 @@ impl App {
                 VoxelEmissiveTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -3949,7 +3949,7 @@ impl App {
                         return;
                     }
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4099,7 +4099,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4168,7 +4168,7 @@ impl App {
                 RasterEmitterTestStage::AwaitBaseline => {
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(baseline) = active.published_field else {
+                    let Some(baseline) = active.published_field() else {
                         return;
                     };
                     if !is_converged_field(baseline)
@@ -4315,7 +4315,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4658,7 +4658,7 @@ impl App {
                     }
                     let status = self.tracer.ddgi_runtime_status();
                     let active = status.active();
-                    let Some(field) = active.published_field else {
+                    let Some(field) = active.published_field() else {
                         return;
                     };
                     if field.field().radiance_revision()
@@ -4727,7 +4727,7 @@ impl App {
                 let status = self.tracer.ddgi_runtime_status();
                 assert!(status.staging().is_none());
                 let active = status.active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 let Some(r2) = active.building_field else {
                     return;
                 };
@@ -4784,7 +4784,7 @@ impl App {
             }
             TestScenePhase::WaitingForRadianceR3Observed { r1, r2 } => {
                 let active = self.tracer.ddgi_runtime_status().active();
-                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.published_field(), Some(r1));
                 assert_eq!(active.building_field, Some(r2));
                 let r3_revision = next_nonzero_revision(r2.field().radiance_revision());
                 if self.tracer.ddgi_latest_radiance_revision() != Some(r3_revision) {
@@ -4807,7 +4807,7 @@ impl App {
                 if self.tracer.ddgi_latest_radiance_revision() != Some(r4_revision) {
                     return;
                 }
-                match active.published_field {
+                match active.published_field() {
                     Some(published) if published == r1 => {
                         assert_eq!(active.building_field, Some(r2));
                         return;
@@ -4847,8 +4847,8 @@ impl App {
             }
             TestScenePhase::WaitingForRadianceR4Published { r1, r2, r4 } => {
                 let active = self.tracer.ddgi_runtime_status().active();
-                if active.published_field != Some(r4) {
-                    assert_eq!(active.published_field, Some(r2));
+                if active.published_field() != Some(r4) {
+                    assert_eq!(active.published_field(), Some(r2));
                     assert_eq!(active.building_field, Some(r4));
                     return;
                 }
@@ -4873,7 +4873,7 @@ impl App {
             TestScenePhase::WaitingForDensityMidflight { baseline } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(baseline));
+                assert_eq!(active.published_field(), Some(baseline));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert!(runtime.active_consumers_are_available());
                 let Some(staging) = runtime.staging() else {
@@ -4959,7 +4959,7 @@ impl App {
             } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(baseline));
+                assert_eq!(active.published_field(), Some(baseline));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert_ne!(
                     runtime.active_token_serial(),
@@ -5025,19 +5025,19 @@ impl App {
                     Some(obsolete_density_token_serial)
                 );
                 assert_ne!(
-                    runtime.active().published_field,
+                    runtime.active().published_field(),
                     Some(obsolete_density_field),
                     "obsolete density field became consumer-visible"
                 );
                 if runtime.active_token_serial() != Some(terrain_token_serial) {
-                    assert_eq!(runtime.active().published_field, Some(baseline));
+                    assert_eq!(runtime.active().published_field(), Some(baseline));
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     assert!(runtime.active_consumers_are_available());
                     return;
                 }
                 let geometry_field = runtime
                     .active()
-                    .published_field
+                    .published_field()
                     .expect("terrain epoch zero must be published before promotion");
                 assert_geometry_epoch_zero(geometry_field, baseline, target_revision);
                 assert!(runtime.active_consumers_are_available());
@@ -5062,7 +5062,7 @@ impl App {
             } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(geometry_field));
+                assert_eq!(active.published_field(), Some(geometry_field));
                 assert_eq!(runtime.active_token_serial(), Some(terrain_token_serial));
                 assert_eq!(active.grid.spacing_voxels(), 32);
                 assert!(runtime.active_consumers_are_available());
@@ -5141,7 +5141,7 @@ impl App {
                 );
                 if runtime.active_token_serial() != Some(density_token_serial) {
                     assert_eq!(runtime.active_token_serial(), Some(terrain_token_serial));
-                    assert_eq!(runtime.active().published_field, Some(geometry_field));
+                    assert_eq!(runtime.active().published_field(), Some(geometry_field));
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     if let Some(staging_token) =
                         runtime.staging().and_then(|staging| staging.build_token)
@@ -5155,7 +5155,7 @@ impl App {
                     return;
                 }
                 let active = runtime.active();
-                assert_eq!(active.published_field, Some(density_field));
+                assert_eq!(active.published_field(), Some(density_field));
                 assert_eq!(active.grid.spacing_voxels(), 16);
                 assert_initial_epoch_zero(
                     density_field,
@@ -5186,7 +5186,7 @@ impl App {
             TestScenePhase::WaitingForPattSeamProbeField { target_revision } => {
                 let runtime = self.tracer.ddgi_runtime_status();
                 let active = runtime.active();
-                let Some(field) = active.published_field else {
+                let Some(field) = active.published_field() else {
                     return;
                 };
                 if field.field().geometry_revision() != target_revision

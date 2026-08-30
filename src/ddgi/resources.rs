@@ -130,6 +130,87 @@ struct DdgiResidentField {
     sky_slot: DdgiSkySlot,
 }
 
+/// Immutable root identity for one transport generation inside one physical DDGI Volume build.
+///
+/// Only the physical Volume owner can create this value. Acceptance callers can therefore retain
+/// it across a private recovery window without reconstructing lineage from field serials.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFieldGeneration {
+    build_token: DdgiBuildToken,
+    epoch_zero_field: DdgiFieldIdentity,
+}
+
+impl DdgiFieldGeneration {
+    pub fn build_token(self) -> DdgiBuildToken {
+        self.build_token
+    }
+
+    pub fn epoch_zero_field(self) -> DdgiFieldIdentity {
+        self.epoch_zero_field
+    }
+}
+
+/// One complete field publication whose full lineage was validated by the physical Volume owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFieldPublication {
+    generation: DdgiFieldGeneration,
+    field: DdgiFieldIdentity,
+}
+
+impl DdgiFieldPublication {
+    fn begin(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Result<Self> {
+        let key = field.field();
+        ensure!(
+            key.update_epoch() == 0 && key.state() == DdgiFieldState::Converging,
+            "DDGI field generation must begin with a complete Converging epoch-zero field"
+        );
+        ensure!(
+            key.geometry_revision() == build_token.terrain_revision()
+                && key.spacing_voxels() == build_token.spacing_voxels(),
+            "DDGI field generation does not match its physical Volume build token"
+        );
+        Ok(Self {
+            generation: DdgiFieldGeneration {
+                build_token,
+                epoch_zero_field: field,
+            },
+            field,
+        })
+    }
+
+    fn advance(self, field: DdgiFieldIdentity) -> Result<Self> {
+        let root = self.generation.epoch_zero_field.field();
+        let next = field.field();
+        ensure!(
+            next.geometry_revision() == root.geometry_revision()
+                && next.radiance_revision() == root.radiance_revision()
+                && next.spacing_voxels() == root.spacing_voxels(),
+            "DDGI field publication crossed its transport generation"
+        );
+        ensure!(
+            field.source() == Some(self.field.field()),
+            "DDGI field publication did not consume the preceding complete field"
+        );
+        Ok(Self {
+            generation: self.generation,
+            field,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Self {
+        Self::begin(build_token, field).expect("test publication must describe a valid generation")
+    }
+
+    pub fn generation(self) -> DdgiFieldGeneration {
+        self.generation
+    }
+
+    pub fn field(self) -> DdgiFieldIdentity {
+        self.field
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum DdgiHistoryMode {
     #[default]
@@ -835,6 +916,7 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) scheduled_work: Option<DdgiScheduledWork>,
     pub(crate) complete_field: Option<DdgiFieldIdentity>,
     pub(crate) published_field: Option<DdgiFieldIdentity>,
+    pub(crate) publication: Option<DdgiFieldPublication>,
     pub(crate) building_field: Option<DdgiFieldIdentity>,
     pub(crate) consecutive_below_threshold: u32,
     pub(crate) last_atlas_validation: Option<DdgiAtlasValidationStats>,
@@ -899,6 +981,7 @@ pub struct DdgiVolume {
     building_iteration: Option<DdgiResidentIteration>,
     complete_field: Option<DdgiResidentField>,
     published_field: Option<DdgiResidentField>,
+    field_publication: Option<DdgiFieldPublication>,
     consecutive_below_threshold: u32,
     last_atlas_validation: Option<DdgiAtlasValidationStats>,
     global_sky_revisions: [u32; 2],
@@ -1332,6 +1415,7 @@ impl DdgiVolume {
             building_iteration: None,
             complete_field: None,
             published_field: None,
+            field_publication: None,
             consecutive_below_threshold: 0,
             last_atlas_validation: None,
             global_sky_revisions: [0; 2],
@@ -1385,6 +1469,17 @@ impl DdgiVolume {
             scheduled_work: self.scheduled_work,
             complete_field: self.complete_field.map(|field| field.logical),
             published_field: self.published_field.map(|field| field.logical),
+            publication: self.published_field.map(|field| {
+                let publication = self
+                    .field_publication
+                    .expect("published DDGI field must retain owner-validated lineage");
+                assert_eq!(
+                    publication.field(),
+                    field.logical,
+                    "DDGI physical publication and logical lineage diverged"
+                );
+                publication
+            }),
             building_field: self.building_iteration.map(|iteration| iteration.logical),
             consecutive_below_threshold: self.consecutive_below_threshold,
             last_atlas_validation: self.last_atlas_validation,
@@ -1632,6 +1727,7 @@ impl DdgiVolume {
         self.building_iteration = None;
         self.complete_field = None;
         self.published_field = None;
+        self.field_publication = None;
         self.consecutive_below_threshold = 0;
         self.last_atlas_validation = None;
         self.local_recovery_stable_epochs = 0;
@@ -1919,6 +2015,7 @@ impl DdgiVolume {
                 iteration.source.is_none() && previous_complete.is_none(),
                 "initial DDGI epoch must not consume a current-revision field"
             );
+            self.field_publication = Some(self.next_field_publication(identity)?);
             self.published_field = Some(iteration.destination);
             self.consecutive_below_threshold = 0;
             self.building_iteration = None;
@@ -1950,6 +2047,7 @@ impl DdgiVolume {
                 consecutive_below_threshold,
             } => {
                 self.consecutive_below_threshold = consecutive_below_threshold;
+                self.field_publication = Some(self.next_field_publication(identity)?);
                 self.published_field = Some(iteration.destination);
                 self.building_iteration = None;
                 self.scheduled_work = None;
@@ -1973,6 +2071,7 @@ impl DdgiVolume {
                     logical: field,
                     ..iteration.destination
                 });
+                self.field_publication = Some(self.next_field_publication(field)?);
                 self.published_field = self.complete_field;
                 self.history_mode = DdgiHistoryMode::Stable;
                 self.building_iteration = None;
@@ -1986,6 +2085,19 @@ impl DdgiVolume {
                     reason,
                 })
             }
+        }
+    }
+
+    fn next_field_publication(&self, field: DdgiFieldIdentity) -> Result<DdgiFieldPublication> {
+        if field.field().update_epoch() == 0 {
+            let build_token = self
+                .build_token
+                .context("DDGI epoch-zero publication has no physical Volume build token")?;
+            DdgiFieldPublication::begin(build_token, field)
+        } else {
+            self.field_publication
+                .context("DDGI temporal publication has no owner-validated epoch-zero root")?
+                .advance(field)
         }
     }
 
@@ -2372,6 +2484,31 @@ mod tests {
     }
 
     #[test]
+    fn volume_publication_binds_private_epoch_zero_to_every_later_field() {
+        let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
+        let epoch_zero = initial_work(11, 3, 32).destination();
+        let first = DdgiFieldPublication::begin(token, epoch_zero).unwrap();
+
+        assert_eq!(first.generation().build_token(), token);
+        assert_eq!(first.generation().epoch_zero_field(), epoch_zero);
+        assert_eq!(first.field(), epoch_zero);
+
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(epoch_zero).unwrap();
+        let epoch_one_work = scheduler.claim_next().unwrap().unwrap();
+        let epoch_one = epoch_one_work.destination();
+        let second = first.advance(epoch_one).unwrap();
+        assert_eq!(second.generation(), first.generation());
+        assert_eq!(second.field(), epoch_one);
+
+        scheduler
+            .complete_in_flight(epoch_one_work, epoch_one)
+            .unwrap();
+        let epoch_two = scheduler.claim_next().unwrap().unwrap().destination();
+        assert!(first.advance(epoch_two).is_err());
+    }
+
+    #[test]
     fn spacing_32_resource_contract_is_full_precision_and_batch_bounded() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let irradiance =
@@ -2479,6 +2616,7 @@ mod tests {
             scheduled_work: None,
             complete_field: None,
             published_field: None,
+            publication: None,
             building_field: None,
             consecutive_below_threshold: 0,
             last_atlas_validation: None,
@@ -2515,6 +2653,7 @@ mod tests {
                 scheduled_work: None,
                 complete_field: published.then(|| field_for(terrain_revision)),
                 published_field: published.then(|| field_for(terrain_revision)),
+                publication: None,
                 building_field: None,
                 consecutive_below_threshold: 0,
                 last_atlas_validation: None,

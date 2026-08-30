@@ -446,7 +446,7 @@ impl EnvironmentIrradianceCaptureRuntime {
                 let status = tracer.ddgi_runtime_status();
                 let active = status.active();
                 let active_field = active
-                    .published_field
+                    .published_field()
                     .context("radiance evidence requires a published active field")?;
                 ensure!(
                     checkpoint.field == active_field,

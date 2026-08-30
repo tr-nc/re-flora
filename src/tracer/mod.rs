@@ -1881,7 +1881,7 @@ impl Tracer {
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         let active = self.ddgi_runtime.status().active();
         let published = active
-            .published_field
+            .published_field()
             .expect("promoted staging volume must have a finite published field");
         let published_key = published.field();
         let published_slot = self
