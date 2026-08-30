@@ -2326,8 +2326,31 @@ mod tests {
         .unwrap();
         let maximum_update_epochs = contract["maximum_update_epochs"].as_integer().unwrap();
         let terminal_update_epoch = contract["terminal_update_epoch"].as_integer().unwrap();
+        let close = |contract_value: f64, runtime_value: f32| {
+            (contract_value - f64::from(runtime_value)).abs() <= 5.0e-8
+        };
 
         assert_eq!(contract["schema_version"].as_integer(), Some(1));
+        assert!(close(
+            contract["absolute_threshold"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.absolute_threshold
+        ));
+        assert!(close(
+            contract["relative_threshold"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.relative_threshold
+        ));
+        assert!(close(
+            contract["relative_floor"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.relative_floor
+        ));
+        assert_eq!(
+            contract["consecutive_epochs"].as_integer(),
+            Some(i64::from(DDGI_CONVERGENCE_POLICY.consecutive_epochs))
+        );
+        assert_eq!(
+            contract["minimum_update_epochs"].as_integer(),
+            Some(i64::from(DDGI_CONVERGENCE_POLICY.minimum_update_epochs))
+        );
         assert_eq!(
             u32::try_from(maximum_update_epochs).unwrap(),
             DDGI_CONVERGENCE_POLICY.maximum_update_epochs

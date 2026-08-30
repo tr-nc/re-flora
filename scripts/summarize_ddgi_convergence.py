@@ -41,6 +41,7 @@ POLICY_PATTERN = re.compile(
     r"initialization requested .*?"
     r"convergence_max_absolute_rgb_delta=(?P<absolute>[0-9.eE+-]+) "
     r"convergence_max_relative_rgb_delta=(?P<relative>[0-9.eE+-]+) "
+    r"convergence_relative_floor=(?P<relative_floor>[0-9.eE+-]+) "
     r"convergence_consecutive_epochs=(?P<consecutive>\d+) "
     r"convergence_minimum_update_epochs=(?P<minimum>\d+) "
     r"convergence_maximum_update_epochs=(?P<maximum>\d+)"
@@ -51,6 +52,7 @@ POLICY_PATTERN = re.compile(
 class Policy:
     absolute_threshold: float
     relative_threshold: float
+    relative_floor: float
     consecutive_epochs: int
     minimum_epoch_count: int
     maximum_update_epoch: int
@@ -60,7 +62,72 @@ def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
 
 
-def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Policy]:
+def load_acceptance_contract(path: Path) -> Policy:
+    contract = tomllib.loads(path.read_text())
+    if contract.get("schema_version") != 1:
+        raise ValueError("unsupported DDGI convergence acceptance contract")
+    float_fields = (
+        "absolute_threshold",
+        "relative_threshold",
+        "relative_floor",
+    )
+    integer_fields = (
+        "consecutive_epochs",
+        "minimum_update_epochs",
+        "maximum_update_epochs",
+        "terminal_update_epoch",
+    )
+    if any(
+        not isinstance(contract.get(field), (int, float))
+        or isinstance(contract.get(field), bool)
+        or not math.isfinite(float(contract[field]))
+        for field in float_fields
+    ) or any(
+        not isinstance(contract.get(field), int)
+        or isinstance(contract.get(field), bool)
+        for field in integer_fields
+    ):
+        raise ValueError("invalid DDGI convergence acceptance policy contract")
+    maximum_update_epochs = int(contract["maximum_update_epochs"])
+    terminal_update_epoch = int(contract["terminal_update_epoch"])
+    if maximum_update_epochs <= 0 or terminal_update_epoch != maximum_update_epochs - 1:
+        raise ValueError("invalid DDGI convergence acceptance epoch contract")
+    return Policy(
+        float(contract["absolute_threshold"]),
+        float(contract["relative_threshold"]),
+        float(contract["relative_floor"]),
+        int(contract["consecutive_epochs"]),
+        int(contract["minimum_update_epochs"]),
+        terminal_update_epoch,
+    )
+
+
+def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
+    for field in ("absolute_threshold", "relative_threshold", "relative_floor"):
+        runtime_value = float(getattr(policy, field))
+        contract_value = float(getattr(contract, field))
+        if not close(runtime_value, contract_value):
+            raise ValueError(
+                f"runtime convergence {field} drifted from acceptance contract: "
+                f"runtime={runtime_value} contract={contract_value}"
+            )
+    for field in (
+        "consecutive_epochs",
+        "minimum_epoch_count",
+        "maximum_update_epoch",
+    ):
+        runtime_value = int(getattr(policy, field))
+        contract_value = int(getattr(contract, field))
+        if runtime_value != contract_value:
+            raise ValueError(
+                f"runtime convergence {field} drifted from acceptance contract: "
+                f"runtime={runtime_value} contract={contract_value}"
+            )
+
+
+def parse_curve(
+    console_path: Path, contract_path: Path = CONTRACT_PATH
+) -> tuple[list[dict[str, object]], str, Policy]:
     records: list[dict[str, object]] = []
     terminals: list[dict[str, object]] = []
     text = console_path.read_text()
@@ -77,26 +144,12 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
     policy = Policy(
         float(policy_values["absolute"]),
         float(policy_values["relative"]),
+        float(policy_values["relative_floor"]),
         int(policy_values["consecutive"]),
         int(policy_values["minimum"]),
         maximum_update_epochs - 1,
     )
-    contract = tomllib.loads(CONTRACT_PATH.read_text())
-    if contract.get("schema_version") != 1:
-        raise ValueError("unsupported DDGI convergence acceptance contract")
-    contract_epochs = contract.get("maximum_update_epochs")
-    contract_terminal = contract.get("terminal_update_epoch")
-    if (
-        not isinstance(contract_epochs, int)
-        or not isinstance(contract_terminal, int)
-        or contract_terminal != contract_epochs - 1
-    ):
-        raise ValueError("invalid DDGI convergence acceptance epoch contract")
-    if maximum_update_epochs != contract_epochs:
-        raise ValueError(
-            "runtime convergence maximum_update_epochs drifted from acceptance contract: "
-            f"runtime={maximum_update_epochs} contract={contract_epochs}"
-        )
+    require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
     for line in text.splitlines():
         if "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated" in line:
             match = VALIDATION_PATTERN.search(line)
@@ -293,6 +346,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cases", nargs="+", default=list(DEFAULT_CASES))
     parser.add_argument("--spacings", nargs="+", type=int, default=list(DEFAULT_SPACINGS))
+    parser.add_argument("--contract", type=Path, default=CONTRACT_PATH)
     args = parser.parse_args()
 
     try:
@@ -302,8 +356,18 @@ def main() -> int:
             for case_name in args.cases:
                 stem = f"{case_name}-spacing{spacing}-converged-forward"
                 console_path = args.run_dir / f"{stem}.console.log"
+                run_log_path = args.run_dir / f"{stem}.run.log"
                 analysis_path = args.run_dir / f"{stem}.analysis.json"
-                records, terminal_reason, runtime_policy = parse_curve(console_path)
+                console_evidence = parse_curve(
+                    console_path, args.contract
+                )
+                run_log_evidence = parse_curve(run_log_path, args.contract)
+                if console_evidence != run_log_evidence:
+                    raise ValueError(
+                        f"{case_name} spacing {spacing}: console and preserved run-log "
+                        "convergence evidence differ"
+                    )
+                records, terminal_reason, runtime_policy = console_evidence
                 if policy is None:
                     policy = runtime_policy
                 elif runtime_policy != policy:
@@ -320,6 +384,7 @@ def main() -> int:
                 )
                 curve["capture_analysis"] = analysis_path.name
                 curve["console_log"] = console_path.name
+                curve["preserved_run_log"] = run_log_path.name
                 curves.append(curve)
         if policy is None:
             raise ValueError("convergence matrix is empty")
@@ -338,6 +403,7 @@ def main() -> int:
         "policy": {
             "max_absolute_rgb_delta": policy.absolute_threshold,
             "max_relative_rgb_delta": policy.relative_threshold,
+            "relative_floor": policy.relative_floor,
             "consecutive_epochs": policy.consecutive_epochs,
             "minimum_epoch_count": policy.minimum_epoch_count,
             "maximum_update_epoch": policy.maximum_update_epoch,

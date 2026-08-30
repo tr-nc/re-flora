@@ -132,6 +132,23 @@ use std::{fmt, time::Instant};
 
 const DDGI_CONVERGENCE_EVIDENCE_TARGET: &str = "re_flora::ddgi_convergence_evidence";
 
+struct DdgiConvergencePolicyEvidence;
+
+impl fmt::Display for DdgiConvergencePolicyEvidence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "convergence_max_absolute_rgb_delta={} convergence_max_relative_rgb_delta={} convergence_relative_floor={} convergence_consecutive_epochs={} convergence_minimum_update_epochs={} convergence_maximum_update_epochs={}",
+            DDGI_CONVERGENCE_POLICY.absolute_threshold,
+            DDGI_CONVERGENCE_POLICY.relative_threshold,
+            DDGI_CONVERGENCE_POLICY.relative_floor,
+            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
+            DDGI_CONVERGENCE_POLICY.minimum_update_epochs,
+            DDGI_CONVERGENCE_POLICY.maximum_update_epochs,
+        )
+    }
+}
+
 struct DdgiConvergenceValidationEvidence {
     field_serial: u64,
     geometry_revision: u32,
@@ -662,6 +679,10 @@ mod ddgi_convergence_evidence_tests {
 
     #[test]
     fn production_formatter_matches_the_convergence_summarizer_contract() {
+        assert_eq!(
+            DdgiConvergencePolicyEvidence.to_string(),
+            "convergence_max_absolute_rgb_delta=0.0025 convergence_max_relative_rgb_delta=0.02 convergence_relative_floor=0.05 convergence_consecutive_epochs=2 convergence_minimum_update_epochs=8 convergence_maximum_update_epochs=128"
+        );
         let validation = DdgiConvergenceValidationEvidence {
             field_serial: 11,
             geometry_revision: 7,
@@ -1564,16 +1585,12 @@ impl Tracer {
                     .expect("initial DDGI Volume installation must succeed");
                 let status = self.ddgi_runtime.status().builder();
                 log::info!(
-                    "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?} convergence_max_absolute_rgb_delta={} convergence_max_relative_rgb_delta={} convergence_consecutive_epochs={} convergence_minimum_update_epochs={} convergence_maximum_update_epochs={}",
+                    "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?} {}",
                     build_token.terrain_revision(),
                     status.grid.spacing_voxels(),
                     status.grid.probe_count(),
                     status.stage,
-                    DDGI_CONVERGENCE_POLICY.absolute_threshold,
-                    DDGI_CONVERGENCE_POLICY.relative_threshold,
-                    DDGI_CONVERGENCE_POLICY.consecutive_epochs,
-                    DDGI_CONVERGENCE_POLICY.minimum_update_epochs,
-                    DDGI_CONVERGENCE_POLICY.maximum_update_epochs,
+                    DdgiConvergencePolicyEvidence,
                 );
             }
             DdgiRuntimeVolumeTarget::Staging => {

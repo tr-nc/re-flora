@@ -1,3 +1,8 @@
 schema_version = 1
+absolute_threshold = 0.0025
+relative_threshold = 0.02
+relative_floor = 0.05
+consecutive_epochs = 2
+minimum_update_epochs = 8
 maximum_update_epochs = 128
 terminal_update_epoch = 127

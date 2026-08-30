@@ -17,6 +17,10 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         run_dir: Path,
         *,
         absolute_threshold: float = 0.0025,
+        relative_threshold: float = 0.02,
+        relative_floor: float = 0.05,
+        consecutive_epochs: int = 2,
+        minimum_update_epochs: int = 8,
         terminal_reason: str = "Threshold",
         maximum_update_epochs: int = 128,
         include_policy: bool = True,
@@ -27,17 +31,16 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             lines.append(
                 "[DDGI] initialization requested terrain_revision=2 spacing_voxels=32 "
                 "probes=4913 stage=RelocationPending "
-                "convergence_max_absolute_rgb_delta=0.0025 "
-                "convergence_max_relative_rgb_delta=0.02 "
-                "convergence_consecutive_epochs=2 "
-                "convergence_minimum_update_epochs=4 "
+                f"convergence_max_absolute_rgb_delta={absolute_threshold} "
+                f"convergence_max_relative_rgb_delta={relative_threshold} "
+                f"convergence_relative_floor={relative_floor} "
+                f"convergence_consecutive_epochs={consecutive_epochs} "
+                f"convergence_minimum_update_epochs={minimum_update_epochs} "
                 f"convergence_maximum_update_epochs={maximum_update_epochs}"
             )
-        samples = (
-            (0, 0.0, 0.0, 0),
-            (1, 0.5, 1.0, 0),
-            (2, 0.002, 0.01, 1),
-            (3, 0.001, 0.005, 2),
+        samples = tuple((epoch, 0.5, 1.0, 0) for epoch in range(6)) + (
+            (6, 0.002, 0.01, 1),
+            (7, 0.001, 0.005, 2),
         )
         lines.append(
             "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=1 radiance_revision=1 "
@@ -45,34 +48,36 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
             "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
             "scanned_stored_texels=100 abs_threshold=0.00250000 "
-            "rel_threshold=0.02000000 consecutive_below=0/2"
+            f"rel_threshold={relative_threshold:.8f} consecutive_below=0/{consecutive_epochs}"
         )
         for field_serial, (epoch, absolute, relative, consecutive) in enumerate(samples, 2):
             lines.append(
                 "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated "
                 f"field_serial={field_serial} geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
-                f"state={'Converged' if epoch == 3 else 'Converging'} update_epoch={epoch} "
+                f"state={'Converged' if epoch == 7 else 'Converging'} update_epoch={epoch} "
                 f"max_abs_rgb_delta={absolute:.8f} "
                 f"max_rel_rgb_delta={relative:.8f} "
                 "non_finite=0 negative_rgb_texels=0 "
                 "valid_texels=64 scanned_stored_texels=100 "
-                f"abs_threshold={absolute_threshold:.8f} rel_threshold=0.02000000 "
-                f"consecutive_below={consecutive}/2"
+                f"abs_threshold={absolute_threshold:.8f} rel_threshold={relative_threshold:.8f} "
+                f"consecutive_below={consecutive}/{consecutive_epochs}"
             )
         lines.append(
             "[DDGI_CONVERGENCE_EVIDENCE] terminal "
-            "field_serial=5 geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
-            f"update_epoch=3 reason={terminal_reason}"
+            "field_serial=9 geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
+            f"update_epoch=7 reason={terminal_reason}"
         )
-        (run_dir / f"{stem}.console.log").write_text("\n".join(lines) + "\n")
+        evidence = "\n".join(lines) + "\n"
+        (run_dir / f"{stem}.console.log").write_text(evidence)
+        (run_dir / f"{stem}.run.log").write_text(evidence)
         (run_dir / f"{stem}.analysis.json").write_text(
             json.dumps(
                 {
                     "capture": {
                         "lifecycle_state": "converged",
-                        "update_epoch": 3,
+                        "update_epoch": 7,
                         "spacing_voxels": 32,
-                        "field_serial": 5,
+                        "field_serial": 9,
                         "geometry_revision": 2,
                         "radiance_revision": 1,
                         "max_abs_delta": 0.001,
@@ -83,7 +88,9 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             )
         )
 
-    def run_summarizer(self, run_dir: Path, output: Path) -> subprocess.CompletedProcess[str]:
+    def run_summarizer(
+        self, run_dir: Path, output: Path, *, contract: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 str(SUMMARIZER),
@@ -95,6 +102,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 "sealed",
                 "--spacings",
                 "32",
+                *(["--contract", str(contract)] if contract is not None else []),
             ],
             check=False,
             capture_output=True,
@@ -115,10 +123,29 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(report["schema_version"], 2)
         self.assertEqual(report["matrix"]["curve_count"], 1)
         curve = report["curves"][0]
-        self.assertEqual(curve["final_update_epoch"], 3)
+        self.assertEqual(curve["final_update_epoch"], 7)
         self.assertEqual(curve["terminal_reason"], "Threshold")
-        self.assertEqual(len(curve["epochs"]), 4)
+        self.assertEqual(len(curve["epochs"]), 8)
         self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
+        self.assertEqual(report["policy"]["relative_floor"], 0.05)
+
+    def test_rejects_terminal_epoch_drift_inside_the_independent_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            contract = run_dir / "contract.toml"
+            self.write_curve(run_dir)
+            contract.write_text(
+                (SCRIPTS.parent / "config" / "ddgi_convergence_acceptance.toml")
+                .read_text()
+                .replace("terminal_update_epoch = 127", "terminal_update_epoch = 126")
+            )
+
+            result = self.run_summarizer(run_dir, output, contract=contract)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(output.exists())
+        self.assertIn("invalid DDGI convergence acceptance epoch contract", result.stderr)
 
     def test_rejects_runtime_epoch_count_drift_from_the_acceptance_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -144,11 +171,11 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             ),
             ("missing", lambda text: "\n".join(line for line in text.splitlines() if " terminal " not in line)),
             ("duplicate", lambda text: text + next(line for line in text.splitlines() if " terminal " in line) + "\n"),
-            ("epoch", lambda text: text.replace("update_epoch=3 reason=Threshold", "update_epoch=2 reason=Threshold")),
+            ("epoch", lambda text: text.replace("update_epoch=7 reason=Threshold", "update_epoch=6 reason=Threshold")),
             (
                 "terminal-field",
                 lambda text: text.replace(
-                    "terminal field_serial=5", "terminal field_serial=4"
+                    "terminal field_serial=9", "terminal field_serial=8"
                 ),
             ),
             (
@@ -172,6 +199,82 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertFalse(output.exists())
 
+    def test_console_only_evidence_cannot_qualify(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            (run_dir / "sealed-spacing32-converged-forward.run.log").unlink()
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(output.exists())
+
+    def test_rejects_incomplete_or_changed_preserved_run_log_evidence(self) -> None:
+        mutations = (
+            ("truncated", lambda text: text.splitlines()[0] + "\n"),
+            (
+                "policy",
+                lambda text: text.replace(
+                    "convergence_relative_floor=0.05",
+                    "convergence_relative_floor=0.06",
+                ),
+            ),
+            (
+                "epoch",
+                lambda text: "\n".join(
+                    line
+                    for line in text.splitlines()
+                    if not (
+                        "full-atlas validated" in line and "update_epoch=4" in line
+                    )
+                )
+                + "\n",
+            ),
+            (
+                "terminal",
+                lambda text: "\n".join(
+                    line for line in text.splitlines() if " terminal " not in line
+                )
+                + "\n",
+            ),
+            (
+                "duplicate-terminal",
+                lambda text: text
+                + next(line for line in text.splitlines() if " terminal " in line)
+                + "\n",
+            ),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                run_log = run_dir / "sealed-spacing32-converged-forward.run.log"
+                run_log.write_text(mutate(run_log.read_text()))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(output.exists())
+
+    def test_rejects_capture_field_identity_that_differs_from_the_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
+            payload = json.loads(analysis.read_text())
+            payload["capture"]["field_serial"] = 8
+            analysis.write_text(json.dumps(payload))
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(output.exists())
+        self.assertIn("capture field serial mismatch", result.stderr)
+
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
@@ -184,17 +287,26 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertIn("authoritative runtime convergence policy", result.stderr)
 
-    def test_rejects_curve_whose_logged_threshold_drifted(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory)
-            output = run_dir / "summary.json"
-            self.write_curve(run_dir, absolute_threshold=0.003)
+    def test_rejects_each_runtime_policy_field_drift_from_the_contract(self) -> None:
+        mutations = (
+            {"absolute_threshold": 0.003},
+            {"relative_threshold": 0.03},
+            {"relative_floor": 0.06},
+            {"consecutive_epochs": 3},
+            {"minimum_update_epochs": 7},
+            {"maximum_update_epochs": 64},
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir, **mutation)
 
-            result = self.run_summarizer(run_dir, output)
+                result = self.run_summarizer(run_dir, output)
 
-        self.assertEqual(result.returncode, 1)
-        self.assertFalse(output.exists())
-        self.assertIn("absolute policy drift", result.stderr)
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(output.exists())
+                self.assertIn("drifted from acceptance contract", result.stderr)
 
     def test_rejects_terminal_reason_that_disagrees_with_curve(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
