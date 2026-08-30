@@ -788,63 +788,22 @@ impl std::fmt::Display for EnvironmentPhaseRestoreFailure {
 impl std::error::Error for EnvironmentPhaseRestoreFailure {}
 
 #[derive(Debug)]
-struct EnvironmentPhaseRejected {
-    error: anyhow::Error,
+struct EnvironmentPhaseFailure {
     attempt: EnvironmentPhaseAttempt,
-}
-
-#[derive(Debug)]
-enum EnvironmentPhaseFailure {
-    Static(EnvironmentPhaseRejected),
-    Terrain(EnvironmentPhaseRejected),
-    Radiance(EnvironmentPhaseRejected),
-    PointLight(EnvironmentPhaseRejected),
-    VoxelEmissive(EnvironmentPhaseRejected),
-    RasterEmitter(EnvironmentPhaseRejected),
-    MultiSource(EnvironmentPhaseRejected),
-    LocalLightScaling(EnvironmentPhaseRejected),
+    error: anyhow::Error,
 }
 
 impl EnvironmentPhaseFailure {
     fn new(attempt: EnvironmentPhaseAttempt, error: anyhow::Error) -> Self {
-        let rejected = EnvironmentPhaseRejected { error, attempt };
-        match rejected.attempt.request().family() {
-            EnvironmentPhaseFamily::Static => Self::Static(rejected),
-            EnvironmentPhaseFamily::Terrain => Self::Terrain(rejected),
-            EnvironmentPhaseFamily::Radiance => Self::Radiance(rejected),
-            EnvironmentPhaseFamily::PointLight => Self::PointLight(rejected),
-            EnvironmentPhaseFamily::VoxelEmissive => Self::VoxelEmissive(rejected),
-            EnvironmentPhaseFamily::RasterEmitter => Self::RasterEmitter(rejected),
-            EnvironmentPhaseFamily::MultiSource => Self::MultiSource(rejected),
-            EnvironmentPhaseFamily::LocalLightScaling => Self::LocalLightScaling(rejected),
-        }
+        Self { attempt, error }
     }
 
     fn family(&self) -> EnvironmentPhaseFamily {
-        match self {
-            Self::Static(_) => EnvironmentPhaseFamily::Static,
-            Self::Terrain(_) => EnvironmentPhaseFamily::Terrain,
-            Self::Radiance(_) => EnvironmentPhaseFamily::Radiance,
-            Self::PointLight(_) => EnvironmentPhaseFamily::PointLight,
-            Self::VoxelEmissive(_) => EnvironmentPhaseFamily::VoxelEmissive,
-            Self::RasterEmitter(_) => EnvironmentPhaseFamily::RasterEmitter,
-            Self::MultiSource(_) => EnvironmentPhaseFamily::MultiSource,
-            Self::LocalLightScaling(_) => EnvironmentPhaseFamily::LocalLightScaling,
-        }
+        self.attempt.request().family()
     }
 
     fn into_parts(self) -> (EnvironmentPhaseAttempt, anyhow::Error) {
-        let rejected = match self {
-            Self::Static(rejected)
-            | Self::Terrain(rejected)
-            | Self::Radiance(rejected)
-            | Self::PointLight(rejected)
-            | Self::VoxelEmissive(rejected)
-            | Self::RasterEmitter(rejected)
-            | Self::MultiSource(rejected)
-            | Self::LocalLightScaling(rejected) => rejected,
-        };
-        (rejected.attempt, rejected.error)
+        (self.attempt, self.error)
     }
 }
 
@@ -6221,7 +6180,10 @@ mod tests {
                 "injected {expected_family:?} production apply failure"
             ));
             assert_eq!(failure.attempt.request().family(), expected_family);
-            assert!(failure.error.to_string().contains("production apply failure"));
+            assert!(failure
+                .error
+                .to_string()
+                .contains("production apply failure"));
             assert_eq!(failure.family(), expected_family);
             let result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> =
                 Err(failure);
