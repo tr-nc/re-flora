@@ -914,6 +914,22 @@ mod tests {
     }
 
     #[test]
+    fn failed_player_release_transaction_restores_the_exact_request() {
+        let mut runtime = TerrainConnectivityRuntime::default();
+        let world_dim = UVec3::splat(128);
+        runtime.observe_player_publication(UAabb3::new(UVec3::splat(32), UVec3::splat(34)), true);
+
+        let error = runtime
+            .transact_player_release(world_dim, || {
+                Err::<(), _>(anyhow::anyhow!("injected snapshot failure"))
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("injected snapshot failure"));
+        assert!(runtime.take_player_release(world_dim).is_some());
+    }
+
+    #[test]
     fn inactive_player_hold_does_not_schedule_reconciliation() {
         let mut runtime = TerrainConnectivityRuntime::default();
         runtime.observe_player_publication(UAabb3::new(UVec3::splat(4), UVec3::splat(8)), false);

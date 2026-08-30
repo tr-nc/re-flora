@@ -1927,6 +1927,58 @@ mod tests {
     }
 
     #[test]
+    fn manual_release_is_planned_as_an_owned_app_execution() {
+        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Manual,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            }),
+        ));
+        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
+            &mut owner
+        else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        bench.state = BenchState::AwaitingManualEdit;
+
+        let action = owner
+            .plan_manual_connectivity_release(ManualReleaseFacts {
+                frame: 41,
+                visible_revision: 12,
+            })
+            .unwrap();
+
+        assert!(matches!(
+            action,
+            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
+                frame: 41,
+                revision_before: 12,
+                ..
+            })
+        ));
+        let error = owner
+            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(anyhow::anyhow!(
+                "injected manual snapshot failure"
+            )))
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("injected manual snapshot failure"));
+        assert!(matches!(
+            owner,
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench {
+                    state: BenchState::AwaitingManualEdit,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
     fn gpu_completion_observes_the_source_frame_from_the_exact_submission_slot() {
         let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
             TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
