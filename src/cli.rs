@@ -288,20 +288,6 @@ impl CameraAutomation {
             Self::None => None,
         }
     }
-
-    pub fn screenshot(&self) -> Option<&ScreenshotOptions> {
-        match self {
-            Self::Screenshot { capture, .. } => Some(capture),
-            _ => None,
-        }
-    }
-
-    pub fn denoiser_benchmark(&self) -> Option<&CameraDenoiserOptions> {
-        match self {
-            Self::DenoiserBenchmark { benchmark, .. } => Some(benchmark),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -359,36 +345,6 @@ pub enum Scenario {
     House,
     TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions),
     FoliageShadowBenchmark(FoliageDenoiserOptions),
-}
-
-impl Scenario {
-    pub fn environment_lighting(&self) -> Option<EnvironmentLightingTestCase> {
-        match self {
-            Self::EnvironmentLighting(test_case) => Some(*test_case),
-            _ => None,
-        }
-    }
-
-    pub fn canopy_audio_diagnostic(&self) -> Option<bool> {
-        match self {
-            Self::CanopyAudioDiagnostic { constrained_budget } => Some(*constrained_budget),
-            _ => None,
-        }
-    }
-
-    pub fn terrain_connectivity_benchmark(&self) -> Option<TerrainConnectivityBenchOptions> {
-        match self {
-            Self::TerrainConnectivityBenchmark(options) => Some(*options),
-            _ => None,
-        }
-    }
-
-    pub fn foliage_shadow_benchmark(&self) -> Option<&FoliageDenoiserOptions> {
-        match self {
-            Self::FoliageShadowBenchmark(options) => Some(options),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1507,8 +1463,8 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.scenario.terrain_connectivity_benchmark(),
-            Some(TerrainConnectivityBenchOptions {
+            options.scenario,
+            Scenario::TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Correct,
                 available_particles: 8192,
                 warmup_frames: 120,
@@ -1529,8 +1485,8 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.scenario.terrain_connectivity_benchmark(),
-            Some(TerrainConnectivityBenchOptions {
+            options.scenario,
+            Scenario::TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Manual,
                 available_particles: 16_384,
                 warmup_frames: 0,
@@ -1576,7 +1532,12 @@ mod tests {
             "--canopy-audio-diagnostic",
         ]);
 
-        assert_eq!(options.scenario.canopy_audio_diagnostic(), Some(false));
+        assert_eq!(
+            options.scenario,
+            Scenario::CanopyAudioDiagnostic {
+                constrained_budget: false,
+            }
+        );
         assert!(!options.audio.canopy_telemetry);
     }
 
@@ -1589,7 +1550,12 @@ mod tests {
             "--canopy-audio-budget-diagnostic",
         ]);
 
-        assert_eq!(options.scenario.canopy_audio_diagnostic(), Some(true));
+        assert_eq!(
+            options.scenario,
+            Scenario::CanopyAudioDiagnostic {
+                constrained_budget: true,
+            }
+        );
     }
 
     #[test]
@@ -1610,8 +1576,8 @@ mod tests {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
         assert_eq!(
-            options.scenario.environment_lighting(),
-            Some(EnvironmentLightingTestCase::Sealed)
+            options.scenario,
+            Scenario::EnvironmentLighting(EnvironmentLightingTestCase::Sealed)
         );
     }
 
@@ -1667,7 +1633,7 @@ mod tests {
             ),
         ] {
             let options = parse(&["re-flora", "--environment-lighting-test-scene", name]);
-            assert_eq!(options.scenario.environment_lighting(), Some(expected));
+            assert_eq!(options.scenario, Scenario::EnvironmentLighting(expected));
         }
     }
 
@@ -2153,10 +2119,9 @@ mod tests {
         let options = parse(&["re-flora", "--camera-snapshot", "tree-closeup"]);
 
         assert_eq!(
-            options.automation.camera.snapshot_name(),
-            Some("tree-closeup")
+            options.automation.camera,
+            CameraAutomation::Snapshot("tree-closeup".to_owned())
         );
-        assert!(options.automation.camera.screenshot().is_none());
     }
 
     #[test]
@@ -2173,15 +2138,14 @@ mod tests {
 
         assert!(options.platform.display.hidden);
         assert_eq!(
-            options.automation.camera.snapshot_name(),
-            Some("tree-closeup")
-        );
-        assert_eq!(
-            options.automation.camera.screenshot(),
-            Some(&ScreenshotOptions {
-                path: "out.png".to_owned(),
-                delay: 2.5,
-            })
+            options.automation.camera,
+            CameraAutomation::Screenshot {
+                snapshot: "tree-closeup".to_owned(),
+                capture: ScreenshotOptions {
+                    path: "out.png".to_owned(),
+                    delay: 2.5,
+                },
+            }
         );
     }
 
@@ -2201,14 +2165,19 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.automation.camera.snapshot_name(),
-            Some("player-default")
+            options.automation.camera,
+            CameraAutomation::DenoiserBenchmark {
+                snapshot: "player-default".to_owned(),
+                benchmark: CameraDenoiserOptions {
+                    capture: DenoiserCaptureOptions {
+                        report_path: "target/report.toml".to_owned(),
+                        warmup_frames: 12,
+                        capture_frames: 8,
+                    },
+                    camera_motion: CameraMotion::Scripted,
+                },
+            }
         );
-        let benchmark = options.automation.camera.denoiser_benchmark().unwrap();
-        assert_eq!(benchmark.capture.report_path, "target/report.toml");
-        assert_eq!(benchmark.capture.warmup_frames, 12);
-        assert_eq!(benchmark.capture.capture_frames, 8);
-        assert_eq!(benchmark.camera_motion, CameraMotion::Scripted);
     }
 
     #[test]
@@ -2224,11 +2193,17 @@ mod tests {
             "8",
         ]);
 
-        assert!(options.automation.camera.snapshot_name().is_none());
-        let benchmark = options.scenario.foliage_shadow_benchmark().unwrap();
-        assert_eq!(benchmark.capture.report_path, "target/foliage-shadow.toml");
-        assert_eq!(benchmark.capture.warmup_frames, 12);
-        assert_eq!(benchmark.capture.capture_frames, 8);
+        assert_eq!(options.automation.camera, CameraAutomation::None);
+        assert_eq!(
+            options.scenario,
+            Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
+                capture: DenoiserCaptureOptions {
+                    report_path: "target/foliage-shadow.toml".to_owned(),
+                    warmup_frames: 12,
+                    capture_frames: 8,
+                },
+            })
+        );
     }
 
     #[test]

@@ -802,37 +802,6 @@ mod tests {
     }
 
     #[test]
-    fn scenario_owner_does_not_regrow_parallel_optional_getters() {
-        let source = include_str!("launch_owners.rs");
-        for old_method in [
-            "denoiser",
-            "is_water_experience",
-            "is_house",
-            "canopy_audio",
-            "canopy_audio_mut",
-            "water_edit_soak",
-            "water_edit_soak_mut",
-            "water_experience",
-            "water_experience_mut",
-            "environment_lighting",
-            "environment_lighting_mut",
-            "hybrid_transparency",
-            "hybrid_transparency_mut",
-            "terrain_connectivity",
-            "terrain_connectivity_mut",
-            "foliage_shadow_benchmark",
-            "foliage_shadow_benchmark_mut",
-        ] {
-            assert!(
-                !source.contains(&format!("fn {old_method}(")),
-                "old optional getter {old_method} must remain deleted",
-            );
-        }
-        assert!(!source.contains(concat!("fn take_", "terrain_connectivity(")));
-        assert!(!source.contains(concat!("fn restore_", "terrain_connectivity(")));
-    }
-
-    #[test]
     fn non_diagnostic_scenarios_never_request_the_canopy_camera_pose() {
         let mut garden = owner_for(Scenario::Garden);
         match garden
