@@ -9,8 +9,11 @@ import re
 REQUIRED_OWNER_PATHS = (
     "scripts/analyze_environment_irradiance_capture.py",
     "scripts/analyze_current_environment_irradiance_capture.py",
+    "scripts/check_ddgi_correctness.sh",
+    "scripts/rfirr_production_runner_contract.py",
     "scripts/shader_validation_workflow_contract.py",
     "scripts/summarize_ddgi_convergence.py",
+    "scripts/tests/test_rfirr_current_version_contract.py",
     "scripts/validate_ddgi_radiance_lifecycle.py",
     "src/app/core/ddgi_spatial_weight_readback.rs",
     "src/app/core/environment_irradiance_capture.rs",
@@ -76,21 +79,24 @@ def _routes(patterns: tuple[str, ...], path: str) -> bool:
 
 
 def _github_path_matches(pattern: str, path: str) -> bool:
-    """Match the slash semantics used by GitHub workflow path filters."""
+    """Match the fail-closed workflow glob subset used by this repository."""
+    if not _supported_route_pattern(pattern):
+        return False
     expression: list[str] = ["^"]
     index = 0
     while index < len(pattern):
         character = pattern[index]
         if character == "*":
             if index + 1 < len(pattern) and pattern[index + 1] == "*":
-                expression.append(".*")
-                index += 2
+                if index + 2 < len(pattern) and pattern[index + 2] == "/":
+                    expression.append("(?:.*/)?")
+                    index += 3
+                else:
+                    expression.append(".*")
+                    index += 2
             else:
                 expression.append("[^/]*")
                 index += 1
-        elif character == "?":
-            expression.append("[^/]")
-            index += 1
         else:
             expression.append(re.escape(character))
             index += 1
@@ -98,10 +104,25 @@ def _github_path_matches(pattern: str, path: str) -> bool:
     return re.match("".join(expression), path) is not None
 
 
+def _supported_route_pattern(pattern: str) -> bool:
+    candidate = pattern[1:] if pattern.startswith("!") else pattern
+    return bool(
+        candidate
+        and "***" not in candidate
+        and re.fullmatch(r"[A-Za-z0-9._/*-]+", candidate)
+    )
+
+
 def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
     job_block = _mapping_block(lines, job, 2)
-    if _field(job_block, "if", 4) is not None or _has_default_shell(
-        job_block, 4
+    container = _field(job_block, "container", 4)
+    if (
+        container != ("scalar", ("fedora:43",))
+        or any(
+            _field(job_block, field, 4) is not None
+            for field in ("if", "continue-on-error", "env")
+        )
+        or _has_default_shell(job_block, 4)
     ):
         return []
     steps_block = _mapping_block(job_block, "steps", 4)
@@ -147,10 +168,7 @@ def _has_default_shell(lines: list[str], indent: int) -> bool:
 
 
 def _step_single_command(step: list[str]) -> str | None:
-    if any(
-        _field(step, field, 8) is not None
-        for field in ("if", "continue-on-error", "shell")
-    ):
+    if _step_keys(step) != ("name", "run"):
         return None
     run = _field(step, "run", 8)
     if run is None or run[0] != "scalar" or len(run[1]) != 1:
@@ -158,11 +176,44 @@ def _step_single_command(step: list[str]) -> str | None:
     return run[1][0]
 
 
+def _step_keys(step: list[str]) -> tuple[str, ...]:
+    keys: list[str] = []
+    for index, line in enumerate(step):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if index == 0 and _indent(line) == 6 and line.strip().startswith("- "):
+            candidate = line.strip()[2:]
+        elif _indent(line) == 8:
+            candidate = line.strip()
+        else:
+            continue
+        match = re.match(r"([A-Za-z0-9_-]+):", candidate)
+        if match is not None:
+            keys.append(match.group(1))
+    return tuple(keys)
+
+
+def _global_environment_is_safe(lines: list[str]) -> bool:
+    environment = _mapping_block(lines, "env", 0)
+    entries: list[tuple[str, str]] = []
+    for line in environment:
+        if _indent(line) != 2 or not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.strip().partition(":")
+        if not separator:
+            return False
+        entries.append((key, value.strip().strip('"\'')))
+    return entries == [("CARGO_TERM_COLOR", "always")]
+
+
 def workflow_contract_failures(source: str) -> list[str]:
     lines = source.splitlines()
     failures: list[str] = []
     for event in ("pull_request", "push"):
         patterns = _route_patterns(lines, event)
+        for pattern in patterns:
+            if not _supported_route_pattern(pattern):
+                failures.append(f"{event} uses unsupported route pattern {pattern}")
         for owner_path in REQUIRED_OWNER_PATHS:
             if not _routes(patterns, owner_path):
                 failures.append(f"{event} does not route {owner_path}")
@@ -172,7 +223,7 @@ def workflow_contract_failures(source: str) -> list[str]:
         for step in _step_blocks(lines, "fedora")
         if (command := _step_single_command(step)) is not None
     ]
-    if _has_default_shell(lines, 0):
+    if _has_default_shell(lines, 0) or not _global_environment_is_safe(lines):
         fedora_commands = []
     for command in REQUIRED_FEDORA_COMMANDS:
         if fedora_commands.count(command) != 1:

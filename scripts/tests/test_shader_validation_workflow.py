@@ -14,6 +14,20 @@ import shader_validation_workflow_contract as contract  # noqa: E402
 
 
 class ShaderValidationWorkflowTests(unittest.TestCase):
+    def remove_event_route(self, source: str, event: str, route: str) -> str:
+        lines = source.splitlines(keepends=True)
+        inside_event = False
+        for index, line in enumerate(lines):
+            if line == f"  {event}:\n":
+                inside_event = True
+                continue
+            if inside_event and line.strip() and len(line) - len(line.lstrip()) <= 2:
+                break
+            if inside_event and line == route:
+                lines[index] = ""
+                return "".join(lines)
+        self.fail(f"route {route.strip()} not found under {event}")
+
     def test_owner_changes_route_to_executable_fedora_evidence_tests(self) -> None:
         self.assertEqual(
             contract.workflow_contract_failures(
@@ -59,6 +73,54 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         self.assertNotIn(
             f"pull_request does not route {representative}", push_failures
         )
+
+    def test_runner_and_test_owners_require_their_routes_for_each_event(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        cases = (
+            (
+                '      - "scripts/check_ddgi*.sh"\n',
+                "scripts/check_ddgi_correctness.sh",
+            ),
+            (
+                '      - "scripts/tests/**"\n',
+                "scripts/tests/test_rfirr_current_version_contract.py",
+            ),
+        )
+        for event in ("pull_request", "push"):
+            for route, representative in cases:
+                with self.subTest(event=event, representative=representative):
+                    mutated = self.remove_event_route(source, event, route)
+                    failures = contract.workflow_contract_failures(mutated)
+                    self.assertIn(
+                        f"{event} does not route {representative}", failures
+                    )
+
+    def test_glob_subset_supports_zero_directory_double_star_and_rejects_specials(
+        self,
+    ) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        zero_directory = source.replace(
+            '      - "scripts/check_ddgi*.sh"\n',
+            '      - "scripts/**/check_ddgi*.sh"\n',
+        )
+        for event in ("pull_request", "push"):
+            self.assertNotIn(
+                f"{event} does not route scripts/check_ddgi_correctness.sh",
+                contract.workflow_contract_failures(zero_directory),
+            )
+
+        route_tail = '      - "src/tracer/**"\n'
+        for pattern in ("src/ddgi/?", "src/ddgi/+", "src/ddgi/[a]", "src/@(ddgi)/**"):
+            with self.subTest(pattern=pattern):
+                mutated = source.replace(
+                    route_tail,
+                    route_tail + f'      - "{pattern}"\n',
+                    1,
+                )
+                self.assertIn(
+                    f"pull_request uses unsupported route pattern {pattern}",
+                    contract.workflow_contract_failures(mutated),
+                )
 
     def test_later_exclusions_override_positive_owner_routes(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
@@ -157,8 +219,30 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "custom-shell": source.replace(
                 step_header, step_header + "        shell: echo {0}\n", 1
             ),
+            "step-path": source.replace(
+                step_header,
+                step_header + "        env:\n          PATH: /tmp/fake\n",
+                1,
+            ),
+            "step-bash-env": source.replace(
+                step_header,
+                step_header + "        env:\n          BASH_ENV: /tmp/fake\n",
+                1,
+            ),
+            "working-directory": source.replace(
+                step_header, step_header + "        working-directory: /tmp\n", 1
+            ),
             "job-expression-false": source.replace(
                 "  fedora:\n", "  fedora:\n    if: ${{ 1 == 0 }}\n", 1
+            ),
+            "job-continue-on-error": source.replace(
+                "  fedora:\n", "  fedora:\n    continue-on-error: true\n", 1
+            ),
+            "job-env": source.replace(
+                "  fedora:\n", "  fedora:\n    env:\n      PATH: /tmp/fake\n", 1
+            ),
+            "container-drift": source.replace(
+                "    container: fedora:43", "    container: ubuntu:latest", 1
             ),
             "job-default-shell": source.replace(
                 "  fedora:\n",
@@ -168,6 +252,16 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "workflow-default-shell": source.replace(
                 "permissions:\n",
                 "defaults:\n  run:\n    shell: echo {0}\n\npermissions:\n",
+                1,
+            ),
+            "workflow-path": source.replace(
+                "env:\n  CARGO_TERM_COLOR: always\n",
+                "env:\n  CARGO_TERM_COLOR: always\n  PATH: /tmp/fake\n",
+                1,
+            ),
+            "workflow-bash-env": source.replace(
+                "env:\n  CARGO_TERM_COLOR: always\n",
+                "env:\n  CARGO_TERM_COLOR: always\n  BASH_ENV: /tmp/fake\n",
                 1,
             ),
             "wrapper-and-exit": source.replace(
