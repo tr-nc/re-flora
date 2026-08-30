@@ -3521,9 +3521,12 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                let environment_irradiance_capture_plan = self
-                    .environment_irradiance_capture
-                    .begin_frame(&self.tracer, self.environment_lighting_test_scene.as_ref());
+                let environment_irradiance_capture_plan =
+                    self.environment_irradiance_capture.begin_frame(
+                        &self.time_info,
+                        &self.tracer,
+                        self.environment_lighting_test_scene.as_ref(),
+                    );
                 let capture_buffers_ready = self
                     .tracer
                     .update_buffers(
@@ -4230,11 +4233,11 @@ impl App {
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
                         rendered_environment_irradiance_capture_frame,
+                        &self.time_info,
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,
                         self.environment_lighting_test_scene.as_ref(),
-                        self.time_info.total_frame_count(),
                     ) {
                         Ok(readback) => readback,
                         Err(err) => {

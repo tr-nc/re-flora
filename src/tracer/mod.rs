@@ -2,13 +2,14 @@ mod resources;
 pub use resources::*;
 
 mod capture_frame;
-use capture_frame::CaptureTraceRecordingHost;
 #[cfg(test)]
 pub(crate) use capture_frame::RecordingCaptureFrameHost;
+use capture_frame::{CaptureBuffersReady, CaptureReadbackTarget};
 pub(crate) use capture_frame::{
-    CaptureBuffersReady, CaptureFrameIdentity, CaptureFramePlan, CaptureFramePlanner,
-    RenderedCaptureFrame,
+    CaptureCoordinator, CaptureFramePlan, CaptureReadbackCandidate, CaptureReadinessObservation,
+    RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame,
 };
+use capture_frame::{CaptureReadbackPermit, CaptureTraceRecordingHost};
 
 mod butterfly_palette;
 pub use butterfly_palette::*;
@@ -137,6 +138,12 @@ use re_flora_vkn::{
     Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::{fmt, time::Instant};
+
+impl CaptureReadbackTarget for Buffer {
+    fn capture_readback_byte_count(&self) -> u64 {
+        self.get_size_bytes()
+    }
+}
 
 struct DdgiConvergencePolicyEvidence;
 
@@ -1752,16 +1759,27 @@ impl Tracer {
     pub fn record_environment_irradiance_capture_readback(
         &self,
         cmdbuf: &CommandBuffer,
-        readback: &Buffer,
-        _rendered_frame: RenderedCaptureFrame,
+        permit: CaptureReadbackPermit<Buffer>,
     ) {
+        let (readback, identity) = permit.into_parts();
         let source = &self
             .resources
             .extent_dependent_resources
             .environment_irradiance_capture;
-        assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
-        source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
-        cmdbuf.use_buffer(readback, BufferUse::HostRead);
+        assert_eq!(identity.target_byte_count, readback.get_size_bytes());
+        assert_eq!(source.get_size_bytes(), identity.target_byte_count);
+        log::trace!(
+            target: "re_flora::tracer::capture_frame",
+            "capture readback authorized frame={} field_serial={} radiance={:?} inflight_revision={:?} target_serial={} bytes={}",
+            identity.physical_frame_serial,
+            identity.checkpoint.field.field().serial(),
+            identity.radiance_request,
+            identity.inflight_target_revision,
+            identity.target_serial,
+            identity.target_byte_count,
+        );
+        source.record_copy_to_buffer(cmdbuf, &readback, source.get_size_bytes(), 0, 0);
+        cmdbuf.use_buffer(&readback, BufferUse::HostRead);
     }
 
     pub fn record_ddgi_spatial_weight_readback(&self, cmdbuf: &CommandBuffer, readback: &Buffer) {
@@ -2409,6 +2427,7 @@ impl Tracer {
         // consumers intentionally use the resident field until its replacement promotes.
         let ddgi_consumer_invalidation_voxel_bound = None;
         let capture_buffers_ready = capture_frame_plan.publish_buffers(
+            time_info,
             &mut buffer_updater::CaptureShadingInfoPublication {
                 resources: &self.resources,
                 environment: ddgi_lighting.transport,
