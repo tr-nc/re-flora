@@ -8,12 +8,14 @@ import json
 import math
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 
 DEFAULT_CASES = ("sealed", "portal", "donor", "dogleg")
 DEFAULT_SPACINGS = (32, 16)
+CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_acceptance.toml"
 VALIDATION_PATTERN = re.compile(
     r"geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
@@ -30,7 +32,10 @@ VALIDATION_PATTERN = re.compile(
     r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)"
 )
 TERMINAL_PATTERN = re.compile(
-    r"transport converged .*update_epoch=(?P<epoch>\d+).*reason=(?P<reason>\w+)"
+    r"terminal geometry_revision=(?P<geometry>\d+) "
+    r"radiance_revision=(?P<radiance>\d+) "
+    r"spacing_voxels=(?P<spacing>\d+) "
+    r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)"
 )
 POLICY_PATTERN = re.compile(
     r"initialization requested .*?"
@@ -57,7 +62,7 @@ def close(left: float, right: float) -> bool:
 
 def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Policy]:
     records: list[dict[str, object]] = []
-    terminal_reason: str | None = None
+    terminals: list[dict[str, object]] = []
     text = console_path.read_text()
     policy_matches = list(POLICY_PATTERN.finditer(text))
     if len(policy_matches) != 1:
@@ -76,8 +81,24 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
         int(policy_values["minimum"]),
         maximum_update_epochs - 1,
     )
+    contract = tomllib.loads(CONTRACT_PATH.read_text())
+    if contract.get("schema_version") != 1:
+        raise ValueError("unsupported DDGI convergence acceptance contract")
+    contract_epochs = contract.get("maximum_update_epochs")
+    contract_terminal = contract.get("terminal_update_epoch")
+    if (
+        not isinstance(contract_epochs, int)
+        or not isinstance(contract_terminal, int)
+        or contract_terminal != contract_epochs - 1
+    ):
+        raise ValueError("invalid DDGI convergence acceptance epoch contract")
+    if maximum_update_epochs != contract_epochs:
+        raise ValueError(
+            "runtime convergence maximum_update_epochs drifted from acceptance contract: "
+            f"runtime={maximum_update_epochs} contract={contract_epochs}"
+        )
     for line in text.splitlines():
-        if "[DDGI] full-atlas validated" in line:
+        if "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated" in line:
             match = VALIDATION_PATTERN.search(line)
             if match is None:
                 raise ValueError(
@@ -103,16 +124,38 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str, Polic
                     "required_consecutive_epochs": int(values["required"]),
                 }
             )
-        if "[DDGI] transport converged" in line:
+        if "[DDGI_CONVERGENCE_EVIDENCE] terminal" in line:
             match = TERMINAL_PATTERN.search(line)
             if match is None:
                 raise ValueError(f"malformed convergence line in {console_path}: {line}")
-            terminal_reason = match.group("reason")
+            values = match.groupdict()
+            terminals.append(
+                {
+                    "geometry_revision": int(values["geometry"]),
+                    "radiance_revision": int(values["radiance"]),
+                    "spacing_voxels": int(values["spacing"]),
+                    "update_epoch": int(values["epoch"]),
+                    "reason": values["reason"],
+                }
+            )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
-    if terminal_reason is None:
-        raise ValueError(f"no terminal convergence record in {console_path}")
-    return records, terminal_reason, policy
+    if len(terminals) != 1:
+        raise ValueError(
+            f"expected exactly one terminal convergence record in {console_path}, "
+            f"found {len(terminals)}"
+        )
+    terminal = terminals[0]
+    final = records[-1]
+    for field in (
+        "geometry_revision",
+        "radiance_revision",
+        "spacing_voxels",
+        "update_epoch",
+    ):
+        if terminal[field] != final[field]:
+            raise ValueError(f"terminal {field} does not match final validation record")
+    return records, str(terminal["reason"]), policy
 
 
 def validate_curve(
@@ -155,9 +198,10 @@ def validate_curve(
 
     previous_consecutive = 0
     first_threshold_epoch: int | None = None
-    for record in records:
+    for index, record in enumerate(records):
         epoch = int(record["update_epoch"])
-        if record["state"] != "Converging":
+        expected_state = "Converged" if index == len(records) - 1 else "Converging"
+        if record["state"] != expected_state:
             raise ValueError(f"{case_name} spacing {spacing}: destination state drift")
         if not close(float(record["absolute_threshold"]), policy.absolute_threshold):
             raise ValueError(f"{case_name} spacing {spacing}: absolute policy drift")

@@ -30,7 +30,7 @@ dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 source "$repo_root/scripts/lib/capture_process_evidence.sh"
-capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::ddgi_convergence_evidence=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 failures=0
 filter_history_outcome_accepted=true
 

@@ -61,6 +61,14 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
                 """#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "build" ]]; then exit 0; fi
+if [[ "${RUST_LOG:-}" != *"re_flora::ddgi_convergence_evidence=debug"* ]]; then
+    echo "missing dedicated convergence evidence target" >&2
+    exit 91
+fi
+if [[ "${RUST_LOG:-}" == *"re_flora::tracer=debug"* ]]; then
+    echo "broad tracer debug must remain disabled" >&2
+    exit 92
+fi
 arguments=("$@")
 for ((index = 0; index < ${#arguments[@]}; ++index)); do
     if [[ "${arguments[$index]}" == "--environment-irradiance-capture" ]]; then

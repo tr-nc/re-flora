@@ -11,11 +11,12 @@ use super::resources::{
 };
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiProbePriority,
-    DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork,
-    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh, DdgiTraceStats,
-    DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiConvergenceReason, DdgiFieldIdentity,
+    DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes,
+    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh,
+    DdgiTraceStats, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY,
+    DDGI_RAYS_PER_PROBE,
 };
 
 const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
@@ -92,6 +93,7 @@ pub(crate) struct DdgiBatchCompletion {
     pub status: DdgiRuntimeVolumeStatus,
     pub atlas_validation: Option<DdgiAtlasValidationStats>,
     pub published: Option<(DdgiScheduledWork, DdgiFieldIdentity)>,
+    pub convergence_reason: Option<DdgiConvergenceReason>,
     pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
 }
@@ -144,6 +146,23 @@ fn execute_publication_transaction<S, T: Copy, P, R>(
                 committed: commit(state, candidate, published),
             })
         }
+    }
+}
+
+fn validated_publication_parts(
+    outcome: DdgiValidatedIterationOutcome,
+) -> (
+    DdgiScheduledWork,
+    DdgiFieldIdentity,
+    Option<DdgiConvergenceReason>,
+) {
+    match outcome {
+        DdgiValidatedIterationOutcome::Published { work, field, .. } => (work, field, None),
+        DdgiValidatedIterationOutcome::Converged {
+            work,
+            field,
+            reason,
+        } => (work, field, Some(reason)),
     }
 }
 
@@ -1020,6 +1039,7 @@ impl DdgiRuntime {
                 status: before.into(),
                 atlas_validation: None,
                 published: None,
+                convergence_reason: None,
                 consumer_descriptor_generation: None,
                 capture_observed: false,
             });
@@ -1051,6 +1071,7 @@ impl DdgiRuntime {
             .mark_trace_stats_verified(batch)?;
         let mut atlas_validation = None;
         let mut published = None;
+        let mut convergence_reason = None;
         let mut consumer_descriptor_generation = None;
         let mut capture_observed = false;
         if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
@@ -1102,12 +1123,8 @@ impl DdgiRuntime {
                             .expect(
                                 "preflighted DDGI field publication must not fail after consumers publish",
                             );
-                        let (validated_work, field) = match validated {
-                            DdgiValidatedIterationOutcome::Published { work, field, .. }
-                            | DdgiValidatedIterationOutcome::Converged { work, field, .. } => {
-                                (work, field)
-                            }
-                        };
+                        let (validated_work, field, reason) =
+                            validated_publication_parts(validated);
                         assert_eq!(
                             field, classified,
                             "DDGI atlas classification changed during publication"
@@ -1127,15 +1144,16 @@ impl DdgiRuntime {
                             stats,
                             DdgiCapturePublication::Published,
                         );
-                        (field, capture_observed, generation)
+                        (field, capture_observed, generation, reason)
                     },
                 )?;
                 match transaction {
                     PublicationTransactionOutcome::Published {
-                        committed: (field, capture_observed, generation),
+                        committed: (field, capture_observed, generation, reason),
                         ..
                     } => {
                         consumer_descriptor_generation = Some(generation);
+                        convergence_reason = reason;
                         (field, capture_observed)
                     }
                     PublicationTransactionOutcome::Idle
@@ -1149,10 +1167,7 @@ impl DdgiRuntime {
                     stats,
                     DDGI_CONVERGENCE_POLICY,
                 )?;
-                let (validated_work, field) = match validated {
-                    DdgiValidatedIterationOutcome::Published { work, field, .. }
-                    | DdgiValidatedIterationOutcome::Converged { work, field, .. } => (work, field),
-                };
+                let (validated_work, field, reason) = validated_publication_parts(validated);
                 assert_eq!(
                     field, classified,
                     "private DDGI atlas classification changed during publication"
@@ -1171,6 +1186,7 @@ impl DdgiRuntime {
                     stats,
                     DdgiCapturePublication::Published,
                 );
+                convergence_reason = reason;
                 (field, capture_observed)
             };
             capture_observed = observed_capture;
@@ -1188,6 +1204,7 @@ impl DdgiRuntime {
             status: after.into(),
             atlas_validation,
             published,
+            convergence_reason,
             consumer_descriptor_generation,
             capture_observed,
         })
@@ -1533,6 +1550,33 @@ mod tests {
             logical: "old-logical",
             commit_calls: 0,
         }
+    }
+
+    #[test]
+    fn validated_publication_exposes_only_a_typed_terminal_reason() {
+        let mut scheduler = DdgiTransportScheduler::new();
+        scheduler.observe_radiance(3);
+        scheduler.request_geometry(7, 16);
+        let work = scheduler.claim_next().unwrap().unwrap();
+        let field = field(7, 3);
+
+        let (_, published_field, published_reason) =
+            validated_publication_parts(DdgiValidatedIterationOutcome::Published {
+                work,
+                field,
+                consecutive_below_threshold: 1,
+            });
+        assert_eq!(published_field, field);
+        assert_eq!(published_reason, None);
+
+        let (_, converged_field, converged_reason) =
+            validated_publication_parts(DdgiValidatedIterationOutcome::Converged {
+                work,
+                field,
+                reason: DdgiConvergenceReason::Threshold,
+            });
+        assert_eq!(converged_field, field);
+        assert_eq!(converged_reason, Some(DdgiConvergenceReason::Threshold));
     }
 
     #[test]

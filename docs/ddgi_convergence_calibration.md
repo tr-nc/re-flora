@@ -15,6 +15,11 @@ or scheduler change.
 | consecutive passing epochs | `2` |
 | maximum complete epochs | `128` (`e0` through `e127`) |
 
+The checked-in machine contract is
+`config/ddgi_convergence_acceptance.toml`. Rust locks the runtime policy to that contract, while the
+Python summarizer independently rejects a process whose logged policy drifts from it. This prevents
+the producer and every acceptance process from moving together to a shorter budget unnoticed.
+
 The maximum is a finite temporal sampling budget and sleep backstop. `Threshold` means both deltas
 passed for the required consecutive epochs after the minimum age. `SampleBudget` means the latest
 finite nonnegative field was retained and put to sleep at e127 even though its maximum texel delta did
@@ -53,12 +58,14 @@ scripts/check_ddgi_transport_acceptance.sh
 
 The convergence summarizer validates:
 
-- one authoritative typed runtime-policy record per process, with no runner-owned epoch-count copy;
+- one authoritative typed runtime-policy record per process, checked against the shared acceptance
+  contract with no runner-owned epoch-count copy;
 - one contiguous epoch sequence for the capture's exact geometry/radiance/spacing identity;
 - full valid/stored atlas coverage for every epoch;
 - finite, nonnegative RGB values;
 - the exact policy constants above;
-- captured epoch/state matching the terminal log record;
+- exactly one dedicated typed terminal record whose identity and epoch match the final full-atlas
+  validation and capture;
 - terminal reason matching either the first valid threshold stop or e127 sample-budget stop.
 
 ## Known limitation and next experiment

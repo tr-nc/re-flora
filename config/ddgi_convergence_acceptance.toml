@@ -1,0 +1,3 @@
+schema_version = 1
+maximum_update_epochs = 128
+terminal_update_epoch = 127

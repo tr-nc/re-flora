@@ -40,7 +40,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             (3, 0.001, 0.005, 2),
         )
         lines.append(
-            "[DDGI] full-atlas validated geometry_revision=1 radiance_revision=1 "
+            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated geometry_revision=1 radiance_revision=1 "
             "spacing_voxels=32 state=Converging update_epoch=0 source=None "
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
             "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
@@ -49,9 +49,9 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         )
         for epoch, absolute, relative, consecutive in samples:
             lines.append(
-                "[DDGI] full-atlas validated "
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated "
                 "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
-                f"state=Converging update_epoch={epoch} source=None "
+                f"state={'Converged' if epoch == 3 else 'Converging'} update_epoch={epoch} "
                 f"max_abs_rgb_delta={absolute:.8f} "
                 f"max_rel_rgb_delta={relative:.8f} "
                 "non_finite=0 negative_rgb_texels=0 "
@@ -60,8 +60,9 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 f"consecutive_below={consecutive}/2"
             )
         lines.append(
-            "[DDGI] transport converged "
-            f"field_serial=4 update_epoch=3 reason={terminal_reason}"
+            "[DDGI_CONVERGENCE_EVIDENCE] terminal "
+            "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
+            f"update_epoch=3 reason={terminal_reason}"
         )
         (run_dir / f"{stem}.console.log").write_text("\n".join(lines) + "\n")
         (run_dir / f"{stem}.analysis.json").write_text(
@@ -118,17 +119,44 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(len(curve["epochs"]), 4)
         self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
 
-    def test_derives_the_terminal_epoch_from_the_runtime_epoch_count(self) -> None:
+    def test_rejects_runtime_epoch_count_drift_from_the_acceptance_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
             output = run_dir / "summary.json"
             self.write_curve(run_dir, maximum_update_epochs=64)
 
             result = self.run_summarizer(run_dir, output)
-            report = json.loads(output.read_text())
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(report["policy"]["maximum_update_epoch"], 63)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(output.exists())
+        self.assertIn("drifted from acceptance contract", result.stderr)
+
+    def test_rejects_missing_duplicate_or_mismatched_terminal_evidence(self) -> None:
+        mutations = (
+            (
+                "missing-validations",
+                lambda text: "\n".join(
+                    line
+                    for line in text.splitlines()
+                    if " full-atlas validated " not in line
+                ),
+            ),
+            ("missing", lambda text: "\n".join(line for line in text.splitlines() if " terminal " not in line)),
+            ("duplicate", lambda text: text + next(line for line in text.splitlines() if " terminal " in line) + "\n"),
+            ("epoch", lambda text: text.replace("update_epoch=3 reason=Threshold", "update_epoch=2 reason=Threshold")),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                console = run_dir / "sealed-spacing32-converged-forward.console.log"
+                console.write_text(mutate(console.read_text()))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(output.exists())
 
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

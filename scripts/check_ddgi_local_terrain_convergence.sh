@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 source "$repo_root/scripts/lib/capture_process_evidence.sh"
-capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::ddgi_convergence_evidence=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 
 output_root="${DDGI_LOCAL_TERRAIN_OUTPUT_DIR:-$repo_root/target/ddgi-local-terrain-convergence}"
 auto_exit="${DDGI_LOCAL_TERRAIN_AUTO_EXIT:-30}"
@@ -92,7 +92,7 @@ if [[ -n "$final_revision" ]]; then
 
     if [[ -n "$promotion_line" ]]; then
         post_promotion_high_delta_epochs="$(tail -n "+$promotion_line" "$console" | awk -v revision="$final_revision" '
-            $0 ~ /\[DDGI\] full-atlas validated/ && $0 ~ ("geometry_revision=" revision "([^0-9]|$)") {
+            $0 ~ /\[DDGI_CONVERGENCE_EVIDENCE\] full-atlas validated/ && $0 ~ ("geometry_revision=" revision "([^0-9]|$)") {
                 if (match($0, /max_abs_rgb_delta=[0-9.]+/)) {
                     value = substr($0, RSTART + 18, RLENGTH - 18) + 0.0
                     if (value > 0.1) count += 1
@@ -113,7 +113,7 @@ fi
 
 if (( failures != 0 )); then
     echo "[DDGI_LOCAL_TERRAIN] verdict=RED failures=$failures output=$run_dir" >&2
-    rg -n "LOCAL_RECOVERY|runtime observed visible terrain|staging promoted|transport converged|ENV_LIGHT_EDIT_CYCLE" "$console" | tail -n 32 >&2 || true
+    rg -n "LOCAL_RECOVERY|runtime observed visible terrain|staging promoted|DDGI_CONVERGENCE_EVIDENCE|ENV_LIGHT_EDIT_CYCLE" "$console" | tail -n 32 >&2 || true
     exit 1
 fi
 

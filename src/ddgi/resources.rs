@@ -330,13 +330,6 @@ impl DdgiRayBatch {
         self.resident.destination.atlas_slot.label()
     }
 
-    pub fn source_label(self) -> &'static str {
-        self.resident
-            .source
-            .map(|source| source.atlas_slot.label())
-            .unwrap_or("none")
-    }
-
     pub fn writes_visibility(self) -> bool {
         self.resident.work.kind() != DdgiScheduledWorkKind::RadianceUpdate
     }
@@ -2324,6 +2317,23 @@ fn ddgi_atlas_image_usage() -> vk::ImageUsageFlags {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_convergence_budget_matches_the_acceptance_contract() {
+        let contract: toml::Value = toml::from_str(include_str!(
+            "../../config/ddgi_convergence_acceptance.toml"
+        ))
+        .unwrap();
+        let maximum_update_epochs = contract["maximum_update_epochs"].as_integer().unwrap();
+        let terminal_update_epoch = contract["terminal_update_epoch"].as_integer().unwrap();
+
+        assert_eq!(contract["schema_version"].as_integer(), Some(1));
+        assert_eq!(
+            u32::try_from(maximum_update_epochs).unwrap(),
+            DDGI_CONVERGENCE_POLICY.maximum_update_epochs
+        );
+        assert_eq!(terminal_update_epoch, maximum_update_epochs - 1);
+    }
 
     fn initial_work(
         geometry_revision: u32,
