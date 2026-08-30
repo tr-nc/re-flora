@@ -67,14 +67,15 @@ class RadianceLifecycleStreamTests(unittest.TestCase):
     def test_rejects_identity_drift_and_obsolete_r3_publication(self) -> None:
         self.assert_rejected(
             VALID_RADIANCE_STREAM.replace(
-                "building_field_serial=11 building_radiance_revision=4",
+                "building_field_serial=12 building_radiance_revision=4",
                 "building_field_serial=99 building_radiance_revision=4",
             ),
             "field.*drift|r4",
         )
         obsolete = VALID_RADIANCE_STREAM.replace(
             "[DDGI][PUBLICATION] serial=12 geometry_revision=7 radiance_revision=4",
-            "[DDGI][PUBLICATION] serial=99 geometry_revision=7 radiance_revision=3\n"
+            "[DDGI][PUBLICATION] serial=99 geometry_revision=7 radiance_revision=3 "
+            "update_epoch=0 kind=RadianceUpdate\n"
             "[DDGI][PUBLICATION] serial=12 geometry_revision=7 radiance_revision=4",
         )
         self.assert_rejected(obsolete, "obsolete|out of order")
