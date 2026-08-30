@@ -57,7 +57,7 @@ use self::terrain_connectivity::bench::TerrainConnectivityBench;
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
-use self::vegetation::{TreeRuntime, TreeVariationConfig};
+use self::vegetation::{GardenTrees, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
 use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
@@ -551,7 +551,7 @@ pub struct App {
     tree_variation_config: TreeVariationConfig,
     #[allow(dead_code)]
     regenerate_trees_requested: bool,
-    trees: TreeRuntime,
+    trees: GardenTrees,
 
     particle_system: ParticleSystem,
     butterfly_emitters: Vec<ButterflyEmitter>,
@@ -1332,7 +1332,7 @@ impl App {
             color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
-        let trees = TreeRuntime::new(leaf_emitter_desc);
+        let trees = GardenTrees::new(leaf_emitter_desc);
         let mut tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),

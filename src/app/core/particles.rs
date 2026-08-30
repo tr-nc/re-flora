@@ -124,6 +124,10 @@ impl TreeLeafEmitterRuntime {
         }
     }
 
+    pub(super) fn empty_like(&self) -> Self {
+        Self::new(self.desc)
+    }
+
     pub(super) fn upsert(&mut self, tree_id: u32, clusters: &[ClusterResult]) {
         self.remove(tree_id);
 

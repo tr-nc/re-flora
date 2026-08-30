@@ -826,6 +826,239 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
     point.distance_squared(closest)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationOperation {
+    Place,
+    Replace,
+    Remove,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationAction {
+    PublishTrunks,
+    PublishLeaves,
+    PublishFruitLifecycle,
+    PublishAttachedFruit,
+    InvalidateLocalShadows,
+    PublishCanopyAudio,
+    FinalizeObserverPublication,
+    RemoveLeaves,
+    RemoveFruitLifecycle,
+    RemoveCanopyAudio,
+    CommitPublication,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationMetric {
+    Leaves,
+    Fruit,
+    Shadows,
+    Audio,
+}
+
+impl TreePublicationAction {
+    fn metric(self) -> Option<TreePublicationMetric> {
+        match self {
+            Self::PublishLeaves | Self::RemoveLeaves => Some(TreePublicationMetric::Leaves),
+            Self::PublishFruitLifecycle
+            | Self::PublishAttachedFruit
+            | Self::RemoveFruitLifecycle => Some(TreePublicationMetric::Fruit),
+            Self::InvalidateLocalShadows => Some(TreePublicationMetric::Shadows),
+            Self::PublishCanopyAudio | Self::RemoveCanopyAudio => {
+                Some(TreePublicationMetric::Audio)
+            }
+            Self::PublishTrunks | Self::FinalizeObserverPublication | Self::CommitPublication => {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationPrimitive {
+    PublishTrunks,
+    PublishLeaves,
+    PublishFruitLifecycle,
+    PublishAttachedFruit,
+    InvalidateLocalShadows,
+    PublishCanopyAudio,
+    RemoveLeaves,
+    RemoveFruitLifecycle,
+    RemoveCanopyAudio,
+    FinalizeObserverPublication,
+    CommitPublication,
+}
+
+struct TreePublicationPlan {
+    operation: TreePublicationOperation,
+    actions: &'static [TreePublicationAction],
+}
+
+impl TreePublicationPlan {
+    const PLACE_OR_REPLACE_ACTIONS: &'static [TreePublicationAction] = &[
+        TreePublicationAction::PublishLeaves,
+        TreePublicationAction::PublishFruitLifecycle,
+        TreePublicationAction::PublishAttachedFruit,
+        TreePublicationAction::InvalidateLocalShadows,
+        TreePublicationAction::PublishCanopyAudio,
+        TreePublicationAction::FinalizeObserverPublication,
+    ];
+    const REMOVE_ACTIONS: &'static [TreePublicationAction] = &[
+        TreePublicationAction::RemoveLeaves,
+        TreePublicationAction::RemoveFruitLifecycle,
+        TreePublicationAction::InvalidateLocalShadows,
+        TreePublicationAction::RemoveCanopyAudio,
+        TreePublicationAction::FinalizeObserverPublication,
+    ];
+
+    fn for_operation(operation: TreePublicationOperation) -> Self {
+        let actions = match operation {
+            TreePublicationOperation::Place | TreePublicationOperation::Replace => {
+                Self::PLACE_OR_REPLACE_ACTIONS
+            }
+            TreePublicationOperation::Remove => Self::REMOVE_ACTIONS,
+        };
+        Self { operation, actions }
+    }
+}
+
+enum TreePublicationActionOutput {
+    Complete,
+    TrunkPublication(TreeTrunkPublicationOutcome),
+    CanopyAudioSourceCount(usize),
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TreeTrunkPublicationOutcome {
+    mutation_elapsed: std::time::Duration,
+    visible_publication_elapsed: std::time::Duration,
+}
+
+impl TreeTrunkPublicationOutcome {
+    fn from_total_elapsed(
+        mutation_elapsed: std::time::Duration,
+        total_elapsed: std::time::Duration,
+    ) -> Self {
+        Self {
+            mutation_elapsed,
+            visible_publication_elapsed: total_elapsed.saturating_sub(mutation_elapsed),
+        }
+    }
+}
+
+trait TreePublicationPrimitiveHost {
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()>;
+
+    /// Validate and stage everything that can fail before the first observable publication action.
+    fn prepare(
+        &mut self,
+        operation: TreePublicationOperation,
+        tree_id: u32,
+        publication: Option<&PreparedTreePublication>,
+        previous: Option<&TreeRecord>,
+    ) -> Result<()>;
+
+    fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome>;
+    fn publish_leaves(&mut self, tree_id: u32, publication: &PreparedTreePublication)
+        -> Result<()>;
+    fn publish_fruit_lifecycle(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<()>;
+    fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()>;
+    fn invalidate_local_shadows(&mut self, tree_id: u32) -> Result<()>;
+    fn publish_canopy_audio(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<usize>;
+    fn remove_leaves(&mut self, tree_id: u32) -> Result<()>;
+    fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()>;
+    fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()>;
+    fn finalize_observer_publication(&mut self, tree_id: u32) -> Result<()>;
+    fn commit_publication(&mut self) -> Result<()>;
+
+    /// Restore every prepared tree to the physical state represented by its prior canonical record.
+    fn compensate(&mut self) -> Result<()>;
+}
+
+struct TreePublicationExecutor<'a, H> {
+    host: &'a mut H,
+}
+
+impl<'a, H: TreePublicationPrimitiveHost> TreePublicationExecutor<'a, H> {
+    fn new(host: &'a mut H) -> Self {
+        Self { host }
+    }
+
+    fn prepare(
+        &mut self,
+        operation: TreePublicationOperation,
+        tree_id: u32,
+        publication: Option<&PreparedTreePublication>,
+        previous: Option<&TreeRecord>,
+    ) -> Result<()> {
+        self.host.prepare(operation, tree_id, publication, previous)
+    }
+
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+        self.host.prepare_retained_trunks(retained)
+    }
+
+    fn execute(
+        &mut self,
+        action: TreePublicationAction,
+        tree_id: u32,
+        publication: Option<&PreparedTreePublication>,
+    ) -> Result<TreePublicationActionOutput> {
+        match action {
+            TreePublicationAction::PublishTrunks => {
+                return self
+                    .host
+                    .publish_trunks()
+                    .map(TreePublicationActionOutput::TrunkPublication);
+            }
+            TreePublicationAction::PublishLeaves => self.host.publish_leaves(
+                tree_id,
+                publication.context("tree leaf publication is missing prepared data")?,
+            )?,
+            TreePublicationAction::PublishFruitLifecycle => self.host.publish_fruit_lifecycle(
+                tree_id,
+                publication.context("tree fruit publication is missing prepared data")?,
+            )?,
+            TreePublicationAction::PublishAttachedFruit => {
+                self.host.publish_attached_fruit(tree_id)?
+            }
+            TreePublicationAction::InvalidateLocalShadows => {
+                self.host.invalidate_local_shadows(tree_id)?
+            }
+            TreePublicationAction::PublishCanopyAudio => {
+                let count = self.host.publish_canopy_audio(
+                    tree_id,
+                    publication.context("tree audio publication is missing prepared data")?,
+                )?;
+                return Ok(TreePublicationActionOutput::CanopyAudioSourceCount(count));
+            }
+            TreePublicationAction::RemoveLeaves => self.host.remove_leaves(tree_id)?,
+            TreePublicationAction::RemoveFruitLifecycle => {
+                self.host.remove_fruit_lifecycle(tree_id)?
+            }
+            TreePublicationAction::RemoveCanopyAudio => self.host.remove_canopy_audio(tree_id)?,
+            TreePublicationAction::FinalizeObserverPublication => {
+                self.host.finalize_observer_publication(tree_id)?
+            }
+            TreePublicationAction::CommitPublication => self.host.commit_publication()?,
+        }
+        Ok(TreePublicationActionOutput::Complete)
+    }
+
+    fn compensate(&mut self) -> Result<()> {
+        self.host.compensate()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct TreeRecord {
     position: Vec3,
@@ -833,26 +1066,139 @@ struct TreeRecord {
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
     butterfly_spawn_positions_ws: Vec<Vec3>,
+    leaf_render_positions: Vec<UVec3>,
+    leaf_render_local_positions: Vec<IVec3>,
+    fruit_specs: Vec<TreeFruitSpec>,
+    canopy_acoustic_descriptor: CanopyAcousticDescriptor,
+    leaf_clusters: Vec<ClusterResult>,
 }
 
-pub(super) struct TreeRuntime {
+struct PreparedTreePublication {
+    tree_id: u32,
+    record: TreeRecord,
+    rebuild_bound: UAabb3,
+    leaf_anchor_count: usize,
+    cluster_elapsed: std::time::Duration,
+}
+
+impl PreparedTreePublication {
+    fn new(tree_id: u32, mature_desc: TreeDesc, compiled: CompiledTreePlacement) -> Self {
+        let cluster_start = Instant::now();
+        let leaf_clusters =
+            cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
+        let cluster_elapsed = cluster_start.elapsed();
+        let butterfly_spawn_positions_ws = compiled
+            .quantized_leaf_render_positions
+            .iter()
+            .map(|position| {
+                (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
+            })
+            .collect::<Vec<_>>();
+        Self {
+            tree_id,
+            rebuild_bound: compiled.rebuild_bound,
+            leaf_anchor_count: compiled.quantized_leaf_positions.len(),
+            cluster_elapsed,
+            record: TreeRecord {
+                position: compiled.tree_pos,
+                bound: compiled.this_bound,
+                mature_desc,
+                trunk_geometry: compiled.trunk_geometry,
+                butterfly_spawn_positions_ws,
+                leaf_render_positions: compiled.quantized_leaf_render_positions,
+                leaf_render_local_positions: compiled.leaf_render_local_positions,
+                fruit_specs: compiled.fruit_specs,
+                canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
+                leaf_clusters,
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TreePublicationReceipt {
+    trunk_mutation_elapsed: std::time::Duration,
+    visible_terrain_publication_elapsed: std::time::Duration,
+    leaf_publication_elapsed: std::time::Duration,
+    fruit_publication_elapsed: std::time::Duration,
+    shadow_invalidation_elapsed: std::time::Duration,
+    cluster_elapsed: std::time::Duration,
+    audio_elapsed: std::time::Duration,
+    leaf_emitter_commit_elapsed: std::time::Duration,
+    canonical_record_commit_elapsed: std::time::Duration,
+    canopy_audio_source_count: usize,
+    rebuild_bound: UAabb3,
+    leaf_anchor_count: usize,
+    leaf_instance_count: usize,
+    fruit_count: usize,
+    leaf_cluster_count: usize,
+    canopy_generation: u64,
+}
+
+struct TreePlacementPerformance {
+    total_start: Instant,
+    compile_elapsed: std::time::Duration,
+    trunk_mutation_elapsed: std::time::Duration,
+    visible_terrain_publication_elapsed: std::time::Duration,
+    trunk_count: usize,
+    rebuild_chunk_count: usize,
+    benchmark_gui_tree: bool,
+}
+
+struct TreeCanonicalCommitTiming {
+    leaf_emitter_elapsed: std::time::Duration,
+    canonical_record_elapsed: std::time::Duration,
+}
+
+impl TreePublicationReceipt {
+    fn observer_publication_elapsed(&self) -> std::time::Duration {
+        self.leaf_publication_elapsed
+            + self.fruit_publication_elapsed
+            + self.shadow_invalidation_elapsed
+            + self.audio_elapsed
+    }
+
+    #[cfg(test)]
+    fn canopy_audio_source_count(&self) -> usize {
+        self.canopy_audio_source_count
+    }
+}
+
+pub(super) struct GardenTrees {
     records: HashMap<u32, TreeRecord>,
+    trunk_tree_ids_by_chunk: HashMap<UVec3, HashSet<u32>>,
     next_tree_id: u32,
     next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
+    staged_tuned_mature_desc: Option<TreeDesc>,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
 }
 
-impl TreeRuntime {
+impl GardenTrees {
     pub(super) fn new(leaf_emitter_desc: LeafEmitterDesc) -> Self {
         Self {
             records: HashMap::new(),
+            trunk_tree_ids_by_chunk: HashMap::new(),
             next_tree_id: 1,
             next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
+            staged_tuned_mature_desc: None,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
+        }
+    }
+
+    fn empty_shell(&self) -> Self {
+        Self {
+            records: HashMap::new(),
+            trunk_tree_ids_by_chunk: HashMap::new(),
+            next_tree_id: self.next_tree_id,
+            next_canopy_acoustic_generation: self.next_canopy_acoustic_generation,
+            tuned_tree_id: self.tuned_tree_id,
+            staged_tuned_mature_desc: None,
+            previous_bound: self.previous_bound,
+            leaf_emitters: self.leaf_emitters.empty_like(),
         }
     }
 
@@ -885,10 +1231,19 @@ impl TreeRuntime {
         self.records.get(&self.tuned_tree_id).cloned()
     }
 
-    fn age_rebuild_sources(&self) -> Vec<(u32, TreeRecord)> {
+    fn take_age_rebuild_sources(&mut self) -> Vec<(u32, TreeRecord)> {
+        let staged_tuned_mature_desc = self.staged_tuned_mature_desc.take();
         self.records
             .iter()
-            .map(|(&tree_id, record)| (tree_id, record.clone()))
+            .map(|(&tree_id, record)| {
+                let mut record = record.clone();
+                if tree_id == self.tuned_tree_id {
+                    if let Some(staged) = &staged_tuned_mature_desc {
+                        record.mature_desc = staged.clone();
+                    }
+                }
+                (tree_id, record)
+            })
             .collect()
     }
 
@@ -901,30 +1256,98 @@ impl TreeRuntime {
     }
 
     fn stage_tuned_description(&mut self, mature_desc: TreeDesc) -> bool {
-        let Some(record) = self.records.get_mut(&self.tuned_tree_id) else {
+        if !self.records.contains_key(&self.tuned_tree_id) {
             return false;
-        };
-        record.mature_desc = mature_desc;
+        }
+        self.staged_tuned_mature_desc = Some(mature_desc);
         true
     }
 
-    fn commit_placement(
-        &mut self,
-        tree_id: u32,
-        record: TreeRecord,
-        leaf_clusters: &[ClusterResult],
-    ) {
+    fn trunk_chunks(record: &TreeRecord) -> Vec<UVec3> {
+        world_ops::affected_chunk_indices_for_bound(record.bound, super::VOXEL_DIM_PER_CHUNK)
+    }
+
+    fn index_trunk(&mut self, tree_id: u32, record: &TreeRecord) {
+        for chunk_id in Self::trunk_chunks(record) {
+            self.trunk_tree_ids_by_chunk
+                .entry(chunk_id)
+                .or_default()
+                .insert(tree_id);
+        }
+    }
+
+    fn unindex_trunk(&mut self, tree_id: u32, record: &TreeRecord) {
+        let mut empty_chunks = Vec::new();
+        for chunk_id in Self::trunk_chunks(record) {
+            let Some(tree_ids) = self.trunk_tree_ids_by_chunk.get_mut(&chunk_id) else {
+                continue;
+            };
+            tree_ids.remove(&tree_id);
+            if tree_ids.is_empty() {
+                empty_chunks.push(chunk_id);
+            }
+        }
+        for chunk_id in empty_chunks {
+            self.trunk_tree_ids_by_chunk.remove(&chunk_id);
+        }
+    }
+
+    fn retained_trunks(
+        &self,
+        target_tree_ids: &HashSet<u32>,
+        dirty_bounds: &[UAabb3],
+    ) -> Vec<(u32, TreeRecord)> {
+        let mut candidate_ids = HashSet::new();
+        for bound in dirty_bounds {
+            for chunk_id in
+                world_ops::affected_chunk_indices_for_bound(*bound, super::VOXEL_DIM_PER_CHUNK)
+            {
+                if let Some(tree_ids) = self.trunk_tree_ids_by_chunk.get(&chunk_id) {
+                    candidate_ids.extend(tree_ids.iter().copied());
+                }
+            }
+        }
+        let mut retained = candidate_ids
+            .into_iter()
+            .filter(|tree_id| !target_tree_ids.contains(tree_id))
+            .filter_map(|tree_id| {
+                let record = self.records.get(&tree_id)?;
+                dirty_bounds
+                    .iter()
+                    .any(|bound| bound.intersects(&record.bound))
+                    .then(|| (tree_id, record.clone()))
+            })
+            .collect::<Vec<_>>();
+        retained.sort_unstable_by_key(|(tree_id, _)| *tree_id);
+        retained
+    }
+
+    fn commit_placement(&mut self, tree_id: u32, record: TreeRecord) -> TreeCanonicalCommitTiming {
+        let leaf_emitter_started_at = Instant::now();
+        self.leaf_emitters.upsert(tree_id, &record.leaf_clusters);
+        let leaf_emitter_elapsed = leaf_emitter_started_at.elapsed();
+
+        let canonical_record_started_at = Instant::now();
         if tree_id == self.next_tree_id {
             self.next_tree_id += 1;
         }
+        if let Some(previous) = self.records.get(&tree_id).cloned() {
+            self.unindex_trunk(tree_id, &previous);
+        }
         self.previous_bound = self.previous_bound.union_with(&record.bound);
+        self.index_trunk(tree_id, &record);
         self.records.insert(tree_id, record);
-        self.leaf_emitters.upsert(tree_id, leaf_clusters);
+        TreeCanonicalCommitTiming {
+            leaf_emitter_elapsed,
+            canonical_record_elapsed: canonical_record_started_at.elapsed(),
+        }
     }
 
     fn commit_removal(&mut self, tree_id: u32) -> Option<TreeRecord> {
         self.leaf_emitters.remove(tree_id);
-        self.records.remove(&tree_id)
+        let record = self.records.remove(&tree_id)?;
+        self.unindex_trunk(tree_id, &record);
+        Some(record)
     }
 
     fn observe_previous_bound(&mut self, bound: UAabb3) {
@@ -937,6 +1360,249 @@ impl TreeRuntime {
 
     fn len(&self) -> usize {
         self.records.len()
+    }
+
+    fn publish_batch(
+        &mut self,
+        operation: TreePublicationOperation,
+        publications: Vec<PreparedTreePublication>,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<Vec<TreePublicationReceipt>> {
+        anyhow::ensure!(!publications.is_empty(), "tree publication batch is empty");
+        let plan = TreePublicationPlan::for_operation(operation);
+        let target_tree_ids = publications
+            .iter()
+            .map(|publication| publication.tree_id)
+            .collect::<HashSet<_>>();
+        let dirty_bounds = publications
+            .iter()
+            .flat_map(|publication| {
+                self.records
+                    .get(&publication.tree_id)
+                    .map(|record| record.bound)
+                    .into_iter()
+                    .chain(std::iter::once(publication.record.bound))
+            })
+            .collect::<Vec<_>>();
+        let retained_trunks = self.retained_trunks(&target_tree_ids, &dirty_bounds);
+        let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare_retained_trunks(&retained_trunks)?;
+        for publication in &publications {
+            executor.prepare(
+                plan.operation,
+                publication.tree_id,
+                Some(publication),
+                self.records.get(&publication.tree_id),
+            )?;
+        }
+
+        let first_tree_id = publications[0].tree_id;
+        let trunk_outcome = match executor.execute(
+            TreePublicationAction::PublishTrunks,
+            first_tree_id,
+            None,
+        ) {
+            Ok(TreePublicationActionOutput::TrunkPublication(outcome)) => outcome,
+            Ok(_) => unreachable!("trunk publication must return trunk timings"),
+            Err(error) => {
+                return match executor.compensate() {
+                    Ok(()) => Err(error).context("publishing tree trunks"),
+                    Err(compensation_error) => Err(anyhow::anyhow!(
+                        "publishing tree trunks failed: {error:#}; compensation failed: {compensation_error:#}"
+                    )),
+                };
+            }
+        };
+
+        let mut receipts = Vec::with_capacity(publications.len());
+        for publication in &publications {
+            let tree_id = publication.tree_id;
+            let mut leaf_publication_elapsed = std::time::Duration::ZERO;
+            let mut fruit_publication_elapsed = std::time::Duration::ZERO;
+            let mut shadow_invalidation_elapsed = std::time::Duration::ZERO;
+            let mut audio_elapsed = std::time::Duration::ZERO;
+            let mut canopy_audio_source_count = 0;
+            for &action in plan.actions {
+                let action_start = Instant::now();
+                let outcome = executor.execute(action, tree_id, Some(publication));
+                let action_elapsed = action_start.elapsed();
+                match action.metric() {
+                    Some(TreePublicationMetric::Leaves) => {
+                        leaf_publication_elapsed += action_elapsed;
+                    }
+                    Some(TreePublicationMetric::Fruit) => {
+                        fruit_publication_elapsed += action_elapsed;
+                    }
+                    Some(TreePublicationMetric::Shadows) => {
+                        shadow_invalidation_elapsed += action_elapsed;
+                    }
+                    Some(TreePublicationMetric::Audio) => audio_elapsed += action_elapsed,
+                    None => {}
+                }
+                match outcome {
+                    Ok(TreePublicationActionOutput::CanopyAudioSourceCount(count)) => {
+                        canopy_audio_source_count = count;
+                    }
+                    Ok(TreePublicationActionOutput::Complete) => {}
+                    Ok(TreePublicationActionOutput::TrunkPublication(_)) => {
+                        unreachable!("observer action returned trunk timings")
+                    }
+                    Err(error) => {
+                        return match executor.compensate() {
+                            Ok(()) => Err(error).with_context(|| {
+                                format!("publishing tree {tree_id} during {operation:?}")
+                            }),
+                            Err(compensation_error) => Err(anyhow::anyhow!(
+                                "publishing tree {tree_id} during {operation:?} failed: {error:#}; compensation failed: {compensation_error:#}"
+                            )),
+                        };
+                    }
+                }
+            }
+
+            receipts.push(TreePublicationReceipt {
+                trunk_mutation_elapsed: trunk_outcome.mutation_elapsed / publications.len() as u32,
+                visible_terrain_publication_elapsed: trunk_outcome.visible_publication_elapsed,
+                leaf_publication_elapsed,
+                fruit_publication_elapsed,
+                shadow_invalidation_elapsed,
+                cluster_elapsed: publication.cluster_elapsed,
+                audio_elapsed,
+                leaf_emitter_commit_elapsed: std::time::Duration::ZERO,
+                canonical_record_commit_elapsed: std::time::Duration::ZERO,
+                canopy_audio_source_count,
+                rebuild_bound: publication.rebuild_bound,
+                leaf_anchor_count: publication.leaf_anchor_count,
+                leaf_instance_count: publication.record.leaf_render_positions.len(),
+                fruit_count: publication.record.fruit_specs.len(),
+                leaf_cluster_count: publication.record.leaf_clusters.len(),
+                canopy_generation: publication.record.canopy_acoustic_descriptor.generation(),
+            });
+        }
+
+        if let Err(error) = executor.execute(
+            TreePublicationAction::CommitPublication,
+            first_tree_id,
+            None,
+        ) {
+            return match executor.compensate() {
+                Ok(()) => Err(error).context("committing tree observer publication"),
+                Err(compensation_error) => Err(anyhow::anyhow!(
+                    "committing tree observer publication failed: {error:#}; compensation failed: {compensation_error:#}"
+                )),
+            };
+        }
+        for (receipt, publication) in receipts.iter_mut().zip(publications) {
+            let timing = self.commit_placement(publication.tree_id, publication.record);
+            receipt.leaf_emitter_commit_elapsed = timing.leaf_emitter_elapsed;
+            receipt.canonical_record_commit_elapsed = timing.canonical_record_elapsed;
+        }
+        Ok(receipts)
+    }
+
+    fn publish(
+        &mut self,
+        operation: TreePublicationOperation,
+        publication: PreparedTreePublication,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<TreePublicationReceipt> {
+        self.publish_batch(operation, vec![publication], host)
+            .map(|mut receipts| receipts.remove(0))
+    }
+
+    fn place(
+        &mut self,
+        publication: PreparedTreePublication,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<TreePublicationReceipt> {
+        anyhow::ensure!(
+            !self.records.contains_key(&publication.tree_id),
+            "cannot place existing tree {}",
+            publication.tree_id
+        );
+        self.publish(TreePublicationOperation::Place, publication, host)
+    }
+
+    fn replace(
+        &mut self,
+        publication: PreparedTreePublication,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<TreePublicationReceipt> {
+        anyhow::ensure!(
+            self.records.contains_key(&publication.tree_id),
+            "cannot replace absent tree {}",
+            publication.tree_id
+        );
+        self.publish(TreePublicationOperation::Replace, publication, host)
+    }
+
+    fn replace_batch(
+        &mut self,
+        publications: Vec<PreparedTreePublication>,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<Vec<TreePublicationReceipt>> {
+        for publication in &publications {
+            anyhow::ensure!(
+                self.records.contains_key(&publication.tree_id),
+                "cannot replace absent tree {}",
+                publication.tree_id
+            );
+        }
+        self.publish_batch(TreePublicationOperation::Replace, publications, host)
+    }
+
+    fn remove(
+        &mut self,
+        tree_id: u32,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<Option<TreeRecord>> {
+        let Some(previous) = self.records.get(&tree_id).cloned() else {
+            return Ok(None);
+        };
+        let plan = TreePublicationPlan::for_operation(TreePublicationOperation::Remove);
+        let mut executor = TreePublicationExecutor::new(host);
+        let retained_trunks = self.retained_trunks(
+            &HashSet::from([tree_id]),
+            std::slice::from_ref(&previous.bound),
+        );
+        executor.prepare_retained_trunks(&retained_trunks)?;
+        executor.prepare(plan.operation, tree_id, None, Some(&previous))?;
+        if let Err(error) = executor.execute(TreePublicationAction::PublishTrunks, tree_id, None) {
+            return match executor.compensate() {
+                Ok(()) => Err(error).with_context(|| format!("removing tree {tree_id} trunk")),
+                Err(compensation_error) => Err(anyhow::anyhow!(
+                    "removing tree {tree_id} trunk failed: {error:#}; compensation failed: {compensation_error:#}"
+                )),
+            };
+        }
+        for &action in plan.actions {
+            if let Err(error) = executor.execute(action, tree_id, None) {
+                return match executor.compensate() {
+                    Ok(()) => Err(error).with_context(|| format!("removing tree {tree_id}")),
+                    Err(compensation_error) => Err(anyhow::anyhow!(
+                        "removing tree {tree_id} failed: {error:#}; compensation failed: {compensation_error:#}"
+                    )),
+                };
+            }
+        }
+        if let Err(error) =
+            executor.execute(TreePublicationAction::CommitPublication, tree_id, None)
+        {
+            return match executor.compensate() {
+                Ok(()) => Err(error).with_context(|| format!("committing tree {tree_id} removal")),
+                Err(compensation_error) => Err(anyhow::anyhow!(
+                    "committing tree {tree_id} removal failed: {error:#}; compensation failed: {compensation_error:#}"
+                )),
+            };
+        }
+        Ok(self.commit_removal(tree_id))
+    }
+
+    #[cfg(test)]
+    fn canonical_canopy_generation(&self, tree_id: u32) -> Option<u64> {
+        self.records
+            .get(&tree_id)
+            .map(|record| record.canopy_acoustic_descriptor.generation())
     }
 
     pub(super) fn butterfly_spawn_positions(&self) -> Vec<Vec3> {
@@ -962,7 +1628,540 @@ impl TreeRuntime {
     }
 }
 
+#[derive(Clone)]
+struct PreparedTreeCompensation {
+    tree_id: u32,
+    previous: Option<TreeRecord>,
+    replacement: Option<TreeRecord>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct TreeTrunkLayerKey {
+    tree_id: u32,
+    generation: u64,
+}
+
+#[derive(Clone)]
+struct TreeTrunkLayer {
+    key: TreeTrunkLayerKey,
+    geometry: TreeTrunkGeometry,
+    bound: UAabb3,
+}
+
+impl TreeTrunkLayer {
+    fn from_record(tree_id: u32, record: &TreeRecord) -> Self {
+        Self {
+            key: TreeTrunkLayerKey {
+                tree_id,
+                generation: record.canopy_acoustic_descriptor.generation(),
+            },
+            geometry: record.trunk_geometry.clone(),
+            bound: record.bound,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreeTrunkPhysicalDirection {
+    Forward,
+    Restore,
+}
+
+#[derive(Clone)]
+struct TreeTrunkPhysicalChange {
+    direction: TreeTrunkPhysicalDirection,
+    clear: Vec<TreeTrunkLayer>,
+    stamp: Vec<TreeTrunkLayer>,
+}
+
+impl TreeTrunkPhysicalChange {
+    fn validate(&self) -> Result<()> {
+        let mut clear_keys = HashSet::new();
+        let mut stamp_keys = HashSet::new();
+        anyhow::ensure!(
+            self.clear.iter().all(|layer| clear_keys.insert(layer.key)),
+            "tree trunk change contains a duplicate clear layer"
+        );
+        anyhow::ensure!(
+            self.stamp.iter().all(|layer| stamp_keys.insert(layer.key)),
+            "tree trunk change contains a duplicate stamp layer"
+        );
+        Ok(())
+    }
+
+    fn voxel_edits(&self) -> Vec<VoxelEdit> {
+        self.clear
+            .iter()
+            .map(|layer| AppTreePublicationHost::trunk_edit(&layer.geometry, true))
+            .chain(
+                self.stamp
+                    .iter()
+                    .map(|layer| AppTreePublicationHost::trunk_edit(&layer.geometry, false)),
+            )
+            .collect()
+    }
+
+    fn regions(&self) -> Vec<UAabb3> {
+        self.clear
+            .iter()
+            .chain(&self.stamp)
+            .map(|layer| layer.bound)
+            .collect()
+    }
+}
+
+trait TreeTrunkPhysicalPrimitiveHost {
+    fn execute_tree_trunk_change(
+        &mut self,
+        change: &TreeTrunkPhysicalChange,
+    ) -> Result<TreeTrunkPublicationOutcome>;
+}
+
+struct TreeTrunkPhysicalTransaction {
+    forward: TreeTrunkPhysicalChange,
+    restore: TreeTrunkPhysicalChange,
+    restore_required: bool,
+}
+
+impl TreeTrunkPhysicalTransaction {
+    fn new(before: Vec<TreeTrunkLayer>, after: Vec<TreeTrunkLayer>) -> Self {
+        Self {
+            forward: TreeTrunkPhysicalChange {
+                direction: TreeTrunkPhysicalDirection::Forward,
+                clear: before.clone(),
+                stamp: after.clone(),
+            },
+            restore: TreeTrunkPhysicalChange {
+                direction: TreeTrunkPhysicalDirection::Restore,
+                clear: after,
+                stamp: before,
+            },
+            restore_required: false,
+        }
+    }
+
+    fn from_prepared(
+        prepared: &[PreparedTreeCompensation],
+        retained: &[(u32, TreeRecord)],
+    ) -> Self {
+        let mut before = prepared
+            .iter()
+            .filter_map(|state| {
+                state
+                    .previous
+                    .as_ref()
+                    .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
+            })
+            .collect::<Vec<_>>();
+        let mut after = prepared
+            .iter()
+            .filter_map(|state| {
+                state
+                    .replacement
+                    .as_ref()
+                    .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
+            })
+            .collect::<Vec<_>>();
+        let retained = retained
+            .iter()
+            .map(|(tree_id, record)| TreeTrunkLayer::from_record(*tree_id, record))
+            .collect::<Vec<_>>();
+        before.extend(retained.iter().cloned());
+        after.extend(retained);
+        Self::new(before, after)
+    }
+
+    fn publish(
+        &mut self,
+        host: &mut impl TreeTrunkPhysicalPrimitiveHost,
+    ) -> Result<TreeTrunkPublicationOutcome> {
+        self.restore_required = true;
+        match host.execute_tree_trunk_change(&self.forward) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => match self.restore(host) {
+                Ok(()) => Err(error).context("publishing transactional tree trunks"),
+                Err(restore_error) => Err(anyhow::anyhow!(
+                    "publishing transactional tree trunks failed: {error:#}; restoring the trunk checkpoint failed: {restore_error:#}"
+                )),
+            },
+        }
+    }
+
+    fn restore(&mut self, host: &mut impl TreeTrunkPhysicalPrimitiveHost) -> Result<()> {
+        if !self.restore_required {
+            return Ok(());
+        }
+        host.execute_tree_trunk_change(&self.restore)?;
+        self.restore_required = false;
+        Ok(())
+    }
+}
+
+struct AppTreeTrunkPhysicalHost<'a> {
+    app: &'a mut App,
+}
+
+impl TreeTrunkPhysicalPrimitiveHost for AppTreeTrunkPhysicalHost<'_> {
+    fn execute_tree_trunk_change(
+        &mut self,
+        change: &TreeTrunkPhysicalChange,
+    ) -> Result<TreeTrunkPublicationOutcome> {
+        change.validate()?;
+        let started_at = Instant::now();
+        let outcome = self
+            .app
+            .execute_world_edit(WorldEditTransaction::tree_changes(
+                change.voxel_edits(),
+                change.regions(),
+            ))
+            .with_context(|| format!("executing {:?} tree trunk change", change.direction))?
+            .context("tree trunk publication must produce a visible world edit")?;
+        Ok(TreeTrunkPublicationOutcome::from_total_elapsed(
+            outcome.mutation_elapsed,
+            started_at.elapsed(),
+        ))
+    }
+}
+
+struct AppTreePublicationHost<'a> {
+    app: &'a mut App,
+    time_seconds: f32,
+    audio_checkpoint: Option<crate::audio::TreeAudioPublicationCheckpoint>,
+    fruit_checkpoints: HashMap<u32, super::physics::TreeFruitPublicationCheckpoint>,
+    prepared: Vec<PreparedTreeCompensation>,
+    retained_trunks: Vec<(u32, TreeRecord)>,
+    trunk_transaction: Option<TreeTrunkPhysicalTransaction>,
+}
+
+impl AppTreePublicationHost<'_> {
+    fn new(app: &mut App, time_seconds: f32) -> AppTreePublicationHost<'_> {
+        AppTreePublicationHost {
+            app,
+            time_seconds,
+            audio_checkpoint: None,
+            fruit_checkpoints: HashMap::new(),
+            prepared: Vec::new(),
+            retained_trunks: Vec::new(),
+            trunk_transaction: None,
+        }
+    }
+
+    fn validate_publication(publication: &PreparedTreePublication) -> Result<()> {
+        anyhow::ensure!(
+            publication.record.leaf_render_positions.len()
+                == publication.record.leaf_render_local_positions.len(),
+            "tree leaf position and anchor metadata lengths differ"
+        );
+        for fruit in &publication.record.fruit_specs {
+            anyhow::ensure!(
+                fruit.grow_start_phase.is_finite()
+                    && fruit.full_growth_phase.is_finite()
+                    && fruit.drop_phase.is_finite()
+                    && fruit.linear_velocity_voxels.is_finite()
+                    && fruit.angular_velocity.is_finite(),
+                "tree {} fruit {} contains non-finite publication data",
+                publication.tree_id,
+                fruit.id,
+            );
+            anyhow::ensure!(
+                fruit.grow_start_phase < fruit.full_growth_phase
+                    && fruit.full_growth_phase < fruit.drop_phase,
+                "tree {} fruit {} lifecycle phases are not ordered",
+                publication.tree_id,
+                fruit.id,
+            );
+        }
+        Ok(())
+    }
+
+    fn publish_attached_fruit_instances(&mut self, tree_id: u32) -> Result<()> {
+        let attached_fruits = self
+            .app
+            .terrain_physics
+            .attached_tree_fruits(tree_id)
+            .into_iter()
+            .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
+            .collect::<Vec<_>>();
+        self.app.tracer.add_tree_apples(
+            &mut self.app.surface_builder.resources,
+            tree_id,
+            &attached_fruits,
+        )
+    }
+
+    fn clear_physical_publication(&mut self, tree_id: u32) -> Result<()> {
+        self.app
+            .tracer
+            .remove_tree_leaves(&mut self.app.surface_builder.resources, tree_id)?;
+        self.app
+            .tracer
+            .invalidate_local_direct_sun_shadow_histories();
+        Ok(())
+    }
+
+    fn restore_physical_publication(&mut self, tree_id: u32, record: &TreeRecord) -> Result<()> {
+        self.app.tracer.add_tree_leaves(
+            &mut self.app.surface_builder.resources,
+            tree_id,
+            &record.leaf_render_positions,
+            &record.leaf_render_local_positions,
+        )?;
+        self.publish_attached_fruit_instances(tree_id)?;
+        self.app
+            .tracer
+            .invalidate_local_direct_sun_shadow_histories();
+        Ok(())
+    }
+
+    fn trunk_edit(geometry: &TreeTrunkGeometry, clear: bool) -> VoxelEdit {
+        if clear {
+            VoxelEdit::ReplaceRoundConeVoxelType {
+                bvh_nodes: geometry.bvh_nodes.clone(),
+                round_cones: geometry.round_cones.clone(),
+                target_voxel_type: VOXEL_TYPE_CHERRY_WOOD,
+                fill_voxel_type: VOXEL_TYPE_EMPTY,
+            }
+        } else {
+            VoxelEdit::StampRoundCones {
+                bvh_nodes: geometry.bvh_nodes.clone(),
+                round_cones: geometry.round_cones.clone(),
+                voxel_type: VOXEL_TYPE_CHERRY_WOOD,
+            }
+        }
+    }
+}
+
+impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
+    fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+        anyhow::ensure!(
+            self.prepared.is_empty(),
+            "retained trunks must be prepared before target trees"
+        );
+        self.retained_trunks = retained.to_vec();
+        Ok(())
+    }
+
+    fn prepare(
+        &mut self,
+        _operation: TreePublicationOperation,
+        tree_id: u32,
+        publication: Option<&PreparedTreePublication>,
+        previous: Option<&TreeRecord>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.time_seconds.is_finite(),
+            "tree publication time must be finite"
+        );
+        if let Some(publication) = publication {
+            Self::validate_publication(publication)?;
+        }
+        if self.audio_checkpoint.is_none() {
+            self.audio_checkpoint = Some(self.app.tree_audio_manager.publication_checkpoint());
+        }
+        anyhow::ensure!(
+            !self.fruit_checkpoints.contains_key(&tree_id),
+            "tree {tree_id} was prepared twice in one publication"
+        );
+        self.fruit_checkpoints.insert(
+            tree_id,
+            self.app
+                .terrain_physics
+                .tree_fruit_publication_checkpoint(tree_id),
+        );
+        self.prepared.push(PreparedTreeCompensation {
+            tree_id,
+            previous: previous.cloned(),
+            replacement: publication.map(|publication| publication.record.clone()),
+        });
+        Ok(())
+    }
+
+    fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
+        let mut transaction =
+            TreeTrunkPhysicalTransaction::from_prepared(&self.prepared, &self.retained_trunks);
+        let result = transaction.publish(&mut AppTreeTrunkPhysicalHost { app: self.app });
+        self.trunk_transaction = Some(transaction);
+        result
+    }
+
+    fn publish_leaves(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<()> {
+        let record = &publication.record;
+        self.app.tracer.add_tree_leaves(
+            &mut self.app.surface_builder.resources,
+            tree_id,
+            &record.leaf_render_positions,
+            &record.leaf_render_local_positions,
+        )
+    }
+
+    fn publish_fruit_lifecycle(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<()> {
+        self.app.terrain_physics.publish_tree_fruits(
+            tree_id,
+            publication.record.fruit_specs.clone(),
+            &mut self.app.tracer,
+        )
+    }
+
+    fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
+        self.publish_attached_fruit_instances(tree_id)
+    }
+
+    fn invalidate_local_shadows(&mut self, _tree_id: u32) -> Result<()> {
+        self.app
+            .tracer
+            .invalidate_local_direct_sun_shadow_histories();
+        Ok(())
+    }
+
+    fn publish_canopy_audio(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<usize> {
+        Ok(self
+            .app
+            .tree_audio_manager
+            .upsert_tree(
+                tree_id,
+                publication.record.canopy_acoustic_descriptor.clone(),
+                self.time_seconds,
+            )?
+            .len())
+    }
+
+    fn remove_leaves(&mut self, tree_id: u32) -> Result<()> {
+        self.app
+            .tracer
+            .remove_tree_leaves(&mut self.app.surface_builder.resources, tree_id)
+    }
+
+    fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()> {
+        self.app
+            .terrain_physics
+            .unpublish_tree_fruits(tree_id, &mut self.app.tracer)
+    }
+
+    fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()> {
+        self.app
+            .tree_audio_manager
+            .remove_tree(tree_id, self.time_seconds)
+    }
+
+    fn finalize_observer_publication(&mut self, tree_id: u32) -> Result<()> {
+        anyhow::ensure!(
+            self.fruit_checkpoints.contains_key(&tree_id),
+            "tree fruit publication checkpoint is missing during finalize"
+        );
+        Ok(())
+    }
+
+    fn commit_publication(&mut self) -> Result<()> {
+        for (_, checkpoint) in self.fruit_checkpoints.drain() {
+            self.app
+                .terrain_physics
+                .commit_tree_fruit_publication(checkpoint);
+        }
+        self.audio_checkpoint = None;
+        self.trunk_transaction = None;
+        self.prepared.clear();
+        self.retained_trunks.clear();
+        Ok(())
+    }
+
+    fn compensate(&mut self) -> Result<()> {
+        let prepared = self.prepared.clone();
+        let mut failures = Vec::new();
+        for state in prepared.iter().rev() {
+            if let Err(error) = self
+                .clear_physical_publication(state.tree_id)
+                .context("clearing partial tree publication during compensation")
+            {
+                failures.push(format!("tree {} clear: {error:#}", state.tree_id));
+            }
+            match self.fruit_checkpoints.remove(&state.tree_id) {
+                Some(checkpoint) => {
+                    if let Err(error) = self
+                        .app
+                        .terrain_physics
+                        .restore_tree_fruit_publication(checkpoint, &mut self.app.tracer)
+                        .context("restoring tree fruit publication during compensation")
+                    {
+                        failures.push(format!("tree {} fruit: {error:#}", state.tree_id));
+                    }
+                }
+                None => failures.push(format!(
+                    "tree {} fruit: publication checkpoint is missing",
+                    state.tree_id
+                )),
+            }
+            if let Some(previous) = &state.previous {
+                if let Err(error) = self
+                    .restore_physical_publication(state.tree_id, previous)
+                    .context("restoring previous tree publication during compensation")
+                {
+                    failures.push(format!("tree {} physical: {error:#}", state.tree_id));
+                }
+            }
+        }
+        match self.audio_checkpoint.take() {
+            Some(checkpoint) => {
+                if let Err(error) = self
+                    .app
+                    .tree_audio_manager
+                    .restore_publication_checkpoint(checkpoint, self.time_seconds)
+                    .context("restoring tree audio publication during compensation")
+                {
+                    failures.push(format!("audio: {error:#}"));
+                }
+            }
+            None => failures.push("audio: publication checkpoint is missing".to_string()),
+        }
+        if let Some(mut transaction) = self.trunk_transaction.take() {
+            if let Err(error) = transaction
+                .restore(&mut AppTreeTrunkPhysicalHost { app: self.app })
+                .context("restoring tree trunks during compensation")
+            {
+                failures.push(format!("trunks: {error:#}"));
+                self.trunk_transaction = Some(transaction);
+            }
+        }
+        self.prepared.clear();
+        self.retained_trunks.clear();
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(failures.join("; ")))
+        }
+    }
+}
+
 impl App {
+    fn transact_garden_trees<R>(
+        &mut self,
+        operation: impl FnOnce(&mut GardenTrees, &mut AppTreePublicationHost<'_>) -> Result<R>,
+    ) -> Result<R> {
+        // Visible Terrain Publication needs the whole App, while GardenTrees owns canonical tree
+        // identity. Detach that owner only for the synchronous transaction and restore it on both
+        // success and failure; the shell prevents any accidental re-entrant tree publication.
+        let shell = self.trees.empty_shell();
+        let mut trees = std::mem::replace(&mut self.trees, shell);
+        let time_seconds = self.time_info.time_since_start();
+        let result = {
+            let mut host = AppTreePublicationHost::new(self, time_seconds);
+            operation(&mut trees, &mut host)
+        };
+        self.trees = trees;
+        result
+    }
+
     pub(super) fn refresh_attached_tree_fruits(&mut self, tree_ids: &[u32]) -> Result<()> {
         for &tree_id in tree_ids {
             if !self.trees.contains(tree_id) {
@@ -1051,14 +2250,8 @@ impl App {
 
     #[allow(dead_code)]
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
-        self.tracer
-            .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
-        self.terrain_physics
-            .unregister_tree_fruits(tree_id, &mut self.tracer)?;
-        self.tracer.invalidate_local_direct_sun_shadow_histories();
-        self.tree_audio_manager
-            .remove_tree(tree_id, self.time_info.time_since_start())?;
-        match self.trees.commit_removal(tree_id) {
+        let removed = self.transact_garden_trees(|trees, host| trees.remove(tree_id, host))?;
+        match removed {
             Some(record) => {
                 log::debug!(
                     "Removed tree {} at position {:?}, bound {:?}",
@@ -1220,30 +2413,15 @@ impl App {
     }
 
     pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
-        let records = self.trees.age_rebuild_sources();
+        let records = self.trees.take_age_rebuild_sources();
         if records.is_empty() {
             return Ok(());
         }
 
-        // Remove every old tree first. This avoids one tree's smaller replacement being erased by
-        // a later overlapping old-tree removal. The targeted edit only clears cherry wood inside
-        // the recorded trunk cones, preserving terrain and unrelated voxel materials.
-        for (tree_id, record) in &records {
-            self.tracer
-                .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
-            self.plain_builder.chunk_replace_voxel_type_in_round_cones(
-                &record.trunk_geometry.bvh_nodes,
-                &record.trunk_geometry.round_cones,
-                VOXEL_TYPE_CHERRY_WOOD,
-                VOXEL_TYPE_EMPTY,
-            )?;
-        }
-
         let tree_age = self.debug_settings.adjustables.tree_age.value;
         let total_start = Instant::now();
-        let mut replacements = Vec::with_capacity(records.len());
-        let mut trunk_voxel_edits = Vec::with_capacity(records.len());
-        let mut rebuild_regions = Vec::with_capacity(records.len() * 2);
+        let mut publications = Vec::with_capacity(records.len());
+        let mut performance = Vec::with_capacity(records.len());
         let mut rebuild_chunk_ids = Vec::new();
         for (tree_id, record) in records {
             let compile_start = Instant::now();
@@ -1257,57 +2435,37 @@ impl App {
             );
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
-            let trunk_geometry = compiled.trunk_geometry.clone();
-            trunk_voxel_edits.push(compiled.trunk_voxel_edit.clone());
-            rebuild_regions.extend([record.bound, compiled.this_bound]);
             rebuild_chunk_ids
                 .extend(self.tree_rebuild_chunk_ids(record.bound, compiled.this_bound));
-            replacements.push((
+            publications.push(PreparedTreePublication::new(
                 tree_id,
                 record.mature_desc,
                 compiled,
-                compile_elapsed,
-                trunk_count,
-                trunk_geometry,
             ));
+            performance.push((compile_elapsed, trunk_count));
         }
 
         let mut seen = HashSet::new();
         rebuild_chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
-        let rebuild_start = Instant::now();
-        let outcome = self
-            .execute_world_edit(WorldEditTransaction::tree_changes(
-                trunk_voxel_edits,
-                rebuild_regions,
-            ))?
-            .expect("tree age batch always publishes its world change");
-        let rebuild_elapsed = rebuild_start.elapsed();
-        let average_trunk_elapsed = outcome.mutation_elapsed / replacements.len() as u32;
+        let receipts =
+            self.transact_garden_trees(|trees, host| trees.replace_batch(publications, host))?;
 
-        for (tree_id, mature_desc, compiled, compile_elapsed, trunk_count, trunk_geometry) in
-            replacements
+        for (receipt, (compile_elapsed, trunk_count)) in
+            receipts.iter().zip(performance.into_iter())
         {
-            self.finish_tree_placement(
-                tree_id,
-                compiled.tree_pos,
-                compiled.this_bound,
-                compiled.rebuild_bound,
-                rebuild_chunk_ids.len(),
-                &compiled.quantized_leaf_positions,
-                &compiled.quantized_leaf_render_positions,
-                &compiled.leaf_render_local_positions,
-                &compiled.fruit_specs,
-                &compiled.world_leaf_positions,
-                compiled.canopy_acoustic_descriptor.clone(),
-                total_start,
-                compile_elapsed,
-                average_trunk_elapsed,
-                rebuild_elapsed,
-                trunk_count,
-                false,
-                mature_desc,
-                trunk_geometry,
-            )?;
+            Self::record_tree_publication_performance(
+                receipt,
+                TreePlacementPerformance {
+                    total_start,
+                    compile_elapsed,
+                    trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                    visible_terrain_publication_elapsed: receipt
+                        .visible_terrain_publication_elapsed,
+                    trunk_count,
+                    rebuild_chunk_count: rebuild_chunk_ids.len(),
+                    benchmark_gui_tree: false,
+                },
+            );
         }
 
         log::info!(
@@ -1326,20 +2484,12 @@ impl App {
         tree_pos: Vec3,
     ) -> Result<()> {
         let total_start = Instant::now();
-        let mut old_remove_ms = 0.0;
-        let mut old_clear_ms = 0.0;
         let tuned_tree_id = self.trees.tuned_tree_id();
 
         let old_record = self.trees.tuned_record();
-        let old_bound = if let Some(record) = old_record.as_ref() {
-            let old_remove_start = Instant::now();
-            self.tracer
-                .remove_tree_leaves(&mut self.surface_builder.resources, tuned_tree_id)?;
-            old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
-            record.bound
-        } else {
-            UAabb3::default()
-        };
+        let old_bound = old_record
+            .as_ref()
+            .map_or(UAabb3::default(), |record| record.bound);
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
@@ -1361,61 +2511,33 @@ impl App {
             VoxelEdit::StampRoundCones { round_cones, .. } => round_cones.len(),
             _ => 0,
         };
-        let trunk_geometry = compiled.trunk_geometry.clone();
-
-        if let Some(record) = old_record {
-            let old_clear_start = Instant::now();
-            self.plain_builder.chunk_replace_voxel_type_in_round_cones(
-                &record.trunk_geometry.bvh_nodes,
-                &record.trunk_geometry.round_cones,
-                VOXEL_TYPE_CHERRY_WOOD,
-                VOXEL_TYPE_EMPTY,
-            )?;
-            old_clear_ms = old_clear_start.elapsed().as_secs_f32() * 1000.0;
-        }
-
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
-        let rebuild_start = Instant::now();
-        let outcome = self
-            .execute_world_edit(WorldEditTransaction::tree_changes(
-                vec![compiled.trunk_voxel_edit],
-                vec![old_bound, compiled.this_bound],
-            ))?
-            .expect("single-tree replacement always publishes its world change");
-        let rebuild_elapsed = rebuild_start.elapsed();
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("tree_gui_rebuild", rebuild_elapsed);
-
-        self.finish_tree_placement(
-            tuned_tree_id,
-            compiled.tree_pos,
-            compiled.this_bound,
-            compiled.rebuild_bound,
-            rebuild_chunk_ids.len(),
-            &compiled.quantized_leaf_positions,
-            &compiled.quantized_leaf_render_positions,
-            &compiled.leaf_render_local_positions,
-            &compiled.fruit_specs,
-            &compiled.world_leaf_positions,
-            compiled.canopy_acoustic_descriptor.clone(),
-            total_start,
-            compile_elapsed,
-            outcome.mutation_elapsed,
-            rebuild_elapsed,
-            trunk_count,
-            true,
-            mature_tree_desc,
-            trunk_geometry,
-        )?;
+        let publication = PreparedTreePublication::new(tuned_tree_id, mature_tree_desc, compiled);
+        let receipt = self.transact_garden_trees(|trees, host| {
+            if old_record.is_some() {
+                trees.replace(publication, host)
+            } else {
+                trees.place(publication, host)
+            }
+        })?;
+        Self::record_tree_publication_performance(
+            &receipt,
+            TreePlacementPerformance {
+                total_start,
+                compile_elapsed,
+                trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                visible_terrain_publication_elapsed: receipt.visible_terrain_publication_elapsed,
+                trunk_count,
+                rebuild_chunk_count: rebuild_chunk_ids.len(),
+                benchmark_gui_tree: true,
+            },
+        );
         self.trees.observe_previous_bound(old_bound);
 
         log::info!(
-            "[PERF][TREE_GUI] replace_total {:.2}ms old_remove {:.2}ms old_clear {:.2}ms",
+            "[PERF][TREE_GUI] replace_total {:.2}ms publication {:.2}ms",
             total_start.elapsed().as_secs_f32() * 1000.0,
-            old_remove_ms,
-            old_clear_ms,
+            receipt.observer_publication_elapsed().as_secs_f32() * 1000.0,
         );
 
         Ok(())
@@ -1550,22 +2672,6 @@ impl App {
             .collect();
 
         Ok(positions_3d)
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn clean_up_prev_tree(&mut self) -> Result<()> {
-        self.tree_audio_manager.remove_all();
-
-        let prev_bound = self.trees.previous_bound();
-        self.execute_world_edit(WorldEditTransaction::tree_changes(
-            vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
-                offset: prev_bound.min(),
-                dim: prev_bound.max() - prev_bound.min(),
-            })],
-            vec![prev_bound],
-        ))?;
-
-        Ok(())
     }
 
     #[allow(dead_code)]
@@ -2146,133 +3252,68 @@ impl App {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn finish_tree_placement(
-        &mut self,
-        tree_id: u32,
-        tree_pos: Vec3,
-        this_bound: UAabb3,
-        rebuild_bound: UAabb3,
-        rebuild_chunk_count: usize,
-        quantized_leaf_positions: &[UVec3],
-        quantized_leaf_render_positions: &[UVec3],
-        leaf_render_local_positions: &[IVec3],
-        fruit_specs: &[TreeFruitSpec],
-        world_leaf_positions: &[Vec3],
-        canopy_acoustic_descriptor: CanopyAcousticDescriptor,
-        total_start: Instant,
-        compile_elapsed: std::time::Duration,
-        trunk_elapsed: std::time::Duration,
-        rebuild_elapsed: std::time::Duration,
-        trunk_count: usize,
-        benchmark_gui_tree: bool,
-        mature_desc: TreeDesc,
-        trunk_geometry: TreeTrunkGeometry,
-    ) -> Result<()> {
-        let add_leaves_start = Instant::now();
-        self.tracer.add_tree_leaves(
-            &mut self.surface_builder.resources,
-            tree_id,
-            quantized_leaf_render_positions,
-            leaf_render_local_positions,
-        )?;
-        self.terrain_physics.register_tree_fruits(
-            tree_id,
-            fruit_specs.to_vec(),
-            &mut self.tracer,
-        )?;
-        let attached_fruits = self
-            .terrain_physics
-            .attached_tree_fruits(tree_id)
-            .into_iter()
-            .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
-            .collect::<Vec<_>>();
-        self.tracer.add_tree_apples(
-            &mut self.surface_builder.resources,
-            tree_id,
-            &attached_fruits,
-        )?;
-        self.tracer.invalidate_local_direct_sun_shadow_histories();
-        let add_leaves_elapsed = add_leaves_start.elapsed();
-        if benchmark_gui_tree {
+    fn record_tree_publication_performance(
+        receipt: &TreePublicationReceipt,
+        performance: TreePlacementPerformance,
+    ) {
+        if performance.benchmark_gui_tree {
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_add_leaves", add_leaves_elapsed);
-        }
-
-        let cluster_start = Instant::now();
-        let leaf_clusters = cluster_positions(world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
-        let cluster_elapsed = cluster_start.elapsed();
-        if benchmark_gui_tree {
+                .record("tree_gui_add_leaves", receipt.leaf_publication_elapsed);
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_fruit_publication",
+                receipt.fruit_publication_elapsed,
+            );
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_shadow_invalidation",
+                receipt.shadow_invalidation_elapsed,
+            );
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_visible_terrain_publication",
+                receipt.visible_terrain_publication_elapsed,
+            );
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_cluster_leaves", cluster_elapsed);
-        }
-
-        let audio_start = Instant::now();
-        let canopy_audio_source_count = self
-            .tree_audio_manager
-            .upsert_tree(
-                tree_id,
-                canopy_acoustic_descriptor.clone(),
-                self.time_info.time_since_start(),
-            )?
-            .len();
-        let audio_elapsed = audio_start.elapsed();
-        if benchmark_gui_tree {
+                .record("tree_gui_cluster_leaves", receipt.cluster_elapsed);
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_audio_sources", audio_elapsed);
-        }
-
-        let record = TreeRecord {
-            position: tree_pos,
-            bound: this_bound,
-            mature_desc,
-            trunk_geometry,
-            butterfly_spawn_positions_ws: quantized_leaf_render_positions
-                .iter()
-                .map(|position| {
-                    (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
-                })
-                .collect(),
-        };
-
-        let emitter_start = Instant::now();
-        self.trees.commit_placement(tree_id, record, &leaf_clusters);
-        let emitter_elapsed = emitter_start.elapsed();
-        if benchmark_gui_tree {
+                .record("tree_gui_audio_sources", receipt.audio_elapsed);
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_leaf_emitter", emitter_elapsed);
+                .record("tree_gui_leaf_emitter", receipt.leaf_emitter_commit_elapsed);
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_canonical_record_commit",
+                receipt.canonical_record_commit_elapsed,
+            );
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
-                total_start.elapsed().as_secs_f32() * 1000.0,
-                compile_elapsed.as_secs_f32() * 1000.0,
-                trunk_elapsed.as_secs_f32() * 1000.0,
-                add_leaves_elapsed.as_secs_f32() * 1000.0,
-                rebuild_elapsed.as_secs_f32() * 1000.0,
-                cluster_elapsed.as_secs_f32() * 1000.0,
-                audio_elapsed.as_secs_f32() * 1000.0,
-                emitter_elapsed.as_secs_f32() * 1000.0,
-                trunk_count,
-                quantized_leaf_positions.len(),
-                quantized_leaf_render_positions.len(),
-                fruit_specs.len(),
-                leaf_clusters.len(),
-                canopy_acoustic_descriptor.generation(),
-                canopy_audio_source_count,
-                rebuild_chunk_count,
-                rebuild_bound,
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms leaves {:.2}ms fruit {:.2}ms shadow {:.2}ms visible_terrain {:.2}ms cluster {:.2}ms audio {:.2}ms leaf_emitter {:.2}ms canonical_record {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
+                performance.total_start.elapsed().as_secs_f32() * 1000.0,
+                performance.compile_elapsed.as_secs_f32() * 1000.0,
+                performance.trunk_mutation_elapsed.as_secs_f32() * 1000.0,
+                receipt.leaf_publication_elapsed.as_secs_f32() * 1000.0,
+                receipt.fruit_publication_elapsed.as_secs_f32() * 1000.0,
+                receipt.shadow_invalidation_elapsed.as_secs_f32() * 1000.0,
+                performance.visible_terrain_publication_elapsed.as_secs_f32() * 1000.0,
+                receipt.cluster_elapsed.as_secs_f32() * 1000.0,
+                receipt.audio_elapsed.as_secs_f32() * 1000.0,
+                receipt.leaf_emitter_commit_elapsed.as_secs_f32() * 1000.0,
+                receipt.canonical_record_commit_elapsed.as_secs_f32() * 1000.0,
+                performance.trunk_count,
+                receipt.leaf_anchor_count,
+                receipt.leaf_instance_count,
+                receipt.fruit_count,
+                receipt.leaf_cluster_count,
+                receipt.canopy_generation,
+                receipt.canopy_audio_source_count,
+                performance.rebuild_chunk_count,
+                receipt.rebuild_bound,
             );
         }
-
-        Ok(())
     }
 
     #[allow(dead_code)]
@@ -2284,10 +3325,6 @@ impl App {
             options,
         } = edit;
         let benchmark_gui_tree = !options.assign_new_id;
-
-        if options.clean_before_add {
-            self.clean_up_prev_tree()?;
-        }
 
         let TreePlacement::World(tree_pos) = placement;
 
@@ -2315,48 +3352,32 @@ impl App {
             VoxelEdit::StampRoundCones { round_cones, .. } => round_cones.len(),
             _ => 0,
         };
-        let trunk_geometry = compiled.trunk_geometry.clone();
-
-        let rebuild_start = Instant::now();
         let affected_chunks = world_ops::affected_chunk_indices_for_bound(
             compiled.rebuild_bound,
             super::VOXEL_DIM_PER_CHUNK,
         );
-        let outcome = self
-            .execute_world_edit(WorldEditTransaction::tree_changes(
-                vec![compiled.trunk_voxel_edit],
-                vec![compiled.rebuild_bound],
-            ))?
-            .expect("tree placement always publishes its world change");
-        let rebuild_elapsed = rebuild_start.elapsed();
-        if benchmark_gui_tree {
-            crate::util::BENCH
-                .lock()
-                .unwrap()
-                .record("tree_gui_rebuild", rebuild_elapsed);
-        }
-
-        self.finish_tree_placement(
-            tree_id,
-            compiled.tree_pos,
-            compiled.this_bound,
-            compiled.rebuild_bound,
-            affected_chunks.len(),
-            &compiled.quantized_leaf_positions,
-            &compiled.quantized_leaf_render_positions,
-            &compiled.leaf_render_local_positions,
-            &compiled.fruit_specs,
-            &compiled.world_leaf_positions,
-            compiled.canopy_acoustic_descriptor.clone(),
-            total_start,
-            compile_elapsed,
-            outcome.mutation_elapsed,
-            rebuild_elapsed,
-            trunk_count,
-            benchmark_gui_tree,
-            mature_tree_desc,
-            trunk_geometry,
-        )
+        let publication = PreparedTreePublication::new(tree_id, mature_tree_desc, compiled);
+        let replacing = self.trees.contains(tree_id);
+        let receipt = self.transact_garden_trees(|trees, host| {
+            if replacing {
+                trees.replace(publication, host)
+            } else {
+                trees.place(publication, host)
+            }
+        })?;
+        Self::record_tree_publication_performance(
+            &receipt,
+            TreePlacementPerformance {
+                total_start,
+                compile_elapsed,
+                trunk_mutation_elapsed: receipt.trunk_mutation_elapsed,
+                visible_terrain_publication_elapsed: receipt.visible_terrain_publication_elapsed,
+                trunk_count,
+                rebuild_chunk_count: affected_chunks.len(),
+                benchmark_gui_tree,
+            },
+        );
+        Ok(())
     }
 }
 
@@ -2365,17 +3386,747 @@ mod tests {
     use super::*;
     use std::f32::consts::FRAC_PI_4;
 
-    fn tree_record(bound: UAabb3, spawn_x: f32) -> TreeRecord {
-        TreeRecord {
-            position: Vec3::new(1.0, 2.0, 3.0),
-            bound,
-            mature_desc: TreeDesc::default(),
-            trunk_geometry: TreeTrunkGeometry {
-                bvh_nodes: Vec::new(),
-                round_cones: Vec::new(),
-            },
-            butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum TreePublicationEvent {
+        Prepare(TreePublicationOperation),
+        Primitive(TreePublicationPrimitive),
+        Compensate,
+    }
+
+    #[derive(Default)]
+    struct RecordingTreePublicationHost {
+        events: Vec<(TreePublicationEvent, u32)>,
+        fail_prepare: bool,
+        fail_primitive: Option<TreePublicationPrimitive>,
+        fail_tree_id: Option<u32>,
+        fail_compensation: bool,
+        prepared_trunks: Vec<(u32, Option<u64>, Option<u64>)>,
+        trunk_generations: HashMap<u32, u64>,
+    }
+
+    impl RecordingTreePublicationHost {
+        fn record(&mut self, primitive: TreePublicationPrimitive, tree_id: u32) -> Result<()> {
+            self.events
+                .push((TreePublicationEvent::Primitive(primitive), tree_id));
+            anyhow::ensure!(
+                self.fail_primitive != Some(primitive)
+                    || self.fail_tree_id.is_some_and(|failed| failed != tree_id),
+                "injected action failure"
+            );
+            Ok(())
         }
+    }
+
+    impl TreePublicationPrimitiveHost for RecordingTreePublicationHost {
+        fn prepare_retained_trunks(&mut self, _retained: &[(u32, TreeRecord)]) -> Result<()> {
+            Ok(())
+        }
+
+        fn prepare(
+            &mut self,
+            operation: TreePublicationOperation,
+            tree_id: u32,
+            publication: Option<&PreparedTreePublication>,
+            previous: Option<&TreeRecord>,
+        ) -> Result<()> {
+            self.events
+                .push((TreePublicationEvent::Prepare(operation), tree_id));
+            anyhow::ensure!(!self.fail_prepare, "injected preparation failure");
+            self.prepared_trunks.push((
+                tree_id,
+                previous.map(|record| record.canopy_acoustic_descriptor.generation()),
+                publication
+                    .map(|publication| publication.record.canopy_acoustic_descriptor.generation()),
+            ));
+            Ok(())
+        }
+
+        fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
+            let tree_id = self
+                .prepared_trunks
+                .first()
+                .map(|state| state.0)
+                .context("recording trunk publication was not prepared")?;
+            self.record(TreePublicationPrimitive::PublishTrunks, tree_id)?;
+            for &(tree_id, _, replacement) in &self.prepared_trunks {
+                if let Some(generation) = replacement {
+                    self.trunk_generations.insert(tree_id, generation);
+                } else {
+                    self.trunk_generations.remove(&tree_id);
+                }
+            }
+            Ok(TreeTrunkPublicationOutcome::default())
+        }
+
+        fn publish_leaves(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishLeaves, tree_id)
+        }
+
+        fn publish_fruit_lifecycle(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishFruitLifecycle, tree_id)
+        }
+
+        fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishAttachedFruit, tree_id)
+        }
+
+        fn invalidate_local_shadows(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::InvalidateLocalShadows, tree_id)
+        }
+
+        fn publish_canopy_audio(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<usize> {
+            self.record(TreePublicationPrimitive::PublishCanopyAudio, tree_id)?;
+            Ok(3)
+        }
+
+        fn remove_leaves(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveLeaves, tree_id)
+        }
+
+        fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveFruitLifecycle, tree_id)
+        }
+
+        fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveCanopyAudio, tree_id)
+        }
+
+        fn finalize_observer_publication(&mut self, tree_id: u32) -> Result<()> {
+            self.record(
+                TreePublicationPrimitive::FinalizeObserverPublication,
+                tree_id,
+            )
+        }
+
+        fn commit_publication(&mut self) -> Result<()> {
+            let tree_id = self
+                .prepared_trunks
+                .first()
+                .map(|state| state.0)
+                .context("recording publication commit was not prepared")?;
+            self.record(TreePublicationPrimitive::CommitPublication, tree_id)?;
+            self.prepared_trunks.clear();
+            Ok(())
+        }
+
+        fn compensate(&mut self) -> Result<()> {
+            let tree_id = self
+                .prepared_trunks
+                .first()
+                .map(|state| state.0)
+                .unwrap_or_default();
+            self.events
+                .push((TreePublicationEvent::Compensate, tree_id));
+            anyhow::ensure!(!self.fail_compensation, "injected compensation failure");
+            for &(tree_id, previous, _) in &self.prepared_trunks {
+                if let Some(generation) = previous {
+                    self.trunk_generations.insert(tree_id, generation);
+                } else {
+                    self.trunk_generations.remove(&tree_id);
+                }
+            }
+            self.prepared_trunks.clear();
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingTreeTrunkPhysicalHost {
+        coverage: HashMap<TreeTrunkLayerKey, HashSet<u8>>,
+        voxels: HashSet<u8>,
+        fail_forward_operation: Option<usize>,
+        fail_restore_operation: Option<usize>,
+        fail_forward_visible_publication: bool,
+    }
+
+    impl TreeTrunkPhysicalPrimitiveHost for RecordingTreeTrunkPhysicalHost {
+        fn execute_tree_trunk_change(
+            &mut self,
+            change: &TreeTrunkPhysicalChange,
+        ) -> Result<TreeTrunkPublicationOutcome> {
+            for (index, (layer, clear)) in change
+                .clear
+                .iter()
+                .map(|layer| (layer, true))
+                .chain(change.stamp.iter().map(|layer| (layer, false)))
+                .enumerate()
+            {
+                let injected_failure = match change.direction {
+                    TreeTrunkPhysicalDirection::Forward => {
+                        self.fail_forward_operation == Some(index)
+                    }
+                    TreeTrunkPhysicalDirection::Restore => {
+                        self.fail_restore_operation == Some(index)
+                    }
+                };
+                if injected_failure {
+                    anyhow::bail!(match change.direction {
+                        TreeTrunkPhysicalDirection::Forward => "injected forward trunk failure",
+                        TreeTrunkPhysicalDirection::Restore => "injected restore trunk failure",
+                    });
+                }
+                let coverage = self
+                    .coverage
+                    .get(&layer.key)
+                    .context("recording trunk layer coverage is missing")?;
+                if clear {
+                    for voxel in coverage {
+                        self.voxels.remove(voxel);
+                    }
+                } else {
+                    self.voxels.extend(coverage);
+                }
+            }
+            if change.direction == TreeTrunkPhysicalDirection::Forward
+                && self.fail_forward_visible_publication
+            {
+                anyhow::bail!("injected forward visible publication failure");
+            }
+            Ok(TreeTrunkPublicationOutcome::default())
+        }
+    }
+
+    fn recording_trunk_transaction() -> (
+        TreeTrunkPhysicalTransaction,
+        RecordingTreeTrunkPhysicalHost,
+        HashSet<u8>,
+    ) {
+        let old = TreeTrunkLayer::from_record(1, &prepared_tree(1, 101, 1001).record);
+        let new = TreeTrunkLayer::from_record(1, &prepared_tree(1, 102, 1002).record);
+        let old_voxels = HashSet::from([1, 2, 3]);
+        let new_voxels = HashSet::from([3, 4, 5]);
+        let host = RecordingTreeTrunkPhysicalHost {
+            coverage: HashMap::from([(old.key, old_voxels.clone()), (new.key, new_voxels)]),
+            voxels: old_voxels.clone(),
+            ..RecordingTreeTrunkPhysicalHost::default()
+        };
+        (
+            TreeTrunkPhysicalTransaction::new(vec![old], vec![new]),
+            host,
+            old_voxels,
+        )
+    }
+
+    struct RecordingOverlappingTreePublicationHost {
+        physical: RecordingTreeTrunkPhysicalHost,
+        prepared: Vec<PreparedTreeCompensation>,
+        retained: Vec<(u32, TreeRecord)>,
+        transaction: Option<TreeTrunkPhysicalTransaction>,
+        fail_observer_for_tree: Option<u32>,
+    }
+
+    impl TreePublicationPrimitiveHost for RecordingOverlappingTreePublicationHost {
+        fn prepare_retained_trunks(&mut self, retained: &[(u32, TreeRecord)]) -> Result<()> {
+            self.retained = retained.to_vec();
+            Ok(())
+        }
+
+        fn prepare(
+            &mut self,
+            _operation: TreePublicationOperation,
+            tree_id: u32,
+            publication: Option<&PreparedTreePublication>,
+            previous: Option<&TreeRecord>,
+        ) -> Result<()> {
+            self.prepared.push(PreparedTreeCompensation {
+                tree_id,
+                previous: previous.cloned(),
+                replacement: publication.map(|publication| publication.record.clone()),
+            });
+            Ok(())
+        }
+
+        fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
+            let mut transaction =
+                TreeTrunkPhysicalTransaction::from_prepared(&self.prepared, &self.retained);
+            let result = transaction.publish(&mut self.physical);
+            self.transaction = Some(transaction);
+            result
+        }
+
+        fn publish_leaves(
+            &mut self,
+            _tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_fruit_lifecycle(
+            &mut self,
+            _tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_attached_fruit(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn invalidate_local_shadows(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn publish_canopy_audio(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<usize> {
+            anyhow::ensure!(
+                self.fail_observer_for_tree != Some(tree_id),
+                "injected overlap observer failure"
+            );
+            Ok(0)
+        }
+
+        fn remove_leaves(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn remove_fruit_lifecycle(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn remove_canopy_audio(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn finalize_observer_publication(&mut self, _tree_id: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn commit_publication(&mut self) -> Result<()> {
+            self.transaction = None;
+            self.prepared.clear();
+            self.retained.clear();
+            Ok(())
+        }
+
+        fn compensate(&mut self) -> Result<()> {
+            if let Some(mut transaction) = self.transaction.take() {
+                transaction.restore(&mut self.physical)?;
+            }
+            self.prepared.clear();
+            self.retained.clear();
+            Ok(())
+        }
+    }
+
+    fn overlapping_garden() -> (GardenTrees, RecordingOverlappingTreePublicationHost) {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let coverage = HashMap::from([
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 101,
+                },
+                HashSet::from([1, 2, 3]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 102,
+                },
+                HashSet::from([1]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 103,
+                },
+                HashSet::from([1, 2, 6]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 2,
+                    generation: 201,
+                },
+                HashSet::from([3, 4, 5]),
+            ),
+        ]);
+        let mut host = RecordingOverlappingTreePublicationHost {
+            physical: RecordingTreeTrunkPhysicalHost {
+                coverage,
+                ..RecordingTreeTrunkPhysicalHost::default()
+            },
+            prepared: Vec::new(),
+            retained: Vec::new(),
+            transaction: None,
+            fail_observer_for_tree: None,
+        };
+        garden
+            .place(prepared_tree(1, 101, 1001), &mut host)
+            .unwrap();
+        garden
+            .place(prepared_tree(2, 201, 2001), &mut host)
+            .unwrap();
+        (garden, host)
+    }
+
+    fn replacement_only_overlap_garden() -> (GardenTrees, RecordingOverlappingTreePublicationHost) {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let coverage = HashMap::from([
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 301,
+                },
+                HashSet::from([1]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 1,
+                    generation: 302,
+                },
+                HashSet::from([3, 5]),
+            ),
+            (
+                TreeTrunkLayerKey {
+                    tree_id: 2,
+                    generation: 401,
+                },
+                HashSet::from([3, 4]),
+            ),
+        ]);
+        let mut host = RecordingOverlappingTreePublicationHost {
+            physical: RecordingTreeTrunkPhysicalHost {
+                coverage,
+                ..RecordingTreeTrunkPhysicalHost::default()
+            },
+            prepared: Vec::new(),
+            retained: Vec::new(),
+            transaction: None,
+            fail_observer_for_tree: None,
+        };
+        garden
+            .place(
+                prepared_tree_with_bound(1, 301, 3001, UAabb3::new(UVec3::ZERO, UVec3::splat(10))),
+                &mut host,
+            )
+            .unwrap();
+        garden
+            .place(
+                prepared_tree_with_bound(
+                    2,
+                    401,
+                    4001,
+                    UAabb3::new(UVec3::splat(20), UVec3::splat(30)),
+                ),
+                &mut host,
+            )
+            .unwrap();
+        (garden, host)
+    }
+
+    fn prepared_tree_with_bound(
+        tree_id: u32,
+        generation: u64,
+        seed: u64,
+        bound: UAabb3,
+    ) -> PreparedTreePublication {
+        let mut publication = prepared_tree(tree_id, generation, seed);
+        publication.record.bound = bound;
+        publication.rebuild_bound = bound;
+        publication
+    }
+
+    fn prepared_age_source(
+        tree_id: u32,
+        source: TreeRecord,
+        generation: u64,
+    ) -> PreparedTreePublication {
+        let compiled = TreePlacementService::compile(
+            source.mature_desc.clone(),
+            source.position,
+            UAabb3::default(),
+            0.5,
+            generation,
+        );
+        PreparedTreePublication::new(tree_id, source.mature_desc, compiled)
+    }
+
+    fn prepared_tree(tree_id: u32, generation: u64, seed: u64) -> PreparedTreePublication {
+        let mut mature_desc = TreeDesc::default();
+        mature_desc.branching.seed = seed;
+        let compiled = TreePlacementService::compile(
+            mature_desc.clone(),
+            Vec3::new(1.0, 0.5, 1.0),
+            UAabb3::default(),
+            1.0,
+            generation,
+        );
+        PreparedTreePublication::new(tree_id, mature_desc, compiled)
+    }
+
+    fn placement_events(
+        operation: TreePublicationOperation,
+        tree_id: u32,
+    ) -> Vec<(TreePublicationEvent, u32)> {
+        vec![
+            (TreePublicationEvent::Prepare(operation), tree_id),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishTrunks),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishLeaves),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishFruitLifecycle),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishAttachedFruit),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::InvalidateLocalShadows),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishCanopyAudio),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(
+                    TreePublicationPrimitive::FinalizeObserverPublication,
+                ),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::CommitPublication),
+                tree_id,
+            ),
+        ]
+    }
+
+    fn removal_events(tree_id: u32) -> Vec<(TreePublicationEvent, u32)> {
+        vec![
+            (
+                TreePublicationEvent::Prepare(TreePublicationOperation::Remove),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishTrunks),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveLeaves),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveFruitLifecycle),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::InvalidateLocalShadows),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveCanopyAudio),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(
+                    TreePublicationPrimitive::FinalizeObserverPublication,
+                ),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::CommitPublication),
+                tree_id,
+            ),
+        ]
+    }
+
+    #[test]
+    fn tree_publication_metrics_attribute_each_production_action_to_its_owner() {
+        assert_eq!(
+            TreePublicationAction::PublishLeaves.metric(),
+            Some(TreePublicationMetric::Leaves)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishFruitLifecycle.metric(),
+            Some(TreePublicationMetric::Fruit)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishAttachedFruit.metric(),
+            Some(TreePublicationMetric::Fruit)
+        );
+        assert_eq!(
+            TreePublicationAction::InvalidateLocalShadows.metric(),
+            Some(TreePublicationMetric::Shadows)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishCanopyAudio.metric(),
+            Some(TreePublicationMetric::Audio)
+        );
+        assert_eq!(TreePublicationAction::PublishTrunks.metric(), None);
+        assert_eq!(TreePublicationAction::CommitPublication.metric(), None);
+    }
+
+    #[test]
+    fn trunk_timing_subtracts_mutation_from_visible_publication_instead_of_double_counting() {
+        let outcome = TreeTrunkPublicationOutcome::from_total_elapsed(
+            std::time::Duration::from_millis(5),
+            std::time::Duration::from_millis(13),
+        );
+
+        assert_eq!(
+            outcome.mutation_elapsed,
+            std::time::Duration::from_millis(5)
+        );
+        assert_eq!(
+            outcome.visible_publication_elapsed,
+            std::time::Duration::from_millis(8)
+        );
+        assert_eq!(
+            outcome.mutation_elapsed + outcome.visible_publication_elapsed,
+            std::time::Duration::from_millis(13)
+        );
+    }
+
+    #[test]
+    fn production_trunk_transaction_restores_after_clear_succeeds_and_stamp_fails() {
+        let (mut transaction, mut host, old_voxels) = recording_trunk_transaction();
+        host.fail_forward_operation = Some(1);
+
+        transaction
+            .publish(&mut host)
+            .expect_err("failed new-trunk stamp must restore the old atlas");
+
+        assert_eq!(host.voxels, old_voxels);
+    }
+
+    #[test]
+    fn production_trunk_transaction_restores_after_visible_publication_fails() {
+        let (mut transaction, mut host, old_voxels) = recording_trunk_transaction();
+        host.fail_forward_visible_publication = true;
+
+        transaction
+            .publish(&mut host)
+            .expect_err("visible publication failure must restore the old atlas");
+
+        assert_eq!(host.voxels, old_voxels);
+    }
+
+    #[test]
+    fn production_trunk_transaction_reports_original_and_restore_failures() {
+        let (mut transaction, mut host, _) = recording_trunk_transaction();
+        host.fail_forward_operation = Some(1);
+        host.fail_restore_operation = Some(0);
+
+        let error = transaction
+            .publish(&mut host)
+            .expect_err("original and restore failures must both escape");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("injected forward trunk failure"),
+            "{message}"
+        );
+        assert!(
+            message.contains("injected restore trunk failure"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn garden_tree_removal_redraws_an_overlapping_canonical_neighbor() {
+        let (mut garden, mut host) = overlapping_garden();
+
+        garden.remove(1, &mut host).unwrap();
+
+        assert_eq!(host.physical.voxels, HashSet::from([3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_shrink_replacement_preserves_neighbor_without_old_trunk_ghosts() {
+        let (mut garden, mut host) = overlapping_garden();
+
+        garden
+            .replace(prepared_tree(1, 102, 1002), &mut host)
+            .unwrap();
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_failed_overlap_replacement_restores_target_and_neighbor_voxels() {
+        let (mut garden, mut host) = overlapping_garden();
+        host.fail_observer_for_tree = Some(1);
+
+        garden
+            .replace(prepared_tree(1, 103, 1003), &mut host)
+            .expect_err("observer failure must restore every overlapping trunk");
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 2, 3, 4, 5]));
+    }
+
+    #[test]
+    fn garden_tree_failed_replacement_only_overlap_restores_the_new_neighbor() {
+        let (mut garden, mut host) = replacement_only_overlap_garden();
+        host.fail_observer_for_tree = Some(1);
+
+        garden
+            .replace(
+                prepared_tree_with_bound(
+                    1,
+                    302,
+                    3002,
+                    UAabb3::new(UVec3::splat(20), UVec3::splat(25)),
+                ),
+                &mut host,
+            )
+            .expect_err("replacement-only overlap must be part of the checkpoint");
+
+        assert_eq!(host.physical.voxels, HashSet::from([1, 3, 4]));
+    }
+
+    #[test]
+    fn staged_tuned_description_commits_with_age_or_is_discarded_after_failure() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden
+            .place(prepared_tree(0, 501, 5001), &mut host)
+            .unwrap();
+        let old_seed = garden.records[&0].mature_desc.branching.seed;
+        let mut staged_desc = garden.records[&0].mature_desc.clone();
+        staged_desc.branching.seed = 5002;
+
+        assert!(garden.stage_tuned_description(staged_desc.clone()));
+        let (_, staged_source) = garden.take_age_rebuild_sources().remove(0);
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, old_seed);
+        host.fail_primitive = Some(TreePublicationPrimitive::PublishCanopyAudio);
+        garden
+            .replace(prepared_age_source(0, staged_source, 502), &mut host)
+            .expect_err("failed age publication must not commit the staged description");
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, old_seed);
+
+        let (_, next_source) = garden.take_age_rebuild_sources().remove(0);
+        assert_eq!(next_source.mature_desc.branching.seed, old_seed);
+
+        host.fail_primitive = None;
+        assert!(garden.stage_tuned_description(staged_desc));
+        let (_, retry_source) = garden.take_age_rebuild_sources().remove(0);
+        garden
+            .replace(prepared_age_source(0, retry_source, 503), &mut host)
+            .unwrap();
+        assert_eq!(garden.records[&0].mature_desc.branching.seed, 5002);
     }
 
     #[test]
@@ -2400,35 +4151,252 @@ mod tests {
     }
 
     #[test]
-    fn tree_runtime_commits_identity_records_bounds_and_leaf_sources_together() {
-        let mut runtime = TreeRuntime::new(LeafEmitterDesc::default());
-        let first_bound = UAabb3::new(UVec3::new(1, 2, 3), UVec3::new(4, 5, 6));
+    fn garden_tree_ordinary_placement_publishes_one_canonical_identity_in_order() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
 
-        assert_eq!(runtime.placement_id(false), 0);
-        assert_eq!(runtime.placement_id(true), 1);
-        assert_eq!(runtime.placement_id(true), 1);
-        runtime.commit_placement(1, tree_record(first_bound, 0.25), &[]);
+        let receipt = garden
+            .place(prepared_tree(1, 11, 101), &mut host)
+            .expect("ordinary placement should publish");
 
-        assert_eq!(runtime.placement_id(true), 2);
-        assert_eq!(runtime.len(), 1);
-        assert_eq!(runtime.procedural_tree_ids(), vec![1]);
-        assert_eq!(runtime.previous_bound(), first_bound);
         assert_eq!(
-            runtime.butterfly_spawn_positions(),
-            vec![Vec3::new(0.25, 0.5, 0.5)]
+            host.events,
+            placement_events(TreePublicationOperation::Place, 1)
         );
+        assert_eq!(receipt.canopy_audio_source_count(), 3);
+        assert_eq!(garden.canonical_canopy_generation(1), Some(11));
+        assert_eq!(host.trunk_generations.get(&1), Some(&11));
+        assert_eq!(garden.len(), 1);
+        assert_eq!(garden.placement_id(true), 2);
+        assert_eq!(garden.procedural_tree_ids(), vec![1]);
+        assert!(garden.previous_bound().has_size());
+        assert!(!garden.butterfly_spawn_positions().is_empty());
+    }
 
-        runtime.commit_placement(
-            runtime.tuned_tree_id(),
-            tree_record(UAabb3::default(), 0.75),
-            &[],
+    #[test]
+    fn garden_tree_single_replacement_preserves_tree_id_and_replaces_generation() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(0, 21, 201), &mut host).unwrap();
+        host.events.clear();
+
+        garden
+            .replace(prepared_tree(0, 22, 202), &mut host)
+            .expect("single-tree replacement should publish");
+
+        assert_eq!(
+            host.events,
+            placement_events(TreePublicationOperation::Replace, 0)
         );
-        assert_eq!(runtime.placement_id(true), 2);
-        assert_eq!(runtime.len(), 2);
+        assert_eq!(garden.canonical_canopy_generation(0), Some(22));
+        assert_eq!(host.trunk_generations.get(&0), Some(&22));
+        assert_eq!(garden.len(), 1);
+    }
 
-        assert!(runtime.commit_removal(1).is_some());
-        assert_eq!(runtime.procedural_tree_ids(), Vec::<u32>::new());
-        assert_eq!(runtime.len(), 1);
+    #[test]
+    fn garden_tree_age_rebuild_replaces_each_identity_through_the_same_plan() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(1, 31, 301), &mut host).unwrap();
+        garden.place(prepared_tree(2, 32, 302), &mut host).unwrap();
+        host.events.clear();
+
+        garden
+            .replace(prepared_tree(1, 41, 301), &mut host)
+            .unwrap();
+        garden
+            .replace(prepared_tree(2, 42, 302), &mut host)
+            .unwrap();
+
+        let mut expected = placement_events(TreePublicationOperation::Replace, 1);
+        expected.extend(placement_events(TreePublicationOperation::Replace, 2));
+        assert_eq!(host.events, expected);
+        assert_eq!(garden.canonical_canopy_generation(1), Some(41));
+        assert_eq!(garden.canonical_canopy_generation(2), Some(42));
+        assert_eq!(garden.len(), 2);
+    }
+
+    #[test]
+    fn garden_tree_age_rebuild_rolls_back_the_entire_batch() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(1, 31, 301), &mut host).unwrap();
+        garden.place(prepared_tree(2, 32, 302), &mut host).unwrap();
+        host.events.clear();
+        host.fail_primitive = Some(TreePublicationPrimitive::PublishCanopyAudio);
+        host.fail_tree_id = Some(2);
+
+        garden
+            .replace_batch(
+                vec![prepared_tree(1, 41, 301), prepared_tree(2, 42, 302)],
+                &mut host,
+            )
+            .expect_err("one failed observer must roll back the age batch");
+
+        assert_eq!(garden.canonical_canopy_generation(1), Some(31));
+        assert_eq!(garden.canonical_canopy_generation(2), Some(32));
+        assert_eq!(host.trunk_generations.get(&1), Some(&31));
+        assert_eq!(host.trunk_generations.get(&2), Some(&32));
+    }
+
+    #[test]
+    fn garden_tree_removal_retires_observers_before_canonical_identity() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(7, 51, 501), &mut host).unwrap();
+        host.events.clear();
+
+        let removed = garden.remove(7, &mut host).expect("removal should publish");
+
+        assert!(removed.is_some());
+        assert_eq!(host.events, removal_events(7));
+        assert_eq!(garden.canonical_canopy_generation(7), None);
+        assert!(!host.trunk_generations.contains_key(&7));
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
+    fn garden_tree_absent_removal_is_an_observer_free_noop() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+
+        let removed = garden.remove(404, &mut host).unwrap();
+
+        assert!(removed.is_none());
+        assert!(host.events.is_empty());
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
+    fn garden_tree_preparation_failure_has_zero_publication_and_zero_commit() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost {
+            fail_prepare: true,
+            ..RecordingTreePublicationHost::default()
+        };
+
+        let error = garden
+            .place(prepared_tree(1, 61, 601), &mut host)
+            .expect_err("injected preparation failure should abort");
+
+        assert!(error.to_string().contains("injected preparation failure"));
+        assert_eq!(
+            host.events,
+            vec![(
+                TreePublicationEvent::Prepare(TreePublicationOperation::Place),
+                1,
+            )]
+        );
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
+    fn garden_tree_action_failure_compensates_and_keeps_previous_identity_canonical() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(0, 71, 701), &mut host).unwrap();
+        host.events.clear();
+        host.fail_primitive = Some(TreePublicationPrimitive::PublishCanopyAudio);
+
+        let error = garden
+            .replace(prepared_tree(0, 72, 702), &mut host)
+            .expect_err("injected action failure should compensate");
+
+        assert!(format!("{error:#}").contains("injected action failure"));
+        let mut expected = placement_events(TreePublicationOperation::Replace, 0);
+        expected.truncate(7);
+        expected.push((TreePublicationEvent::Compensate, 0));
+        assert_eq!(host.events, expected);
+        assert_eq!(garden.canonical_canopy_generation(0), Some(71));
+        assert_eq!(host.trunk_generations.get(&0), Some(&71));
+        assert_eq!(garden.len(), 1);
+    }
+
+    #[test]
+    fn garden_tree_reports_original_and_compensation_failures_without_committing() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost {
+            fail_primitive: Some(TreePublicationPrimitive::PublishCanopyAudio),
+            fail_compensation: true,
+            ..RecordingTreePublicationHost::default()
+        };
+
+        let error = garden
+            .place(prepared_tree(3, 73, 703), &mut host)
+            .expect_err("action and compensation failures should both be reported");
+
+        let message = format!("{error:#}");
+        assert!(message.contains("injected action failure"), "{message}");
+        assert!(
+            message.contains("injected compensation failure"),
+            "{message}"
+        );
+        assert_eq!(garden.canonical_canopy_generation(3), None);
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
+    fn garden_tree_final_action_failure_cannot_commit_canonical_identity_early() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost {
+            fail_primitive: Some(TreePublicationPrimitive::FinalizeObserverPublication),
+            ..RecordingTreePublicationHost::default()
+        };
+
+        let error = garden
+            .place(prepared_tree(3, 75, 705), &mut host)
+            .expect_err("final publication action should be able to abort canonical commit");
+
+        assert!(format!("{error:#}").contains("injected action failure"));
+        let mut expected = placement_events(TreePublicationOperation::Place, 3);
+        expected.pop();
+        expected.push((TreePublicationEvent::Compensate, 3));
+        assert_eq!(host.events, expected);
+        assert_eq!(garden.canonical_canopy_generation(3), None);
+        assert!(!host.trunk_generations.contains_key(&3));
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
+    fn garden_tree_removal_failure_compensates_and_keeps_identity_canonical() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(9, 81, 801), &mut host).unwrap();
+        host.events.clear();
+        host.fail_primitive = Some(TreePublicationPrimitive::RemoveCanopyAudio);
+
+        let error = garden
+            .remove(9, &mut host)
+            .expect_err("injected removal failure should compensate");
+
+        assert!(format!("{error:#}").contains("injected action failure"));
+        let mut expected = removal_events(9);
+        expected.truncate(6);
+        expected.push((TreePublicationEvent::Compensate, 9));
+        assert_eq!(host.events, expected);
+        assert_eq!(garden.canonical_canopy_generation(9), Some(81));
+        assert_eq!(host.trunk_generations.get(&9), Some(&81));
+        assert_eq!(garden.len(), 1);
+    }
+
+    #[test]
+    fn garden_tree_final_removal_action_failure_cannot_remove_identity_early() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        garden.place(prepared_tree(10, 91, 901), &mut host).unwrap();
+        host.events.clear();
+        host.fail_primitive = Some(TreePublicationPrimitive::FinalizeObserverPublication);
+
+        garden
+            .remove(10, &mut host)
+            .expect_err("final removal action should be able to abort canonical removal");
+
+        assert_eq!(
+            host.events.last(),
+            Some(&(TreePublicationEvent::Compensate, 10))
+        );
+        assert_eq!(garden.canonical_canopy_generation(10), Some(91));
+        assert_eq!(garden.len(), 1);
     }
 
     #[test]

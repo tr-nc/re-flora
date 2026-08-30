@@ -578,12 +578,13 @@ impl App {
         change: VisibleTerrainChange,
     ) -> Result<VisibleTerrainCompletion> {
         let mut publication = VisibleTerrainPublication::edit(change)?;
-        let completion = publication.run_to_completion(self).unwrap_or_else(|err| {
-            panic!(
-                "Visible Terrain Publication failed after entering non-rollbackable state: {err:#}"
-            )
-        });
-        Ok(completion)
+        match publication.run_to_completion(self) {
+            Ok(completion) => Ok(completion),
+            Err(error) => {
+                publication.abort(&mut self.contree_builder);
+                Err(error).context("publishing visible terrain")
+            }
+        }
     }
 }
 

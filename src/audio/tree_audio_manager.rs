@@ -33,7 +33,45 @@ pub struct TreeAudioManager {
     wind: Wind,
 }
 
+pub(crate) struct TreeAudioPublicationCheckpoint {
+    lifecycle: CanopyAudioLifecycle,
+}
+
 impl TreeAudioManager {
+    pub(crate) fn publication_checkpoint(&self) -> TreeAudioPublicationCheckpoint {
+        TreeAudioPublicationCheckpoint {
+            lifecycle: self.lifecycle.clone(),
+        }
+    }
+
+    #[cfg(test)]
+    fn fail_spawn_for_test(&mut self, key: crate::audio::CanopyAudioGenerationKey) {
+        self.emitter_adapter.fail_spawn_for_test(key);
+    }
+
+    #[cfg(test)]
+    fn active_generation_keys_for_test(&self) -> Vec<crate::audio::CanopyAudioGenerationKey> {
+        self.emitter_adapter.active_generation_keys_for_test()
+    }
+
+    pub(crate) fn restore_publication_checkpoint(
+        &mut self,
+        checkpoint: TreeAudioPublicationCheckpoint,
+        time_seconds: f32,
+    ) -> Result<()> {
+        self.lifecycle = checkpoint.lifecycle;
+        let snapshot = self.lifecycle.snapshot(time_seconds)?;
+        self.emitter_adapter.synchronize(
+            &snapshot,
+            &self.rustle_clip,
+            Self::base_volume_db(self.wind_volume_db),
+            self.wind_response_curve,
+            self.rustle_params.base_wind,
+            time_seconds,
+        )?;
+        Ok(())
+    }
+
     pub fn new(
         spatial_sound_manager: SpatialSoundManager,
         wind_response_curve: WindResponseCurve,
@@ -211,9 +249,110 @@ impl TreeAudioManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{audio::CanopyAudioGenerationKey, tree_gen::LeafPlacement};
+    use glam::Vec3;
+    use petalsonic::{
+        AcousticHit, AcousticRay, AcousticRayQuerySnapshot, AcousticSceneSnapshot,
+        EnvironmentalAcousticsBudget,
+    };
+
+    struct NoAcousticHits;
+
+    impl AcousticRayQuerySnapshot for NoAcousticHits {
+        fn trace_any_hit_batch(
+            &self,
+            _rays: &[AcousticRay],
+            _min_distances: &[f32],
+            _max_distances: &[f32],
+            hits: &mut [bool],
+        ) {
+            hits.fill(false);
+        }
+
+        fn trace_closest_hit_batch(
+            &self,
+            _rays: &[AcousticRay],
+            _min_distances: &[f32],
+            _max_distances: &[f32],
+            hits: &mut [Option<AcousticHit>],
+        ) {
+            hits.fill(None);
+        }
+    }
+
+    fn manager() -> TreeAudioManager {
+        let spatial = SpatialSoundManager::new(
+            64,
+            AcousticSceneSnapshot::new(1, Arc::new(NoAcousticHits)),
+            Some("re-flora-tree-audio-publication-device-that-does-not-exist".to_owned()),
+            EnvironmentalAcousticsBudget::default(),
+        )
+        .unwrap();
+        TreeAudioManager::new(
+            spatial,
+            WindResponseCurve {
+                min_strength: 0.0,
+                max_strength: 1.0,
+                power: 1.0,
+            },
+            -15.0,
+            TreeRustleParams::dense(),
+        )
+        .unwrap()
+    }
+
+    fn descriptor(generation: u64, x: f32) -> CanopyAcousticDescriptor {
+        CanopyAcousticDescriptor::build(
+            generation,
+            Vec3::new(x, 0.0, 0.0),
+            generation,
+            &[LeafPlacement {
+                position: Vec3::new(4.0, 4.0, 4.0),
+                anchor: Vec3::ZERO,
+            }],
+            &[],
+        )
+    }
 
     #[test]
     fn base_volume_keeps_procedural_rustle_makeup_without_leaf_count_gain() {
         assert_eq!(TreeAudioManager::base_volume_db(-15.0), 21.0);
+    }
+
+    #[test]
+    fn publication_failure_and_checkpoint_restore_preserve_the_previous_generation() {
+        let mut audio = manager();
+        audio.upsert_tree(1, descriptor(1, 1.0), 0.0).unwrap();
+        let checkpoint = audio.publication_checkpoint();
+        let previous_key = CanopyAudioGenerationKey::new(1, 1);
+        let failing_key = CanopyAudioGenerationKey::new(2, 2);
+        audio.fail_spawn_for_test(failing_key);
+
+        let error = audio
+            .upsert_tree(2, descriptor(2, 2.0), 0.0)
+            .expect_err("publication must fail when its physical Voice cannot spawn");
+        assert!(format!("{error:#}").contains("injected canopy Voice spawn failure"));
+        assert_eq!(audio.active_generation_keys_for_test(), vec![previous_key]);
+
+        audio
+            .restore_publication_checkpoint(checkpoint, 0.0)
+            .expect("the previous generation should remain physically realizable");
+        assert_eq!(audio.active_generation_keys_for_test(), vec![previous_key]);
+    }
+
+    #[test]
+    fn checkpoint_restore_reports_a_physical_generation_failure() {
+        let mut published = manager();
+        published.upsert_tree(1, descriptor(1, 1.0), 0.0).unwrap();
+        let checkpoint = published.publication_checkpoint();
+        let mut recovering = manager();
+        recovering.fail_spawn_for_test(CanopyAudioGenerationKey::new(1, 1));
+
+        let error = recovering
+            .restore_publication_checkpoint(checkpoint, 0.0)
+            .expect_err("restore must not report success without the checkpoint generation");
+
+        assert!(format!("{error:#}").contains("injected canopy Voice spawn failure"));
+        assert!(recovering.active_generation_keys_for_test().is_empty());
     }
 }
