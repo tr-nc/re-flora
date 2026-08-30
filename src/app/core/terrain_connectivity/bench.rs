@@ -1852,7 +1852,7 @@ fn prepare_bounded_commit(
 }
 
 struct PreparedFixtureInstallation {
-    atlas_writes: Vec<PreparedAtlasWrite>,
+    atlas_writes: PreparedAtlasWrite,
     publications: Vec<VisibleTerrainPublication>,
     manual_camera: Option<(Vec3, Vec3)>,
     available_particles: usize,
@@ -1876,19 +1876,9 @@ impl PreparedFixtureInstallation {
 
             let isolation = isolation_bound();
             let isolation_data = vec![0; voxel_count(isolation) as usize];
-            atlas_writes.push(PreparedAtlasWrite::prepare(
-                world_dim,
-                isolation.min(),
-                isolation.dimensions(),
-                isolation_data,
-            )?);
+            atlas_writes.push((isolation.min(), isolation.dimensions(), isolation_data));
             let fixture = generate_hollow_canopy();
-            atlas_writes.push(PreparedAtlasWrite::prepare(
-                world_dim,
-                fixture_bound().min(),
-                fixture_bound().dimensions(),
-                fixture,
-            )?);
+            atlas_writes.push((fixture_bound().min(), fixture_bound().dimensions(), fixture));
             let change =
                 VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
                     isolation,
@@ -1898,12 +1888,7 @@ impl PreparedFixtureInstallation {
 
             let manual_camera = if request.manual {
                 let bound = manual_support_bound();
-                atlas_writes.push(PreparedAtlasWrite::prepare(
-                    world_dim,
-                    bound.min(),
-                    bound.dimensions(),
-                    generate_manual_support(),
-                )?);
+                atlas_writes.push((bound.min(), bound.dimensions(), generate_manual_support()));
                 let change = VisibleTerrainChange::from_build_edits(vec![
                     BuildEdit::RebuildMeshWithoutFlora(bound),
                 ])?
@@ -1915,6 +1900,8 @@ impl PreparedFixtureInstallation {
             } else {
                 None
             };
+            let atlas_writes = PreparedAtlasWrite::prepare(world_dim, atlas_writes)
+                .map_err(|(_regions, error)| error)?;
 
             Ok(PreparedFixtureInstallation {
                 atlas_writes,
@@ -2370,12 +2357,10 @@ mod tests {
     fn fixture_atlas_writes_reject_empty_out_of_world_and_wrong_byte_count() {
         let reject = |origin, dim, data| match PreparedAtlasWrite::prepare(
             UVec3::splat(8),
-            origin,
-            dim,
-            data,
+            vec![(origin, dim, data)],
         ) {
             Ok(_) => panic!("invalid fixture atlas write unexpectedly prepared"),
-            Err(error) => error,
+            Err((_regions, error)) => error,
         };
 
         let empty = reject(UVec3::ZERO, UVec3::ZERO, Vec::new());

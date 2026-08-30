@@ -87,7 +87,7 @@ impl RejectedTerrainDetachment {
 }
 
 pub(super) struct PreparedTerrainDetachment {
-    atlas_writes: Vec<PreparedAtlasWrite>,
+    atlas_writes: PreparedAtlasWrite,
     publication: VisibleTerrainPublication,
     visual_voxels: Vec<(UVec3, u8)>,
     detached_voxels: usize,
@@ -105,22 +105,7 @@ impl PreparedTerrainDetachment {
     pub(super) fn prepare(
         request: TerrainDetachmentRequest,
     ) -> Result<Self, RejectedTerrainDetachment> {
-        let prepared = (|| {
-            anyhow::ensure!(
-                !request.atlas_writes.is_empty(),
-                "terrain detachment requires at least one prepared atlas write"
-            );
-            request
-                .atlas_writes
-                .iter()
-                .try_for_each(|write| -> anyhow::Result<()> {
-                    PreparedAtlasWrite::validate(
-                        request.world_dim,
-                        write.origin,
-                        write.dim,
-                        &write.data,
-                    )
-                })?;
+        let publication = (|| {
             anyhow::ensure!(
                 request.visual_voxels.len() <= request.detached_voxels,
                 "terrain detachment cannot visualize more voxels than it clears"
@@ -129,27 +114,45 @@ impl PreparedTerrainDetachment {
                 .context("terrain detachment has no visible terrain chunks")?;
             Ok(VisibleTerrainPublication::edit(change)?)
         })();
-        let publication = match prepared {
+        let publication = match publication {
             Ok(publication) => publication,
             Err(error) => return Err(RejectedTerrainDetachment { request, error }),
         };
+        let TerrainDetachmentRequest {
+            world_dim,
+            atlas_writes,
+            publication_edits,
+            visual_voxels,
+            detached_voxels,
+        } = request;
+        let atlas_regions = atlas_writes
+            .into_iter()
+            .map(|write| (write.origin, write.dim, write.data))
+            .collect();
+        let atlas_writes = match PreparedAtlasWrite::prepare(world_dim, atlas_regions) {
+            Ok(prepared) => prepared,
+            Err((regions, error)) => {
+                let atlas_writes = regions
+                    .into_iter()
+                    .map(|(origin, dim, data)| AtlasWriteRequest { origin, dim, data })
+                    .collect();
+                return Err(RejectedTerrainDetachment {
+                    request: TerrainDetachmentRequest {
+                        world_dim,
+                        atlas_writes,
+                        publication_edits,
+                        visual_voxels,
+                        detached_voxels,
+                    },
+                    error,
+                });
+            }
+        };
         Ok(Self {
-            atlas_writes: request
-                .atlas_writes
-                .into_iter()
-                .map(|write| {
-                    PreparedAtlasWrite::prepare(
-                        request.world_dim,
-                        write.origin,
-                        write.dim,
-                        write.data,
-                    )
-                    .expect("atlas write was validated before detachment publication")
-                })
-                .collect(),
+            atlas_writes,
             publication,
-            visual_voxels: request.visual_voxels,
-            detached_voxels: request.detached_voxels,
+            visual_voxels,
+            detached_voxels,
         })
     }
 

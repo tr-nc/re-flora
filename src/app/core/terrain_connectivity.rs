@@ -9,8 +9,10 @@ use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+mod atlas_write;
 pub(super) mod bench;
 mod detachment;
+use atlas_write::PreparedAtlasWrite;
 use detachment::PreparedTerrainDetachment;
 
 // Most releases resolve from one contiguous readback. Components that cross this
@@ -122,37 +124,6 @@ impl TerrainConnectivityRuntime {
 fn voxel_count(bound: UAabb3) -> u64 {
     let dim = bound.dimensions();
     u64::from(dim.x) * u64::from(dim.y) * u64::from(dim.z)
-}
-
-struct PreparedAtlasWrite {
-    origin: UVec3,
-    dim: UVec3,
-    data: Vec<u8>,
-}
-
-impl PreparedAtlasWrite {
-    fn validate(world_dim: UVec3, origin: UVec3, dim: UVec3, data: &[u8]) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            dim.cmpgt(UVec3::ZERO).all(),
-            "connectivity cannot prepare an empty atlas write"
-        );
-        anyhow::ensure!(
-            origin.cmple(world_dim).all() && dim.cmple(world_dim - origin).all(),
-            "connectivity atlas write is outside the world: origin={origin:?} dim={dim:?} world={world_dim:?}",
-        );
-        let expected = usize::try_from(voxel_count(UAabb3::new(origin, origin + dim)))?;
-        anyhow::ensure!(
-            data.len() == expected,
-            "connectivity atlas write has {} bytes, expected {expected}",
-            data.len(),
-        );
-        Ok(())
-    }
-
-    fn prepare(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
-        Self::validate(world_dim, origin, dim, &data)?;
-        Ok(Self { origin, dim, data })
-    }
 }
 
 fn select_components_for_particle_capacity(
