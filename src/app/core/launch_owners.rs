@@ -1,13 +1,14 @@
 #[cfg(test)]
 use super::denoiser_bench::{
-    CameraDenoiserCommand, CameraDenoiserPresentation, CameraFrameMotion, DenoiserCaptureStep,
-    DenoiserFrame, DenoiserFrameCommand, DenoiserFrameRun, DenoiserReadbackOutcome,
-    FixedVisualFrame, FoliageDenoiserCommand, FoliageDenoiserPresentation,
+    CameraDenoiserCommand, CameraDenoiserPresentation, DenoiserCaptureStep, DenoiserFrame,
+    DenoiserFrameRun, FixedVisualFrame, FoliageDenoiserCommand, FoliageDenoiserPresentation,
 };
 use super::{
     authored_flora_bench::AuthoredFloraBench,
     canopy_audio_diagnostic::CanopyAudioDiagnosticRuntime,
-    denoiser_bench::{DenoiserBench, DenoiserCaptureOutcome, DenoiserFrameTxn},
+    denoiser_bench::{
+        DenoiserBench, DenoiserFrameCommand, DenoiserFrameCompletion, DenoiserReadbackOutcome,
+    },
     environment_lighting_test_scene::EnvironmentLightingTestScene,
     hybrid_transparency_test_scene::HybridTransparencyTestScene,
     screenshot::ScreenshotRuntime,
@@ -479,7 +480,7 @@ impl LaunchOwners {
         matches!(self.mode, LaunchMode::FoliageShadow { .. })
     }
 
-    pub(super) fn begin_denoiser_frame(&self) -> DenoiserFrameTxn {
+    pub(super) fn begin_denoiser_frame(&self) -> DenoiserFrameCommand {
         match &self.mode {
             LaunchMode::General {
                 camera: CameraOwner::DenoiserBenchmark { runtime, .. },
@@ -492,8 +493,10 @@ impl LaunchOwners {
             | LaunchMode::CanopyAudio {
                 camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                 ..
-            } => runtime.begin_camera_frame(),
-            LaunchMode::FoliageShadow { runtime } => runtime.begin_foliage_frame(),
+            } => DenoiserFrameCommand::Camera(runtime.begin_camera_frame()),
+            LaunchMode::FoliageShadow { runtime } => {
+                DenoiserFrameCommand::Foliage(runtime.begin_foliage_frame())
+            }
             LaunchMode::General {
                 camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                 ..
@@ -505,51 +508,50 @@ impl LaunchOwners {
             | LaunchMode::CanopyAudio {
                 camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                 ..
-            } => DenoiserFrameTxn::Inactive,
+            } => DenoiserFrameCommand::Inactive,
         }
     }
 
     pub(super) fn finish_denoiser_frame(
         &mut self,
-        transaction: DenoiserFrameTxn,
-        outcome: DenoiserCaptureOutcome,
+        completion: DenoiserFrameCompletion,
     ) -> anyhow::Result<bool> {
-        match (&mut self.mode, transaction) {
+        match (&mut self.mode, completion) {
             (
                 LaunchMode::General {
                     camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                     ..
                 },
-                transaction @ DenoiserFrameTxn::Camera { .. },
+                completion @ DenoiserFrameCompletion::Camera { .. },
             )
             | (
                 LaunchMode::Environment {
                     camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                     ..
                 },
-                transaction @ DenoiserFrameTxn::Camera { .. },
+                completion @ DenoiserFrameCompletion::Camera { .. },
             )
             | (
                 LaunchMode::CanopyAudio {
                     camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                     ..
                 },
-                transaction @ DenoiserFrameTxn::Camera { .. },
-            )
-            | (
+                completion @ DenoiserFrameCompletion::Camera { .. },
+            ) => runtime.finish_camera_frame(completion),
+            (
                 LaunchMode::FoliageShadow { runtime },
-                transaction @ DenoiserFrameTxn::Foliage { .. },
-            ) => runtime.finish_frame(transaction, outcome),
+                completion @ DenoiserFrameCompletion::Foliage { .. },
+            ) => runtime.finish_foliage_frame(completion),
             (
                 LaunchMode::General {
                     camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                     ..
                 },
-                DenoiserFrameTxn::Inactive,
-            ) => match outcome {
-                DenoiserCaptureOutcome::NotRequested => Ok(false),
-                DenoiserCaptureOutcome::ReadbackFailed(error) => Err(error),
-                DenoiserCaptureOutcome::Frame(_) => {
+                DenoiserFrameCompletion::Inactive(readback),
+            ) => match readback {
+                DenoiserReadbackOutcome::NotRequested => Ok(false),
+                DenoiserReadbackOutcome::Failed(error) => Err(error),
+                DenoiserReadbackOutcome::Frame(_) => {
                     anyhow::bail!("inactive denoiser owner received a frame")
                 }
             },
@@ -562,11 +564,11 @@ impl LaunchOwners {
                     camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                     ..
                 },
-                DenoiserFrameTxn::Inactive,
-            ) => match outcome {
-                DenoiserCaptureOutcome::NotRequested => Ok(false),
-                DenoiserCaptureOutcome::ReadbackFailed(error) => Err(error),
-                DenoiserCaptureOutcome::Frame(_) => {
+                DenoiserFrameCompletion::Inactive(readback),
+            ) => match readback {
+                DenoiserReadbackOutcome::NotRequested => Ok(false),
+                DenoiserReadbackOutcome::Failed(error) => Err(error),
+                DenoiserReadbackOutcome::Frame(_) => {
                     anyhow::bail!("inactive denoiser owner received a frame")
                 }
             },
@@ -859,7 +861,7 @@ mod tests {
 
         assert!(matches!(
             launch.begin_denoiser_frame(),
-            DenoiserFrameTxn::Foliage { .. }
+            DenoiserFrameCommand::Foliage(_)
         ));
     }
 
@@ -1045,30 +1047,30 @@ mod tests {
     #[test]
     fn denoiser_frame_transaction_keeps_camera_and_foliage_ownership_exclusive() {
         let camera = camera_denoiser_owners();
-        let camera_frame = camera.begin_denoiser_frame();
+        let DenoiserFrameCommand::Camera(camera_frame) = camera.begin_denoiser_frame() else {
+            panic!("camera owner must mint its leaf command")
+        };
         assert!(matches!(
-            camera_frame,
-            DenoiserFrameTxn::Camera {
+            camera_frame.presentation(),
+            CameraDenoiserPresentation::Scripted {
                 capture: DenoiserCaptureStep::Record { frame: 0 },
-                motion: CameraFrameMotion::Scripted {
-                    capture_frame: 0,
-                    is_last: false,
-                },
-                ..
+                capture_frame: 0,
+                is_last: false,
             }
         ));
 
         let foliage = foliage_denoiser_owners();
-        let foliage_frame = foliage.begin_denoiser_frame();
+        let DenoiserFrameCommand::Foliage(foliage_frame) = foliage.begin_denoiser_frame() else {
+            panic!("foliage owner must mint its leaf command")
+        };
         assert!(matches!(
-            foliage_frame,
-            DenoiserFrameTxn::Foliage {
+            foliage_frame.presentation(),
+            FoliageDenoiserPresentation {
                 capture: DenoiserCaptureStep::Record { frame: 0 },
                 timeline: FixedVisualFrame {
                     frame_delta_seconds,
                     visual_time_seconds: 0.0,
                 },
-                ..
             } if frame_delta_seconds > 0.0
         ));
     }
@@ -1134,37 +1136,41 @@ mod tests {
         for mut owners in [camera_denoiser_owners(), foliage_denoiser_owners()] {
             let readback_transaction = owners.begin_denoiser_frame();
             owners
-                .finish_denoiser_frame(
-                    readback_transaction,
-                    DenoiserCaptureOutcome::ReadbackFailed(anyhow::anyhow!(
-                        "synthetic readback failure"
-                    )),
-                )
+                .finish_denoiser_frame(readback_transaction.into_run().complete(
+                    DenoiserReadbackOutcome::Failed(anyhow::anyhow!("synthetic readback failure")),
+                ))
                 .expect_err("readback failure must reject the transaction");
 
             let transaction = owners.begin_denoiser_frame();
             let error = owners
-                .finish_denoiser_frame(
-                    transaction,
-                    DenoiserCaptureOutcome::Frame(DenoiserFrame::new(2, 2, vec![0; 3])),
-                )
+                .finish_denoiser_frame(transaction.into_run().complete(
+                    DenoiserReadbackOutcome::Frame(DenoiserFrame::new(2, 2, vec![0; 3])),
+                ))
                 .expect_err("invalid frame bytes must reject the transaction");
             assert!(error.to_string().contains("expected"));
 
-            assert!(matches!(
-                owners.begin_denoiser_frame(),
-                DenoiserFrameTxn::Camera {
-                    capture: DenoiserCaptureStep::Record { frame: 0 },
-                    ..
-                } | DenoiserFrameTxn::Foliage {
-                    capture: DenoiserCaptureStep::Record { frame: 0 },
-                    timeline: FixedVisualFrame {
-                        visual_time_seconds: 0.0,
+            match owners.begin_denoiser_frame() {
+                DenoiserFrameCommand::Camera(command) => assert!(matches!(
+                    command.presentation(),
+                    CameraDenoiserPresentation::Fixed {
+                        capture: DenoiserCaptureStep::Record { frame: 0 },
+                    } | CameraDenoiserPresentation::Scripted {
+                        capture: DenoiserCaptureStep::Record { frame: 0 },
                         ..
-                    },
-                    ..
-                }
-            ));
+                    }
+                )),
+                DenoiserFrameCommand::Foliage(command) => assert!(matches!(
+                    command.presentation(),
+                    FoliageDenoiserPresentation {
+                        capture: DenoiserCaptureStep::Record { frame: 0 },
+                        timeline: FixedVisualFrame {
+                            visual_time_seconds: 0.0,
+                            ..
+                        },
+                    }
+                )),
+                DenoiserFrameCommand::Inactive => panic!("benchmark owner became inactive"),
+            }
         }
     }
 
@@ -1191,18 +1197,20 @@ mod tests {
         .unwrap();
 
         let transaction = owners.begin_denoiser_frame();
-        let error = owners
-            .finish_denoiser_frame(
-                transaction,
-                DenoiserCaptureOutcome::Frame(DenoiserFrame::new(1, 1, vec![0; 4])),
-            )
-            .expect_err("writing a report over an existing directory must fail");
+        let error =
+            owners
+                .finish_denoiser_frame(transaction.into_run().complete(
+                    DenoiserReadbackOutcome::Frame(DenoiserFrame::new(1, 1, vec![0; 4])),
+                ))
+                .expect_err("writing a report over an existing directory must fail");
         assert!(error.to_string().contains("write denoiser report"));
+        let DenoiserFrameCommand::Camera(command) = owners.begin_denoiser_frame() else {
+            panic!("camera benchmark owner became inactive")
+        };
         assert!(matches!(
-            owners.begin_denoiser_frame(),
-            DenoiserFrameTxn::Camera {
+            command.presentation(),
+            CameraDenoiserPresentation::Fixed {
                 capture: DenoiserCaptureStep::Record { frame: 0 },
-                ..
             }
         ));
     }

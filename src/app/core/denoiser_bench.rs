@@ -145,25 +145,142 @@ pub(super) struct DenoiserFramePermit {
 }
 
 #[derive(Debug)]
-pub(super) enum DenoiserFrameTxn {
+pub(super) enum DenoiserFrameCommand {
     Inactive,
-    Camera {
+    Camera(CameraDenoiserCommand),
+    Foliage(FoliageDenoiserCommand),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CameraDenoiserPresentation {
+    Fixed {
         capture: DenoiserCaptureStep,
-        motion: CameraFrameMotion,
-        permit: DenoiserFramePermit,
     },
-    Foliage {
+    Scripted {
         capture: DenoiserCaptureStep,
-        timeline: FixedVisualFrame,
-        permit: DenoiserFramePermit,
+        capture_frame: u32,
+        is_last: bool,
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct FoliageDenoiserPresentation {
+    pub(super) capture: DenoiserCaptureStep,
+    pub(super) timeline: FixedVisualFrame,
+}
+
 #[derive(Debug)]
-pub(super) enum DenoiserCaptureOutcome {
+pub(super) struct CameraDenoiserCommand {
+    presentation: CameraDenoiserPresentation,
+    permit: DenoiserFramePermit,
+}
+
+impl CameraDenoiserCommand {
+    pub(super) fn presentation(&self) -> CameraDenoiserPresentation {
+        self.presentation
+    }
+
+    pub(super) fn into_run(self) -> DenoiserFrameRun {
+        DenoiserFrameRun::Camera(CameraDenoiserRun {
+            capture: match self.presentation {
+                CameraDenoiserPresentation::Fixed { capture }
+                | CameraDenoiserPresentation::Scripted { capture, .. } => capture,
+            },
+            permit: self.permit,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct FoliageDenoiserCommand {
+    presentation: FoliageDenoiserPresentation,
+    permit: DenoiserFramePermit,
+}
+
+impl FoliageDenoiserCommand {
+    pub(super) fn presentation(&self) -> FoliageDenoiserPresentation {
+        self.presentation
+    }
+
+    pub(super) fn into_run(self) -> DenoiserFrameRun {
+        DenoiserFrameRun::Foliage(FoliageDenoiserRun {
+            capture: self.presentation.capture,
+            permit: self.permit,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct CameraDenoiserRun {
+    capture: DenoiserCaptureStep,
+    permit: DenoiserFramePermit,
+}
+
+#[derive(Debug)]
+pub(super) struct FoliageDenoiserRun {
+    capture: DenoiserCaptureStep,
+    permit: DenoiserFramePermit,
+}
+
+#[derive(Debug)]
+pub(super) enum DenoiserFrameRun {
+    Inactive,
+    Camera(CameraDenoiserRun),
+    Foliage(FoliageDenoiserRun),
+}
+
+impl DenoiserFrameCommand {
+    pub(super) fn into_run(self) -> DenoiserFrameRun {
+        match self {
+            Self::Inactive => DenoiserFrameRun::Inactive,
+            Self::Camera(command) => command.into_run(),
+            Self::Foliage(command) => command.into_run(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum DenoiserReadbackOutcome {
     NotRequested,
     Frame(DenoiserFrame),
-    ReadbackFailed(anyhow::Error),
+    Failed(anyhow::Error),
+}
+
+#[derive(Debug)]
+pub(super) enum DenoiserFrameCompletion {
+    Inactive(DenoiserReadbackOutcome),
+    Camera {
+        capture: DenoiserCaptureStep,
+        permit: DenoiserFramePermit,
+        readback: DenoiserReadbackOutcome,
+    },
+    Foliage {
+        capture: DenoiserCaptureStep,
+        permit: DenoiserFramePermit,
+        readback: DenoiserReadbackOutcome,
+    },
+}
+
+impl DenoiserFrameRun {
+    pub(super) fn complete(self, readback: DenoiserReadbackOutcome) -> DenoiserFrameCompletion {
+        match self {
+            Self::Inactive => DenoiserFrameCompletion::Inactive(readback),
+            Self::Camera(CameraDenoiserRun { capture, permit }) => {
+                DenoiserFrameCompletion::Camera {
+                    capture,
+                    permit,
+                    readback,
+                }
+            }
+            Self::Foliage(FoliageDenoiserRun { capture, permit }) => {
+                DenoiserFrameCompletion::Foliage {
+                    capture,
+                    permit,
+                    readback,
+                }
+            }
+        }
+    }
 }
 
 impl DenoiserFrame {
@@ -270,7 +387,7 @@ impl DenoiserBench {
         }
     }
 
-    pub(super) fn begin_camera_frame(&self) -> DenoiserFrameTxn {
+    pub(super) fn begin_camera_frame(&self) -> CameraDenoiserCommand {
         debug_assert!(matches!(self.mode, DenoiserMode::Camera(_)));
         let motion = self.camera_motion_frame().map_or(
             CameraFrameMotion::Fixed,
@@ -279,62 +396,94 @@ impl DenoiserBench {
                 is_last,
             },
         );
-        DenoiserFrameTxn::Camera {
-            capture: self.capture_step(),
-            motion,
+        let capture = self.capture_step();
+        let presentation = match motion {
+            CameraFrameMotion::Fixed => CameraDenoiserPresentation::Fixed { capture },
+            CameraFrameMotion::Scripted {
+                capture_frame,
+                is_last,
+            } => CameraDenoiserPresentation::Scripted {
+                capture,
+                capture_frame,
+                is_last,
+            },
+        };
+        CameraDenoiserCommand {
+            presentation,
             permit: self.frame_permit(),
         }
     }
 
-    pub(super) fn begin_foliage_frame(&self) -> DenoiserFrameTxn {
+    pub(super) fn begin_foliage_frame(&self) -> FoliageDenoiserCommand {
         debug_assert!(self.mode.is_foliage_shadow());
         let frame_delta_seconds = FOLIAGE_SHADOW_BENCH_FRAME_SECONDS;
-        DenoiserFrameTxn::Foliage {
-            capture: self.capture_step(),
-            timeline: FixedVisualFrame {
-                frame_delta_seconds,
-                visual_time_seconds: self.presented_frames as f32 * frame_delta_seconds,
+        FoliageDenoiserCommand {
+            presentation: FoliageDenoiserPresentation {
+                capture: self.capture_step(),
+                timeline: FixedVisualFrame {
+                    frame_delta_seconds,
+                    visual_time_seconds: self.presented_frames as f32 * frame_delta_seconds,
+                },
             },
             permit: self.frame_permit(),
         }
     }
 
-    pub(super) fn finish_frame(
+    pub(super) fn finish_camera_frame(
         &mut self,
-        transaction: DenoiserFrameTxn,
-        outcome: DenoiserCaptureOutcome,
+        completion: DenoiserFrameCompletion,
     ) -> Result<bool> {
-        let (capture, permit) = match (self.mode, transaction) {
-            (
-                DenoiserMode::Camera(_),
-                DenoiserFrameTxn::Camera {
-                    capture, permit, ..
-                },
-            )
-            | (
-                DenoiserMode::FoliageShadow,
-                DenoiserFrameTxn::Foliage {
-                    capture, permit, ..
-                },
-            ) => (capture, permit),
-            _ => anyhow::bail!("denoiser frame transaction does not belong to this owner"),
+        let DenoiserFrameCompletion::Camera {
+            capture,
+            permit,
+            readback,
+        } = completion
+        else {
+            anyhow::bail!("denoiser frame completion does not belong to the camera owner")
         };
+        debug_assert!(matches!(self.mode, DenoiserMode::Camera(_)));
+        self.finish_frame(capture, permit, readback)
+    }
+
+    pub(super) fn finish_foliage_frame(
+        &mut self,
+        completion: DenoiserFrameCompletion,
+    ) -> Result<bool> {
+        let DenoiserFrameCompletion::Foliage {
+            capture,
+            permit,
+            readback,
+            ..
+        } = completion
+        else {
+            anyhow::bail!("denoiser frame completion does not belong to the foliage owner")
+        };
+        debug_assert!(self.mode.is_foliage_shadow());
+        self.finish_frame(capture, permit, readback)
+    }
+
+    fn finish_frame(
+        &mut self,
+        capture: DenoiserCaptureStep,
+        permit: DenoiserFramePermit,
+        readback: DenoiserReadbackOutcome,
+    ) -> Result<bool> {
         anyhow::ensure!(
             (self.presented_frames, self.captured_frames)
                 == (permit.presented_frame, permit.captured_frame),
-            "stale denoiser frame transaction"
+            "stale denoiser frame completion"
         );
 
-        let complete = match (capture, outcome) {
-            (DenoiserCaptureStep::Skip, DenoiserCaptureOutcome::NotRequested) => false,
-            (DenoiserCaptureStep::Record { .. }, DenoiserCaptureOutcome::Frame(frame)) => {
+        let complete = match (capture, readback) {
+            (DenoiserCaptureStep::Skip, DenoiserReadbackOutcome::NotRequested) => false,
+            (DenoiserCaptureStep::Record { .. }, DenoiserReadbackOutcome::Frame(frame)) => {
                 self.record_completed_frame(frame)?
             }
-            (_, DenoiserCaptureOutcome::ReadbackFailed(error)) => return Err(error),
-            (DenoiserCaptureStep::Skip, DenoiserCaptureOutcome::Frame(_)) => {
+            (_, DenoiserReadbackOutcome::Failed(error)) => return Err(error),
+            (DenoiserCaptureStep::Skip, DenoiserReadbackOutcome::Frame(_)) => {
                 anyhow::bail!("uncalled denoiser capture produced a frame")
             }
-            (DenoiserCaptureStep::Record { .. }, DenoiserCaptureOutcome::NotRequested) => {
+            (DenoiserCaptureStep::Record { .. }, DenoiserReadbackOutcome::NotRequested) => {
                 anyhow::bail!("requested denoiser capture produced no frame")
             }
         };
