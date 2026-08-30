@@ -1,4 +1,5 @@
 use re_flora_vkn::PresentMode;
+use std::collections::HashSet;
 
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
@@ -406,11 +407,26 @@ impl LaunchCommand {
     }
 
     fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
+        reject_duplicate_flags(&args)?;
         if let Some(query) = parse_query_command(&args)? {
             return Ok(query);
         }
         parse_run_plan(args).map(Self::Run)
     }
+}
+
+fn reject_duplicate_flags(args: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for flag in args
+        .iter()
+        .skip(1)
+        .filter(|argument| argument.starts_with("--") || argument.as_str() == "-h")
+    {
+        if !seen.insert(flag.as_str()) {
+            return Err(format!("Duplicate CLI flag '{flag}' is not supported."));
+        }
+    }
+    Ok(())
 }
 
 fn parse_query_command(args: &[String]) -> Result<Option<LaunchCommand>, String> {
@@ -2419,6 +2435,18 @@ mod tests {
         ] {
             let error = try_launch(&arguments).unwrap_err();
             assert!(error.contains("requires"), "{arguments:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn duplicate_flags_fail_closed_even_when_the_first_value_is_valid() {
+        for arguments in [
+            vec!["re-flora", "--water-grid", "128", "--water-grid", "invalid"],
+            vec!["re-flora", "--water-grid", "128", "--water-grid"],
+            vec!["re-flora", "--hidden", "--hidden"],
+        ] {
+            let error = try_launch(&arguments).unwrap_err();
+            assert!(error.contains("Duplicate"), "{arguments:?}: {error}");
         }
     }
 
