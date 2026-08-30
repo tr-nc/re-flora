@@ -2932,6 +2932,18 @@ mod tests {
     }
 
     #[test]
+    fn garden_tree_absent_removal_is_an_observer_free_noop() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+
+        let removed = garden.remove(404, &mut host).unwrap();
+
+        assert!(removed.is_none());
+        assert!(host.events.is_empty());
+        assert_eq!(garden.len(), 0);
+    }
+
+    #[test]
     fn garden_tree_preparation_failure_has_zero_publication_and_zero_commit() {
         let mut garden = GardenTrees::new(LeafEmitterDesc::default());
         let mut host = RecordingTreePublicationHost {
