@@ -1096,14 +1096,15 @@ impl App {
         } = platform;
         let WorldPlan {
             terrain,
-            water,
+            water: water_plan,
             lighting,
         } = world;
         let display = &display;
         let render = &render;
         let lifecycle = &lifecycle;
         let terrain = &terrain;
-        let water = &water;
+        let water_profile = water_plan.profile;
+        let water = &water_plan;
         let lighting = &lighting;
         let audio = &audio;
         let camera = &automation.capture;
@@ -1420,12 +1421,12 @@ impl App {
         let water_profile_config =
             (water.profile.is_some() || water_experience).then(|| water_config.clone());
         let water_runtime_overrides =
-            water::WaterRuntimeOverrides::from_plan(water, water_profile_config);
+            water::WaterRuntimeOverrides::from_plan(water_plan, water_profile_config);
         water_runtime_overrides.apply(&mut water_config);
 
         log::info!(
             "[WATER] config profile={:?} experience={} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid={:?} cells_per_unit={}",
-            water.profile,
+            water_profile,
             water_experience,
             water_gui_config_applied,
             water_config.particle_count,
