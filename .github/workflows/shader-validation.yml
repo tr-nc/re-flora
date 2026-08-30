@@ -11,8 +11,11 @@ on:
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
       - "scripts/check_shader_manifest.py"
+      - "scripts/analyze_environment_irradiance_capture.py"
+      - "scripts/check_ddgi*.sh"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
+      - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
   push:
@@ -26,8 +29,11 @@ on:
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
       - "scripts/check_shader_manifest.py"
+      - "scripts/analyze_environment_irradiance_capture.py"
+      - "scripts/check_ddgi*.sh"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
+      - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
 
@@ -41,6 +47,7 @@ jobs:
   desktop:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -145,6 +152,7 @@ jobs:
     name: Fedora native compile
     runs-on: ubuntu-latest
     container: fedora:43
+    timeout-minutes: 45
 
     steps:
       - name: Install build and validation dependencies
@@ -190,3 +198,20 @@ jobs:
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py
+
+  python-policy-tests:
+    name: Python shader policy tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run analyzer and acceptance runner tests
+        run: python -m unittest discover -s scripts/tests -p "test_*.py"
