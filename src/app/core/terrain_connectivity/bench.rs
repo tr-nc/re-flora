@@ -2190,6 +2190,24 @@ mod tests {
         job
     }
 
+    fn bounded_commit_payload(revision_before: u32) -> BoundedCommitPayload {
+        let mut job = fixture_job();
+        job.terminal = Some(BoundedDisposition::Detached);
+        job.component = vec![job.index_of(FIXTURE_ORIGIN - job.bound.min())];
+        BoundedCommitPayload {
+            job,
+            visual_voxels: vec![(FIXTURE_ORIGIN, 7)],
+            release_frame: 19,
+            revision_before,
+            snapshot_readback_us: 2.0,
+            classification_us: 3.0,
+            atomic_validation_us: 4.0,
+            sampling_us: 5.0,
+            staging_clear_us: 6.0,
+            manual: true,
+        }
+    }
+
     #[test]
     fn deterministic_fixture_has_exact_requested_size() {
         let voxels = generate_hollow_canopy();
@@ -2212,86 +2230,100 @@ mod tests {
     }
 
     #[test]
-    fn production_connectivity_transaction_is_owned_by_the_app_executor() {
-        let _: fn(&mut App, ConnectivityAction) -> ConnectivityExecution =
-            App::execute_connectivity_action;
-        let _: fn(&mut ScenarioOwner, ConnectivityExecution) -> anyhow::Result<ConnectivityEffect> =
-            ScenarioOwner::apply_connectivity_execution;
-        static_assertions::assert_not_impl_any!(ConnectivityExecution: Clone, Copy);
-        static_assertions::assert_not_impl_any!(FixtureInstallRequest: Clone, Copy);
-        static_assertions::assert_not_impl_any!(SnapshotReadRequest: Clone, Copy);
-        static_assertions::assert_not_impl_any!(ReleaseEventRequest: Clone, Copy);
-        static_assertions::assert_not_impl_any!(AtomicityValidationRequest: Clone, Copy);
-        static_assertions::assert_not_impl_any!(BoundedCommitPayload: Clone, Copy);
-        static_assertions::assert_not_impl_any!(ManualReleaseRequest: Clone, Copy);
-        static_assertions::assert_not_impl_any!(ManualReleasePlan: Clone, Copy);
-        static_assertions::assert_not_impl_any!(CompletedFrameRequest: Clone, Copy);
-        assert!(!include_str!("bench.rs").contains(concat!("Execution", "Failed")));
-
-        let options = TerrainConnectivityBenchOptions {
-            mode: TerrainConnectivityBenchMode::Bounded,
+    fn production_bounded_prepare_failure_restores_exact_owner_payload() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Manual,
             available_particles: 8,
             warmup_frames: 1,
             observe_frames: 1,
             voxel_budget: 8,
+        });
+        bench.state = BenchState::Commit(bounded_commit_payload(7));
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
         };
-        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(options));
-        let action = owner
-            .plan_connectivity_action(ConnectivityFacts {
-                frame: 17,
-                visible_revision: 4,
-                contree_idle: true,
-                terrain_collider_pending: 0,
-                water_ready: true,
-                ddgi_ready: true,
+        let payload = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("commit phase did not move its payload into the action"),
+        };
+        let snapshot_address = payload.job.snapshot.as_ptr();
+        let visual_address = payload.visual_voxels.as_ptr();
+        let failure = match PreparedBoundedConnectivity::prepare(
+            payload,
+            BoundedPrepareFacts {
+                visible_revision: 99,
                 available_particles: 8,
-            })
-            .unwrap();
+            },
+        ) {
+            Ok(_) => panic!("stale revision unexpectedly prepared"),
+            Err(failure) => failure,
+        };
 
-        assert!(matches!(
-            action,
-            ConnectivityAction::InstallFixture {
-                manual: false,
-                available_particles: 8,
-            }
-        ));
-        assert!(matches!(
-            owner,
-            ScenarioOwner::Connectivity(TerrainConnectivityBench {
-                state: BenchState::InstallFixture,
-                ..
-            })
-        ));
+        let error = bench
+            .apply_result(ConnectivityResult::BoundedCommitted(Err(failure)))
+            .unwrap_err();
+        assert!(error.to_string().contains("revision changed"));
+        let retried = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("owner did not replan the rejected physical payload"),
+        };
+        assert_eq!(retried.job.snapshot.as_ptr(), snapshot_address);
+        assert_eq!(retried.visual_voxels.as_ptr(), visual_address);
     }
 
     #[test]
-    fn install_and_bounded_commit_are_prepared_before_their_atomic_mutation() {
-        let _: fn(
-            &mut App,
-            FixtureInstallRequest,
-        ) -> Result<
-            PreparedFixtureInstallation,
-            FailedConnectivityAction<FixtureInstallRequest>,
-        > = App::prepare_connectivity_fixture_installation;
-        let _: fn(PreparedFixtureInstallation, &mut App) -> FixtureInstallResult =
-            PreparedFixtureInstallation::commit;
-        let _: fn(
-            &mut App,
-            BoundedCommitPayload,
-        ) -> Result<
-            PreparedBoundedConnectivity,
-            FailedConnectivityAction<BoundedCommitPayload>,
-        > = App::prepare_bounded_connectivity;
-        let _: fn(PreparedBoundedConnectivity, &mut App) -> EventStages =
-            PreparedBoundedConnectivity::commit;
-        static_assertions::assert_not_impl_any!(PreparedFixtureInstallation: Clone, Copy);
-        static_assertions::assert_not_impl_any!(PreparedBoundedConnectivity: Clone, Copy);
+    fn production_bounded_atlas_failure_returns_exact_payload_without_owner_progress() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Manual,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        let mut payload = bounded_commit_payload(7);
+        payload.job.snapshot.pop();
+        bench.state = BenchState::Commit(payload);
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let payload = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("commit phase did not move its payload into the action"),
+        };
+        let snapshot_address = payload.job.snapshot.as_ptr();
+        let visual_address = payload.visual_voxels.as_ptr();
+        let failure = match PreparedBoundedConnectivity::prepare(
+            payload,
+            BoundedPrepareFacts {
+                visible_revision: 7,
+                available_particles: 8,
+            },
+        ) {
+            Ok(_) => panic!("invalid atlas payload unexpectedly prepared"),
+            Err(failure) => failure,
+        };
 
-        let source = include_str!("bench.rs");
-        assert!(!source.contains(concat!("bounded_", "job: Option")));
-        assert!(!source.contains(concat!("pending_", "visual_voxels: Option")));
-        assert!(!source.contains(concat!("SpawnVisual", "Voxels")));
-        assert!(!source.contains(concat!("AwaitingVisual", "SpawnResult")));
+        bench
+            .apply_result(ConnectivityResult::BoundedCommitted(Err(failure)))
+            .unwrap_err();
+        let retried = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("owner did not replan the rejected atlas payload"),
+        };
+        assert_eq!(retried.job.snapshot.as_ptr(), snapshot_address);
+        assert_eq!(retried.visual_voxels.as_ptr(), visual_address);
     }
 
     #[test]

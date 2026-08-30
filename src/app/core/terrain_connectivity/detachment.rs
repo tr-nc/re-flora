@@ -351,4 +351,33 @@ mod tests {
         assert_eq!(prepared.atlas_writes[0].data.as_ptr(), atlas_address);
         assert_eq!(prepared.visual_voxels.as_ptr(), visual_address);
     }
+
+    #[test]
+    fn sealed_prepare_returns_the_exact_payload_when_publication_is_invalid() {
+        let atlas_data = vec![7; 8];
+        let atlas_address = atlas_data.as_ptr();
+        let visual_voxels = vec![(UVec3::ONE, 7)];
+        let visual_address = visual_voxels.as_ptr();
+        let mut request = TerrainDetachmentRequest::single_region(
+            UVec3::splat(8),
+            UVec3::ZERO,
+            UVec3::splat(2),
+            atlas_data,
+            visual_voxels,
+            1,
+            UAabb3::new(UVec3::ZERO, UVec3::ONE),
+        );
+        request.publication_edits.clear();
+
+        let rejected = match PreparedTerrainDetachment::prepare(request) {
+            Ok(_) => panic!("missing publication edit unexpectedly prepared"),
+            Err(rejected) => rejected,
+        };
+
+        assert_eq!(
+            rejected.request.atlas_writes[0].data.as_ptr(),
+            atlas_address
+        );
+        assert_eq!(rejected.request.visual_voxels.as_ptr(), visual_address);
+    }
 }
