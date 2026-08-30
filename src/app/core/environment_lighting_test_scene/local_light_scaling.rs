@@ -138,34 +138,19 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
 fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
     assert!(requested_count <= LOCAL_LIGHT_GPU_CAPACITY);
     if requested_count == 0 {
-        let ids = std::mem::take(
-            &mut app
-                .scenario_owner
-                .test_scene_event_mut()
-                .environment()
-                .local_light_scaling_ids,
-        );
+        let ids = app.scenario_owner.take_local_light_scaling_ids();
         for id in ids {
             app.local_lights
                 .remove(id)
                 .expect("zero-count scaling transition must remove every selected light");
         }
     } else {
-        let first_new = app
-            .scenario_owner
-            .test_scene_event()
-            .environment()
-            .local_light_scaling_ids
-            .len();
+        let first_new = app.scenario_owner.local_light_scaling_count();
         assert!(first_new <= requested_count);
         let new_ids = (first_new..requested_count)
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
-        app.scenario_owner
-            .test_scene_event_mut()
-            .environment()
-            .local_light_scaling_ids
-            .extend(new_ids);
+        app.scenario_owner.extend_local_light_scaling_ids(new_ids);
     }
     let snapshot = app.local_lights.snapshot();
     assert_eq!(snapshot.lights().len(), requested_count);
@@ -255,11 +240,7 @@ impl App {
                 if !builder_matches(self, state) {
                     return None;
                 }
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .local_light_scaling_samples
-                    .clear();
+                self.scenario_owner.clear_local_light_scaling_samples();
                 state.warmup_frames = 0;
                 state.stage = LocalLightScalingStage::Warmup;
                 state
@@ -279,15 +260,12 @@ impl App {
                     return None;
                 }
                 let sample = sample_from_app(self)?;
-                let samples = &mut self
+                let Some(samples) = self
                     .scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .local_light_scaling_samples;
-                samples.push(sample);
-                if samples.len() < LOCAL_LIGHT_SCALING_SAMPLE_FRAMES {
+                    .record_local_light_scaling_sample(sample, LOCAL_LIGHT_SCALING_SAMPLE_FRAMES)
+                else {
                     return Some(TestScenePhase::LocalLightScaling(state));
-                }
+                };
                 let count = state.requested_count();
                 let ddgi = self.tracer.ddgi_local_light_gpu_evidence();
                 let (ddgi_candidates, ddgi_visible, ddgi_occluded) = ddgi
@@ -309,20 +287,20 @@ impl App {
                     state.expected_source_revision,
                     state.expected_registry_revision,
                     count,
-                    sample_percentile(samples, 0.50, |sample| sample.frame_cpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.frame_cpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.frame_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.frame_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.terrain_path_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.terrain_path_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.raster_flora_cache_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.raster_flora_cache_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.ddgi_trace_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.ddgi_trace_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.ddgi_filter_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.ddgi_filter_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.render_trace_record_cpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.render_trace_record_cpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.frame_cpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.frame_cpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.frame_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.frame_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.terrain_path_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.terrain_path_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.raster_flora_cache_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.raster_flora_cache_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.ddgi_trace_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.ddgi_trace_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.ddgi_filter_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.ddgi_filter_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.render_trace_record_cpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.render_trace_record_cpu_us),
                     ddgi_candidates,
                     ddgi_visible,
                     ddgi_occluded,
@@ -338,13 +316,7 @@ impl App {
                     state.stage = LocalLightScalingStage::AwaitLive;
                     state
                 } else {
-                    let ids = std::mem::take(
-                        &mut self
-                            .scenario_owner
-                            .test_scene_event_mut()
-                            .environment()
-                            .local_light_scaling_ids,
-                    );
+                    let ids = self.scenario_owner.take_local_light_scaling_ids();
                     for id in ids {
                         self.local_lights
                             .remove(id)

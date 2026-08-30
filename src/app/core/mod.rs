@@ -47,9 +47,7 @@ use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::launch_owners::{
-    CaptureOwner, LaunchOwners, ScenarioOwner, TestSceneEvent, TestSceneEventMut,
-};
+use self::launch_owners::{CaptureOwner, LaunchOwners, ScenarioOwner, TestSceneKind};
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
@@ -1124,9 +1122,9 @@ impl App {
         let camera = &automation.capture;
         let benchmarks = &automation.benchmarks;
         let startup_camera_snapshot = camera.snapshot_name().map(str::to_owned);
-        let environment_lighting_test = match scenario_owner.test_scene_event() {
-            launch_owners::TestSceneEvent::Environment(scene) => Some(scene.case()),
-            launch_owners::TestSceneEvent::None | launch_owners::TestSceneEvent::Hybrid(_) => None,
+        let environment_lighting_test = match scenario_owner.test_scene_frame_plan().kind() {
+            TestSceneKind::Environment(case) => Some(case),
+            TestSceneKind::None | TestSceneKind::Hybrid => None,
         };
         let canopy_audio_diagnostic = match scenario_owner.canopy_audio_mode() {
             launch_owners::CanopyAudioMode::Disabled => None,
@@ -1134,12 +1132,8 @@ impl App {
         };
         let water_experience =
             scenario_owner.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
-        let hybrid_transparency = match scenario_owner.test_scene_event() {
-            launch_owners::TestSceneEvent::Hybrid(_) => true,
-            launch_owners::TestSceneEvent::None | launch_owners::TestSceneEvent::Environment(_) => {
-                false
-            }
-        };
+        let hybrid_transparency =
+            scenario_owner.test_scene_frame_plan().kind() == TestSceneKind::Hybrid;
         let foliage_shadow_bench = scenario_owner.denoiser_frame_plan().is_foliage_shadow();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
@@ -2625,7 +2619,7 @@ impl App {
                 let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
                 let hide_terrain_edit_preview = self
                     .scenario_owner
-                    .test_scene_event()
+                    .test_scene_frame_plan()
                     .hides_terrain_edit_preview();
                 let terrain_edit_preview_center = (!hide_terrain_edit_preview)
                     .then(|| terrain_edit_hover.map(|hover| hover.center))
@@ -2637,10 +2631,12 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture =
-                    self.scenario_owner.test_scene_event().owns_capture_scene()
-                        && (self.capture_owner.screenshot().is_scheduled()
-                            || self.denoiser_frame_plan().is_active());
+                let hide_ui_for_environment_test_capture = self
+                    .scenario_owner
+                    .test_scene_frame_plan()
+                    .owns_capture_scene()
+                    && (self.capture_owner.screenshot().is_scheduled()
+                        || self.denoiser_frame_plan().is_active());
                 let hide_ui_for_frame_stability_bench = self.denoiser_frame_plan().hides_ui();
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
@@ -3553,13 +3549,10 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                let environment_test_scene = match self.scenario_owner.test_scene_event() {
-                    TestSceneEvent::Environment(scene) => Some(scene),
-                    TestSceneEvent::None | TestSceneEvent::Hybrid(_) => None,
-                };
+                let environment_capture_port = self.scenario_owner.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
-                    .begin_frame(&self.time_info, &self.tracer, environment_test_scene);
+                    .begin_frame(&self.time_info, &self.tracer, environment_capture_port);
                 let capture_buffers_ready = self
                     .tracer
                     .update_buffers(
@@ -4263,10 +4256,7 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
-                let environment_test_scene = match self.scenario_owner.test_scene_event() {
-                    TestSceneEvent::Environment(scene) => Some(scene),
-                    TestSceneEvent::None | TestSceneEvent::Hybrid(_) => None,
-                };
+                let environment_capture_port = self.scenario_owner.environment_capture_port();
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
                         rendered_environment_irradiance_capture_frame,
@@ -4274,7 +4264,7 @@ impl App {
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,
-                        environment_test_scene,
+                        environment_capture_port,
                     ) {
                         Ok(readback) => readback,
                         Err(err) => {
@@ -4336,7 +4326,9 @@ impl App {
                 let screenshot_readiness = ScreenshotFrameReadiness::new(
                     self.render_start_time
                         .map(|started| started.elapsed().as_secs_f32()),
-                    self.scenario_owner.test_scene_event().capture_is_ready(),
+                    self.scenario_owner
+                        .test_scene_frame_plan()
+                        .capture_is_ready(),
                     self.tracer.ddgi_ready(),
                 );
                 let mut screenshot_readback = self.capture_owner.screenshot_mut().record_if_ready(
@@ -4416,19 +4408,17 @@ impl App {
                     match frame.wait_until_complete() {
                         Ok(()) => {
                             if let Some(readback) = environment_irradiance_readback.take() {
-                                let environment_test_scene = match self
-                                    .scenario_owner
-                                    .test_scene_event_mut()
-                                {
-                                    TestSceneEventMut::Environment(scene) => Some(scene),
-                                    TestSceneEventMut::None | TestSceneEventMut::Hybrid(_) => None,
-                                };
                                 match self
                                     .environment_irradiance_capture
-                                    .complete(readback, environment_test_scene)
+                                    .write_completed_readback(readback)
                                 {
-                                    Ok(sequence_complete) => {
-                                        environment_irradiance_capture_complete = sequence_complete;
+                                    Ok(checkpoint) => {
+                                        let sequence_complete = self
+                                            .scenario_owner
+                                            .complete_environment_radiance_capture(checkpoint);
+                                        environment_irradiance_capture_complete = self
+                                            .environment_irradiance_capture
+                                            .commit_completion(sequence_complete);
                                     }
                                     Err(err) => {
                                         log::error!(
@@ -4578,22 +4568,21 @@ impl App {
                                     );
                                 }
                             }
-                            match self.scenario_owner.test_scene_event() {
-                                TestSceneEvent::Environment(scene)
-                                    if scene.edit_cycle_target_revision().is_some() =>
-                                {
+                            match self.scenario_owner.environment_edit_cycle_timeout() {
+                                environment_lighting_test_scene::EnvironmentEditCycleTimeout::Pending {
+                                    phase,
+                                    target_revision,
+                                } => {
                                     let status = self.tracer.ddgi_runtime_status().active();
                                     panic!(
                                         "[ENV_LIGHT_EDIT_CYCLE] timed out before completion phase={} target_revision={} ddgi_stage={:?} ddgi_relocated_terrain_revision={:?}",
-                                        scene.phase_label(),
-                                        scene.edit_cycle_target_revision().unwrap_or(0),
+                                        phase,
+                                        target_revision,
                                         status.stage,
                                         status.relocated_terrain_revision,
                                     );
                                 }
-                                TestSceneEvent::None
-                                | TestSceneEvent::Environment(_)
-                                | TestSceneEvent::Hybrid(_) => {}
+                                environment_lighting_test_scene::EnvironmentEditCycleTimeout::Inactive => {}
                             }
                             log::info!("[AUTO-EXIT] Exiting after {:.2}s", elapsed);
                             self.on_terminate(event_loop);

@@ -183,6 +183,46 @@ pub(super) enum DenoiserFramePlan {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TestSceneKind {
+    None,
+    Environment(crate::cli::EnvironmentLightingTestCase),
+    Hybrid,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct TestSceneFramePlan {
+    kind: TestSceneKind,
+    capture_ready: bool,
+    hides_terrain_edit_preview: bool,
+}
+
+impl TestSceneFramePlan {
+    fn none() -> Self {
+        Self {
+            kind: TestSceneKind::None,
+            capture_ready: true,
+            hides_terrain_edit_preview: false,
+        }
+    }
+
+    pub(super) fn kind(self) -> TestSceneKind {
+        self.kind
+    }
+
+    pub(super) fn owns_capture_scene(self) -> bool {
+        self.kind != TestSceneKind::None
+    }
+
+    pub(super) fn capture_is_ready(self) -> bool {
+        self.capture_ready
+    }
+
+    pub(super) fn hides_terrain_edit_preview(self) -> bool {
+        self.hides_terrain_edit_preview
+    }
+}
+
 impl DenoiserFramePlan {
     fn active(owner: DenoiserOwner, bench: &DenoiserBench) -> Self {
         Self::Active {
@@ -251,62 +291,6 @@ impl DenoiserFramePlan {
                 camera_motion_frame,
                 ..
             } => camera_motion_frame,
-        }
-    }
-}
-
-pub(super) enum TestSceneEvent<'a> {
-    None,
-    Environment(&'a EnvironmentLightingTestScene),
-    Hybrid(&'a HybridTransparencyTestScene),
-}
-
-impl<'a> TestSceneEvent<'a> {
-    pub(super) fn environment(self) -> &'a EnvironmentLightingTestScene {
-        match self {
-            Self::Environment(scene) => scene,
-            Self::None | Self::Hybrid(_) => {
-                panic!("environment-test behavior requires the environment test scene")
-            }
-        }
-    }
-
-    pub(super) fn owns_capture_scene(&self) -> bool {
-        match self {
-            Self::None => false,
-            Self::Environment(_) | Self::Hybrid(_) => true,
-        }
-    }
-
-    pub(super) fn capture_is_ready(&self) -> bool {
-        match self {
-            Self::None => true,
-            Self::Environment(scene) => scene.is_ready(),
-            Self::Hybrid(scene) => scene.is_ready(),
-        }
-    }
-
-    pub(super) fn hides_terrain_edit_preview(&self) -> bool {
-        match self {
-            Self::Environment(scene) => scene.hides_terrain_edit_preview(),
-            Self::None | Self::Hybrid(_) => false,
-        }
-    }
-}
-
-pub(super) enum TestSceneEventMut<'a> {
-    None,
-    Environment(&'a mut EnvironmentLightingTestScene),
-    Hybrid(&'a mut HybridTransparencyTestScene),
-}
-
-impl<'a> TestSceneEventMut<'a> {
-    pub(super) fn environment(self) -> &'a mut EnvironmentLightingTestScene {
-        match self {
-            Self::Environment(scene) => scene,
-            Self::None | Self::Hybrid(_) => {
-                panic!("environment-test behavior requires the environment test scene")
-            }
         }
     }
 }
@@ -491,23 +475,19 @@ impl ScenarioOwner {
         }
     }
 
-    pub(super) fn test_scene_event(&self) -> TestSceneEvent<'_> {
+    pub(super) fn test_scene_frame_plan(&self) -> TestSceneFramePlan {
         match self {
-            Self::TestScene(TestSceneOwner::Environment(scene)) => {
-                TestSceneEvent::Environment(scene)
-            }
-            Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneEvent::Hybrid(scene),
-            Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneEvent::None,
-        }
-    }
-
-    pub(super) fn test_scene_event_mut(&mut self) -> TestSceneEventMut<'_> {
-        match self {
-            Self::TestScene(TestSceneOwner::Environment(scene)) => {
-                TestSceneEventMut::Environment(scene)
-            }
-            Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneEventMut::Hybrid(scene),
-            Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneEventMut::None,
+            Self::TestScene(TestSceneOwner::Environment(scene)) => TestSceneFramePlan {
+                kind: TestSceneKind::Environment(scene.case()),
+                capture_ready: scene.is_ready(),
+                hides_terrain_edit_preview: scene.hides_terrain_edit_preview(),
+            },
+            Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneFramePlan {
+                kind: TestSceneKind::Hybrid,
+                capture_ready: scene.is_ready(),
+                hides_terrain_edit_preview: false,
+            },
+            Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneFramePlan::none(),
         }
     }
 
@@ -949,7 +929,7 @@ mod tests {
                 benchmarks: _,
             } => {
                 assert!(!screenshot.is_scheduled());
-                assert!(runtime.is_foliage_shadow());
+                assert!(runtime.fixed_frame_delta_seconds().is_some());
             }
         }
     }
@@ -1052,6 +1032,23 @@ mod tests {
 
         let garden = owner_for(Scenario::Garden);
         assert_eq!(garden.water_progress(), WaterProgress::Inactive);
+    }
+
+    #[test]
+    fn test_scene_frame_plan_contains_no_borrowed_runtime() {
+        let environment = owner_for(Scenario::EnvironmentLighting(
+            crate::cli::EnvironmentLightingTestCase::Sealed,
+        ));
+        assert_eq!(
+            environment.test_scene_frame_plan().kind(),
+            TestSceneKind::Environment(crate::cli::EnvironmentLightingTestCase::Sealed)
+        );
+
+        let hybrid = owner_for(Scenario::HybridTransparency);
+        assert_eq!(hybrid.test_scene_frame_plan().kind(), TestSceneKind::Hybrid);
+
+        let garden = owner_for(Scenario::Garden);
+        assert_eq!(garden.test_scene_frame_plan().kind(), TestSceneKind::None);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::environment_lighting_test_scene::EnvironmentLightingTestScene;
+use super::environment_lighting_test_scene::EnvironmentCapturePort;
 use crate::ddgi::{
     DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiFilterEpochProof,
     DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
@@ -315,17 +315,13 @@ trait CaptureCheckpointSource {
 
 struct ProductionCaptureCheckpointSource<'a> {
     tracer: &'a Tracer,
-    test_scene: Option<&'a EnvironmentLightingTestScene>,
+    environment: EnvironmentCapturePort,
 }
 
 impl CaptureCheckpointSource for ProductionCaptureCheckpointSource<'_> {
     fn capture_readiness(&self) -> CaptureReadinessObservation {
-        let scene_ready = self
-            .test_scene
-            .is_none_or(EnvironmentLightingTestScene::is_capture_ready);
-        let inflight_target_revision = self
-            .test_scene
-            .and_then(EnvironmentLightingTestScene::inflight_capture_target_revision);
+        let scene_ready = self.environment.scene_ready();
+        let inflight_target_revision = self.environment.inflight_target_revision();
         let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
             let runtime = self.tracer.ddgi_runtime_status();
             matches!(
@@ -348,8 +344,7 @@ impl CaptureCheckpointSource for ProductionCaptureCheckpointSource<'_> {
         CaptureReadinessObservation::new(
             scene_ready,
             self.tracer.ddgi_capture_checkpoint(),
-            self.test_scene
-                .and_then(EnvironmentLightingTestScene::radiance_capture_request),
+            self.environment.radiance_request(),
             inflight_target_revision,
             inflight_checkpoint_ready,
         )
@@ -523,11 +518,14 @@ impl EnvironmentIrradianceCaptureRuntime {
         &mut self,
         time_info: &TimeInfo,
         tracer: &Tracer,
-        test_scene: Option<&EnvironmentLightingTestScene>,
+        environment: EnvironmentCapturePort,
     ) -> CaptureFramePlan {
         self.begin_frame_from_source(
             time_info,
-            &ProductionCaptureCheckpointSource { tracer, test_scene },
+            &ProductionCaptureCheckpointSource {
+                tracer,
+                environment,
+            },
         )
     }
 
@@ -538,12 +536,15 @@ impl EnvironmentIrradianceCaptureRuntime {
         tracer: &Tracer,
         vulkan_ctx: &VulkanContext,
         cmdbuf: &CommandBuffer,
-        test_scene: Option<&EnvironmentLightingTestScene>,
+        environment: EnvironmentCapturePort,
     ) -> Result<Option<PendingEnvironmentIrradianceCapture>> {
         let Some(candidate) = self.finish_frame_from_source(
             frame,
             time_info,
-            &ProductionCaptureCheckpointSource { tracer, test_scene },
+            &ProductionCaptureCheckpointSource {
+                tracer,
+                environment,
+            },
         ) else {
             return Ok(None);
         };
@@ -730,21 +731,17 @@ impl EnvironmentIrradianceCaptureRuntime {
         })
     }
 
-    pub(super) fn complete(
+    pub(super) fn write_completed_readback(
         &mut self,
         readback: PendingEnvironmentIrradianceCapture,
-        test_scene: Option<&mut EnvironmentLightingTestScene>,
-    ) -> Result<bool> {
+    ) -> Result<Option<RadianceCaptureCheckpoint>> {
         let radiance_checkpoint = readback.radiance_checkpoint();
         Self::write_readback(readback)?;
-        let sequence_complete = if let Some(checkpoint) = radiance_checkpoint {
-            test_scene
-                .context("radiance capture completion lost its test scene")?
-                .complete_radiance_capture(checkpoint)
-        } else {
-            true
-        };
-        Ok(self.coordinator.complete_recording(sequence_complete))
+        Ok(radiance_checkpoint)
+    }
+
+    pub(super) fn commit_completion(&mut self, sequence_complete: bool) -> bool {
+        self.coordinator.complete_recording(sequence_complete)
     }
 
     fn write_readback(readback: PendingEnvironmentIrradianceCapture) -> Result<()> {

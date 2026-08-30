@@ -41,6 +41,12 @@ enum TestScenePhase {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridFramePlan {
+    Inactive,
+    Active(TestScenePhase),
+}
+
 #[derive(Debug)]
 pub(super) struct HybridTransparencyTestScene {
     phase: TestScenePhase,
@@ -55,6 +61,32 @@ impl HybridTransparencyTestScene {
 
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
+    }
+}
+
+impl super::launch_owners::ScenarioOwner {
+    fn plan_hybrid_frame(&self) -> HybridFramePlan {
+        match self {
+            Self::TestScene(super::launch_owners::TestSceneOwner::Hybrid(scene)) => {
+                HybridFramePlan::Active(scene.phase)
+            }
+            Self::TestScene(super::launch_owners::TestSceneOwner::Environment(_))
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::Diagnostic(_) => HybridFramePlan::Inactive,
+        }
+    }
+
+    fn commit_hybrid_frame(&mut self, phase: TestScenePhase) {
+        match self {
+            Self::TestScene(super::launch_owners::TestSceneOwner::Hybrid(scene)) => {
+                scene.phase = phase
+            }
+            Self::TestScene(super::launch_owners::TestSceneOwner::Environment(_))
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::Diagnostic(_) => panic!("hybrid test scene state disappeared"),
+        }
     }
 }
 
@@ -148,10 +180,9 @@ impl App {
     }
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
-        let phase = match self.scenario_owner.test_scene_event() {
-            super::launch_owners::TestSceneEvent::Hybrid(scene) => scene.phase,
-            super::launch_owners::TestSceneEvent::None
-            | super::launch_owners::TestSceneEvent::Environment(_) => return,
+        let phase = match self.scenario_owner.plan_hybrid_frame() {
+            HybridFramePlan::Inactive => return,
+            HybridFramePlan::Active(phase) => phase,
         };
 
         let next_phase = match phase {
@@ -222,12 +253,6 @@ impl App {
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
 
-        match self.scenario_owner.test_scene_event_mut() {
-            super::launch_owners::TestSceneEventMut::Hybrid(scene) => scene.phase = next_phase,
-            super::launch_owners::TestSceneEventMut::None
-            | super::launch_owners::TestSceneEventMut::Environment(_) => {
-                panic!("hybrid test scene state disappeared")
-            }
-        }
+        self.scenario_owner.commit_hybrid_frame(next_phase);
     }
 }
