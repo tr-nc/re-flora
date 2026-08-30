@@ -56,16 +56,19 @@ Run:
 scripts/check_ddgi_transport_acceptance.sh
 ```
 
-The convergence summarizer validates:
+The convergence summarizer independently parses both the capture console and its preserved,
+process-bound `.run.log`, then requires byte-semantic equality of the policy, ordered validation
+curve, and terminal identity. Console-only evidence cannot qualify. It validates:
 
 - one authoritative typed runtime-policy record per process, checked against the shared acceptance
   contract with no runner-owned epoch-count copy;
-- one contiguous epoch sequence for the capture's exact geometry/radiance/spacing identity;
+- one contiguous epoch sequence with unique ordered field serials for the capture's exact
+  geometry/radiance/spacing identity;
 - full valid/stored atlas coverage for every epoch;
 - finite, nonnegative RGB values;
 - the exact policy constants above;
 - exactly one dedicated typed terminal record whose identity and epoch match the final full-atlas
-  validation and capture;
+  validation and capture, including the final field serial;
 - terminal reason matching either the first valid threshold stop or e127 sample-budget stop.
 
 ## Known limitation and next experiment

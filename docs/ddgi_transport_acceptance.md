@@ -88,8 +88,10 @@ epoch from that process-bound record and rejects missing or cross-capture policy
 
 Both `Threshold` and `SampleBudget` are valid terminal reasons. `SampleBudget` means the finite
 quality budget completed with a finite nonnegative field; it does not mean the threshold passed.
-The convergence summarizer filters records to the captured geometry/radiance/spacing identity so
-startup-volume epochs cannot contaminate the target curve.
+The convergence summarizer requires independently complete and equal console/preserved-run-log
+records, then filters them to the captured geometry/radiance/spacing identity. Field serials must be
+unique and ordered, and the final validation and terminal field serial must match the RFIRR capture,
+so startup-volume epochs or records from another field cannot contaminate the target curve.
 
 ## Lifecycle checks
 
