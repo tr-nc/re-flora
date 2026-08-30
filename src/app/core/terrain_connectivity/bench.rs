@@ -1677,9 +1677,6 @@ mod tests {
             ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
                 panic!("test constructed the wrong scenario")
             }
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_)) => {
-                panic!("test constructed the wrong scenario")
-            }
         };
 
         assert!(matches!(

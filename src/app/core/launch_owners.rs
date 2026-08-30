@@ -63,12 +63,10 @@ pub(super) enum WaterScenarioOwner {
 }
 
 pub(super) enum TestSceneOwner {
-    Environment(EnvironmentLightingTestScene),
     Hybrid(HybridTransparencyTestScene),
 }
 
 pub(super) enum DiagnosticScenarioOwner {
-    CanopyAudio(CanopyAudioDiagnosticRuntime),
     TerrainConnectivity(TerrainConnectivityBench),
 }
 
@@ -179,11 +177,6 @@ impl ScenarioOwner {
 
     pub(super) fn test_scene_frame_plan(&self) -> TestSceneFramePlan {
         match self {
-            Self::TestScene(TestSceneOwner::Environment(scene)) => TestSceneFramePlan {
-                kind: TestSceneKind::Environment(scene.case()),
-                capture_ready: scene.is_ready(),
-                hides_terrain_edit_preview: scene.hides_terrain_edit_preview(),
-            },
             Self::TestScene(TestSceneOwner::Hybrid(scene)) => TestSceneFramePlan {
                 kind: TestSceneKind::Hybrid,
                 capture_ready: scene.is_ready(),
@@ -198,10 +191,7 @@ impl ScenarioOwner {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
                 ConnectivityEvent::Active(bench)
             }
-            Self::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_))
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => ConnectivityEvent::None,
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => ConnectivityEvent::None,
         }
     }
 }
@@ -214,9 +204,17 @@ pub(in crate::app) struct LaunchOwners {
 }
 
 pub(super) enum LaunchMode {
-    Standard {
+    General {
         camera: CameraOwner,
         scenario: ScenarioOwner,
+    },
+    Environment {
+        camera: CameraOwner,
+        owner: EnvironmentLightingTestScene,
+    },
+    CanopyAudio {
+        camera: CameraOwner,
+        owner: CanopyAudioDiagnosticRuntime,
     },
     FoliageShadow {
         runtime: DenoiserBench,
@@ -226,7 +224,9 @@ pub(super) enum LaunchMode {
 impl LaunchOwners {
     pub(super) fn snapshot_name(&self) -> Option<&str> {
         match &self.mode {
-            LaunchMode::Standard { camera, .. } => camera.snapshot_name(),
+            LaunchMode::General { camera, .. }
+            | LaunchMode::Environment { camera, .. }
+            | LaunchMode::CanopyAudio { camera, .. } => camera.snapshot_name(),
             LaunchMode::FoliageShadow { .. } => None,
         }
     }
@@ -241,25 +241,37 @@ impl LaunchOwners {
 
     pub(super) fn loading_directive(&self) -> LoadingDirective {
         match &self.mode {
-            LaunchMode::Standard { scenario, .. } => scenario.loading_directive(),
-            LaunchMode::FoliageShadow { .. } => LoadingDirective::Garden,
+            LaunchMode::General { scenario, .. } => scenario.loading_directive(),
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => LoadingDirective::Garden,
         }
     }
 
     pub(super) fn test_scene_frame_plan(&self) -> TestSceneFramePlan {
         match &self.mode {
-            LaunchMode::Standard { scenario, .. } => scenario.test_scene_frame_plan(),
-            LaunchMode::FoliageShadow { .. } => TestSceneFramePlan::none(),
+            LaunchMode::General { scenario, .. } => scenario.test_scene_frame_plan(),
+            LaunchMode::Environment { owner, .. } => TestSceneFramePlan {
+                kind: TestSceneKind::Environment(owner.case()),
+                capture_ready: owner.is_ready(),
+                hides_terrain_edit_preview: owner.hides_terrain_edit_preview(),
+            },
+            LaunchMode::CanopyAudio { .. } | LaunchMode::FoliageShadow { .. } => {
+                TestSceneFramePlan::none()
+            }
         }
     }
 
     pub(super) fn activate_water_experience(&mut self, expected_particle_count: usize) {
         match &mut self.mode {
-            LaunchMode::Standard {
+            LaunchMode::General {
                 scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(scene)),
                 ..
             } => scene.activate(expected_particle_count),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => {
                 panic!("only a water-experience launch can be activated")
             }
         }
@@ -267,13 +279,14 @@ impl LaunchOwners {
 
     pub(super) fn begin_water_experience_frame(&self) -> WaterExperienceFrameTxn {
         match &self.mode {
-            LaunchMode::Standard {
+            LaunchMode::General {
                 scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(scene)),
                 ..
             } => scene.begin_frame(),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                WaterExperienceFrameTxn::Inactive
-            }
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => WaterExperienceFrameTxn::Inactive,
         }
     }
 
@@ -284,7 +297,7 @@ impl LaunchOwners {
     ) -> anyhow::Result<Option<WaterExperienceReadyReceipt>> {
         match (&mut self.mode, transaction) {
             (
-                LaunchMode::Standard {
+                LaunchMode::General {
                     scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(scene)),
                     ..
                 },
@@ -293,7 +306,10 @@ impl LaunchOwners {
                 | WaterExperienceFrameTxn::Ready),
             ) => scene.finish_frame(transaction, result),
             (
-                LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. },
+                LaunchMode::General { .. }
+                | LaunchMode::Environment { .. }
+                | LaunchMode::CanopyAudio { .. }
+                | LaunchMode::FoliageShadow { .. },
                 WaterExperienceFrameTxn::Inactive,
             ) => {
                 anyhow::ensure!(
@@ -308,13 +324,14 @@ impl LaunchOwners {
 
     pub(super) fn begin_water_edit_frame(&self) -> WaterEditFrameTxn {
         match &self.mode {
-            LaunchMode::Standard {
+            LaunchMode::General {
                 scenario: ScenarioOwner::Water(WaterScenarioOwner::EditSoak(owner)),
                 ..
             } => owner.begin_frame(),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                WaterEditFrameTxn::Inactive
-            }
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => WaterEditFrameTxn::Inactive,
         }
     }
 
@@ -325,14 +342,17 @@ impl LaunchOwners {
     ) -> anyhow::Result<bool> {
         match (&mut self.mode, transaction) {
             (
-                LaunchMode::Standard {
+                LaunchMode::General {
                     scenario: ScenarioOwner::Water(WaterScenarioOwner::EditSoak(owner)),
                     ..
                 },
                 transaction @ (WaterEditFrameTxn::Step { .. } | WaterEditFrameTxn::Complete),
             ) => owner.finish_frame(transaction, result),
             (
-                LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. },
+                LaunchMode::General { .. }
+                | LaunchMode::Environment { .. }
+                | LaunchMode::CanopyAudio { .. }
+                | LaunchMode::FoliageShadow { .. },
                 WaterEditFrameTxn::Inactive,
             ) => {
                 anyhow::ensure!(
@@ -347,13 +367,10 @@ impl LaunchOwners {
 
     pub(super) fn canopy_audio_setup(&self) -> CanopyAudioSetup {
         match &self.mode {
-            LaunchMode::Standard {
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                ..
-            } => runtime.setup(),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                CanopyAudioSetup::Disabled
-            }
+            LaunchMode::CanopyAudio { owner, .. } => owner.setup(),
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::FoliageShadow { .. } => CanopyAudioSetup::Disabled,
         }
     }
 
@@ -362,13 +379,10 @@ impl LaunchOwners {
         observation: CanopyAudioStartObservation,
     ) -> CanopyAudioStartTxn {
         match &self.mode {
-            LaunchMode::Standard {
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                ..
-            } => runtime.begin_start(observation),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                CanopyAudioStartTxn::Inactive
-            }
+            LaunchMode::CanopyAudio { owner, .. } => owner.begin_start(observation),
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::FoliageShadow { .. } => CanopyAudioStartTxn::Inactive,
         }
     }
 
@@ -379,16 +393,15 @@ impl LaunchOwners {
     ) -> anyhow::Result<bool> {
         match (&mut self.mode, transaction) {
             (
-                LaunchMode::Standard {
-                    scenario:
-                        ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                    ..
-                },
+                LaunchMode::CanopyAudio { owner, .. },
                 transaction @ (CanopyAudioStartTxn::AlreadyStarted
                 | CanopyAudioStartTxn::Observation { .. }),
-            ) => runtime.finish_start(transaction, result),
+            ) => owner.finish_start(transaction, result),
             (
-                LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. },
+                LaunchMode::General { .. }
+                | LaunchMode::Environment { .. }
+                | LaunchMode::CanopyAudio { .. }
+                | LaunchMode::FoliageShadow { .. },
                 CanopyAudioStartTxn::Inactive,
             ) => Ok(false),
             _ => anyhow::bail!("canopy audio start transaction changed launch owner"),
@@ -401,13 +414,12 @@ impl LaunchOwners {
         time_seconds: f32,
     ) -> CanopyAudioTrajectoryTxn {
         match &self.mode {
-            LaunchMode::Standard {
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                ..
-            } => runtime.begin_trajectory(tree_origin_world, time_seconds),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                CanopyAudioTrajectoryTxn::Inactive
+            LaunchMode::CanopyAudio { owner, .. } => {
+                owner.begin_trajectory(tree_origin_world, time_seconds)
             }
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::FoliageShadow { .. } => CanopyAudioTrajectoryTxn::Inactive,
         }
     }
 
@@ -418,16 +430,15 @@ impl LaunchOwners {
     ) -> anyhow::Result<()> {
         match (&mut self.mode, transaction) {
             (
-                LaunchMode::Standard {
-                    scenario:
-                        ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                    ..
-                },
+                LaunchMode::CanopyAudio { owner, .. },
                 transaction @ (CanopyAudioTrajectoryTxn::Waiting { .. }
                 | CanopyAudioTrajectoryTxn::Active { .. }),
-            ) => runtime.finish_trajectory(transaction, result),
+            ) => owner.finish_trajectory(transaction, result),
             (
-                LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. },
+                LaunchMode::General { .. }
+                | LaunchMode::Environment { .. }
+                | LaunchMode::CanopyAudio { .. }
+                | LaunchMode::FoliageShadow { .. },
                 CanopyAudioTrajectoryTxn::Inactive,
             ) => Ok(()),
             _ => anyhow::bail!("canopy audio trajectory transaction changed launch owner"),
@@ -441,23 +452,24 @@ impl LaunchOwners {
         snapshot: &CanopyAudioTelemetrySnapshot,
     ) -> CanopyAudioTelemetry {
         match &self.mode {
-            LaunchMode::Standard {
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)),
-                ..
-            } => runtime.telemetry(tree_origin_world, time_seconds, snapshot),
-            LaunchMode::Standard { .. } | LaunchMode::FoliageShadow { .. } => {
-                CanopyAudioTelemetry {
-                    marker: AudioTelemetryMarker::NotDiagnostic,
-                    counters: CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
-                }
+            LaunchMode::CanopyAudio { owner, .. } => {
+                owner.telemetry(tree_origin_world, time_seconds, snapshot)
             }
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::FoliageShadow { .. } => CanopyAudioTelemetry {
+                marker: AudioTelemetryMarker::NotDiagnostic,
+                counters: CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
+            },
         }
     }
 
     pub(super) fn connectivity_event(&mut self) -> ConnectivityEvent<'_> {
         match &mut self.mode {
-            LaunchMode::Standard { scenario, .. } => scenario.connectivity_event(),
-            LaunchMode::FoliageShadow { .. } => ConnectivityEvent::None,
+            LaunchMode::General { scenario, .. } => scenario.connectivity_event(),
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => ConnectivityEvent::None,
         }
     }
 
@@ -467,12 +479,28 @@ impl LaunchOwners {
 
     pub(super) fn begin_denoiser_frame(&self) -> DenoiserFrameTxn {
         match &self.mode {
-            LaunchMode::Standard {
+            LaunchMode::General {
+                camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                ..
+            }
+            | LaunchMode::Environment {
+                camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                ..
+            }
+            | LaunchMode::CanopyAudio {
                 camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                 ..
             } => runtime.begin_camera_frame(),
             LaunchMode::FoliageShadow { runtime } => runtime.begin_foliage_frame(),
-            LaunchMode::Standard {
+            LaunchMode::General {
+                camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                ..
+            }
+            | LaunchMode::Environment {
+                camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                ..
+            }
+            | LaunchMode::CanopyAudio {
                 camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                 ..
             } => DenoiserFrameTxn::Inactive,
@@ -486,7 +514,21 @@ impl LaunchOwners {
     ) -> anyhow::Result<bool> {
         match (&mut self.mode, transaction) {
             (
-                LaunchMode::Standard {
+                LaunchMode::General {
+                    camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                    ..
+                },
+                transaction @ DenoiserFrameTxn::Camera { .. },
+            )
+            | (
+                LaunchMode::Environment {
+                    camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                    ..
+                },
+                transaction @ DenoiserFrameTxn::Camera { .. },
+            )
+            | (
+                LaunchMode::CanopyAudio {
                     camera: CameraOwner::DenoiserBenchmark { runtime, .. },
                     ..
                 },
@@ -497,7 +539,24 @@ impl LaunchOwners {
                 transaction @ DenoiserFrameTxn::Foliage { .. },
             ) => runtime.finish_frame(transaction, outcome),
             (
-                LaunchMode::Standard {
+                LaunchMode::General {
+                    camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                    ..
+                },
+                DenoiserFrameTxn::Inactive,
+            ) => match outcome {
+                DenoiserCaptureOutcome::NotRequested => Ok(false),
+                DenoiserCaptureOutcome::ReadbackFailed(error) => Err(error),
+                DenoiserCaptureOutcome::Frame(_) => {
+                    anyhow::bail!("inactive denoiser owner received a frame")
+                }
+            },
+            (
+                LaunchMode::Environment {
+                    camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                    ..
+                }
+                | LaunchMode::CanopyAudio {
                     camera: CameraOwner::None | CameraOwner::Snapshot { .. },
                     ..
                 },
@@ -523,45 +582,21 @@ pub(in crate::app) fn prepare_startup_owners(
     let authored_flora_bench = benchmarks
         .authored_flora_samples
         .map(AuthoredFloraBench::new);
-    let scenario_owner = match scenario {
-        Scenario::Garden => ScenarioOwner::World(WorldScenarioOwner::Garden),
-        Scenario::CanopyAudioDiagnostic { constrained_budget } => {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(
-                CanopyAudioDiagnosticRuntime::new(constrained_budget),
-            ))
-        }
-        Scenario::WaterExperience => ScenarioOwner::Water(WaterScenarioOwner::Experience(
-            WaterExperienceScene::pending(),
-        )),
-        Scenario::WaterEditSoak => {
-            ScenarioOwner::Water(WaterScenarioOwner::EditSoak(water::WaterEditSoak::default()))
-        }
-        Scenario::EnvironmentLighting(case) => ScenarioOwner::TestScene(
-            TestSceneOwner::Environment(EnvironmentLightingTestScene::new(case)),
-        ),
-        Scenario::HybridTransparency => {
-            ScenarioOwner::TestScene(TestSceneOwner::Hybrid(HybridTransparencyTestScene::new()))
-        }
-        Scenario::House => ScenarioOwner::World(WorldScenarioOwner::House(HouseSceneOwner)),
-        Scenario::TerrainConnectivityBenchmark(options) => ScenarioOwner::Diagnostic(
-            DiagnosticScenarioOwner::TerrainConnectivity(TerrainConnectivityBench::new(options)),
-        ),
-        Scenario::FoliageShadowBenchmark(options) => {
-            let CameraAutomation::None = camera else {
-                return Err(
-                    "foliage-shadow scenario cannot carry a second camera automation".to_owned(),
-                );
-            };
-            return Ok(LaunchOwners {
-                screenshot: ScreenshotRuntime::new(None),
-                tree_bench,
-                authored_flora_bench,
-                mode: LaunchMode::FoliageShadow {
-                    runtime: DenoiserBench::new_foliage(options),
-                },
-            });
-        }
-    };
+    if let Scenario::FoliageShadowBenchmark(options) = scenario {
+        let CameraAutomation::None = camera else {
+            return Err(
+                "foliage-shadow scenario cannot carry a second camera automation".to_owned(),
+            );
+        };
+        return Ok(LaunchOwners {
+            screenshot: ScreenshotRuntime::new(None),
+            tree_bench,
+            authored_flora_bench,
+            mode: LaunchMode::FoliageShadow {
+                runtime: DenoiserBench::new_foliage(options),
+            },
+        });
+    }
     let (camera, screenshot) = match camera {
         CameraAutomation::None => (CameraOwner::None, ScreenshotRuntime::new(None)),
         CameraAutomation::Snapshot(name) => {
@@ -582,14 +617,54 @@ pub(in crate::app) fn prepare_startup_owners(
             ScreenshotRuntime::new(None),
         ),
     };
+    let mode = match scenario {
+        Scenario::Garden => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::World(WorldScenarioOwner::Garden),
+        },
+        Scenario::CanopyAudioDiagnostic { constrained_budget } => LaunchMode::CanopyAudio {
+            camera,
+            owner: CanopyAudioDiagnosticRuntime::new(constrained_budget),
+        },
+        Scenario::WaterExperience => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(
+                WaterExperienceScene::pending(),
+            )),
+        },
+        Scenario::WaterEditSoak => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::Water(WaterScenarioOwner::EditSoak(
+                water::WaterEditSoak::default(),
+            )),
+        },
+        Scenario::EnvironmentLighting(case) => LaunchMode::Environment {
+            camera,
+            owner: EnvironmentLightingTestScene::new(case),
+        },
+        Scenario::HybridTransparency => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::TestScene(TestSceneOwner::Hybrid(
+                HybridTransparencyTestScene::new(),
+            )),
+        },
+        Scenario::House => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::World(WorldScenarioOwner::House(HouseSceneOwner)),
+        },
+        Scenario::TerrainConnectivityBenchmark(options) => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench::new(options),
+            )),
+        },
+        Scenario::FoliageShadowBenchmark(_) => unreachable!("foliage handled before camera setup"),
+    };
     Ok(LaunchOwners {
         screenshot,
         tree_bench,
         authored_flora_bench,
-        mode: LaunchMode::Standard {
-            camera,
-            scenario: scenario_owner,
-        },
+        mode,
     })
 }
 
@@ -621,33 +696,26 @@ mod tests {
         TerrainConnectivity,
     }
 
-    fn owner_kind(owner: ScenarioOwner) -> OwnerKind {
-        match owner {
-            ScenarioOwner::World(world) => match world {
-                WorldScenarioOwner::Garden => OwnerKind::Garden,
-                WorldScenarioOwner::House(_) => OwnerKind::House,
-            },
-            ScenarioOwner::Water(water) => match water {
-                WaterScenarioOwner::Experience(_) => OwnerKind::WaterExperience,
-                WaterScenarioOwner::EditSoak(_) => OwnerKind::WaterEditSoak,
-            },
-            ScenarioOwner::TestScene(test_scene) => match test_scene {
-                TestSceneOwner::Environment(_) => OwnerKind::Environment,
-                TestSceneOwner::Hybrid(_) => OwnerKind::Hybrid,
-            },
-            ScenarioOwner::Diagnostic(diagnostic) => match diagnostic {
-                DiagnosticScenarioOwner::CanopyAudio(_) => OwnerKind::CanopyAudio,
-                DiagnosticScenarioOwner::TerrainConnectivity(_) => OwnerKind::TerrainConnectivity,
-            },
-        }
-    }
-
-    fn owner_for(scenario: Scenario) -> ScenarioOwner {
-        let launch = launch_for(scenario);
+    fn owner_kind(launch: LaunchOwners) -> OwnerKind {
         match launch.mode {
-            LaunchMode::Standard { scenario, .. } => scenario,
+            LaunchMode::General { scenario, .. } => match scenario {
+                ScenarioOwner::World(world) => match world {
+                    WorldScenarioOwner::Garden => OwnerKind::Garden,
+                    WorldScenarioOwner::House(_) => OwnerKind::House,
+                },
+                ScenarioOwner::Water(water) => match water {
+                    WaterScenarioOwner::Experience(_) => OwnerKind::WaterExperience,
+                    WaterScenarioOwner::EditSoak(_) => OwnerKind::WaterEditSoak,
+                },
+                ScenarioOwner::TestScene(TestSceneOwner::Hybrid(_)) => OwnerKind::Hybrid,
+                ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(_)) => {
+                    OwnerKind::TerrainConnectivity
+                }
+            },
+            LaunchMode::Environment { .. } => OwnerKind::Environment,
+            LaunchMode::CanopyAudio { .. } => OwnerKind::CanopyAudio,
             LaunchMode::FoliageShadow { .. } => {
-                panic!("foliage benchmark is not a standard scenario")
+                panic!("foliage benchmark is not a fixed scene owner")
             }
         }
     }
@@ -734,7 +802,7 @@ mod tests {
         for (camera, expected_snapshot, expected_scheduled, expected_denoiser) in cases {
             let launch = capture_for(camera);
             assert_eq!(launch.screenshot.is_scheduled(), expected_scheduled);
-            let LaunchMode::Standard { camera, .. } = launch.mode else {
+            let LaunchMode::General { camera, .. } = launch.mode else {
                 panic!("garden must use standard launch ownership")
             };
             match camera {
@@ -765,7 +833,9 @@ mod tests {
         .unwrap();
 
         match launch.mode {
-            LaunchMode::Standard { .. } => {
+            LaunchMode::General { .. }
+            | LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. } => {
                 panic!("foliage benchmark must not be a standard scenario/camera pair")
             }
             LaunchMode::FoliageShadow { runtime } => {
@@ -823,9 +893,9 @@ mod tests {
         ];
 
         for (scenario, expected) in cases {
-            assert_eq!(owner_kind(owner_for(scenario)), expected);
+            assert_eq!(owner_kind(launch_for(scenario)), expected);
         }
-        assert_eq!(owner_kind(owner_for(Scenario::Garden)), OwnerKind::Garden);
+        assert_eq!(owner_kind(launch_for(Scenario::Garden)), OwnerKind::Garden);
     }
 
     #[test]
@@ -872,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_scene_frame_plan_contains_no_borrowed_runtime() {
-        let environment = owner_for(Scenario::EnvironmentLighting(
+        let environment = launch_for(Scenario::EnvironmentLighting(
             crate::cli::EnvironmentLightingTestCase::Sealed,
         ));
         assert_eq!(
@@ -880,16 +950,16 @@ mod tests {
             TestSceneKind::Environment(crate::cli::EnvironmentLightingTestCase::Sealed)
         );
 
-        let hybrid = owner_for(Scenario::HybridTransparency);
+        let hybrid = launch_for(Scenario::HybridTransparency);
         assert_eq!(hybrid.test_scene_frame_plan().kind(), TestSceneKind::Hybrid);
 
-        let garden = owner_for(Scenario::Garden);
+        let garden = launch_for(Scenario::Garden);
         assert_eq!(garden.test_scene_frame_plan().kind(), TestSceneKind::None);
     }
 
     #[test]
     fn terrain_connectivity_scenario_uses_the_diagnostic_family() {
-        let owner = owner_for(Scenario::TerrainConnectivityBenchmark(
+        let owner = launch_for(Scenario::TerrainConnectivityBenchmark(
             crate::cli::TerrainConnectivityBenchOptions {
                 mode: crate::cli::TerrainConnectivityBenchMode::Correct,
                 available_particles: 8,
@@ -900,8 +970,13 @@ mod tests {
         ));
 
         assert!(matches!(
-            owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(_))
+            owner.mode,
+            LaunchMode::General {
+                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                    _
+                )),
+                ..
+            }
         ));
     }
 

@@ -103,14 +103,16 @@ impl HybridTransparencyTestScene {
 impl super::launch_owners::LaunchOwners {
     fn begin_hybrid_phase(&self) -> HybridPhaseTxn {
         match &self.mode {
-            super::launch_owners::LaunchMode::Standard {
+            super::launch_owners::LaunchMode::General {
                 scenario:
                     super::launch_owners::ScenarioOwner::TestScene(
                         super::launch_owners::TestSceneOwner::Hybrid(scene),
                     ),
                 ..
             } => scene.begin_phase(),
-            super::launch_owners::LaunchMode::Standard { .. }
+            super::launch_owners::LaunchMode::General { .. }
+            | super::launch_owners::LaunchMode::Environment { .. }
+            | super::launch_owners::LaunchMode::CanopyAudio { .. }
             | super::launch_owners::LaunchMode::FoliageShadow { .. } => HybridPhaseTxn::Inactive,
         }
     }
@@ -122,7 +124,7 @@ impl super::launch_owners::LaunchOwners {
     ) -> Result<()> {
         match (&mut self.mode, transaction) {
             (
-                super::launch_owners::LaunchMode::Standard {
+                super::launch_owners::LaunchMode::General {
                     scenario:
                         super::launch_owners::ScenarioOwner::TestScene(
                             super::launch_owners::TestSceneOwner::Hybrid(scene),
@@ -134,7 +136,9 @@ impl super::launch_owners::LaunchOwners {
                 },
             ) => scene.finish_phase(permit_revision, result),
             (
-                super::launch_owners::LaunchMode::Standard { .. }
+                super::launch_owners::LaunchMode::General { .. }
+                | super::launch_owners::LaunchMode::Environment { .. }
+                | super::launch_owners::LaunchMode::CanopyAudio { .. }
                 | super::launch_owners::LaunchMode::FoliageShadow { .. },
                 HybridPhaseTxn::Inactive,
             ) => Ok(()),
