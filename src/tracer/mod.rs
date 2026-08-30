@@ -1880,10 +1880,14 @@ impl Tracer {
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         let active = self.ddgi_runtime.status().active();
-        let published = active
-            .published_field()
-            .expect("promoted staging volume must have a finite published field");
+        let publication = active
+            .publication
+            .expect("promoted staging volume must retain its resident publication");
+        let generation = publication.generation();
+        let generation_root = generation.epoch_zero_field();
+        let published = publication.field();
         let published_key = published.field();
+        assert_eq!(generation.build_token(), build_token);
         let published_slot = self
             .ddgi_runtime
             .volumes()
@@ -1893,14 +1897,17 @@ impl Tracer {
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
         let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
         log::info!(
-            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
+            "[DDGI] staging promoted token_serial={} generation_token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} epoch_zero_field_serial={} published_field_serial={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
             build_token.serial(),
+            generation.build_token().serial(),
             build_token.kind(),
             active.grid.spacing_voxels(),
             active.grid.probe_count(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.global_sky_revision,
+            generation_root.field().serial(),
+            published_key.serial(),
             published_key.state(),
             published_key.update_epoch(),
             published_slot,
@@ -1918,11 +1925,14 @@ impl Tracer {
             descriptor_generation,
         );
         log::info!(
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=pipeline_topology",
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} generation_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} epoch_zero_field_serial={} published_field_serial={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=pipeline_topology",
             build_token.serial(),
+            generation.build_token().serial(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.grid.spacing_voxels(),
+            generation_root.field().serial(),
+            published_key.serial(),
             published_slot,
             published_key.state(),
             published_key.update_epoch(),
@@ -2605,13 +2615,25 @@ impl Tracer {
                         lighting.has_mixed_in_flight_revision,
                     );
                     if completion.capture_observed {
+                        let resident = completion
+                            .status
+                            .publication
+                            .expect("captured DDGI field must retain its resident publication");
+                        let generation = resident.generation();
+                        assert_eq!(resident.field(), field);
                         log::info!(
-                            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} state={:?} update_epoch={} publication=Published",
+                            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} generation_token_serial={} epoch_zero_field_serial={} field_serial={} source_field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} publication=Published",
                             self.ddgi_runtime.capture_target().label(),
                             build_token
                                 .expect("captured DDGI publication must retain a build token")
                                 .serial(),
+                            generation.build_token().serial(),
+                            generation.epoch_zero_field().field().serial(),
                             field.field().serial(),
+                            field.source().map_or(0, |source| source.serial()),
+                            field.field().geometry_revision(),
+                            field.field().radiance_revision(),
+                            field.field().spacing_voxels(),
                             field.field().state(),
                             field.field().update_epoch(),
                         );

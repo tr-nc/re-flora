@@ -109,9 +109,11 @@ class _Lifecycle:
     def baseline(self, fields: dict[str, str]) -> None:
         self.values["baseline_field_serial"] = _integer(fields, "field_serial")
         self.values["baseline_geometry_revision"] = _integer(fields, "geometry_revision")
+        self.values["radiance_revision"] = _integer(fields, "radiance_revision")
         _literal(fields, "spacing_voxels", "32")
         _literal(fields, "state", "Converging")
         _literal(fields, "update_epoch", "0")
+        _literal(fields, "source_field_serial", "0")
 
     def density_midflight(self, fields: dict[str, str]) -> None:
         if _integer(fields, "active_field_serial") != self.values["baseline_field_serial"]:
@@ -144,8 +146,16 @@ class _Lifecycle:
 
     def geometry_e0_private(self, fields: dict[str, str]) -> None:
         self._same(fields, "terrain_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="terrain_token_serial")
         self._same(fields, "obsolete_density_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        source = _integer(fields, "source_field_serial")
+        if source != self.values["baseline_field_serial"]:
+            _fail(
+                "geometry epoch-zero source field changed: "
+                f"expected {self.values['baseline_field_serial']}, got {source}"
+            )
         self.values["geometry_epoch_zero_field_serial"] = _integer(
             fields, "epoch_zero_field_serial"
         )
@@ -158,24 +168,48 @@ class _Lifecycle:
 
     def terrain_promotion(self, fields: dict[str, str]) -> None:
         self._same(fields, "token_serial", expected_name="terrain_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="terrain_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._same(
+            fields,
+            "epoch_zero_field_serial",
+            expected_name="geometry_epoch_zero_field_serial",
+        )
         _literal(fields, "kind", "Terrain")
         _literal(fields, "spacing_voxels", "32")
         epoch = _integer(fields, "published_update_epoch")
         if epoch == 0:
             _fail("raw geometry epoch zero became consumer-visible")
         self.values["geometry_published_update_epoch"] = epoch
+        self.values["geometry_published_field_serial"] = _integer(
+            fields, "published_field_serial"
+        )
 
     def terrain_consumers(self, fields: dict[str, str]) -> None:
         self._same(fields, "active_token_serial", expected_name="terrain_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="terrain_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._same(
+            fields,
+            "epoch_zero_field_serial",
+            expected_name="geometry_epoch_zero_field_serial",
+        )
+        self._same(
+            fields,
+            "published_field_serial",
+            expected_name="geometry_published_field_serial",
+        )
         self._same(fields, "update_epoch", expected_name="geometry_published_update_epoch")
         _literal(fields, "spacing_voxels", "32")
 
     def geometry_recovery_published(self, fields: dict[str, str]) -> None:
         self._same(fields, "terrain_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="terrain_token_serial")
         self._same(fields, "obsolete_density_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
         self._same(
             fields,
             "epoch_zero_field_serial",
@@ -186,8 +220,10 @@ class _Lifecycle:
             "published_update_epoch",
             expected_name="geometry_published_update_epoch",
         )
-        self.values["geometry_published_field_serial"] = _integer(
-            fields, "published_field_serial"
+        self._same(
+            fields,
+            "published_field_serial",
+            expected_name="geometry_published_field_serial",
         )
         _literal(fields, "same_generation", "true")
         _literal(fields, "active_spacing_voxels", "32")
@@ -202,6 +238,8 @@ class _Lifecycle:
             expected_name="geometry_published_field_serial",
         )
         self._same(fields, "active_geometry_revision", expected_name="geometry_revision")
+        self._same(fields, "active_radiance_revision", expected_name="radiance_revision")
+        self._same(fields, "density_radiance_revision", expected_name="radiance_revision")
         _literal(fields, "active_spacing_voxels", "32")
         _literal(fields, "density_spacing_voxels", "16")
         _literal(fields, "old_field_visible", "true")
@@ -214,32 +252,47 @@ class _Lifecycle:
 
     def density_promotion(self, fields: dict[str, str]) -> None:
         self._same(fields, "token_serial", expected_name="density_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="density_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._same(
+            fields, "epoch_zero_field_serial", expected_name="density_field_serial"
+        )
+        self._same(fields, "published_field_serial", expected_name="density_field_serial")
         _literal(fields, "kind", "Density")
         _literal(fields, "spacing_voxels", "16")
         _literal(fields, "published_update_epoch", "0")
 
     def density_consumers(self, fields: dict[str, str]) -> None:
         self._same(fields, "active_token_serial", expected_name="density_token_serial")
+        self._same(fields, "generation_token_serial", expected_name="density_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
+        self._same(
+            fields, "epoch_zero_field_serial", expected_name="density_field_serial"
+        )
+        self._same(fields, "published_field_serial", expected_name="density_field_serial")
         _literal(fields, "spacing_voxels", "16")
         _literal(fields, "update_epoch", "0")
 
     def complete(self, fields: dict[str, str]) -> None:
         self._same(fields, "field_serial", expected_name="density_field_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
         _literal(fields, "spacing_voxels", "16")
         _literal(fields, "state", "Converging")
         _literal(fields, "update_epoch", "0")
         self.values["field_serial"] = _integer(fields, "field_serial")
-        self.values["source_field_serial"] = _integer(fields, "source_field_serial")
-        self.values["radiance_revision"] = _integer(fields, "radiance_revision")
+        _literal(fields, "source_field_serial", "0")
+        _literal(fields, "source_state", "none")
+        self.values["source_field_serial"] = 0
 
     def summary(self, fields: dict[str, str]) -> None:
         self._same(fields, "obsolete_density_token_serial")
         self._same(fields, "terrain_token_serial")
         self._same(fields, "density_token_serial")
         self._same(fields, "geometry_revision")
+        self._same(fields, "radiance_revision")
         _literal(fields, "obsolete_density_consumer_visible", "false")
         _literal(fields, "first_consumer_visible_16_epoch", "0")
         _literal(fields, "spacing_voxels", "16")
@@ -252,7 +305,7 @@ class _Lifecycle:
             self.event(Phase.TERRAIN_PROMOTION, fields)
         elif token == self.values.get("density_token_serial"):
             self.event(Phase.DENSITY_PROMOTION, fields)
-        elif "terrain_token_serial" in self.values:
+        elif Phase.BASELINE in self.seen:
             _fail(f"mixed-log promotion token {token}")
 
     def consumers(self, fields: dict[str, str]) -> None:
@@ -264,7 +317,7 @@ class _Lifecycle:
             self.event(Phase.TERRAIN_CONSUMERS, fields)
         elif token == self.values.get("density_token_serial"):
             self.event(Phase.DENSITY_CONSUMERS, fields)
-        elif "terrain_token_serial" in self.values:
+        elif Phase.BASELINE in self.seen:
             _fail(f"mixed-log consumer token {token}")
 
     def capture(self, fields: dict[str, str]) -> None:
@@ -272,6 +325,12 @@ class _Lifecycle:
             fields,
             "build_token_serial",
             "field_serial",
+            "generation_token_serial",
+            "epoch_zero_field_serial",
+            "source_field_serial",
+            "geometry_revision",
+            "radiance_revision",
+            "spacing_voxels",
             "state",
             "update_epoch",
             "publication",
@@ -296,6 +355,14 @@ class _Lifecycle:
         _literal(capture, "state", "Converging")
         _literal(capture, "update_epoch", "0")
         _literal(capture, "publication", "Published")
+        self._same(
+            capture, "generation_token_serial", expected_name="density_token_serial"
+        )
+        self._same(capture, "epoch_zero_field_serial", expected_name="field_serial")
+        self._same(capture, "geometry_revision")
+        self._same(capture, "radiance_revision")
+        _literal(capture, "source_field_serial", "0")
+        _literal(capture, "spacing_voxels", "16")
         self.values["build_token_serial"] = _integer(capture, "build_token_serial")
         return dict(self.values)
 

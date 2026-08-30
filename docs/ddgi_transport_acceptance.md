@@ -40,6 +40,10 @@ matches. The parser advances through baseline, obsolete-density preemption, priv
 terrain promotion and consumer publication, recovered same-generation observation, density retry,
 density promotion and consumer publication, then final capture/summary. Duplicate or shuffled
 checkpoints, mixed token lineages, and any obsolete-token promotion/consumer event fail closed.
+Promotion, consumer, and capture markers carry the owner-issued generation token, epoch-zero root,
+current field serial, and radiance revision. The parser binds those values to the private geometry
+root and baseline radiance rather than trusting `same_generation=true`. Geometry e0 retains the
+baseline field as its cross-generation history source; the retried density e0 must have no source.
 
 ## Transport matrix
 

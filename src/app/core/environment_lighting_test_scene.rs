@@ -5080,11 +5080,16 @@ impl App {
                 let epoch_zero = geometry_generation.epoch_zero_field();
                 log_acceptance_field("DENSITY", "geometry-e0-private-field", epoch_zero);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} private_current_field_serial={} private_current_update_epoch={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial={} generation_token_serial={} obsolete_density_token_serial={} geometry_revision={} radiance_revision={} epoch_zero_field_serial={} source_field_serial={} private_current_field_serial={} private_current_update_epoch={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
+                    geometry_generation.build_token().serial(),
                     obsolete_density_token_serial,
                     target_revision,
+                    epoch_zero.field().radiance_revision(),
                     epoch_zero.field().serial(),
+                    epoch_zero
+                        .source()
+                        .map_or(0, |source| source.serial()),
                     publication.field().field().serial(),
                     publication.field().field().update_epoch(),
                 );
@@ -5139,13 +5144,15 @@ impl App {
                     geometry_field,
                 );
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-recovery-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} published_field_serial={} published_update_epoch={} same_generation=true active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-recovery-published terrain_token_serial={} generation_token_serial={} obsolete_density_token_serial={} geometry_revision={} radiance_revision={} epoch_zero_field_serial={} published_field_serial={} published_update_epoch={} same_generation=true active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
+                    geometry_generation.build_token().serial(),
                     obsolete_density_token_serial,
                     geometry_generation
                         .epoch_zero_field()
                         .field()
                         .geometry_revision(),
+                    geometry_field.field().radiance_revision(),
                     geometry_generation.epoch_zero_field().field().serial(),
                     geometry_field.field().serial(),
                     geometry_field.field().update_epoch(),
@@ -5211,12 +5218,14 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight active_token_serial={} active_field_serial={} active_geometry_revision={} active_spacing_voxels=32 density_token_serial={} density_field_serial={} density_spacing_voxels=16 progress={}/{} old_field_visible=true active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight active_token_serial={} active_field_serial={} active_geometry_revision={} active_radiance_revision={} active_spacing_voxels=32 density_token_serial={} density_field_serial={} density_radiance_revision={} density_spacing_voxels=16 progress={}/{} old_field_visible=true active_available=true",
                     terrain_token_serial,
                     geometry_field.field().serial(),
                     geometry_field.field().geometry_revision(),
+                    geometry_field.field().radiance_revision(),
                     token.serial(),
                     density_field.field().serial(),
+                    density_field.field().radiance_revision(),
                     staging.filtered_probe_count,
                     staging.grid.probe_count(),
                 );
@@ -5269,11 +5278,12 @@ impl App {
                 assert!(runtime.active_consumers_are_available());
                 log_acceptance_field("DENSITY", "complete", density_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} spacing_voxels=16",
+                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} radiance_revision={} spacing_voxels=16",
                     obsolete_density_token_serial,
                     terrain_token_serial,
                     density_token_serial,
                     density_field.field().geometry_revision(),
+                    density_field.field().radiance_revision(),
                 );
                 TestScenePhase::Ready
             }
