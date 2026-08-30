@@ -5,13 +5,13 @@ use super::{
 use crate::app::world_edits::BuildEdit;
 use crate::builder::{PlainBuilder, VOXEL_TYPE_MASK};
 use crate::geom::UAabb3;
-use anyhow::Context;
 use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 pub(super) mod bench;
 mod detachment;
+use detachment::PreparedTerrainDetachment;
 
 // Most releases resolve from one contiguous readback. Components that cross this
 // fast-path halo continue through lazily loaded tiles below.
@@ -323,206 +323,6 @@ fn prepare_detached_voxel_clear(
     }
 
     Ok(dirty_tiles)
-}
-
-struct PreparedAtlasWrite {
-    origin: UVec3,
-    dim: UVec3,
-    data: Vec<u8>,
-}
-
-impl PreparedAtlasWrite {
-    fn new(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
-        Self::validate(world_dim, origin, dim, &data)?;
-        Ok(Self { origin, dim, data })
-    }
-
-    fn validate(world_dim: UVec3, origin: UVec3, dim: UVec3, data: &[u8]) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            dim.cmpgt(UVec3::ZERO).all(),
-            "terrain detachment cannot prepare an empty atlas write"
-        );
-        anyhow::ensure!(
-            origin.cmple(world_dim).all() && dim.cmple(world_dim - origin).all(),
-            "terrain detachment atlas write is outside the world: origin={origin:?} dim={dim:?} world={world_dim:?}"
-        );
-        let expected = usize::try_from(voxel_count(UAabb3::new(origin, origin + dim)))?;
-        anyhow::ensure!(
-            data.len() == expected,
-            "terrain detachment atlas write has {} bytes, expected {expected}",
-            data.len()
-        );
-        Ok(())
-    }
-}
-
-pub(super) struct TerrainDetachmentPreflight {
-    publication: VisibleTerrainPublication,
-}
-
-pub(super) struct PreparedTerrainDetachment {
-    atlas_writes: Vec<PreparedAtlasWrite>,
-    publication: VisibleTerrainPublication,
-    visual_voxels: Vec<(UVec3, u8)>,
-    detached_voxels: usize,
-}
-
-pub(super) struct CommittedTerrainDetachment {
-    pub(super) invalidation_us: f64,
-    pub(super) publication_us: f64,
-    pub(super) particle_spawn_us: f64,
-    pub(super) detached_voxels: usize,
-    pub(super) spawned_particles: usize,
-}
-
-impl PreparedTerrainDetachment {
-    pub(super) fn preflight_region(
-        world_dim: UVec3,
-        origin: UVec3,
-        dim: UVec3,
-        data: &[u8],
-        detached_voxels: usize,
-        visual_voxels: usize,
-        affected_bound: UAabb3,
-    ) -> anyhow::Result<TerrainDetachmentPreflight> {
-        PreparedAtlasWrite::validate(world_dim, origin, dim, data)?;
-        anyhow::ensure!(
-            visual_voxels <= detached_voxels,
-            "terrain detachment cannot visualize more voxels than it clears"
-        );
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                affected_bound,
-            )])?
-            .context("terrain detachment has no visible terrain chunks")?;
-        Ok(TerrainDetachmentPreflight {
-            publication: VisibleTerrainPublication::edit(change)?,
-        })
-    }
-
-    pub(super) fn from_preflighted_region(
-        preflight: TerrainDetachmentPreflight,
-        origin: UVec3,
-        dim: UVec3,
-        data: Vec<u8>,
-        visual_voxels: Vec<(UVec3, u8)>,
-        detached_voxels: usize,
-    ) -> Self {
-        Self {
-            atlas_writes: vec![PreparedAtlasWrite { origin, dim, data }],
-            publication: preflight.publication,
-            visual_voxels,
-            detached_voxels,
-        }
-    }
-
-    fn from_all_selected_voxels(
-        plain_builder: &mut PlainBuilder,
-        world_dim: UVec3,
-        selected_voxels: Vec<(UVec3, u8)>,
-        affected_bound: UAabb3,
-    ) -> anyhow::Result<Self> {
-        let atlas_writes =
-            prepare_detached_voxel_clear(plain_builder, world_dim, &selected_voxels)?
-                .into_iter()
-                .map(|(origin, dim, data)| PreparedAtlasWrite::new(world_dim, origin, dim, data))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-        Self::from_prepared_parts(
-            atlas_writes,
-            selected_voxels.len(),
-            selected_voxels,
-            affected_bound,
-        )
-    }
-
-    pub(super) fn from_cleared_and_visual_voxels(
-        plain_builder: &mut PlainBuilder,
-        world_dim: UVec3,
-        cleared_voxels: &[(UVec3, u8)],
-        visual_voxels: Vec<(UVec3, u8)>,
-        affected_bound: UAabb3,
-    ) -> anyhow::Result<Self> {
-        let atlas_writes = prepare_detached_voxel_clear(plain_builder, world_dim, cleared_voxels)?
-            .into_iter()
-            .map(|(origin, dim, data)| PreparedAtlasWrite::new(world_dim, origin, dim, data))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        Self::from_prepared_parts(
-            atlas_writes,
-            cleared_voxels.len(),
-            visual_voxels,
-            affected_bound,
-        )
-    }
-
-    fn from_prepared_parts(
-        atlas_writes: Vec<PreparedAtlasWrite>,
-        detached_voxels: usize,
-        visual_voxels: Vec<(UVec3, u8)>,
-        affected_bound: UAabb3,
-    ) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            !atlas_writes.is_empty(),
-            "terrain detachment requires at least one prepared atlas write"
-        );
-        anyhow::ensure!(
-            visual_voxels.len() <= detached_voxels,
-            "terrain detachment cannot visualize more voxels than it clears"
-        );
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                affected_bound,
-            )])?
-            .context("terrain detachment has no visible terrain chunks")?;
-        let publication = VisibleTerrainPublication::edit(change)?;
-        Ok(Self {
-            atlas_writes,
-            publication,
-            visual_voxels,
-            detached_voxels,
-        })
-    }
-
-    pub(super) fn commit(self, app: &mut App) -> CommittedTerrainDetachment {
-        let Self {
-            atlas_writes,
-            publication,
-            visual_voxels,
-            detached_voxels,
-        } = self;
-        let invalidation_started = Instant::now();
-        for write in atlas_writes {
-            app.plain_builder
-                .write_chunk_atlas_region(write.origin, write.dim, &write.data)
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {error:#}"
-                    )
-                });
-        }
-        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let publication_started = Instant::now();
-        app.commit_prepared_visible_terrain(publication);
-        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let particle_started = Instant::now();
-        let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
-        let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
-        assert_eq!(
-            spawned_particles,
-            visual_voxels.len(),
-            "terrain connectivity cleared {detached_voxels} voxels but spawned only {spawned_particles} of {} visual particles",
-            visual_voxels.len(),
-        );
-
-        CommittedTerrainDetachment {
-            invalidation_us,
-            publication_us,
-            particle_spawn_us,
-            detached_voxels,
-            spawned_particles,
-        }
-    }
 }
 
 impl App {
@@ -1125,25 +925,6 @@ mod tests {
 
         assert!(error.to_string().contains("injected snapshot failure"));
         assert!(runtime.take_player_release(world_dim).is_some());
-    }
-
-    #[test]
-    fn terrain_detachment_commit_requires_a_prepared_single_use_capability() {
-        let _: fn(PreparedTerrainDetachment, &mut App) -> CommittedTerrainDetachment =
-            PreparedTerrainDetachment::commit;
-        static_assertions::assert_not_impl_any!(PreparedTerrainDetachment: Clone, Copy);
-
-        assert!(PreparedAtlasWrite::new(
-            UVec3::splat(8),
-            UVec3::new(7, 7, 7),
-            UVec3::splat(2),
-            vec![0; 8],
-        )
-        .is_err());
-        assert!(
-            PreparedAtlasWrite::new(UVec3::splat(8), UVec3::ZERO, UVec3::splat(2), vec![0; 7],)
-                .is_err()
-        );
     }
 
     #[test]

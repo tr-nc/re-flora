@@ -5,6 +5,7 @@
 //! exceeding interactive frame budgets? This module is activated only by the diagnostic CLI.
 
 use super::super::launch_owners::ScenarioOwner;
+use super::detachment::{PreparedTerrainDetachment, TerrainDetachmentRequest};
 use super::*;
 use crate::cli::{TerrainConnectivityBenchMode, TerrainConnectivityBenchOptions};
 use crate::particles::{
@@ -1659,11 +1660,11 @@ impl App {
 
     fn prepare_bounded_connectivity(
         &mut self,
-        payload: BoundedCommitPayload,
+        mut payload: BoundedCommitPayload,
     ) -> Result<PreparedBoundedConnectivity, FailedConnectivityAction<BoundedCommitPayload>> {
         let app = self;
         let total_started = Instant::now();
-        let preflight = (|| {
+        let validation = (|| {
             anyhow::ensure!(
                 app.visible_terrain_revision == payload.revision_before,
                 "bounded topology commit revision changed from {} to {}",
@@ -1681,19 +1682,35 @@ impl App {
                 app.particle_system.available_capacity() >= payload.visual_voxels.len(),
                 "bounded topology visual capacity drifted before commit"
             );
-            PreparedTerrainDetachment::preflight_region(
-                CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
-                payload.job.bound.min(),
-                payload.job.bound.dimensions(),
-                &payload.job.snapshot,
-                payload.job.component.len(),
-                payload.visual_voxels.len(),
-                fixture_bound(),
-            )
+            Ok(())
         })();
-        let preflight = match preflight {
-            Ok(preflight) => preflight,
+        match validation {
+            Ok(()) => {}
             Err(error) => {
+                return Err(FailedConnectivityAction {
+                    request: payload,
+                    error,
+                });
+            }
+        }
+        let sampled_voxels = payload.visual_voxels.len();
+        let atlas_data = std::mem::take(&mut payload.job.snapshot);
+        let visual_voxels = std::mem::take(&mut payload.visual_voxels);
+        let request = TerrainDetachmentRequest::single_region(
+            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+            payload.job.bound.min(),
+            payload.job.bound.dimensions(),
+            atlas_data,
+            visual_voxels,
+            payload.job.component.len(),
+            fixture_bound(),
+        );
+        let detachment = match PreparedTerrainDetachment::prepare(request) {
+            Ok(prepared) => prepared,
+            Err(rejected) => {
+                let (atlas_data, visual_voxels, error) = rejected.into_single_region();
+                payload.job.snapshot = atlas_data;
+                payload.visual_voxels = visual_voxels;
                 return Err(FailedConnectivityAction {
                     request: payload,
                     error,
@@ -1713,15 +1730,7 @@ impl App {
             manual: _,
         } = payload;
         let classified_voxels = job.component.len();
-        let sampled_voxels = visual_voxels.len();
-        let detachment = PreparedTerrainDetachment::from_preflighted_region(
-            preflight,
-            job.bound.min(),
-            job.bound.dimensions(),
-            job.snapshot,
-            visual_voxels,
-            classified_voxels,
-        );
+        debug_assert!(visual_voxels.is_empty());
         Ok(PreparedBoundedConnectivity {
             detachment,
             total_started,
@@ -1803,8 +1812,25 @@ fn prepare_bounded_commit(
     (visual_voxels, sampling_us, staging_clear_us)
 }
 
+struct FixtureAtlasWrite {
+    origin: UVec3,
+    dim: UVec3,
+    data: Vec<u8>,
+}
+
+impl FixtureAtlasWrite {
+    fn new(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
+        anyhow::ensure!(dim.cmpgt(UVec3::ZERO).all());
+        anyhow::ensure!(origin.cmple(world_dim).all() && dim.cmple(world_dim - origin).all());
+        anyhow::ensure!(
+            data.len() == usize::try_from(voxel_count(UAabb3::new(origin, origin + dim)))?
+        );
+        Ok(Self { origin, dim, data })
+    }
+}
+
 struct PreparedFixtureInstallation {
-    atlas_writes: Vec<PreparedAtlasWrite>,
+    atlas_writes: Vec<FixtureAtlasWrite>,
     publications: Vec<VisibleTerrainPublication>,
     manual_camera: Option<(Vec3, Vec3)>,
     available_particles: usize,
@@ -1825,14 +1851,14 @@ impl App {
 
             let isolation = isolation_bound();
             let isolation_data = vec![0; voxel_count(isolation) as usize];
-            atlas_writes.push(PreparedAtlasWrite::new(
+            atlas_writes.push(FixtureAtlasWrite::new(
                 world_dim,
                 isolation.min(),
                 isolation.dimensions(),
                 isolation_data,
             )?);
             let fixture = generate_hollow_canopy();
-            atlas_writes.push(PreparedAtlasWrite::new(
+            atlas_writes.push(FixtureAtlasWrite::new(
                 world_dim,
                 fixture_bound().min(),
                 fixture_bound().dimensions(),
@@ -1847,7 +1873,7 @@ impl App {
 
             let manual_camera = if request.manual {
                 let bound = manual_support_bound();
-                atlas_writes.push(PreparedAtlasWrite::new(
+                atlas_writes.push(FixtureAtlasWrite::new(
                     world_dim,
                     bound.min(),
                     bound.dimensions(),
