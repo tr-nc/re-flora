@@ -244,6 +244,10 @@ impl DdgiTerrainRefresh {
         }
     }
 
+    pub(crate) fn token_is_obsolete_candidate(self, token: DdgiBuildToken) -> bool {
+        self.candidate == Some(token) && !self.token_can_promote(token)
+    }
+
     /// Completes the authoritative candidate. Only exact latest-terrain promotion clears the
     /// conservative invalidation domain.
     pub fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {

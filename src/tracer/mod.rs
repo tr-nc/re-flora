@@ -103,10 +103,10 @@ use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
     DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals,
     DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
-    DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume,
-    DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes,
+    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
@@ -1263,6 +1263,7 @@ impl Tracer {
 
     fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
         let build_token = build.token();
+        assert!(matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)));
         let staging = DdgiVolume::new(
             &self.vulkan_ctx,
             self.allocator.clone(),
@@ -1290,7 +1291,7 @@ impl Tracer {
         }
         let retired_staging = self
             .ddgi_runtime
-            .install_volume_build(build, Some(staging))?;
+            .complete_volume_build(build, Some(staging))?;
         // Active consumers keep sampling the complete volume until the replacement reaches Ready
         // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
@@ -1506,10 +1507,10 @@ impl Tracer {
             return;
         };
         let build_token = build.token();
-        match build.target() {
-            DdgiRuntimeVolumeTarget::Active => {
+        match build {
+            build @ DdgiRuntimeVolumeBuild::Initial(_) => {
                 self.ddgi_runtime
-                    .install_volume_build(build, None)
+                    .complete_volume_build(build, None)
                     .expect("initial DDGI Volume installation must succeed");
                 let status = self.ddgi_runtime.status().builder();
                 log::info!(
@@ -1521,7 +1522,7 @@ impl Tracer {
                     DdgiConvergencePolicyEvidence,
                 );
             }
-            DdgiRuntimeVolumeTarget::Staging => {
+            build @ DdgiRuntimeVolumeBuild::Replacement(_) => {
                 let preparation = self.prepare_ddgi_staging(build);
                 require_ddgi_staging_preparation(build_token, preparation);
                 log::info!(
