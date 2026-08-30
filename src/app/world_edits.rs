@@ -95,6 +95,12 @@ pub(crate) enum VoxelEdit {
         round_cones: Vec<RoundCone>,
         voxel_type: u32,
     },
+    ReplaceRoundConeVoxelType {
+        bvh_nodes: Vec<BvhNode>,
+        round_cones: Vec<RoundCone>,
+        target_voxel_type: u32,
+        fill_voxel_type: u32,
+    },
     StampCuboids {
         bvh_nodes: Vec<BvhNode>,
         cuboids: Vec<Cuboid>,
@@ -288,6 +294,17 @@ fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result
                 plain_builder.chunk_modify_with_voxel_type(&bvh_nodes, &round_cones, voxel_type)
             }
         }
+        VoxelEdit::ReplaceRoundConeVoxelType {
+            bvh_nodes,
+            round_cones,
+            target_voxel_type,
+            fill_voxel_type,
+        } => plain_builder.chunk_replace_voxel_type_in_round_cones(
+            &bvh_nodes,
+            &round_cones,
+            target_voxel_type,
+            fill_voxel_type,
+        ),
         VoxelEdit::StampCuboids {
             bvh_nodes,
             cuboids,
