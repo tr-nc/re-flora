@@ -999,14 +999,13 @@ impl App {
             .take_canopy_audio_startup_plan()
             .context("take canopy audio startup plan")?;
         let canopy_audio_diagnostic = canopy_audio_startup.is_some();
-        let (canopy_audio_budget, canopy_audio_vegetation_startup) =
-            canopy_audio_startup.map_or(
-                (launch_owners::CanopyAudioAcousticBudget::Default, None),
-                |startup| {
-                    let (budget, vegetation) = startup.into_effects();
-                    (budget, Some(vegetation))
-                },
-            );
+        let (canopy_audio_budget, canopy_audio_vegetation_startup) = canopy_audio_startup.map_or(
+            (launch_owners::CanopyAudioAcousticBudget::Default, None),
+            |startup| {
+                let (budget, vegetation) = startup.into_effects();
+                (budget, Some(vegetation))
+            },
+        );
         let water_experience =
             launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
         let hybrid_transparency =
@@ -1272,9 +1271,8 @@ impl App {
             debug_settings.adjustables.tree_wind_volume_db.value,
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
-        tree_audio_manager.set_canopy_telemetry_enabled(
-            audio.canopy_telemetry || canopy_audio_diagnostic,
-        );
+        tree_audio_manager
+            .set_canopy_telemetry_enabled(audio.canopy_telemetry || canopy_audio_diagnostic);
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
@@ -1486,7 +1484,7 @@ impl App {
             auto_exit_delay: lifecycle.auto_exit_delay,
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
                 || canopy_audio_diagnostic)
-            .then_some(0.0),
+                .then_some(0.0),
             visible_terrain_revision: 0,
             shutdown_started: false,
 

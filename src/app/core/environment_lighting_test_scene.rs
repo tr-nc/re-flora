@@ -6036,6 +6036,8 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::launch_owners;
+    use crate::cli::{AutomationPlan, Scenario};
     use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
     #[test]
@@ -6076,22 +6078,52 @@ mod tests {
     fn environment_phase_has_one_outstanding_attempt_and_retries_the_exact_payload() {
         static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhasePayload: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseIdentityPermit: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentFamilyScratch: Clone, Copy);
 
         let cases = [
-            EnvironmentLightingTestCase::Sealed,
-            EnvironmentLightingTestCase::TerrainEdits,
-            EnvironmentLightingTestCase::RadianceChanges,
-            EnvironmentLightingTestCase::PointLightChanges,
-            EnvironmentLightingTestCase::VoxelEmissiveChanges,
-            EnvironmentLightingTestCase::RasterEmitterChanges,
-            EnvironmentLightingTestCase::MultiSourceStress,
-            EnvironmentLightingTestCase::LocalLightScaling,
+            (
+                EnvironmentLightingTestCase::Sealed,
+                EnvironmentPhaseFamily::Static,
+            ),
+            (
+                EnvironmentLightingTestCase::TerrainEdits,
+                EnvironmentPhaseFamily::Terrain,
+            ),
+            (
+                EnvironmentLightingTestCase::RadianceChanges,
+                EnvironmentPhaseFamily::Radiance,
+            ),
+            (
+                EnvironmentLightingTestCase::PointLightChanges,
+                EnvironmentPhaseFamily::PointLight,
+            ),
+            (
+                EnvironmentLightingTestCase::VoxelEmissiveChanges,
+                EnvironmentPhaseFamily::VoxelEmissive,
+            ),
+            (
+                EnvironmentLightingTestCase::RasterEmitterChanges,
+                EnvironmentPhaseFamily::RasterEmitter,
+            ),
+            (
+                EnvironmentLightingTestCase::MultiSourceStress,
+                EnvironmentPhaseFamily::MultiSource,
+            ),
+            (
+                EnvironmentLightingTestCase::LocalLightScaling,
+                EnvironmentPhaseFamily::LocalLightScaling,
+            ),
         ];
 
-        for case in cases {
-            let mut owner = EnvironmentLightingTestScene::new(case);
-            let mut attempt = owner.begin_phase().unwrap();
+        for (case, expected_family) in cases {
+            let mut owners = launch_owners::prepare_startup_owners(
+                AutomationPlan::default(),
+                Scenario::EnvironmentLighting(case),
+            )
+            .unwrap();
+            let mut attempt = owners.begin_environment_phase().unwrap().unwrap();
             match &mut attempt.request_mut().scratch {
                 EnvironmentFamilyScratch::None => {}
                 EnvironmentFamilyScratch::PointLight { supplemental_ids } => {
@@ -6107,29 +6139,29 @@ mod tests {
                     samples.reserve_exact(11);
                 }
             }
-            let expected_family = attempt.request().family();
+            assert_eq!(attempt.request().family(), expected_family);
             let expected_payload = environment_payload_fingerprint(attempt.request());
 
-            let busy = owner.begin_phase().unwrap_err();
+            let busy = owners.begin_environment_phase().unwrap_err();
             assert_eq!(busy.family(), expected_family);
 
-            let mut wrong_owner = EnvironmentLightingTestScene::new(case);
-            let ownership_error = wrong_owner
-                .commit_phase(attempt.complete())
-                .expect_err("another owner must reject this phase payload");
-            let recovered = ownership_error.into_receipt().retry();
-            assert_eq!(
-                environment_payload_fingerprint(recovered.request()),
-                expected_payload
-            );
+            let failure = attempt.fail(anyhow::anyhow!(
+                "injected {expected_family:?} production apply failure"
+            ));
+            assert_eq!(failure.family(), expected_family);
+            let result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> =
+                Err(failure);
+            let error = owners
+                .apply_environment_phase_result(result)
+                .expect_err("typed family failure must restore before returning its error");
+            assert!(error.to_string().contains("production apply failure"));
 
-            owner.restore_phase(recovered).unwrap();
-            let retry = owner.begin_phase().unwrap();
+            let retry = owners.begin_environment_phase().unwrap().unwrap();
             assert_eq!(
                 environment_payload_fingerprint(retry.request()),
                 expected_payload
             );
-            owner.restore_phase(retry).unwrap();
+            owners.restore_environment_phase(retry).unwrap();
         }
     }
 
@@ -6145,13 +6177,15 @@ mod tests {
     #[derive(Debug, PartialEq)]
     struct EnvironmentPayloadFingerprint {
         case: EnvironmentLightingTestCase,
+        family: EnvironmentPhaseFamily,
         phase: TestScenePhase,
+        identity: usize,
         first_allocation: Option<(usize, usize)>,
         second_allocation: Option<(usize, usize)>,
     }
 
     fn environment_payload_fingerprint(
-        request: &EnvironmentPhaseRequest,
+        request: &EnvironmentPhasePayload,
     ) -> EnvironmentPayloadFingerprint {
         let (first_allocation, second_allocation) = match &request.scratch {
             EnvironmentFamilyScratch::None => (None, None),
@@ -6178,7 +6212,9 @@ mod tests {
         };
         EnvironmentPayloadFingerprint {
             case: request.case,
+            family: request.family(),
             phase: request.phase,
+            identity: request.identity_ptr() as usize,
             first_allocation,
             second_allocation,
         }

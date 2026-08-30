@@ -860,10 +860,7 @@ mod tests {
     #[test]
     fn non_diagnostic_scenarios_never_request_the_canopy_camera_pose() {
         let mut garden = launch_for(Scenario::Garden);
-        assert!(garden
-            .take_canopy_audio_startup_plan()
-            .unwrap()
-            .is_none());
+        assert!(garden.take_canopy_audio_startup_plan().unwrap().is_none());
         let command = garden.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0);
         assert!(matches!(command, CanopyAudioFrameCommand::Standard));
         assert_eq!(command.wind_policy(), CanopyAudioWindPolicy::Configured);
@@ -1297,10 +1294,7 @@ mod tests {
             .unwrap()
             .expect("diagnostic launch must own its startup plan");
         let (budget, vegetation) = startup.into_effects();
-        assert!(matches!(
-            budget,
-            CanopyAudioAcousticBudget::Constrained
-        ));
+        assert!(matches!(budget, CanopyAudioAcousticBudget::Constrained));
         assert!(vegetation.plants_budget_stress_trees());
         assert!(owners.take_canopy_audio_startup_plan().is_err());
 

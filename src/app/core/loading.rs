@@ -17,8 +17,7 @@ pub(super) struct LoadingState {
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
     pub(super) collider_total: usize,
-    pub(super) canopy_audio_vegetation_startup:
-        Option<launch_owners::CanopyAudioVegetationStartup>,
+    pub(super) canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
 }
 
 impl LoadingState {
@@ -372,8 +371,7 @@ impl App {
                 .visible_terrain_publication
                 .take()
                 .expect("completed loading must retain its Visible Terrain Publication");
-            let canopy_audio_vegetation_startup =
-                loading.take_canopy_audio_vegetation_startup();
+            let canopy_audio_vegetation_startup = loading.take_canopy_audio_vegetation_startup();
             self.finalize_loading(&mut publication, canopy_audio_vegetation_startup);
         }
     }
@@ -389,9 +387,7 @@ impl App {
     pub(super) fn finalize_loading(
         &mut self,
         publication: &mut visible_terrain::VisibleTerrainPublication,
-        canopy_audio_vegetation_startup: Option<
-            launch_owners::CanopyAudioVegetationStartup,
-        >,
+        canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
     ) {
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -413,8 +409,7 @@ impl App {
             }
             launch_owners::LoadingDirective::Garden => {
                 if !self.terrain_persistence.startup_load_requested() {
-                    if let Err(err) =
-                        self.plant_startup_tuned_tree(canopy_audio_vegetation_startup)
+                    if let Err(err) = self.plant_startup_tuned_tree(canopy_audio_vegetation_startup)
                     {
                         log::error!("Failed to plant startup tuning tree: {}", err);
                     }
