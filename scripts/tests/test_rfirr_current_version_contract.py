@@ -94,6 +94,9 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         for mutated in (
             source + "\nprintf '%s' dry_run\n",
             source + "\n# dry_run hidden policy reference\n",
+            source + "\n# ${dry_run:-false} hidden policy expansion\n",
+            source + "\nprintf '%s' '${dry_run:-false}'\n",
+            source + "\nprintf '%s' \\$dry_run\n",
         ):
             with self.subTest():
                 failures = production_runner_invocation_failures(

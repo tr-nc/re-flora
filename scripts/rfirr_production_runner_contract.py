@@ -270,19 +270,21 @@ def _dry_run_controlled_analysis_calls(
         if re.match(r"^elif\b", stripped):
             if frames:
                 frames[-1]["in_condition"] = not _has_then_token(stripped)
-                if dry_run_token.search(stripped):
+                if _active_shell_expansions(stripped, dry_run_token):
                     frames[-1]["dry_run"] = True
         elif re.match(r"^else(?:\s*;|\s*$)", stripped):
             pass
         elif re.match(r"^if\b", stripped):
             frames.append(
                 {
-                    "dry_run": dry_run_token.search(stripped) is not None,
+                    "dry_run": bool(
+                        _active_shell_expansions(stripped, dry_run_token)
+                    ),
                     "in_condition": not _has_then_token(stripped),
                 }
             )
         elif frames and bool(frames[-1]["in_condition"]):
-            if dry_run_token.search(stripped):
+            if _active_shell_expansions(stripped, dry_run_token):
                 frames[-1]["dry_run"] = True
             if _has_then_token(stripped):
                 frames[-1]["in_condition"] = False
@@ -372,7 +374,7 @@ def _immutable_authority_failures(
 
     for line_number, line in enumerate(lines, 1):
         dry_occurrences = tuple(DRY_RUN_IDENTIFIER.finditer(line))
-        dry_expansions = tuple(DRY_RUN_EXPANSION.finditer(line))
+        dry_expansions = _active_shell_expansions(line, DRY_RUN_EXPANSION)
         canonical_dry_line = line.strip() in {
             "dry_run=false",
             "dry_run=true",
@@ -390,7 +392,7 @@ def _immutable_authority_failures(
                 unknown_dry_run.append(str(line_number))
 
         root_occurrences = tuple(REPO_ROOT_IDENTIFIER.finditer(line))
-        root_expansions = tuple(REPO_ROOT_EXPANSION.finditer(line))
+        root_expansions = _active_shell_expansions(line, REPO_ROOT_EXPANSION)
         if root_occurrences and line.strip() != CANONICAL_REPO_ROOT:
             covered = {
                 occurrence.start()
@@ -402,6 +404,42 @@ def _immutable_authority_failures(
                 authority_failures.append(f"repo_root:{line_number}")
 
     return authority_failures, unknown_dry_run
+
+
+def _active_shell_expansions(
+    line: str, expansion_pattern: re.Pattern[str]
+) -> tuple[re.Match[str], ...]:
+    expansions: list[re.Match[str]] = []
+    quote: str | None = None
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            elif character == "$" and quote == '"':
+                expansion = expansion_pattern.match(line, index)
+                if expansion is not None:
+                    expansions.append(expansion)
+                    index = expansion.end()
+                    continue
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+        elif character == "#" and (index == 0 or line[index - 1].isspace()):
+            break
+        elif character == "$":
+            expansion = expansion_pattern.match(line, index)
+            if expansion is not None:
+                expansions.append(expansion)
+                index = expansion.end()
+                continue
+        index += 1
+    return tuple(expansions)
 
 
 def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
