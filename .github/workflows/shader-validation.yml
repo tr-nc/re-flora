@@ -13,6 +13,7 @@ on:
       - "docs/ddgi_indirect_transport_spec.md"
       - "docs/ddgi_migration_plan.md"
       - "docs/ddgi_transport_acceptance.md"
+      - "docs/global_illumination_approaches_research.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -53,6 +54,7 @@ on:
       - "docs/ddgi_indirect_transport_spec.md"
       - "docs/ddgi_migration_plan.md"
       - "docs/ddgi_transport_acceptance.md"
+      - "docs/global_illumination_approaches_research.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
@@ -249,7 +251,7 @@ jobs:
         run: |
           timeout 10m cargo test --locked ddgi_convergence_evidence_tests::
           timeout 10m cargo test --locked runtime_convergence_budget_matches_the_acceptance_contract
-          timeout 10m cargo test --locked private_payloads_format_exact_validation_and_terminal_identity
+          timeout 10m cargo test --locked private_evidence_lines_preserve_exact_count_content_and_order
 
       - name: Run DDGI process and convergence policy gates
         run: >-

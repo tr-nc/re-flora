@@ -82,7 +82,6 @@ impl DdgiFrameWork {
 }
 
 /// Typed result of reconciling one deferred physical batch completion.
-#[derive(Debug)]
 pub(crate) struct DdgiBatchCompletion {
     pub stats: Option<DdgiTraceStats>,
     pub radiance_snapshot: Option<crate::environment_lighting::DdgiRadianceSnapshot>,
@@ -127,16 +126,13 @@ impl DdgiBatchCompletion {
 }
 
 mod convergence_evidence {
-    use std::fmt;
-
     use super::{
-        DdgiAtlasValidationStats, DdgiConvergenceReason, DdgiFieldIdentity,
-        DdgiValidatedIterationOutcome, DdgiValidatedPublication, DDGI_CONVERGENCE_POLICY,
+        DdgiAtlasValidationStats, DdgiConvergenceReason, DdgiValidatedIterationOutcome,
+        DdgiValidatedPublication, DDGI_CONVERGENCE_POLICY,
     };
 
     const TARGET: &str = "re_flora::ddgi_convergence_evidence";
 
-    #[derive(Debug)]
     pub(super) struct Pending(Evidence);
 
     pub(super) struct Prepared {
@@ -144,18 +140,11 @@ mod convergence_evidence {
         pub(super) pending: Pending,
     }
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy)]
     struct Evidence {
         publication: DdgiValidatedPublication,
         consecutive_below_threshold: u32,
         terminal_reason: Option<DdgiConvergenceReason>,
-    }
-
-    struct ValidationPayload(Evidence);
-
-    struct TerminalPayload {
-        field: DdgiFieldIdentity,
-        reason: DdgiConvergenceReason,
     }
 
     pub(super) fn prepare(
@@ -192,27 +181,17 @@ mod convergence_evidence {
 
     impl Pending {
         fn emit(self) {
-            log::debug!(target: TARGET, "{}", ValidationPayload(self.0));
-            if let Some(terminal) = self.terminal_payload() {
-                log::debug!(target: TARGET, "{terminal}");
+            for line in self.0.lines() {
+                log::debug!(target: TARGET, "{line}");
             }
-        }
-
-        fn terminal_payload(&self) -> Option<TerminalPayload> {
-            self.0.terminal_reason.map(|reason| TerminalPayload {
-                field: self.0.publication.field,
-                reason,
-            })
         }
     }
 
-    impl fmt::Display for ValidationPayload {
-        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let evidence = self.0;
-            let field = evidence.publication.field.field();
-            let stats = evidence.publication.atlas_validation;
-            write!(
-                formatter,
+    impl Evidence {
+        fn lines(self) -> Vec<String> {
+            let field = self.publication.field.field();
+            let stats = self.publication.atlas_validation;
+            let validation = format!(
                 "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
                 field.serial(),
                 field.geometry_revision(),
@@ -228,25 +207,24 @@ mod convergence_evidence {
                 stats.scanned_stored_texel_count,
                 DDGI_CONVERGENCE_POLICY.absolute_threshold,
                 DDGI_CONVERGENCE_POLICY.relative_threshold,
-                evidence.consecutive_below_threshold,
+                self.consecutive_below_threshold,
                 DDGI_CONVERGENCE_POLICY.consecutive_epochs,
-            )
-        }
-    }
-
-    impl fmt::Display for TerminalPayload {
-        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let field = self.field.field();
-            write!(
-                formatter,
-                "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
-                field.serial(),
-                field.geometry_revision(),
-                field.radiance_revision(),
-                field.spacing_voxels(),
-                field.update_epoch(),
-                self.reason,
-            )
+            );
+            match self.terminal_reason {
+                None => vec![validation],
+                Some(reason) => vec![
+                    validation,
+                    format!(
+                        "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
+                        field.serial(),
+                        field.geometry_revision(),
+                        field.radiance_revision(),
+                        field.spacing_voxels(),
+                        field.update_epoch(),
+                        reason,
+                    ),
+                ],
+            }
         }
     }
 
@@ -260,6 +238,7 @@ mod convergence_evidence {
 
     #[cfg(test)]
     mod tests {
+        use super::super::DdgiFieldIdentity;
         use super::*;
         use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler};
 
@@ -288,7 +267,7 @@ mod convergence_evidence {
         }
 
         #[test]
-        fn private_payloads_format_exact_validation_and_terminal_identity() {
+        fn private_evidence_lines_preserve_exact_count_content_and_order() {
             let (work, field, stats) = facts();
             let published = prepare(
                 DdgiValidatedIterationOutcome::Published {
@@ -301,10 +280,9 @@ mod convergence_evidence {
             assert_eq!(published.publication.field(), field);
             assert_eq!(published.publication.atlas_validation(), stats);
             assert_eq!(
-                ValidationPayload(published.pending.0).to_string(),
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"
+                published.pending.0.lines(),
+                vec!["[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"]
             );
-            assert!(published.pending.terminal_payload().is_none());
 
             let converged = prepare(
                 DdgiValidatedIterationOutcome::Converged {
@@ -316,12 +294,11 @@ mod convergence_evidence {
                 stats,
             );
             assert_eq!(
-                ValidationPayload(converged.pending.0).to_string(),
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=7/2"
-            );
-            assert_eq!(
-                converged.pending.terminal_payload().unwrap().to_string(),
-                "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold"
+                converged.pending.0.lines(),
+                vec![
+                    "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=7/2",
+                    "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold",
+                ]
             );
         }
     }
