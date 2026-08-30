@@ -521,16 +521,15 @@ fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity)
 
 #[derive(Debug)]
 pub(super) struct EnvironmentLightingTestScene {
-    case: EnvironmentLightingTestCase,
-    phase: TestScenePhase,
-    initial_publication: Option<InitialTestScenePublication>,
-    point_light_fixed_gpu_request_serial: u32,
-    point_light_fixed_gpu_visible_luma_q8: u32,
-    point_light_diagnostic_selected_decoy_id: Option<LightId>,
-    point_light_diagnostic_overflow_id: Option<LightId>,
-    point_light_expected_registry_revision: u64,
-    scratch: EnvironmentFamilyScratch,
+    owner_id: u64,
+    state: EnvironmentPhaseSlot,
     transaction_revision: u64,
+}
+
+#[derive(Debug)]
+enum EnvironmentPhaseSlot {
+    Ready(EnvironmentPhaseRequest),
+    InFlight(EnvironmentPhasePermit),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -569,7 +568,7 @@ impl EnvironmentPhaseFamily {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum EnvironmentFamilyScratch {
     None,
     PointLight {
@@ -678,9 +677,40 @@ impl EnvironmentPhaseRequest {
 
 #[derive(Debug)]
 struct EnvironmentPhaseAttempt {
-    permit_revision: u64,
+    permit: EnvironmentPhasePermit,
     request: EnvironmentPhaseRequest,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EnvironmentPhasePermit {
+    owner_id: u64,
+    revision: u64,
+    family: EnvironmentPhaseFamily,
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseBusy {
+    permit: EnvironmentPhasePermit,
+}
+
+impl EnvironmentPhaseBusy {
+    #[cfg(test)]
+    fn family(&self) -> EnvironmentPhaseFamily {
+        self.permit.family
+    }
+}
+
+impl std::fmt::Display for EnvironmentPhaseBusy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "environment phase is already in flight for family {:?} at revision {}",
+            self.permit.family, self.permit.revision
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseBusy {}
 
 impl EnvironmentPhaseAttempt {
     fn request(&self) -> &EnvironmentPhaseRequest {
@@ -693,7 +723,7 @@ impl EnvironmentPhaseAttempt {
 
     fn complete(self) -> EnvironmentPhaseReceipt {
         EnvironmentPhaseReceipt {
-            permit_revision: self.permit_revision,
+            permit: self.permit,
             request: self.request,
         }
     }
@@ -708,9 +738,63 @@ impl EnvironmentPhaseAttempt {
 
 #[derive(Debug)]
 struct EnvironmentPhaseReceipt {
-    permit_revision: u64,
+    permit: EnvironmentPhasePermit,
     request: EnvironmentPhaseRequest,
 }
+
+impl EnvironmentPhaseReceipt {
+    #[cfg(test)]
+    fn retry(self) -> EnvironmentPhaseAttempt {
+        EnvironmentPhaseAttempt {
+            permit: self.permit,
+            request: self.request,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseCommitFailure {
+    message: String,
+    receipt: EnvironmentPhaseReceipt,
+}
+
+impl EnvironmentPhaseCommitFailure {
+    #[cfg(test)]
+    fn into_receipt(self) -> EnvironmentPhaseReceipt {
+        self.receipt
+    }
+}
+
+impl std::fmt::Display for EnvironmentPhaseCommitFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} (payload owner {} family {:?})",
+            self.message, self.receipt.permit.owner_id, self.receipt.permit.family
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseCommitFailure {}
+
+#[derive(Debug)]
+struct EnvironmentPhaseRestoreFailure {
+    message: String,
+    attempt: EnvironmentPhaseAttempt,
+}
+
+impl std::fmt::Display for EnvironmentPhaseRestoreFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} (payload family {:?})",
+            self.message,
+            self.attempt.request.family()
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseRestoreFailure {}
 
 #[derive(Debug)]
 struct EnvironmentPhaseFailure {
@@ -772,23 +856,49 @@ impl EnvironmentCapturePort {
 }
 
 impl LaunchOwners {
-    fn begin_environment_phase(&self) -> Option<EnvironmentPhaseAttempt> {
-        match &self.mode {
-            LaunchMode::Environment { owner, .. } => Some(owner.begin_phase()),
+    fn begin_environment_phase(
+        &mut self,
+    ) -> std::result::Result<Option<EnvironmentPhaseAttempt>, EnvironmentPhaseBusy> {
+        match &mut self.mode {
+            LaunchMode::Environment { owner, .. } => owner.begin_phase().map(Some),
             LaunchMode::General { .. }
             | LaunchMode::CanopyAudio { .. }
-            | LaunchMode::FoliageShadow { .. } => None,
+            | LaunchMode::FoliageShadow { .. } => Ok(None),
         }
     }
 
     fn finish_environment_phase(&mut self, receipt: EnvironmentPhaseReceipt) -> Result<()> {
         match &mut self.mode {
-            LaunchMode::Environment { owner, .. } => owner.commit_phase(receipt),
+            LaunchMode::Environment { owner, .. } => {
+                owner.commit_phase(receipt).map_err(anyhow::Error::new)
+            }
             LaunchMode::General { .. }
             | LaunchMode::CanopyAudio { .. }
             | LaunchMode::FoliageShadow { .. } => {
                 anyhow::bail!("environment phase receipt no longer matches its launch owner")
             }
+        }
+    }
+
+    fn restore_environment_phase(&mut self, attempt: EnvironmentPhaseAttempt) -> Result<()> {
+        match &mut self.mode {
+            LaunchMode::Environment { owner, .. } => {
+                owner.restore_phase(attempt).map_err(anyhow::Error::new)
+            }
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => {
+                anyhow::bail!("environment phase attempt no longer matches its launch owner")
+            }
+        }
+    }
+
+    fn environment_case(&self) -> Option<EnvironmentLightingTestCase> {
+        match &self.mode {
+            LaunchMode::Environment { owner, .. } => Some(owner.case()),
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => None,
         }
     }
 
@@ -814,14 +924,18 @@ impl LaunchOwners {
         };
         match &mut self.mode {
             LaunchMode::Environment { owner, .. } => {
-                let mut attempt = owner.begin_phase();
-                if !attempt.request_mut().complete_radiance_capture(checkpoint) {
-                    return false;
-                }
+                let mut attempt = owner
+                    .begin_phase()
+                    .expect("radiance capture cannot overlap an environment phase attempt");
+                let complete = attempt.request_mut().complete_radiance_capture(checkpoint);
                 owner
                     .commit_phase(attempt.complete())
-                    .expect("radiance capture receipt must retain its environment owner");
-                true
+                    .unwrap_or_else(|failure| {
+                        panic!(
+                            "radiance capture receipt must retain its environment owner: {failure}"
+                        )
+                    });
+                complete
             }
             LaunchMode::General { .. }
             | LaunchMode::CanopyAudio { .. }
@@ -849,83 +963,119 @@ impl LaunchOwners {
 
 impl EnvironmentLightingTestScene {
     pub(super) fn new(case: EnvironmentLightingTestCase) -> Self {
+        static NEXT_OWNER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let family = EnvironmentPhaseFamily::for_case(case);
         Self {
-            case,
-            phase: TestScenePhase::Pending,
-            initial_publication: None,
-            point_light_fixed_gpu_request_serial: 0,
-            point_light_fixed_gpu_visible_luma_q8: 0,
-            point_light_diagnostic_selected_decoy_id: None,
-            point_light_diagnostic_overflow_id: None,
-            point_light_expected_registry_revision: 0,
-            scratch: EnvironmentFamilyScratch::for_family(EnvironmentPhaseFamily::for_case(case)),
+            owner_id: NEXT_OWNER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            state: EnvironmentPhaseSlot::Ready(EnvironmentPhaseRequest {
+                case,
+                phase: TestScenePhase::Pending,
+                initial_publication: None,
+                point_light_fixed_gpu_request_serial: 0,
+                point_light_fixed_gpu_visible_luma_q8: 0,
+                point_light_diagnostic_selected_decoy_id: None,
+                point_light_diagnostic_overflow_id: None,
+                point_light_expected_registry_revision: 0,
+                scratch: EnvironmentFamilyScratch::for_family(family),
+            }),
             transaction_revision: 0,
         }
     }
 
-    fn begin_phase(&self) -> EnvironmentPhaseAttempt {
-        EnvironmentPhaseAttempt {
-            permit_revision: self.transaction_revision,
-            request: EnvironmentPhaseRequest {
-                case: self.case,
-                phase: self.phase,
-                initial_publication: self.initial_publication,
-                point_light_fixed_gpu_request_serial: self.point_light_fixed_gpu_request_serial,
-                point_light_fixed_gpu_visible_luma_q8: self.point_light_fixed_gpu_visible_luma_q8,
-                point_light_diagnostic_selected_decoy_id: self
-                    .point_light_diagnostic_selected_decoy_id,
-                point_light_diagnostic_overflow_id: self.point_light_diagnostic_overflow_id,
-                point_light_expected_registry_revision: self.point_light_expected_registry_revision,
-                scratch: self.scratch.clone(),
+    fn begin_phase(
+        &mut self,
+    ) -> std::result::Result<EnvironmentPhaseAttempt, EnvironmentPhaseBusy> {
+        let permit = match &self.state {
+            EnvironmentPhaseSlot::Ready(request) => EnvironmentPhasePermit {
+                owner_id: self.owner_id,
+                revision: self.transaction_revision,
+                family: request.family(),
             },
-        }
+            EnvironmentPhaseSlot::InFlight(permit) => {
+                return Err(EnvironmentPhaseBusy { permit: *permit })
+            }
+        };
+        let previous = std::mem::replace(&mut self.state, EnvironmentPhaseSlot::InFlight(permit));
+        let EnvironmentPhaseSlot::Ready(request) = previous else {
+            unreachable!("ready environment phase changed before move-out")
+        };
+        Ok(EnvironmentPhaseAttempt { permit, request })
     }
 
-    fn commit_phase(&mut self, receipt: EnvironmentPhaseReceipt) -> Result<()> {
-        let EnvironmentPhaseReceipt {
-            permit_revision,
-            request,
-        } = receipt;
-        anyhow::ensure!(
-            self.transaction_revision == permit_revision,
-            "stale environment phase receipt: permit revision {permit_revision}, current revision {}",
-            self.transaction_revision,
-        );
-        anyhow::ensure!(
-            self.case == request.case
-                && request.family() == EnvironmentPhaseFamily::for_case(self.case),
-            "environment phase receipt changed its owner family",
-        );
-        self.phase = request.phase;
-        self.initial_publication = request.initial_publication;
-        self.point_light_fixed_gpu_request_serial = request.point_light_fixed_gpu_request_serial;
-        self.point_light_fixed_gpu_visible_luma_q8 = request.point_light_fixed_gpu_visible_luma_q8;
-        self.point_light_diagnostic_selected_decoy_id =
-            request.point_light_diagnostic_selected_decoy_id;
-        self.point_light_diagnostic_overflow_id = request.point_light_diagnostic_overflow_id;
-        self.point_light_expected_registry_revision =
-            request.point_light_expected_registry_revision;
-        self.scratch = request.scratch;
+    fn commit_phase(
+        &mut self,
+        receipt: EnvironmentPhaseReceipt,
+    ) -> std::result::Result<(), EnvironmentPhaseCommitFailure> {
+        let valid = matches!(
+            self.state,
+            EnvironmentPhaseSlot::InFlight(permit) if permit == receipt.permit
+        ) && receipt.permit.owner_id == self.owner_id
+            && receipt.permit.revision == self.transaction_revision
+            && receipt.request.family() == receipt.permit.family;
+        if !valid {
+            return Err(EnvironmentPhaseCommitFailure {
+                message: format!(
+                    "environment phase receipt does not match owner {} revision {} family {:?}",
+                    self.owner_id, self.transaction_revision, receipt.permit.family
+                ),
+                receipt,
+            });
+        }
+        self.state = EnvironmentPhaseSlot::Ready(receipt.request);
         self.transaction_revision = self.transaction_revision.wrapping_add(1);
         Ok(())
     }
 
+    fn restore_phase(
+        &mut self,
+        attempt: EnvironmentPhaseAttempt,
+    ) -> std::result::Result<(), EnvironmentPhaseRestoreFailure> {
+        let valid = matches!(
+            self.state,
+            EnvironmentPhaseSlot::InFlight(permit) if permit == attempt.permit
+        ) && attempt.permit.owner_id == self.owner_id
+            && attempt.permit.revision == self.transaction_revision
+            && attempt.request.family() == attempt.permit.family;
+        if !valid {
+            return Err(EnvironmentPhaseRestoreFailure {
+                message: format!(
+                    "environment phase attempt does not match owner {} revision {} family {:?}",
+                    self.owner_id, self.transaction_revision, attempt.permit.family
+                ),
+                attempt,
+            });
+        }
+        self.state = EnvironmentPhaseSlot::Ready(attempt.request);
+        Ok(())
+    }
+
+    fn ready_phase(&self) -> &EnvironmentPhaseRequest {
+        match &self.state {
+            EnvironmentPhaseSlot::Ready(request) => request,
+            EnvironmentPhaseSlot::InFlight(permit) => panic!(
+                "environment phase owner {} is terminally in flight at revision {} family {:?}",
+                permit.owner_id, permit.revision, permit.family
+            ),
+        }
+    }
+
     pub(super) fn case(&self) -> EnvironmentLightingTestCase {
-        self.case
+        self.ready_phase().case
     }
 
     pub(super) fn is_ready(&self) -> bool {
-        self.phase == TestScenePhase::Ready
+        self.ready_phase().phase == TestScenePhase::Ready
     }
 
     pub(super) fn hides_terrain_edit_preview(&self) -> bool {
-        self.case == EnvironmentLightingTestCase::PattSeam
+        self.ready_phase().case == EnvironmentLightingTestCase::PattSeam
     }
 
     pub(super) fn is_capture_ready(&self) -> bool {
+        let phase = self.ready_phase().phase;
         self.is_ready()
             || matches!(
-                self.phase,
+                phase,
                 TestScenePhase::CapturingInflightStaleActive { .. }
                     | TestScenePhase::CapturingRadianceBaseline { .. }
                     | TestScenePhase::CapturingRadianceR2NextFrame { .. }
@@ -935,7 +1085,7 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn radiance_capture_request(&self) -> Option<RadianceCaptureRequest> {
-        let (checkpoint, mutation_frame) = match self.phase {
+        let (checkpoint, mutation_frame) = match self.ready_phase().phase {
             TestScenePhase::CapturingRadianceBaseline { .. } => {
                 (RadianceCaptureCheckpoint::Baseline, None)
             }
@@ -957,7 +1107,7 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn inflight_capture_target_revision(&self) -> Option<u32> {
-        match self.phase {
+        match self.ready_phase().phase {
             TestScenePhase::CapturingInflightStaleActive { target_revision } => {
                 Some(target_revision)
             }
@@ -966,19 +1116,20 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
-        if !(is_terrain_edit_case(self.case)
-            || self.case == EnvironmentLightingTestCase::RadianceChanges
-            || self.case == EnvironmentLightingTestCase::PointLightChanges
-            || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
-            || self.case == EnvironmentLightingTestCase::RasterEmitterChanges
-            || self.case == EnvironmentLightingTestCase::MultiSourceStress
-            || self.case == EnvironmentLightingTestCase::LocalLightScaling
-            || self.case == EnvironmentLightingTestCase::PattSeam)
+        let environment = self.ready_phase();
+        if !(is_terrain_edit_case(environment.case)
+            || environment.case == EnvironmentLightingTestCase::RadianceChanges
+            || environment.case == EnvironmentLightingTestCase::PointLightChanges
+            || environment.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
+            || environment.case == EnvironmentLightingTestCase::RasterEmitterChanges
+            || environment.case == EnvironmentLightingTestCase::MultiSourceStress
+            || environment.case == EnvironmentLightingTestCase::LocalLightScaling
+            || environment.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
             return None;
         }
-        match self.phase {
+        match environment.phase {
             TestScenePhase::TerrainEditPublished {
                 target_revision, ..
             }
@@ -1040,7 +1191,7 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn phase_label(&self) -> &'static str {
-        match self.phase {
+        match self.ready_phase().phase {
             TestScenePhase::Pending => "pending",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
@@ -1690,10 +1841,11 @@ impl App {
     pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(
         &mut self,
     ) -> Result<()> {
-        let Some(mut attempt) = self.launch_owners.begin_environment_phase() else {
+        let Some(mut attempt) = self.launch_owners.begin_environment_phase()? else {
             return Ok(());
         };
         if attempt.request().phase != TestScenePhase::Pending {
+            self.launch_owners.restore_environment_phase(attempt)?;
             return Ok(());
         }
         let case = attempt.request().case;
@@ -1703,7 +1855,8 @@ impl App {
         {
             Ok(terrain_revision) => terrain_revision,
             Err(error) => {
-                let (_attempt, error) = attempt.fail(error).into_parts();
+                let (attempt, error) = attempt.fail(error).into_parts();
+                self.launch_owners.restore_environment_phase(attempt)?;
                 return Err(error);
             }
         };
@@ -1722,7 +1875,7 @@ impl App {
         let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
             return Ok(());
         };
-        let Some(mut attempt) = self.launch_owners.begin_environment_phase() else {
+        let Some(mut attempt) = self.launch_owners.begin_environment_phase()? else {
             return Ok(());
         };
         let Some(publication) = attempt
@@ -1731,9 +1884,13 @@ impl App {
             .as_mut()
             .filter(|publication| !publication.first_build_verified)
         else {
+            self.launch_owners.restore_environment_phase(attempt)?;
             return Ok(());
         };
-        publication.verify_first_build(build_token)?;
+        if let Err(error) = publication.verify_first_build(build_token) {
+            self.launch_owners.restore_environment_phase(attempt)?;
+            return Err(error);
+        }
         let terrain_revision = publication.terrain_revision;
         log::info!(
             "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
@@ -1747,10 +1904,9 @@ impl App {
     }
 
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
-        let Some(attempt) = self.launch_owners.begin_environment_phase() else {
+        let Some(case) = self.launch_owners.environment_case() else {
             panic!("environment camera configuration requires the environment test scene")
         };
-        let case = attempt.request().case;
         let (camera_position, camera_target) = camera_pose(case);
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
@@ -1858,7 +2014,11 @@ impl App {
     }
 
     pub(super) fn process_radiance_test_mutation_after_render(&mut self) {
-        let Some(mut attempt) = self.launch_owners.begin_environment_phase() else {
+        let Some(mut attempt) = self
+            .launch_owners
+            .begin_environment_phase()
+            .expect("radiance mutation cannot overlap an environment phase attempt")
+        else {
             return;
         };
         let phase = attempt.request().phase;
@@ -1925,7 +2085,12 @@ impl App {
                     mutation_frame,
                 }
             }
-            _ => return,
+            _ => {
+                self.launch_owners
+                    .restore_environment_phase(attempt)
+                    .expect("radiance no-op must restore its environment phase payload");
+                return;
+            }
         };
         attempt.request_mut().phase = next_phase;
         self.launch_owners
@@ -2699,7 +2864,11 @@ impl App {
             .unwrap_or_else(|err| {
                 panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
             });
-        let Some(mut attempt) = self.launch_owners.begin_environment_phase() else {
+        let Some(mut attempt) = self
+            .launch_owners
+            .begin_environment_phase()
+            .expect("environment frame cannot overlap another phase attempt")
+        else {
             return;
         };
         self.advance_environment_phase(attempt.request_mut());
@@ -6131,7 +6300,10 @@ mod tests {
         let mut scene = EnvironmentLightingTestScene::new(
             EnvironmentLightingTestCase::TerrainEditsInflightCapture,
         );
-        scene.phase = TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
+        let mut attempt = scene.begin_phase().unwrap();
+        attempt.request_mut().phase =
+            TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
+        scene.commit_phase(attempt.complete()).unwrap();
 
         assert!(scene.is_capture_ready());
         assert!(!scene.is_ready());
