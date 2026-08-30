@@ -574,6 +574,25 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
+    def test_v10_local_recovery_retention_is_capped_by_configured_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "local-recovery-low-h.rfirr"
+            self.write_capture_v10(
+                capture_path,
+                update_epoch=8,
+                configured_retention_q16=16_384,
+                irradiance_retention_sum_q16=32_768,
+                irradiance_retention_max_q16=16_384,
+                visibility_retention_sum_q16=32_768,
+                visibility_retention_max_q16=16_384,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--require-filter-local-recovery-policy",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
     def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "unoccluded.rfirr"

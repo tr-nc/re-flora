@@ -30,9 +30,12 @@ UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
 
 
-def local_recovery_retention_q16(update_epoch: int) -> int:
+def local_recovery_retention_q16(
+    configured_history_retention_q16: int, update_epoch: int
+) -> int:
     denominator = update_epoch + 1
-    return (update_epoch * 65_536 + denominator // 2) // denominator
+    epoch_q16 = (update_epoch * 65_536 + denominator // 2) // denominator
+    return min(configured_history_retention_q16, epoch_q16)
 
 DEBUG_VIEW_LABELS = {
     0: "final",
@@ -1893,8 +1896,11 @@ def main() -> int:
     if args.require_filter_local_recovery_policy:
         if filter_evidence is None:
             failures.append("owner-generated filter evidence is missing")
+        elif first.configured_history_retention_q16 is None:
+            failures.append("v10 configured history retention identity is missing")
         else:
             expected_q16 = local_recovery_retention_q16(
+                first.configured_history_retention_q16,
                 filter_evidence["update_epoch"]
             )
             for label in ("irradiance_history", "visibility_history"):

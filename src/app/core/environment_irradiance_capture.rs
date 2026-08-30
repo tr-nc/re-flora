@@ -88,6 +88,7 @@ impl CaptureMetadata {
         );
         validate_local_recovery_history(
             filter_evidence.irradiance,
+            filter_proof.configuration.configured_history_retention_q16,
             field.update_epoch(),
             "irradiance",
         )?;
@@ -127,6 +128,7 @@ impl CaptureMetadata {
             );
             validate_local_recovery_history(
                 filter_evidence.visibility_history,
+                filter_proof.configuration.configured_history_retention_q16,
                 field.update_epoch(),
                 "visibility",
             )?;
@@ -237,21 +239,22 @@ impl CaptureMetadata {
     }
 }
 
-fn local_recovery_retention_q16(update_epoch: u32) -> u32 {
+fn local_recovery_retention_q16(configured_history_retention_q16: u32, update_epoch: u32) -> u32 {
     let denominator = u64::from(update_epoch) + 1;
     let numerator = u64::from(update_epoch) * 65_536;
-    ((numerator + denominator / 2) / denominator) as u32
+    configured_history_retention_q16.min(((numerator + denominator / 2) / denominator) as u32)
 }
 
 fn validate_local_recovery_history(
     history: crate::ddgi::DdgiFilterHistoryEvidence,
+    configured_history_retention_q16: u32,
     update_epoch: u32,
     label: &str,
 ) -> Result<()> {
     if history.actions.retain == 0 || history.actions.blend == 0 {
         return Ok(());
     }
-    let expected = local_recovery_retention_q16(update_epoch);
+    let expected = local_recovery_retention_q16(configured_history_retention_q16, update_epoch);
     ensure!(
         history.blend_retention_q16_max == expected
             && history.actions.blend.checked_mul(u64::from(expected))
@@ -805,9 +808,10 @@ mod tests {
 
     #[test]
     fn local_recovery_retention_q16_is_derived_from_the_authoritative_epoch() {
-        assert_eq!(local_recovery_retention_q16(0), 0);
-        assert_eq!(local_recovery_retention_q16(1), 32_768);
-        assert_eq!(local_recovery_retention_q16(8), 58_254);
+        assert_eq!(local_recovery_retention_q16(64_881, 0), 0);
+        assert_eq!(local_recovery_retention_q16(64_881, 1), 32_768);
+        assert_eq!(local_recovery_retention_q16(64_881, 8), 58_254);
+        assert_eq!(local_recovery_retention_q16(16_384, 8), 16_384);
     }
 
     #[test]
@@ -935,6 +939,38 @@ mod tests {
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect();
         assert_eq!(golden_capture, fixture);
+
+        let mut low_retention_proof = checkpoint.filter_proof.unwrap();
+        low_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        for history in [
+            &mut low_retention_proof.evidence.irradiance,
+            &mut low_retention_proof.evidence.visibility_history,
+        ] {
+            history.blend_retention_q16_sum = 32_768;
+            history.blend_retention_q16_max = 16_384;
+        }
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(low_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_ok());
+        let mut mismatched_retention_proof = checkpoint.filter_proof.unwrap();
+        mismatched_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(mismatched_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_err());
 
         let mismatched_token = DdgiBuildToken::for_test(9002, 42, 16, DdgiBuildKind::Terrain);
         let mismatch = CaptureMetadata::from_checkpoint(

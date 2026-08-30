@@ -32,6 +32,8 @@ export __extern_cpp int main()
         1u, 1u, true, 0u, 0.9);
     DdgiFilterHistoryDecision laterRecovery = ddgiFilterHistoryDecision(
         1u, 1u, true, 2u, 0.9);
+    DdgiFilterHistoryDecision configuredCapRecovery = ddgiFilterHistoryDecision(
+        1u, 1u, true, 8u, 0.25);
     DdgiFilterHistoryDecision globalUpdate = ddgiFilterHistoryDecision(
         1u, 0u, false, 0u, 1.5);
     bool localBoxPolicy = ddgiFilterProbeNeedsLocalRefresh(
@@ -61,6 +63,8 @@ export __extern_cpp int main()
         nearlyEqual(firstRecovery.retention, 0.0) &&
         laterRecovery.action == DdgiFilterHistoryAction::Blend &&
         nearlyEqual(laterRecovery.retention, 2.0 / 3.0) &&
+        configuredCapRecovery.action == DdgiFilterHistoryAction::Blend &&
+        nearlyEqual(configuredCapRecovery.retention, 0.25) &&
         globalUpdate.action == DdgiFilterHistoryAction::Blend &&
         nearlyEqual(globalUpdate.retention, 1.0);
 

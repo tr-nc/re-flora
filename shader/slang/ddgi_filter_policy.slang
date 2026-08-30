@@ -75,7 +75,7 @@ public DdgiFilterHistoryDecision ddgiFilterHistoryDecision(
     if (localRecoveryProbe)
     {
         float epoch = float(recoveryEpoch);
-        result.retention = epoch / (epoch + 1.0);
+        result.retention = min(result.retention, epoch / (epoch + 1.0));
     }
     return result;
 }
