@@ -16,6 +16,7 @@ from ddgi_evidence.executor import ActionResult, RecordingHost, execute  # noqa:
 from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
     Capture,
+    FailureKey,
     ProductionAnalyzerOptions,
     RunRequest,
     Suite,
@@ -150,8 +151,9 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
         self.assertFalse(
             any("filter-history-outcome=ACCEPTED" in claim for claim in dogleg.claims)
         )
-        self.assertTrue(
-            any("direct-sun-framebuffer=PROVEN" in claim for claim in dogleg.claims)
+        self.assertFalse(
+            any("=PROVEN" in claim for claim in dogleg.claims),
+            dogleg.claims,
         )
         self.assertTrue(
             any("filter-history-outcome=ACCEPTED" in claim for claim in runtime.claims)
@@ -161,6 +163,82 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
         )
         self.assertFalse(
             any("filter-history-action=PROVEN" in claim for claim in runtime.claims)
+        )
+
+    def test_direct_sun_proof_keeps_its_pre_normalization_order(self) -> None:
+        class OrderedHost(RecordingHost):
+            def __init__(self) -> None:
+                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
+                self.events: list[str] = []
+
+            def check_sky(self, action, repo_root):
+                self.events.append("sky-normalization")
+                return super().check_sky(action, repo_root)
+
+            def emit(self, message, *, error=False):
+                if "direct-sun-framebuffer=PROVEN" in message:
+                    self.events.append("direct-sun-proof")
+                return super().emit(message, error=error)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            host = OrderedHost()
+            execute(plan(self.request(Suite.TRANSPORT, Path(temporary))), host)
+
+        self.assertLess(
+            host.events.index("direct-sun-proof"),
+            host.events.index("sky-normalization"),
+        )
+
+    def test_transport_folds_a_failed_include_and_retains_nested_details(self) -> None:
+        class FailingCorrectnessHost(RecordingHost):
+            def capture(self, action, repo_root):
+                recorded = super().capture(action, repo_root)
+                if action.suite is Suite.CORRECTNESS:
+                    return ActionResult(False, "fixture correctness failure")
+                return recorded
+
+        with tempfile.TemporaryDirectory() as temporary:
+            report = execute(
+                plan(self.request(Suite.TRANSPORT, Path(temporary))),
+                FailingCorrectnessHost(stdout=io.StringIO(), stderr=io.StringIO()),
+            )
+
+        self.assertEqual(len(report.failures), 1)
+        self.assertEqual(
+            report.failures[0].key,
+            FailureKey(Suite.TRANSPORT, "include-correctness"),
+        )
+        correctness = next(
+            included.report
+            for included in report.included_reports
+            if included.stage_id == "transport.include.correctness"
+        )
+        self.assertEqual(len(correctness.failures), 48)
+
+    def test_runtime_transient_failures_fold_once_per_spacing(self) -> None:
+        class FailingTransientHost(RecordingHost):
+            def capture(self, action, repo_root):
+                recorded = super().capture(action, repo_root)
+                if (
+                    action.suite is Suite.RUNTIME_TERRAIN_EDITS
+                    and action.scenario == "terrain-edits-inflight-capture"
+                ):
+                    return ActionResult(False, "fixture transient failure")
+                return recorded
+
+        with tempfile.TemporaryDirectory() as temporary:
+            report = execute(
+                plan(self.request(Suite.RUNTIME_TERRAIN_EDITS, Path(temporary))),
+                FailingTransientHost(stdout=io.StringIO(), stderr=io.StringIO()),
+            )
+
+        self.assertEqual(len(report.failures), 2)
+        self.assertEqual(
+            {failure.key for failure in report.failures},
+            {
+                FailureKey(Suite.RUNTIME_TERRAIN_EDITS, "inflight-stale-active", 32),
+                FailureKey(Suite.RUNTIME_TERRAIN_EDITS, "inflight-stale-active", 16),
+            },
         )
 
 
