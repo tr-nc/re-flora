@@ -7,6 +7,7 @@ cross-module ownership and sequencing facts that Python can establish honestly.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class RustToken:
     value: str
 
 
+@lru_cache(maxsize=None)
 def rust_tokens(source: str) -> list[RustToken]:
     tokens: list[RustToken] = []
     index = 0
@@ -142,6 +144,7 @@ def matching(tokens: list[RustToken], opening: int, left: str, right: str) -> in
     raise AssertionError(f"unmatched Rust {left}")
 
 
+@lru_cache(maxsize=None)
 def production_tokens(source: str) -> list[RustToken]:
     tokens = rust_tokens(source)
     kept: list[RustToken] = []
@@ -178,6 +181,7 @@ def find_sequence(tokens: list[RustToken], values: tuple[str, ...], start=0, end
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
     token_sets = {path: production_tokens(source) for path, source in sources.items()}
+    raw_token_sets = {path: rust_tokens(source) for path, source in sources.items()}
     runtime = token_sets[RUNTIME]
     tracer = token_sets[TRACER]
 
@@ -277,6 +281,24 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     definition = find_sequence(runtime, ("fn", COMMIT, "("), impl_open, impl_close)
     if not any(token.value == "pub" for token in runtime[impl_open:definition]):
         raise AssertionError("Tracer needs one narrow crate-visible commit capability")
+
+    commit_identifiers = [
+        (path, index)
+        for path, tokens in raw_token_sets.items()
+        for index, token in enumerate(tokens)
+        if token.kind == "IDENT" and token.value == COMMIT
+    ]
+    if len(commit_identifiers) != 2:
+        raise AssertionError(
+            "commit capability must have one definition and one canonical Tracer use in all src"
+        )
+    definition_identifiers = [
+        (path, index)
+        for path, index in commit_identifiers
+        if index > 0 and raw_token_sets[path][index - 1].value == "fn"
+    ]
+    if len(definition_identifiers) != 1 or definition_identifiers[0][0] != RUNTIME:
+        raise AssertionError("runtime child must own the only commit capability definition")
     commit_open = next(
         index for index in range(definition, impl_close) if runtime[index].value == "{"
     )
@@ -511,8 +533,8 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
 
 def production_sources() -> dict[str, str]:
     return {
-        path: (ROOT / path).read_text(encoding="utf-8")
-        for path in (RUNTIME, TRACER)
+        path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "src").rglob("*.rs"))
     }
 
 
@@ -631,7 +653,8 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
 
         noisy = dict(sources)
         noisy[TRACER] += "\nimpl Unrelated { fn commit_convergence_evidence(&self) {} }\n"
-        audit_convergence_evidence(noisy)
+        with self.assertRaises(AssertionError):
+            audit_convergence_evidence(noisy)
 
         renamed = dict(sources)
         renamed[TRACER] = renamed[TRACER].replace("completion", "batch_completion")
@@ -644,6 +667,34 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
             1,
         )
         audit_convergence_evidence(ufcs)
+
+        global_inventory_mutations = {
+            "new-src-member-helper": (
+                "src/ddgi/reviewer_fixture.rs",
+                "fn early(mut completion: DdgiBatchCompletion) {\n"
+                "    completion.commit_convergence_evidence();\n"
+                "}\n",
+            ),
+            "existing-src-function-pointer": (
+                "src/ddgi/mod.rs",
+                "\nfn pointer() {\n"
+                "    let f = DdgiBatchCompletion::commit_convergence_evidence;\n"
+                "    let _ = f;\n"
+                "}\n",
+            ),
+            "new-src-ufcs-helper": (
+                "src/reviewer_fixture.rs",
+                "fn early(mut completion: DdgiBatchCompletion) {\n"
+                "    DdgiBatchCompletion::commit_convergence_evidence(&mut completion);\n"
+                "}\n",
+            ),
+        }
+        for name, (path, addition) in global_inventory_mutations.items():
+            with self.subTest(name=name):
+                mutated = dict(sources)
+                mutated[path] = mutated.get(path, "") + addition
+                with self.assertRaises(AssertionError):
+                    audit_convergence_evidence(mutated)
 
         boundary_mutations = {
             "visible-child-module": sources[RUNTIME].replace(
