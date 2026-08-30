@@ -686,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn terrain_connectivity_scenario_uses_the_diagnostic_family() {
+    fn terrain_connectivity_scenario_owns_its_protocol_outside_standard_scenarios() {
         let owner = owner_for(Scenario::TerrainConnectivityBenchmark(
             crate::cli::TerrainConnectivityBenchOptions {
                 mode: crate::cli::TerrainConnectivityBenchMode::Correct,
@@ -699,8 +699,18 @@ mod tests {
 
         assert!(matches!(
             owner,
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(_))
+            ScenarioOwner::Connectivity(_)
         ));
+        assert!(matches!(
+            owner_for(Scenario::Garden),
+            ScenarioOwner::Standard(_)
+        ));
+
+        let source = include_str!("launch_owners.rs");
+        assert!(
+            !source.contains("dispatch_connectivity"),
+            "standard scenarios must not pass through a borrowed connectivity dispatcher",
+        );
     }
 
     #[test]
