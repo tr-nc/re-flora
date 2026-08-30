@@ -189,6 +189,45 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
                 result = self.validate(**{source: benign})
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_accepts_only_the_known_cosmetic_color_scheme_portal_timeout(self) -> None:
+        benign = self.logged(
+            "sctk_adwaita::config",
+            "XDG Settings Portal did not return response in time: "
+            "timeout: 100ms, key: color-scheme",
+            level="ERROR",
+        )
+        for source in ("console_extra", "run_log_extra"):
+            with self.subTest(source=source):
+                result = self.validate(**{source: benign})
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_portal_timeout_exception_fails_closed_on_identity_or_payload_drift(self) -> None:
+        mutations = (
+            self.logged(
+                "sctk_adwaita::other",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: color-scheme",
+                level="ERROR",
+            ),
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: cursor-theme",
+                level="ERROR",
+            ),
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: color-scheme VUID-injected",
+                level="ERROR",
+            ),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                result = self.validate(console_extra=mutation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("fatal or validation diagnostic", result.stderr)
+
     def test_rejects_canonical_fatal_diagnostic_forms(self) -> None:
         for diagnostic in (
             "ERROR renderer failed",

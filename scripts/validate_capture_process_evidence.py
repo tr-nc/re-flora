@@ -30,6 +30,11 @@ FATAL_DIAGNOSTIC = re.compile(
     r"\bstale\s+readback\b",
     re.IGNORECASE | re.MULTILINE,
 )
+BENIGN_PLATFORM_DIAGNOSTIC = re.compile(
+    rf"^\[{LOG_TIME} ERROR sctk_adwaita::config\] "
+    r"XDG Settings Portal did not return response in time: "
+    r"timeout: \d+ms, key: color-scheme$"
+)
 PUBLICATION = production_log_line(
     "INFO",
     "re_flora::app::core::environment_lighting_test_scene",
@@ -65,6 +70,17 @@ def exactly_one(pattern: re.Pattern[str], text: str, label: str) -> re.Match[str
     return matches[0]
 
 
+def first_fatal_diagnostic(text: str) -> re.Match[str] | None:
+    """Return the first fatal diagnostic, excluding one known cosmetic portal failure."""
+    for line in text.splitlines():
+        if BENIGN_PLATFORM_DIAGNOSTIC.fullmatch(line) is not None:
+            continue
+        diagnostic = FATAL_DIAGNOSTIC.search(line)
+        if diagnostic is not None:
+            return diagnostic
+    return None
+
+
 def validate(console_path: Path, *, require_test_scene_startup: bool) -> Path:
     console = console_path.read_text(encoding="utf-8", errors="replace")
     marker = exactly_one(RUN_LOG_MARKER, console, "process-bound [RUN_LOG] marker")
@@ -85,7 +101,7 @@ def validate(console_path: Path, *, require_test_scene_startup: bool) -> Path:
         raise ValueError("console and run-log [RUN_LOG] markers disagree")
 
     for label, text in (("console", console), ("run log", run_log)):
-        diagnostic = FATAL_DIAGNOSTIC.search(text)
+        diagnostic = first_fatal_diagnostic(text)
         if diagnostic is not None:
             raise ValueError(
                 f"{label} contains fatal or validation diagnostic: {diagnostic.group(0).strip()}"

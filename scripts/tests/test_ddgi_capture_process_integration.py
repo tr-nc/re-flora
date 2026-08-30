@@ -44,7 +44,7 @@ class DdgiCaptureProcessIntegrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "from validate_capture_process_evidence import FATAL_DIAGNOSTIC", source
+            "from validate_capture_process_evidence import first_fatal_diagnostic", source
         )
         self.assertNotIn("ERROR_MARKER =", source)
 

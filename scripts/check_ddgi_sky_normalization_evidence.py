@@ -18,7 +18,7 @@ from analyze_environment_irradiance_capture import (
     load_capture,
     summarize,
 )
-from validate_capture_process_evidence import FATAL_DIAGNOSTIC
+from validate_capture_process_evidence import first_fatal_diagnostic
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -392,7 +392,7 @@ def validate_evidence(
                 )
                 if expected_capture_marker not in console_text:
                     failures.append(f"spacing {spacing}: {label} console lacks capture marker")
-                if FATAL_DIAGNOSTIC.search(console_text):
+                if first_fatal_diagnostic(console_text):
                     failures.append(f"spacing {spacing}: {label} console contains error marker")
 
     if evidence.get("overall_result") != "pass":

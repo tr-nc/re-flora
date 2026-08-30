@@ -76,6 +76,13 @@ occasionally missed the former 24-second limit. It has not been established as p
 classes; cross-GPU CI or calibration must treat exhaustion as a readiness-risk signal, not silently
 weaken the correctness thresholds.
 
+Process validation fails closed on every application, Vulkan, panic, device-loss, descriptor, and
+stale-readback diagnostic. The sole platform exception is the exact `sctk_adwaita::config`
+color-scheme Portal timeout: it is a cosmetic desktop-setting lookup and does not affect the native
+window, Vulkan surface, or capture completion. The classifier requires the complete production log
+identity and payload; a different module, Portal key, trailing diagnostic, or any other `ERROR`
+remains fatal.
+
 ## Convergence policy
 
 The runner does not override or duplicate `DDGI_CONVERGENCE_POLICY`. Each production capture logs
