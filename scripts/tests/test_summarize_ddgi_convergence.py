@@ -535,8 +535,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 "consecutive_below=2/2",
             ),
             "old-miss-retains-streak": (
-                "max_abs_rgb_delta=0.00000000",
-                "max_abs_rgb_delta=0.5",
+                "consecutive_below=0/2",
+                "consecutive_below=1/2",
             ),
             "converged-before-policy": (
                 "state=Converging update_epoch=6",
@@ -555,10 +555,6 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 for suffix in ("console.log", "run.log"):
                     path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
                     text = path.read_text().replace(before, after, 1)
-                    if name == "old-miss-retains-streak":
-                        text = text.replace(
-                            "consecutive_below=0/2", "consecutive_below=1/2", 1
-                        )
                     path.write_text(text)
 
                 result = self.run_summarizer(run_dir, output)
@@ -569,6 +565,149 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                     "global consecutive sequence" in result.stderr
                     or "global convergence state" in result.stderr
                 )
+
+    def test_rejects_clearly_above_threshold_epoch_zero_streak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                text = path.read_text()
+                old_identity = next(
+                    line
+                    for line in text.splitlines()
+                    if "full-atlas validated" in line
+                    and "geometry_revision=2" in line
+                    and "update_epoch=0" in line
+                )
+                injected = (
+                    old_identity.replace(
+                        "max_abs_rgb_delta=0.50000000",
+                        "max_abs_rgb_delta=0.00250004",
+                        1,
+                    )
+                    .replace(
+                        "max_rel_rgb_delta=1.00000000",
+                        "max_rel_rgb_delta=0.01000000",
+                        1,
+                    )
+                    .replace("consecutive_below=0/2", "consecutive_below=1/2", 1)
+                )
+                path.write_text(text.replace(old_identity, injected, 1))
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("global consecutive sequence", result.stderr)
+
+    def test_accepts_initial_source_free_below_threshold_without_streak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_source_backed_below_threshold_epoch_zero_without_streak(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                text = path.read_text()
+                source_backed_epoch_zero = next(
+                    line
+                    for line in text.splitlines()
+                    if "full-atlas validated" in line
+                    and "geometry_revision=2" in line
+                    and "update_epoch=0" in line
+                )
+                below_without_streak = (
+                    source_backed_epoch_zero.replace(
+                        "max_abs_rgb_delta=0.50000000",
+                        "max_abs_rgb_delta=0.00000000",
+                        1,
+                    ).replace(
+                        "max_rel_rgb_delta=1.00000000",
+                        "max_rel_rgb_delta=0.00000000",
+                        1,
+                    )
+                )
+                path.write_text(
+                    text.replace(source_backed_epoch_zero, below_without_streak, 1)
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("global consecutive sequence", result.stderr)
+
+    def test_accepts_source_backed_below_threshold_epoch_zero_with_streak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                text = path.read_text()
+                source_backed_epoch_zero = next(
+                    line
+                    for line in text.splitlines()
+                    if "full-atlas validated" in line
+                    and "geometry_revision=2" in line
+                    and "update_epoch=0" in line
+                )
+                below_with_streak = (
+                    source_backed_epoch_zero.replace(
+                        "max_abs_rgb_delta=0.50000000",
+                        "max_abs_rgb_delta=0.00000000",
+                        1,
+                    )
+                    .replace(
+                        "max_rel_rgb_delta=1.00000000",
+                        "max_rel_rgb_delta=0.00000000",
+                        1,
+                    )
+                    .replace("consecutive_below=0/2", "consecutive_below=1/2", 1)
+                )
+                path.write_text(text.replace(source_backed_epoch_zero, below_with_streak, 1))
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_accepts_clearly_above_threshold_epoch_zero_without_streak(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace(
+                        "max_abs_rgb_delta=0.50000000",
+                        "max_abs_rgb_delta=0.00250004",
+                        1,
+                    )
+                    .replace(
+                        "max_rel_rgb_delta=1.00000000",
+                        "max_rel_rgb_delta=0.01000000",
+                        1,
+                    )
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_accepts_a_legal_multi_epoch_old_identity_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -590,6 +729,16 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 old_epoch_one = (
                     old_epoch_zero.replace("field_serial=1", "field_serial=2", 1)
                     .replace("update_epoch=0", "update_epoch=1", 1)
+                    .replace(
+                        "max_abs_rgb_delta=0.50000000",
+                        "max_abs_rgb_delta=0.00100000",
+                        1,
+                    )
+                    .replace(
+                        "max_rel_rgb_delta=1.00000000",
+                        "max_rel_rgb_delta=0.00500000",
+                        1,
+                    )
                     .replace("consecutive_below=0/2", "consecutive_below=1/2", 1)
                 )
                 path.write_text(
@@ -604,48 +753,61 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_accepts_threshold_rounding_ambiguity_in_a_legal_old_history(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory)
-            output = run_dir / "summary.json"
-            self.write_curve(run_dir)
-            for suffix in ("console.log", "run.log"):
-                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
-                text = path.read_text()
-                old_epoch_zero = next(
-                    line
-                    for line in text.splitlines()
-                    if "full-atlas validated" in line and "geometry_revision=1" in line
-                )
-                for serial in range(9, 1, -1):
-                    text = text.replace(
-                        f"field_serial={serial} ", f"field_serial={serial + 1} "
+    def test_accepts_both_streak_outcomes_in_the_true_threshold_rounding_cell(
+        self,
+    ) -> None:
+        for consecutive in (0, 1):
+            with self.subTest(consecutive=consecutive), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    text = path.read_text()
+                    old_epoch_zero = next(
+                        line
+                        for line in text.splitlines()
+                        if "full-atlas validated" in line
+                        and "geometry_revision=1" in line
                     )
-                old_epoch_one = (
-                    old_epoch_zero.replace("field_serial=1", "field_serial=2", 1)
-                    .replace("update_epoch=0", "update_epoch=1", 1)
-                    .replace(
-                        "max_abs_rgb_delta=0.00000000",
-                        "max_abs_rgb_delta=0.00250000",
-                        1,
+                    for serial in range(9, 1, -1):
+                        text = text.replace(
+                            f"field_serial={serial} ", f"field_serial={serial + 1} "
+                        )
+                    old_epoch_one = (
+                        old_epoch_zero.replace("field_serial=1", "field_serial=2", 1)
+                        .replace("update_epoch=0", "update_epoch=1", 1)
+                        .replace(
+                            "max_abs_rgb_delta=0.00000000",
+                            "max_abs_rgb_delta=0.00250000",
+                            1,
+                        )
+                        .replace(
+                            "max_rel_rgb_delta=0.00000000",
+                            "max_rel_rgb_delta=0.02000000",
+                            1,
+                        )
+                        .replace(
+                            "consecutive_below=0/2",
+                            f"consecutive_below={consecutive}/2",
+                            1,
+                        )
                     )
-                    .replace(
-                        "max_rel_rgb_delta=0.00000000",
-                        "max_rel_rgb_delta=0.02000000",
-                        1,
+                    path.write_text(
+                        text.replace(
+                            old_epoch_zero,
+                            old_epoch_zero + "\n" + old_epoch_one,
+                            1,
+                        )
                     )
-                )
-                path.write_text(
-                    text.replace(old_epoch_zero, old_epoch_zero + "\n" + old_epoch_one, 1)
-                )
-            analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
-            payload = json.loads(analysis.read_text())
-            payload["capture"]["field_serial"] = 10
-            analysis.write_text(json.dumps(payload))
+                analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
+                payload = json.loads(analysis.read_text())
+                payload["capture"]["field_serial"] = 10
+                analysis.write_text(json.dumps(payload))
 
-            result = self.run_summarizer(run_dir, output)
+                result = self.run_summarizer(run_dir, output)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rejects_an_old_identity_duplicate_in_either_process_stream(self) -> None:
         for mutated_stream in ("console", "runlog"):

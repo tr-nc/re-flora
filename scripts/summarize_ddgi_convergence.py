@@ -76,6 +76,7 @@ class TerminalIdentity:
 
 @dataclass(frozen=True)
 class ValidationWireContract:
+    decimal_places: int
     integer_types: dict[str, str]
     float_types: dict[str, str]
 
@@ -84,21 +85,44 @@ def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
 
 
-def possible_below_threshold(record: dict[str, object], policy: Policy) -> set[bool]:
-    absolute = float(record["max_absolute_rgb_delta"])
-    relative = float(record["max_relative_rgb_delta"])
-    tolerance = 5.0e-8
-    if (
-        absolute > policy.absolute_threshold + tolerance
-        or relative > policy.relative_threshold + tolerance
-    ):
-        return {False}
-    if (
-        absolute < policy.absolute_threshold - tolerance
-        and relative < policy.relative_threshold - tolerance
-    ):
-        return {True}
-    return {False, True}
+def rust_f32(value: float) -> float:
+    return struct.unpack("!f", struct.pack("!f", value))[0]
+
+
+def possible_metric_below_threshold(
+    displayed: float, threshold: float, decimal_places: int
+) -> set[bool]:
+    half_rounding_cell = 0.5 * 10.0 ** (-decimal_places)
+    lower = displayed - half_rounding_cell
+    upper = displayed + half_rounding_cell
+    rust_threshold = rust_f32(threshold)
+    possible: set[bool] = set()
+    if lower <= rust_threshold:
+        possible.add(True)
+    if upper > rust_threshold:
+        possible.add(False)
+    return possible
+
+
+def possible_below_threshold(
+    record: dict[str, object], policy: Policy, decimal_places: int
+) -> set[bool]:
+    absolute = possible_metric_below_threshold(
+        float(record["max_absolute_rgb_delta"]),
+        policy.absolute_threshold,
+        decimal_places,
+    )
+    relative = possible_metric_below_threshold(
+        float(record["max_relative_rgb_delta"]),
+        policy.relative_threshold,
+        decimal_places,
+    )
+    possible: set[bool] = set()
+    if True in absolute and True in relative:
+        possible.add(True)
+    if False in absolute or False in relative:
+        possible.add(False)
+    return possible
 
 
 def load_validation_wire_contract(path: Path) -> ValidationWireContract:
@@ -108,13 +132,22 @@ def load_validation_wire_contract(path: Path) -> ValidationWireContract:
         raise ValueError("missing DDGI convergence validation wire contract")
     integer_types = wire.get("integer_types")
     float_types = wire.get("float_types")
+    decimal_places = wire.get("decimal_places")
     if not isinstance(integer_types, dict) or not isinstance(float_types, dict):
         raise ValueError("invalid DDGI convergence validation wire contract")
+    if (
+        not isinstance(decimal_places, int)
+        or isinstance(decimal_places, bool)
+        or decimal_places <= 0
+    ):
+        raise ValueError("invalid DDGI convergence validation decimal precision")
     if any(type_name not in ("u32", "u64") for type_name in integer_types.values()):
         raise ValueError("unsupported DDGI convergence integer wire type")
     if any(type_name != "f32" for type_name in float_types.values()):
         raise ValueError("unsupported DDGI convergence float wire type")
-    return ValidationWireContract(dict(integer_types), dict(float_types))
+    return ValidationWireContract(
+        decimal_places, dict(integer_types), dict(float_types)
+    )
 
 
 def load_acceptance_contract(path: Path) -> Policy:
@@ -281,7 +314,7 @@ def require_global_validation_legality(
     next_epoch = 0
     previous_consecutive = 0
     active_converged = False
-    for record in records:
+    for record_index, record in enumerate(records):
         identity = (
             int(record["geometry_revision"]),
             int(record["radiance_revision"]),
@@ -310,10 +343,16 @@ def require_global_validation_legality(
                 f"global validation order in {evidence_path} has epoch {epoch}, "
                 f"expected {next_epoch} for identity {identity}"
             )
-        possible_below = possible_below_threshold(record, policy)
+        possible_below = possible_below_threshold(
+            record, policy, wire.decimal_places
+        )
         consecutive = int(record["consecutive_below_threshold"])
         if epoch == 0:
-            allowed = {0} | ({1} if True in possible_below else set())
+            allowed = (
+                {0}
+                if record_index == 0
+                else {1 if below else 0 for below in possible_below}
+            )
             if consecutive not in allowed:
                 raise ValueError(
                     f"global consecutive sequence in {evidence_path} starts with "

@@ -7,6 +7,9 @@ minimum_update_epochs = 8
 maximum_update_epochs = 128
 terminal_update_epoch = 127
 
+[validation_wire]
+decimal_places = 8
+
 [validation_wire.integer_types]
 field_serial = "u64"
 geometry_revision = "u32"

@@ -136,6 +136,7 @@ mod convergence_evidence {
     };
 
     const TARGET: &str = "re_flora::ddgi_convergence_evidence";
+    const DECIMAL_PLACES: usize = 8;
 
     pub(super) struct Pending(Evidence);
     ::static_assertions::assert_not_impl_any!(
@@ -205,7 +206,7 @@ mod convergence_evidence {
             let field = self.publication.field.field();
             let stats = self.publication.atlas_validation;
             let validation = format!(
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.precision$} max_rel_rgb_delta={:.precision$} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.precision$} rel_threshold={:.precision$} consecutive_below={}/{}",
                 field.serial(),
                 field.geometry_revision(),
                 field.radiance_revision(),
@@ -222,6 +223,7 @@ mod convergence_evidence {
                 DDGI_CONVERGENCE_POLICY.relative_threshold,
                 self.consecutive_below_threshold,
                 DDGI_CONVERGENCE_POLICY.consecutive_epochs,
+                precision = DECIMAL_PLACES,
             );
             match self.terminal_reason {
                 None => vec![validation],
@@ -279,64 +281,20 @@ mod convergence_evidence {
             (work, field, stats)
         }
 
-        fn assert_wire_contract_matches_runtime_types() {
-            let contract: toml::Value = toml::from_str(include_str!(
-                "../../config/ddgi_convergence_acceptance.toml"
-            ))
-            .unwrap();
+        fn assert_wire_contract_matches_runtime_types(contract_source: &str) {
+            let contract: toml::Value = toml::from_str(contract_source).unwrap();
             let integers = contract["validation_wire"]["integer_types"]
                 .as_table()
                 .unwrap();
             let floats = contract["validation_wire"]["float_types"]
                 .as_table()
                 .unwrap();
-            let expected_integers = [
-                ("field_serial", "u64"),
-                ("geometry_revision", "u32"),
-                ("radiance_revision", "u32"),
-                ("spacing_voxels", "u32"),
-                ("update_epoch", "u32"),
-                ("nonfinite_count", "u32"),
-                ("negative_rgb_texel_count", "u32"),
-                ("valid_texel_count", "u32"),
-                ("scanned_stored_texel_count", "u32"),
-                ("consecutive_below_threshold", "u32"),
-                ("required_consecutive_epochs", "u32"),
-            ];
-            let expected_floats = [
-                ("max_absolute_rgb_delta", "f32"),
-                ("max_relative_rgb_delta", "f32"),
-                ("absolute_threshold", "f32"),
-                ("relative_threshold", "f32"),
-            ];
-            assert_eq!(integers.len(), expected_integers.len());
-            assert_eq!(floats.len(), expected_floats.len());
-            for (field, type_name) in expected_integers {
-                assert_eq!(integers[field].as_str(), Some(type_name));
-            }
-            for (field, type_name) in expected_floats {
-                assert_eq!(floats[field].as_str(), Some(type_name));
-            }
-
-            fn u64_value(_: u64) {}
-            fn u32_value(_: u32) {}
-            fn f32_value(_: f32) {}
+            assert_eq!(
+                contract["validation_wire"]["decimal_places"].as_integer(),
+                Some(DECIMAL_PLACES as i64)
+            );
             let (work, field, stats) = facts();
             let key = field.field();
-            u64_value(key.serial());
-            u32_value(key.geometry_revision());
-            u32_value(key.radiance_revision());
-            u32_value(key.spacing_voxels());
-            u32_value(key.update_epoch());
-            u32_value(stats.non_finite_count);
-            u32_value(stats.negative_rgb_texel_count);
-            u32_value(stats.valid_texel_count);
-            u32_value(stats.scanned_stored_texel_count);
-            f32_value(stats.max_absolute_rgb_delta);
-            f32_value(stats.max_relative_rgb_delta);
-            f32_value(DDGI_CONVERGENCE_POLICY.absolute_threshold);
-            f32_value(DDGI_CONVERGENCE_POLICY.relative_threshold);
-            u32_value(DDGI_CONVERGENCE_POLICY.consecutive_epochs);
             let prepared = prepare(
                 DdgiValidatedIterationOutcome::Published {
                     work,
@@ -345,12 +303,45 @@ mod convergence_evidence {
                 },
                 stats,
             );
-            u32_value(prepared.pending.0.consecutive_below_threshold);
+
+            let mut integer_count = 0;
+            let mut float_count = 0;
+            macro_rules! assert_wire_row {
+                ($table:ident, $count:ident, $field:literal : $rust_type:ty = $value:expr) => {{
+                    let _: $rust_type = $value;
+                    assert_eq!(
+                        $table[$field].as_str(),
+                        Some(stringify!($rust_type)),
+                        "wire type drift for {}",
+                        $field
+                    );
+                    $count += 1;
+                }};
+            }
+            assert_wire_row!(integers, integer_count, "field_serial": u64 = key.serial());
+            assert_wire_row!(integers, integer_count, "geometry_revision": u32 = key.geometry_revision());
+            assert_wire_row!(integers, integer_count, "radiance_revision": u32 = key.radiance_revision());
+            assert_wire_row!(integers, integer_count, "spacing_voxels": u32 = key.spacing_voxels());
+            assert_wire_row!(integers, integer_count, "update_epoch": u32 = key.update_epoch());
+            assert_wire_row!(integers, integer_count, "nonfinite_count": u32 = stats.non_finite_count);
+            assert_wire_row!(integers, integer_count, "negative_rgb_texel_count": u32 = stats.negative_rgb_texel_count);
+            assert_wire_row!(integers, integer_count, "valid_texel_count": u32 = stats.valid_texel_count);
+            assert_wire_row!(integers, integer_count, "scanned_stored_texel_count": u32 = stats.scanned_stored_texel_count);
+            assert_wire_row!(integers, integer_count, "consecutive_below_threshold": u32 = prepared.pending.0.consecutive_below_threshold);
+            assert_wire_row!(integers, integer_count, "required_consecutive_epochs": u32 = DDGI_CONVERGENCE_POLICY.consecutive_epochs);
+            assert_wire_row!(floats, float_count, "max_absolute_rgb_delta": f32 = stats.max_absolute_rgb_delta);
+            assert_wire_row!(floats, float_count, "max_relative_rgb_delta": f32 = stats.max_relative_rgb_delta);
+            assert_wire_row!(floats, float_count, "absolute_threshold": f32 = DDGI_CONVERGENCE_POLICY.absolute_threshold);
+            assert_wire_row!(floats, float_count, "relative_threshold": f32 = DDGI_CONVERGENCE_POLICY.relative_threshold);
+            assert_eq!(integers.len(), integer_count);
+            assert_eq!(floats.len(), float_count);
         }
 
         #[test]
         fn private_evidence_lines_preserve_exact_count_content_and_order() {
-            assert_wire_contract_matches_runtime_types();
+            assert_wire_contract_matches_runtime_types(include_str!(
+                "../../config/ddgi_convergence_acceptance.toml"
+            ));
             let (work, field, stats) = facts();
             let published = prepare(
                 DdgiValidatedIterationOutcome::Published {
@@ -383,6 +374,14 @@ mod convergence_evidence {
                     "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold",
                 ]
             );
+        }
+
+        #[test]
+        #[should_panic(expected = "wire type drift for geometry_revision")]
+        fn validation_wire_type_drift_is_rejected_by_its_typed_row() {
+            let contract = include_str!("../../config/ddgi_convergence_acceptance.toml")
+                .replace("geometry_revision = \"u32\"", "geometry_revision = \"u64\"");
+            assert_wire_contract_matches_runtime_types(&contract);
         }
     }
 }

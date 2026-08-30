@@ -104,10 +104,11 @@ and terminal identity. Every physical line containing the convergence marker mus
 canonical validation or terminal record. Before selecting the capture identity, every validation
 record in each stream passes a cross-language wire mirror. The
 `[validation_wire]` table in `config/ddgi_convergence_acceptance.toml` is its single field/type
-owner: the Python parser derives all `u64`/`u32`/`f32` bounds from that table, while the runtime
-formatter test compiles each mapped getter or fact against the declared Rust type. This keeps the
-mirror synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's consecutive
-count, and `DDGI_CONVERGENCE_POLICY` without a second Python type registry.
+owner: the Python parser derives all `u64`/`u32`/`f32` bounds and the decimal rounding cell from
+that table, while the runtime formatter test compiles each mapped getter or fact against the
+declared Rust type and checks the production formatter's decimal precision. This keeps the mirror
+synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's consecutive count, and
+`DDGI_CONVERGENCE_POLICY` without a second Python type or formatting registry.
 
 The mirror requires nonzero field serial/radiance revision/spacing and rejects Converged epoch
 zero. Every numeric field must fit its Rust type; delta and threshold floats must round to a finite,
@@ -115,10 +116,16 @@ nonnegative `f32`. Validated atlas records require zero non-finite/negative coun
 8x8/10x10 coverage, and the runtime policy's thresholds and required consecutive count. Across
 records, field serials are globally unique and strictly increasing, identities are contiguous, and
 each identity's epoch, consecutive-below count, and Converging/Converged state follow the production
-classification state machine. These checks apply to legal historical identities before capture
-selection, not only to the selected curve. Terminal integer bounds are inherited by its mandatory
-exact match to the final already-validated field identity. `max_rgb_value` is not in the evidence
-wire; production atlas validation checks that private fact before the capsule can be constructed.
+classification state machine. A displayed delta is ambiguous only when its configured eight-place
+decimal rounding cell crosses the actual Rust `f32` threshold; clearly above or below cells have one
+possible streak outcome. The first process-bound validation record is the source-free initial
+publication and therefore requires streak zero regardless of its deltas. Every later identity is
+source-backed, so its epoch-zero streak follows the same threshold classification with previous
+streak zero: clearly below requires one, clearly above requires zero, and only a true rounding-cell
+crossing permits either. These checks apply to legal historical identities before capture selection,
+not only to the selected curve. Terminal integer bounds are inherited by its mandatory exact match
+to the final already-validated field identity. `max_rgb_value` is not in the evidence wire;
+production atlas validation checks that private fact before the capsule can be constructed.
 Consequently old-identity duplicates, raw stdout/stderr injection, direct run-log injection, and
 synchronized duplicate records fail closed even when the source tripwire cannot see how bytes were
 produced. Console-only or run-log-only evidence cannot qualify. It validates:
