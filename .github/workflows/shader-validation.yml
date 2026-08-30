@@ -17,6 +17,8 @@ on:
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
+      - "scripts/runtime_log_diagnostics.py"
+      - "scripts/perf_suite.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/analyze_bd2_blue_voxel.py"
@@ -59,6 +61,8 @@ on:
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
+      - "scripts/runtime_log_diagnostics.py"
+      - "scripts/perf_suite.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/analyze_bd2_blue_voxel.py"
@@ -264,6 +268,9 @@ jobs:
           scripts.tests.test_check_ddgi_transport_acceptance
           scripts.tests.test_ddgi_capture_process_integration
           scripts.tests.test_ddgi_indirect_transport_spec
+          scripts.tests.test_runtime_log_diagnostics
+          scripts.tests.test_check_latest_run_log
+          scripts.tests.test_perf_suite
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py

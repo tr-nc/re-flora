@@ -20,6 +20,9 @@ OWNER_PATHS = (
     "docs/global_illumination_approaches_research.md",
     "scripts/check_ddgi_local_terrain_convergence.sh",
     "scripts/check_ddgi_transport_acceptance.sh",
+    "scripts/check_latest_run_log.py",
+    "scripts/perf_suite.py",
+    "scripts/runtime_log_diagnostics.py",
     "scripts/summarize_ddgi_convergence.py",
     "scripts/tests/test_check_ddgi_transport_acceptance.py",
     "scripts/tests/test_ddgi_convergence_capsule_source.py",
@@ -131,6 +134,9 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "scripts/analyze_bd2_blue_voxel.py",
             "scripts/check_bd2_blue_voxel.sh",
             "scripts/check_ddgi_sky_normalization_evidence.py",
+            "scripts/check_latest_run_log.py",
+            "scripts/perf_suite.py",
+            "scripts/runtime_log_diagnostics.py",
             "scripts/summarize_ddgi_convergence.py",
             "scripts/validate_capture_process_evidence.py",
             "src/app/core/mod.rs",
@@ -171,6 +177,9 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "scripts.tests.test_check_ddgi_transport_acceptance",
             "scripts.tests.test_ddgi_capture_process_integration",
             "scripts.tests.test_ddgi_indirect_transport_spec",
+            "scripts.tests.test_runtime_log_diagnostics",
+            "scripts.tests.test_check_latest_run_log",
+            "scripts.tests.test_perf_suite",
         ):
             self.assertIn(gate, workflow)
         self.assertIn("timeout-minutes: 45", workflow)
