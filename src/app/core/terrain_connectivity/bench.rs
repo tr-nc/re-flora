@@ -47,6 +47,7 @@ enum BenchState {
     AwaitingSnapshotResult {
         frame: u64,
         revision_before: u32,
+        ready_after_frame: u64,
     },
     AwaitingReleaseResult {
         event_frame: u64,
@@ -328,6 +329,17 @@ enum ConnectivityAction {
     },
 }
 
+#[derive(Clone, Copy)]
+struct SnapshotReadRequest {
+    bound: UAabb3,
+    seed: UVec3,
+}
+
+struct FailedConnectivityAction<R> {
+    request: R,
+    error: anyhow::Error,
+}
+
 enum ManualReleasePlan {
     Ignore,
     Prepare {
@@ -357,7 +369,7 @@ enum ConnectivityResult {
         frame: u64,
         outcome: anyhow::Result<FixtureInstallResult>,
     },
-    SnapshotRead(anyhow::Result<SnapshotReadResult>),
+    SnapshotRead(Result<SnapshotReadResult, FailedConnectivityAction<SnapshotReadRequest>>),
     ReleaseEventRun(anyhow::Result<EventStages>),
     AtomicityValidated(anyhow::Result<AtomicityValidationResult>),
     BoundedCommitted(anyhow::Result<EventStages>),
@@ -423,17 +435,20 @@ mod app_executor {
                 }
             }
             ConnectivityAction::ReadBoundedSnapshot { bound, seed } => {
-                ConnectivityResult::SnapshotRead((|| {
+                let request = SnapshotReadRequest { bound, seed };
+                let outcome = (|| {
                     let snapshot_started = Instant::now();
                     let snapshot = app
                         .plain_builder
-                        .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
+                        .read_chunk_atlas_region(request.bound.min(), request.bound.dimensions())?;
                     Ok(SnapshotReadResult {
-                        job: BoundedTopologyJob::new(bound, snapshot, seed)?,
+                        job: BoundedTopologyJob::new(request.bound, snapshot, request.seed)?,
                         snapshot_readback_us: snapshot_started.elapsed().as_secs_f64()
                             * 1_000_000.0,
                     })
-                })())
+                })()
+                .map_err(|error| FailedConnectivityAction { request, error });
+                ConnectivityResult::SnapshotRead(outcome)
             }
             ConnectivityAction::RunReleaseEvent { mode } => {
                 ConnectivityResult::ReleaseEventRun(app.run_connectivity_release_event(mode))
@@ -823,6 +838,7 @@ impl TerrainConnectivityBench {
                         self.state = BenchState::AwaitingSnapshotResult {
                             frame,
                             revision_before: facts.visible_revision,
+                            ready_after_frame,
                         };
                         return Ok(ConnectivityAction::ReadBoundedSnapshot {
                             bound,
@@ -1044,10 +1060,22 @@ impl TerrainConnectivityBench {
                 BenchState::AwaitingSnapshotResult {
                     frame,
                     revision_before,
+                    ready_after_frame,
                 },
                 ConnectivityResult::SnapshotRead(outcome),
             ) => {
-                let snapshot = outcome?;
+                let snapshot = match outcome {
+                    Ok(snapshot) => snapshot,
+                    Err(failure) => {
+                        anyhow::ensure!(
+                            failure.request.bound == isolation_bound()
+                                && failure.request.seed == FIXTURE_ORIGIN,
+                            "snapshot executor returned a request from another action"
+                        );
+                        self.state = BenchState::Warmup { ready_after_frame };
+                        return Err(failure.error);
+                    }
+                };
                 let bound = snapshot.job.bound;
                 self.bounded_job = Some(snapshot.job);
                 self.state = BenchState::Tracing {
