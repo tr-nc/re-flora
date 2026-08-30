@@ -15,7 +15,7 @@ pub(super) const CAMERA_STRAFE_PER_FRAME_WORLD: f32 = 0.003;
 pub(super) const CAMERA_FORWARD_PER_FRAME_WORLD: f32 = 0.001;
 pub(super) const CAMERA_YAW_PER_FRAME_RADIANS: f32 = 0.0025;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct TransitionMetrics {
     from_frame: u32,
     to_frame: u32,
@@ -74,6 +74,7 @@ struct DenoiserBenchReport<'a> {
     transitions: &'a [TransitionMetrics],
 }
 
+#[derive(Clone)]
 struct CapturedKeyframe {
     frame: u32,
     label: &'static str,
@@ -90,6 +91,7 @@ struct AnalysisRegion {
     height: u32,
 }
 
+#[derive(Clone)]
 pub(super) struct DenoiserBench {
     capture: DenoiserCaptureOptions,
     mode: DenoiserMode,
@@ -111,10 +113,57 @@ pub(super) struct DenoiserBench {
     capture_started: Option<Instant>,
 }
 
+#[derive(Debug)]
 pub(super) struct DenoiserFrame {
     width: u32,
     height: u32,
     rgba: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DenoiserCaptureStep {
+    Skip,
+    Record { frame: u32 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CameraFrameMotion {
+    Fixed,
+    Scripted { capture_frame: u32, is_last: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct FixedVisualFrame {
+    pub(super) frame_delta_seconds: f32,
+    pub(super) visual_time_seconds: f32,
+}
+
+#[derive(Debug)]
+pub(super) struct DenoiserFramePermit {
+    presented_frame: u32,
+    captured_frame: u32,
+}
+
+#[derive(Debug)]
+pub(super) enum DenoiserFrameTxn {
+    Inactive,
+    Camera {
+        capture: DenoiserCaptureStep,
+        motion: CameraFrameMotion,
+        permit: DenoiserFramePermit,
+    },
+    Foliage {
+        capture: DenoiserCaptureStep,
+        timeline: FixedVisualFrame,
+        permit: DenoiserFramePermit,
+    },
+}
+
+#[derive(Debug)]
+pub(super) enum DenoiserCaptureOutcome {
+    NotRequested,
+    Frame(DenoiserFrame),
+    ReadbackFailed(anyhow::Error),
 }
 
 impl DenoiserFrame {
@@ -191,19 +240,10 @@ impl DenoiserBench {
         self.presented_frames += 1;
     }
 
-    pub(super) fn hides_ui(&self) -> bool {
-        self.mode.is_foliage_shadow()
-    }
-
     pub(super) fn fixed_frame_delta_seconds(&self) -> Option<f32> {
         self.mode
             .is_foliage_shadow()
             .then_some(FOLIAGE_SHADOW_BENCH_FRAME_SECONDS)
-    }
-
-    pub(super) fn visual_time_seconds(&self) -> Option<f32> {
-        self.fixed_frame_delta_seconds()
-            .map(|step| self.presented_frames as f32 * step)
     }
 
     pub(super) fn camera_motion_frame(&self) -> Option<(u32, bool)> {
@@ -213,7 +253,103 @@ impl DenoiserBench {
         ))
     }
 
+    fn capture_step(&self) -> DenoiserCaptureStep {
+        if self.should_capture() {
+            DenoiserCaptureStep::Record {
+                frame: self.captured_frames,
+            }
+        } else {
+            DenoiserCaptureStep::Skip
+        }
+    }
+
+    fn frame_permit(&self) -> DenoiserFramePermit {
+        DenoiserFramePermit {
+            presented_frame: self.presented_frames,
+            captured_frame: self.captured_frames,
+        }
+    }
+
+    pub(super) fn begin_camera_frame(&self) -> DenoiserFrameTxn {
+        debug_assert!(matches!(self.mode, DenoiserMode::Camera(_)));
+        let motion = self.camera_motion_frame().map_or(
+            CameraFrameMotion::Fixed,
+            |(capture_frame, is_last)| CameraFrameMotion::Scripted {
+                capture_frame,
+                is_last,
+            },
+        );
+        DenoiserFrameTxn::Camera {
+            capture: self.capture_step(),
+            motion,
+            permit: self.frame_permit(),
+        }
+    }
+
+    pub(super) fn begin_foliage_frame(&self) -> DenoiserFrameTxn {
+        debug_assert!(self.mode.is_foliage_shadow());
+        let frame_delta_seconds = FOLIAGE_SHADOW_BENCH_FRAME_SECONDS;
+        DenoiserFrameTxn::Foliage {
+            capture: self.capture_step(),
+            timeline: FixedVisualFrame {
+                frame_delta_seconds,
+                visual_time_seconds: self.presented_frames as f32 * frame_delta_seconds,
+            },
+            permit: self.frame_permit(),
+        }
+    }
+
+    pub(super) fn finish_frame(
+        &mut self,
+        transaction: DenoiserFrameTxn,
+        outcome: DenoiserCaptureOutcome,
+    ) -> Result<bool> {
+        let (capture, permit) = match (self.mode, transaction) {
+            (
+                DenoiserMode::Camera(_),
+                DenoiserFrameTxn::Camera {
+                    capture, permit, ..
+                },
+            )
+            | (
+                DenoiserMode::FoliageShadow,
+                DenoiserFrameTxn::Foliage {
+                    capture, permit, ..
+                },
+            ) => (capture, permit),
+            _ => anyhow::bail!("denoiser frame transaction does not belong to this owner"),
+        };
+        anyhow::ensure!(
+            (self.presented_frames, self.captured_frames)
+                == (permit.presented_frame, permit.captured_frame),
+            "stale denoiser frame transaction"
+        );
+
+        let complete = match (capture, outcome) {
+            (DenoiserCaptureStep::Skip, DenoiserCaptureOutcome::NotRequested) => false,
+            (DenoiserCaptureStep::Record { .. }, DenoiserCaptureOutcome::Frame(frame)) => {
+                self.record_completed_frame(frame)?
+            }
+            (_, DenoiserCaptureOutcome::ReadbackFailed(error)) => return Err(error),
+            (DenoiserCaptureStep::Skip, DenoiserCaptureOutcome::Frame(_)) => {
+                anyhow::bail!("uncalled denoiser capture produced a frame")
+            }
+            (DenoiserCaptureStep::Record { .. }, DenoiserCaptureOutcome::NotRequested) => {
+                anyhow::bail!("requested denoiser capture produced no frame")
+            }
+        };
+        self.mark_frame_presented();
+        Ok(complete)
+    }
+
     pub(super) fn record_frame(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<bool> {
+        let mut staged = self.clone();
+        let complete = staged.record_frame_in_place(width, height, rgba)?;
+        *self = staged;
+        Ok(complete)
+    }
+
+    fn record_frame_in_place(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<bool> {
         let expected_len = width as usize * height as usize * 4;
         anyhow::ensure!(
             rgba.len() == expected_len,

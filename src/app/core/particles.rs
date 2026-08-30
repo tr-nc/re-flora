@@ -490,7 +490,7 @@ impl App {
         let total_start = Instant::now();
         let setup_start = Instant::now();
         let diagnostic_capacity_isolation = self
-            .scenario_owner
+            .launch_owners
             .connectivity_event()
             .isolates_particle_capacity();
         if !diagnostic_capacity_isolation {

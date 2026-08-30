@@ -54,7 +54,7 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
-        let loading_directive = self.scenario_owner.loading_directive();
+        let loading_directive = self.launch_owners.loading_directive();
         let water_experience_requested =
             loading_directive == launch_owners::LoadingDirective::WaterExperience;
         let house_scene_requested = loading_directive == launch_owners::LoadingDirective::House;
@@ -386,7 +386,7 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        match self.scenario_owner.loading_directive() {
+        match self.launch_owners.loading_directive() {
             launch_owners::LoadingDirective::WaterExperience => {
                 log::info!(
                     "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
@@ -408,7 +408,7 @@ impl App {
             }
         }
 
-        if self.denoiser_frame_plan().is_foliage_shadow() {
+        if self.launch_owners.is_foliage_shadow() {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {
                     panic!("[FOLIAGE_SHADOW_BENCH] receiver setup failed: {err:#}")

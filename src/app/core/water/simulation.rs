@@ -79,7 +79,7 @@ impl App {
             return;
         };
         let super::super::launch_owners::WaterProgress::EditSoak { step: current_step } =
-            self.scenario_owner.water_progress()
+            self.launch_owners.water_progress()
         else {
             return;
         };
@@ -102,7 +102,7 @@ impl App {
                 err,
             );
         }
-        if self.scenario_owner.advance_water_edit_soak() {
+        if self.launch_owners.advance_water_edit_soak() {
             log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
         }
     }

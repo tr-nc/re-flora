@@ -90,6 +90,28 @@ impl super::launch_owners::ScenarioOwner {
     }
 }
 
+impl super::launch_owners::LaunchOwners {
+    fn plan_hybrid_frame(&self) -> HybridFramePlan {
+        match &self.mode {
+            super::launch_owners::LaunchMode::Standard { scenario, .. } => {
+                scenario.plan_hybrid_frame()
+            }
+            super::launch_owners::LaunchMode::FoliageShadow { .. } => HybridFramePlan::Inactive,
+        }
+    }
+
+    fn commit_hybrid_frame(&mut self, phase: TestScenePhase) {
+        match &mut self.mode {
+            super::launch_owners::LaunchMode::Standard { scenario, .. } => {
+                scenario.commit_hybrid_frame(phase)
+            }
+            super::launch_owners::LaunchMode::FoliageShadow { .. } => {
+                panic!("hybrid test scene state disappeared")
+            }
+        }
+    }
+}
+
 fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     let aabbs = cuboids.iter().map(Cuboid::aabb).collect::<Vec<_>>();
     let leaves = (0..cuboids.len() as u32).collect::<Vec<_>>();
@@ -180,7 +202,7 @@ impl App {
     }
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
-        let phase = match self.scenario_owner.plan_hybrid_frame() {
+        let phase = match self.launch_owners.plan_hybrid_frame() {
             HybridFramePlan::Inactive => return,
             HybridFramePlan::Active(phase) => phase,
         };
@@ -253,6 +275,6 @@ impl App {
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
 
-        self.scenario_owner.commit_hybrid_frame(next_phase);
+        self.launch_owners.commit_hybrid_frame(next_phase);
     }
 }

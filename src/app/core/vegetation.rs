@@ -1095,7 +1095,7 @@ impl App {
     pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
-        match self.scenario_owner.canopy_audio_mode() {
+        match self.launch_owners.canopy_audio_mode() {
             super::launch_owners::CanopyAudioMode::Disabled => {}
             super::launch_owners::CanopyAudioMode::Diagnostic { budget_stress } => {
                 self.log_canopy_audio_layout_comparison();

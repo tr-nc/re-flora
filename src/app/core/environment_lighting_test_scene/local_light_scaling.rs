@@ -138,19 +138,19 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
 fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
     assert!(requested_count <= LOCAL_LIGHT_GPU_CAPACITY);
     if requested_count == 0 {
-        let ids = app.scenario_owner.take_local_light_scaling_ids();
+        let ids = app.launch_owners.take_local_light_scaling_ids();
         for id in ids {
             app.local_lights
                 .remove(id)
                 .expect("zero-count scaling transition must remove every selected light");
         }
     } else {
-        let first_new = app.scenario_owner.local_light_scaling_count();
+        let first_new = app.launch_owners.local_light_scaling_count();
         assert!(first_new <= requested_count);
         let new_ids = (first_new..requested_count)
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
-        app.scenario_owner.extend_local_light_scaling_ids(new_ids);
+        app.launch_owners.extend_local_light_scaling_ids(new_ids);
     }
     let snapshot = app.local_lights.snapshot();
     assert_eq!(snapshot.lights().len(), requested_count);
@@ -240,7 +240,7 @@ impl App {
                 if !builder_matches(self, state) {
                     return None;
                 }
-                self.scenario_owner.clear_local_light_scaling_samples();
+                self.launch_owners.clear_local_light_scaling_samples();
                 state.warmup_frames = 0;
                 state.stage = LocalLightScalingStage::Warmup;
                 state
@@ -261,7 +261,7 @@ impl App {
                 }
                 let sample = sample_from_app(self)?;
                 let Some(samples) = self
-                    .scenario_owner
+                    .launch_owners
                     .record_local_light_scaling_sample(sample, LOCAL_LIGHT_SCALING_SAMPLE_FRAMES)
                 else {
                     return Some(TestScenePhase::LocalLightScaling(state));
@@ -316,7 +316,7 @@ impl App {
                     state.stage = LocalLightScalingStage::AwaitLive;
                     state
                 } else {
-                    let ids = self.scenario_owner.take_local_light_scaling_ids();
+                    let ids = self.launch_owners.take_local_light_scaling_ids();
                     for id in ids {
                         self.local_lights
                             .remove(id)

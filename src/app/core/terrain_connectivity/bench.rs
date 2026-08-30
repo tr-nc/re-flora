@@ -4,7 +4,7 @@
 //! 437,205-voxel detached hollow canopy, then represent at most 16,384 voxels as particles, without
 //! exceeding interactive frame budgets? This module is activated only by the diagnostic CLI.
 
-use super::super::launch_owners::{DiagnosticScenarioOwner, ScenarioOwner};
+use super::super::launch_owners::ConnectivityEvent;
 use super::*;
 use crate::cli::{TerrainConnectivityBenchMode, TerrainConnectivityBenchOptions};
 use crate::particles::{
@@ -390,13 +390,13 @@ impl TerrainConnectivityBench {
         let frame = app.time_info.total_frame_count();
         let revision_before = app.visible_terrain_revision;
         let App {
-            scenario_owner,
+            launch_owners,
             terrain_connectivity,
             plain_builder,
             ..
         } = app;
-        match scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench))
+        match launch_owners.connectivity_event() {
+            ConnectivityEvent::Active(bench)
                 if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
             {
                 bench
@@ -408,14 +408,7 @@ impl TerrainConnectivityBench {
                     )
                     .map(|_| true)
             }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                Ok(false)
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_)
-                | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => Ok(false),
+            ConnectivityEvent::None | ConnectivityEvent::Active(_) => Ok(false),
         }
     }
 
@@ -478,38 +471,14 @@ impl TerrainConnectivityBench {
                 .ddgi_ready_for_terrain_revision(app.visible_terrain_revision),
             available_particles: app.particle_system.available_capacity(),
         };
-        let action = match &mut app.scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.next_action(facts)?
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                ConnectivityAction::None
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => ConnectivityAction::None,
+        let action = match app.launch_owners.connectivity_event() {
+            ConnectivityEvent::Active(bench) => bench.next_action(facts)?,
+            ConnectivityEvent::None => ConnectivityAction::None,
         };
         let result = Self::execute_action(app, action);
-        match &mut app.scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.apply_result(result)
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                match result {
-                    ConnectivityResult::None => Ok(()),
-                    ConnectivityResult::FixtureInstalled(_)
-                    | ConnectivityResult::SnapshotRead(_)
-                    | ConnectivityResult::ReleaseEventRun(_)
-                    | ConnectivityResult::AtomicityValidated(_)
-                    | ConnectivityResult::BoundedCommitted(_)
-                    | ConnectivityResult::VisualVoxelsSpawned(_) => {
-                        anyhow::bail!("inactive scenario received a connectivity result")
-                    }
-                }
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => match result {
+        match app.launch_owners.connectivity_event() {
+            ConnectivityEvent::Active(bench) => bench.apply_result(result),
+            ConnectivityEvent::None => match result {
                 ConnectivityResult::None => Ok(()),
                 ConnectivityResult::FixtureInstalled(_)
                 | ConnectivityResult::SnapshotRead(_)
@@ -1038,20 +1007,15 @@ impl TerrainConnectivityBench {
             visible_revision: app.visible_terrain_revision,
         };
         let App {
-            scenario_owner,
+            launch_owners,
             plain_builder,
             ..
         } = app;
-        match scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+        match launch_owners.connectivity_event() {
+            ConnectivityEvent::Active(bench) => {
                 bench.observe_completed_frame_inner(plain_builder, record)
             }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                Ok(false)
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => Ok(false),
+            ConnectivityEvent::None => Ok(false),
         }
     }
 
@@ -1625,6 +1589,7 @@ fn push_bounded<T>(records: &mut VecDeque<T>, record: T) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::launch_owners::{DiagnosticScenarioOwner, ScenarioOwner};
 
     fn fixture_job() -> BoundedTopologyJob {
         let bound = isolation_bound();
@@ -1712,9 +1677,7 @@ mod tests {
             ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
                 panic!("test constructed the wrong scenario")
             }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => {
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_)) => {
                 panic!("test constructed the wrong scenario")
             }
         };

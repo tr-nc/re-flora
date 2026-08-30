@@ -41,13 +41,14 @@ use self::camera_control::{CameraControlRuntime, ORBIT_CAMERA_DEFAULT_FOCUS};
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
 use self::ddgi_spatial_weight_readback::DdgiSpatialWeightReadbackRuntime;
 use self::denoiser_bench::{
+    CameraFrameMotion, DenoiserCaptureOutcome, DenoiserCaptureStep, DenoiserFrameTxn,
     CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD, CAMERA_YAW_PER_FRAME_RADIANS,
 };
 use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::launch_owners::{CaptureOwner, LaunchOwners, ScenarioOwner, TestSceneKind};
+use self::launch_owners::{LaunchOwners, TestSceneKind};
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
@@ -573,14 +574,11 @@ pub struct App {
 
     render_start_time: Option<Instant>,
     terrain_persistence: TerrainPersistenceRuntime,
-    capture_owner: CaptureOwner,
+    launch_owners: LaunchOwners,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     auto_exit_delay: Option<f32>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
-    tree_bench: Option<TreeBench>,
-    authored_flora_bench: Option<AuthoredFloraBench>,
-    scenario_owner: ScenarioOwner,
     visible_terrain_revision: u32,
     shutdown_started: bool,
 
@@ -609,46 +607,9 @@ impl Drop for App {
 }
 
 impl App {
-    fn denoiser_frame_plan(&self) -> launch_owners::DenoiserFramePlan {
-        let camera_plan = self.capture_owner.denoiser_frame_plan();
-        if camera_plan.is_active() {
-            camera_plan
-        } else {
-            self.scenario_owner.denoiser_frame_plan()
-        }
-    }
-
-    fn record_denoiser_frame(
-        &mut self,
-        owner: launch_owners::DenoiserOwner,
-        frame: denoiser_bench::DenoiserFrame,
-    ) -> Result<bool> {
-        match owner {
-            launch_owners::DenoiserOwner::Camera => self.capture_owner.record_denoiser_frame(frame),
-            launch_owners::DenoiserOwner::Foliage => {
-                self.scenario_owner.record_foliage_denoiser_frame(frame)
-            }
-            launch_owners::DenoiserOwner::None => {
-                panic!("benchmark readback requires benchmark state")
-            }
-        }
-    }
-
-    fn mark_denoiser_frame_presented(&mut self, owner: launch_owners::DenoiserOwner) {
-        match owner {
-            launch_owners::DenoiserOwner::Camera => {
-                self.capture_owner.mark_denoiser_frame_presented()
-            }
-            launch_owners::DenoiserOwner::Foliage => {
-                self.scenario_owner.mark_foliage_denoiser_frame_presented()
-            }
-            launch_owners::DenoiserOwner::None => {}
-        }
-    }
-
     fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
         let trajectory = self
-            .scenario_owner
+            .launch_owners
             .sample_canopy_audio_trajectory(self.debug_tree_pos, time_seconds);
         let (pose, active_sample) = match trajectory {
             launch_owners::AudioTrajectorySample::NotDiagnostic => return,
@@ -681,7 +642,7 @@ impl App {
         let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
             return;
         };
-        if !self.scenario_owner.start_canopy_audio_when_ready(
+        if !self.launch_owners.start_canopy_audio_when_ready(
             time_seconds,
             self.spatial_sound_manager
                 .acoustic_response_matches_published_scene(),
@@ -702,7 +663,7 @@ impl App {
             return;
         }
         let trajectory_marker = match self
-            .scenario_owner
+            .launch_owners
             .canopy_audio_telemetry_marker(self.debug_tree_pos, time_seconds)
         {
             launch_owners::AudioTelemetryMarker::NotDiagnostic => None,
@@ -718,7 +679,7 @@ impl App {
             return;
         };
         self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
-        let counters = self.scenario_owner.canopy_audio_counters(&snapshot);
+        let counters = self.launch_owners.canopy_audio_counters(&snapshot);
         let emitter_count = snapshot
             .samples
             .iter()
@@ -834,7 +795,7 @@ impl App {
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
         let source_frame = self
-            .scenario_owner
+            .launch_owners
             .connectivity_event()
             .source_frame(frame_slot);
         let Some(profiler) = &self.gpu_profiler else {
@@ -856,7 +817,7 @@ impl App {
                         scope.duration_us(),
                     );
                 }
-                self.scenario_owner
+                self.launch_owners
                     .connectivity_event()
                     .observe_gpu_results(source_frame, &results);
                 self.gpu_profiler_latest_results = Some(results);
@@ -1100,7 +1061,7 @@ impl App {
         audio: AudioPlan,
         owners: LaunchOwners,
     ) -> Result<Self> {
-        let (automation, mut scenario_owner) = owners.into_parts();
+        let mut launch_owners = owners;
         let PlatformPlan {
             display,
             render,
@@ -1119,22 +1080,20 @@ impl App {
         let water = &water_plan;
         let lighting = &lighting;
         let audio = &audio;
-        let camera = &automation.capture;
-        let benchmarks = &automation.benchmarks;
-        let startup_camera_snapshot = camera.snapshot_name().map(str::to_owned);
-        let environment_lighting_test = match scenario_owner.test_scene_frame_plan().kind() {
+        let startup_camera_snapshot = launch_owners.snapshot_name().map(str::to_owned);
+        let environment_lighting_test = match launch_owners.test_scene_frame_plan().kind() {
             TestSceneKind::Environment(case) => Some(case),
             TestSceneKind::None | TestSceneKind::Hybrid => None,
         };
-        let canopy_audio_diagnostic = match scenario_owner.canopy_audio_mode() {
+        let canopy_audio_diagnostic = match launch_owners.canopy_audio_mode() {
             launch_owners::CanopyAudioMode::Disabled => None,
             launch_owners::CanopyAudioMode::Diagnostic { budget_stress } => Some(budget_stress),
         };
         let water_experience =
-            scenario_owner.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
+            launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
         let hybrid_transparency =
-            scenario_owner.test_scene_frame_plan().kind() == TestSceneKind::Hybrid;
-        let foliage_shadow_bench = scenario_owner.denoiser_frame_plan().is_foliage_shadow();
+            launch_owners.test_scene_frame_plan().kind() == TestSceneKind::Hybrid;
+        let foliage_shadow_bench = launch_owners.is_foliage_shadow();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
@@ -1470,7 +1429,7 @@ impl App {
             cells_per_unit,
         );
         if water_experience {
-            scenario_owner.activate_water_experience(water_config.particle_count);
+            launch_owners.activate_water_experience(water_config.particle_count);
         }
         let water_sim = water::AsyncWaterSim::new(water_config);
         let water_terrain = water::WaterTerrainRuntime::new();
@@ -1597,7 +1556,7 @@ impl App {
 
             render_start_time: None,
             terrain_persistence,
-            capture_owner: automation.capture,
+            launch_owners,
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 lighting.irradiance_capture_path.clone(),
                 lighting.debug_view,
@@ -1609,11 +1568,6 @@ impl App {
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
                 || canopy_audio_diagnostic.is_some())
             .then_some(0.0),
-            tree_bench: benchmarks.tree_samples.map(TreeBench::new),
-            authored_flora_bench: benchmarks
-                .authored_flora_samples
-                .map(AuthoredFloraBench::new),
-            scenario_owner,
             visible_terrain_revision: 0,
             shutdown_started: false,
 
@@ -2015,8 +1969,11 @@ impl App {
         environment::calculate_sun_position(time_of_day, latitude, season)
     }
 
-    fn apply_denoiser_benchmark_camera_motion(&mut self) {
-        let Some((capture_frame, is_last_frame)) = self.denoiser_frame_plan().camera_motion_frame()
+    fn apply_denoiser_benchmark_camera_motion(&mut self, motion: CameraFrameMotion) {
+        let CameraFrameMotion::Scripted {
+            capture_frame,
+            is_last: is_last_frame,
+        } = motion
         else {
             return;
         };
@@ -2201,7 +2158,7 @@ impl App {
                 && !event.repeat
                 && event.physical_key == KeyCode::KeyP
             {
-                self.capture_owner.screenshot_mut().request_clipboard();
+                self.launch_owners.screenshot_mut().request_clipboard();
                 return;
             }
 
@@ -2397,6 +2354,8 @@ impl App {
                     return;
                 }
 
+                let denoiser_frame = self.launch_owners.begin_denoiser_frame();
+
                 if self.terrain_persistence.allows_world_updates()
                     && self.player_tools.continuous_hold_active()
                 {
@@ -2407,10 +2366,12 @@ impl App {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
-                let frame_delta_time = self
-                    .denoiser_frame_plan()
-                    .fixed_frame_delta_seconds()
-                    .unwrap_or_else(|| self.time_info.delta_time());
+                let frame_delta_time = match &denoiser_frame {
+                    DenoiserFrameTxn::Foliage { timeline, .. } => timeline.frame_delta_seconds,
+                    DenoiserFrameTxn::Inactive | DenoiserFrameTxn::Camera { .. } => {
+                        self.time_info.delta_time()
+                    }
+                };
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -2425,10 +2386,12 @@ impl App {
                     log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
                 let time_since_start = self.time_info.time_since_start();
-                let visual_time_since_start = self
-                    .denoiser_frame_plan()
-                    .visual_time_seconds()
-                    .unwrap_or(time_since_start);
+                let visual_time_since_start = match &denoiser_frame {
+                    DenoiserFrameTxn::Foliage { timeline, .. } => timeline.visual_time_seconds,
+                    DenoiserFrameTxn::Inactive | DenoiserFrameTxn::Camera { .. } => {
+                        time_since_start
+                    }
+                };
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -2444,7 +2407,7 @@ impl App {
                 }
                 let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources = match self.scenario_owner.canopy_audio_mode() {
+                let active_wind_sources = match self.launch_owners.canopy_audio_mode() {
                     launch_owners::CanopyAudioMode::Diagnostic { .. } => {
                         &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
                     }
@@ -2618,7 +2581,7 @@ impl App {
                 });
                 let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
                 let hide_terrain_edit_preview = self
-                    .scenario_owner
+                    .launch_owners
                     .test_scene_frame_plan()
                     .hides_terrain_edit_preview();
                 let terrain_edit_preview_center = (!hide_terrain_edit_preview)
@@ -2632,12 +2595,13 @@ impl App {
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
                 let hide_ui_for_environment_test_capture = self
-                    .scenario_owner
+                    .launch_owners
                     .test_scene_frame_plan()
                     .owns_capture_scene()
-                    && (self.capture_owner.screenshot().is_scheduled()
-                        || self.denoiser_frame_plan().is_active());
-                let hide_ui_for_frame_stability_bench = self.denoiser_frame_plan().hides_ui();
+                    && (self.launch_owners.screenshot().is_scheduled()
+                        || !matches!(&denoiser_frame, DenoiserFrameTxn::Inactive));
+                let hide_ui_for_frame_stability_bench =
+                    matches!(&denoiser_frame, DenoiserFrameTxn::Foliage { .. });
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -3410,7 +3374,13 @@ impl App {
                 }
                 self.process_water_experience_scene();
 
-                self.apply_denoiser_benchmark_camera_motion();
+                let camera_motion = match &denoiser_frame {
+                    DenoiserFrameTxn::Camera { motion, .. } => *motion,
+                    DenoiserFrameTxn::Inactive | DenoiserFrameTxn::Foliage { .. } => {
+                        CameraFrameMotion::Fixed
+                    }
+                };
+                self.apply_denoiser_benchmark_camera_motion(camera_motion);
 
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
@@ -3427,7 +3397,7 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                self.scenario_owner
+                self.launch_owners
                     .connectivity_event()
                     .note_gpu_frame_started(frame_slot, self.time_info.total_frame_count());
                 let cmdbuf = frame.command_buffer();
@@ -3549,7 +3519,7 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                let environment_capture_port = self.scenario_owner.environment_capture_port();
+                let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
                     .begin_frame(&self.time_info, &self.tracer, environment_capture_port);
@@ -4256,7 +4226,7 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
-                let environment_capture_port = self.scenario_owner.environment_capture_port();
+                let environment_capture_port = self.launch_owners.environment_capture_port();
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
                         rendered_environment_irradiance_capture_frame,
@@ -4326,35 +4296,44 @@ impl App {
                 let screenshot_readiness = ScreenshotFrameReadiness::new(
                     self.render_start_time
                         .map(|started| started.elapsed().as_secs_f32()),
-                    self.scenario_owner
+                    self.launch_owners
                         .test_scene_frame_plan()
                         .capture_is_ready(),
                     self.tracer.ddgi_ready(),
                 );
-                let mut screenshot_readback = self.capture_owner.screenshot_mut().record_if_ready(
+                let mut screenshot_readback = self.launch_owners.screenshot_mut().record_if_ready(
                     &self.tracer,
                     &self.vulkan_ctx,
                     &self.swapchain,
                     &frame,
                     screenshot_readiness,
                 );
-                let mut denoiser_frame_readback = if screenshot_readback.is_none()
-                    && self.denoiser_frame_plan().should_capture()
-                {
-                    Some(
-                        PendingDenoiserFrame::record(
-                            &self.tracer,
-                            &self.vulkan_ctx,
-                            &self.swapchain,
-                            &frame,
+                let denoiser_capture_requested = matches!(
+                    &denoiser_frame,
+                    DenoiserFrameTxn::Camera {
+                        capture: DenoiserCaptureStep::Record { .. },
+                        ..
+                    } | DenoiserFrameTxn::Foliage {
+                        capture: DenoiserCaptureStep::Record { .. },
+                        ..
+                    }
+                );
+                let mut denoiser_frame_readback =
+                    if screenshot_readback.is_none() && denoiser_capture_requested {
+                        Some(
+                            PendingDenoiserFrame::record(
+                                &self.tracer,
+                                &self.vulkan_ctx,
+                                &self.swapchain,
+                                &frame,
+                            )
+                            .unwrap_or_else(|err| {
+                                panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
+                            }),
                         )
-                        .unwrap_or_else(|err| {
-                            panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
-                        }),
-                    )
-                } else {
-                    None
-                };
+                    } else {
+                        None
+                    };
 
                 if let Some(scope) = frame_gpu_scope {
                     if let Some(profiler) = self.gpu_profiler.as_mut() {
@@ -4394,7 +4373,7 @@ impl App {
                     _ => {}
                 }
 
-                let mut denoiser_bench_complete = false;
+                let mut denoiser_capture_outcome = DenoiserCaptureOutcome::NotRequested;
                 let mut environment_irradiance_capture_complete = false;
                 let mut ddgi_spatial_weight_readback_complete = false;
                 if screenshot_readback.is_some()
@@ -4414,7 +4393,7 @@ impl App {
                                 {
                                     Ok(checkpoint) => {
                                         let sequence_complete = self
-                                            .scenario_owner
+                                            .launch_owners
                                             .complete_environment_radiance_capture(checkpoint);
                                         environment_irradiance_capture_complete = self
                                             .environment_irradiance_capture
@@ -4438,28 +4417,33 @@ impl App {
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
-                                self.capture_owner.screenshot_mut().complete(readback);
+                                self.launch_owners.screenshot_mut().complete(readback);
                             }
                             if let Some(readback) = denoiser_frame_readback.take() {
-                                let owner = self.denoiser_frame_plan().owner();
-                                let frame = readback.complete().unwrap_or_else(|err| {
-                                    panic!("[DENOISER_BENCH] Failed to read frame: {err:#}")
-                                });
-                                denoiser_bench_complete = self
-                                    .record_denoiser_frame(owner, frame)
-                                    .unwrap_or_else(|err| {
-                                        panic!("[DENOISER_BENCH] Failed to record frame: {err:#}")
-                                    });
+                                denoiser_capture_outcome = match readback.complete() {
+                                    Ok(frame) => DenoiserCaptureOutcome::Frame(frame),
+                                    Err(error) => DenoiserCaptureOutcome::ReadbackFailed(error),
+                                };
                             }
                         }
                         Err(err) => {
+                            if denoiser_frame_readback.take().is_some() {
+                                denoiser_capture_outcome =
+                                    DenoiserCaptureOutcome::ReadbackFailed(anyhow::anyhow!(
+                                        "failed while waiting for denoiser GPU readback: {err}"
+                                    ));
+                            }
                             log::error!("[READBACK] Failed while waiting for GPU readback: {}", err)
                         }
                     }
                 }
                 self.process_radiance_test_mutation_after_render();
-                let denoiser_owner = self.denoiser_frame_plan().owner();
-                self.mark_denoiser_frame_presented(denoiser_owner);
+                let denoiser_bench_complete = self
+                    .launch_owners
+                    .finish_denoiser_frame(denoiser_frame, denoiser_capture_outcome)
+                    .unwrap_or_else(|error| {
+                        panic!("[DENOISER_BENCH] Failed to finish frame: {error:#}")
+                    });
 
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
@@ -4568,7 +4552,7 @@ impl App {
                                     );
                                 }
                             }
-                            match self.scenario_owner.environment_edit_cycle_timeout() {
+                            match self.launch_owners.environment_edit_cycle_timeout() {
                                 environment_lighting_test_scene::EnvironmentEditCycleTimeout::Pending {
                                     phase,
                                     target_revision,

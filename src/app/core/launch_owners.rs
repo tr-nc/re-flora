@@ -1,9 +1,15 @@
+#[cfg(test)]
+use super::denoiser_bench::{
+    CameraFrameMotion, DenoiserCaptureStep, DenoiserFrame, FixedVisualFrame,
+};
 use super::{
-    denoiser_bench::{DenoiserBench, DenoiserFrame},
+    authored_flora_bench::AuthoredFloraBench,
+    denoiser_bench::{DenoiserBench, DenoiserCaptureOutcome, DenoiserFrameTxn},
     environment_lighting_test_scene::EnvironmentLightingTestScene,
     hybrid_transparency_test_scene::HybridTransparencyTestScene,
     screenshot::ScreenshotRuntime,
     terrain_connectivity::bench::TerrainConnectivityBench,
+    tree_bench::TreeBench,
     water::{self, WaterEditSoak},
     water_experience_scene::WaterExperienceScene,
     CanopyAudioDiagnosticCounters, CanopyAudioDiagnosticRuntime,
@@ -14,17 +20,7 @@ use crate::audio::{
 use crate::cli::{AutomationPlan, CameraAutomation, Scenario};
 use re_flora_vkn::GpuProfilerFrameResults;
 
-pub(super) struct AutomationOwners {
-    pub(super) capture: CaptureOwner,
-    pub(super) benchmarks: crate::cli::BenchmarkPlan,
-}
-
-pub(super) struct CaptureOwner {
-    pub(super) screenshot: ScreenshotRuntime,
-    pub(super) mode: CameraCapture,
-}
-
-pub(super) enum CameraCapture {
+pub(super) enum CameraOwner {
     None,
     Snapshot {
         name: String,
@@ -35,49 +31,12 @@ pub(super) enum CameraCapture {
     },
 }
 
-impl CaptureOwner {
+impl CameraOwner {
     pub(super) fn snapshot_name(&self) -> Option<&str> {
-        match &self.mode {
-            CameraCapture::None => None,
-            CameraCapture::Snapshot { name } => Some(name),
-            CameraCapture::DenoiserBenchmark { snapshot, .. } => Some(snapshot),
-        }
-    }
-
-    pub(super) fn screenshot(&self) -> &ScreenshotRuntime {
-        &self.screenshot
-    }
-
-    pub(super) fn screenshot_mut(&mut self) -> &mut ScreenshotRuntime {
-        &mut self.screenshot
-    }
-
-    pub(super) fn denoiser_frame_plan(&self) -> DenoiserFramePlan {
-        match &self.mode {
-            CameraCapture::DenoiserBenchmark { runtime, .. } => {
-                DenoiserFramePlan::active(DenoiserOwner::Camera, runtime)
-            }
-            CameraCapture::None | CameraCapture::Snapshot { .. } => DenoiserFramePlan::Inactive,
-        }
-    }
-
-    pub(super) fn record_denoiser_frame(&mut self, frame: DenoiserFrame) -> anyhow::Result<bool> {
-        match &mut self.mode {
-            CameraCapture::DenoiserBenchmark { runtime, .. } => {
-                runtime.record_completed_frame(frame)
-            }
-            CameraCapture::None | CameraCapture::Snapshot { .. } => {
-                panic!("camera denoiser frame requires a camera benchmark")
-            }
-        }
-    }
-
-    pub(super) fn mark_denoiser_frame_presented(&mut self) {
-        match &mut self.mode {
-            CameraCapture::DenoiserBenchmark { runtime, .. } => runtime.mark_frame_presented(),
-            CameraCapture::None | CameraCapture::Snapshot { .. } => {
-                panic!("camera denoiser presentation requires a camera benchmark")
-            }
+        match self {
+            Self::None => None,
+            Self::Snapshot { name } => Some(name),
+            Self::DenoiserBenchmark { snapshot, .. } => Some(snapshot),
         }
     }
 }
@@ -131,7 +90,6 @@ pub(super) enum TestSceneOwner {
 pub(super) enum DiagnosticScenarioOwner {
     CanopyAudio(CanopyAudioDiagnosticRuntime),
     TerrainConnectivity(TerrainConnectivityBench),
-    FoliageShadow(DenoiserBench),
 }
 
 pub(super) enum ScenarioOwner {
@@ -161,26 +119,6 @@ pub(super) enum WaterProgress {
 pub(super) enum CanopyAudioMode {
     Disabled,
     Diagnostic { budget_stress: bool },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum DenoiserOwner {
-    None,
-    Camera,
-    Foliage,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) enum DenoiserFramePlan {
-    Inactive,
-    Active {
-        owner: DenoiserOwner,
-        should_capture: bool,
-        hides_ui: bool,
-        fixed_frame_delta_seconds: Option<f32>,
-        visual_time_seconds: Option<f32>,
-        camera_motion_frame: Option<(u32, bool)>,
-    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,78 +158,6 @@ impl TestSceneFramePlan {
 
     pub(super) fn hides_terrain_edit_preview(self) -> bool {
         self.hides_terrain_edit_preview
-    }
-}
-
-impl DenoiserFramePlan {
-    fn active(owner: DenoiserOwner, bench: &DenoiserBench) -> Self {
-        Self::Active {
-            owner,
-            should_capture: bench.should_capture(),
-            hides_ui: bench.hides_ui(),
-            fixed_frame_delta_seconds: bench.fixed_frame_delta_seconds(),
-            visual_time_seconds: bench.visual_time_seconds(),
-            camera_motion_frame: bench.camera_motion_frame(),
-        }
-    }
-
-    pub(super) fn owner(self) -> DenoiserOwner {
-        match self {
-            Self::Inactive => DenoiserOwner::None,
-            Self::Active { owner, .. } => owner,
-        }
-    }
-
-    pub(super) fn is_active(self) -> bool {
-        matches!(self, Self::Active { .. })
-    }
-
-    pub(super) fn should_capture(self) -> bool {
-        matches!(
-            self,
-            Self::Active {
-                should_capture: true,
-                ..
-            }
-        )
-    }
-
-    pub(super) fn hides_ui(self) -> bool {
-        matches!(self, Self::Active { hides_ui: true, .. })
-    }
-
-    pub(super) fn is_foliage_shadow(self) -> bool {
-        self.owner() == DenoiserOwner::Foliage
-    }
-
-    pub(super) fn fixed_frame_delta_seconds(self) -> Option<f32> {
-        match self {
-            Self::Inactive => None,
-            Self::Active {
-                fixed_frame_delta_seconds,
-                ..
-            } => fixed_frame_delta_seconds,
-        }
-    }
-
-    pub(super) fn visual_time_seconds(self) -> Option<f32> {
-        match self {
-            Self::Inactive => None,
-            Self::Active {
-                visual_time_seconds,
-                ..
-            } => visual_time_seconds,
-        }
-    }
-
-    pub(super) fn camera_motion_frame(self) -> Option<(u32, bool)> {
-        match self {
-            Self::Inactive => None,
-            Self::Active {
-                camera_motion_frame,
-                ..
-            } => camera_motion_frame,
-        }
     }
 }
 
@@ -352,7 +218,7 @@ impl DiagnosticScenarioOwner {
             Self::CanopyAudio(runtime) => CanopyAudioMode::Diagnostic {
                 budget_stress: runtime.budget_stress(),
             },
-            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => CanopyAudioMode::Disabled,
+            Self::TerrainConnectivity(_) => CanopyAudioMode::Disabled,
         }
     }
 
@@ -366,9 +232,7 @@ impl DiagnosticScenarioOwner {
                 AudioTrajectorySample::WaitingForStart,
                 |(pose, elapsed, changed)| AudioTrajectorySample::Active(pose, elapsed, changed),
             ),
-            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
-                AudioTrajectorySample::NotDiagnostic
-            }
+            Self::TerrainConnectivity(_) => AudioTrajectorySample::NotDiagnostic,
         }
     }
 
@@ -380,7 +244,7 @@ impl DiagnosticScenarioOwner {
     ) -> bool {
         let runtime = match self {
             Self::CanopyAudio(runtime) => runtime,
-            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => return false,
+            Self::TerrainConnectivity(_) => return false,
         };
         if runtime.started()
             || !runtime.observe_acoustic_readiness(
@@ -406,9 +270,7 @@ impl DiagnosticScenarioOwner {
                 .map_or(AudioTelemetryMarker::WaitingForStart, |(elapsed, phase)| {
                     AudioTelemetryMarker::Active(elapsed, phase)
                 }),
-            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
-                AudioTelemetryMarker::NotDiagnostic
-            }
+            Self::TerrainConnectivity(_) => AudioTelemetryMarker::NotDiagnostic,
         }
     }
 
@@ -420,9 +282,7 @@ impl DiagnosticScenarioOwner {
             Self::CanopyAudio(runtime) => runtime
                 .counters(snapshot)
                 .unwrap_or_else(|| CanopyAudioDiagnosticCounters::from_snapshot(snapshot)),
-            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
-                CanopyAudioDiagnosticCounters::from_snapshot(snapshot)
-            }
+            Self::TerrainConnectivity(_) => CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
         }
     }
 }
@@ -488,58 +348,6 @@ impl ScenarioOwner {
                 hides_terrain_edit_preview: false,
             },
             Self::World(_) | Self::Water(_) | Self::Diagnostic(_) => TestSceneFramePlan::none(),
-        }
-    }
-
-    pub(super) fn denoiser_frame_plan(&self) -> DenoiserFramePlan {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(bench)) => {
-                DenoiserFramePlan::active(DenoiserOwner::Foliage, bench)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => DenoiserFramePlan::Inactive,
-        }
-    }
-
-    pub(super) fn record_foliage_denoiser_frame(
-        &mut self,
-        frame: DenoiserFrame,
-    ) -> anyhow::Result<bool> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(bench)) => {
-                bench.record_completed_frame(frame)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => {
-                panic!("foliage denoiser frame requires a foliage benchmark")
-            }
-        }
-    }
-
-    pub(super) fn mark_foliage_denoiser_frame_presented(&mut self) {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(bench)) => {
-                bench.mark_frame_presented()
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => {
-                panic!("foliage denoiser presentation requires a foliage benchmark")
-            }
         }
     }
 
@@ -645,9 +453,7 @@ impl ScenarioOwner {
             Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
                 ConnectivityEvent::Active(bench)
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
+            Self::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(_))
             | Self::World(_)
             | Self::Water(_)
             | Self::TestScene(_) => ConnectivityEvent::None,
@@ -656,50 +462,203 @@ impl ScenarioOwner {
 }
 
 pub(in crate::app) struct LaunchOwners {
-    mode: LaunchMode,
+    screenshot: ScreenshotRuntime,
+    pub(super) tree_bench: Option<TreeBench>,
+    pub(super) authored_flora_bench: Option<AuthoredFloraBench>,
+    pub(super) mode: LaunchMode,
 }
 
-enum LaunchMode {
+pub(super) enum LaunchMode {
     Standard {
-        capture: CaptureOwner,
-        benchmarks: crate::cli::BenchmarkPlan,
+        camera: CameraOwner,
         scenario: ScenarioOwner,
     },
     FoliageShadow {
-        screenshot: ScreenshotRuntime,
-        benchmarks: crate::cli::BenchmarkPlan,
         runtime: DenoiserBench,
     },
 }
 
 impl LaunchOwners {
-    pub(super) fn into_parts(self) -> (AutomationOwners, ScenarioOwner) {
-        match self.mode {
+    pub(super) fn snapshot_name(&self) -> Option<&str> {
+        match &self.mode {
+            LaunchMode::Standard { camera, .. } => camera.snapshot_name(),
+            LaunchMode::FoliageShadow { .. } => None,
+        }
+    }
+
+    pub(super) fn screenshot(&self) -> &ScreenshotRuntime {
+        &self.screenshot
+    }
+
+    pub(super) fn screenshot_mut(&mut self) -> &mut ScreenshotRuntime {
+        &mut self.screenshot
+    }
+
+    pub(super) fn loading_directive(&self) -> LoadingDirective {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.loading_directive(),
+            LaunchMode::FoliageShadow { .. } => LoadingDirective::Garden,
+        }
+    }
+
+    pub(super) fn test_scene_frame_plan(&self) -> TestSceneFramePlan {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.test_scene_frame_plan(),
+            LaunchMode::FoliageShadow { .. } => TestSceneFramePlan::none(),
+        }
+    }
+
+    pub(super) fn water_progress(&self) -> WaterProgress {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.water_progress(),
+            LaunchMode::FoliageShadow { .. } => WaterProgress::Inactive,
+        }
+    }
+
+    pub(super) fn activate_water_experience(&mut self, expected_particle_count: usize) {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => {
+                scenario.activate_water_experience(expected_particle_count)
+            }
+            LaunchMode::FoliageShadow { .. } => {
+                panic!("only a water-experience launch can be activated")
+            }
+        }
+    }
+
+    pub(super) fn mark_water_experience_ready(&mut self) {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.mark_water_experience_ready(),
+            LaunchMode::FoliageShadow { .. } => {
+                panic!("only a water-experience launch can become ready")
+            }
+        }
+    }
+
+    pub(super) fn advance_water_edit_soak(&mut self) -> bool {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.advance_water_edit_soak(),
+            LaunchMode::FoliageShadow { .. } => false,
+        }
+    }
+
+    pub(super) fn canopy_audio_mode(&self) -> CanopyAudioMode {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.canopy_audio_mode(),
+            LaunchMode::FoliageShadow { .. } => CanopyAudioMode::Disabled,
+        }
+    }
+
+    pub(super) fn sample_canopy_audio_trajectory(
+        &mut self,
+        tree_origin_world: glam::Vec3,
+        time_seconds: f32,
+    ) -> AudioTrajectorySample {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => {
+                scenario.sample_canopy_audio_trajectory(tree_origin_world, time_seconds)
+            }
+            LaunchMode::FoliageShadow { .. } => AudioTrajectorySample::NotDiagnostic,
+        }
+    }
+
+    pub(super) fn start_canopy_audio_when_ready(
+        &mut self,
+        time_seconds: f32,
+        response_matches_published_scene: bool,
+        snapshot: &CanopyAudioTelemetrySnapshot,
+    ) -> bool {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.start_canopy_audio_when_ready(
+                time_seconds,
+                response_matches_published_scene,
+                snapshot,
+            ),
+            LaunchMode::FoliageShadow { .. } => false,
+        }
+    }
+
+    pub(super) fn canopy_audio_telemetry_marker(
+        &self,
+        tree_origin_world: glam::Vec3,
+        time_seconds: f32,
+    ) -> AudioTelemetryMarker {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => {
+                scenario.canopy_audio_telemetry_marker(tree_origin_world, time_seconds)
+            }
+            LaunchMode::FoliageShadow { .. } => AudioTelemetryMarker::NotDiagnostic,
+        }
+    }
+
+    pub(super) fn canopy_audio_counters(
+        &self,
+        snapshot: &CanopyAudioTelemetrySnapshot,
+    ) -> CanopyAudioDiagnosticCounters {
+        match &self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.canopy_audio_counters(snapshot),
+            LaunchMode::FoliageShadow { .. } => {
+                CanopyAudioDiagnosticCounters::from_snapshot(snapshot)
+            }
+        }
+    }
+
+    pub(super) fn connectivity_event(&mut self) -> ConnectivityEvent<'_> {
+        match &mut self.mode {
+            LaunchMode::Standard { scenario, .. } => scenario.connectivity_event(),
+            LaunchMode::FoliageShadow { .. } => ConnectivityEvent::None,
+        }
+    }
+
+    pub(super) fn is_foliage_shadow(&self) -> bool {
+        matches!(self.mode, LaunchMode::FoliageShadow { .. })
+    }
+
+    pub(super) fn begin_denoiser_frame(&self) -> DenoiserFrameTxn {
+        match &self.mode {
             LaunchMode::Standard {
-                capture,
-                benchmarks,
-                scenario,
-            } => (
-                AutomationOwners {
-                    capture,
-                    benchmarks,
+                camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                ..
+            } => runtime.begin_camera_frame(),
+            LaunchMode::FoliageShadow { runtime } => runtime.begin_foliage_frame(),
+            LaunchMode::Standard {
+                camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                ..
+            } => DenoiserFrameTxn::Inactive,
+        }
+    }
+
+    pub(super) fn finish_denoiser_frame(
+        &mut self,
+        transaction: DenoiserFrameTxn,
+        outcome: DenoiserCaptureOutcome,
+    ) -> anyhow::Result<bool> {
+        match (&mut self.mode, transaction) {
+            (
+                LaunchMode::Standard {
+                    camera: CameraOwner::DenoiserBenchmark { runtime, .. },
+                    ..
                 },
-                scenario,
-            ),
-            LaunchMode::FoliageShadow {
-                screenshot,
-                benchmarks,
-                runtime,
-            } => (
-                AutomationOwners {
-                    capture: CaptureOwner {
-                        screenshot,
-                        mode: CameraCapture::None,
-                    },
-                    benchmarks,
+                transaction @ DenoiserFrameTxn::Camera { .. },
+            )
+            | (
+                LaunchMode::FoliageShadow { runtime },
+                transaction @ DenoiserFrameTxn::Foliage { .. },
+            ) => runtime.finish_frame(transaction, outcome),
+            (
+                LaunchMode::Standard {
+                    camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+                    ..
                 },
-                ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(runtime)),
-            ),
+                DenoiserFrameTxn::Inactive,
+            ) => match outcome {
+                DenoiserCaptureOutcome::NotRequested => Ok(false),
+                DenoiserCaptureOutcome::ReadbackFailed(error) => Err(error),
+                DenoiserCaptureOutcome::Frame(_) => {
+                    anyhow::bail!("inactive denoiser owner received a frame")
+                }
+            },
+            _ => anyhow::bail!("denoiser frame transaction changed launch owner"),
         }
     }
 }
@@ -709,6 +668,10 @@ pub(in crate::app) fn prepare_startup_owners(
     scenario: Scenario,
 ) -> Result<LaunchOwners, String> {
     let AutomationPlan { camera, benchmarks } = automation;
+    let tree_bench = benchmarks.tree_samples.map(TreeBench::new);
+    let authored_flora_bench = benchmarks
+        .authored_flora_samples
+        .map(AuthoredFloraBench::new);
     let scenario_owner = match scenario {
         Scenario::Garden => ScenarioOwner::World(WorldScenarioOwner::Garden),
         Scenario::CanopyAudioDiagnostic { constrained_budget } => {
@@ -739,29 +702,29 @@ pub(in crate::app) fn prepare_startup_owners(
                 );
             };
             return Ok(LaunchOwners {
+                screenshot: ScreenshotRuntime::new(None),
+                tree_bench,
+                authored_flora_bench,
                 mode: LaunchMode::FoliageShadow {
-                    screenshot: ScreenshotRuntime::new(None),
-                    benchmarks,
                     runtime: DenoiserBench::new_foliage(options),
                 },
             });
         }
     };
-    let (mode, screenshot) = match camera {
-        CameraAutomation::None => (CameraCapture::None, ScreenshotRuntime::new(None)),
-        CameraAutomation::Snapshot(name) => (
-            CameraCapture::Snapshot { name },
-            ScreenshotRuntime::new(None),
-        ),
+    let (camera, screenshot) = match camera {
+        CameraAutomation::None => (CameraOwner::None, ScreenshotRuntime::new(None)),
+        CameraAutomation::Snapshot(name) => {
+            (CameraOwner::Snapshot { name }, ScreenshotRuntime::new(None))
+        }
         CameraAutomation::Screenshot { snapshot, capture } => (
-            CameraCapture::Snapshot { name: snapshot },
+            CameraOwner::Snapshot { name: snapshot },
             ScreenshotRuntime::new(Some(capture)),
         ),
         CameraAutomation::DenoiserBenchmark {
             snapshot,
             benchmark,
         } => (
-            CameraCapture::DenoiserBenchmark {
+            CameraOwner::DenoiserBenchmark {
                 snapshot,
                 runtime: DenoiserBench::new_camera(benchmark),
             },
@@ -769,9 +732,11 @@ pub(in crate::app) fn prepare_startup_owners(
         ),
     };
     Ok(LaunchOwners {
+        screenshot,
+        tree_bench,
+        authored_flora_bench,
         mode: LaunchMode::Standard {
-            capture: CaptureOwner { screenshot, mode },
-            benchmarks,
+            camera,
             scenario: scenario_owner,
         },
     })
@@ -803,7 +768,6 @@ mod tests {
         Hybrid,
         CanopyAudio,
         TerrainConnectivity,
-        FoliageShadow,
     }
 
     fn owner_kind(owner: ScenarioOwner) -> OwnerKind {
@@ -823,20 +787,22 @@ mod tests {
             ScenarioOwner::Diagnostic(diagnostic) => match diagnostic {
                 DiagnosticScenarioOwner::CanopyAudio(_) => OwnerKind::CanopyAudio,
                 DiagnosticScenarioOwner::TerrainConnectivity(_) => OwnerKind::TerrainConnectivity,
-                DiagnosticScenarioOwner::FoliageShadow(_) => OwnerKind::FoliageShadow,
             },
         }
     }
 
     fn owner_for(scenario: Scenario) -> ScenarioOwner {
-        prepare_startup_owners(AutomationPlan::default(), scenario)
-            .unwrap()
-            .into_parts()
-            .1
+        let launch = prepare_startup_owners(AutomationPlan::default(), scenario).unwrap();
+        match launch.mode {
+            LaunchMode::Standard { scenario, .. } => scenario,
+            LaunchMode::FoliageShadow { .. } => {
+                panic!("foliage benchmark is not a standard scenario")
+            }
+        }
     }
 
-    fn capture_for(camera: CameraAutomation) -> CaptureOwner {
-        match prepare_startup_owners(
+    fn capture_for(camera: CameraAutomation) -> LaunchOwners {
+        prepare_startup_owners(
             AutomationPlan {
                 camera,
                 benchmarks: BenchmarkPlan::default(),
@@ -844,13 +810,6 @@ mod tests {
             Scenario::Garden,
         )
         .unwrap()
-        .mode
-        {
-            LaunchMode::Standard { capture, .. } => capture,
-            LaunchMode::FoliageShadow { .. } => {
-                panic!("garden must use standard launch ownership")
-            }
-        }
     }
 
     #[test]
@@ -890,18 +849,21 @@ mod tests {
         ];
 
         for (camera, expected_snapshot, expected_scheduled, expected_denoiser) in cases {
-            let CaptureOwner { screenshot, mode } = capture_for(camera);
-            assert_eq!(screenshot.is_scheduled(), expected_scheduled);
-            match mode {
-                CameraCapture::None => {
+            let launch = capture_for(camera);
+            assert_eq!(launch.screenshot.is_scheduled(), expected_scheduled);
+            let LaunchMode::Standard { camera, .. } = launch.mode else {
+                panic!("garden must use standard launch ownership")
+            };
+            match camera {
+                CameraOwner::None => {
                     assert_eq!(expected_snapshot, None);
                     assert!(!expected_denoiser);
                 }
-                CameraCapture::Snapshot { name } => {
+                CameraOwner::Snapshot { name } => {
                     assert_eq!(Some(name.as_str()), expected_snapshot);
                     assert!(!expected_denoiser);
                 }
-                CameraCapture::DenoiserBenchmark { snapshot, .. } => {
+                CameraOwner::DenoiserBenchmark { snapshot, .. } => {
                     assert_eq!(Some(snapshot.as_str()), expected_snapshot);
                     assert!(expected_denoiser);
                 }
@@ -923,12 +885,8 @@ mod tests {
             LaunchMode::Standard { .. } => {
                 panic!("foliage benchmark must not be a standard scenario/camera pair")
             }
-            LaunchMode::FoliageShadow {
-                screenshot,
-                runtime,
-                benchmarks: _,
-            } => {
-                assert!(!screenshot.is_scheduled());
+            LaunchMode::FoliageShadow { runtime } => {
+                assert!(!launch.screenshot.is_scheduled());
                 assert!(runtime.fixed_frame_delta_seconds().is_some());
             }
         }
@@ -936,20 +894,18 @@ mod tests {
 
     #[test]
     fn foliage_denoiser_exposes_an_owned_plan_without_borrowing_the_runtime() {
-        let (_, scenario) = prepare_startup_owners(
+        let launch = prepare_startup_owners(
             AutomationPlan::default(),
             Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
                 capture: capture_options(),
             }),
         )
-        .unwrap()
-        .into_parts();
+        .unwrap();
 
-        assert_eq!(
-            scenario.denoiser_frame_plan().owner(),
-            DenoiserOwner::Foliage
-        );
-        assert!(scenario.denoiser_frame_plan().is_foliage_shadow());
+        assert!(matches!(
+            launch.begin_denoiser_frame(),
+            DenoiserFrameTxn::Foliage { .. }
+        ));
     }
 
     #[test]
@@ -980,12 +936,6 @@ mod tests {
                     },
                 ),
                 OwnerKind::TerrainConnectivity,
-            ),
-            (
-                Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
-                    capture: capture_options(),
-                }),
-                OwnerKind::FoliageShadow,
             ),
         ];
 
@@ -1131,7 +1081,7 @@ mod tests {
 
     #[test]
     fn denoiser_frame_transaction_keeps_camera_and_foliage_ownership_exclusive() {
-        let mut camera = camera_denoiser_owners();
+        let camera = camera_denoiser_owners();
         let camera_frame = camera.begin_denoiser_frame();
         assert!(matches!(
             camera_frame,
@@ -1145,7 +1095,7 @@ mod tests {
             }
         ));
 
-        let mut foliage = foliage_denoiser_owners();
+        let foliage = foliage_denoiser_owners();
         let foliage_frame = foliage.begin_denoiser_frame();
         assert!(matches!(
             foliage_frame,
@@ -1163,6 +1113,16 @@ mod tests {
     #[test]
     fn failed_denoiser_record_does_not_present_or_advance_the_owned_transaction() {
         for mut owners in [camera_denoiser_owners(), foliage_denoiser_owners()] {
+            let readback_transaction = owners.begin_denoiser_frame();
+            owners
+                .finish_denoiser_frame(
+                    readback_transaction,
+                    DenoiserCaptureOutcome::ReadbackFailed(anyhow::anyhow!(
+                        "synthetic readback failure"
+                    )),
+                )
+                .expect_err("readback failure must reject the transaction");
+
             let transaction = owners.begin_denoiser_frame();
             let error = owners
                 .finish_denoiser_frame(
@@ -1187,5 +1147,44 @@ mod tests {
                 }
             ));
         }
+    }
+
+    #[test]
+    fn failed_denoiser_report_write_does_not_commit_capture_or_present_counters() {
+        let report_directory = tempfile::tempdir().unwrap();
+        let mut owners = prepare_startup_owners(
+            AutomationPlan {
+                camera: CameraAutomation::DenoiserBenchmark {
+                    snapshot: "tree".to_owned(),
+                    benchmark: CameraDenoiserOptions {
+                        capture: DenoiserCaptureOptions {
+                            report_path: report_directory.path().display().to_string(),
+                            warmup_frames: 0,
+                            capture_frames: 1,
+                        },
+                        camera_motion: CameraMotion::Fixed,
+                    },
+                },
+                benchmarks: BenchmarkPlan::default(),
+            },
+            Scenario::Garden,
+        )
+        .unwrap();
+
+        let transaction = owners.begin_denoiser_frame();
+        let error = owners
+            .finish_denoiser_frame(
+                transaction,
+                DenoiserCaptureOutcome::Frame(DenoiserFrame::new(1, 1, vec![0; 4])),
+            )
+            .expect_err("writing a report over an existing directory must fail");
+        assert!(error.to_string().contains("write denoiser report"));
+        assert!(matches!(
+            owners.begin_denoiser_frame(),
+            DenoiserFrameTxn::Camera {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                ..
+            }
+        ));
     }
 }

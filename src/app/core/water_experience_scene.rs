@@ -133,7 +133,7 @@ impl App {
     pub(super) fn process_water_experience_scene(&mut self) {
         let super::launch_owners::WaterProgress::ExperienceWaiting {
             expected_particle_count,
-        } = self.scenario_owner.water_progress()
+        } = self.launch_owners.water_progress()
         else {
             return;
         };
@@ -153,7 +153,7 @@ impl App {
 
         let revision = frame.revision();
         let sim_time_seconds = frame.sim_time_seconds();
-        self.scenario_owner.mark_water_experience_ready();
+        self.launch_owners.mark_water_experience_ready();
         log::info!(
             "[WATER_EXPERIENCE] ready complete_frame_revision={} sim_time_seconds={:.6} particles={} terrain_cache=ready",
             revision,
