@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
     "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
 }
 
@@ -44,24 +49,22 @@ run_case() {
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
-        return 0
-    fi
+    else
+        echo "[DDGI_INFLIGHT_EDIT] spacing=$spacing repeat=$repeat running"
+        set +e
+        RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
+            "${command[@]}" 2>&1 | tee "$console"
+        command_status=${PIPESTATUS[0]}
+        set -e
 
-    echo "[DDGI_INFLIGHT_EDIT] spacing=$spacing repeat=$repeat running"
-    set +e
-    RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
-    command_status=${PIPESTATUS[0]}
-    set -e
-
-    initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
-    if [[ -z "$initial_revision" ]]; then
-        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat missing initial terrain revision" >&2
-        return 1
-    fi
-    obsolete_revision="$((initial_revision + 1))"
-    replacement_revision="$((initial_revision + 2))"
-    required=(
+        initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
+        if [[ -z "$initial_revision" ]]; then
+            echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat missing initial terrain revision" >&2
+            return 1
+        fi
+        obsolete_revision="$((initial_revision + 1))"
+        replacement_revision="$((initial_revision + 2))"
+        required=(
         "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=$initial_revision"
         "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=$initial_revision target_revision=$obsolete_revision"
         "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=$obsolete_revision"
@@ -75,31 +78,34 @@ run_case() {
         "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=$replacement_revision"
         "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=$replacement_revision"
         "[ENV_IRRADIANCE_CAPTURE] saved"
-    )
-    missing=()
-    for marker in "${required[@]}"; do
-        if ! grep -Fq "$marker" "$console"; then
-            missing+=("$marker")
-        fi
-    done
-    if grep -Eq "\[DDGI\] staging promoted .*kind=Terrain.*terrain_revision=${obsolete_revision}([^0-9]|$)" "$console"; then
-        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat obsolete terrain revision $obsolete_revision became active" >&2
-        return 1
-    fi
-    if (( command_status != 0 || ${#missing[@]} != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat status=$command_status missing_markers=${#missing[@]} capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
-        for marker in "${missing[@]}"; do
-            echo "[DDGI_INFLIGHT_EDIT] missing: $marker" >&2
+        )
+        missing=()
+        for marker in "${required[@]}"; do
+            if ! grep -Fq "$marker" "$console"; then
+                missing+=("$marker")
+            fi
         done
-        grep -E "ENV_LIGHT_EDIT|\[DDGI\].*(staging|rebuild)" "$console" | tail -n 40 >&2 || true
-        return 1
+        if grep -Eq "\[DDGI\] staging promoted .*kind=Terrain.*terrain_revision=${obsolete_revision}([^0-9]|$)" "$console"; then
+            echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat obsolete terrain revision $obsolete_revision became active" >&2
+            return 1
+        fi
+        if (( command_status != 0 || ${#missing[@]} != 0 )) || [[ ! -f "$capture" ]]; then
+            echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat status=$command_status missing_markers=${#missing[@]} capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
+            for marker in "${missing[@]}"; do
+                echo "[DDGI_INFLIGHT_EDIT] missing: $marker" >&2
+            done
+            grep -E "ENV_LIGHT_EDIT|\[DDGI\].*(staging|rebuild)" "$console" | tail -n 40 >&2 || true
+            return 1
+        fi
     fi
     if ! analyze_current_capture \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat final reopened portal is not lit" >&2
         return 1
     fi
-    echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing repeat=$repeat active revision skipped $obsolete_revision and reached $replacement_revision"
+    if ! $dry_run; then
+        echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing repeat=$repeat active revision skipped $obsolete_revision and reached $replacement_revision"
+    fi
 }
 
 for spacing in "${spacings[@]}"; do
@@ -108,17 +114,18 @@ for spacing in "${spacings[@]}"; do
             failures=$((failures + 1))
         fi
     done
-    if ! $dry_run; then
-        first="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat1.rfirr"
-        second="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat2.rfirr"
-        if [[ -f "$first" && -f "$second" ]] && \
+    first="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat1.rfirr"
+    second="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat2.rfirr"
+    analysis_output=/dev/null
+    if [[ "$dry_run" == true || ( -f "$first" && -f "$second" ) ]] && \
             analyze_current_capture \
-                "$first" --compare "$second" --compare-direct-light >/dev/null; then
+                "$first" --compare "$second" --compare-direct-light >"$analysis_output"; then
+        if ! $dry_run; then
             echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing deterministic final captures"
-        else
-            echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing final captures differ" >&2
-            failures=$((failures + 1))
         fi
+    else
+        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing final captures differ" >&2
+        failures=$((failures + 1))
     fi
 done
 

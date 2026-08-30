@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
     "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
 }
 
@@ -310,14 +315,18 @@ check_inflight_stale_active_captures() {
     local second="$run_dir/inflight-stale-active-spacing${spacing}-final-b.rfirr"
     local console="$run_dir/inflight-stale-active-spacing${spacing}-final-a.console.log"
     local active_revision
-    active_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] armed active_terrain_revision=Some(\([0-9][0-9]*\)).*/\1/p' "$console" | tail -n 1)"
-    if [[ -z "$active_revision" ]]; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing missing resident active revision" >&2
-        return 1
-    fi
-    if ! cmp -s "$first" "$second"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing captures are not bit-exact" >&2
-        return 1
+    if $dry_run; then
+        active_revision=1
+    else
+        active_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] armed active_terrain_revision=Some(\([0-9][0-9]*\)).*/\1/p' "$console" | tail -n 1)"
+        if [[ -z "$active_revision" ]]; then
+            echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing missing resident active revision" >&2
+            return 1
+        fi
+        if ! cmp -s "$first" "$second"; then
+            echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing captures are not bit-exact" >&2
+            return 1
+        fi
     fi
     if ! analyze_current_capture \
         "$first" --compare "$second" --compare-direct-light \
@@ -338,18 +347,23 @@ check_flora_consumer() {
     local console="$1"
     local capture="$2"
     local final_revision
-    final_revision="$(final_revision_for_state sequential-reopened "$console")"
-    local consumer_line
-    consumer_line="$(grep -E "\[DDGI\]\[CONSUMERS\].*geometry_revision=$final_revision([^0-9]|$)" "$console" | tail -n 1 || true)"
     local active_token
-    active_token="$(sed -n 's/.*active_token_serial=\([0-9][0-9]*\).*/\1/p' <<<"$consumer_line")"
-    if [[ -z "$active_token" ]]; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL flora run missing final shared-consumer token" >&2
-        return 1
-    fi
-    if ! grep -Eq "\\[DDGI\\]\\[FLORA_CONSUMER\\] draw_recorded active_token_serial=$active_token terrain_revision=$final_revision([^0-9]|$).*instance_count=[1-9][0-9]*" "$console"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=$final_revision" >&2
-        return 1
+    if $dry_run; then
+        final_revision=1
+        active_token=1
+    else
+        final_revision="$(final_revision_for_state sequential-reopened "$console")"
+        local consumer_line
+        consumer_line="$(grep -E "\[DDGI\]\[CONSUMERS\].*geometry_revision=$final_revision([^0-9]|$)" "$console" | tail -n 1 || true)"
+        active_token="$(sed -n 's/.*active_token_serial=\([0-9][0-9]*\).*/\1/p' <<<"$consumer_line")"
+        if [[ -z "$active_token" ]]; then
+            echo "[DDGI_RUNTIME_EDIT] FAIL flora run missing final shared-consumer token" >&2
+            return 1
+        fi
+        if ! grep -Eq "\\[DDGI\\]\\[FLORA_CONSUMER\\] draw_recorded active_token_serial=$active_token terrain_revision=$final_revision([^0-9]|$).*instance_count=[1-9][0-9]*" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=$final_revision" >&2
+            return 1
+        fi
     fi
     if ! analyze_current_capture \
         "$capture" --min-luminance-p99 0.10; then
@@ -398,7 +412,7 @@ for spacing in "${spacings[@]}"; do
             transient_failed=true
         fi
     done
-    if ! $dry_run && ! check_inflight_stale_active_captures "$spacing"; then
+    if ! check_inflight_stale_active_captures "$spacing"; then
         transient_failed=true
     fi
     if $transient_failed; then
@@ -410,7 +424,11 @@ flora_capture="$run_dir/flora-consumer-spacing32-final.rfirr"
 flora_console="$run_dir/flora-consumer-spacing32-final.console.log"
 if ! run_capture 32 sequential-reopened final flora-final true; then
     failures=$((failures + 1))
-elif ! $dry_run; then
+elif $dry_run; then
+    if ! check_flora_consumer "$flora_console" "$flora_capture"; then
+        failures=$((failures + 1))
+    fi
+else
     mv "$run_dir/sequential-reopened-spacing32-flora-final.rfirr" "$flora_capture"
     mv "$run_dir/sequential-reopened-spacing32-flora-final.console.log" "$flora_console"
     if ! check_lifecycle_markers 32 sequential-reopened "$flora_console" \

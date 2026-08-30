@@ -14,10 +14,25 @@ from collections import Counter
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
 FUNCTION_HEADER = "analyze_current_capture() {"
+DRY_RUN_HEADER = "    if $dry_run; then"
+DRY_RUN_PRINT = "        printf '%q ' analyze_current_capture \"$@\" >&2"
+DRY_RUN_NEWLINE = "        printf '\\n' >&2"
+DRY_RUN_RETURN = "        return 0"
+DRY_RUN_END = "    fi"
 DIRECT_CALL = (
     '    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"'
 )
 FUNCTION_END = "}"
+CANONICAL_FUNCTION = [
+    FUNCTION_HEADER,
+    DRY_RUN_HEADER,
+    DRY_RUN_PRINT,
+    DRY_RUN_NEWLINE,
+    DRY_RUN_RETURN,
+    DRY_RUN_END,
+    DIRECT_CALL,
+    FUNCTION_END,
+]
 FUNCTION_INVOCATION = re.compile(
     r"^\s*(?:(?:if|elif)\b.*?\s!\s+)?analyze_current_capture(?:\s|$)"
 )
@@ -101,7 +116,7 @@ def production_runner_invocation_failures(
         if CURRENT_FUNCTION_DEFINITION.match(line) is not None
     ]
     sealed = any(
-        lines[index : index + 3] == [FUNCTION_HEADER, DIRECT_CALL, FUNCTION_END]
+        lines[index : index + len(CANONICAL_FUNCTION)] == CANONICAL_FUNCTION
         for index in definitions
     )
     overrides = [

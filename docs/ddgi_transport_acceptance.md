@@ -39,7 +39,11 @@ command position. `scripts/rfirr_production_runner_contract.py` is intentionally
 source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
 The typed current-only CLI behavior above is the schema seal.
 The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
-runners and rejects missing branches, unexpected helper scopes, or later function overrides.
+runners and rejects missing canonical call sites, unexpected helper scopes, or later function
+overrides. It does not prove reachability through arbitrary Bash control flow. Each runner's
+`--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
+the corresponding production matrix would execute, and the behavioral tests pin those per-runner
+command counts and representative branch arguments.
 
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
 it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic

@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
     "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
 }
 
@@ -47,9 +52,9 @@ run_case() {
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
-        return 0
     fi
 
+    if ! $dry_run; then
     echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running mode=$mode lifecycle"
     set +e
     RUST_LOG="warn,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
@@ -98,6 +103,7 @@ run_case() {
         done
         grep -E "ENV_LIGHT_EDIT_CYCLE|runtime terrain invalidation" "$console" | tail -n 24 >&2 || true
         return 1
+    fi
     fi
     if [[ "$mode" == "closed" ]]; then
         if ! analyze_current_capture \

@@ -5,6 +5,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
     "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
 }
 
@@ -36,40 +41,43 @@ command=(
     --auto-exit "$auto_exit"
 )
 
+failures=0
 if $dry_run; then
     printf '%q ' "${command[@]}"
     printf '\n'
-    echo "[DDGI_LOCAL_TERRAIN] dry-run"
-    exit 0
+else
+    mkdir -p "$run_dir"
+    cargo build --quiet --release --manifest-path "$repo_root/Cargo.toml"
+
+    set +e
+    RUST_LOG="warn,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
+        "${command[@]}" >"$console" 2>&1
+    command_status=$?
+    set -e
 fi
 
-mkdir -p "$run_dir"
-cargo build --quiet --release --manifest-path "$repo_root/Cargo.toml"
-
-set +e
-RUST_LOG="warn,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-    "${command[@]}" >"$console" 2>&1
-command_status=$?
-set -e
-
-failures=0
 fail() {
     echo "[DDGI_LOCAL_TERRAIN] FAIL $*" >&2
     failures=$((failures + 1))
 }
 
-if (( command_status != 0 )); then
+if ! $dry_run && (( command_status != 0 )); then
     fail "runtime status=$command_status"
 fi
-if [[ ! -f "$capture" ]]; then
+if ! $dry_run && [[ ! -f "$capture" ]]; then
     fail "capture missing path=$capture"
 fi
-if grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback)' "$console"; then
+if ! $dry_run && grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback)' "$console"; then
     fail "runtime error marker"
 fi
 
-initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
-if [[ -z "$initial_revision" ]]; then
+initial_revision=""
+if ! $dry_run; then
+    initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
+fi
+if $dry_run; then
+    final_revision=""
+elif [[ -z "$initial_revision" ]]; then
     fail "missing initial terrain revision"
     final_revision=""
 else
@@ -78,7 +86,7 @@ fi
 
 promotion=""
 promotion_line=""
-if [[ -n "$final_revision" ]]; then
+if ! $dry_run && [[ -n "$final_revision" ]]; then
     if grep -Eq "\[DDGI\] runtime observed visible terrain revision=$final_revision([^0-9]|$).*invalidation_voxel_bound=Some\(\(UVec3\(0, 0, 0\), UVec3\(512, 512, 512\)\)\)" "$console"; then
         fail "terrain revision=$final_revision invalidated the full DDGI domain"
     fi
@@ -119,9 +127,15 @@ if [[ -n "$final_revision" ]]; then
     fi
 fi
 
-if [[ -f "$capture" ]] && ! analyze_current_capture \
-    "$capture" --max-luminance 0.00005 >/dev/null; then
+analysis_output=/dev/null
+if [[ "$dry_run" == true || -f "$capture" ]] && ! analyze_current_capture \
+    "$capture" --max-luminance 0.00005 >"$analysis_output"; then
     fail "closed scene retained stale light"
+fi
+
+if $dry_run; then
+    echo "[DDGI_LOCAL_TERRAIN] dry-run"
+    exit 0
 fi
 
 if (( failures != 0 )); then

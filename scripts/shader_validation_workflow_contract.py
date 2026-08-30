@@ -27,6 +27,7 @@ REQUIRED_OWNER_PATHS = (
     "scripts/tests/test_check_ddgi_lifecycle_acceptance.py",
     "scripts/tests/test_check_ddgi_runtime_terrain_edits.py",
     "scripts/tests/test_check_ddgi_transport_acceptance.py",
+    "scripts/tests/test_ddgi_runner_dry_run_contract.py",
     "scripts/tests/test_rfirr_current_version_contract.py",
     "scripts/tests/test_shader_validation_workflow.py",
     "scripts/validate_ddgi_radiance_lifecycle.py",
