@@ -36,8 +36,9 @@ class CheckDdgiRuntimeTerrainEditsTests(unittest.TestCase):
                 "--require-filter-history-retain-blend", evidence_lines[0]
             )
             self.assertIn(
-                "--expect-filter-blend-retention-q16 32768", evidence_lines[0]
+                "--require-filter-local-recovery-policy", evidence_lines[0]
             )
+            self.assertNotIn("--expect-filter-blend-retention-q16", evidence_lines[0])
 
 
 if __name__ == "__main__":

@@ -28,6 +28,11 @@ UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
 
+
+def local_recovery_retention_q16(update_epoch: int) -> int:
+    denominator = update_epoch + 1
+    return (update_epoch * 65_536 + denominator // 2) // denominator
+
 DEBUG_VIEW_LABELS = {
     0: "final",
     1: "moment-visibility",
@@ -1657,6 +1662,7 @@ def main() -> int:
     )
     parser.add_argument("--expect-version", type=int)
     parser.add_argument("--require-filter-history-retain-blend", action="store_true")
+    parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
     parser.add_argument("--expect-filter-blend-retention-q16", type=int)
     parser.add_argument("--min-filter-visibility-reject-count", type=int)
     parser.add_argument(
@@ -1761,6 +1767,31 @@ def main() -> int:
                 history = filter_evidence[label]
                 if history["retain"] == 0 or history["blend"] == 0:
                     failures.append(f"{label}: expected both Retain and Blend actions")
+    if args.require_filter_local_recovery_policy:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        else:
+            expected_q16 = local_recovery_retention_q16(
+                filter_evidence["update_epoch"]
+            )
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                expected_sum = history["blend"] * expected_q16
+                if history["retain"] == 0 or history["blend"] == 0:
+                    failures.append(
+                        f"{label}: local recovery requires both Retain and Blend actions"
+                    )
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"] != expected_q16
+                ):
+                    failures.append(
+                        f"{label}: expected epoch {filter_evidence['update_epoch']} "
+                        f"local-recovery retention q16 {expected_q16}, got "
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
+                    )
     if args.expect_filter_blend_retention_q16 is not None:
         if filter_evidence is None:
             failures.append("owner-generated filter evidence is missing")

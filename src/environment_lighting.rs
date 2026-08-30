@@ -1227,8 +1227,7 @@ mod tests {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
         validate_ddgi_filter_owner_wiring(irradiance, visibility).unwrap();
 
-        let irradiance_owner =
-            include_str!("../shader/slang/ddgi_irradiance_filter_owner.slang");
+        let irradiance_owner = include_str!("../shader/slang/ddgi_irradiance_filter_owner.slang");
         for causal_step in [
             "DdgiExecutedHistory4 executed = ddgiExecuteHistory(",
             "ddgiRecordIrradianceHistoryDecision(",
@@ -1236,8 +1235,7 @@ mod tests {
         ] {
             assert!(irradiance_owner.contains(causal_step));
         }
-        let visibility_owner =
-            include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
+        let visibility_owner = include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
         for causal_step in [
             "DdgiExecutedHistory2 executed = ddgiExecuteHistory(",
             "ddgiRecordVisibilityHistoryDecision(",

@@ -24,6 +24,30 @@ HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
+    def test_rust_producer_v9_golden_decodes_with_exact_filter_witness(self) -> None:
+        fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v9.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "rust-producer-v9.rfirr"
+            capture_path.write_bytes(bytes.fromhex(fixture_hex))
+            capture = analyzer.load_capture(capture_path)
+
+        self.assertEqual(capture.version, 9)
+        self.assertEqual(capture.update_epoch, 6)
+        evidence = capture.filter_evidence
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["irradiance_history"]["owner_version_mask"], 2)
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_sum"],
+            112_348,
+        )
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_max"],
+            56_174,
+        )
+
     def write_capture(
         self, path: Path, pixels: list[tuple[float, float, float, float]]
     ) -> None:
@@ -364,6 +388,9 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         visibility_reject: int = 4,
         irradiance_retention_sum_q16: int = 65_536,
         irradiance_retention_max_q16: int = 32_768,
+        visibility_retention_sum_q16: int = 65_536,
+        visibility_retention_max_q16: int = 32_768,
+        update_epoch: int = 1,
     ) -> None:
         voxel = 1.0 / 256.0
         header = HEADER_V9.pack(
@@ -382,7 +409,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             9001,
             89,
             1,
-            1,
+            update_epoch,
             1,
             0,
             88,
@@ -398,7 +425,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             2,
             2,
             89,
-            1,
+            update_epoch,
             4,
             1,
             0,
@@ -410,8 +437,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             0,
             2,
             2,
-            65_536,
-            32_768,
+            visibility_retention_sum_q16,
+            visibility_retention_max_q16,
             visibility_samples,
             visibility_accept,
             visibility_reject,
@@ -483,6 +510,24 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "exact Blend retention"):
                 analyzer.load_capture(capture_path)
+
+    def test_v9_local_recovery_retention_is_derived_from_the_capture_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "local-recovery-e8.rfirr"
+            self.write_capture_v9(
+                capture_path,
+                update_epoch=8,
+                irradiance_retention_sum_q16=116_508,
+                irradiance_retention_max_q16=58_254,
+                visibility_retention_sum_q16=116_508,
+                visibility_retention_max_q16=58_254,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--require-filter-local-recovery-policy",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
     def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

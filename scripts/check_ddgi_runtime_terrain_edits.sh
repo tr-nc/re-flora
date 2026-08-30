@@ -284,7 +284,7 @@ check_captures() {
     if [[ "$state" == "sequential-reopened" ]]; then
         analysis+=(
             --require-filter-history-retain-blend
-            --expect-filter-blend-retention-q16 32768
+            --require-filter-local-recovery-policy
         )
     fi
     if $dry_run; then

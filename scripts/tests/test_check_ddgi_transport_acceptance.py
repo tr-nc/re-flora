@@ -61,7 +61,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v9",
             "--expect-version 9",
             "--require-filter-history-retain-blend",
-            "--expect-filter-blend-retention-q16 32768",
+            "--require-filter-local-recovery-policy",
             "--min-filter-visibility-reject-count 1",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",

@@ -80,6 +80,11 @@ impl CaptureMetadata {
                     == u64::from(filter_evidence.probe_count),
             "DDGI irradiance history evidence is inconsistent"
         );
+        validate_local_recovery_history(
+            filter_evidence.irradiance,
+            field.update_epoch(),
+            "irradiance",
+        )?;
         if filter_evidence.visibility_written {
             let visibility_actions = filter_evidence.visibility_history.actions;
             ensure!(
@@ -98,6 +103,11 @@ impl CaptureMetadata {
                             + filter_evidence.visibility_samples.reject,
                 "DDGI visibility filter evidence is inconsistent"
             );
+            validate_local_recovery_history(
+                filter_evidence.visibility_history,
+                field.update_epoch(),
+                "visibility",
+            )?;
         } else {
             ensure!(
                 filter_evidence.visibility_history == Default::default()
@@ -200,11 +210,66 @@ impl CaptureMetadata {
     }
 }
 
+fn local_recovery_retention_q16(update_epoch: u32) -> u32 {
+    let denominator = u64::from(update_epoch) + 1;
+    let numerator = u64::from(update_epoch) * 65_536;
+    ((numerator + denominator / 2) / denominator) as u32
+}
+
+fn validate_local_recovery_history(
+    history: crate::ddgi::DdgiFilterHistoryEvidence,
+    update_epoch: u32,
+    label: &str,
+) -> Result<()> {
+    if history.actions.retain == 0 || history.actions.blend == 0 {
+        return Ok(());
+    }
+    let expected = local_recovery_retention_q16(update_epoch);
+    ensure!(
+        history.blend_retention_q16_max == expected
+            && history.actions.blend.checked_mul(u64::from(expected))
+                == Some(history.blend_retention_q16_sum),
+        "DDGI {label} local-recovery retention does not match update epoch {update_epoch}"
+    );
+    Ok(())
+}
+
 fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
     match state {
         DdgiFieldState::Converging => CAPTURE_STATE_CONVERGING,
         DdgiFieldState::Converged => CAPTURE_STATE_CONVERGED,
     }
+}
+
+fn encode_capture_header(
+    width: u32,
+    height: u32,
+    spacing_voxels: u32,
+    debug_view: u32,
+    metadata: CaptureMetadata,
+) -> Result<Vec<u8>> {
+    let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
+    header.write_all(CAPTURE_MAGIC)?;
+    for value in [
+        CAPTURE_VERSION,
+        width,
+        height,
+        CAPTURE_CHANNEL_COUNT,
+        DDGI_BACKEND_ID,
+        spacing_voxels,
+        debug_view,
+        CAPTURE_PLANE_COUNT,
+    ] {
+        header.write_all(&value.to_le_bytes())?;
+    }
+    metadata.write_to(&mut header)?;
+    ensure!(
+        header.len() == CAPTURE_HEADER_BYTE_COUNT,
+        "capture header byte count mismatch: got {}, expected {}",
+        header.len(),
+        CAPTURE_HEADER_BYTE_COUNT,
+    );
+    Ok(header)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -632,28 +697,13 @@ impl EnvironmentIrradianceCaptureRuntime {
 
         let mut file = std::fs::File::create(&readback.path)
             .with_context(|| format!("create {}", readback.path))?;
-        let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
-        header.write_all(CAPTURE_MAGIC)?;
-        for value in [
-            CAPTURE_VERSION,
+        let header = encode_capture_header(
             readback.extent.width,
             readback.extent.height,
-            CAPTURE_CHANNEL_COUNT,
-            DDGI_BACKEND_ID,
             readback.spacing_voxels,
             readback.debug_view.as_u32(),
-            CAPTURE_PLANE_COUNT,
-        ] {
-            header.write_all(&value.to_le_bytes())?;
-        }
-        readback.metadata.write_to(&mut header)?;
-        if header.len() != CAPTURE_HEADER_BYTE_COUNT {
-            anyhow::bail!(
-                "capture header byte count mismatch: got {}, expected {}",
-                header.len(),
-                CAPTURE_HEADER_BYTE_COUNT,
-            );
-        }
+            readback.metadata,
+        )?;
         file.write_all(&header)?;
         file.write_all(&raw)?;
         file.flush()?;
@@ -727,6 +777,13 @@ mod tests {
     }
 
     #[test]
+    fn local_recovery_retention_q16_is_derived_from_the_authoritative_epoch() {
+        assert_eq!(local_recovery_retention_q16(0), 0);
+        assert_eq!(local_recovery_retention_q16(1), 32_768);
+        assert_eq!(local_recovery_retention_q16(8), 58_254);
+    }
+
+    #[test]
     fn capture_metadata_uses_authoritative_published_terminal_identity() {
         let token = DdgiBuildToken::for_test(9001, 41, 16, DdgiBuildKind::Terrain);
         let source = DdgiFieldKey::new(88, 41, 17, 16, DdgiFieldState::Converging, 5).unwrap();
@@ -759,8 +816,8 @@ mod tests {
                         retain: 2,
                         blend: 2,
                     },
-                    blend_retention_q16_sum: 65_536,
-                    blend_retention_q16_max: 32_768,
+                    blend_retention_q16_sum: 112_348,
+                    blend_retention_q16_max: 56_174,
                 },
                 visibility_history: DdgiFilterHistoryEvidence {
                     owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
@@ -770,8 +827,8 @@ mod tests {
                         retain: 2,
                         blend: 2,
                     },
-                    blend_retention_q16_sum: 65_536,
-                    blend_retention_q16_max: 32_768,
+                    blend_retention_q16_sum: 112_348,
+                    blend_retention_q16_max: 56_174,
                 },
                 visibility_samples: DdgiFilterVisibilitySampleEvidence {
                     owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
@@ -819,6 +876,28 @@ mod tests {
             encoded_metadata.len(),
             CAPTURE_HEADER_BYTE_COUNT - CAPTURE_MAGIC.len() - 8 * std::mem::size_of::<u32>()
         );
+
+        let mut golden_capture = encode_capture_header(1, 1, 16, 22, metadata).unwrap();
+        for pixel in [
+            [0.25_f32, 0.5, 0.75, 1.0],
+            [1.0_f32, 2.0, 3.0, 0.0],
+            [0.0_f32, 0.0, 0.0, 1.0],
+            [1.0_f32 / 512.0, 1.0 / 512.0, 1.0 / 512.0, 1.0],
+            [1.0_f32, 1.0, 1.0, 1.0],
+        ] {
+            for value in pixel {
+                golden_capture.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let fixture_hex =
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v9.hex");
+        let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
+        let fixture: Vec<u8> = compact
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(golden_capture, fixture);
 
         let mismatched_token = DdgiBuildToken::for_test(9002, 42, 16, DdgiBuildKind::Terrain);
         let mismatch = CaptureMetadata::from_checkpoint(
