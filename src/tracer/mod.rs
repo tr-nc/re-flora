@@ -101,8 +101,8 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
-    DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
-    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals,
+    DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
     DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes,
     DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
@@ -1138,7 +1138,8 @@ impl Tracer {
             &vulkan_ctx,
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
-            desc.environment_probe_spacing_voxels,
+            DdgiProbeSpacing::try_from(desc.environment_probe_spacing_voxels)
+                .map_err(anyhow::Error::msg)?,
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
@@ -1249,7 +1250,9 @@ impl Tracer {
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) {
-        self.ddgi_runtime.request_density_rebuild(spacing_voxels);
+        let spacing = DdgiProbeSpacing::try_from(spacing_voxels)
+            .expect("DDGI rebuild caller must select a supported Probe spacing");
+        self.ddgi_runtime.request_density_rebuild(spacing);
         log::info!(
             "[DDGI] density rebuild queued spacing_voxels={} coordinator={:?}",
             spacing_voxels,
@@ -1260,11 +1263,12 @@ impl Tracer {
 
     fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
         let build_token = build.token();
+        assert!(matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)));
         let staging = DdgiVolume::new(
             &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            build_token.spacing_voxels(),
+            build_token.spacing(),
             self.desc.voxel_dim_per_chunk,
             self.desc.ddgi_batch_order,
         )?;
@@ -1287,7 +1291,7 @@ impl Tracer {
         }
         let retired_staging = self
             .ddgi_runtime
-            .install_volume_build(build, Some(staging))?;
+            .complete_volume_build(build, Some(staging))?;
         // Active consumers keep sampling the complete volume until the replacement reaches Ready
         // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
@@ -1503,10 +1507,10 @@ impl Tracer {
             return;
         };
         let build_token = build.token();
-        match build.target() {
-            DdgiRuntimeVolumeTarget::Active => {
+        match build {
+            build @ DdgiRuntimeVolumeBuild::Initial(_) => {
                 self.ddgi_runtime
-                    .install_volume_build(build, None)
+                    .complete_volume_build(build, None)
                     .expect("initial DDGI Volume installation must succeed");
                 let status = self.ddgi_runtime.status().builder();
                 log::info!(
@@ -1518,7 +1522,7 @@ impl Tracer {
                     DdgiConvergencePolicyEvidence,
                 );
             }
-            DdgiRuntimeVolumeTarget::Staging => {
+            build @ DdgiRuntimeVolumeBuild::Replacement(_) => {
                 let preparation = self.prepare_ddgi_staging(build);
                 require_ddgi_staging_preparation(build_token, preparation);
                 log::info!(

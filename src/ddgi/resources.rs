@@ -241,6 +241,7 @@ impl DdgiVolumePromotionPermit {
         self.publication
     }
 }
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotionPermit: Clone, Copy);
 
 impl DdgiFieldPublication {
     fn begin(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Result<Self> {
@@ -1561,6 +1562,32 @@ pub struct DdgiVolume {
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
+/// Proof that the physical Active/Staging ownership swap has already consumed its linear permit.
+///
+/// Only [`DdgiVolumes`] can mint this receipt. The runtime consumes it to commit the matching
+/// logical Volume Publication, making permit -> physical swap -> logical commit the only order
+/// expressible by the production interface.
+pub(crate) struct DdgiVolumePromotion {
+    token: DdgiBuildToken,
+    publication: DdgiFieldPublication,
+    retired_active: DdgiVolume,
+}
+
+impl DdgiVolumePromotion {
+    pub(crate) fn token(&self) -> DdgiBuildToken {
+        self.token
+    }
+
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.publication
+    }
+
+    pub(crate) fn into_retired_active(self) -> DdgiVolume {
+        self.retired_active
+    }
+}
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotion: Clone, Copy);
+
 /// Immutable semantic resource view for one candidate consumer-visible DDGI field.
 pub(crate) struct DdgiConsumerResources<'a> {
     publication: DdgiFieldPublication,
@@ -1701,7 +1728,10 @@ impl DdgiVolumes {
     }
 
     /// Consumes a preflighted authorization and performs the infallible ownership swap.
-    pub(crate) fn promote_staging(&mut self, permit: DdgiVolumePromotionPermit) -> DdgiVolume {
+    pub(crate) fn promote_staging(
+        &mut self,
+        permit: DdgiVolumePromotionPermit,
+    ) -> DdgiVolumePromotion {
         let mut staging = self.staging.take().expect("staging presence checked above");
         assert_eq!(staging.build_token, Some(permit.token));
         assert_eq!(
@@ -1709,7 +1739,12 @@ impl DdgiVolumes {
             Some(permit.publication)
         );
         staging.finish_local_recovery();
-        std::mem::replace(&mut self.active, staging)
+        let retired_active = std::mem::replace(&mut self.active, staging);
+        DdgiVolumePromotion {
+            token: permit.token,
+            publication: permit.publication,
+            retired_active,
+        }
     }
 }
 
@@ -1774,11 +1809,11 @@ impl DdgiVolume {
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         world_extent_voxels: UVec3,
-        spacing_voxels: u32,
+        spacing: super::DdgiProbeSpacing,
         voxels_per_world_unit: UVec3,
         batch_order: DdgiBatchOrder,
     ) -> Result<Self> {
-        let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing_voxels)?;
+        let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing)?;
         let irradiance_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE)?;
         let visibility_layout =
@@ -1922,7 +1957,7 @@ impl DdgiVolume {
         let transport_query_snapshot = DdgiTransportQueryInfo {
             grid_dimensions: grid.dimensions().to_array(),
             visibility_bias_world: 0.0,
-            world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing_voxels as f32)
+            world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing.voxels() as f32)
                 .to_array(),
             source_ready: 0,
             irradiance_tile_columns: irradiance_layout.tile_grid().x,
@@ -1989,7 +2024,7 @@ impl DdgiVolume {
 
         log::info!(
             "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} local_light_bytes={} total_mib={:.2}",
-            spacing_voxels,
+            spacing.voxels(),
             grid.dimensions().x,
             grid.dimensions().y,
             grid.dimensions().z,
@@ -3067,6 +3102,10 @@ fn ddgi_atlas_image_usage() -> vk::ImageUsageFlags {
 mod tests {
     use super::*;
 
+    fn probe_spacing(voxels: u32) -> super::super::DdgiProbeSpacing {
+        super::super::DdgiProbeSpacing::try_from(voxels).unwrap()
+    }
+
     #[test]
     fn runtime_convergence_budget_matches_the_acceptance_contract() {
         let contract: toml::Value = toml::from_str(include_str!(
@@ -3114,7 +3153,7 @@ mod tests {
     ) -> DdgiScheduledWork {
         let mut scheduler = super::super::DdgiTransportScheduler::new();
         scheduler.observe_radiance(radiance_revision);
-        scheduler.request_geometry(geometry_revision, spacing_voxels);
+        scheduler.request_geometry(geometry_revision, probe_spacing(spacing_voxels));
         scheduler.claim_next().unwrap().unwrap()
     }
 
@@ -3146,7 +3185,6 @@ mod tests {
     #[test]
     fn publication_level_radiance_epoch_zero_starts_a_new_owner_root() {
         static_assertions::assert_not_impl_any!(DdgiAtlasPublicationPermit: Clone, Copy);
-        static_assertions::assert_not_impl_any!(DdgiVolumePromotionPermit: Clone, Copy);
         static_assertions::assert_not_impl_any!(DdgiConsumerResources<'static>: Clone, Copy);
 
         let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
@@ -3178,7 +3216,7 @@ mod tests {
 
     #[test]
     fn spacing_32_resource_contract_is_full_precision_and_batch_bounded() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let irradiance =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility =
@@ -3307,7 +3345,7 @@ mod tests {
 
     #[test]
     fn filter_configuration_identity_uses_the_authoritative_grid_and_canonical_q16() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let identity = DdgiFilterConfigurationIdentity::from_grid(grid, 0.99);
         assert_eq!(identity.grid_dimensions, [33, 33, 33]);
         assert_eq!(identity.probe_count().unwrap(), 35_937);
@@ -3443,7 +3481,7 @@ mod tests {
 
     #[test]
     fn filter_epoch_evidence_covers_the_complete_spacing_8_volume_without_u32_sums() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 8).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(8)).unwrap();
         let probe_count = grid.probe_count();
         assert_eq!(probe_count, 274_625);
         let first_batch =
@@ -3498,7 +3536,7 @@ mod tests {
 
     #[test]
     fn volume_is_not_ready_when_resources_are_only_allocated() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let status = DdgiVolumeStatus {
             build_token: None,
             grid,
@@ -3537,7 +3575,7 @@ mod tests {
 
     #[test]
     fn runtime_status_keeps_staging_out_of_the_consumer_view_until_ready() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let irradiance_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility_layout =
@@ -3729,7 +3767,7 @@ mod tests {
         let initial = initial_work(7, 3, 32).destination();
         let mut scheduler = super::super::DdgiTransportScheduler::new();
         scheduler.install_published(initial).unwrap();
-        scheduler.request_geometry(8, 32);
+        scheduler.request_geometry(8, probe_spacing(32));
         let work = scheduler.claim_next().unwrap().unwrap();
         let local_refresh = UAabb3::new(UVec3::splat(68), UVec3::splat(152));
         let resident = resident_iteration_for_work(
@@ -3880,7 +3918,7 @@ mod tests {
 
     #[test]
     fn immutable_priority_starts_near_the_bound_then_wraps_without_starvation() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let edit = UAabb3::new(UVec3::splat(240), UVec3::splat(272));
         let priority = priority_probe_batch(grid, Some(edit), DDGI_PROBE_BATCH_SIZE).unwrap();
         let center_coordinate = UVec3::splat(8);

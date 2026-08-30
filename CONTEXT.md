@@ -57,6 +57,21 @@ _Avoid_: SH probe, point light
 A spatial field of DDGI probes with a defined transform, extent, and readiness state.
 _Avoid_: probe cloud, ambient grid
 
+**DDGI Volume Generation**:
+The identity of one physical DDGI Volume allocation. It may retain several successive DDGI Field
+Generations without being reallocated.
+_Avoid_: field generation, transport revision
+
+**DDGI Field Generation**:
+One immutable transport lineage rooted at an epoch-zero field inside a DDGI Volume Generation. A
+radiance restart creates a new Field Generation without implying a new physical allocation.
+_Avoid_: volume generation, update epoch
+
+**DDGI Volume Publication**:
+One complete DDGI field, its exact Volume Generation, and the authored-lighting and capture facts
+that belong to that field.
+_Avoid_: ready flag, resident metadata
+
 **Irradiance Map**:
 The directional diffuse-lighting function stored by a DDGI probe and queried with a surface normal.
 _Avoid_: light color, visibility map

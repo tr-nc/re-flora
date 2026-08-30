@@ -4916,7 +4916,7 @@ impl App {
                     runtime.coordinator(),
                     DdgiRefreshState::BuildingDensity {
                         candidate,
-                        queued_spacing_voxels: None,
+                        queued_spacing: None,
                     } if candidate == token
                 ));
                 let Some(work) = staging.target_work else {
@@ -5197,7 +5197,7 @@ impl App {
                     runtime.coordinator(),
                     DdgiRefreshState::BuildingDensity {
                         candidate,
-                        queued_spacing_voxels: None,
+                        queued_spacing: None,
                     } if candidate == token
                 ));
                 let Some(work) = staging.target_work else {

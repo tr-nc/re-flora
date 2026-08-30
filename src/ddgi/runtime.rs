@@ -7,7 +7,8 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 
 use super::resources::{
-    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumePromotion, DdgiVolumeStatus,
+    DdgiVolumes,
 };
 use super::scheduler::DdgiSchedulerCompletionPermit;
 #[cfg(test)]
@@ -16,33 +17,141 @@ use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiConvergenceReason, DdgiFieldIdentity,
     DdgiFilterConfigurationIdentity, DdgiFilterEpochAccumulator, DdgiFilterEpochProof,
-    DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes,
-    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh, DdgiTraceStats,
-    DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
+    DdgiProbePriority, DdgiProbePriorityReason, DdgiProbeSpacing, DdgiRayBatch, DdgiRefreshState,
+    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh,
+    DdgiTraceStats, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY,
+    DDGI_RAYS_PER_PROBE,
 };
 
 const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DdgiRuntimeVolumeTarget {
-    Active,
-    Staging,
-}
 
-/// One runtime-authorized physical Volume allocation.
+/// Identity of one physical DDGI Volume allocation.
+///
+/// A Volume generation may host multiple transport [`super::DdgiFieldGeneration`] roots as
+/// radiance restarts. The allocation identity therefore stays separate from field lineage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DdgiRuntimeVolumeBuild {
-    target: DdgiRuntimeVolumeTarget,
+pub(crate) struct DdgiVolumeGeneration {
     token: DdgiBuildToken,
+    grid: DdgiVolumeGrid,
 }
 
-impl DdgiRuntimeVolumeBuild {
-    pub(crate) fn target(self) -> DdgiRuntimeVolumeTarget {
-        self.target
+impl DdgiVolumeGeneration {
+    fn new(token: DdgiBuildToken, grid: DdgiVolumeGrid) -> Self {
+        assert_eq!(token.spacing(), grid.spacing());
+        Self { token, grid }
     }
 
     pub(crate) fn token(self) -> DdgiBuildToken {
         self.token
+    }
+
+    pub(crate) fn grid(self) -> DdgiVolumeGrid {
+        self.grid
+    }
+}
+
+/// One complete owner-minted field publication attached to its exact physical Volume generation.
+#[derive(Clone, Copy, Debug)]
+struct DdgiPublishedVolume {
+    generation: DdgiVolumeGeneration,
+    field: super::DdgiFieldPublication,
+    authored_lighting: EnvironmentLightingState,
+    capture_checkpoint: Option<DdgiCaptureCheckpoint>,
+}
+
+impl DdgiPublishedVolume {
+    fn new(
+        generation: DdgiVolumeGeneration,
+        field: super::DdgiFieldPublication,
+        authored_lighting: EnvironmentLightingState,
+    ) -> Self {
+        assert_eq!(field.generation().build_token(), generation.token());
+        assert_eq!(
+            field.field().field().radiance_revision(),
+            authored_lighting.revision()
+        );
+        Self {
+            generation,
+            field,
+            authored_lighting,
+            capture_checkpoint: None,
+        }
+    }
+
+    fn attach_capture_checkpoint(&mut self, checkpoint: DdgiCaptureCheckpoint) -> bool {
+        if self.generation.token() != checkpoint.build_token
+            || self.field.field() != checkpoint.field
+            || checkpoint
+                .filter_proof
+                .is_some_and(|proof| proof.evidence.field != checkpoint.field)
+        {
+            return false;
+        }
+        self.capture_checkpoint = Some(checkpoint);
+        true
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DdgiActivePublication {
+    Configured(DdgiVolumeGrid),
+    Building(DdgiVolumeGeneration),
+    Published(DdgiPublishedVolume),
+}
+
+impl DdgiActivePublication {
+    fn grid(self) -> DdgiVolumeGrid {
+        match self {
+            Self::Configured(grid) => grid,
+            Self::Building(generation) => generation.grid(),
+            Self::Published(publication) => publication.generation.grid(),
+        }
+    }
+
+    fn generation(self) -> Option<DdgiVolumeGeneration> {
+        match self {
+            Self::Configured(_) => None,
+            Self::Building(generation) => Some(generation),
+            Self::Published(publication) => Some(publication.generation),
+        }
+    }
+
+    fn published(self) -> Option<DdgiPublishedVolume> {
+        match self {
+            Self::Published(publication) => Some(publication),
+            Self::Configured(_) | Self::Building(_) => None,
+        }
+    }
+
+    fn clear_capture_checkpoint(&mut self) {
+        if let Self::Published(publication) = self {
+            publication.capture_checkpoint = None;
+        }
+    }
+}
+
+/// One runtime-authorized physical Volume allocation. Consuming the variant prevents a caller from
+/// reclassifying an Initial allocation as a Replacement (or vice versa) after the claim.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DdgiRuntimeVolumeBuild {
+    Initial(DdgiVolumeGeneration),
+    Replacement(DdgiVolumeGeneration),
+}
+::static_assertions::assert_not_impl_any!(
+    DdgiRuntimeVolumeBuild: ::core::marker::Copy, ::core::clone::Clone,
+    ::core::default::Default
+);
+
+impl DdgiRuntimeVolumeBuild {
+    pub(crate) fn generation(&self) -> DdgiVolumeGeneration {
+        match self {
+            Self::Initial(generation) | Self::Replacement(generation) => *generation,
+        }
+    }
+
+    pub(crate) fn token(&self) -> DdgiBuildToken {
+        self.generation().token()
     }
 }
 
@@ -271,7 +380,7 @@ mod convergence_evidence {
         ) {
             let mut scheduler = DdgiTransportScheduler::new();
             scheduler.observe_radiance(3);
-            scheduler.request_geometry(7, 16);
+            scheduler.request_geometry(7, crate::ddgi::DdgiProbeSpacing::try_from(16).unwrap());
             let work = scheduler.claim_next().unwrap().unwrap();
             let field = DdgiFieldIdentity::new(
                 DdgiFieldKey::new(1, 7, 3, 16, DdgiFieldState::Converging, 0).unwrap(),
@@ -312,8 +421,11 @@ mod convergence_evidence {
                 "acceptance grid must match the production terrain extent"
             );
             for (spacing, probe_count) in [(32, 4_913), (16, 35_937)] {
-                let grid = DdgiVolumeGrid::new(glam::UVec3::splat(world_extent), spacing)
-                    .expect("acceptance spacing must produce a runtime grid");
+                let grid = DdgiVolumeGrid::new(
+                    glam::UVec3::splat(world_extent),
+                    crate::ddgi::DdgiProbeSpacing::try_from(spacing).unwrap(),
+                )
+                .expect("acceptance spacing must produce a runtime grid");
                 assert_eq!(grid.probe_count(), probe_count);
             }
             let (work, field, stats) = facts();
@@ -416,7 +528,8 @@ mod convergence_evidence {
 
             let mut converged_scheduler = DdgiTransportScheduler::new();
             converged_scheduler.observe_radiance(3);
-            converged_scheduler.request_geometry(17, 16);
+            converged_scheduler
+                .request_geometry(17, crate::ddgi::DdgiProbeSpacing::try_from(16).unwrap());
             let converged_work = converged_scheduler.claim_next().unwrap().unwrap();
             let converged_source =
                 DdgiFieldKey::new(8, 17, 3, 16, DdgiFieldState::Converging, 6).unwrap();
@@ -491,41 +604,6 @@ pub(crate) enum DdgiVolumePublishOutcome {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PublicationDisposition<T> {
-    Idle,
-    Discard(T),
-    Publish(T),
-}
-
-#[derive(Debug)]
-enum PublicationTransactionOutcome<T, R> {
-    Idle,
-    Discarded(T),
-    Published { candidate: T, committed: R },
-}
-
-fn execute_publication_transaction<S, T: Copy, P, R>(
-    state: &mut S,
-    disposition: PublicationDisposition<T>,
-    publish: impl FnOnce(&S, T) -> Result<P>,
-    commit: impl FnOnce(&mut S, T, P) -> R,
-) -> Result<PublicationTransactionOutcome<T, R>> {
-    match disposition {
-        PublicationDisposition::Idle => Ok(PublicationTransactionOutcome::Idle),
-        PublicationDisposition::Discard(candidate) => {
-            Ok(PublicationTransactionOutcome::Discarded(candidate))
-        }
-        PublicationDisposition::Publish(candidate) => {
-            let published = publish(state, candidate)?;
-            Ok(PublicationTransactionOutcome::Published {
-                candidate,
-                committed: commit(state, candidate, published),
-            })
-        }
-    }
-}
-
 /// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
 /// harnesses. Physical atlas status remains separately available through `DdgiRuntimeStatus`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -597,9 +675,8 @@ impl DdgiRuntimeWork {
 /// mutate it underneath the GPU.
 pub(crate) struct DdgiRuntime {
     volumes: Option<DdgiVolumes>,
-    active_grid: DdgiVolumeGrid,
-    active_build_token: Option<DdgiBuildToken>,
-    active_ready: bool,
+    active_publication: DdgiActivePublication,
+    completed_staging_publication: Option<DdgiPublishedVolume>,
     latest_visible_terrain_revision: Option<u32>,
     terrain_refresh: DdgiTerrainRefresh,
     transport_scheduler: DdgiTransportScheduler,
@@ -609,10 +686,6 @@ pub(crate) struct DdgiRuntime {
     latest_transport_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
     published_authored_lighting: Option<EnvironmentLightingState>,
-    resident_active_field: Option<DdgiFieldIdentity>,
-    resident_active_authored_lighting: Option<EnvironmentLightingState>,
-    completed_staging_authored_lighting:
-        Option<(DdgiBuildToken, DdgiFieldIdentity, EnvironmentLightingState)>,
     coalesced_live_revisions: u64,
     coalesced_radiance_revisions: u64,
     camera_probe_priority: Option<UAabb3>,
@@ -620,8 +693,6 @@ pub(crate) struct DdgiRuntime {
     capture_enabled: bool,
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
-    capture_checkpoint: Option<DdgiCaptureCheckpoint>,
-    resident_active_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     filter_evidence_accumulator: Option<DdgiFilterEpochAccumulator>,
     next_frame_work_serial: u64,
     pending_frame_work: Option<DdgiFrameWork>,
@@ -631,9 +702,8 @@ impl DdgiRuntime {
     pub(crate) fn new(active_grid: DdgiVolumeGrid) -> Self {
         Self {
             volumes: None,
-            active_grid,
-            active_build_token: None,
-            active_ready: false,
+            active_publication: DdgiActivePublication::Configured(active_grid),
+            completed_staging_publication: None,
             latest_visible_terrain_revision: None,
             terrain_refresh: DdgiTerrainRefresh::default(),
             transport_scheduler: DdgiTransportScheduler::new(),
@@ -643,9 +713,6 @@ impl DdgiRuntime {
             latest_transport_lighting: None,
             in_flight_authored_lighting: None,
             published_authored_lighting: None,
-            resident_active_field: None,
-            resident_active_authored_lighting: None,
-            completed_staging_authored_lighting: None,
             coalesced_live_revisions: 0,
             coalesced_radiance_revisions: 0,
             camera_probe_priority: None,
@@ -653,8 +720,6 @@ impl DdgiRuntime {
             capture_enabled: false,
             capture_target: DdgiCaptureTarget::default(),
             capture_batch_order: DdgiBatchOrder::default(),
-            capture_checkpoint: None,
-            resident_active_capture_checkpoint: None,
             filter_evidence_accumulator: None,
             next_frame_work_serial: 1,
             pending_frame_work: None,
@@ -674,6 +739,11 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn install_volumes(&mut self, volumes: DdgiVolumes) {
+        assert_eq!(
+            volumes.status().active().grid,
+            self.active_publication.grid(),
+            "installed DDGI Active allocation must match runtime configuration"
+        );
         assert!(
             self.volumes.replace(volumes).is_none(),
             "DDGI physical volumes may only be installed once"
@@ -691,65 +761,57 @@ impl DdgiRuntime {
         publish_consumers: impl FnOnce(DdgiConsumerResources<'_>) -> Result<()>,
     ) -> Result<DdgiVolumePublishOutcome> {
         let status = self.volumes().status();
-        let disposition = if !status.staging_is_ready() {
-            PublicationDisposition::Idle
-        } else {
-            let token = status
-                .staging()
-                .and_then(|staging| staging.build_token)
-                .expect("every complete DDGI staging Volume must carry its build token");
-            if self.terrain_refresh.token_can_promote(token) {
-                PublicationDisposition::Publish(token)
-            } else {
-                PublicationDisposition::Discard(token)
-            }
-        };
-        let transaction = execute_publication_transaction(
-            self,
-            disposition,
-            |runtime, token| {
-                let permit = runtime.volumes().preflight_staging_promotion(token)?;
-                let publication = permit.publication();
-                let (lighting_token, lighting_field, lighting) = runtime
-                    .completed_staging_authored_lighting
-                    .context("promotable DDGI staging Volume lost its authored lighting")?;
-                assert_eq!(
-                    (lighting_token, lighting_field, lighting.revision()),
-                    (
-                        permit.token(),
-                        publication.field(),
-                        publication.field().field().radiance_revision(),
-                    ),
-                    "DDGI staging physical publication and authored lighting diverged"
-                );
-                let resources = runtime.volumes().staging_consumer_resources(&permit);
-                publish_consumers(resources)?;
-                Ok(permit)
-            },
-            |runtime, token, permit| {
-                let publication = permit.publication();
-                let retired_active = runtime.volumes_mut().promote_staging(permit);
-                runtime.commit_promoted(token, publication.field());
-                retired_active
-            },
-        )?;
-        match transaction {
-            PublicationTransactionOutcome::Idle => Ok(DdgiVolumePublishOutcome::Idle),
-            PublicationTransactionOutcome::Discarded(token) => {
-                anyhow::ensure!(
-                    self.finish_obsolete_volume_build(token),
-                    "completed obsolete DDGI staging token must release the single update slot"
-                );
-                Ok(DdgiVolumePublishOutcome::DiscardedObsolete(token))
-            }
-            PublicationTransactionOutcome::Published {
-                candidate: token,
-                committed: retired_active,
-            } => Ok(DdgiVolumePublishOutcome::Published {
-                token,
-                retired_active,
-            }),
+        if !status.staging_is_ready() {
+            return Ok(DdgiVolumePublishOutcome::Idle);
         }
+
+        let token = status
+            .staging()
+            .and_then(|staging| staging.build_token)
+            .expect("every complete DDGI staging Volume must carry its build token");
+        if !self.terrain_refresh.token_can_promote(token) {
+            anyhow::ensure!(
+                self.finish_obsolete_volume_build(token),
+                "completed obsolete DDGI staging token must release the single update slot"
+            );
+            return Ok(DdgiVolumePublishOutcome::DiscardedObsolete(token));
+        }
+
+        let permit = self.volumes().preflight_staging_promotion(token)?;
+        self.preflight_staging_publication(permit.token(), permit.publication())?;
+        let resources = self.volumes().staging_consumer_resources(&permit);
+        publish_consumers(resources)?;
+
+        let promotion = self.volumes_mut().promote_staging(permit);
+        let token = promotion.token();
+        let retired_active = self.commit_physical_promotion(promotion);
+        Ok(DdgiVolumePublishOutcome::Published {
+            token,
+            retired_active,
+        })
+    }
+
+    fn preflight_staging_publication(
+        &self,
+        token: DdgiBuildToken,
+        physical_publication: super::DdgiFieldPublication,
+    ) -> Result<DdgiPublishedVolume> {
+        let completed = self
+            .completed_staging_publication
+            .context("promotable DDGI staging Volume lost its runtime publication")?;
+        anyhow::ensure!(
+            (
+                completed.generation.token(),
+                completed.field,
+                completed.authored_lighting.revision()
+            ) == (
+                token,
+                physical_publication,
+                physical_publication.field().field().radiance_revision(),
+            ),
+            "DDGI staging physical and runtime publications diverged"
+        );
+        Ok(completed)
     }
 
     pub(crate) fn configure_capture(
@@ -761,8 +823,10 @@ impl DdgiRuntime {
         self.capture_enabled = enabled;
         self.capture_target = target;
         self.capture_batch_order = batch_order;
-        self.capture_checkpoint = None;
-        self.resident_active_capture_checkpoint = None;
+        self.active_publication.clear_capture_checkpoint();
+        if let Some(publication) = self.completed_staging_publication.as_mut() {
+            publication.capture_checkpoint = None;
+        }
         self.filter_evidence_accumulator = None;
     }
 
@@ -777,8 +841,11 @@ impl DdgiRuntime {
             return false;
         }
         self.latest_visible_terrain_revision = Some(geometry_revision);
-        self.terrain_refresh
-            .request(geometry_revision, edited_voxel_bound, self.active_grid);
+        self.terrain_refresh.request(
+            geometry_revision,
+            edited_voxel_bound,
+            self.active_publication.grid(),
+        );
         self.terrain_refresh
             .mark_terrain_published(geometry_revision);
         true
@@ -908,82 +975,93 @@ impl DdgiRuntime {
         self.lighting_impact_probe_priority = voxel_bound.map(|bound| (radiance_revision, bound));
     }
 
-    pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
-        self.terrain_refresh.request_density_rebuild(spacing_voxels);
+    pub(crate) fn request_density_rebuild(&mut self, spacing: DdgiProbeSpacing) {
+        self.terrain_refresh.request_density_rebuild(spacing);
     }
 
     /// Chooses the next physical Volume allocation and atomically installs its logical transport
     /// request. Preparation failure is fatal, so no rollback transition is exposed.
     pub(crate) fn claim_volume_build(&mut self) -> Option<DdgiRuntimeVolumeBuild> {
-        if self.active_build_token.is_none() {
-            let terrain_revision = self.latest_visible_terrain_revision?;
-            let token = self
-                .terrain_refresh
-                .allocate_initial_build_token(terrain_revision, self.active_grid.spacing_voxels());
-            self.terrain_refresh
-                .consume_initial_revision(terrain_revision);
-            self.active_build_token = Some(token);
-            self.request_geometry_transport(token);
-            return Some(DdgiRuntimeVolumeBuild {
-                target: DdgiRuntimeVolumeTarget::Active,
-                token,
-            });
-        }
-        if !self.active_ready {
-            return None;
-        }
-
-        let active_token = self
-            .active_build_token
-            .expect("initialized DDGI runtime must retain its active build token");
+        let active = match self.active_publication {
+            DdgiActivePublication::Configured(grid) => {
+                let terrain_revision = self.latest_visible_terrain_revision?;
+                let token = self
+                    .terrain_refresh
+                    .allocate_initial_build_token(terrain_revision, grid.spacing());
+                self.terrain_refresh
+                    .consume_initial_revision(terrain_revision);
+                let generation = DdgiVolumeGeneration::new(token, grid);
+                self.active_publication = DdgiActivePublication::Building(generation);
+                self.request_geometry_transport(token);
+                return Some(DdgiRuntimeVolumeBuild::Initial(generation));
+            }
+            DdgiActivePublication::Building(_) => return None,
+            DdgiActivePublication::Published(active) => active,
+        };
         let token = self.terrain_refresh.claim_next_build(
-            self.active_grid.spacing_voxels(),
-            active_token.terrain_revision(),
+            active.generation.grid().spacing(),
+            active.generation.token().terrain_revision(),
         )?;
         match token.kind() {
             DdgiBuildKind::Terrain => self.request_geometry_transport(token),
             DdgiBuildKind::Density => self.request_density_transport(token),
         }
-        Some(DdgiRuntimeVolumeBuild {
-            target: DdgiRuntimeVolumeTarget::Staging,
-            token,
-        })
+        let grid = DdgiVolumeGrid::new(
+            active.generation.grid().world_extent_voxels(),
+            token.spacing(),
+        )
+        .expect("runtime-issued DDGI replacement must retain a supported Volume grid");
+        Some(DdgiRuntimeVolumeBuild::Replacement(
+            DdgiVolumeGeneration::new(token, grid),
+        ))
     }
 
-    /// Installs the physical allocation authorized by [`Self::claim_volume_build`] and performs
+    /// Completes the physical allocation authorized by [`Self::claim_volume_build`] and performs
     /// the complete builder-stage initialization transaction.
     ///
     /// Allocation remains concrete Vulkan work outside the runtime. The caller hands the finished
     /// allocation back here and cannot assign tokens, select Active/Staging, or request stages.
-    pub(crate) fn install_volume_build(
+    pub(crate) fn complete_volume_build(
         &mut self,
         build: DdgiRuntimeVolumeBuild,
         staging: Option<DdgiVolume>,
     ) -> Result<Option<DdgiVolume>> {
-        match build.target {
-            DdgiRuntimeVolumeTarget::Active => {
+        match build {
+            DdgiRuntimeVolumeBuild::Initial(generation) => {
                 anyhow::ensure!(
                     staging.is_none(),
                     "initial DDGI build must use the installed Active allocation"
+                );
+                anyhow::ensure!(
+                    self.active_publication.generation() == Some(generation),
+                    "initial DDGI build no longer owns the active generation"
                 );
                 let builder = self.volumes_mut().builder_mut();
                 anyhow::ensure!(
                     builder.status().build_token.is_none(),
                     "initial DDGI Volume must not already have a build token"
                 );
-                builder.assign_build_token(build.token);
                 anyhow::ensure!(
-                    builder.request_initialization(build.token.terrain_revision()),
+                    builder.status().grid == generation.grid(),
+                    "initial DDGI allocation does not match its runtime generation"
+                );
+                builder.assign_build_token(generation.token());
+                anyhow::ensure!(
+                    builder.request_initialization(generation.token().terrain_revision()),
                     "initial DDGI Volume must accept its authoritative terrain revision"
                 );
                 Ok(None)
             }
-            DdgiRuntimeVolumeTarget::Staging => {
+            DdgiRuntimeVolumeBuild::Replacement(generation) => {
                 let mut staging =
                     staging.context("staging DDGI build requires a new allocation")?;
-                staging.assign_build_token(build.token);
                 anyhow::ensure!(
-                    staging.request_initialization(build.token.terrain_revision()),
+                    staging.status().grid == generation.grid(),
+                    "staging DDGI allocation does not match its runtime generation"
+                );
+                staging.assign_build_token(generation.token());
+                anyhow::ensure!(
+                    staging.request_initialization(generation.token().terrain_revision()),
                     "staging DDGI Volume must accept its authoritative terrain revision"
                 );
                 Ok(self.volumes_mut().prepare_staging(staging))
@@ -996,20 +1074,20 @@ impl DdgiRuntime {
         // a private staging candidate that active descriptors cannot read. Runtime-owned identity
         // keeps that distinction testable without Vulkan resources.
         let transport_source = self
-            .resident_active_field
+            .active_publication
+            .published()
+            .map(|publication| publication.field.field())
             .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
         let preempted = self.transport_scheduler.request_geometry_from(
             token.terrain_revision(),
-            token.spacing_voxels(),
+            token.spacing(),
             transport_source,
         );
         self.clear_preempted_snapshot(preempted);
     }
 
     fn request_density_transport(&mut self, token: DdgiBuildToken) {
-        let preempted = self
-            .transport_scheduler
-            .request_density(token.spacing_voxels());
+        let preempted = self.transport_scheduler.request_density(token.spacing());
         self.clear_preempted_snapshot(preempted);
     }
 
@@ -1051,7 +1129,9 @@ impl DdgiRuntime {
             .then(|| {
                 let source_revision = source.field().radiance_revision();
                 let source_lighting = [
-                    self.resident_active_authored_lighting,
+                    self.active_publication
+                        .published()
+                        .map(|publication| publication.authored_lighting),
                     self.published_authored_lighting,
                 ]
                 .into_iter()
@@ -1128,13 +1208,15 @@ impl DdgiRuntime {
         let permit = self
             .transport_scheduler
             .preflight_completion(work, published)?;
-        Ok(self.commit_transport_work(work, build_token, permit))
+        let publication = super::DdgiFieldPublication::for_test(build_token, published);
+        Ok(self.commit_transport_work(work, build_token, publication, permit))
     }
 
     fn commit_transport_work(
         &mut self,
         work: DdgiScheduledWork,
         build_token: DdgiBuildToken,
+        publication: super::DdgiFieldPublication,
         permit: DdgiSchedulerCompletionPermit,
     ) -> DdgiFieldIdentity {
         let lighting = self
@@ -1146,14 +1228,35 @@ impl DdgiRuntime {
             work.destination().field().radiance_revision(),
             "completed DDGI work and authored lighting revision diverged",
         );
+        assert_eq!(work.destination(), publication.field());
+        assert_eq!(publication.generation().build_token(), build_token);
         let published = self.transport_scheduler.commit_completion(permit);
+        assert_eq!(published, publication.field());
         self.published_authored_lighting = Some(lighting);
-        if self.active_build_token == Some(build_token) {
-            self.resident_active_field = Some(published);
-            self.resident_active_authored_lighting = Some(lighting);
-            self.active_ready = true;
+        if self
+            .active_publication
+            .generation()
+            .is_some_and(|generation| generation.token() == build_token)
+        {
+            let generation = self
+                .active_publication
+                .generation()
+                .expect("active DDGI completion must retain its Volume generation");
+            self.active_publication = DdgiActivePublication::Published(DdgiPublishedVolume::new(
+                generation,
+                publication,
+                lighting,
+            ));
         } else {
-            self.completed_staging_authored_lighting = Some((build_token, published, lighting));
+            let active_grid = self.active_publication.grid();
+            let grid =
+                DdgiVolumeGrid::new(active_grid.world_extent_voxels(), build_token.spacing())
+                    .expect("completed DDGI staging publication must retain a supported grid");
+            self.completed_staging_publication = Some(DdgiPublishedVolume::new(
+                DdgiVolumeGeneration::new(build_token, grid),
+                publication,
+                lighting,
+            ));
         }
         published
     }
@@ -1164,51 +1267,46 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn finish_obsolete_volume_build(&mut self, token: DdgiBuildToken) -> bool {
-        if !self.terrain_refresh.finish_obsolete_candidate(token) {
+        if !self.terrain_refresh.token_is_obsolete_candidate(token) {
             return false;
         }
-        if self
-            .completed_staging_authored_lighting
-            .is_some_and(|(candidate, _, _)| candidate == token)
-        {
-            self.completed_staging_authored_lighting = None;
-        }
+        let completed = self
+            .completed_staging_publication
+            .expect("completed obsolete DDGI staging token must retain its runtime publication");
+        assert_eq!(
+            completed.generation.token(),
+            token,
+            "obsolete DDGI completion may only clear its exact staging publication"
+        );
+        assert!(self.terrain_refresh.finish_obsolete_candidate(token));
+        self.completed_staging_publication = None;
         true
     }
 
-    fn commit_promoted(&mut self, token: DdgiBuildToken, publication: DdgiFieldIdentity) {
+    /// Consumes proof that physical ownership already swapped before committing logical ownership.
+    fn commit_physical_promotion(&mut self, promotion: DdgiVolumePromotion) -> DdgiVolume {
+        let token = promotion.token();
+        let publication = promotion.publication();
         assert!(
             self.terrain_refresh.token_can_promote(token),
             "preflighted DDGI token lost coordinator authority"
         );
-        assert!(self.terrain_refresh.mark_promoted(token));
-        self.active_grid = DdgiVolumeGrid::new(
-            self.active_grid.world_extent_voxels(),
-            token.spacing_voxels(),
-        )
-        .expect("promoted DDGI token must retain a supported Volume grid");
-        self.active_build_token = Some(token);
-        self.active_ready = true;
-        let (candidate_token, field, lighting) = self
-            .completed_staging_authored_lighting
-            .take()
-            .expect("promoted DDGI staging token must retain its immutable authored lighting");
+        let completed = self
+            .completed_staging_publication
+            .expect("promoted DDGI staging token must retain its runtime publication");
         assert_eq!(
-            candidate_token, token,
-            "promoted DDGI token and completed staging lighting diverged"
+            completed.generation.token(),
+            token,
+            "promoted DDGI token and completed staging publication diverged"
         );
         assert_eq!(
-            field, publication,
+            completed.field, publication,
             "promoted DDGI physical publication and scheduler field diverged"
         );
-        self.resident_active_field = Some(field);
-        self.resident_active_authored_lighting = Some(lighting);
-        if self
-            .capture_checkpoint
-            .is_some_and(|checkpoint| checkpoint.build_token == token)
-        {
-            self.resident_active_capture_checkpoint = self.capture_checkpoint;
-        }
+        assert!(self.terrain_refresh.mark_promoted(token));
+        self.completed_staging_publication = None;
+        self.active_publication = DdgiActivePublication::Published(completed);
+        promotion.into_retired_active()
     }
 
     pub(crate) fn status(&self) -> DdgiRuntimeStatus {
@@ -1222,26 +1320,18 @@ impl DdgiRuntime {
 
     pub(crate) fn capture_checkpoint(&self, volumes: DdgiStatus) -> Option<DdgiCaptureCheckpoint> {
         let active = volumes.active();
-        [
-            self.capture_checkpoint,
-            self.resident_active_capture_checkpoint,
-        ]
-        .into_iter()
-        .flatten()
-        .find(|checkpoint| {
-            if active.build_token != Some(checkpoint.build_token) {
-                return false;
+        let publication = self.active_publication.published()?;
+        let checkpoint = publication.capture_checkpoint?;
+        if active.build_token != Some(publication.generation.token()) {
+            return None;
+        }
+        let physical_matches = match checkpoint.publication {
+            DdgiCapturePublication::Published => active.publication == Some(publication.field),
+            DdgiCapturePublication::Unpublished => {
+                active.publication.is_none() && active.complete_field == Some(checkpoint.field)
             }
-            match checkpoint.publication {
-                DdgiCapturePublication::Published => {
-                    active.publication.map(|publication| publication.field())
-                        == Some(checkpoint.field)
-                }
-                DdgiCapturePublication::Unpublished => {
-                    active.publication.is_none() && active.complete_field == Some(checkpoint.field)
-                }
-            }
-        })
+        };
+        physical_matches.then_some(checkpoint)
     }
 
     pub(crate) fn capture_target(&self) -> DdgiCaptureTarget {
@@ -1267,11 +1357,14 @@ impl DdgiRuntime {
             publication,
             batch_order: self.capture_batch_order,
         };
-        self.capture_checkpoint = Some(checkpoint);
-        if self.active_build_token == Some(build_token) {
-            self.resident_active_capture_checkpoint = Some(checkpoint);
+        if let DdgiActivePublication::Published(publication) = &mut self.active_publication {
+            if publication.attach_capture_checkpoint(checkpoint) {
+                return true;
+            }
         }
-        true
+        self.completed_staging_publication
+            .as_mut()
+            .is_some_and(|publication| publication.attach_capture_checkpoint(checkpoint))
     }
 
     pub(crate) fn edited_voxel_bound(&self) -> Option<UAabb3> {
@@ -1497,8 +1590,8 @@ impl DdgiRuntime {
                 stats,
                 DDGI_CONVERGENCE_POLICY,
             )?;
-            let publication = volume_permit.publication();
-            let classified = publication.field();
+            let field_publication = volume_permit.publication();
+            let classified = field_publication.field();
             let work = volume_permit.work();
             let status_work = self
                 .volumes()
@@ -1523,7 +1616,7 @@ impl DdgiRuntime {
                 .context("validated DDGI field has no volume build token")?;
             let observed_capture = if self.volumes().builder_is_active() {
                 assert_eq!(
-                    publication.generation().build_token(),
+                    field_publication.generation().build_token(),
                     build_token,
                     "DDGI publication permit must retain the active candidate token"
                 );
@@ -1541,7 +1634,7 @@ impl DdgiRuntime {
                 let field = publication.field();
                 assert_eq!(field, classified);
                 assert_eq!(publication.work(), work);
-                self.commit_transport_work(work, build_token, scheduler_permit);
+                self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
                 let capture_observed = self.observe_capture_checkpoint(
                     build_token,
                     field,
@@ -1570,7 +1663,7 @@ impl DdgiRuntime {
                     validated_work, work,
                     "private DDGI validated work changed during publication"
                 );
-                self.commit_transport_work(work, build_token, scheduler_permit);
+                self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
                 let capture_observed = self.observe_capture_checkpoint(
                     build_token,
                     field,
@@ -1923,6 +2016,24 @@ mod tests {
     };
     use glam::{UVec3, Vec3};
 
+    fn probe_spacing(voxels: u32) -> DdgiProbeSpacing {
+        DdgiProbeSpacing::try_from(voxels).unwrap()
+    }
+
+    fn initial_generation(build: DdgiRuntimeVolumeBuild) -> DdgiVolumeGeneration {
+        match build {
+            DdgiRuntimeVolumeBuild::Initial(generation) => generation,
+            DdgiRuntimeVolumeBuild::Replacement(_) => panic!("expected initial DDGI generation"),
+        }
+    }
+
+    fn replacement_generation(build: DdgiRuntimeVolumeBuild) -> DdgiVolumeGeneration {
+        match build {
+            DdgiRuntimeVolumeBuild::Replacement(generation) => generation,
+            DdgiRuntimeVolumeBuild::Initial(_) => panic!("expected replacement DDGI generation"),
+        }
+    }
+
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
         DdgiFieldIdentity::new(
             DdgiFieldKey::new(
@@ -1939,120 +2050,21 @@ mod tests {
         .unwrap()
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
-    struct FakePublicationState {
-        active: &'static str,
-        staging: &'static str,
-        logical: &'static str,
-        commit_calls: usize,
-    }
-
-    fn fake_publication_state() -> FakePublicationState {
-        FakePublicationState {
-            active: "old-active",
-            staging: "ready-staging",
-            logical: "old-logical",
-            commit_calls: 0,
+    fn filter_proof(field: DdgiFieldIdentity) -> DdgiFilterEpochProof {
+        DdgiFilterEpochProof {
+            configuration: DdgiFilterConfigurationIdentity {
+                grid_dimensions: [4, 1, 1],
+                configured_history_retention_q16: 64_881,
+            },
+            evidence: super::super::resources::DdgiFilterEpochEvidence {
+                field,
+                probe_count: 4,
+                irradiance: Default::default(),
+                visibility_history: Default::default(),
+                visibility_samples: Default::default(),
+                visibility_written: true,
+            },
         }
-    }
-
-    #[test]
-    fn publication_transaction_idle_and_discard_call_neither_phase() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        for disposition in [
-            PublicationDisposition::Idle,
-            PublicationDisposition::Discard(token),
-        ] {
-            let mut state = fake_publication_state();
-            let publish_calls = std::cell::Cell::new(0);
-            execute_publication_transaction(
-                &mut state,
-                disposition,
-                |_, _| {
-                    publish_calls.set(publish_calls.get() + 1);
-                    Ok(())
-                },
-                |state, _, ()| state.commit_calls += 1,
-            )
-            .unwrap();
-            assert_eq!(publish_calls.get(), 0);
-            assert_eq!(state.commit_calls, 0);
-        }
-    }
-
-    #[test]
-    fn publication_transaction_error_preserves_state_and_skips_commit() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        let mut state = fake_publication_state();
-        let before = state.clone();
-        let publish_calls = std::cell::Cell::new(0);
-        let error = execute_publication_transaction(
-            &mut state,
-            PublicationDisposition::Publish(token),
-            |state, _| -> Result<()> {
-                assert_eq!(state.active, "old-active");
-                publish_calls.set(publish_calls.get() + 1);
-                anyhow::bail!("injected consumer preflight failure")
-            },
-            |state, _, ()| state.commit_calls += 1,
-        )
-        .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("injected consumer preflight failure"));
-        assert_eq!(state, before);
-        assert_eq!(state.commit_calls, 0);
-        assert_eq!(publish_calls.get(), 1);
-    }
-
-    #[test]
-    fn publication_transaction_publishes_once_before_commit_and_returns_old_active() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        let mut state = fake_publication_state();
-        let publish_calls = std::cell::Cell::new(0);
-        let generation = std::cell::Cell::new(41_u64);
-        let events = std::cell::RefCell::new(Vec::new());
-        let outcome = execute_publication_transaction(
-            &mut state,
-            PublicationDisposition::Publish(token),
-            |state, _| {
-                assert_eq!(state.active, "old-active");
-                assert_eq!(state.logical, "old-logical");
-                publish_calls.set(publish_calls.get() + 1);
-                events.borrow_mut().push("publish-consumers");
-                let published_generation = generation.get();
-                generation.set(published_generation + 1);
-                Ok(published_generation)
-            },
-            |state, _, generation| {
-                assert_eq!(generation, 41);
-                state.commit_calls += 1;
-                let retired = std::mem::replace(&mut state.active, state.staging);
-                events.borrow_mut().push("physical-swap");
-                state.logical = "promoted-logical";
-                events.borrow_mut().push("logical-promotion");
-                retired
-            },
-        )
-        .unwrap();
-
-        assert!(matches!(
-            outcome,
-            PublicationTransactionOutcome::Published {
-                committed: "old-active",
-                ..
-            }
-        ));
-        assert_eq!(publish_calls.get(), 1);
-        assert_eq!(state.commit_calls, 1);
-        assert_eq!(state.active, "ready-staging");
-        assert_eq!(state.logical, "promoted-logical");
-        assert_eq!(generation.get(), 42);
-        assert_eq!(
-            *events.borrow(),
-            ["publish-consumers", "physical-swap", "logical-promotion"]
-        );
     }
 
     fn lighting_snapshot(sun_luminance: f32) -> DdgiRadianceSnapshot {
@@ -2109,13 +2121,11 @@ mod tests {
     }
 
     fn initialized_runtime() -> (DdgiRuntime, DdgiBuildToken, DdgiFieldIdentity) {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
         assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
-        let build = runtime.claim_volume_build().unwrap();
-        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Active);
-        let token = build.token();
+        let token = initial_generation(runtime.claim_volume_build().unwrap()).token();
         let work = runtime.claim_transport_work().unwrap().scheduled();
         let published = work.destination();
         runtime
@@ -2124,13 +2134,156 @@ mod tests {
         (runtime, token, published)
     }
 
+    #[test]
+    fn runtime_claims_initial_and_replacement_volume_generations_as_distinct_builds() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+        runtime.observe_visible_terrain(7, edit_bound(100, 120));
+
+        let initial_generation = match runtime.claim_volume_build().unwrap() {
+            DdgiRuntimeVolumeBuild::Initial(generation) => generation,
+            DdgiRuntimeVolumeBuild::Replacement(_) => panic!("first allocation must be Initial"),
+        };
+        assert_eq!(initial_generation.grid(), grid);
+        let initial_work = runtime.claim_transport_work().unwrap().scheduled();
+        runtime
+            .complete_transport_work(
+                initial_work,
+                initial_work.destination(),
+                initial_generation.token(),
+            )
+            .unwrap();
+
+        runtime.observe_visible_terrain(8, edit_bound(200, 220));
+        let replacement_generation = match runtime.claim_volume_build().unwrap() {
+            DdgiRuntimeVolumeBuild::Replacement(generation) => generation,
+            DdgiRuntimeVolumeBuild::Initial(_) => panic!("resident allocation must be replaced"),
+        };
+        assert_eq!(replacement_generation.grid().spacing_voxels(), 16);
+        assert_eq!(replacement_generation.token().terrain_revision(), 8);
+        assert_ne!(replacement_generation.token(), initial_generation.token());
+    }
+
+    #[test]
+    fn radiance_restart_keeps_physical_generation_and_mints_a_new_field_generation() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let before = runtime.active_publication.published().unwrap();
+
+        let changed = lighting_at(2, Duration::from_millis(250), lighting_snapshot(2.0));
+        assert!(
+            runtime
+                .observe_authored_lighting(changed)
+                .transport_published
+        );
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+        runtime
+            .complete_transport_work(work, work.destination(), active_token)
+            .unwrap();
+
+        let after = runtime.active_publication.published().unwrap();
+        assert_eq!(after.generation, before.generation);
+        assert_eq!(after.field.generation().build_token(), active_token);
+        assert_ne!(
+            after.field.generation().epoch_zero_field(),
+            before.field.generation().epoch_zero_field(),
+            "one physical allocation may host a new transport field root"
+        );
+        assert_eq!(after.authored_lighting.revision(), 2);
+    }
+
+    #[test]
+    fn promotion_preflight_carries_the_exact_staging_publication_and_filter_checkpoint() {
+        let (mut runtime, _, _) = initialized_runtime();
+        let previous_active = runtime.active_publication.published().unwrap();
+        runtime.observe_visible_terrain(8, edit_bound(200, 220));
+        let replacement = replacement_generation(runtime.claim_volume_build().unwrap());
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        runtime
+            .complete_transport_work(work, work.destination(), replacement.token())
+            .unwrap();
+        let staged = runtime.completed_staging_publication.unwrap();
+        assert_eq!(staged.generation, replacement);
+
+        runtime.configure_capture(true, DdgiCaptureTarget::Published, DdgiBatchOrder::Reverse);
+        let proof = filter_proof(staged.field.field());
+        assert!(runtime.observe_capture_checkpoint(
+            replacement.token(),
+            staged.field.field(),
+            DdgiAtlasValidationStats::default(),
+            Some(proof),
+            DdgiCapturePublication::Published,
+        ));
+        let staged = runtime.completed_staging_publication.unwrap();
+        let authorized = runtime
+            .preflight_staging_publication(replacement.token(), staged.field)
+            .unwrap();
+        assert_eq!(authorized.generation, replacement);
+        assert_ne!(authorized.generation, previous_active.generation);
+        assert_eq!(authorized.field, staged.field);
+        assert_eq!(
+            authorized.authored_lighting.revision(),
+            staged.authored_lighting.revision()
+        );
+        assert_eq!(
+            authorized.capture_checkpoint.unwrap().filter_proof,
+            Some(proof)
+        );
+        let current_active = runtime.active_publication.published().unwrap();
+        assert_eq!(current_active.generation, previous_active.generation);
+        assert_eq!(current_active.field, previous_active.field);
+        let remaining_staging = runtime.completed_staging_publication.unwrap();
+        assert_eq!(remaining_staging.generation, staged.generation);
+        assert_eq!(remaining_staging.field, staged.field);
+        assert_eq!(
+            remaining_staging.capture_checkpoint,
+            staged.capture_checkpoint
+        );
+        assert!(runtime.token_can_promote(replacement.token()));
+    }
+
+    #[test]
+    fn promotion_preflight_rejects_the_wrong_exact_payload_without_committing_owner_state() {
+        let (mut runtime, _, _) = initialized_runtime();
+        let resident = runtime.active_publication.published().unwrap();
+        runtime.observe_visible_terrain(8, edit_bound(200, 220));
+        let replacement = replacement_generation(runtime.claim_volume_build().unwrap());
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        runtime
+            .complete_transport_work(work, work.destination(), replacement.token())
+            .unwrap();
+        let staged = runtime.completed_staging_publication.unwrap();
+        let wrong_publication = super::super::DdgiFieldPublication::for_test(
+            replacement.token(),
+            field(8, staged.authored_lighting.revision() + 1),
+        );
+
+        let error = runtime
+            .preflight_staging_publication(replacement.token(), wrong_publication)
+            .expect_err("promotion must reject a physical publication from another field root");
+
+        assert!(error
+            .to_string()
+            .contains("physical and runtime publications diverged"));
+        assert_eq!(
+            runtime.active_publication.published().unwrap().field,
+            resident.field
+        );
+        assert_eq!(
+            runtime.completed_staging_publication.unwrap().field,
+            staged.field
+        );
+        assert!(runtime.token_can_promote(replacement.token()));
+    }
+
     fn volume_status(
         token: Option<DdgiBuildToken>,
         geometry_revision: u32,
         radiance_revision: u32,
         stage: DdgiVolumeStage,
     ) -> DdgiVolumeStatus {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let identity = field(geometry_revision, radiance_revision);
         DdgiVolumeStatus {
             build_token: token,
@@ -2173,7 +2326,7 @@ mod tests {
             "Probes: active field available"
         );
 
-        runtime.request_density_rebuild(32);
+        runtime.request_density_rebuild(probe_spacing(32));
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
         let token = runtime.claim_volume_build().unwrap().token();
         let staging = volume_status(Some(token), 8, 4, DdgiVolumeStage::Rebuilding);
@@ -2193,41 +2346,42 @@ mod tests {
     }
 
     #[test]
-    fn capture_checkpoint_is_runtime_owned_and_requires_resident_active_field() {
-        let (mut runtime, token, _) = initialized_runtime();
-        let captured_field = field(7, 3);
-        let filter_evidence = super::super::resources::DdgiFilterEpochEvidence {
-            field: captured_field,
-            probe_count: 4,
-            irradiance: Default::default(),
-            visibility_history: Default::default(),
-            visibility_samples: Default::default(),
-            visibility_written: true,
-        };
-        let filter_proof = DdgiFilterEpochProof {
-            configuration: DdgiFilterConfigurationIdentity {
-                grid_dimensions: [4, 1, 1],
-                configured_history_retention_q16: 64_881,
-            },
-            evidence: filter_evidence,
-        };
+    fn capture_checkpoint_is_attached_only_to_its_exact_published_volume() {
+        let (mut runtime, token, captured_field) = initialized_runtime();
+        let exact_filter_proof = filter_proof(captured_field);
         runtime.configure_capture(true, DdgiCaptureTarget::Published, DdgiBatchOrder::Reverse);
         runtime.observe_capture_checkpoint(
             token,
             captured_field,
             DdgiAtlasValidationStats::default(),
-            Some(filter_proof),
+            Some(exact_filter_proof),
             DdgiCapturePublication::Published,
         );
 
-        let active = volume_status(Some(token), 7, 3, DdgiVolumeStage::Ready);
+        let active = volume_status(Some(token), 7, 1, DdgiVolumeStage::Ready);
         let checkpoint = runtime
             .status_from_physical(DdgiStatus::new(active, None))
             .capture_checkpoint()
             .expect("resident published field should expose the checkpoint");
         assert_eq!(checkpoint.field, captured_field);
         assert_eq!(checkpoint.batch_order, DdgiBatchOrder::Reverse);
-        assert_eq!(checkpoint.filter_proof, Some(filter_proof));
+        assert_eq!(checkpoint.filter_proof, Some(exact_filter_proof));
+
+        let wrong_field = field(7, 3);
+        assert!(!runtime.observe_capture_checkpoint(
+            token,
+            wrong_field,
+            DdgiAtlasValidationStats::default(),
+            None,
+            DdgiCapturePublication::Published,
+        ));
+        assert!(!runtime.observe_capture_checkpoint(
+            token,
+            captured_field,
+            DdgiAtlasValidationStats::default(),
+            Some(filter_proof(wrong_field)),
+            DdgiCapturePublication::Published,
+        ));
 
         let wrong_token = DdgiBuildToken::for_test(2, 7, 16, DdgiBuildKind::Terrain);
         let staging_field = field(8, 4);
@@ -2244,7 +2398,7 @@ mod tests {
             .expect("staging capture evidence must not hide the resident active checkpoint");
         assert_eq!(active_after_staging_checkpoint.field, captured_field);
 
-        let mismatched_active = volume_status(Some(wrong_token), 7, 3, DdgiVolumeStage::Ready);
+        let mismatched_active = volume_status(Some(wrong_token), 7, 1, DdgiVolumeStage::Ready);
         assert!(runtime
             .status_from_physical(DdgiStatus::new(mismatched_active, None))
             .capture_checkpoint()
@@ -2262,7 +2416,7 @@ mod tests {
 
     #[test]
     fn terrain_observation_drives_initialization_and_local_invalidation() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
 
@@ -2279,17 +2433,16 @@ mod tests {
             Some(UAabb3::new(UVec3::splat(68), UVec3::splat(152)))
         );
 
-        let build = runtime.claim_volume_build().unwrap();
-        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Active);
-        assert_eq!(build.token().terrain_revision(), 7);
-        assert_eq!(build.token().spacing_voxels(), 32);
+        let generation = initial_generation(runtime.claim_volume_build().unwrap());
+        assert_eq!(generation.token().terrain_revision(), 7);
+        assert_eq!(generation.token().spacing_voxels(), 32);
         assert_eq!(runtime.refresh_state(), DdgiRefreshState::Idle);
         assert_eq!(runtime.invalidation_voxel_bound(), None);
     }
 
     #[test]
     fn frame_work_identity_is_stable_and_failure_settles_through_runtime_interface() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let plan = DdgiFramePlan {
             global_sky_needs_update: true,
@@ -2350,7 +2503,16 @@ mod tests {
         runtime
             .complete_transport_work(first_work.scheduled(), first_published, first)
             .unwrap();
+        assert_eq!(
+            runtime
+                .completed_staging_publication
+                .expect("obsolete completion remains private until explicitly released")
+                .generation
+                .token(),
+            first
+        );
         assert!(runtime.finish_obsolete_volume_build(first));
+        assert!(runtime.completed_staging_publication.is_none());
         let latest = runtime.claim_volume_build().unwrap().token();
         assert!(runtime.token_can_promote(latest));
         assert_eq!(latest.terrain_revision(), 9);
@@ -2370,8 +2532,7 @@ mod tests {
     fn terrain_refresh_reuses_the_resident_field_as_temporal_history() {
         let (mut runtime, _, resident) = initialized_runtime();
         assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
-        let build = runtime.claim_volume_build().unwrap();
-        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Staging);
+        let _generation = replacement_generation(runtime.claim_volume_build().unwrap());
 
         let refresh = runtime.claim_transport_work().unwrap().scheduled();
         assert_eq!(refresh.kind(), DdgiScheduledWorkKind::GeometryUpdate);
@@ -2422,15 +2583,14 @@ mod tests {
     #[test]
     fn density_request_uses_the_active_geometry_and_requested_spacing() {
         let (mut runtime, active_token, _) = initialized_runtime();
-        runtime.request_density_rebuild(32);
-        let build = runtime.claim_volume_build().unwrap();
-        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Staging);
-        assert_eq!(build.token().kind(), DdgiBuildKind::Density);
+        runtime.request_density_rebuild(probe_spacing(32));
+        let generation = replacement_generation(runtime.claim_volume_build().unwrap());
+        assert_eq!(generation.token().kind(), DdgiBuildKind::Density);
         assert_eq!(
-            build.token().terrain_revision(),
+            generation.token().terrain_revision(),
             active_token.terrain_revision()
         );
-        assert_eq!(build.token().spacing_voxels(), 32);
+        assert_eq!(generation.token().spacing_voxels(), 32);
         let work = runtime.claim_transport_work().unwrap().scheduled();
         assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityUpdate);
         assert_eq!(work.destination().field().spacing_voxels(), 32);
@@ -2438,7 +2598,7 @@ mod tests {
 
     #[test]
     fn continuous_sun_changes_coalesce_to_the_latest_cadenced_transport() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial_transport = runtime.observe_authored_lighting(initial);
@@ -2475,7 +2635,7 @@ mod tests {
 
     #[test]
     fn metadata_only_local_light_observation_keeps_authored_revision_and_transport_stable() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut authored = AuthoredEnvironmentLighting::default();
         let mut runtime = DdgiRuntime::new(grid);
 
@@ -2506,7 +2666,7 @@ mod tests {
 
     #[test]
     fn authored_sky_identity_change_is_an_immediate_transport_input_step() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut authored = AuthoredEnvironmentLighting::default();
         let mut runtime = DdgiRuntime::new(grid);
         let input = authored_input(lighting_snapshot(1.0));
@@ -2536,7 +2696,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "reused live revision 1 for a different identity")]
     fn runtime_rejects_reused_live_revision_for_a_different_authoritative_identity() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
         runtime.observe_authored_lighting(lighting_at(
@@ -2548,7 +2708,7 @@ mod tests {
 
     #[test]
     fn large_sun_and_material_discontinuities_publish_immediately() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = runtime.observe_authored_lighting(lighting(1, 1.0));
         assert_eq!(initial.transport.revision(), 1);
@@ -2577,7 +2737,7 @@ mod tests {
 
     #[test]
     fn local_lights_are_cadenced_latest_wins_and_retain_history() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial = runtime.observe_authored_lighting(initial);
