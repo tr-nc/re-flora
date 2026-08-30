@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -161,6 +162,19 @@ done
                     f"case=sealed spacing={spacing} target={stage} order=forward",
                     output,
                 )
+                label = f"sealed-spacing{spacing}-{stage}-forward"
+                command = re.search(
+                    rf"^\[DDGI_TRANSPORT\] analyze label={label} .*\n([^\n]+)$",
+                    output,
+                    re.MULTILINE,
+                )
+                self.assertIsNotNone(command, label)
+                if stage == "e0":
+                    self.assertIn("--require-zero-rgb", command.group(1))
+                    self.assertNotIn("--max-luminance", command.group(1))
+                else:
+                    self.assertIn("--max-luminance 0.00001", command.group(1))
+                    self.assertNotIn("--require-zero-rgb", command.group(1))
             for stage in ("e0", "converged"):
                 self.assertIn(
                     f"case=donor spacing={spacing} target={stage} order=forward",

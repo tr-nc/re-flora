@@ -1791,8 +1791,13 @@ def main() -> int:
         comparison = compare(first, load_capture(args.compare))
         report["comparison"] = comparison
         if not comparison["environment_bit_exact"]:
+            failures.append(
+                "comparison environment irradiance, world XYZ, or terrain hit mask "
+                "is not bit-exact"
+            )
             exit_code = 1
         if args.compare_direct_light and not comparison["direct_light_bit_exact"]:
+            failures.append("comparison direct-light plane is not bit-exact")
             exit_code = 1
     elif args.compare_direct_light:
         failures.append("--compare-direct-light requires --compare")

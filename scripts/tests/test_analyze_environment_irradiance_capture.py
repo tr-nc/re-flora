@@ -953,6 +953,28 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(environment_only.returncode, 0, environment_only.stderr)
         self.assertEqual(including_direct.returncode, 1, including_direct.stderr)
+        self.assertIn(
+            "comparison direct-light plane is not bit-exact",
+            json.loads(including_direct.stdout)["validation_failures"],
+        )
+
+    def test_comparison_reports_environment_bit_exact_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            second_path = Path(directory) / "second.rfirr"
+            self.write_capture(first_path, [(0.1, 0.2, 0.3, 1.0)])
+            self.write_capture(second_path, [(0.1, 0.2, 0.4, 1.0)])
+
+            result = self.run_analyzer(
+                first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "comparison environment irradiance, world XYZ, or terrain hit mask "
+            "is not bit-exact",
+            json.loads(result.stdout)["validation_failures"],
+        )
 
     def test_cli_gates_direct_light_roi_delta_from_environment_identical_baseline(
         self,
