@@ -163,7 +163,7 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
         if (!any(sample.irradiance > float3(0.0))) return result;
         result.candidates += 1u;
 
-        float3 shadowOrigin = terrainRayOriginFromSurface(
+        float3 shadowOrigin = terrainRayOriginFromPosition(
             receiverPosition, receiverNormal, rayOriginOffsetWorld);
         float3 shadowToLight = light.position - shadowOrigin;
         float segmentLength = length(shadowToLight);

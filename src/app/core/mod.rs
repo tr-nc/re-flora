@@ -16,6 +16,10 @@ mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
+mod lighting_mode_acceptance;
+pub(crate) use lighting_mode_acceptance::{
+    ResolvedLightingFrameInputs, ResolvedRasterLightingState,
+};
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -46,6 +50,14 @@ use self::denoiser_bench::{
 use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
+};
+use self::lighting_mode_acceptance::{
+    EffectiveLightingControls, LightingModeAcceptanceDdgiFieldObservation,
+    LightingModeAcceptanceDdgiObservation, LightingModeAcceptanceFramePlan,
+    LightingModeAcceptanceIdentity, LightingModeAcceptanceLightingObservation,
+    LightingModeAcceptanceRenderObservation, LightingModeAcceptanceRenderPlan,
+    LightingModeAcceptanceRuntime, LightingModeAcceptanceSceneObservation, LiveFrameTiming,
+    LiveLightingFrameInputs, PendingLightingModeCapture, ResolvedFrameTiming,
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
@@ -569,6 +581,7 @@ pub struct App {
     terrain_persistence: TerrainPersistenceRuntime,
     screenshot_capture: ScreenshotRuntime,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
+    lighting_mode_acceptance: LightingModeAcceptanceRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
@@ -611,6 +624,73 @@ impl Drop for App {
 }
 
 impl App {
+    fn lighting_mode_acceptance_identity(
+        &self,
+        screen_extent: Extent2D,
+        timing: ResolvedFrameTiming,
+        lighting: &ResolvedLightingFrameInputs,
+    ) -> Option<LightingModeAcceptanceIdentity> {
+        if !self.lighting_mode_acceptance.is_active() || self.visible_terrain_revision == 0 {
+            return None;
+        }
+        let status = self.tracer.ddgi_runtime_status();
+        if status.staging().is_some() {
+            return None;
+        }
+        let active = status.active();
+        let published = active.published_field?;
+        let field = published.field();
+        let source = published.source()?;
+        if field.state() != crate::ddgi::DdgiFieldState::Converged
+            || field.geometry_revision() != self.visible_terrain_revision
+            || active.relocated_terrain_revision != Some(self.visible_terrain_revision)
+        {
+            return None;
+        }
+        let camera = self.tracer.camera_pose();
+        let render_extent = self.tracer.environment_irradiance_capture_extent();
+        let local_lighting_revision = self.local_lights.snapshot().source_revision();
+        Some(LightingModeAcceptanceIdentity {
+            scene: LightingModeAcceptanceSceneObservation {
+                camera_pose_bits: [
+                    camera.position.x.to_bits(),
+                    camera.position.y.to_bits(),
+                    camera.position.z.to_bits(),
+                    camera.yaw_deg.to_bits(),
+                    camera.pitch_deg.to_bits(),
+                    camera.fov_deg.to_bits(),
+                ],
+                visible_terrain_revision: self.visible_terrain_revision,
+                visual_time_bits: timing.visual_time_seconds().to_bits(),
+                sampling_serial: lighting.sampling_serial(),
+            },
+            render: LightingModeAcceptanceRenderObservation {
+                render_extent: [render_extent.width, render_extent.height],
+                screen_extent: [screen_extent.width, screen_extent.height],
+                extent_generation: self.tracer.frame_extent_generation().serial(),
+            },
+            ddgi: LightingModeAcceptanceDdgiObservation {
+                published: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: field.serial(),
+                    geometry_revision: field.geometry_revision(),
+                    radiance_revision: field.radiance_revision(),
+                    update_epoch: field.update_epoch(),
+                },
+                source: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: source.serial(),
+                    geometry_revision: source.geometry_revision(),
+                    radiance_revision: source.radiance_revision(),
+                    update_epoch: source.update_epoch(),
+                },
+                spacing_voxels: field.spacing_voxels(),
+            },
+            lighting: LightingModeAcceptanceLightingObservation {
+                authored_revision: self.tracer.authored_environment_lighting_revision(),
+                local_revision: local_lighting_revision,
+            },
+        })
+    }
+
     fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
         let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
             return;
@@ -1197,6 +1277,7 @@ impl App {
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
             plain_builder.get_resources(),
+            lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
                 scaling_factor: 0.5,
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
@@ -1277,6 +1358,10 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+            || options
+                .exclusive_run_mode
+                .lighting_mode_acceptance()
+                .is_some()
         {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
@@ -1484,6 +1569,9 @@ impl App {
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 options.environment_irradiance_capture_path.clone(),
             ),
+            lighting_mode_acceptance: LightingModeAcceptanceRuntime::new(
+                options.exclusive_run_mode.lighting_mode_acceptance(),
+            ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
             ),
@@ -1546,6 +1634,10 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+            || options
+                .exclusive_run_mode
+                .lighting_mode_acceptance()
+                .is_some()
         {
             app.configure_foliage_shadow_bench_camera()?;
         }
@@ -2315,6 +2407,24 @@ impl App {
                     .as_ref()
                     .and_then(DenoiserBench::fixed_frame_delta_seconds)
                     .unwrap_or_else(|| self.time_info.delta_time());
+                let time_since_start = self.time_info.time_since_start();
+                let visual_time_since_start = self
+                    .denoiser_bench
+                    .as_ref()
+                    .and_then(DenoiserBench::visual_time_seconds)
+                    .unwrap_or(time_since_start);
+                let lighting_frame_plan =
+                    LightingModeAcceptanceRuntime::frame_plan(&self.lighting_mode_acceptance);
+                let (resolved_timing, lighting_render_plan) =
+                    LightingModeAcceptanceFramePlan::resolve_timing(
+                        lighting_frame_plan,
+                        LiveFrameTiming {
+                            visual_time_seconds: visual_time_since_start,
+                            frame_delta_seconds: frame_delta_time,
+                        },
+                    );
+                let visual_time_since_start = resolved_timing.visual_time_seconds();
+                let frame_delta_time = resolved_timing.frame_delta_seconds();
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -2328,12 +2438,6 @@ impl App {
                 if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {
                     log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
-                let time_since_start = self.time_info.time_since_start();
-                let visual_time_since_start = self
-                    .denoiser_bench
-                    .as_ref()
-                    .and_then(DenoiserBench::visual_time_seconds)
-                    .unwrap_or(time_since_start);
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -3359,8 +3463,39 @@ impl App {
                     )
                 });
 
+                let resolved_lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(
+                    lighting_render_plan,
+                    LiveLightingFrameInputs {
+                        time_of_day: self.world_clock.live_time_of_day(),
+                        sampling_serial: self.time_info.total_frame_count() as u32,
+                        dither_strength_lsb: self
+                            .debug_settings
+                            .adjustables
+                            .dither_strength_lsb
+                            .value,
+                        path_tracing_max_bounces: self
+                            .debug_settings
+                            .adjustables
+                            .path_tracing_max_bounces
+                            .value,
+                        path_tracing_ambient_light: self
+                            .debug_settings
+                            .adjustables
+                            .path_tracing_ambient_light
+                            .get_vec3()
+                            .to_array(),
+                        lighting_controls: EffectiveLightingControls::from_gui(
+                            self.debug_settings.adjustables.path_tracing_reference.value,
+                            self.debug_settings
+                                .adjustables
+                                .raster_flora_ddgi_lighting
+                                .value,
+                        ),
+                    },
+                );
+                let effective_time_of_day = resolved_lighting.time_of_day();
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.world_clock.live_time_of_day(),
+                    effective_time_of_day,
                     self.debug_settings.adjustables.latitude.value,
                     self.debug_settings.adjustables.season.value,
                 );
@@ -3456,26 +3591,13 @@ impl App {
                 self.tracer
                     .update_buffers(
                         &self.time_info,
+                        &resolved_lighting,
                         &self.local_lights.snapshot(),
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
-                        self.debug_settings.adjustables.dither_strength_lsb.value,
-                        self.debug_settings
-                            .adjustables
-                            .raster_flora_ddgi_lighting
-                            .value,
-                        self.debug_settings.adjustables.path_tracing_reference.value,
-                        self.debug_settings
-                            .adjustables
-                            .path_tracing_max_bounces
-                            .value,
-                        self.debug_settings
-                            .adjustables
-                            .path_tracing_ambient_light
-                            .get_vec3(),
                         self.debug_settings
                             .adjustables
                             .terrain_ray_origin_offset_world
@@ -4137,7 +4259,7 @@ impl App {
                             self.debug_settings.adjustables.lod_distance.value,
                             self.debug_settings.adjustables.flora_draw_distance.value,
                             self.debug_settings.adjustables.grass_render_mode.value,
-                            self.time_info.time_since_start(),
+                            visual_time_since_start,
                             flora_color_tables,
                             leaf_color_tables,
                             &self.render_flags,
@@ -4152,6 +4274,18 @@ impl App {
                     }
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
+
+                let lighting_mode_identity = self.lighting_mode_acceptance_identity(
+                    render_area,
+                    resolved_timing,
+                    &resolved_lighting,
+                );
+                let mut lighting_mode_readback: Option<PendingLightingModeCapture> = self
+                    .lighting_mode_acceptance
+                    .record_if_ready(lighting_mode_identity, &self.tracer, cmdbuf)
+                    .unwrap_or_else(|err| {
+                        panic!("[LIGHTING_MODE_ACCEPTANCE] failed to record: {err:#}")
+                    });
 
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
@@ -4295,12 +4429,14 @@ impl App {
                 }
 
                 let mut denoiser_bench_complete = false;
+                let mut lighting_mode_acceptance_complete = false;
                 let mut environment_irradiance_capture_complete = false;
                 let mut ddgi_spatial_weight_readback_complete = false;
                 if screenshot_readback.is_some()
                     || denoiser_frame_readback.is_some()
                     || environment_irradiance_readback.is_some()
                     || ddgi_spatial_weight_readback.is_some()
+                    || lighting_mode_readback.is_some()
                 {
                     // Finish the GPU copy before handing CPU processing to a worker. Waiting on
                     // this frame's fence from the worker raced the frame manager resetting the
@@ -4331,6 +4467,16 @@ impl App {
                                         "[DDGI_SPATIAL_WEIGHT_READBACK] failed to write: {err:#}"
                                     ),
                                 }
+                            }
+                            if let Some(readback) = lighting_mode_readback.take() {
+                                lighting_mode_acceptance_complete = self
+                                    .lighting_mode_acceptance
+                                    .complete(readback)
+                                    .unwrap_or_else(|err| {
+                                        panic!(
+                                            "[LIGHTING_MODE_ACCEPTANCE] failed to complete: {err:#}"
+                                        )
+                                    });
                             }
                             if let Some(readback) = screenshot_readback.take() {
                                 self.screenshot_capture.complete(readback);
@@ -4487,6 +4633,12 @@ impl App {
                     }
                 }
                 if denoiser_bench_complete {
+                    self.on_terminate(event_loop);
+                }
+                if lighting_mode_acceptance_complete {
+                    log::info!(
+                        "[LIGHTING_MODE_ACCEPTANCE] complete; exiting production acceptance run"
+                    );
                     self.on_terminate(event_loop);
                 }
                 if environment_irradiance_capture_complete {

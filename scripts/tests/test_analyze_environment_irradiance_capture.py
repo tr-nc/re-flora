@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 import subprocess
 import sys
@@ -297,6 +298,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         direct_light_pixels: list[tuple[float, float, float, float]],
         receiver_pixels: list[tuple[float, float, float, float]],
         direct_sun_shadow_pixels: list[tuple[float, float, float, float]],
+        *,
+        debug_view: int = 0,
     ) -> None:
         pixel_count = len(irradiance_pixels)
         self.assertTrue(
@@ -318,7 +321,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             4,
             1,
             16,
-            0,
+            debug_view,
             5,
             41,
             17,
@@ -349,6 +352,306 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
         )
         path.write_bytes(header + payload)
+
+    def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "unoccluded.rfirr"
+            voxel = 1.0 / 256.0
+            self.write_capture_v8(
+                capture_path,
+                [(0.4, 0.4, 0.4, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+                debug_view=12,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "unoccluded-irradiance",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "equal-weight-irradiance",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(
+            json.loads(accepted.stdout)["capture"]["debug_view"],
+            "unoccluded-irradiance",
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_names_moment_support_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "moment-support.rfirr"
+            voxel = 1.0 / 256.0
+            self.write_capture_v8(
+                capture_path,
+                [(0.5, 0.25, 0.2, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+                debug_view=22,
+            )
+            result = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "moment-support",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout)["capture"]["debug_view"],
+            "moment-support",
+        )
+
+    def test_cli_requires_visibility_routes_to_have_observable_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            moment_path = Path(directory) / "moment.rfirr"
+            exact_path = Path(directory) / "exact.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                moment_path,
+                [(0.8, 0.8, 0.8, 1.0)],
+                *common_planes,
+                debug_view=1,
+            )
+            self.write_capture_v8(
+                exact_path,
+                [(0.2, 0.2, 0.2, 1.0)],
+                *common_planes,
+                debug_view=2,
+            )
+            accepted = self.run_analyzer(
+                moment_path,
+                "--reference",
+                str(exact_path),
+                "--min-reference-error-p99",
+                "0.59",
+            )
+            rejected = self.run_analyzer(
+                moment_path,
+                "--reference",
+                str(exact_path),
+                "--min-reference-error-p99",
+                "0.61",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_reports_failed_reference_ceiling_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                first_path,
+                [(0.8, 0.8, 0.8, 1.0)],
+                *common_planes,
+            )
+            self.write_capture_v8(
+                reference_path,
+                [(0.2, 0.2, 0.2, 1.0)],
+                *common_planes,
+            )
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.5",
+                "--max-reference-overestimate-p99",
+                "0.5",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        failures = json.loads(rejected.stdout)["validation_failures"]
+        self.assertIn(
+            "reference luminance_error_p99: expected at most 0.5, got 0.6",
+            failures,
+        )
+        self.assertIn(
+            "reference luminance_overestimate_p99: expected at most 0.5, got 0.6",
+            failures,
+        )
+
+    def test_reference_gates_require_reference_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "capture.rfirr"
+            self.write_capture(capture_path, [(0.1, 0.2, 0.3, 1.0)])
+
+            for option in (
+                "--min-reference-error-p99",
+                "--max-reference-error-p99",
+                "--max-reference-overestimate-p99",
+                "--max-reference-error-max",
+            ):
+                with self.subTest(option=option):
+                    rejected = self.run_analyzer(capture_path, option, "0.1")
+                    self.assertEqual(rejected.returncode, 1, rejected.stderr)
+                    self.assertIn(
+                        f"{option} requires --reference",
+                        json.loads(rejected.stdout)["validation_failures"],
+                    )
+
+    def test_incompatible_reference_with_ceiling_returns_failure_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            self.write_capture(first_path, [(0.1, 0.2, 0.3, 1.0)])
+            self.write_capture(
+                reference_path,
+                [(0.1, 0.2, 0.3, 1.0), (0.1, 0.2, 0.3, 1.0)],
+            )
+
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.1",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertNotIn("Traceback", rejected.stderr)
+        self.assertIn(
+            "reference comparison is incompatible",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
+    def test_reference_requires_finite_planes_and_exact_world_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            nonfinite_path = Path(directory) / "nonfinite-reference.rfirr"
+            moved_path = Path(directory) / "moved-reference.rfirr"
+            voxel = 1.0 / 256.0
+            irradiance = [(0.2, 0.2, 0.2, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.0, 0.0, 0.0, 1.0)]
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)]
+            shadows = [(1.0, 1.0, 1.0, 1.0)]
+            self.write_capture_v8(
+                first_path, irradiance, world, direct, receiver, shadows
+            )
+            self.write_capture_v8(
+                nonfinite_path,
+                irradiance,
+                world,
+                [(math.nan, 0.0, 0.0, 1.0)],
+                receiver,
+                shadows,
+            )
+            self.write_capture_v8(
+                moved_path,
+                irradiance,
+                [(1.0 + voxel, 2.0, 3.0, 0.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+
+            nonfinite = self.run_analyzer(
+                first_path, "--reference", str(nonfinite_path)
+            )
+            moved = self.run_analyzer(first_path, "--reference", str(moved_path))
+
+        self.assertEqual(nonfinite.returncode, 1, nonfinite.stderr)
+        self.assertIn(
+            "reference capture contains non-finite required-plane values",
+            json.loads(nonfinite.stdout)["validation_failures"],
+        )
+        self.assertEqual(moved.returncode, 1, moved.stderr)
+        self.assertIn(
+            "reference world XYZ payload does not match capture",
+            json.loads(moved.stdout)["validation_failures"],
+        )
+
+    def test_reference_max_gate_rejects_a_small_tail_outlier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            pixels = [(0.0, 0.0, 0.0, 1.0)] * 100
+            reference_pixels = list(pixels)
+            reference_pixels[-1] = (1.0, 1.0, 1.0, 1.0)
+            self.write_capture(first_path, pixels)
+            self.write_capture(reference_path, reference_pixels)
+
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.02",
+                "--max-reference-error-max",
+                "0.5",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "reference luminance_error_max: expected at most 0.5, got 1",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
+    def test_cli_gates_debug_route_roi_gain_against_real_capture_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            final_path = Path(directory) / "final.rfirr"
+            unoccluded_path = Path(directory) / "unoccluded.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                final_path,
+                [(0.1, 0.1, 0.1, 1.0)],
+                *common_planes,
+                debug_view=0,
+            )
+            self.write_capture_v8(
+                unoccluded_path,
+                [(0.5, 0.5, 0.5, 1.0)],
+                *common_planes,
+                debug_view=12,
+            )
+            common = (
+                "--debug-baseline",
+                str(final_path),
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "2",
+                "3",
+                "4",
+                "--min-debug-roi-luminance-gain",
+            )
+            accepted = self.run_analyzer(unoccluded_path, *common, "0.39")
+            rejected = self.run_analyzer(unoccluded_path, *common, "0.41")
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        report = json.loads(accepted.stdout)["debug_baseline_comparison"]
+        self.assertTrue(report["compatible"])
+        self.assertAlmostEqual(report["roi_luminance_gain"], 0.4)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
     def test_loads_v6_lifecycle_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

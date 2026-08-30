@@ -9,11 +9,21 @@ on:
       - "Cargo.toml"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
+      - "docs/lighting_mode_acceptance.md"
       - "scripts/check_latest_run_log.py"
+      - "scripts/analyze_lighting_mode_acceptance.py"
+      - "scripts/check_lighting_mode_acceptance.sh"
+      - "scripts/check_lighting_mode_acceptance_source_contract.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
+      - "scripts/run_slang_tests.py"
       - "scripts/validate_spirv_artifacts.py"
+      - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
+      - "scripts/tests/test_check_lighting_mode_acceptance.py"
+      - "scripts/tests/test_lighting_mode_acceptance_ci.py"
+      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
+      - "src/**"
   push:
     branches:
       - main
@@ -23,11 +33,21 @@ on:
       - "Cargo.toml"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
+      - "docs/lighting_mode_acceptance.md"
       - "scripts/check_latest_run_log.py"
+      - "scripts/analyze_lighting_mode_acceptance.py"
+      - "scripts/check_lighting_mode_acceptance.sh"
+      - "scripts/check_lighting_mode_acceptance_source_contract.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
+      - "scripts/run_slang_tests.py"
       - "scripts/validate_spirv_artifacts.py"
+      - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
+      - "scripts/tests/test_check_lighting_mode_acceptance.py"
+      - "scripts/tests/test_lighting_mode_acceptance_ci.py"
+      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
+      - "src/**"
 
 permissions:
   contents: read
@@ -120,6 +140,9 @@ jobs:
       - name: Check native Slang build
         run: cargo check --locked
 
+      - name: Run Slang CPU tests
+        run: python scripts/run_slang_tests.py
+
       - name: Audit production shader entry points
         run: python3 scripts/check_shader_manifest.py
 
@@ -177,8 +200,20 @@ jobs:
       - name: Check native Slang build
         run: cargo check --locked
 
+      - name: Run Slang CPU tests
+        run: python3 scripts/run_slang_tests.py
+
       - name: Audit production shader entry points
         run: python3 scripts/check_shader_manifest.py
+
+      - name: Run lighting-mode acceptance CPU contracts
+        run: |
+          python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance
+          python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance
+          python3 -m unittest scripts.tests.test_lighting_mode_acceptance_ci
+          python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract
+          cargo test --locked lighting_mode_acceptance
+          cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py

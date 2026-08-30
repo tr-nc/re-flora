@@ -404,6 +404,7 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(DenoiserBench::is_foliage_shadow)
+            || self.lighting_mode_acceptance.is_active()
         {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {

@@ -68,6 +68,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
+use crate::app::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
@@ -93,7 +94,7 @@ use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
     DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
     DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
-    DdgiTraceStats, DdgiVolume, DdgiVolumePublication, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -121,11 +122,12 @@ use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_gpu_job, Allocator, Buffer, BufferUse, ClearValue, ColorClearValue,
-    CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource, DescriptorUpdate,
-    Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink, GpuProfiler,
-    GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDrawDescriptors, PushConstantInfo,
-    Texture, TextureLayout, Viewport, VulkanContext,
+    execute_one_time_gpu_job, Allocator, Buffer, BufferUsage, BufferUse, ClearValue,
+    ColorClearValue, CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource,
+    DescriptorUpdate, Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement,
+    FrameRetirementSink, GpuProfiler, GraphicsPipeline, MemoryLocation, PipelineBarrier,
+    PipelineStage, PreparedDrawDescriptors, PushConstantInfo, Texture, TextureLayout, Viewport,
+    VulkanContext,
 };
 use std::time::Instant;
 
@@ -139,6 +141,28 @@ fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<
             build_token.spacing_voxels(),
         )
     });
+}
+
+pub(crate) struct LightingModeProductionReadback {
+    terrain_rgbe: Buffer,
+    terrain_depth: Buffer,
+    raster_rgba: Buffer,
+}
+
+pub(crate) struct LightingModeProductionLayers {
+    pub terrain_rgbe: Vec<u8>,
+    pub terrain_depth: Vec<u8>,
+    pub raster_rgba: Vec<u8>,
+}
+
+impl LightingModeProductionReadback {
+    pub(crate) fn read(self) -> Result<LightingModeProductionLayers> {
+        Ok(LightingModeProductionLayers {
+            terrain_rgbe: self.terrain_rgbe.read_back()?,
+            terrain_depth: self.terrain_depth.read_back()?,
+            raster_rgba: self.raster_rgba.read_back()?,
+        })
+    }
 }
 
 fn local_light_impact_voxel_bound(
@@ -653,11 +677,11 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 }
 
 fn flora_lighting_cache_dispatch_enabled(
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_is_ddgi: bool,
     local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    (raster_flora_ddgi_lighting || local_lights_active) && required_entries > 0
+    (raster_lighting_is_ddgi || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
@@ -907,7 +931,6 @@ pub struct Tracer {
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
-    prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
@@ -926,7 +949,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
@@ -1023,6 +1046,7 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
+        raster_lighting_state: ResolvedRasterLightingState,
         desc: TracerDesc,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
@@ -1160,7 +1184,6 @@ impl Tracer {
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
-            prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
             ddgi_local_light_gpu_evidence_complete: None,
@@ -1178,7 +1201,7 @@ impl Tracer {
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-            raster_flora_ddgi_lighting: true,
+            raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
@@ -1189,6 +1212,10 @@ impl Tracer {
 
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
         self.ddgi_runtime.status()
+    }
+
+    fn raster_lighting_is_ddgi(&self) -> bool {
+        self.raster_lighting_state.is_ddgi()
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
@@ -1246,11 +1273,6 @@ impl Tracer {
             None,
             descriptor_generation,
         );
-        // Prepare the consumer generation while this volume is still private. The descriptor
-        // writes and owner copies are paid during staging setup; promotion only swaps the already
-        // complete sets into the active pipelines and schedules the old generation for retirement.
-        self.prepared_ddgi_consumer_descriptors =
-            Some(self.pipeline_topology.prepare_ddgi_consumers(staging));
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
         if let Some(retired_staging) = retired_staging {
@@ -1660,6 +1682,10 @@ impl Tracer {
         self.ddgi_runtime.status().active().is_ready()
     }
 
+    pub(crate) fn authored_environment_lighting_revision(&self) -> u64 {
+        self.environment_lighting.live_revision()
+    }
+
     pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
         let status = self.ddgi_runtime.status().active();
         status.is_ready() && status.relocated_terrain_revision == Some(revision)
@@ -1710,6 +1736,50 @@ impl Tracer {
         assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
         cmdbuf.use_buffer(readback, BufferUse::HostRead);
+    }
+
+    pub(crate) fn prepare_lighting_mode_production_readback(
+        &self,
+    ) -> LightingModeProductionReadback {
+        let resources = &self.resources.extent_dependent_resources;
+        let make_buffer = |byte_count| {
+            Buffer::new_sized(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                BufferUsage::transfer_dst(),
+                MemoryLocation::GpuToCpu,
+                byte_count,
+            )
+        };
+        LightingModeProductionReadback {
+            terrain_rgbe: make_buffer(resources.compute_output_tex.get_image().get_size() as u64),
+            terrain_depth: make_buffer(resources.compute_depth_tex.get_image().get_size() as u64),
+            raster_rgba: make_buffer(resources.gfx_output_tex.get_image().get_size() as u64),
+        }
+    }
+
+    pub(crate) fn record_lighting_mode_production_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        readback: &LightingModeProductionReadback,
+    ) {
+        let resources = &self.resources.extent_dependent_resources;
+        for (source, destination) in [
+            (
+                resources.compute_output_tex.get_image(),
+                &readback.terrain_rgbe,
+            ),
+            (
+                resources.compute_depth_tex.get_image(),
+                &readback.terrain_depth,
+            ),
+            (resources.gfx_output_tex.get_image(), &readback.raster_rgba),
+        ] {
+            cmdbuf.use_buffer(destination, BufferUse::TransferWrite);
+            let final_layout = source.get_layout(0);
+            source.record_copy_to_buffer(cmdbuf, destination, final_layout);
+            cmdbuf.use_buffer(destination, BufferUse::HostRead);
+        }
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
@@ -1792,61 +1862,44 @@ impl Tracer {
         ]
     }
 
-    fn promote_ready_ddgi_staging(&mut self) {
-        let Some(publication) = self.ddgi_runtime.pending_volume_publication() else {
-            return;
-        };
-        let build_token = publication.token();
-        if matches!(publication, DdgiVolumePublication::DiscardObsolete(_)) {
-            log::info!(
-                "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
-                build_token.serial(),
-                build_token.kind(),
-                build_token.terrain_revision(),
-                build_token.spacing_voxels(),
-                self.ddgi_runtime.refresh_state(),
-            );
-            let retired = self
-                .ddgi_runtime
-                .finish_volume_publication(publication, Ok(()))
-                .expect("obsolete DDGI staging completion must settle");
-            assert!(
-                retired.is_none(),
-                "obsolete DDGI staging must not retire Active"
-            );
-            self.prepared_ddgi_consumer_descriptors = None;
-            return;
-        }
-
+    fn promote_ready_ddgi_staging(&mut self) -> Result<()> {
         // Previous frames may still sample the active volume. Publish a new descriptor generation
         // and keep the old generation/resource owners on the frame-completion retirement clock
         // while the frame's shading constants move to the complete staging volume.
         let publication_started = Instant::now();
-        let descriptor_generation = self.next_descriptor_generation();
-        let prepared = self
-            .prepared_ddgi_consumer_descriptors
-            .take()
-            .filter(|prepared| prepared.token_serial() == build_token.serial());
-        if let Some(prepared) = prepared {
-            self.pipeline_topology.publish_ddgi_consumers(
-                build_token.serial(),
-                descriptor_generation,
-                prepared,
-            );
-        } else {
-            let builder = self.ddgi_runtime.volumes().builder();
-            self.pipeline_topology.update_ddgi_consumers(
-                build_token.serial(),
-                builder,
-                descriptor_generation,
-            );
-        }
-        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
-        let retired_active = self
-            .ddgi_runtime
-            .finish_volume_publication(publication, Ok(()))
-            .expect("ready DDGI staging Volume publication must settle")
-            .expect("promoted DDGI staging Volume must retire Active");
+        let mut descriptor_generation = None;
+        let mut descriptor_rebind_ms = 0.0;
+        let publication = {
+            let topology = &self.pipeline_topology;
+            let next_generation = &mut self.descriptor_generation;
+            self.ddgi_runtime.publish_ready_volume(|resources| {
+                descriptor_generation =
+                    Some(topology.publish_ddgi_consumers(resources, next_generation)?);
+                descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
+                Ok(())
+            })
+        };
+        let (build_token, retired_active) = match publication {
+            Ok(DdgiVolumePublishOutcome::Idle) => return Ok(()),
+            Ok(DdgiVolumePublishOutcome::DiscardedObsolete(build_token)) => {
+                log::info!(
+                    "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
+                    build_token.serial(),
+                    build_token.kind(),
+                    build_token.terrain_revision(),
+                    build_token.spacing_voxels(),
+                    self.ddgi_runtime.refresh_state(),
+                );
+                return Ok(());
+            }
+            Ok(DdgiVolumePublishOutcome::Published {
+                token,
+                retired_active,
+            }) => (token, retired_active),
+            Err(error) => return Err(error.context("publish ready DDGI staging Volume")),
+        };
+        let descriptor_generation = descriptor_generation
+            .expect("published DDGI Volume must expose its descriptor generation");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         let active = self.ddgi_runtime.status().active();
@@ -1898,7 +1951,12 @@ impl Tracer {
             published_key.update_epoch(),
             published.source(),
         );
-        drop(retired_active);
+        self.frame_retirement_sink.retire(FrameRetirement::new(
+            "ddgi.active.volume",
+            descriptor_generation,
+            retired_active,
+        ));
+        Ok(())
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1946,14 +2004,10 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
+        lighting_frame: &ResolvedLightingFrameInputs,
         local_lights: &LocalLightSnapshot,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
-        dither_strength_lsb: f32,
-        raster_flora_ddgi_lighting: bool,
-        path_tracing_reference: bool,
-        path_tracing_max_bounces: u32,
-        path_tracing_ambient_light: Vec3,
         terrain_ray_origin_offset_world: f32,
         ddgi_receiver_visibility_bias_world: f32,
         ddgi_history_retention: f32,
@@ -2043,7 +2097,9 @@ impl Tracer {
         terrain_edit_preview_color: Vec3,
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
-        self.promote_ready_ddgi_staging();
+        let frame_serial_idx = lighting_frame.sampling_serial();
+        let dither_strength_lsb = lighting_frame.dither_strength_lsb();
+        self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
@@ -2193,18 +2249,15 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
+        self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
-        BufferUpdater::update_gui_input(
+        crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             flora_growth_override_enabled,
             flora_growth_override,
-            raster_flora_ddgi_lighting,
-            path_tracing_reference,
-            path_tracing_max_bounces,
-            path_tracing_ambient_light,
+            lighting_frame,
             terrain_ray_origin_offset_world,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max,
@@ -2387,7 +2440,7 @@ impl Tracer {
             starlight_saturation,
         )?;
 
-        BufferUpdater::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
+        BufferUpdater::update_env_info(&self.resources, frame_serial_idx)?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
@@ -2482,7 +2535,14 @@ impl Tracer {
         }
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let completion = self.ddgi_runtime.complete_pending_batch(batch)?;
+            let completion = {
+                let topology = &self.pipeline_topology;
+                let next_generation = &mut self.descriptor_generation;
+                self.ddgi_runtime
+                    .complete_pending_batch(batch, |resources| {
+                        topology.publish_ddgi_consumers(resources, next_generation)
+                    })?
+            };
             if completion.is_stale() {
                 log::warn!(
                     "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
@@ -2599,19 +2659,7 @@ impl Tracer {
                             field.field().update_epoch(),
                         );
                     }
-                    if self.ddgi_runtime.volumes().builder_is_active() {
-                        let descriptor_generation = self.next_descriptor_generation();
-                        let builder = self.ddgi_runtime.volumes().builder();
-                        let token_serial = builder
-                            .status()
-                            .build_token
-                            .expect("published DDGI builder must retain its build token")
-                            .serial();
-                        self.pipeline_topology.update_ddgi_consumers(
-                            token_serial,
-                            builder,
-                            descriptor_generation,
-                        );
+                    if let Some(descriptor_generation) = completion.consumer_descriptor_generation {
                         let slot = self
                             .ddgi_runtime
                             .volumes()
@@ -2620,7 +2668,7 @@ impl Tracer {
                             .expect("validated DDGI field must be resident");
                         let key = field.field();
                         log::debug!(
-                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
+                            "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?} descriptor_generation={}",
                                     slot,
                                     key.state(),
                                     key.update_epoch(),
@@ -2629,6 +2677,7 @@ impl Tracer {
                                     key.radiance_revision(),
                                     key.spacing_voxels(),
                                     field.source(),
+                                    descriptor_generation,
                                 );
                         log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
@@ -3669,7 +3718,7 @@ impl Tracer {
             .expect("visible raster flora lighting cache entry count overflow");
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
-            self.raster_flora_ddgi_lighting,
+            self.raster_lighting_is_ddgi(),
             self.local_light_live_publication.observation().count > 0,
             required_lighting_cache_entries,
         ) {
@@ -4069,7 +4118,7 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
-            if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
+            if self.raster_lighting_is_ddgi() && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())

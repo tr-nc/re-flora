@@ -1,4 +1,5 @@
 import ddgi_config;
+import ddgi_filter_policy;
 import ddgi_octahedral;
 import ddgi_sampling;
 import ddgi_types;
@@ -55,14 +56,6 @@ float4 loadIrradiance(uint slot, uint2 atlasCoordinate)
         : ddgi_transport_source_irradiance_atlas[atlasCoordinate];
 }
 
-bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
-{
-    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
-    return pc.local_refresh_enabled.x != 0u &&
-           all(nominal >= pc.local_refresh_world_min.xyz) &&
-           all(nominal <= pc.local_refresh_world_max.xyz);
-}
-
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 groupId : SV_GroupID,
@@ -77,9 +70,14 @@ void main(uint3 groupId : SV_GroupID,
                        DDGI_IRRADIANCE_STORED_SIDE) +
         localInvocationId.xy + uint2(1u);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
-    bool localRecoveryProbe = probeNeedsLocalRefresh(metadata);
-    if (pc.has_history != 0u && pc.local_refresh_enabled.x != 0u &&
-        !localRecoveryProbe)
+    bool localRecoveryProbe = ddgiFilterProbeNeedsLocalRefresh(
+        metadata.nominal_position_and_min_clearance.xyz,
+        pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
+        pc.local_refresh_world_max.xyz);
+    DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(
+        pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
+        pc.local_refresh_enabled.y, pc.history_retention);
+    if (historyPolicy.retain_source)
     {
         // Geometry recovery owns only its explicit dirty partition. Keeping the other tiles
         // byte-for-byte identical avoids turning a local edit into global temporal noise.
@@ -117,16 +115,10 @@ void main(uint3 groupId : SV_GroupID,
     // (1 / pi) * (4 * pi / N) * sum(L * max(0, n dot w)).
     irradiance *= DDGI_FOUR / float(DDGI_RAYS_PER_PROBE);
     float4 current = float4(irradiance, 1.0);
-    if (pc.has_history != 0u)
+    if (historyPolicy.blend_history)
     {
         float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
-        float historyRetention = saturate(pc.history_retention);
-        if (localRecoveryProbe)
-        {
-            float recoveryEpoch = float(pc.local_refresh_enabled.y);
-            historyRetention = recoveryEpoch / (recoveryEpoch + 1.0);
-        }
-        current.xyz = lerp(current.xyz, history.xyz, historyRetention);
+        current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);
     }
     storeIrradiance(atlasCoordinate, current);
 }

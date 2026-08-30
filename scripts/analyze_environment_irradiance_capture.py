@@ -40,6 +40,10 @@ DEBUG_VIEW_LABELS = {
     9: "relocation",
     10: "irradiance-atlas",
     11: "visibility-atlas",
+    12: "unoccluded-irradiance",
+    13: "equal-weight-irradiance",
+    14: "raw-cage-irradiance",
+    22: "moment-support",
 }
 TRANSPORT_STAGE_LABELS = {
     1: "seed-sky",
@@ -1119,6 +1123,23 @@ def float4_alpha_payload(payload: bytes) -> bytes:
     )
 
 
+def required_capture_planes_finite(capture: Capture) -> bool:
+    payloads = (
+        capture.payload,
+        capture.world_payload,
+        capture.direct_light_payload,
+        capture.terrain_shadow_receiver_payload,
+        capture.direct_sun_shadow_payload,
+    )
+    return all(
+        math.isfinite(value)
+        for payload in payloads
+        if payload
+        for pixel in PIXEL.iter_unpack(payload)
+        for value in pixel
+    )
+
+
 def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, object]:
     base_compatible = (
         current.version,
@@ -1180,18 +1201,36 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         approximate, exact
     )
+    approximate_finite = required_capture_planes_finite(approximate)
+    reference_finite = required_capture_planes_finite(exact)
+    world_xyz_matches = world_xyz_payload(
+        approximate.world_payload
+    ) == world_xyz_payload(exact.world_payload)
+    hit_mask_matches = float4_alpha_payload(
+        approximate.payload
+    ) == float4_alpha_payload(exact.payload)
     compatible = base_compatible and not mismatches
-    if not compatible:
+    comparison_ready = (
+        compatible
+        and approximate_finite
+        and reference_finite
+        and world_xyz_matches
+        and hit_mask_matches
+    )
+    if not comparison_ready:
         return {
-            "compatible": False,
+            "compatible": compatible,
             "metadata_mismatches": mismatches,
             "process_local_identity_mismatches": process_local_identity_mismatches,
+            "approximate_finite": approximate_finite,
+            "reference_finite": reference_finite,
+            "world_xyz_matches": world_xyz_matches,
+            "hit_mask_matches": hit_mask_matches,
         }
 
     luminance_errors: list[float] = []
     luminance_overestimates: list[float] = []
     channel_errors: list[float] = []
-    hit_mask_matches = True
     peak_error = (-1.0, 0, 0)
     peak_overestimate = (0.0, 0, 0)
     for index, (approx_pixel, exact_pixel) in enumerate(
@@ -1199,7 +1238,6 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     ):
         ar, ag, ab, ah = approx_pixel
         er, eg, eb, eh = exact_pixel
-        hit_mask_matches = hit_mask_matches and ((ah > 0.5) == (eh > 0.5))
         if ah <= 0.5 or eh <= 0.5:
             continue
         rgb_error = (abs(ar - er), abs(ag - eg), abs(ab - eb))
@@ -1225,6 +1263,9 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         "compatible": True,
         "metadata_mismatches": [],
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "approximate_finite": True,
+        "reference_finite": True,
+        "world_xyz_matches": True,
         "hit_mask_matches": hit_mask_matches,
         "sample_count": len(luminance_errors),
         "luminance_error_mean": (
@@ -1316,6 +1357,66 @@ def compare_roi_baseline(
     }
 
 
+def compare_debug_baseline(
+    current: Capture,
+    baseline: Capture,
+    world_roi: tuple[float, float, float, float, float, float] | None,
+) -> dict[str, object]:
+    mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
+        current, baseline
+    )
+    base_compatible = (
+        current.version,
+        current.width,
+        current.height,
+        current.backend,
+        current.spacing_voxels,
+    ) == (
+        baseline.version,
+        baseline.width,
+        baseline.height,
+        baseline.backend,
+        baseline.spacing_voxels,
+    )
+    world_xyz_matches = world_xyz_payload(
+        current.world_payload
+    ) == world_xyz_payload(baseline.world_payload)
+    terrain_hit_mask_matches = float4_alpha_payload(
+        current.payload
+    ) == float4_alpha_payload(baseline.payload)
+    current_summary = summarize(current, world_roi)
+    baseline_summary = summarize(baseline, world_roi)
+    current_mean = current_summary["world_roi_luminance_mean"]
+    baseline_mean = baseline_summary["world_roi_luminance_mean"]
+    compatible = (
+        base_compatible
+        and not mismatches
+        and current.debug_view != baseline.debug_view
+        and world_xyz_matches
+        and terrain_hit_mask_matches
+        and current_mean is not None
+        and baseline_mean is not None
+    )
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": mismatches,
+        "process_local_identity_mismatches": process_local_identity_mismatches,
+        "baseline_debug_view": DEBUG_VIEW_LABELS.get(
+            baseline.debug_view, baseline.debug_view
+        ),
+        "current_debug_view": DEBUG_VIEW_LABELS.get(
+            current.debug_view, current.debug_view
+        ),
+        "world_xyz_matches": world_xyz_matches,
+        "terrain_hit_mask_matches": terrain_hit_mask_matches,
+        "baseline_roi_luminance_mean": baseline_mean,
+        "current_roi_luminance_mean": current_mean,
+        "roi_luminance_gain": (
+            current_mean - baseline_mean if compatible else None
+        ),
+    }
+
+
 def compare_direct_light_baseline(
     current: Capture,
     baseline: Capture,
@@ -1371,6 +1472,7 @@ def main() -> int:
     )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--debug-baseline", type=Path)
     parser.add_argument("--direct-light-baseline", type=Path)
     parser.add_argument(
         "--min-direct-light-sunlit-roi-luminance-absolute-delta", type=float
@@ -1381,6 +1483,8 @@ def main() -> int:
     parser.add_argument("--require-nonnegative-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
+    parser.add_argument("--max-reference-error-max", type=float)
+    parser.add_argument("--min-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
     parser.add_argument("--world-roi", type=float, nargs=6)
     parser.add_argument("--camera-position", type=float, nargs=3)
@@ -1393,6 +1497,8 @@ def main() -> int:
     parser.add_argument("--min-roi-channel-share-gain", type=float)
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
+    parser.add_argument("--min-debug-roi-luminance-gain", type=float)
+    parser.add_argument("--max-debug-roi-luminance-gain", type=float)
     parser.add_argument("--max-world-roi-environment-zero-count", type=int)
     parser.add_argument("--max-world-roi-combined-zero-count", type=int)
     parser.add_argument(
@@ -1437,6 +1543,9 @@ def main() -> int:
         ),
     )
     parser.add_argument("--expect-version", type=int)
+    parser.add_argument(
+        "--expect-debug-view", choices=tuple(DEBUG_VIEW_LABELS.values())
+    )
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
@@ -1507,6 +1616,7 @@ def main() -> int:
             failures.append(f"{field}: expected {expected}, got {actual}")
 
     expect("version", args.expect_version)
+    expect("debug_view", args.expect_debug_view)
     expect("spacing_voxels", args.expect_spacing_voxels)
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
@@ -1712,20 +1822,126 @@ def main() -> int:
     if args.reference is not None:
         reference = compare_reference(first, load_capture(args.reference))
         report["reference_comparison"] = reference
-        if not reference["compatible"] or not reference.get("hit_mask_matches", False):
+        if not reference["compatible"]:
+            failures.append("reference comparison is incompatible")
+            exit_code = 1
+        if not reference.get("approximate_finite", False):
+            failures.append("capture contains non-finite required-plane values")
+            exit_code = 1
+        if not reference.get("reference_finite", False):
+            failures.append(
+                "reference capture contains non-finite required-plane values"
+            )
+            exit_code = 1
+        if not reference.get("world_xyz_matches", False):
+            failures.append("reference world XYZ payload does not match capture")
+            exit_code = 1
+        if not reference.get("hit_mask_matches", False):
+            failures.append("reference terrain hit mask does not match capture")
+            exit_code = 1
+        reference_ready = all(
+            (
+                reference["compatible"],
+                reference.get("approximate_finite", False),
+                reference.get("reference_finite", False),
+                reference.get("world_xyz_matches", False),
+                reference.get("hit_mask_matches", False),
+            )
+        )
+        if (
+            reference_ready
+            and args.min_reference_error_p99 is not None
+            and reference.get("luminance_error_p99", -math.inf)
+            < args.min_reference_error_p99
+        ):
+            failures.append(
+                "reference luminance_error_p99: expected at least "
+                f"{args.min_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99')}"
+            )
             exit_code = 1
         if (
-            args.max_reference_error_p99 is not None
+            reference_ready
+            and args.max_reference_error_p99 is not None
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
         ):
+            failures.append(
+                "reference luminance_error_p99: expected at most "
+                f"{args.max_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99'):g}"
+            )
             exit_code = 1
         if (
-            args.max_reference_overestimate_p99 is not None
+            reference_ready
+            and args.max_reference_overestimate_p99 is not None
             and reference.get("luminance_overestimate_p99", math.inf)
             > args.max_reference_overestimate_p99
         ):
+            failures.append(
+                "reference luminance_overestimate_p99: expected at most "
+                f"{args.max_reference_overestimate_p99:g}, got "
+                f"{reference.get('luminance_overestimate_p99'):g}"
+            )
             exit_code = 1
+        if (
+            reference_ready
+            and args.max_reference_error_max is not None
+            and reference.get("luminance_error_max", math.inf)
+            > args.max_reference_error_max
+        ):
+            failures.append(
+                "reference luminance_error_max: expected at most "
+                f"{args.max_reference_error_max:g}, got "
+                f"{reference.get('luminance_error_max'):g}"
+            )
+            exit_code = 1
+    else:
+        for option, threshold in (
+            ("--min-reference-error-p99", args.min_reference_error_p99),
+            ("--max-reference-error-p99", args.max_reference_error_p99),
+            (
+                "--max-reference-overestimate-p99",
+                args.max_reference_overestimate_p99,
+            ),
+            ("--max-reference-error-max", args.max_reference_error_max),
+        ):
+            if threshold is not None:
+                failures.append(f"{option} requires --reference")
+                exit_code = 1
+    if args.debug_baseline is not None:
+        debug_baseline = compare_debug_baseline(
+            first,
+            load_capture(args.debug_baseline),
+            tuple(args.world_roi) if args.world_roi is not None else None,
+        )
+        report["debug_baseline_comparison"] = debug_baseline
+        if not debug_baseline["compatible"]:
+            failures.append("debug baseline comparison is incompatible")
+            exit_code = 1
+        gain = debug_baseline["roi_luminance_gain"]
+        if args.min_debug_roi_luminance_gain is not None and (
+            gain is None or gain < args.min_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at least "
+                f"{args.min_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+        if args.max_debug_roi_luminance_gain is not None and (
+            gain is None or gain > args.max_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at most "
+                f"{args.max_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+    elif (
+        args.min_debug_roi_luminance_gain is not None
+        or args.max_debug_roi_luminance_gain is not None
+    ):
+        failures.append("debug ROI luminance gates require --debug-baseline")
+        exit_code = 1
     if args.baseline is not None:
         baseline_comparison = compare_roi_baseline(
             first,

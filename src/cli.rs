@@ -1,4 +1,5 @@
 use re_flora_vkn::PresentMode;
+use std::path::PathBuf;
 
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
@@ -290,6 +291,8 @@ pub struct AppOptions {
     pub water_edit_soak: bool,
     /// Build one deterministic static terrain case for environment-lighting validation.
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
+    /// Run the production lighting-mode acceptance transaction and write its raw artifact.
+    pub exclusive_run_mode: ExclusiveRunMode,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
     /// Save fixed saved-terrain DDGI probe-contribution readback as human-readable text.
@@ -347,6 +350,26 @@ pub struct ScreenshotOptions {
     pub delay: f32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LightingModeAcceptanceOptions {
+    pub artifact_path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExclusiveRunMode {
+    Ordinary,
+    LightingModeAcceptance(LightingModeAcceptanceOptions),
+}
+
+impl ExclusiveRunMode {
+    pub fn lighting_mode_acceptance(&self) -> Option<&LightingModeAcceptanceOptions> {
+        match self {
+            Self::Ordinary => None,
+            Self::LightingModeAcceptance(options) => Some(options),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ParsedScreenshot {
     preset_name: String,
@@ -367,6 +390,7 @@ impl AppOptions {
     }
 
     fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
+        let exclusive_run_mode = parse_exclusive_run_mode(&args)?;
         let parse_f32_after = |flag: &str| -> Option<f32> {
             args.iter()
                 .position(|a| a == flag)
@@ -445,6 +469,7 @@ impl AppOptions {
             None => None,
         };
         let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
+        let lighting_mode_acceptance = exclusive_run_mode.lighting_mode_acceptance();
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -483,11 +508,11 @@ impl AppOptions {
             };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
-            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, moment-support, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
             Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
                 format!(
-                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, moment-support, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
                 )
             })?,
             None => DdgiDebugView::Final,
@@ -545,7 +570,9 @@ impl AppOptions {
                 "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
         }
-        let camera_snapshot = if let Some(screenshot) = &screenshot {
+        let camera_snapshot = if lighting_mode_acceptance.is_some() {
+            None
+        } else if let Some(screenshot) = &screenshot {
             if args.iter().any(|a| a == "--camera-snapshot") {
                 return Err(format!(
                     "Do not combine --camera-snapshot with --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
@@ -708,7 +735,8 @@ impl AppOptions {
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
-            no_particles: args.iter().any(|a| a == "--no-particles"),
+            no_particles: lighting_mode_acceptance.is_some()
+                || args.iter().any(|a| a == "--no-particles"),
             no_flora: args.iter().any(|a| a == "--no-flora"),
             no_clouds: args.iter().any(|a| a == "--no-clouds"),
             present_mode,
@@ -741,6 +769,7 @@ impl AppOptions {
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak,
             environment_lighting_test_scene,
+            exclusive_run_mode,
             environment_irradiance_capture_path,
             ddgi_spatial_weight_readback_path,
             environment_irradiance_capture_target,
@@ -766,6 +795,60 @@ impl AppOptions {
             help: args.iter().any(|a| a == "--help" || a == "-h"),
         })
     }
+}
+
+fn parse_exclusive_run_mode(args: &[String]) -> Result<ExclusiveRunMode, String> {
+    if !args
+        .iter()
+        .any(|argument| argument == "--lighting-mode-acceptance")
+    {
+        return Ok(ExclusiveRunMode::Ordinary);
+    }
+
+    let mut artifact_path = None;
+    let mut hidden_count = 0;
+    let mut mute_count = 0;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--hidden" => {
+                hidden_count += 1;
+                index += 1;
+            }
+            "--mute" => {
+                mute_count += 1;
+                index += 1;
+            }
+            "--lighting-mode-acceptance" => {
+                if artifact_path.is_some() {
+                    return Err("Only one --lighting-mode-acceptance is supported.".to_owned());
+                }
+                let Some(value) = args.get(index + 1) else {
+                    return Err("Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path.".to_owned());
+                };
+                if value.starts_with("--") {
+                    return Err("Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path.".to_owned());
+                }
+                artifact_path = Some(value.into());
+                index += 2;
+            }
+            unexpected => {
+                return Err(format!(
+                    "--lighting-mode-acceptance owns fixed scene, camera, render controls, and exit; unexpected argument {unexpected}"
+                ));
+            }
+        }
+    }
+
+    if hidden_count != 1 || mute_count != 1 {
+        return Err("--lighting-mode-acceptance requires --hidden --mute exactly once".to_owned());
+    }
+
+    Ok(ExclusiveRunMode::LightingModeAcceptance(
+        LightingModeAcceptanceOptions {
+            artifact_path: artifact_path.expect("acceptance token was observed"),
+        },
+    ))
 }
 
 fn parse_denoiser_bench_request(
@@ -1075,6 +1158,8 @@ Options:
                               density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
+  --lighting-mode-acceptance <artifact>
+                              Run the fixed single-process production lighting-mode acceptance matrix
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
   --ddgi-spatial-weight-readback <path>
@@ -1082,7 +1167,7 @@ Options:
   --environment-irradiance-capture-target <target>
                               Capture e0, e1, a specified eN, converged, or published (default: e0)
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
-  --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
+  --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight/support, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
@@ -1209,6 +1294,7 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
+        assert_eq!(options.exclusive_run_mode, ExclusiveRunMode::Ordinary);
         assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
@@ -1233,6 +1319,117 @@ mod tests {
         assert_eq!(options.authored_flora_bench_samples, 25);
         assert!(options.terrain_connectivity_bench.is_none());
         assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_typed_lighting_mode_acceptance_artifact() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--lighting-mode-acceptance",
+            "target/r13-e2.rflma",
+        ]);
+
+        assert_eq!(
+            options.exclusive_run_mode,
+            ExclusiveRunMode::LightingModeAcceptance(LightingModeAcceptanceOptions {
+                artifact_path: "target/r13-e2.rflma".into(),
+            })
+        );
+        assert!(options.camera_snapshot.is_none());
+        assert!(!options.house_scene);
+        assert!(options.no_particles);
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_requires_an_artifact_path() {
+        let result = AppOptions::try_from_arg_strings(vec![
+            "re-flora".to_owned(),
+            "--lighting-mode-acceptance".to_owned(),
+        ]);
+
+        assert_eq!(
+            result.unwrap_err(),
+            "Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path."
+        );
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_rejects_visible_or_mutable_fixture_options() {
+        let visible = AppOptions::try_from_arg_strings(
+            ["re-flora", "--lighting-mode-acceptance", "out.rflma"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        )
+        .unwrap_err();
+        assert!(visible.contains("requires --hidden --mute"));
+
+        let camera = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--hidden",
+                "--mute",
+                "--lighting-mode-acceptance",
+                "out.rflma",
+                "--camera-snapshot",
+                "player-default",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(camera.contains("owns fixed scene, camera, render controls, and exit"));
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_exclusively_owns_scene_camera_render_and_exit() {
+        let conflicts: &[&[&str]] = &[
+            &["--canopy-audio-diagnostic"],
+            &["--canopy-audio-budget-diagnostic"],
+            &["--egui-texture-lifecycle-test"],
+            &["--resize-lifecycle-test"],
+            &["--tree-bench"],
+            &["--authored-flora-bench"],
+            &["--terrain-connectivity-bench", "correct"],
+            &["--camera-snapshot", "player-default"],
+            &["--auto-exit", "1"],
+            &["--future-run-owner"],
+        ];
+
+        for conflict in conflicts {
+            let mut args = vec![
+                "re-flora",
+                "--hidden",
+                "--mute",
+                "--lighting-mode-acceptance",
+                "out.rflma",
+            ];
+            args.extend_from_slice(conflict);
+            let error =
+                AppOptions::try_from_arg_strings(args.into_iter().map(str::to_owned).collect())
+                    .unwrap_err();
+
+            assert!(
+                error.contains("owns fixed scene, camera, render controls, and exit"),
+                "unexpected error for {conflict:?}: {error}"
+            );
+            assert!(
+                error.contains(conflict[0]),
+                "error did not identify {conflict:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_hidden_muted_run_remains_legal() {
+        let options = parse(&["re-flora", "--hidden", "--mute"]);
+
+        assert!(options.hidden);
+        assert!(options.mute);
+        assert_eq!(options.exclusive_run_mode, ExclusiveRunMode::Ordinary);
     }
 
     #[test]
@@ -1507,6 +1704,9 @@ mod tests {
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::RawCageIrradiance);
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "moment-support"]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::MomentSupport);
 
         for (value, expected) in [
             (

@@ -59,6 +59,7 @@ pub use config::{
 };
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
+pub(crate) use resources::DdgiConsumerResources;
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
@@ -68,7 +69,7 @@ pub use resources::{
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
-    DdgiVolumePublication,
+    DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
@@ -143,6 +144,7 @@ pub enum DdgiDebugView {
     SpatialWeightReadback = 19,
     SpatialWeightCurrentNoSurface = 20,
     SpatialWeightNominalNoSurface = 21,
+    MomentSupport = 22,
 }
 
 impl DdgiDebugView {
@@ -170,6 +172,7 @@ impl DdgiDebugView {
             "spatial-weight-readback" => Some(Self::SpatialWeightReadback),
             "spatial-weight-current-no-surface" => Some(Self::SpatialWeightCurrentNoSurface),
             "spatial-weight-nominal-no-surface" => Some(Self::SpatialWeightNominalNoSurface),
+            "moment-support" => Some(Self::MomentSupport),
             _ => None,
         }
     }
@@ -202,6 +205,7 @@ impl DdgiDebugView {
             Self::SpatialWeightReadback => "spatial-weight-readback",
             Self::SpatialWeightCurrentNoSurface => "spatial-weight-current-no-surface",
             Self::SpatialWeightNominalNoSurface => "spatial-weight-nominal-no-surface",
+            Self::MomentSupport => "moment-support",
         }
     }
 }

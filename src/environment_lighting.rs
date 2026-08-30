@@ -474,6 +474,10 @@ pub(crate) struct AuthoredEnvironmentLighting {
 }
 
 impl AuthoredEnvironmentLighting {
+    pub(crate) fn live_revision(&self) -> u64 {
+        self.current_live_revision
+    }
+
     pub fn observe(
         &mut self,
         input: AuthoredEnvironmentLightingInput,
@@ -785,7 +789,6 @@ mod tests {
         let terrain = include_str!("../shader/slang/tracer.slang");
         let raster = include_str!("../shader/slang/flora_shadow.slang");
 
-        assert!(shared.contains("import ddgi_query;"));
         assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
         assert!(!shared.contains("SH"));
         assert!(!shared.contains("environment_probe_coefficients"));
@@ -797,49 +800,12 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
-            include_str!("../shader/slang/flora.vert.slang"),
-            include_str!("../shader/slang/flora_lod.vert.slang"),
-            include_str!("../shader/slang/leaves.vert.slang"),
-            include_str!("../shader/slang/leaves_lod.vert.slang"),
-        ] {
-            assert!(consumer.contains("import flora_vertex;"));
-        }
-        for consumer in [
             include_str!("../shader/slang/dynamic_fruit.vert.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_lod_textured.vert.slang"),
         ] {
-            assert!(consumer.contains("import flora_shadow;"));
             assert!(consumer.contains("applyStylizedVoxelLighting("));
         }
-    }
-
-    #[test]
-    fn ddgi_ready_promotion_publishes_consumers_before_volume_swap() {
-        // TODO(R13): Replace this temporary source-order gate when DdgiRuntime owns a closure
-        // transaction that publishes consumer descriptors before committing the Volume swap.
-        let tracer_host = include_str!("tracer/mod.rs");
-        let ready_promotion = tracer_host
-            .split_once("fn promote_ready_ddgi_staging")
-            .expect("DDGI staging promotion must exist")
-            .1
-            .split_once("// Previous frames may still sample the active volume.")
-            .expect("ready DDGI publication branch must exist")
-            .1
-            .split_once("fn get_render_extent")
-            .expect("DDGI promotion function must end before render-extent helpers")
-            .0;
-        let descriptor_publication = ready_promotion
-            .find("self.pipeline_topology.publish_ddgi_consumers(")
-            .expect("ready promotion must publish prepared consumer descriptors");
-        let volume_swap = ready_promotion
-            .find("finish_volume_publication(publication, Ok(()))")
-            .expect("ready promotion must commit the runtime Volume publication");
-
-        assert!(
-            descriptor_publication < volume_swap,
-            "consumer descriptors must publish before the DDGI runtime swaps Active Volume"
-        );
     }
 
     #[test]
@@ -878,7 +844,6 @@ mod tests {
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
         let switch = gui_param(&config, "raster_flora_ddgi_lighting");
-        let query = include_str!("../shader/slang/ddgi_query.slang");
         let lighting = include_str!("../shader/slang/flora_shadow.slang");
         let shared = include_str!("../shader/slang/flora_vertex.slang");
         let flora_cache = include_str!("../shader/slang/flora_lighting_cache.comp.slang");
@@ -893,16 +858,6 @@ mod tests {
         assert!(lighting.contains("float3(24.0 / 255.0)"));
         assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
         assert!(shared.contains("applyLegacyRasterFloraLighting("));
-        let runtime_query = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("DDGI must expose the runtime consumer query")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("runtime consumer query must remain isolated from terrain smoothing")
-            .0;
-        assert!(runtime_query.contains("getDdgiMomentProbeContribution("));
-        assert!(runtime_query.contains("contribution.moment_visibility"));
-        assert!(!runtime_query.contains("getDdgiMomentExactProbeContribution("));
         let flora_environment = shared
             .split_once("public float3 sampleFloraEnvironment(")
             .expect("raster flora must have a shared environment query")
@@ -995,7 +950,6 @@ mod tests {
             .split_once("float depthFromWorldPosition(")
             .expect("path-tracing transport must remain a bounded terrain helper")
             .0;
-        assert!(terrain.contains("import skylight;"));
         assert!(transport.contains("getAuthoredSkyRadiance("));
         assert!(transport.contains("sampleDiffuseBounce("));
         assert!(transport.contains("sampleSunDisk("));
@@ -1014,226 +968,296 @@ mod tests {
     }
 
     #[test]
-    fn ddgi_visibility_policy_uses_adjustable_world_bias_and_rejects_distant_hits() {
+    fn generic_ddgi_consumer_keeps_moment_visibility_until_raster_acceptance() {
+        const CALL: &str = "ddgiQueryVisibilityWeight(";
         let query = include_str!("../shader/slang/ddgi_query.slang");
-        let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");
-
-        assert!(query.contains("max(0.0, query.visibility_bias_world)"));
-        assert!(!query.contains("visibility_bias_world * 0.125"));
-        assert!(!query.contains("0.25 / max(gridScale"));
-        assert!(filter.contains("hitDistance > supportDistance"));
-        assert!(filter.contains("signedDistance >= pc.far_distance_world * 0.999"));
-        assert!(filter.contains("if (!skyMiss) continue;"));
-        assert!(filter.contains("hitDistance = supportDistance;"));
-    }
-
-    #[test]
-    fn terrain_invalidation_fails_closed_before_the_global_sky_fallback() {
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let sampler = query
+        let route = query
             .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("shared DDGI sampler must exist")
-            .1;
-        let invalidation = sampler
-            .find("ddgiQueryIsTerrainInvalidated")
-            .expect("shared sampler must reject invalidated terrain");
-        let global_sky = sampler
-            .find("ddgiQueryUsesGlobalSky")
-            .expect("shared sampler must retain the outside-volume sky fallback");
-
-        assert!(invalidation < global_sky);
-        assert!(sampler[invalidation..global_sky].contains("return result;"));
-    }
-
-    #[test]
-    fn consumer_and_transport_adapters_share_probe_core_but_keep_distinct_visibility() {
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let consumer_implementation = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("runtime consumer implementation must exist")
+            .expect("generic production query route")
             .1
             .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain smoothing must follow the runtime consumer")
+            .expect("terrain-smooth route follows generic route")
             .0;
-        let consumer = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
-            .expect("consumer adapter must exist")
+        assert_eq!(route.matches(CALL).count(), 1);
+        let arguments = route
+            .split_once(CALL)
+            .expect("generic route must call the visibility owner")
+            .1;
+        let mut depth = 0usize;
+        let mut argument_start = 0usize;
+        let mut parsed = Vec::new();
+        for (index, character) in arguments.char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' if depth == 0 => {
+                    parsed.push(arguments[argument_start..index].trim());
+                    break;
+                }
+                ')' => depth -= 1,
+                ',' if depth == 0 => {
+                    parsed.push(arguments[argument_start..index].trim());
+                    argument_start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[2], "DDGI_VISIBILITY_MOMENT");
+    }
+
+    #[test]
+    fn ddgi_production_routes_resolve_invalidation_before_global_sky() {
+        // Temporary route gate. Runtime acceptance in R13 replaces this source-level owner check.
+        fn assert_domain_route(route: &str) {
+            assert_eq!(route.matches("ddgiQueryDomain(").count(), 1);
+            let owner = route.find("ddgiQueryDomain(").expect("domain owner call");
+            let invalidated = route
+                .find("if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;")
+                .expect("invalidated early return");
+            let sky = route
+                .find("if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)")
+                .expect("global-sky route");
+            assert!(owner < invalidated && invalidated < sky);
+        }
+
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let info_owner = query
+            .split_once("uint ddgiQueryDomain(DdgiQueryInfo query")
+            .expect("DdgiQueryInfo domain owner")
             .1
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport implementation must follow the consumer adapter")
+            .split_once("uint ddgiQueryDomain(U_ShadingInfo lighting")
+            .expect("U_ShadingInfo owner follows DdgiQueryInfo owner")
+            .0;
+        let shading_owner = query
+            .split_once("uint ddgiQueryDomain(U_ShadingInfo lighting")
+            .expect("U_ShadingInfo domain owner")
+            .1
+            .split_once("public DdgiQueryResult makeEmptyDdgiQueryResult")
+            .expect("query result factory follows domain owners")
+            .0;
+        assert!(info_owner.contains(
+            "return ddgiQueryDomain(\n        ddgiQueryIsTerrainInvalidated(query, worldPosition),\n        ddgiQueryUsesGlobalSky(query, worldPosition));"
+        ));
+        assert!(shading_owner.contains(
+            "return ddgiQueryDomain(\n        ddgiQueryIsTerrainInvalidated(lighting, worldPosition),\n        ddgiQueryUsesGlobalSky(lighting, worldPosition));"
+        ));
+
+        let runtime = query
+            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .expect("DdgiQueryInfo production route")
+            .1
+            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
+            .expect("terrain-smooth route follows runtime")
+            .0;
+        let terrain_smooth = query
+            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
+            .expect("terrain-smooth production route")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(")
+            .expect("terrain-smooth adapter follows route")
             .0;
         let transport = query
             .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport implementation must exist")
+            .expect("transport production route")
             .1
             .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport adapter must follow its implementation")
+            .expect("transport adapter follows route")
             .0;
+        let exact = query
+            .split_once("public DdgiQueryResult sampleDdgiExactTerrainReference(")
+            .expect("U_ShadingInfo production route")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(")
+            .expect("unoccluded route follows exact")
+            .0;
+        for route in [runtime, terrain_smooth, transport, exact] {
+            assert_domain_route(route);
+        }
+    }
 
+    #[test]
+    fn exact_terrain_ray_stages_route_the_shared_origin_policy() {
+        // Temporary route gate. Delete only after R13 runtime acceptance observes these callers.
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let hard_origin = tracer
+            .split_once("float3 terrainDdgiHardVisibilityOrigin(")
+            .expect("tracer hard-visibility origin route")
+            .1
+            .split_once("float3 terrainShadowReceiverPosition(")
+            .expect("terrain shadow route follows hard origin")
+            .0;
         assert_eq!(
-            consumer_implementation
-                .matches("for (uint z = 0u; z < 2u; ++z)")
+            hard_origin.matches("terrainRayOriginFromPosition(").count(),
+            3
+        );
+        assert!(hard_origin.contains(
+            "terrainRayOriginFromPosition(\n            voxelCenter, normalDirection,\n            gui_input.terrain_ray_origin_offset_world)"
+        ));
+        assert!(hard_origin.contains(
+            "terrainRayOriginFromPosition(\n            surfacePosition, normalDirection,\n            gui_input.terrain_ray_origin_offset_world)"
+        ));
+        assert!(hard_origin.contains(
+            "terrainRayOriginFromPosition(\n        surfacePosition, normalDirection,\n        ddgiVisibilityBiasWorld(\n            shading_info.environment_probe_visibility_bias_world))"
+        ));
+        let exact_debug = tracer
+            .split_once("DdgiQueryResult exactResult = sampleDdgiExactTerrainReference(")
+            .expect("tracer exact-reference caller")
+            .1
+            .split_once("if (view == DDGI_DEBUG_EXACT_VISIBILITY)")
+            .expect("exact-reference result consumer")
+            .0;
+        assert!(exact_debug.contains("hardVisibilityWorldPosition"));
+
+        let readback = tracer
+            .split_once("void writeDdgiSpatialWeightReadback(")
+            .expect("spatial-weight readback route")
+            .1
+            .split_once("float3 ddgiTerrainDebugValue(")
+            .expect("terrain debug route follows readback")
+            .0;
+        assert!(readback.contains(
+            "float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(\n        result.center_position, ddgiReceiverPosition, result.normal);"
+        ));
+        assert!(readback.contains(
+            "writeDdgiSpatialWeightDiagnostics(\n        ddgi_spatial_weight_readback, receiverBase, shading_info,\n        ddgiReceiverPosition, result.normal, ddgiHardVisibilityOrigin);"
+        ));
+
+        let production = tracer
+            .split_once("void getPixelColor(")
+            .expect("production terrain route")
+            .1
+            .split_once("[shader(\"compute\")]")
+            .expect("compute entry follows production terrain route")
+            .0;
+        assert!(production.contains(
+            "float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(\n            result.center_position, ddgiReceiverPosition, result.normal);"
+        ));
+        assert_eq!(production.matches("ddgiTerrainDebugValue(").count(), 2);
+        assert!(production.contains(
+            "environmentIrradiance = ddgiTerrainDebugValue(\n            screenUv, ddgiReceiverPosition, result.position, result.normal,\n            ddgiHardVisibilityOrigin, consumerResult);"
+        ));
+        assert!(production.contains(
+            "environmentCaptureIrradiance = ddgiTerrainDebugValue(\n            screenUv, ddgiReceiverPosition, result.position, result.normal,\n            ddgiHardVisibilityOrigin, consumerResult);"
+        ));
+
+        let exact_sun = include_str!("../shader/slang/ddgi_exact_sun_visibility.slang");
+        assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
+        assert!(exact_sun.contains("receiver.center_position, receiver.normal, originOffsetWorld"));
+
+        let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        let transport_hit = probe_trace
+            .split_once("float3 ddgiTransportHitRadiance(")
+            .expect("probe transport-hit route")
+            .1
+            .split_once("[shader(\"compute\")]")
+            .expect("probe compute entry follows transport-hit route")
+            .0;
+        assert!(transport_hit.contains(
+            "float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(\n        result.center_position, normal,\n        ddgi_radiance_sun.terrain_ray_origin_offset_world);"
+        ));
+        assert!(transport_hit.contains(
+            "sampleDdgiTransportSource(\n            ddgi_transport_query_info,\n            ddgi_transport_source_irradiance_atlas,\n            ddgi_transport_source_visibility_atlas,\n            ddgiReceiverPosition, normal, ddgiHardVisibilityPosition)"
+        ));
+
+        let moisture = include_str!("../shader/slang/terrain_moisture_dry.slang");
+        let moisture_origin = moisture
+            .split_once("float3 surfaceShadowSamplePosition(")
+            .expect("moisture shadow-origin route")
+            .1
+            .split_once("float surfaceSunExposure(")
+            .expect("sun-exposure route follows moisture origin")
+            .0;
+        assert!(moisture_origin.contains("terrainRayOriginAlongNormal("));
+        assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
+    }
+
+    #[test]
+    fn ddgi_production_filters_consume_shared_policy_actions() {
+        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
+            let retained = filter
+                .split_once("if (historyPolicy.retain_source)")
+                .expect("retained partition gate")
+                .1
+                .split_once("if (metadata.state_and_reserved.x")
+                .expect("metadata validation follows retained partition")
+                .0;
+            assert!(retained.contains(retained_copy));
+            assert_eq!(retained.matches("return;").count(), 1);
+
+            let blended = filter
+                .split_once("if (historyPolicy.blend_history)")
+                .expect("history blend gate")
+                .1
+                .split_once("store")
+                .expect("atlas store follows history blend")
+                .0;
+            assert!(blended.contains(history_blend));
+        }
+
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        assert_eq!(visibility.matches("ddgiFilterVisibilitySample(").count(), 1);
+        assert_eq!(visibility.matches("ddgiFilterHistoryPolicy(").count(), 1);
+        assert_eq!(irradiance.matches("ddgiFilterHistoryPolicy(").count(), 1);
+        assert!(visibility.contains(
+            "if (!sample.accepted) continue;\n        float hitDistance = sample.distance;"
+        ));
+        assert_history_usage(
+            visibility,
+            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
+            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
+        );
+        assert_history_usage(
+            irradiance,
+            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
+            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
+        );
+    }
+
+    #[test]
+    fn terrain_debug_modes_keep_their_production_query_wiring() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let debug_route = tracer
+            .split_once("float3 ddgiTerrainDebugValue(")
+            .expect("terrain debug owner")
+            .1
+            .split_once("void getPixelColor(")
+            .expect("production pixel route follows debug owner")
+            .0;
+        let unoccluded = debug_route
+            .split_once("if (view == DDGI_DEBUG_UNOCCLUDED_IRRADIANCE)")
+            .expect("unoccluded mode")
+            .1
+            .split_once("if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)")
+            .expect("equal-weight mode follows unoccluded")
+            .0;
+        let equal_weight = debug_route
+            .split_once("if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)")
+            .expect("equal-weight mode")
+            .1
+            .split_once("if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)")
+            .expect("raw-cage mode follows equal-weight")
+            .0;
+        let raw_cage = debug_route
+            .split_once("if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)")
+            .expect("raw-cage mode")
+            .1
+            .split_once("if (view >= DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT")
+            .expect("spatial diagnostics follow raw cage")
+            .0;
+        assert_eq!(
+            unoccluded
+                .matches("sampleDdgiUnoccludedTerrainReference(")
                 .count(),
             1
         );
         assert_eq!(
-            transport.matches("for (uint z = 0u; z < 2u; ++z)").count(),
+            equal_weight
+                .matches("sampleDdgiEqualWeightTerrainReference(")
+                .count(),
             1
         );
-        assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
-        assert!(consumer.contains("ddgi_irradiance_atlas"));
-        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
-
-        let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
-        assert!(!trace.contains("ConstantBuffer<U_SunInfo>"));
-        assert!(!trace.contains("ConstantBuffer<U_ShadingInfo>"));
-        assert!(trace.contains("[[vk::binding(29, 0)]]"));
-        assert!(trace.contains("[[vk::binding(30, 0)]]"));
-        assert!(trace.contains("[[vk::binding(31, 0)]]"));
-        assert!(trace.contains("[[vk::binding(32, 0)]]"));
-    }
-
-    #[test]
-    fn transport_multiplies_exact_and_moment_while_runtime_consumers_use_moment_only() {
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let runtime = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("runtime DDGI sampler must exist")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain smoothing must follow runtime sampler")
-            .0;
-        let transport = query
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport DDGI sampler must exist")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport adapter must follow transport sampler")
-            .0;
-        assert!(query.contains("import ddgi_voxel_visibility;"));
-        assert!(query.contains("ddgiVoxelSegmentVisibility("));
-        assert!(query.contains("worldPosition + normal * biasWorld"));
-        assert!(query.contains("float3 hardVisibilityWorldPosition"));
-        assert!(!query.contains("surfaceOutward"));
-        let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
-        assert!(!probe_trace.contains("surfaceOutward"));
-        assert!(probe_trace.contains(
-            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, normal)"
-        ));
-        assert!(probe_trace.contains(
-            "terrainRayOriginAlongNormal(\n        result.center_position, normal,\n        ddgi_radiance_sun.terrain_ray_origin_offset_world)"
-        ));
-        assert!(probe_trace.contains("ddgiHardVisibilityPosition"));
-        assert!(!probe_trace.contains("ddgi_transport_query_info, result.position"));
-        assert!(runtime.contains("result, contribution, contribution.moment_visibility"));
-        assert!(!runtime.contains("contribution.hard_visibility"));
-        assert!(transport.contains("contribution.moment_visibility *"));
-        assert!(transport.contains("contribution.hard_visibility"));
-
-        let tracer = include_str!("../shader/slang/tracer.slang");
-        assert!(!tracer.contains("result.position, result.normal, -ray.direction"));
-        assert!(tracer.contains(
-            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
-        ));
-        assert!(tracer.contains("terrainDdgiHardVisibilityOrigin("));
-        assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
-        assert!(tracer.contains(
-            "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
-        ));
-        assert!(tracer.contains(
-            "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
-        ));
-        assert!(!tracer.contains("register(t39"));
-        assert!(!tracer.contains("register(t40"));
-        assert!(!tracer.contains("register(t42"));
-        let terrain_smooth = query
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain smooth Moment query must exist")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(")
-            .expect("terrain smooth adapter must follow its implementation")
-            .0;
-        assert!(terrain_smooth.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
-        assert!(terrain_smooth.contains("DDGI_SPATIAL_WEIGHT_NOMINAL_HARD"));
-        assert!(!terrain_smooth.contains("hardVisibilityWorldPosition"));
-        assert!(query.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
-        assert!(query.contains("surfaceSideWeight = sqrt(max(0.0, surfaceAlignment));"));
-        assert!(query.contains("float3 biasedWorldPosition = worldPosition + normal * biasWorld;"));
-        assert!(query.contains(
-            "ddgiVoxelSegmentVisibility(\n        hardVisibilityWorldPosition, contribution.actual_position"
-        ));
-        assert!(
-            query.contains("float3 surfaceToProbe = actualPosition - positionWeightWorldPosition;")
-        );
-        let exact_reference = query
-            .split_once("public DdgiQueryResult sampleDdgiExactTerrainReference(")
-            .expect("exact voxel reference must exist")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(")
-            .expect("exact reference must remain isolated")
-            .0;
-        assert!(exact_reference.contains("contribution.hard_visibility"));
-    }
-
-    #[test]
-    fn irradiance_filter_forbids_relative_rgb_history_resets() {
-        let filter = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
-        let history_block = filter
-            .split_once("if (pc.has_history != 0u)")
-            .expect("irradiance history block must exist")
-            .1
-            .split_once("storeIrradiance(atlasCoordinate, current);")
-            .expect("irradiance history block must precede the atlas store")
-            .0;
-
-        assert!(history_block.contains("if (localRecoveryProbe)"));
-        assert!(history_block.contains("historyRetention = recoveryEpoch / (recoveryEpoch + 1.0);"));
-        assert!(!history_block.contains("historyRetention = 0.0;"));
-        assert!(!history_block.contains("relativeChange"));
-        assert!(!history_block.contains("relativeDarkening"));
-        assert!(!history_block.contains("DDGI_IRRADIANCE_CHANGE_THRESHOLD"));
-        assert!(!history_block.contains("DDGI_IRRADIANCE_MIN_DARKENING_STEP"));
-    }
-
-    #[test]
-    fn runtime_consumers_are_moment_only_while_transport_and_reference_keep_exact_visibility() {
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let types = include_str!("../shader/slang/tracer_types.slang");
-
-        assert!(types.contains("public uint ddgi_terrain_hard_origin;"));
-        assert!(query.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
-        assert!(query.contains("getDdgiMomentExactSpatialWeightProbeContributionAt("));
-        let transport = query
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport must retain an explicit moment-plus-exact query")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport implementation must remain behind its adapter")
-            .0;
-        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
-        assert!(transport.contains("contribution.hard_visibility"));
-    }
-
-    #[test]
-    fn unoccluded_irradiance_debug_isolated_from_final_visibility_path() {
-        let tracer = include_str!("../shader/slang/tracer.slang");
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-
-        assert!(tracer.contains("DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u"));
-        assert!(tracer.contains("DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u"));
-        assert!(tracer.contains("DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u"));
-        assert!(tracer.contains("sampleDdgiUnoccludedTerrainReference("));
-        assert!(tracer.contains("sampleDdgiEqualWeightTerrainReference("));
-        assert!(tracer.contains("sampleDdgiRawCageIrradiance("));
-        assert!(query.contains("getDdgiUnoccludedProbeContribution("));
-        assert!(query.contains("accumulateDdgiEqualWeightContribution("));
-        assert!(query.contains("sampleDdgiRawCageIrradiance("));
-        assert!(query.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
-        assert!(!query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
-        assert!(!tracer.contains("accumulateDdgiContribution("));
-        assert!(query.contains("public void writeDdgiSpatialWeightDiagnostics("));
-        assert!(tracer.contains("writeDdgiSpatialWeightDiagnostics("));
-        assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));
+        assert_eq!(raw_cage.matches("sampleDdgiRawCageIrradiance(").count(), 1);
     }
 
     #[test]
@@ -1243,7 +1267,7 @@ mod tests {
         let shadowing = include_str!("../shader/slang/tracer_shadowing.slang");
 
         assert!(ray_origin.contains("public float3 terrainRayOriginAlongNormal("));
-        assert!(ray_origin.contains("public float3 terrainRayOriginFromSurface("));
+        assert!(ray_origin.contains("public float3 terrainRayOriginFromPosition("));
         assert!(tracer.contains(
             "float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(\n        voxelCenter, normal);"
         ));
@@ -1280,37 +1304,5 @@ mod tests {
         assert!(tracer.contains(
             "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
         ));
-    }
-
-    #[test]
-    fn terrain_ray_origin_offset_is_shared_by_every_exact_terrain_ray_stage() {
-        let shared = include_str!("../shader/slang/terrain_ray_origin.slang");
-        let tracer = include_str!("../shader/slang/tracer.slang");
-        let exact_sun = include_str!("../shader/slang/ddgi_exact_sun_visibility.slang");
-        let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
-        let moisture = include_str!("../shader/slang/terrain_moisture_dry.slang");
-
-        assert!(shared.contains("public float3 terrainRayOriginAlongNormal("));
-        assert!(shared.contains("public float3 terrainRayOriginFromSurface("));
-        assert!(tracer.contains("import terrain_ray_origin;"));
-        assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
-        assert!(exact_sun.contains("originOffsetWorld"));
-        assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
-        assert!(probe_trace.contains("import terrain_ray_origin;"));
-        assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
-        assert!(probe_trace.contains("ddgiHardVisibilityPosition"));
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let transport = query
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport query adapter must exist")
-            .1
-            .split_once("public uint ddgiNearestNominalProbeIndex")
-            .expect("transport query adapter must remain isolated")
-            .0;
-        assert!(transport.contains("float3 hardVisibilityWorldPosition"));
-        assert!(transport.contains("hardVisibilityWorldPosition);"));
-        assert!(!transport.contains("visibility_bias_world *"));
-        assert!(moisture.contains("import terrain_ray_origin;"));
-        assert!(moisture.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 }

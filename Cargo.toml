@@ -38,6 +38,7 @@ petalsonic = "0.8.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 tempfile = "3.23.0"
+static_assertions = "1.1"
 # or use a local development version
 
 [target.'cfg(target_os = "macos")'.dependencies]

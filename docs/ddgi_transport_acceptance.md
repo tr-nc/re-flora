@@ -55,6 +55,21 @@ environment payloads repeated bit-exactly and measured exact-reference luminance
 Sealed and portal retain their stricter existing bounds. Every correctness capture explicitly
 targets `converged`; default e0 capture timing cannot masquerade as terminal quality.
 
+The E1 production-debug extension was calibrated from 48 release-hidden captures on the local
+validation GPU: sealed, portal, and walls at spacing 32 and 16, with two Final captures plus
+Moment, Exact, Unoccluded, Equal Weight, and Raw Cage diagnostics per tuple. The walls Final pair
+had environment-irradiance error P99 `0` in the final matrix; an earlier pair had a maximum tail
+error `2.89e-6`. The stability gate therefore requires exact world XYZ and terrain hit masks and
+bounds both environment P99 and maximum error at `1e-5`, while intentionally excluding the known
+temporal direct-light and shadow planes from this DDGI-specific comparison. On walls, measured
+pairwise P99 differences were at least `0.0355` for Equal Weight versus Unoccluded and `0.214` for
+Raw Cage versus Equal Weight; the committed route-distinction floor is conservatively `0.01`.
+
+The runner's 60-second auto-exit is a local readiness budget, increased after spacing-16 captures
+occasionally missed the former 24-second limit. It has not been established as portable across GPU
+classes; cross-GPU CI or calibration must treat exhaustion as a readiness-risk signal, not silently
+weaken the correctness thresholds.
+
 ## Convergence policy
 
 The runner does not override `DDGI_CONVERGENCE_POLICY`:
