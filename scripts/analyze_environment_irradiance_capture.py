@@ -22,7 +22,7 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
-HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -270,9 +270,9 @@ def load_capture(path: Path) -> Capture:
         if version == 9:
             (
                 evidence_present,
-                irradiance_owner_version,
-                visibility_history_owner_version,
-                visibility_sample_owner_version,
+                irradiance_owner_version_mask,
+                visibility_history_owner_version_mask,
+                visibility_sample_owner_version_mask,
                 evidence_field_serial,
                 evidence_update_epoch,
                 evidence_probe_count,
@@ -281,11 +281,13 @@ def load_capture(path: Path) -> Capture:
                 irradiance_replace,
                 irradiance_retain,
                 irradiance_blend,
-                irradiance_retention_q16,
+                irradiance_retention_sum_q16,
+                irradiance_retention_max_q16,
                 visibility_replace,
                 visibility_retain,
                 visibility_blend,
-                visibility_retention_q16,
+                visibility_retention_sum_q16,
+                visibility_retention_max_q16,
                 visibility_samples,
                 visibility_accept,
                 visibility_reject,
@@ -298,38 +300,47 @@ def load_capture(path: Path) -> Capture:
                 raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
             if evidence_probe_count == 0:
                 raise ValueError(f"{path}: filter evidence has zero probes")
-            if irradiance_owner_version != 1:
-                raise ValueError(f"{path}: irradiance history owner version mismatch")
+            if irradiance_owner_version_mask != 2:
+                raise ValueError(f"{path}: irradiance history owner mask mismatch")
             if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
                 raise ValueError(f"{path}: irradiance history action partition mismatch")
             if irradiance_blend == 0:
-                if irradiance_retention_q16 != 0:
+                if irradiance_retention_sum_q16 != 0 or irradiance_retention_max_q16 != 0:
                     raise ValueError(f"{path}: irradiance retention without Blend")
-            elif irradiance_retention_q16 % irradiance_blend != 0:
-                raise ValueError(f"{path}: irradiance Blend retention is not exact")
+            elif (
+                irradiance_retention_max_q16 > 65_536
+                or irradiance_blend * irradiance_retention_max_q16
+                != irradiance_retention_sum_q16
+            ):
+                raise ValueError(f"{path}: irradiance history lacks one exact Blend retention")
             if visibility_written not in (0, 1):
                 raise ValueError(f"{path}: invalid visibility-written flag")
             if visibility_written:
-                if visibility_history_owner_version != 1 or visibility_sample_owner_version != 1:
-                    raise ValueError(f"{path}: visibility owner version mismatch")
+                if visibility_history_owner_version_mask != 2 or visibility_sample_owner_version_mask != 2:
+                    raise ValueError(f"{path}: visibility owner mask mismatch")
                 if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
                     raise ValueError(f"{path}: visibility history action partition mismatch")
                 if visibility_blend == 0:
-                    if visibility_retention_q16 != 0:
+                    if visibility_retention_sum_q16 != 0 or visibility_retention_max_q16 != 0:
                         raise ValueError(f"{path}: visibility retention without Blend")
-                elif visibility_retention_q16 % visibility_blend != 0:
-                    raise ValueError(f"{path}: visibility Blend retention is not exact")
+                elif (
+                    visibility_retention_max_q16 > 65_536
+                    or visibility_blend * visibility_retention_max_q16
+                    != visibility_retention_sum_q16
+                ):
+                    raise ValueError(f"{path}: visibility history lacks one exact Blend retention")
                 if visibility_samples != visibility_accept + visibility_reject:
                     raise ValueError(f"{path}: visibility sample partition mismatch")
             elif any(
                 value != 0
                 for value in (
-                    visibility_history_owner_version,
-                    visibility_sample_owner_version,
+                    visibility_history_owner_version_mask,
+                    visibility_sample_owner_version_mask,
                     visibility_replace,
                     visibility_retain,
                     visibility_blend,
-                    visibility_retention_q16,
+                    visibility_retention_sum_q16,
+                    visibility_retention_max_q16,
                     visibility_samples,
                     visibility_accept,
                     visibility_reject,
@@ -342,21 +353,23 @@ def load_capture(path: Path) -> Capture:
                 "probe_count": evidence_probe_count,
                 "visibility_written": bool(visibility_written),
                 "irradiance_history": {
-                    "owner_version": irradiance_owner_version,
+                    "owner_version_mask": irradiance_owner_version_mask,
                     "replace": irradiance_replace,
                     "retain": irradiance_retain,
                     "blend": irradiance_blend,
-                    "blend_retention_q16": irradiance_retention_q16,
+                    "blend_retention_q16_sum": irradiance_retention_sum_q16,
+                    "blend_retention_q16_max": irradiance_retention_max_q16,
                 },
                 "visibility_history": {
-                    "owner_version": visibility_history_owner_version,
+                    "owner_version_mask": visibility_history_owner_version_mask,
                     "replace": visibility_replace,
                     "retain": visibility_retain,
                     "blend": visibility_blend,
-                    "blend_retention_q16": visibility_retention_q16,
+                    "blend_retention_q16_sum": visibility_retention_sum_q16,
+                    "blend_retention_q16_max": visibility_retention_max_q16,
                 },
                 "visibility_samples": {
-                    "owner_version": visibility_sample_owner_version,
+                    "owner_version_mask": visibility_sample_owner_version_mask,
                     "samples": visibility_samples,
                     "accept": visibility_accept,
                     "reject": visibility_reject,
@@ -1754,14 +1767,18 @@ def main() -> int:
         else:
             for label in ("irradiance_history", "visibility_history"):
                 history = filter_evidence[label]
-                expected_sum = (
-                    history["blend"] * args.expect_filter_blend_retention_q16
-                )
-                if history["blend_retention_q16"] != expected_sum:
+                expected_sum = history["blend"] * args.expect_filter_blend_retention_q16
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"]
+                    != args.expect_filter_blend_retention_q16
+                ):
                     failures.append(
                         f"{label}: expected Blend retention q16 "
                         f"{args.expect_filter_blend_retention_q16}, got "
-                        f"{history['blend_retention_q16']} / {history['blend']}"
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
                     )
     if args.min_filter_visibility_reject_count is not None:
         reject = (

@@ -25,9 +25,11 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 29;
+const DDGI_TRACE_STATS_COUNT: usize = 31;
 const DDGI_FILTER_STATS_START: usize = 13;
 pub const DDGI_FILTER_POLICY_OWNER_VERSION: u32 = 1;
+pub const DDGI_FILTER_POLICY_OWNER_MASK: u32 = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
+const DDGI_FILTER_RETENTION_Q16_ONE: u32 = 65_536;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
 
@@ -538,23 +540,43 @@ impl DdgiFilterActionCounts {
         self.replace + self.retain + self.blend
     }
 
-    fn accumulate(&mut self, other: Self) {
-        self.replace += other.replace;
-        self.retain += other.retain;
-        self.blend += other.blend;
+    fn accumulate(&mut self, other: Self) -> Result<()> {
+        self.replace = self
+            .replace
+            .checked_add(other.replace)
+            .context("DDGI filter Replace count overflow while aggregating a complete epoch")?;
+        self.retain = self
+            .retain
+            .checked_add(other.retain)
+            .context("DDGI filter Retain count overflow while aggregating a complete epoch")?;
+        self.blend = self
+            .blend
+            .checked_add(other.blend)
+            .context("DDGI filter Blend count overflow while aggregating a complete epoch")?;
+        Ok(())
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiFilterHistoryEvidence {
-    pub owner_version: u32,
+    pub owner_version_mask: u32,
     pub probes: u64,
     pub actions: DdgiFilterActionCounts,
-    pub blend_retention_q16: u64,
+    pub blend_retention_q16_sum: u64,
+    pub blend_retention_q16_max: u32,
 }
 
 impl DdgiFilterHistoryEvidence {
-    fn decode(raw: &[u32], expected_probes: u32, label: &str) -> Result<Self> {
+    fn decode(
+        raw: &[u32],
+        blend_retention_q16_max: u32,
+        expected_probes: u32,
+        label: &str,
+    ) -> Result<Self> {
+        ensure!(
+            expected_probes <= DDGI_PROBE_BATCH_SIZE,
+            "DDGI {label} history evidence exceeds the bounded probe batch"
+        );
         let probes = u64::from(raw[1]);
         let actions = DdgiFilterActionCounts {
             replace: u64::from(raw[2]),
@@ -565,48 +587,77 @@ impl DdgiFilterHistoryEvidence {
             probes == u64::from(expected_probes) && actions.total() == probes,
             "DDGI {label} history evidence partition is inconsistent"
         );
-        ensure_owner_sum(raw[0], raw[1], label)?;
-        let blend_retention_q16 = u64::from(raw[5]);
+        ensure_owner_mask(raw[0], label)?;
+        let blend_retention_q16_sum = u64::from(raw[5]);
         ensure!(
-            actions.blend != 0 || blend_retention_q16 == 0,
+            blend_retention_q16_max <= DDGI_FILTER_RETENTION_Q16_ONE,
+            "DDGI {label} history evidence has an out-of-range retention witness"
+        );
+        let batch_retention_sum_bound = expected_probes
+            .checked_mul(DDGI_FILTER_RETENTION_Q16_ONE)
+            .context("DDGI filter retention batch bound overflow")?;
+        ensure!(
+            raw[5] <= batch_retention_sum_bound,
+            "DDGI {label} history evidence exceeds the checked retention-sum bound"
+        );
+        ensure!(
+            actions.blend != 0 || (blend_retention_q16_sum == 0 && blend_retention_q16_max == 0),
             "DDGI {label} history evidence has retention without Blend"
         );
         ensure!(
-            actions.blend == 0 || blend_retention_q16 % actions.blend == 0,
-            "DDGI {label} history evidence mixes Blend retentions within one batch"
+            actions.blend == 0
+                || actions
+                    .blend
+                    .checked_mul(u64::from(blend_retention_q16_max))
+                    == Some(blend_retention_q16_sum),
+            "DDGI {label} history evidence does not prove one exact Blend retention"
         );
         Ok(Self {
-            owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
+            owner_version_mask: raw[0],
             probes,
             actions,
-            blend_retention_q16,
+            blend_retention_q16_sum,
+            blend_retention_q16_max,
         })
     }
 
-    fn accumulate(&mut self, other: Self) {
+    fn accumulate(&mut self, other: Self) -> Result<()> {
         assert!(
-            self.owner_version == 0 || self.owner_version == other.owner_version,
+            self.owner_version_mask == 0 || self.owner_version_mask == other.owner_version_mask,
             "DDGI filter history evidence mixed owner versions"
         );
-        self.owner_version = other.owner_version;
-        self.probes += other.probes;
-        self.actions.accumulate(other.actions);
-        self.blend_retention_q16 += other.blend_retention_q16;
+        self.owner_version_mask |= other.owner_version_mask;
+        self.probes = self
+            .probes
+            .checked_add(other.probes)
+            .context("DDGI filter probe count overflow while aggregating a complete epoch")?;
+        self.actions.accumulate(other.actions)?;
+        self.blend_retention_q16_sum = self
+            .blend_retention_q16_sum
+            .checked_add(other.blend_retention_q16_sum)
+            .context("DDGI filter retention sum overflow while aggregating a complete epoch")?;
+        self.blend_retention_q16_max = self
+            .blend_retention_q16_max
+            .max(other.blend_retention_q16_max);
+        Ok(())
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiFilterVisibilitySampleEvidence {
-    pub owner_version: u32,
+    pub owner_version_mask: u32,
     pub samples: u64,
     pub accept: u64,
     pub reject: u64,
 }
 
 impl DdgiFilterVisibilitySampleEvidence {
-    fn decode(raw: &[u32]) -> Result<Self> {
+    fn decode(raw: &[u32], expected_probes: u32) -> Result<Self> {
+        let sample_bound = expected_probes
+            .checked_mul(DDGI_RAYS_PER_PROBE)
+            .context("DDGI visibility sample batch bound overflow")?;
         let result = Self {
-            owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
+            owner_version_mask: raw[0],
             samples: u64::from(raw[1]),
             accept: u64::from(raw[2]),
             reject: u64::from(raw[3]),
@@ -615,28 +666,39 @@ impl DdgiFilterVisibilitySampleEvidence {
             result.samples == result.accept + result.reject,
             "DDGI visibility sample evidence partition is inconsistent"
         );
-        ensure_owner_sum(raw[0], raw[1], "visibility sample")?;
+        ensure!(
+            result.samples <= u64::from(sample_bound),
+            "DDGI visibility sample evidence exceeds the checked ray-batch bound"
+        );
+        ensure_owner_mask(raw[0], "visibility sample")?;
         Ok(result)
     }
 
-    fn accumulate(&mut self, other: Self) {
+    fn accumulate(&mut self, other: Self) -> Result<()> {
         assert!(
-            self.owner_version == 0 || self.owner_version == other.owner_version,
+            self.owner_version_mask == 0 || self.owner_version_mask == other.owner_version_mask,
             "DDGI visibility sample evidence mixed owner versions"
         );
-        self.owner_version = other.owner_version;
-        self.samples += other.samples;
-        self.accept += other.accept;
-        self.reject += other.reject;
+        self.owner_version_mask |= other.owner_version_mask;
+        self.samples = self
+            .samples
+            .checked_add(other.samples)
+            .context("DDGI visibility sample count overflow while aggregating a complete epoch")?;
+        self.accept = self
+            .accept
+            .checked_add(other.accept)
+            .context("DDGI visibility Accept count overflow while aggregating a complete epoch")?;
+        self.reject = self
+            .reject
+            .checked_add(other.reject)
+            .context("DDGI visibility Reject count overflow while aggregating a complete epoch")?;
+        Ok(())
     }
 }
 
-fn ensure_owner_sum(owner_sum: u32, decisions: u32, label: &str) -> Result<()> {
-    let expected = decisions
-        .checked_mul(DDGI_FILTER_POLICY_OWNER_VERSION)
-        .context("DDGI filter owner-version sum overflow")?;
+fn ensure_owner_mask(owner_mask: u32, label: &str) -> Result<()> {
     ensure!(
-        owner_sum == expected,
+        owner_mask == DDGI_FILTER_POLICY_OWNER_MASK,
         "DDGI {label} evidence owner version is inconsistent"
     );
     Ok(())
@@ -671,17 +733,29 @@ impl DdgiFilterBatchEvidence {
             lanes.iter().any(|value| *value != 0),
             "capture-enabled DDGI filter evidence is missing"
         );
-        let irradiance =
-            DdgiFilterHistoryEvidence::decode(&lanes[0..6], batch.probe_count, "irradiance")?;
+        let irradiance = DdgiFilterHistoryEvidence::decode(
+            &lanes[0..6],
+            lanes[16],
+            batch.probe_count,
+            "irradiance",
+        )?;
         let visibility_written = batch.writes_visibility();
         let (visibility_history, visibility_samples) = if visibility_written {
             (
-                DdgiFilterHistoryEvidence::decode(&lanes[6..12], batch.probe_count, "visibility")?,
-                DdgiFilterVisibilitySampleEvidence::decode(&lanes[12..16])?,
+                DdgiFilterHistoryEvidence::decode(
+                    &lanes[6..12],
+                    lanes[17],
+                    batch.probe_count,
+                    "visibility",
+                )?,
+                DdgiFilterVisibilitySampleEvidence::decode(&lanes[12..16], batch.probe_count)?,
             )
         } else {
             ensure!(
-                lanes[6..16].iter().all(|value| *value == 0),
+                lanes[6..16]
+                    .iter()
+                    .chain(&lanes[17..18])
+                    .all(|value| *value == 0),
                 "radiance-only DDGI batch wrote visibility evidence"
             );
             (Default::default(), Default::default())
@@ -769,11 +843,11 @@ impl DdgiFilterEpochAccumulator {
             ensure!(!*seen, "DDGI filter evidence observed a probe twice");
             *seen = true;
         }
-        self.irradiance.accumulate(evidence.irradiance);
+        self.irradiance.accumulate(evidence.irradiance)?;
         self.visibility_history
-            .accumulate(evidence.visibility_history);
+            .accumulate(evidence.visibility_history)?;
         self.visibility_samples
-            .accumulate(evidence.visibility_samples);
+            .accumulate(evidence.visibility_samples)?;
         Ok(())
     }
 
@@ -787,10 +861,31 @@ impl DdgiFilterEpochAccumulator {
             self.irradiance.probes == u64::from(probe_count),
             "DDGI filter epoch irradiance probe count is incomplete"
         );
+        ensure!(
+            self.irradiance.actions.blend == 0
+                || self
+                    .irradiance
+                    .actions
+                    .blend
+                    .checked_mul(u64::from(self.irradiance.blend_retention_q16_max,))
+                    == Some(self.irradiance.blend_retention_q16_sum),
+            "DDGI filter epoch irradiance retention witness is inconsistent"
+        );
         let visibility_written = self.visibility_written.unwrap_or(false);
         ensure!(
             !visibility_written || self.visibility_history.probes == u64::from(probe_count),
             "DDGI filter epoch visibility probe count is incomplete"
+        );
+        ensure!(
+            !visibility_written
+                || self.visibility_history.actions.blend == 0
+                || self
+                    .visibility_history
+                    .actions
+                    .blend
+                    .checked_mul(u64::from(self.visibility_history.blend_retention_q16_max,))
+                    == Some(self.visibility_history.blend_retention_q16_sum),
+            "DDGI filter epoch visibility retention witness is inconsistent"
         );
         Ok(DdgiFilterEpochEvidence {
             field: self.field,
@@ -2646,7 +2741,7 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 116);
+        assert_eq!(bytes.trace_stats, 124);
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
@@ -2690,8 +2785,12 @@ mod tests {
         assert_eq!(stats.emissive_surface_radiance_luma_q8, 9_472);
     }
 
-    fn filter_evidence_batch(first_probe_index: u32, probe_count: u32) -> DdgiRayBatch {
-        let work = initial_work(7, 3, 32);
+    fn filter_evidence_batch_for_spacing(
+        first_probe_index: u32,
+        probe_count: u32,
+        spacing_voxels: u32,
+    ) -> DdgiRayBatch {
+        let work = initial_work(7, 3, spacing_voxels);
         let logical = work.destination();
         let destination = DdgiResidentField {
             logical,
@@ -2714,21 +2813,37 @@ mod tests {
         }
     }
 
-    fn filter_evidence_raw(probe_count: u32) -> [u32; 29] {
-        let mut raw = [0_u32; 29];
-        raw[13] = probe_count;
+    fn filter_evidence_batch(first_probe_index: u32, probe_count: u32) -> DdgiRayBatch {
+        filter_evidence_batch_for_spacing(first_probe_index, probe_count, 32)
+    }
+
+    fn filter_evidence_raw(probe_count: u32) -> [u32; 31] {
+        let mut raw = [0_u32; 31];
+        raw[13] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
         raw[14] = probe_count;
         raw[17] = probe_count;
         raw[18] = probe_count * 32_768;
-        raw[19] = probe_count;
+        raw[19] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
         raw[20] = probe_count;
         raw[23] = probe_count;
         raw[24] = probe_count * 32_768;
-        raw[25] = probe_count * 3;
+        raw[25] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
         raw[26] = probe_count * 3;
         raw[27] = probe_count * 2;
         raw[28] = probe_count;
+        raw[29] = 32_768;
+        raw[30] = 32_768;
         raw
+    }
+
+    #[test]
+    fn filter_batch_evidence_rejects_average_only_retention_witness() {
+        let batch = filter_evidence_batch(0, 2);
+        let mut mixed_retention = filter_evidence_raw(batch.probe_count);
+        mixed_retention[18] = 65_536;
+        mixed_retention[29] = 65_536;
+
+        assert!(DdgiFilterBatchEvidence::decode(mixed_retention, batch, true).is_err());
     }
 
     #[test]
@@ -2740,14 +2855,15 @@ mod tests {
                 .expect("capture-enabled batch must produce evidence");
 
         assert_eq!(evidence.field, batch.logical());
-        assert_eq!(evidence.irradiance.owner_version, 1);
+        assert_eq!(evidence.irradiance.owner_version_mask, 2);
         assert_eq!(evidence.irradiance.probes, 2);
         assert_eq!(evidence.irradiance.actions.blend, 2);
-        assert_eq!(evidence.irradiance.blend_retention_q16, 65_536);
+        assert_eq!(evidence.irradiance.blend_retention_q16_sum, 65_536);
+        assert_eq!(evidence.irradiance.blend_retention_q16_max, 32_768);
         assert_eq!(evidence.visibility_history.probes, 2);
         assert_eq!(evidence.visibility_history.actions.blend, 2);
         assert_eq!(evidence.visibility_samples.samples, 6);
-        assert_eq!(evidence.visibility_samples.owner_version, 1);
+        assert_eq!(evidence.visibility_samples.owner_version_mask, 2);
         assert_eq!(evidence.visibility_samples.accept, 4);
         assert_eq!(evidence.visibility_samples.reject, 2);
     }
@@ -2762,16 +2878,42 @@ mod tests {
         let mut wrong_partition = filter_evidence_raw(batch.probe_count);
         wrong_partition[28] += 1;
         assert!(DdgiFilterBatchEvidence::decode(wrong_partition, batch, true).is_err());
+
+        let mut mixed_owner_versions = filter_evidence_raw(batch.probe_count);
+        mixed_owner_versions[13] = (1 << 0) | (1 << 2);
+        assert!(DdgiFilterBatchEvidence::decode(mixed_owner_versions, batch, true).is_err());
+    }
+
+    #[test]
+    fn filter_batch_evidence_enforces_checked_probe_sample_and_q16_bounds() {
+        let maximum = filter_evidence_batch(0, DDGI_PROBE_BATCH_SIZE);
+        DdgiFilterBatchEvidence::decode(filter_evidence_raw(maximum.probe_count), maximum, true)
+            .unwrap();
+
+        let oversized = filter_evidence_batch(0, DDGI_PROBE_BATCH_SIZE + 1);
+        assert!(DdgiFilterBatchEvidence::decode(
+            filter_evidence_raw(oversized.probe_count),
+            oversized,
+            true,
+        )
+        .is_err());
+
+        let mut excess_samples = filter_evidence_raw(maximum.probe_count);
+        let sample_bound = maximum.probe_count * DDGI_RAYS_PER_PROBE;
+        excess_samples[26] = sample_bound + 1;
+        excess_samples[27] = sample_bound + 1;
+        excess_samples[28] = 0;
+        assert!(DdgiFilterBatchEvidence::decode(excess_samples, maximum, true).is_err());
     }
 
     #[test]
     fn filter_batch_evidence_distinguishes_disabled_from_missing() {
         let batch = filter_evidence_batch(0, 2);
         assert_eq!(
-            DdgiFilterBatchEvidence::decode([0; 29], batch, false).unwrap(),
+            DdgiFilterBatchEvidence::decode([0; 31], batch, false).unwrap(),
             None
         );
-        assert!(DdgiFilterBatchEvidence::decode([0; 29], batch, true).is_err());
+        assert!(DdgiFilterBatchEvidence::decode([0; 31], batch, true).is_err());
     }
 
     #[test]
@@ -2809,10 +2951,43 @@ mod tests {
         assert_eq!(epoch.field, first.logical());
         assert_eq!(epoch.probe_count, 4);
         assert_eq!(epoch.irradiance.actions.blend, 4);
-        assert_eq!(epoch.irradiance.blend_retention_q16, 131_072);
+        assert_eq!(epoch.irradiance.blend_retention_q16_sum, 131_072);
+        assert_eq!(epoch.irradiance.blend_retention_q16_max, 32_768);
         assert_eq!(epoch.visibility_samples.samples, 12);
         assert_eq!(epoch.visibility_samples.accept, 8);
         assert_eq!(epoch.visibility_samples.reject, 4);
+    }
+
+    #[test]
+    fn filter_epoch_evidence_covers_the_complete_spacing_8_volume_without_u32_sums() {
+        let probe_count = DdgiVolumeGrid::new(UVec3::splat(512), 8)
+            .unwrap()
+            .probe_count();
+        assert_eq!(probe_count, 274_625);
+        let first_batch =
+            filter_evidence_batch_for_spacing(0, DDGI_PROBE_BATCH_SIZE.min(probe_count), 8);
+        let mut accumulator = DdgiFilterEpochAccumulator::new(first_batch.logical(), probe_count);
+        let mut first_probe_index = 0;
+        while first_probe_index < probe_count {
+            let batch_probe_count = DDGI_PROBE_BATCH_SIZE.min(probe_count - first_probe_index);
+            let batch = filter_evidence_batch_for_spacing(first_probe_index, batch_probe_count, 8);
+            let evidence = DdgiFilterBatchEvidence::decode(
+                filter_evidence_raw(batch_probe_count),
+                batch,
+                true,
+            )
+            .unwrap()
+            .unwrap();
+            accumulator.observe(batch, evidence).unwrap();
+            first_probe_index += batch_probe_count;
+        }
+
+        let epoch = accumulator.finish().unwrap();
+        assert_eq!(epoch.probe_count, 274_625);
+        assert_eq!(epoch.irradiance.actions.blend, 274_625);
+        assert_eq!(epoch.irradiance.blend_retention_q16_max, 32_768);
+        assert_eq!(epoch.irradiance.blend_retention_q16_sum, 8_998_912_000);
+        assert_eq!(epoch.visibility_samples.samples, 823_875);
     }
 
     #[test]

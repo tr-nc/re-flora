@@ -3,7 +3,7 @@ use super::environment_lighting_test_scene::{
 };
 use crate::ddgi::{
     DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState,
-    DdgiFilterEpochEvidence, DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_VERSION,
+    DdgiFilterEpochEvidence, DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
 use crate::tracer::{Tracer, ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT};
@@ -16,7 +16,7 @@ const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
 const CAPTURE_VERSION: u32 = 9;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
-const CAPTURE_HEADER_BYTE_COUNT: usize = 252;
+const CAPTURE_HEADER_BYTE_COUNT: usize = 268;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STATE_CONVERGING: u32 = 1;
 const CAPTURE_STATE_CONVERGED: u32 = 2;
@@ -73,7 +73,7 @@ impl CaptureMetadata {
         );
         let irradiance_actions = filter_evidence.irradiance.actions;
         ensure!(
-            filter_evidence.irradiance.owner_version == DDGI_FILTER_POLICY_OWNER_VERSION
+            filter_evidence.irradiance.owner_version_mask == DDGI_FILTER_POLICY_OWNER_MASK
                 && irradiance_actions.replace
                     + irradiance_actions.retain
                     + irradiance_actions.blend
@@ -83,10 +83,10 @@ impl CaptureMetadata {
         if filter_evidence.visibility_written {
             let visibility_actions = filter_evidence.visibility_history.actions;
             ensure!(
-                filter_evidence.visibility_history.owner_version
-                    == DDGI_FILTER_POLICY_OWNER_VERSION
-                    && filter_evidence.visibility_samples.owner_version
-                        == DDGI_FILTER_POLICY_OWNER_VERSION
+                filter_evidence.visibility_history.owner_version_mask
+                    == DDGI_FILTER_POLICY_OWNER_MASK
+                    && filter_evidence.visibility_samples.owner_version_mask
+                        == DDGI_FILTER_POLICY_OWNER_MASK
                     && filter_evidence.visibility_history.probes
                         == u64::from(filter_evidence.probe_count)
                     && visibility_actions.replace
@@ -164,9 +164,9 @@ impl CaptureMetadata {
         let evidence = self.filter_evidence;
         for value in [
             1,
-            evidence.irradiance.owner_version,
-            evidence.visibility_history.owner_version,
-            evidence.visibility_samples.owner_version,
+            evidence.irradiance.owner_version_mask,
+            evidence.visibility_history.owner_version_mask,
+            evidence.visibility_samples.owner_version_mask,
         ] {
             writer.write_all(&value.to_le_bytes())?;
         }
@@ -183,11 +183,13 @@ impl CaptureMetadata {
             evidence.irradiance.actions.replace,
             evidence.irradiance.actions.retain,
             evidence.irradiance.actions.blend,
-            evidence.irradiance.blend_retention_q16,
+            evidence.irradiance.blend_retention_q16_sum,
+            u64::from(evidence.irradiance.blend_retention_q16_max),
             evidence.visibility_history.actions.replace,
             evidence.visibility_history.actions.retain,
             evidence.visibility_history.actions.blend,
-            evidence.visibility_history.blend_retention_q16,
+            evidence.visibility_history.blend_retention_q16_sum,
+            u64::from(evidence.visibility_history.blend_retention_q16_max),
             evidence.visibility_samples.samples,
             evidence.visibility_samples.accept,
             evidence.visibility_samples.reject,
@@ -721,7 +723,7 @@ mod tests {
         assert_eq!(CAPTURE_VERSION, 9);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
-        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 252);
+        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 268);
     }
 
     #[test]
@@ -750,27 +752,29 @@ mod tests {
                 field: published,
                 probe_count: 4,
                 irradiance: DdgiFilterHistoryEvidence {
-                    owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
+                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
                     probes: 4,
                     actions: DdgiFilterActionCounts {
                         replace: 0,
                         retain: 2,
                         blend: 2,
                     },
-                    blend_retention_q16: 65_536,
+                    blend_retention_q16_sum: 65_536,
+                    blend_retention_q16_max: 32_768,
                 },
                 visibility_history: DdgiFilterHistoryEvidence {
-                    owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
+                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
                     probes: 4,
                     actions: DdgiFilterActionCounts {
                         replace: 0,
                         retain: 2,
                         blend: 2,
                     },
-                    blend_retention_q16: 65_536,
+                    blend_retention_q16_sum: 65_536,
+                    blend_retention_q16_max: 32_768,
                 },
                 visibility_samples: DdgiFilterVisibilitySampleEvidence {
-                    owner_version: DDGI_FILTER_POLICY_OWNER_VERSION,
+                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
                     samples: 12,
                     accept: 8,
                     reject: 4,

@@ -20,7 +20,7 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
-HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -362,6 +362,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         visibility_samples: int = 12,
         visibility_accept: int = 8,
         visibility_reject: int = 4,
+        irradiance_retention_sum_q16: int = 65_536,
+        irradiance_retention_max_q16: int = 32_768,
     ) -> None:
         voxel = 1.0 / 256.0
         header = HEADER_V9.pack(
@@ -392,9 +394,9 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             0,
             1,
             1,
-            1,
-            1,
-            1,
+            2,
+            2,
+            2,
             89,
             1,
             4,
@@ -403,11 +405,13 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             0,
             2,
             2,
-            65_536,
+            irradiance_retention_sum_q16,
+            irradiance_retention_max_q16,
             0,
             2,
             2,
             65_536,
+            32_768,
             visibility_samples,
             visibility_accept,
             visibility_reject,
@@ -448,6 +452,12 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             capture["filter_evidence"]["irradiance_history"]["blend"], 2
         )
         self.assertEqual(
+            capture["filter_evidence"]["irradiance_history"][
+                "blend_retention_q16_max"
+            ],
+            32_768,
+        )
+        self.assertEqual(
             capture["filter_evidence"]["visibility_samples"]["reject"], 4
         )
 
@@ -461,6 +471,17 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 visibility_reject=5,
             )
             with self.assertRaisesRegex(ValueError, "visibility sample partition"):
+                analyzer.load_capture(capture_path)
+
+    def test_v9_filter_evidence_rejects_an_average_only_retention_witness(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "mixed-retention-filter-evidence.rfirr"
+            self.write_capture_v9(
+                capture_path,
+                irradiance_retention_sum_q16=65_536,
+                irradiance_retention_max_q16=65_536,
+            )
+            with self.assertRaisesRegex(ValueError, "exact Blend retention"):
                 analyzer.load_capture(capture_path)
 
     def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:

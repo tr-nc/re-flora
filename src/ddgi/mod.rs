@@ -67,7 +67,8 @@ pub use resources::{
     DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence, DdgiLocalLightTraceTotals,
     DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes, DdgiTraceStats,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
-    DdgiVolumes, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_VERSION,
+    DdgiVolumes, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_MASK,
+    DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
