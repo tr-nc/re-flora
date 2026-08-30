@@ -559,6 +559,8 @@ fn write_atomic_artifact(path: &Path, manifest: &[u8], payload: &[u8]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+    use std::process::Command;
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct FrameInputs {
@@ -829,25 +831,199 @@ mod tests {
             },
         };
         let manifest = phase_manifest(&capture, 0x1234, &mut Vec::new());
-        let encoded = toml::to_string(&manifest).unwrap();
-
-        for flat_key in [
-            "camera_pose_bits",
-            "render_extent",
-            "screen_extent",
-            "extent_generation",
-            "visible_terrain_revision",
-            "ddgi_field_serial",
-            "ddgi_source_field_serial",
+        let value = toml::Value::try_from(&manifest).unwrap();
+        let table = value.as_table().unwrap();
+        let actual_keys = table.keys().map(String::as_str).collect::<BTreeSet<_>>();
+        let expected_keys = [
             "authored_lighting_revision",
+            "binary_identity",
+            "camera_pose_bits",
+            "ddgi_field_serial",
+            "ddgi_geometry_revision",
+            "ddgi_radiance_revision",
+            "ddgi_source_field_serial",
+            "ddgi_source_geometry_revision",
+            "ddgi_source_radiance_revision",
+            "ddgi_source_update_epoch",
+            "ddgi_spacing_voxels",
+            "ddgi_update_epoch",
+            "extent_generation",
+            "fixture",
+            "label",
+            "layers",
             "local_lighting_revision",
-            "visual_time_bits",
+            "raster_mode",
+            "render_extent",
             "sampling_serial",
+            "screen_extent",
+            "terrain_mode",
+            "visible_terrain_revision",
+            "visual_time_bits",
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        assert_eq!(actual_keys, expected_keys);
+
+        assert_eq!(table["label"].as_str(), Some("A"));
+        assert_eq!(table["terrain_mode"].as_str(), Some("ddgi"));
+        assert_eq!(table["raster_mode"].as_str(), Some("ddgi"));
+        assert_eq!(
+            table["binary_identity"].as_str(),
+            Some("fnv1a64:0000000000001234")
+        );
+        assert_eq!(table["fixture"].as_str(), Some("foliage-shadow-r13-e2-v1"));
+        for (key, expected) in [
+            ("extent_generation", 7),
+            ("visible_terrain_revision", 5),
+            ("ddgi_field_serial", 11),
+            ("ddgi_geometry_revision", 5),
+            ("ddgi_radiance_revision", 13),
+            ("ddgi_spacing_voxels", 32),
+            ("ddgi_update_epoch", 9),
+            ("ddgi_source_field_serial", 10),
+            ("ddgi_source_geometry_revision", 5),
+            ("ddgi_source_radiance_revision", 13),
+            ("ddgi_source_update_epoch", 8),
+            ("authored_lighting_revision", 17),
+            ("local_lighting_revision", 19),
+            ("visual_time_bits", 0),
+            ("sampling_serial", i64::from(FIXED_SAMPLING_SERIAL)),
         ] {
-            assert!(encoded.contains(&format!("{flat_key} =")), "{flat_key}");
+            assert_eq!(table[key].as_integer(), Some(expected), "{key}");
         }
-        for internal_group in ["scene", "render", "ddgi", "lighting", "published", "source"] {
-            assert!(!encoded.contains(&format!("[{internal_group}]")));
+        assert_eq!(table["camera_pose_bits"].as_array().unwrap().len(), 6);
+        assert_eq!(table["camera_pose_bits"].to_string(), "[1, 2, 3, 4, 5, 6]");
+        assert_eq!(table["render_extent"].to_string(), "[960, 540]");
+        assert_eq!(table["screen_extent"].to_string(), "[1920, 1080]");
+
+        let layers = table["layers"].as_array().unwrap();
+        assert_eq!(layers.len(), 3);
+        for (layer, kind, format, offset) in [
+            (&layers[0], "terrain_rgbe", "R32_UINT", 0),
+            (&layers[1], "terrain_depth", "R32_SFLOAT", 4),
+            (&layers[2], "raster_rgba", "R8G8B8A8_UNORM", 8),
+        ] {
+            let layer = layer.as_table().unwrap();
+            assert_eq!(
+                layer.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+                ["fnv1a64", "format", "height", "kind", "length", "offset", "width"]
+                    .into_iter()
+                    .collect()
+            );
+            assert_eq!(layer["kind"].as_str(), Some(kind));
+            assert_eq!(layer["format"].as_str(), Some(format));
+            assert_eq!(layer["width"].as_integer(), Some(960));
+            assert_eq!(layer["height"].as_integer(), Some(540));
+            assert_eq!(layer["offset"].as_integer(), Some(offset));
+            assert_eq!(layer["length"].as_integer(), Some(4));
+            assert_eq!(layer["fnv1a64"].as_str(), Some("4d25767f9dce13f5"));
+        }
+    }
+
+    #[test]
+    fn rust_producer_artifact_passes_the_official_python_analyzer() {
+        let directory = tempfile::tempdir().unwrap();
+        let artifact = directory.path().join("producer-golden.rflma");
+        let mut golden_identity = identity(2);
+        golden_identity.render.render_extent = [20, 1];
+        golden_identity.render.screen_extent = [40, 2];
+        golden_identity.render.extent_generation = 1;
+        golden_identity.ddgi.published.serial = 3;
+        golden_identity.ddgi.published.radiance_revision = 4;
+        golden_identity.ddgi.published.update_epoch = 8;
+        golden_identity.ddgi.source.serial = 2;
+        golden_identity.ddgi.source.radiance_revision = 4;
+        golden_identity.ddgi.source.update_epoch = 7;
+        golden_identity.lighting.authored_revision = 4;
+        golden_identity.lighting.local_revision = 5;
+
+        let depth = 0.5_f32
+            .to_le_bytes()
+            .into_iter()
+            .cycle()
+            .take(80)
+            .collect::<Vec<_>>();
+        let terrain_changed = [1, 0, 0, 0]
+            .into_iter()
+            .cycle()
+            .take(80)
+            .collect::<Vec<_>>();
+        let raster_ddgi = [0, 0, 0, 255]
+            .into_iter()
+            .cycle()
+            .take(80)
+            .collect::<Vec<_>>();
+        let raster_legacy = [1, 0, 0, 255]
+            .into_iter()
+            .cycle()
+            .take(80)
+            .collect::<Vec<_>>();
+        let captures = [
+            (
+                LightingModeAcceptancePhase::A,
+                vec![0; 80],
+                raster_ddgi.clone(),
+            ),
+            (
+                LightingModeAcceptancePhase::B,
+                terrain_changed.clone(),
+                raster_ddgi,
+            ),
+            (
+                LightingModeAcceptancePhase::C,
+                terrain_changed,
+                raster_legacy.clone(),
+            ),
+            (LightingModeAcceptancePhase::D, vec![0; 80], raster_legacy),
+        ]
+        .into_iter()
+        .map(
+            |(phase, terrain_rgbe, raster_rgba)| CapturedLightingModePhase {
+                phase,
+                identity: golden_identity,
+                layers: LightingModeProductionLayers {
+                    terrain_rgbe,
+                    terrain_depth: depth.clone(),
+                    raster_rgba,
+                },
+            },
+        )
+        .collect::<Vec<_>>();
+        let mut payload = Vec::new();
+        let phases = captures
+            .iter()
+            .map(|capture| phase_manifest(capture, 0x0123_4567_89ab_cdef, &mut payload))
+            .collect();
+        let manifest = toml::to_string(&ArtifactManifest {
+            schema: ARTIFACT_SCHEMA,
+            calibration: CALIBRATION_ID,
+            phase_count: 4,
+            phases,
+        })
+        .unwrap();
+        write_atomic_artifact(&artifact, manifest.as_bytes(), &payload).unwrap();
+
+        let analyzer = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/analyze_lighting_mode_acceptance.py");
+        let output = Command::new("python3")
+            .arg(analyzer)
+            .arg(&artifact)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result = String::from_utf8(output.stdout).unwrap();
+        for field in [
+            r#""schema": "re-flora-lighting-mode-acceptance-v1""#,
+            r#""calibration": "r13-e2-production-v1""#,
+            r#""verdict": "GREEN""#,
+            r#""terrain_changed_ab": 20"#,
+            r#""raster_changed_ad": 20"#,
+        ] {
+            assert!(result.contains(field), "missing {field} in {result}");
         }
     }
 
