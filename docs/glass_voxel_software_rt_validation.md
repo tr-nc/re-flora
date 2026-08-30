@@ -473,6 +473,12 @@ the residual band is display tone mapping and dithering.
 Diagnostic artifacts are under `target/glass-clean-cell/`: `pre-final.png`,
 `pre-validity.png`, and `post-final.png`.
 
+A 30-second Release A,B,B,A comparison of the fixed 25% Glass workload passed all four
+configured median gates. `glass.resolve` changed by +0.15% median (+8.5 us) and +5.02% p95;
+`tracer.render` changed by -0.47% median and +0.84% p95. The p95 value is reported explicitly,
+although the current performance gate is defined on the median. Evidence is at
+`target/perf-glass-final-color-abba/runs-30s/comparison.json`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 22,237,188 bytes (21.21 MiB):
