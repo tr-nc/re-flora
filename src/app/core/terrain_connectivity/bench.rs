@@ -593,6 +593,9 @@ mod app_executor {
 use app_executor::ConnectivityExecution;
 
 ::static_assertions::assert_not_impl_any!(ConnectivityExecution: Clone, Copy);
+::static_assertions::assert_not_impl_any!(ManualReleaseRequest: Clone, Copy);
+::static_assertions::assert_not_impl_any!(CompletedFrameRequest: Clone, Copy);
+::static_assertions::assert_not_impl_any!(BoundedCommitPayload: Clone, Copy);
 
 struct FixtureInstallResult {
     setup_us: f64,
