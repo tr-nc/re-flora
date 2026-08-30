@@ -140,9 +140,26 @@ def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
             )
 
 
-def require_global_validation_order(
+def require_global_validation_legality(
     records: list[dict[str, object]], evidence_path: Path
 ) -> None:
+    for record in records:
+        serial = int(record["field_serial"])
+        radiance_revision = int(record["radiance_revision"])
+        spacing_voxels = int(record["spacing_voxels"])
+        state = str(record["state"])
+        epoch = int(record["update_epoch"])
+        if serial == 0 or radiance_revision == 0 or spacing_voxels == 0:
+            raise ValueError(
+                f"typed field identity in {evidence_path} has a zero serial, radiance "
+                f"revision, or spacing: serial={serial} radiance={radiance_revision} "
+                f"spacing={spacing_voxels}"
+            )
+        if state == "Converged" and epoch == 0:
+            raise ValueError(
+                f"typed field identity in {evidence_path} cannot be Converged at epoch zero"
+            )
+
     field_serials = [int(record["field_serial"]) for record in records]
     if len(set(field_serials)) != len(field_serials) or any(
         left >= right for left, right in zip(field_serials, field_serials[1:])
@@ -262,7 +279,7 @@ def parse_curve(
             )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
-    require_global_validation_order(records, console_path)
+    require_global_validation_legality(records, console_path)
     if len(terminals) != 1:
         raise ValueError(
             f"expected exactly one terminal convergence record in {console_path}, "

@@ -289,6 +289,58 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertIn("global validation order", result.stderr)
 
+    def test_rejects_runtime_illegal_field_identity_in_each_process_stream(self) -> None:
+        def mutate_old_identity(text: str, mutation: str) -> str:
+            old_identity = next(
+                line
+                for line in text.splitlines()
+                if "full-atlas validated" in line and "geometry_revision=1" in line
+            )
+            if mutation == "zero-serial":
+                injected = old_identity.replace(
+                    "field_serial=1 geometry_revision=1",
+                    "field_serial=0 geometry_revision=99",
+                    1,
+                )
+                return injected + "\n" + text
+            replacements = {
+                "zero-radiance": ("radiance_revision=1", "radiance_revision=0"),
+                "zero-spacing": ("spacing_voxels=32", "spacing_voxels=0"),
+                "converged-epoch-zero": ("state=Converging", "state=Converged"),
+            }
+            before, after = replacements[mutation]
+            return text.replace(old_identity, old_identity.replace(before, after, 1), 1)
+
+        for mutation in (
+            "zero-serial",
+            "zero-radiance",
+            "zero-spacing",
+            "converged-epoch-zero",
+        ):
+            for mutated_streams in (("console",), ("runlog",), ("console", "runlog")):
+                with (
+                    self.subTest(mutation=mutation, mutated_streams=mutated_streams),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    run_dir = Path(directory)
+                    output = run_dir / "summary.json"
+                    self.write_curve(run_dir)
+                    paths = {
+                        "console": run_dir
+                        / "sealed-spacing32-converged-forward.console.log",
+                        "runlog": run_dir
+                        / "sealed-spacing32-converged-forward.run.log",
+                    }
+                    for stream in mutated_streams:
+                        path = paths[stream]
+                        path.write_text(mutate_old_identity(path.read_text(), mutation))
+
+                    result = self.run_summarizer(run_dir, output)
+
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    self.assertIn("typed field identity", result.stderr)
+
     def test_rejects_an_old_identity_duplicate_in_either_process_stream(self) -> None:
         for mutated_stream in ("console", "runlog"):
             with (

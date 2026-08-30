@@ -102,8 +102,10 @@ The convergence summarizer independently parses both the capture console and its
 process-bound `.run.log`, then requires semantic equality of the policy, ordered validation curve,
 and terminal identity. Every physical line containing the convergence marker must be exactly one
 canonical validation or terminal record. Before selecting the capture identity, every validation
-record in each stream must also have a globally unique, strictly increasing field serial; identities
-must be contiguous; and each identity's epochs must start at zero and remain consecutive.
+record in each stream must satisfy the production `DdgiFieldKey` legality contract: field serial,
+radiance revision, and spacing are nonzero, and a Converged field cannot be epoch zero. Across
+records, field serials must be globally unique and strictly increasing; identities must be
+contiguous; and each identity's epochs must start at zero and remain consecutive.
 Consequently old-identity duplicates, raw stdout/stderr injection, direct run-log injection, and
 synchronized duplicate records fail closed even when the source tripwire cannot see how bytes were
 produced. Console-only or run-log-only evidence cannot qualify. It validates:
