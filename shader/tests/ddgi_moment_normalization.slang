@@ -18,12 +18,21 @@ export __extern_cpp int main()
         1.0, 0.5, 0.4921875, 2u);
     float broadBoundaryWeight = ddgiMomentNormalizationWeight(
         1.0, 0.5, 0.4375, 2u);
+    float transitionLeftWeight = ddgiMomentNormalizationWeight(
+        1.0, 0.5, 0.5 - 8.0 / 256.0, 2u);
+    float transitionMidpointWeight = ddgiMomentNormalizationWeight(
+        1.0, 0.5, 0.5 - 9.0 / 256.0, 2u);
+    float transitionRightWeight = ddgiMomentNormalizationWeight(
+        1.0, 0.5, 0.5 - 10.0 / 256.0, 2u);
 
     printf("full_weight=%.9f broad_partial_weight=%.9f isolated_weight=%.9f "
            "single_probe_weight=%.9f conservative_boundary=%.9f "
-           "broad_boundary=%.9f\n",
+           "broad_boundary=%.9f transition_left=%.9f "
+           "transition_midpoint=%.9f transition_right=%.9f\n",
            fullWeight, broadPartialWeight, isolatedWeight, singleProbeWeight,
-           conservativeBoundaryWeight, broadBoundaryWeight);
+           conservativeBoundaryWeight, broadBoundaryWeight,
+           transitionLeftWeight, transitionMidpointWeight,
+           transitionRightWeight);
 
     bool fullSupportUsesVisibilityWeight = nearlyEqual(fullWeight, 0.5);
     bool broadSupportUsesVisibilityWeight = nearlyEqual(broadPartialWeight, 0.25);
@@ -33,10 +42,17 @@ export __extern_cpp int main()
     bool secondarySupportBoundariesAreStable =
         nearlyEqual(conservativeBoundaryWeight, 0.75) &&
         nearlyEqual(broadBoundaryWeight, 0.5);
+    bool secondarySupportTransitionIsSmoothAndMonotonic =
+        transitionLeftWeight > transitionMidpointWeight &&
+        transitionMidpointWeight > transitionRightWeight &&
+        nearlyEqual(transitionMidpointWeight, 0.625) &&
+        transitionLeftWeight < conservativeBoundaryWeight &&
+        transitionRightWeight > broadBoundaryWeight;
     return fullSupportUsesVisibilityWeight &&
                broadSupportUsesVisibilityWeight &&
                isolatedSupportCannotAmplifyVisibility &&
                oneProbeCannotClaimBroadSupport &&
-               secondarySupportBoundariesAreStable
+               secondarySupportBoundariesAreStable &&
+               secondarySupportTransitionIsSmoothAndMonotonic
         ? 0 : 1;
 }
