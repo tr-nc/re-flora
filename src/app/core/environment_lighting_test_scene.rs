@@ -533,6 +533,7 @@ fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity)
 pub(super) struct EnvironmentLightingTestScene {
     case: EnvironmentLightingTestCase,
     phase: TestScenePhase,
+    initial_publication: Option<InitialTestScenePublication>,
     point_light_fixed_gpu_request_serial: u32,
     point_light_fixed_gpu_visible_luma_q8: u32,
     point_light_diagnostic_selected_decoy_id: Option<LightId>,
@@ -549,6 +550,7 @@ impl EnvironmentLightingTestScene {
         Self {
             case,
             phase: TestScenePhase::Pending,
+            initial_publication: None,
             point_light_fixed_gpu_request_serial: 0,
             point_light_fixed_gpu_visible_luma_q8: 0,
             point_light_diagnostic_selected_decoy_id: None,
@@ -936,6 +938,32 @@ impl EnvironmentLightingTestScene {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InitialTestScenePublication {
+    terrain_revision: u32,
+    first_build_verified: bool,
+}
+
+impl InitialTestScenePublication {
+    fn new(terrain_revision: u32) -> Self {
+        Self {
+            terrain_revision,
+            first_build_verified: false,
+        }
+    }
+
+    fn verify_first_build(&mut self, build_token: crate::ddgi::DdgiBuildToken) -> Result<()> {
+        anyhow::ensure!(
+            build_token.terrain_revision() == self.terrain_revision,
+            "first DDGI build terrain revision {} does not match test-scene Visible Terrain Publication revision {}",
+            build_token.terrain_revision(),
+            self.terrain_revision,
+        );
+        self.first_build_verified = true;
+        Ok(())
+    }
+}
+
 struct TestSceneGeometry {
     cleared_test_scene: Vec<Cuboid>,
     rock: Vec<Cuboid>,
@@ -1287,6 +1315,12 @@ fn voxel_roi_to_world(min_voxel: Vec3, max_voxel: Vec3) -> (Vec3, Vec3) {
     )
 }
 
+fn require_initial_test_scene_publication<T>(outcome: Option<T>) -> Result<T> {
+    outcome.context(
+        "deterministic environment-lighting test scene produced no Visible Terrain Publication",
+    )
+}
+
 impl App {
     fn publish_initial_environment_lighting_test_scene(
         &mut self,
@@ -1299,7 +1333,8 @@ impl App {
         TestSceneGeometry::build(case)
             .compile()
             .context("compile deterministic environment-lighting test scene")
-            .and_then(|transaction| self.execute_world_edit(transaction))?;
+            .and_then(|transaction| self.execute_world_edit(transaction))
+            .and_then(require_initial_test_scene_publication)?;
         let rebuild_bound = test_rebuild_bound(case);
         let terrain_revision = self.visible_terrain_revision;
         log::info!(
@@ -1317,28 +1352,59 @@ impl App {
         Ok(terrain_revision)
     }
 
-    pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(&mut self) {
+    pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(
+        &mut self,
+    ) -> Result<()> {
         let Some(case) = self
             .environment_lighting_test_scene
             .as_ref()
             .and_then(|scene| (scene.phase == TestScenePhase::Pending).then_some(scene.case))
         else {
-            return;
+            return Ok(());
         };
-        let phase = match self.publish_initial_environment_lighting_test_scene(case) {
-            Ok(terrain_revision) => TestScenePhase::Settling {
-                frames: SETTLE_FRAMES,
-                terrain_revision,
-            },
-            Err(err) => {
-                log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
-                TestScenePhase::Failed
-            }
-        };
-        self.environment_lighting_test_scene
+        let terrain_revision = self
+            .publish_initial_environment_lighting_test_scene(case)
+            .context("publish initial environment-lighting test scene")?;
+        let scene = self
+            .environment_lighting_test_scene
             .as_mut()
-            .expect("selected environment-lighting test scene must remain installed")
-            .phase = phase;
+            .expect("selected environment-lighting test scene must remain installed");
+        scene.initial_publication = Some(InitialTestScenePublication::new(terrain_revision));
+        scene.phase = TestScenePhase::Settling {
+            frames: SETTLE_FRAMES,
+            terrain_revision,
+        };
+        Ok(())
+    }
+
+    fn verify_environment_lighting_test_scene_first_ddgi_build(&mut self) -> Result<()> {
+        let Some(_) = self
+            .environment_lighting_test_scene
+            .as_ref()
+            .and_then(|scene| scene.initial_publication)
+            .filter(|publication| !publication.first_build_verified)
+        else {
+            return Ok(());
+        };
+        let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
+            return Ok(());
+        };
+        let scene = self
+            .environment_lighting_test_scene
+            .as_mut()
+            .expect("initial publication must retain its test scene");
+        let publication = scene
+            .initial_publication
+            .as_mut()
+            .expect("initial publication identity must remain installed");
+        publication.verify_first_build(build_token)?;
+        log::info!(
+            "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
+            build_token.serial(),
+            build_token.terrain_revision(),
+            publication.terrain_revision,
+        );
+        Ok(())
     }
 
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
@@ -2332,6 +2398,10 @@ impl App {
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
+        self.verify_environment_lighting_test_scene_first_ddgi_build()
+            .unwrap_or_else(|err| {
+                panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
+            });
         let Some((case, phase, fixed_gpu_request_serial, fixed_gpu_visible_luma_q8)) =
             self.environment_lighting_test_scene.as_ref().map(|scene| {
                 (
@@ -2347,16 +2417,7 @@ impl App {
 
         let next_phase = match phase {
             TestScenePhase::Pending => {
-                match self.publish_initial_environment_lighting_test_scene(case) {
-                    Ok(terrain_revision) => TestScenePhase::Settling {
-                        frames: SETTLE_FRAMES,
-                        terrain_revision,
-                    },
-                    Err(err) => {
-                        log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
-                        TestScenePhase::Failed
-                    }
-                }
+                panic!("[ENV_LIGHT_TEST] scene reached frame processing before startup publication")
             }
             TestScenePhase::Settling {
                 frames,
@@ -5486,7 +5547,41 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ddgi::DdgiFieldKey;
+    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey};
+
+    #[test]
+    fn initial_test_scene_requires_a_visible_terrain_publication() {
+        assert!(require_initial_test_scene_publication::<()>(None)
+            .unwrap_err()
+            .to_string()
+            .contains("no Visible Terrain Publication"));
+    }
+
+    #[test]
+    fn first_ddgi_build_must_follow_and_own_the_test_scene_publication_revision() {
+        let mut publication = InitialTestScenePublication::new(17);
+        assert!(!publication.first_build_verified);
+
+        publication
+            .verify_first_build(DdgiBuildToken::for_test(1, 17, 32, DdgiBuildKind::Terrain))
+            .unwrap();
+
+        assert!(publication.first_build_verified);
+    }
+
+    #[test]
+    fn first_ddgi_build_rejects_a_pre_publication_geometry_revision() {
+        let mut publication = InitialTestScenePublication::new(17);
+
+        let error = publication
+            .verify_first_build(DdgiBuildToken::for_test(1, 16, 32, DdgiBuildKind::Terrain))
+            .unwrap_err();
+
+        assert!(error.to_string().contains(
+            "first DDGI build terrain revision 16 does not match test-scene Visible Terrain Publication revision 17"
+        ));
+        assert!(!publication.first_build_verified);
+    }
 
     #[test]
     fn terrain_edit_transactions_change_the_authored_world_materials() {
