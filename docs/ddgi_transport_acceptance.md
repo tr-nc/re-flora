@@ -63,8 +63,11 @@ syntax in a double-quoted command substitution, so apostrophes in comments or or
 not change structural masking. It discards inactive quoted/escaped literals, retains actual
 parameter expansions, and parses each braced expansion's exact base identifier (including length,
 indirection, operator, and array forms). It inventories actual simple, compound, and parameter
-assignment, unset, readonly, and expansion facts, rejecting later policy/root mutation while
-allowing comparisons and prose that name them. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
+assignment, unset, readonly, and expansion facts. Its logical command/argv policy explicitly
+rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
+`read`, `readarray`/`mapfile`, `getopts`, or `let`, and every declaration nameref. Literal writes to
+other variables, comparisons, comments, and quoted prose remain allowed. This is a fail-closed
+allowance for the maintained grammar, not a proof of arbitrary Bash. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
 build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
 launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
 sentinels dynamically cover those known entrypoints. This does not prove arbitrary

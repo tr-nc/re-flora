@@ -503,6 +503,96 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                     [],
                 )
 
+    def test_dynamic_writer_reviewer_reproductions_cannot_mutate_authority(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for mutation in (
+            "eval 'dry_run=false'",
+            "printf -v dry_run false",
+            "read dry_run <<< false",
+        ):
+            with self.subTest(mutation=mutation):
+                mutated = source.replace(
+                    "    dry_run=true",
+                    "    dry_run=true\n    " + mutation,
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any(
+                        "immutable runner authority" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
+    def test_dynamic_authority_and_code_loading_constructs_fail_closed(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for mutation in (
+            "eval 'printf prose'",
+            'source "$repo_root/scripts/helper.sh"',
+            '. "$repo_root/scripts/helper.sh"',
+            "printf -v repo_root /tmp/reviewer",
+            'target=dry_run; printf -v "$target" false',
+            "read -r repo_root <<< /tmp/reviewer",
+            "read -a dry_run <<< false",
+            "readarray -O 0 dry_run <<< false",
+            "mapfile -t repo_root <<< /tmp/reviewer",
+            "getopts ':x' dry_run",
+            "let 'dry_run+=1'",
+            "declare -rn ref=dry_run",
+            "typeset -n ref=repo_root",
+            "local -n ref=dry_run",
+            "builtin eval 'dry_run=false'",
+            "command source /tmp/reviewer.sh",
+            "bash -c 'dry_run=false'",
+            "/usr/bin/env bash -c 'dry_run=false'",
+        ):
+            with self.subTest(mutation=mutation):
+                mutated = source.replace(
+                    "    dry_run=true",
+                    "    dry_run=true\n    " + mutation,
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any(
+                        "immutable runner authority" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
+    def test_dynamic_construct_names_as_data_and_safe_targets_are_allowed(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for statement in (
+            "# eval 'dry_run=false'; source /tmp/reviewer.sh",
+            "printf '%s' 'eval source . printf -v dry_run read repo_root'",
+            'printf \'%s\' "eval and source are prose"',
+            "message='eval dry_run=false; read repo_root'",
+            "printf -v message prose",
+            "read -r message <<< prose",
+            "read -p dry_run message <<< prose",
+            "read -u repo_root message <<< prose",
+            "readarray messages <<< prose",
+            "mapfile -C dry_run messages <<< prose",
+            "getopts dry_run option_name",
+            "let 'message=1' 'dry_run==false'",
+        ):
+            with self.subTest(statement=statement):
+                self.assertEqual(
+                    production_runner_invocation_failures(
+                        runner_name, source + "\n" + statement + "\n"
+                    ),
+                    [],
+                )
+
     def test_transport_normalization_python_is_env_owned(self) -> None:
         runner_name = "check_ddgi_transport_acceptance.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")

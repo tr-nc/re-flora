@@ -184,8 +184,12 @@ apostrophes cannot mask later structure. It discards single-quoted and escaped l
 ordinary double-quoted text while retaining real parameter expansions. Braced
 expansions are parsed for an exact base identifier, including length, indirection, operator, and
 array forms; only base `dry_run` owns a dry-run chain. Actual policy/root simple, compound, or
-parameter assignment, unset, readonly, and expansion facts are inventoried, keeping the wrapper's analyzer path immutable
-without rejecting prose. `/usr/bin/env` owns external tool resolution for Cargo, decision-related
+parameter assignment, unset, readonly, and expansion facts are inventoried. A separate logical
+command/argv seam fail-closes code loading (`eval`, `source`, `.`, and shell `-c`), authority targets
+of `printf -v`, `read`, `readarray`/`mapfile`, `getopts`, and `let`, dynamic writer targets, and all
+`declare`/`typeset`/`local` namerefs. Non-authority literal targets and command names contained only
+in comments or quoted data remain allowed. Together these rules keep the wrapper's analyzer path
+immutable without claiming arbitrary Bash interpretation. `/usr/bin/env` owns external tool resolution for Cargo, decision-related
 `tee` sinks, and transport normalization Python: it bypasses shell functions while retaining PATH
 lookup. Direct shebang analyzers already use the same owner. PATH plus repository and external
 absolute-path sentinels dynamically cover the known launch entrypoints. This is not a claim about

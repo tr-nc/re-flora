@@ -385,6 +385,14 @@ def _immutable_authority_failures(
             elif authority == "repo_root" and line.strip() != CANONICAL_REPO_ROOT:
                 authority_failures.append(f"repo_root:{line_number}")
 
+    code_lines, active_lines, _ = _shell_lex_lines(lines)
+    authority_failures.extend(
+        f"dynamic:{line_number}:{reason}"
+        for line_number, reason in _forbidden_dynamic_authority(
+            code_lines, active_lines
+        )
+    )
+
     return authority_failures, unknown_dry_run
 
 
@@ -423,6 +431,220 @@ def _parameter_expansion_assigns(expansion: str, base: str) -> bool:
             return False
         suffix = suffix[closing + 1 :]
     return suffix.startswith(("=", ":="))
+
+
+def _forbidden_dynamic_authority(
+    code_lines: list[str], active_lines: list[str]
+) -> tuple[tuple[int, str], ...]:
+    failures: list[tuple[int, str]] = []
+    for line_number, code, active in _logical_shell_lines(
+        code_lines, active_lines
+    ):
+        if not active.strip() and not code.lstrip().startswith(("'", '"')):
+            continue
+        for command in _shell_commands(code):
+            executable, arguments = _resolved_shell_command(command)
+            if executable in {"eval", "source", "."}:
+                failures.append((line_number, executable))
+            elif executable == "printf" and _printf_writes_authority(arguments):
+                failures.append((line_number, "printf-v"))
+            elif executable == "read" and _read_writes_authority(arguments):
+                failures.append((line_number, "read"))
+            elif executable in {"readarray", "mapfile"} and _array_reader_writes_authority(
+                arguments
+            ):
+                failures.append((line_number, executable))
+            elif executable == "getopts" and _getopts_writes_authority(arguments):
+                failures.append((line_number, "getopts"))
+            elif executable == "let" and _let_writes_authority(arguments):
+                failures.append((line_number, "let"))
+            elif executable in {"declare", "typeset", "local"} and _has_nameref_option(
+                arguments
+            ):
+                failures.append((line_number, "nameref"))
+            elif (
+                executable.rsplit("/", 1)[-1] in {"bash", "sh", "zsh"}
+                and "-c" in arguments
+            ):
+                failures.append((line_number, "shell-c"))
+    return tuple(failures)
+
+
+def _logical_shell_lines(
+    code_lines: list[str], active_lines: list[str]
+) -> tuple[tuple[int, str, str], ...]:
+    logical: list[tuple[int, str, str]] = []
+    start_line = 1
+    code_parts: list[str] = []
+    active_parts: list[str] = []
+    for line_number, (code, active) in enumerate(
+        zip(code_lines, active_lines, strict=True), 1
+    ):
+        if not code_parts:
+            start_line = line_number
+        continued = code.rstrip().endswith("\\")
+        code_parts.append(code.rstrip()[:-1] if continued else code)
+        active_parts.append(active.rstrip()[:-1] if continued else active)
+        if continued:
+            continue
+        logical.append(
+            (start_line, " ".join(code_parts), " ".join(active_parts))
+        )
+        code_parts.clear()
+        active_parts.clear()
+    if code_parts:
+        logical.append((start_line, " ".join(code_parts), " ".join(active_parts)))
+    return tuple(logical)
+
+
+def _shell_commands(code: str) -> tuple[tuple[str, ...], ...]:
+    commands: list[tuple[str, ...]] = []
+    segment: list[str] = []
+    for token in (*_shell_tokens(code), ";"):
+        if token not in {";", "|", "||", "&", "&&"}:
+            segment.append(token)
+            continue
+        while segment and segment[0] in {
+            "if",
+            "elif",
+            "then",
+            "else",
+            "do",
+            "!",
+            "(",
+        }:
+            segment.pop(0)
+        while segment and _is_shell_assignment_word(segment[0]):
+            segment.pop(0)
+        if segment and segment[0] not in {")", "fi", "done", "{", "}"}:
+            commands.append(tuple(segment))
+        segment.clear()
+    return tuple(commands)
+
+
+def _is_shell_assignment_word(token: str) -> bool:
+    return (
+        re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?(?:\+=|=).*",
+            token,
+        )
+        is not None
+    )
+
+
+def _resolved_shell_command(command: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    words = list(command)
+    while words and words[0] in {"builtin", "command"}:
+        words.pop(0)
+        while words and words[0].startswith("-"):
+            words.pop(0)
+    if words and words[0] == "/usr/bin/env":
+        words.pop(0)
+        while words and (words[0].startswith("-") or _is_shell_assignment_word(words[0])):
+            words.pop(0)
+    if not words:
+        return "", ()
+    return words[0], tuple(words[1:])
+
+
+def _authority_or_dynamic_target(target: str) -> bool:
+    base = target.split("[", 1)[0]
+    return base in {"dry_run", "repo_root"} or any(
+        marker in target for marker in ("$", "`", "$(")
+    )
+
+
+def _printf_writes_authority(arguments: tuple[str, ...]) -> bool:
+    for index, argument in enumerate(arguments):
+        if argument == "-v":
+            return index + 1 >= len(arguments) or _authority_or_dynamic_target(
+                arguments[index + 1]
+            )
+        if argument.startswith("-v") and len(argument) > 2:
+            return _authority_or_dynamic_target(argument[2:])
+    return False
+
+
+def _read_writes_authority(arguments: tuple[str, ...]) -> bool:
+    targets: list[str] = []
+    index = 0
+    option_arguments = ("a", "d", "i", "n", "N", "p", "t", "u")
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            index += 1
+            break
+        if not argument.startswith("-") or argument == "-":
+            break
+        option = argument[1:]
+        consuming = next((flag for flag in option_arguments if flag in option), None)
+        if consuming == "a":
+            if option.endswith("a"):
+                index += 1
+                if index >= len(arguments):
+                    return True
+                targets.append(arguments[index])
+            else:
+                targets.append(option.split("a", 1)[1])
+        elif consuming is not None and option.endswith(consuming):
+            index += 1
+        index += 1
+    targets.extend(
+        argument
+        for argument in arguments[index:]
+        if not argument.startswith(("<", ">"))
+    )
+    return any(_authority_or_dynamic_target(target) for target in targets)
+
+
+def _array_reader_writes_authority(arguments: tuple[str, ...]) -> bool:
+    index = 0
+    consuming_options = {"-n", "-O", "-s", "-C", "-c", "-u"}
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            index += 1
+            break
+        if argument in consuming_options:
+            index += 2
+            continue
+        if argument.startswith("-"):
+            index += 1
+            continue
+        break
+    targets = [
+        argument
+        for argument in arguments[index:]
+        if not argument.startswith(("<", ">"))
+    ]
+    return any(_authority_or_dynamic_target(target) for target in targets)
+
+
+def _getopts_writes_authority(arguments: tuple[str, ...]) -> bool:
+    return len(arguments) < 2 or _authority_or_dynamic_target(arguments[1])
+
+
+def _let_writes_authority(arguments: tuple[str, ...]) -> bool:
+    mutation = re.compile(
+        r"(?:^|[^$A-Za-z0-9_])(dry_run|repo_root)\s*"
+        r"(?:\+\+|--|(?:<<|>>|[+\-*/%&^|])?=(?!=))"
+        r"|(?:\+\+|--)\s*(dry_run|repo_root)\b"
+    )
+    return any(
+        "$" in argument or "`" in argument or mutation.search(argument) is not None
+        for argument in arguments
+    )
+
+
+def _has_nameref_option(arguments: tuple[str, ...]) -> bool:
+    for argument in arguments:
+        if argument == "--":
+            return False
+        if re.fullmatch(r"[-+][A-Za-z]+", argument) is None:
+            return False
+        if "n" in argument[1:]:
+            return True
+    return False
 
 
 def _references_parameter(line: str, expected_base: str) -> bool:
