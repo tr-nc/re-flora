@@ -804,7 +804,19 @@ def parse_curve(
             f"expected exactly one authoritative DDGI relocation population in "
             f"{console_path}, found {len(population_matches)}"
         )
-    population = ProbePopulation.from_match(population_matches[0], console_path)
+    population_match = population_matches[0]
+    following_validation_offset = text.find(
+        VALIDATION_MARKER, population_match.end()
+    )
+    if (
+        population_match.start() <= policy_matches[0].start()
+        or following_validation_offset < 0
+    ):
+        raise ValueError(
+            f"DDGI relocation population in {console_path} must follow initialization "
+            f"and must precede full-atlas validation"
+        )
+    population = ProbePopulation.from_match(population_match, console_path)
     if population.total_count != initialization.probe_count:
         raise ValueError(
             f"DDGI relocation population total {population.total_count} in {console_path} "
