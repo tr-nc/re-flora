@@ -135,22 +135,26 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
     ))
 }
 
-fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
+fn publish_scaling_count(
+    app: &mut App,
+    environment: &mut EnvironmentLightingTestScene,
+    requested_count: usize,
+) -> (u64, u64) {
     assert!(requested_count <= LOCAL_LIGHT_GPU_CAPACITY);
     if requested_count == 0 {
-        let ids = app.launch_owners.take_local_light_scaling_ids();
+        let ids = std::mem::take(&mut environment.local_light_scaling_ids);
         for id in ids {
             app.local_lights
                 .remove(id)
                 .expect("zero-count scaling transition must remove every selected light");
         }
     } else {
-        let first_new = app.launch_owners.local_light_scaling_count();
+        let first_new = environment.local_light_scaling_ids.len();
         assert!(first_new <= requested_count);
         let new_ids = (first_new..requested_count)
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
-        app.launch_owners.extend_local_light_scaling_ids(new_ids);
+        environment.local_light_scaling_ids.extend(new_ids);
     }
     let snapshot = app.local_lights.snapshot();
     assert_eq!(snapshot.lights().len(), requested_count);
@@ -174,6 +178,7 @@ fn builder_matches(app: &App, state: LocalLightScalingState) -> bool {
 impl App {
     pub(super) fn advance_local_light_scaling(
         &mut self,
+        environment: &mut EnvironmentLightingTestScene,
         mut state: LocalLightScalingState,
     ) -> Option<TestScenePhase> {
         let next = match state.stage {
@@ -195,7 +200,7 @@ impl App {
                 assert_eq!(baseline.field().geometry_revision(), state.terrain_revision);
                 assert!(self.local_lights.snapshot().lights().is_empty());
                 let (source_revision, registry_revision) =
-                    publish_scaling_count(self, state.requested_count());
+                    publish_scaling_count(self, environment, state.requested_count());
                 state.expected_source_revision = source_revision;
                 state.expected_registry_revision = registry_revision;
                 state.mutation_frame = self.time_info.total_frame_count();
@@ -240,7 +245,7 @@ impl App {
                 if !builder_matches(self, state) {
                     return None;
                 }
-                self.launch_owners.clear_local_light_scaling_samples();
+                environment.local_light_scaling_samples.clear();
                 state.warmup_frames = 0;
                 state.stage = LocalLightScalingStage::Warmup;
                 state
@@ -260,12 +265,12 @@ impl App {
                     return None;
                 }
                 let sample = sample_from_app(self)?;
-                let Some(samples) = self
-                    .launch_owners
-                    .record_local_light_scaling_sample(sample, LOCAL_LIGHT_SCALING_SAMPLE_FRAMES)
-                else {
+                environment.local_light_scaling_samples.push(sample);
+                if environment.local_light_scaling_samples.len() < LOCAL_LIGHT_SCALING_SAMPLE_FRAMES
+                {
                     return Some(TestScenePhase::LocalLightScaling(state));
-                };
+                }
+                let samples = environment.local_light_scaling_samples.clone();
                 let count = state.requested_count();
                 let ddgi = self.tracer.ddgi_local_light_gpu_evidence();
                 let (ddgi_candidates, ddgi_visible, ddgi_occluded) = ddgi
@@ -309,14 +314,14 @@ impl App {
                 if state.count_index + 1 < LOCAL_LIGHT_SCALING_COUNTS.len() {
                     state.count_index += 1;
                     let (source_revision, registry_revision) =
-                        publish_scaling_count(self, state.requested_count());
+                        publish_scaling_count(self, environment, state.requested_count());
                     state.expected_source_revision = source_revision;
                     state.expected_registry_revision = registry_revision;
                     state.mutation_frame = self.time_info.total_frame_count();
                     state.stage = LocalLightScalingStage::AwaitLive;
                     state
                 } else {
-                    let ids = self.launch_owners.take_local_light_scaling_ids();
+                    let ids = std::mem::take(&mut environment.local_light_scaling_ids);
                     for id in ids {
                         self.local_lights
                             .remove(id)
