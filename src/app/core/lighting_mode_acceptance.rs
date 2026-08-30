@@ -32,6 +32,61 @@ pub(super) struct EffectiveLightingControls {
     pub raster: RasterLightingMode,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum PlannedFrameValue<T> {
+    Live,
+    Fixed(T),
+}
+
+impl<T: Copy> PlannedFrameValue<T> {
+    pub(super) const fn resolve(self, live: T) -> T {
+        match self {
+            Self::Live => live,
+            Self::Fixed(value) => value,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LightingModeAcceptanceFramePlan {
+    pub visual_time_seconds: PlannedFrameValue<f32>,
+    pub frame_delta_seconds: PlannedFrameValue<f32>,
+    pub time_of_day: PlannedFrameValue<f32>,
+    pub sampling_serial: PlannedFrameValue<u32>,
+    pub dither_strength_lsb: PlannedFrameValue<f32>,
+    pub path_tracing_max_bounces: PlannedFrameValue<u32>,
+    pub path_tracing_ambient_light: PlannedFrameValue<[f32; 3]>,
+    pub lighting_controls: PlannedFrameValue<EffectiveLightingControls>,
+}
+
+impl LightingModeAcceptanceFramePlan {
+    fn live() -> Self {
+        Self {
+            visual_time_seconds: PlannedFrameValue::Live,
+            frame_delta_seconds: PlannedFrameValue::Live,
+            time_of_day: PlannedFrameValue::Live,
+            sampling_serial: PlannedFrameValue::Live,
+            dither_strength_lsb: PlannedFrameValue::Live,
+            path_tracing_max_bounces: PlannedFrameValue::Live,
+            path_tracing_ambient_light: PlannedFrameValue::Live,
+            lighting_controls: PlannedFrameValue::Live,
+        }
+    }
+
+    fn fixed(controls: EffectiveLightingControls) -> Self {
+        Self {
+            visual_time_seconds: PlannedFrameValue::Fixed(FIXED_VISUAL_TIME_SECONDS),
+            frame_delta_seconds: PlannedFrameValue::Fixed(0.0),
+            time_of_day: PlannedFrameValue::Fixed(FIXED_TIME_OF_DAY),
+            sampling_serial: PlannedFrameValue::Fixed(FIXED_SAMPLING_SERIAL),
+            dither_strength_lsb: PlannedFrameValue::Fixed(0.0),
+            path_tracing_max_bounces: PlannedFrameValue::Fixed(2),
+            path_tracing_ambient_light: PlannedFrameValue::Fixed([0.0; 3]),
+            lighting_controls: PlannedFrameValue::Fixed(controls),
+        }
+    }
+}
+
 impl EffectiveLightingControls {
     pub(super) const fn new(terrain: TerrainLightingMode, raster: RasterLightingMode) -> Self {
         Self { terrain, raster }
@@ -113,6 +168,17 @@ impl LightingModeAcceptancePhase {
             Self::Complete => "complete",
         }
     }
+
+    fn frame_plan(self) -> LightingModeAcceptanceFramePlan {
+        if matches!(self, Self::A | Self::B | Self::C | Self::D) {
+            LightingModeAcceptanceFramePlan::fixed(self.controls(EffectiveLightingControls::new(
+                TerrainLightingMode::Ddgi,
+                RasterLightingMode::Ddgi,
+            )))
+        } else {
+            LightingModeAcceptanceFramePlan::live()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,13 +247,6 @@ impl LightingModeAcceptanceRuntime {
         }
     }
 
-    pub(super) fn effective_controls(
-        &self,
-        gui: EffectiveLightingControls,
-    ) -> EffectiveLightingControls {
-        self.phase.controls(gui)
-    }
-
     pub(super) fn is_active(&self) -> bool {
         !matches!(
             self.phase,
@@ -195,38 +254,8 @@ impl LightingModeAcceptanceRuntime {
         )
     }
 
-    pub(super) fn fixed_visual_time_seconds(&self, gui_time: f32) -> f32 {
-        self.is_active()
-            .then_some(FIXED_VISUAL_TIME_SECONDS)
-            .unwrap_or(gui_time)
-    }
-
-    pub(super) fn fixed_sampling_serial(&self, frame_serial: u32) -> u32 {
-        self.is_active()
-            .then_some(FIXED_SAMPLING_SERIAL)
-            .unwrap_or(frame_serial)
-    }
-
-    pub(super) fn effective_dither_strength(&self, gui_dither: f32) -> f32 {
-        self.is_active().then_some(0.0).unwrap_or(gui_dither)
-    }
-
-    pub(super) fn effective_frame_delta_seconds(&self, frame_delta: f32) -> f32 {
-        self.is_active().then_some(0.0).unwrap_or(frame_delta)
-    }
-
-    pub(super) fn effective_time_of_day(&self, time_of_day: f32) -> f32 {
-        self.is_active()
-            .then_some(FIXED_TIME_OF_DAY)
-            .unwrap_or(time_of_day)
-    }
-
-    pub(super) fn effective_path_max_bounces(&self, gui_value: u32) -> u32 {
-        self.is_active().then_some(2).unwrap_or(gui_value)
-    }
-
-    pub(super) fn effective_path_ambient_light(&self, gui_value: [f32; 3]) -> [f32; 3] {
-        self.is_active().then_some([0.0; 3]).unwrap_or(gui_value)
+    pub(super) fn frame_plan(&self) -> LightingModeAcceptanceFramePlan {
+        self.phase.frame_plan()
     }
 
     pub(super) fn record_if_ready(
@@ -509,6 +538,35 @@ fn write_atomic_artifact(path: &Path, manifest: &[u8], payload: &[u8]) -> Result
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct FrameInputs {
+        visual_time_seconds: f32,
+        frame_delta_seconds: f32,
+        time_of_day: f32,
+        sampling_serial: u32,
+        dither_strength_lsb: f32,
+        path_tracing_max_bounces: u32,
+        path_tracing_ambient_light: [f32; 3],
+        lighting_controls: EffectiveLightingControls,
+    }
+
+    fn resolve(plan: LightingModeAcceptanceFramePlan, live: FrameInputs) -> FrameInputs {
+        FrameInputs {
+            visual_time_seconds: plan.visual_time_seconds.resolve(live.visual_time_seconds),
+            frame_delta_seconds: plan.frame_delta_seconds.resolve(live.frame_delta_seconds),
+            time_of_day: plan.time_of_day.resolve(live.time_of_day),
+            sampling_serial: plan.sampling_serial.resolve(live.sampling_serial),
+            dither_strength_lsb: plan.dither_strength_lsb.resolve(live.dither_strength_lsb),
+            path_tracing_max_bounces: plan
+                .path_tracing_max_bounces
+                .resolve(live.path_tracing_max_bounces),
+            path_tracing_ambient_light: plan
+                .path_tracing_ambient_light
+                .resolve(live.path_tracing_ambient_light),
+            lighting_controls: plan.lighting_controls.resolve(live.lighting_controls),
+        }
+    }
+
     #[test]
     fn inactive_acceptance_preserves_gui_lighting_controls() {
         let gui = EffectiveLightingControls::new(
@@ -552,18 +610,92 @@ mod tests {
 
     #[test]
     fn runtime_only_overrides_controls_when_acceptance_was_requested() {
-        let gui = EffectiveLightingControls::from_gui(true, false);
+        let inputs = FrameInputs {
+            visual_time_seconds: 12.5,
+            frame_delta_seconds: 1.0 / 60.0,
+            time_of_day: 0.75,
+            sampling_serial: 23,
+            dither_strength_lsb: 0.25,
+            path_tracing_max_bounces: 7,
+            path_tracing_ambient_light: [0.1, 0.2, 0.3],
+            lighting_controls: EffectiveLightingControls::from_gui(true, false),
+        };
         let inactive = LightingModeAcceptanceRuntime::new(None);
-        assert_eq!(inactive.effective_controls(gui), gui);
+        assert_eq!(resolve(inactive.frame_plan(), inputs), inputs);
 
         let options = LightingModeAcceptanceOptions {
             artifact_path: "target/r13-e2.rflma".into(),
         };
         let active = LightingModeAcceptanceRuntime::new(Some(&options));
         assert_eq!(
-            active.effective_controls(gui),
-            LightingModeAcceptancePhase::A.controls(gui)
+            resolve(active.frame_plan(), inputs),
+            FrameInputs {
+                visual_time_seconds: FIXED_VISUAL_TIME_SECONDS,
+                frame_delta_seconds: 0.0,
+                time_of_day: FIXED_TIME_OF_DAY,
+                sampling_serial: FIXED_SAMPLING_SERIAL,
+                dither_strength_lsb: 0.0,
+                path_tracing_max_bounces: 2,
+                path_tracing_ambient_light: [0.0; 3],
+                lighting_controls: LightingModeAcceptancePhase::A
+                    .controls(inputs.lighting_controls),
+            }
         );
+    }
+
+    #[test]
+    fn every_active_phase_owns_the_complete_fixed_frame_bundle() {
+        let live = FrameInputs {
+            visual_time_seconds: 12.5,
+            frame_delta_seconds: 1.0 / 60.0,
+            time_of_day: 0.75,
+            sampling_serial: 23,
+            dither_strength_lsb: 0.25,
+            path_tracing_max_bounces: 7,
+            path_tracing_ambient_light: [0.1, 0.2, 0.3],
+            lighting_controls: EffectiveLightingControls::from_gui(true, false),
+        };
+        for phase in [
+            LightingModeAcceptancePhase::A,
+            LightingModeAcceptancePhase::B,
+            LightingModeAcceptancePhase::C,
+            LightingModeAcceptancePhase::D,
+        ] {
+            assert_eq!(
+                resolve(phase.frame_plan(), live),
+                FrameInputs {
+                    visual_time_seconds: FIXED_VISUAL_TIME_SECONDS,
+                    frame_delta_seconds: 0.0,
+                    time_of_day: FIXED_TIME_OF_DAY,
+                    sampling_serial: FIXED_SAMPLING_SERIAL,
+                    dither_strength_lsb: 0.0,
+                    path_tracing_max_bounces: 2,
+                    path_tracing_ambient_light: [0.0; 3],
+                    lighting_controls: phase.controls(live.lighting_controls),
+                },
+                "{}",
+                phase.label(),
+            );
+        }
+    }
+
+    #[test]
+    fn production_app_constructs_one_plan_and_has_no_primitive_runtime_bypass() {
+        let core = include_str!("mod.rs");
+
+        assert_eq!(core.matches(".frame_plan(").count(), 1);
+        for removed_primitive in [
+            "effective_controls(",
+            "fixed_visual_time_seconds(",
+            "fixed_sampling_serial(",
+            "effective_dither_strength(",
+            "effective_frame_delta_seconds(",
+            "effective_time_of_day(",
+            "effective_path_max_bounces(",
+            "effective_path_ambient_light(",
+        ] {
+            assert!(!core.contains(removed_primitive), "{removed_primitive}");
+        }
     }
 
     fn identity(revision: u32) -> LightingModeAcceptanceIdentity {

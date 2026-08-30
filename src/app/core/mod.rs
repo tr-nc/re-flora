@@ -49,8 +49,8 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::lighting_mode_acceptance::{
-    EffectiveLightingControls, LightingModeAcceptanceIdentity, LightingModeAcceptanceRuntime,
-    PendingLightingModeCapture,
+    EffectiveLightingControls, LightingModeAcceptanceFramePlan, LightingModeAcceptanceIdentity,
+    LightingModeAcceptanceRuntime, PendingLightingModeCapture,
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
@@ -2447,14 +2447,23 @@ impl App {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
+                #[deny(unused_variables)]
+                let LightingModeAcceptanceFramePlan {
+                    visual_time_seconds: lighting_visual_time,
+                    frame_delta_seconds: lighting_frame_delta,
+                    time_of_day: lighting_time_of_day,
+                    sampling_serial: lighting_sampling_serial,
+                    dither_strength_lsb: lighting_dither_strength,
+                    path_tracing_max_bounces: lighting_path_max_bounces,
+                    path_tracing_ambient_light: lighting_path_ambient_light,
+                    lighting_controls,
+                } = self.lighting_mode_acceptance.frame_plan();
                 let frame_delta_time = self
                     .denoiser_bench
                     .as_ref()
                     .and_then(DenoiserBench::fixed_frame_delta_seconds)
                     .unwrap_or_else(|| self.time_info.delta_time());
-                let frame_delta_time = self
-                    .lighting_mode_acceptance
-                    .effective_frame_delta_seconds(frame_delta_time);
+                let frame_delta_time = lighting_frame_delta.resolve(frame_delta_time);
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -2474,9 +2483,7 @@ impl App {
                     .as_ref()
                     .and_then(DenoiserBench::visual_time_seconds)
                     .unwrap_or(time_since_start);
-                let visual_time_since_start = self
-                    .lighting_mode_acceptance
-                    .fixed_visual_time_seconds(visual_time_since_start);
+                let visual_time_since_start = lighting_visual_time.resolve(visual_time_since_start);
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -3505,9 +3512,8 @@ impl App {
                     )
                 });
 
-                let effective_time_of_day = self
-                    .lighting_mode_acceptance
-                    .effective_time_of_day(self.world_clock.live_time_of_day());
+                let effective_time_of_day =
+                    lighting_time_of_day.resolve(self.world_clock.live_time_of_day());
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     effective_time_of_day,
                     self.debug_settings.adjustables.latitude.value,
@@ -3602,30 +3608,26 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                let effective_lighting_controls = self.lighting_mode_acceptance.effective_controls(
-                    EffectiveLightingControls::from_gui(
+                let effective_lighting_controls =
+                    lighting_controls.resolve(EffectiveLightingControls::from_gui(
                         self.debug_settings.adjustables.path_tracing_reference.value,
                         self.debug_settings
                             .adjustables
                             .raster_flora_ddgi_lighting
                             .value,
-                    ),
+                    ));
+                let sampling_serial =
+                    lighting_sampling_serial.resolve(self.time_info.total_frame_count() as u32);
+                let dither_strength_lsb = lighting_dither_strength
+                    .resolve(self.debug_settings.adjustables.dither_strength_lsb.value);
+                let path_tracing_max_bounces = lighting_path_max_bounces.resolve(
+                    self.debug_settings
+                        .adjustables
+                        .path_tracing_max_bounces
+                        .value,
                 );
-                let sampling_serial = self
-                    .lighting_mode_acceptance
-                    .fixed_sampling_serial(self.time_info.total_frame_count() as u32);
-                let dither_strength_lsb = self.lighting_mode_acceptance.effective_dither_strength(
-                    self.debug_settings.adjustables.dither_strength_lsb.value,
-                );
-                let path_tracing_max_bounces =
-                    self.lighting_mode_acceptance.effective_path_max_bounces(
-                        self.debug_settings
-                            .adjustables
-                            .path_tracing_max_bounces
-                            .value,
-                    );
                 let path_tracing_ambient_light = Vec3::from_array(
-                    self.lighting_mode_acceptance.effective_path_ambient_light(
+                    lighting_path_ambient_light.resolve(
                         self.debug_settings
                             .adjustables
                             .path_tracing_ambient_light
