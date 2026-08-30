@@ -21,7 +21,6 @@ use glam::{UVec3, Vec3};
 mod local_light_scaling;
 use local_light_scaling::{LocalLightScalingSample, LocalLightScalingState};
 
-const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
 const TEST_LATITUDE: f32 = -0.24;
@@ -294,7 +293,6 @@ const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TestScenePhase {
     Pending,
-    TerrainPublished,
     Settling {
         frames: u8,
         terrain_revision: u32,
@@ -710,7 +708,6 @@ impl EnvironmentLightingTestScene {
     pub(super) fn phase_label(&self) -> &'static str {
         match self.phase {
             TestScenePhase::Pending => "pending",
-            TestScenePhase::TerrainPublished => "terrain-published",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
             TestScenePhase::PattSeamTerrainPublished { .. } => "patt-seam-terrain-published",
@@ -1291,6 +1288,59 @@ fn voxel_roi_to_world(min_voxel: Vec3, max_voxel: Vec3) -> (Vec3, Vec3) {
 }
 
 impl App {
+    fn publish_initial_environment_lighting_test_scene(
+        &mut self,
+        case: EnvironmentLightingTestCase,
+    ) -> Result<u32> {
+        log::info!(
+            "[ENV_LIGHT_TEST] constructing static case={} before probe initialization",
+            case.label(),
+        );
+        TestSceneGeometry::build(case)
+            .compile()
+            .context("compile deterministic environment-lighting test scene")
+            .and_then(|transaction| self.execute_world_edit(transaction))?;
+        let rebuild_bound = test_rebuild_bound(case);
+        let terrain_revision = self.visible_terrain_revision;
+        log::info!(
+            "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
+            case.label(),
+            rebuild_bound.min(),
+            rebuild_bound.max(),
+        );
+        log::info!(
+            "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
+            case.label(),
+            terrain_revision,
+            SETTLE_FRAMES,
+        );
+        Ok(terrain_revision)
+    }
+
+    pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(&mut self) {
+        let Some(case) = self
+            .environment_lighting_test_scene
+            .as_ref()
+            .and_then(|scene| (scene.phase == TestScenePhase::Pending).then_some(scene.case))
+        else {
+            return;
+        };
+        let phase = match self.publish_initial_environment_lighting_test_scene(case) {
+            Ok(terrain_revision) => TestScenePhase::Settling {
+                frames: SETTLE_FRAMES,
+                terrain_revision,
+            },
+            Err(err) => {
+                log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
+                TestScenePhase::Failed
+            }
+        };
+        self.environment_lighting_test_scene
+            .as_mut()
+            .expect("selected environment-lighting test scene must remain installed")
+            .phase = phase;
+    }
+
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
         let case = self
             .environment_lighting_test_scene
@@ -2297,53 +2347,15 @@ impl App {
 
         let next_phase = match phase {
             TestScenePhase::Pending => {
-                let Some(render_start) = self.render_start_time else {
-                    return;
-                };
-                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
-                    return;
-                }
-
-                log::info!(
-                    "[ENV_LIGHT_TEST] constructing static case={} before probe initialization",
-                    case.label(),
-                );
-                match TestSceneGeometry::build(case)
-                    .compile()
-                    .context("compile deterministic environment-lighting test scene")
-                    .and_then(|transaction| self.execute_world_edit(transaction))
-                {
-                    Ok(_) => {
-                        let rebuild_bound = test_rebuild_bound(case);
-                        log::info!(
-                            "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
-                            case.label(),
-                            rebuild_bound.min(),
-                            rebuild_bound.max(),
-                        );
-                        TestScenePhase::TerrainPublished
-                    }
+                match self.publish_initial_environment_lighting_test_scene(case) {
+                    Ok(terrain_revision) => TestScenePhase::Settling {
+                        frames: SETTLE_FRAMES,
+                        terrain_revision,
+                    },
                     Err(err) => {
                         log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed
                     }
-                }
-            }
-            TestScenePhase::TerrainPublished => {
-                let terrain_revision = self
-                    .observe_initial_published_terrain_for_ddgi()
-                    .unwrap_or_else(|err| {
-                        panic!("[ENV_LIGHT_TEST] DDGI visibility publication failed: {err:#}")
-                    });
-                log::info!(
-                    "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
-                    case.label(),
-                    terrain_revision,
-                    SETTLE_FRAMES,
-                );
-                TestScenePhase::Settling {
-                    frames: SETTLE_FRAMES,
-                    terrain_revision,
                 }
             }
             TestScenePhase::Settling {

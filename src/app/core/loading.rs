@@ -419,6 +419,7 @@ impl App {
         publication.complete_startup(self).unwrap_or_else(|err| {
             panic!("startup Visible Terrain Publication completion failed: {err:#}")
         });
+        self.prepare_environment_lighting_test_scene_before_probe_initialization();
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }
