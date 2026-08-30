@@ -583,7 +583,7 @@ def _runtime(request: RunRequest) -> ExecutionPlan:
                         "0",
                     ),
                 ),
-                FailureKey(Suite.RUNTIME_TERRAIN_EDITS, "inflight-stale-active-analysis", spacing),
+                FailureKey(Suite.RUNTIME_TERRAIN_EDITS, "inflight-stale-active", spacing),
             )
         )
     source = run_dir / "sequential-reopened-spacing32-flora-final.rfirr"
@@ -717,11 +717,24 @@ def _transport(request: RunRequest) -> ExecutionPlan:
         add_stage("dogleg", spacing, "e1", "forward", "--expect-lifecycle-state", "converging", "--expect-update-epoch", "1", "--expect-source-state", "converging", "--expect-source-update-epoch", "0", "--expect-publication-state", "published", "--world-roi", *dogleg_roi, "--baseline", str(dogleg), "--min-roi-luminance-gain", "0.000035", "--max-exact-direct-sun-visibility", "0")
         for convergence_case in ("portal", "donor", "dogleg"):
             add_stage(convergence_case, spacing, "converged", "forward", "--expect-lifecycle-state", "converged", "--expect-publication-state", "published")
-    stages.append(
-        Aggregate(
-            "transport.convergence",
-            (SummarizeConvergence(run_dir, run_dir / "convergence-calibration.json"),),
-            FailureKey(Suite.TRANSPORT, "convergence"),
+    transport_stage_ids = tuple(stage.id for stage in stages)
+    stages.extend(
+        (
+            Claim(
+                "transport.filter-history-outcome",
+                "[DDGI_TRANSPORT] filter-history-outcome=ACCEPTED seam=dogleg-e0-e1-production-capture",
+                (
+                    "transport.dogleg.32.e0.forward",
+                    "transport.dogleg.32.e1.forward",
+                    "transport.dogleg.16.e0.forward",
+                    "transport.dogleg.16.e1.forward",
+                ),
+            ),
+            Aggregate(
+                "transport.convergence",
+                (SummarizeConvergence(run_dir, run_dir / "convergence-calibration.json"),),
+                FailureKey(Suite.TRANSPORT, "convergence"),
+            ),
         )
     )
     child_run_id = request.run_id
@@ -754,33 +767,42 @@ def _transport(request: RunRequest) -> ExecutionPlan:
     )
     stages.extend(
         (
-            IncludeSuite("transport.include.correctness", correctness),
-            IncludeSuite("transport.include.runtime", runtime),
-            Aggregate(
-                "transport.sky-normalization",
-                (CheckSkyNormalization(),),
-                FailureKey(Suite.TRANSPORT, "sky-normalization"),
+            IncludeSuite(
+                "transport.include.correctness",
+                correctness,
+                FailureKey(Suite.TRANSPORT, "include-correctness"),
             ),
-            IncludeSuite("transport.include.lifecycle", lifecycle),
-            Claim(
-                "transport.filter-history-outcome",
-                "[DDGI_TRANSPORT] filter-history-outcome=ACCEPTED seam=dogleg-e0-e1-production-capture",
-                (
-                    "transport.dogleg.32.e0.forward",
-                    "transport.dogleg.32.e1.forward",
-                    "transport.dogleg.16.e0.forward",
-                    "transport.dogleg.16.e1.forward",
-                ),
+            IncludeSuite(
+                "transport.include.runtime",
+                runtime,
+                FailureKey(Suite.TRANSPORT, "include-runtime"),
             ),
             Claim(
                 "transport.direct-sun",
                 "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh",
                 ("transport.include.runtime",),
             ),
+            Aggregate(
+                "transport.sky-normalization",
+                (CheckSkyNormalization(),),
+                FailureKey(Suite.TRANSPORT, "sky-normalization"),
+            ),
+            IncludeSuite(
+                "transport.include.lifecycle",
+                lifecycle,
+                FailureKey(Suite.TRANSPORT, "include-lifecycle"),
+            ),
             Claim(
                 "transport.filter-history-action",
                 "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v10",
-                ("transport.include.correctness", "transport.include.runtime"),
+                (
+                    *transport_stage_ids,
+                    "transport.convergence",
+                    "transport.include.correctness",
+                    "transport.include.runtime",
+                    "transport.sky-normalization",
+                    "transport.include.lifecycle",
+                ),
             ),
         )
     )

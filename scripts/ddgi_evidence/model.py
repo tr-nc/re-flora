@@ -330,6 +330,7 @@ class Aggregate:
 class IncludeSuite:
     id: str
     execution_plan: ExecutionPlan
+    failure_key: FailureKey
 
 
 @dataclass(frozen=True)
@@ -356,12 +357,19 @@ class ActionFailure:
 
 
 @dataclass(frozen=True)
+class IncludedRunReport:
+    stage_id: str
+    report: RunReport
+
+
+@dataclass(frozen=True)
 class RunReport:
     suite: Suite
     run_dir: Path
     failures: tuple[ActionFailure, ...]
     claims: tuple[str, ...]
     facts: dict[tuple[str, str], str]
+    included_reports: tuple[IncludedRunReport, ...] = ()
 
     @property
     def succeeded(self) -> bool:

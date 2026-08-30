@@ -21,6 +21,7 @@ from .model import (
     ExecutionPlan,
     FailureKey,
     IncludeSuite,
+    IncludedRunReport,
     RelocateArtifact,
     RunReport,
     Setup,
@@ -316,13 +317,22 @@ def _perform(
 
 def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
     failures: list[ActionFailure] = []
+    failure_keys: set[FailureKey] = set()
     claims: list[str] = []
     facts: dict[tuple[str, str], str] = {}
+    included_reports: list[IncludedRunReport] = []
     stage_status: dict[str, bool] = {}
+
+    def append_failure(failure: ActionFailure) -> None:
+        if failure.key in failure_keys:
+            return
+        failure_keys.add(failure.key)
+        failures.append(failure)
+
     if not execution_plan.request.dry_run:
         prepared = host.prepare(execution_plan.run_dir)
         if not prepared.succeeded:
-            failures.append(
+            append_failure(
                 ActionFailure(
                     FailureKey(execution_plan.request.suite, "setup"), prepared.message
                 )
@@ -333,18 +343,29 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
                 tuple(failures),
                 (),
                 facts,
+                (),
             )
 
     for stage in execution_plan.stages:
         if isinstance(stage, IncludeSuite):
             nested = execute(stage.execution_plan, host)
-            failures.extend(nested.failures)
+            included_reports.append(IncludedRunReport(stage.id, nested))
+            if not nested.succeeded:
+                append_failure(
+                    ActionFailure(
+                        stage.failure_key,
+                        f"{nested.suite.value} include failed with "
+                        f"{len(nested.failures)} failure key(s)",
+                    )
+                )
             claims.extend(nested.claims)
             facts.update(nested.facts)
             stage_status[stage.id] = nested.succeeded
             continue
         if isinstance(stage, Claim):
-            accepted = all(stage_status.get(required, False) for required in stage.requires)
+            accepted = not failures and all(
+                stage_status.get(required, False) for required in stage.requires
+            )
             stage_status[stage.id] = accepted
             if accepted:
                 claims.append(stage.message)
@@ -387,7 +408,7 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
                 facts[(namespace, name)] = value
         stage_status[stage.id] = succeeded
         if not succeeded:
-            failures.append(ActionFailure(key, first_failure))
+            append_failure(ActionFailure(key, first_failure))
             if isinstance(stage, Setup):
                 break
     return RunReport(
@@ -396,4 +417,5 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
         tuple(failures),
         tuple(claims),
         facts,
+        tuple(included_reports),
     )
