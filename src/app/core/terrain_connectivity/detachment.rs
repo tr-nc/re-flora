@@ -197,15 +197,13 @@ impl PreparedTerrainDetachment {
 
     fn commit_atlas(self, app: &mut App) -> AtlasCommittedTerrainDetachment {
         let invalidation_started = Instant::now();
-        for write in self.atlas_writes {
-            app.plain_builder
-                .write_chunk_atlas_region(write.origin, write.dim, &write.data)
-                .unwrap_or_else(|error| {
-                    panic!(
-                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {error:#}"
-                    )
-                });
-        }
+        self.atlas_writes
+            .commit(&mut app.plain_builder)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "terrain connectivity atlas commit failed after entering non-rollbackable state: {error:#}"
+                )
+            });
         AtlasCommittedTerrainDetachment {
             publication: self.publication,
             visual_voxels: self.visual_voxels,
@@ -364,7 +362,7 @@ mod tests {
             Err(rejected) => panic!("valid region was rejected: {:#}", rejected.error),
         };
 
-        assert_eq!(prepared.atlas_writes[0].data.as_ptr(), atlas_address);
+        assert_eq!(prepared.atlas_writes.data_ptr(0), atlas_address);
         assert_eq!(prepared.visual_voxels.as_ptr(), visual_address);
     }
 

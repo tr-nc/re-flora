@@ -1930,13 +1930,11 @@ impl PreparedFixtureInstallation {
 
 impl PreparedFixtureInstallation {
     fn commit(self, app: &mut App) -> FixtureInstallResult {
-        for write in self.atlas_writes {
-            app.plain_builder
-                .write_chunk_atlas_region(write.origin, write.dim, &write.data)
-                .unwrap_or_else(|error| {
-                    panic!("connectivity fixture atlas commit failed after preflight: {error:#}")
-                });
-        }
+        self.atlas_writes
+            .commit(&mut app.plain_builder)
+            .unwrap_or_else(|error| {
+                panic!("connectivity fixture atlas commit failed after preflight: {error:#}")
+            });
         app.plain_builder.mark_all_solid_workgroups_dirty();
         for publication in self.publications {
             app.commit_prepared_visible_terrain(publication);
