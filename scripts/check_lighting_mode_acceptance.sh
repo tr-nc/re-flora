@@ -126,7 +126,7 @@ if [[ $app_status -eq 124 ]]; then
         "$app_status" "$timeout_seconds" "$run_log" >&2
     exit 3
 fi
-fatal_log_pattern='error|panic|vuid-|validation|device([[:space:]_-]+)?lost|stale[[:space:]_-]+readback'
+fatal_log_pattern='\berror\b|\bpanic(?:ked)?\b|vuid-|\bvalidation[[:space:]_-]+(?:error|failure)\b|\bdevice[[:space:]_-]+lost\b|\bstale[[:space:]_-]+readback\b'
 set +e
 fatal_log_matches="$(
     "$rg_bin" -i -n -e "$fatal_log_pattern" "$app_output" "$run_log" 2>&1

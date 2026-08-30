@@ -112,6 +112,46 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertIn("reason=fatal-log-scan-failed", result.stderr)
         self.assertIn("simulated rg I/O failure", result.stderr)
 
+    def test_nonfatal_neighbours_do_not_trip_the_canonical_log_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text(
+                "errors=0\n"
+                "validation layers enabled\n"
+                "device loss recovery armed\n"
+                "stale reads=0\n"
+                "panicky metric=false\n"
+            )
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf artifact > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            analyzer = executable(
+                root / "analyzer",
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(analyzer),
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_dry_run_declares_one_release_hidden_app_transaction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "capture.rflma"
