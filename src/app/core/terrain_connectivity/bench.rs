@@ -854,14 +854,6 @@ impl TerrainConnectivityBench {
     }
 
     fn plan_manual_release(&mut self, facts: ManualReleaseFacts) -> ConnectivityAction {
-        if matches!(self.state, BenchState::RetryManualRelease { .. }) {
-            let state = std::mem::replace(&mut self.state, BenchState::Complete);
-            let BenchState::RetryManualRelease { request, resume } = state else {
-                unreachable!("the manual retry phase was checked before it was consumed")
-            };
-            self.state = *resume;
-            return ConnectivityAction::HandleManualRelease(request);
-        }
         if matches!(self.state, BenchState::AwaitingManualEdit) {
             ConnectivityAction::HandleManualRelease(ManualReleaseRequest::new(
                 ManualReleasePlan::Prepare {
@@ -880,10 +872,15 @@ impl TerrainConnectivityBench {
 
     fn next_action(&mut self, facts: ConnectivityFacts) -> anyhow::Result<ConnectivityAction> {
         let frame = facts.frame;
-        if matches!(
-            self.state,
-            BenchState::RetryManualRelease { .. } | BenchState::RetryCompletedFrame { .. }
-        ) {
+        if matches!(self.state, BenchState::RetryManualRelease { .. }) {
+            let state = std::mem::replace(&mut self.state, BenchState::Complete);
+            let BenchState::RetryManualRelease { request, resume } = state else {
+                unreachable!("the manual retry phase was checked before it was consumed")
+            };
+            self.state = *resume;
+            return Ok(ConnectivityAction::HandleManualRelease(request));
+        }
+        if matches!(self.state, BenchState::RetryCompletedFrame { .. }) {
             return Ok(ConnectivityAction::None);
         }
         if matches!(self.state, BenchState::Commit(_)) {
@@ -1449,6 +1446,9 @@ impl TerrainConnectivityBench {
     }
 
     fn plan_completed_frame(&mut self, record: CpuFrameRecord) -> ConnectivityAction {
+        if matches!(self.state, BenchState::RetryManualRelease { .. }) {
+            return ConnectivityAction::None;
+        }
         if matches!(self.state, BenchState::RetryCompletedFrame { .. }) {
             let state = std::mem::replace(&mut self.state, BenchState::Complete);
             let BenchState::RetryCompletedFrame { request, resume } = state else {
