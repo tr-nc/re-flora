@@ -1,4 +1,4 @@
-use super::{prepare_detached_voxel_clear, voxel_count};
+use super::{prepare_detached_voxel_clear, PreparedAtlasWrite};
 use crate::app::core::{visible_terrain::VisibleTerrainPublication, App, VisibleTerrainChange};
 use crate::app::world_edits::BuildEdit;
 use crate::builder::PlainBuilder;
@@ -8,12 +8,6 @@ use glam::UVec3;
 use std::time::Instant;
 
 struct AtlasWriteRequest {
-    origin: UVec3,
-    dim: UVec3,
-    data: Vec<u8>,
-}
-
-struct PreparedAtlasWrite {
     origin: UVec3,
     dim: UVec3,
     data: Vec<u8>,
@@ -120,31 +114,12 @@ impl PreparedTerrainDetachment {
                 .atlas_writes
                 .iter()
                 .try_for_each(|write| -> anyhow::Result<()> {
-                    anyhow::ensure!(
-                        write.dim.cmpgt(UVec3::ZERO).all(),
-                        "terrain detachment cannot prepare an empty atlas write"
-                    );
-                    anyhow::ensure!(
-                        write.origin.cmple(request.world_dim).all()
-                            && write
-                                .dim
-                                .cmple(request.world_dim - write.origin)
-                                .all(),
-                        "terrain detachment atlas write is outside the world: origin={:?} dim={:?} world={:?}",
+                    PreparedAtlasWrite::validate(
+                        request.world_dim,
                         write.origin,
                         write.dim,
-                        request.world_dim,
-                    );
-                    let expected = usize::try_from(voxel_count(UAabb3::new(
-                        write.origin,
-                        write.origin + write.dim,
-                    )))?;
-                    anyhow::ensure!(
-                        write.data.len() == expected,
-                        "terrain detachment atlas write has {} bytes, expected {expected}",
-                        write.data.len()
-                    );
-                    Ok(())
+                        &write.data,
+                    )
                 })?;
             anyhow::ensure!(
                 request.visual_voxels.len() <= request.detached_voxels,
@@ -162,10 +137,14 @@ impl PreparedTerrainDetachment {
             atlas_writes: request
                 .atlas_writes
                 .into_iter()
-                .map(|write| PreparedAtlasWrite {
-                    origin: write.origin,
-                    dim: write.dim,
-                    data: write.data,
+                .map(|write| {
+                    PreparedAtlasWrite::prepare(
+                        request.world_dim,
+                        write.origin,
+                        write.dim,
+                        write.data,
+                    )
+                    .expect("atlas write was validated before detachment publication")
                 })
                 .collect(),
             publication,

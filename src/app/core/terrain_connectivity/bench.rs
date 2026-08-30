@@ -1851,25 +1851,8 @@ fn prepare_bounded_commit(
     (visual_voxels, sampling_us, staging_clear_us)
 }
 
-struct FixtureAtlasWrite {
-    origin: UVec3,
-    dim: UVec3,
-    data: Vec<u8>,
-}
-
-impl FixtureAtlasWrite {
-    fn new(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
-        anyhow::ensure!(dim.cmpgt(UVec3::ZERO).all());
-        anyhow::ensure!(origin.cmple(world_dim).all() && dim.cmple(world_dim - origin).all());
-        anyhow::ensure!(
-            data.len() == usize::try_from(voxel_count(UAabb3::new(origin, origin + dim)))?
-        );
-        Ok(Self { origin, dim, data })
-    }
-}
-
 struct PreparedFixtureInstallation {
-    atlas_writes: Vec<FixtureAtlasWrite>,
+    atlas_writes: Vec<PreparedAtlasWrite>,
     publications: Vec<VisibleTerrainPublication>,
     manual_camera: Option<(Vec3, Vec3)>,
     available_particles: usize,
@@ -1893,14 +1876,14 @@ impl PreparedFixtureInstallation {
 
             let isolation = isolation_bound();
             let isolation_data = vec![0; voxel_count(isolation) as usize];
-            atlas_writes.push(FixtureAtlasWrite::new(
+            atlas_writes.push(PreparedAtlasWrite::prepare(
                 world_dim,
                 isolation.min(),
                 isolation.dimensions(),
                 isolation_data,
             )?);
             let fixture = generate_hollow_canopy();
-            atlas_writes.push(FixtureAtlasWrite::new(
+            atlas_writes.push(PreparedAtlasWrite::prepare(
                 world_dim,
                 fixture_bound().min(),
                 fixture_bound().dimensions(),
@@ -1915,7 +1898,7 @@ impl PreparedFixtureInstallation {
 
             let manual_camera = if request.manual {
                 let bound = manual_support_bound();
-                atlas_writes.push(FixtureAtlasWrite::new(
+                atlas_writes.push(PreparedAtlasWrite::prepare(
                     world_dim,
                     bound.min(),
                     bound.dimensions(),
@@ -2387,11 +2370,15 @@ mod tests {
 
     #[test]
     fn fixture_atlas_writes_reject_empty_out_of_world_and_wrong_byte_count() {
-        let reject =
-            |origin, dim, data| match FixtureAtlasWrite::new(UVec3::splat(8), origin, dim, data) {
-                Ok(_) => panic!("invalid fixture atlas write unexpectedly prepared"),
-                Err(error) => error,
-            };
+        let reject = |origin, dim, data| match PreparedAtlasWrite::prepare(
+            UVec3::splat(8),
+            origin,
+            dim,
+            data,
+        ) {
+            Ok(_) => panic!("invalid fixture atlas write unexpectedly prepared"),
+            Err(error) => error,
+        };
 
         let empty = reject(UVec3::ZERO, UVec3::ZERO, Vec::new());
         assert!(empty
