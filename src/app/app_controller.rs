@@ -67,10 +67,6 @@ impl ApplicationHandler for AppController {
             .unwrap_or_else(|error| panic!("failed to initialize App: {error:#}"));
     }
 
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        // Keep the running App intact; a later resume is intentionally idempotent.
-    }
-
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         self.0.running_mut().on_window_event(event_loop, id, event);
     }
