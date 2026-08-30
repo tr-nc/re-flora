@@ -1167,44 +1167,73 @@ mod tests {
         assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 
-    #[test]
-    fn ddgi_production_filters_consume_shared_policy_actions() {
-        fn assert_history_usage(filter: &str, evidence_call: &str) {
-            assert!(filter.contains("import ddgi_filter_execution;"));
-            assert!(filter.contains("import ddgi_filter_evidence;"));
-            assert_eq!(filter.matches("ddgiFilterHistoryDecision(").count(), 1);
-            assert_eq!(filter.matches(evidence_call).count(), 1);
-            assert_eq!(filter.matches("ddgiTryCommitRetainedHistory(").count(), 1);
-            assert_eq!(filter.matches("ddgiCommitHistory(").count(), 1);
-            for bypass in [
-                "ddgiFilterHistoryPolicy(",
-                ".retain_source",
-                ".blend_history",
-            ] {
-                assert!(!filter.contains(bypass), "production bypass `{bypass}`");
+    fn validate_ddgi_history_owner_wiring(
+        filter: &str,
+        evidence_call: &str,
+    ) -> Result<(), &'static str> {
+        for required in [
+            "import ddgi_filter_execution;",
+            "import ddgi_filter_evidence;",
+        ] {
+            if !filter.contains(required) {
+                return Err("missing owner import");
             }
         }
+        for owner_call in [
+            "ddgiFilterHistoryDecision(",
+            evidence_call,
+            "ddgiTryCommitRetainedHistory(",
+            "ddgiCommitHistory(",
+        ] {
+            if filter.matches(owner_call).count() != 1 {
+                return Err("history owner call count changed");
+            }
+        }
+        for bypass in [
+            "ddgiFilterHistoryPolicy(",
+            ".retain_source",
+            ".blend_history",
+        ] {
+            if filter.contains(bypass) {
+                return Err("history policy bypassed typed owner");
+            }
+        }
+        Ok(())
+    }
 
+    fn validate_ddgi_filter_owner_wiring(
+        irradiance: &str,
+        visibility: &str,
+    ) -> Result<(), &'static str> {
+        validate_ddgi_history_owner_wiring(irradiance, "ddgiRecordIrradianceHistoryDecision(")?;
+        validate_ddgi_history_owner_wiring(visibility, "ddgiRecordVisibilityHistoryDecision(")?;
+        for owner_call in [
+            "ddgiFilterVisibilityDecision(",
+            "ddgiRecordVisibilitySampleDecision(",
+            "ddgiAccumulateVisibility(",
+        ] {
+            if visibility.matches(owner_call).count() != 1 {
+                return Err("visibility sample owner call count changed");
+            }
+        }
+        if !visibility.contains(
+            "ddgiRecordVisibilitySampleDecision(\n            pc.filter_evidence.x, electedEvidenceLane, visibilityDecision);",
+        ) {
+            return Err("visibility evidence does not use the owner decision");
+        }
+        for bypass in ["ddgiFilterVisibilitySample(", ".accepted"] {
+            if visibility.contains(bypass) {
+                return Err("visibility sample bypassed typed owner");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ddgi_production_filters_consume_shared_policy_actions() {
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
-        assert_history_usage(irradiance, "ddgiRecordIrradianceHistoryDecision(");
-        assert_history_usage(visibility, "ddgiRecordVisibilityHistoryDecision(");
-        assert_eq!(
-            visibility.matches("ddgiFilterVisibilityDecision(").count(),
-            1
-        );
-        assert_eq!(
-            visibility
-                .matches("ddgiRecordVisibilitySampleDecision(")
-                .count(),
-            1
-        );
-        assert_eq!(visibility.matches("ddgiAccumulateVisibility(").count(), 1);
-        assert!(visibility.contains(
-            "ddgiRecordVisibilitySampleDecision(\n            pc.filter_evidence.x, electedEvidenceLane, visibilityDecision);"
-        ));
-        assert!(!visibility.contains("ddgiFilterVisibilitySample("));
-        assert!(!visibility.contains(".accepted"));
+        validate_ddgi_filter_owner_wiring(irradiance, visibility).unwrap();
 
         let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
         assert!(pipeline_builder.contains(
@@ -1212,6 +1241,39 @@ mod tests {
         ));
         assert!(pipeline_builder
             .contains("write_buffer!(writes, \"ddgi_trace_stats\", &volume.ddgi_trace_stats);"));
+    }
+
+    #[test]
+    fn mutation_audit_rejects_irradiance_history_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
+            "ddgiCommitHistory(",
+            "bypassHistoryCommit(",
+            1,
+        );
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
+    }
+
+    #[test]
+    fn mutation_audit_rejects_visibility_history_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
+            "ddgiCommitHistory(",
+            "bypassHistoryCommit(",
+            1,
+        );
+        assert!(validate_ddgi_filter_owner_wiring(irradiance, &visibility).is_err());
+    }
+
+    #[test]
+    fn mutation_audit_rejects_visibility_sample_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
+            "ddgiAccumulateVisibility(",
+            "bypassVisibilityAccumulate(",
+            1,
+        );
+        assert!(validate_ddgi_filter_owner_wiring(irradiance, &visibility).is_err());
     }
 
     #[test]
