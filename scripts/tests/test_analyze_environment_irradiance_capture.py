@@ -971,9 +971,83 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(
-            "comparison environment irradiance, world XYZ, or terrain hit mask "
-            "is not bit-exact",
+            "comparison environment irradiance plane is not bit-exact",
             json.loads(result.stdout)["validation_failures"],
+        )
+
+    def test_comparison_reports_metadata_without_blaming_equal_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v6.rfirr"
+            second_path = Path(directory) / "second-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            self.write_capture_v6(first_path, irradiance, world, direct)
+            self.write_capture_v6(
+                second_path,
+                irradiance,
+                world,
+                direct,
+                update_epoch=32,
+            )
+
+            result = self.run_analyzer(
+                first_path,
+                "--compare",
+                str(second_path),
+                "--compare-direct-light",
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["comparison"]["metadata_mismatches"],
+            ["update_epoch", "source_update_epoch"],
+        )
+        self.assertTrue(report["comparison"]["direct_light_payload_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            [
+                "comparison capture identity is incompatible: base_mismatches=[] "
+                "metadata_mismatches=['update_epoch', 'source_update_epoch']"
+            ],
+        )
+
+    def test_comparison_reports_shadow_plane_without_blaming_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v8.rfirr"
+            second_path = Path(directory) / "second-v8.rfirr"
+            voxel = 1.0 / 256.0
+            planes = (
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.4, 0.5, 0.6, 1.0)],
+            )
+            self.write_capture_v8(
+                first_path,
+                *planes,
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                second_path,
+                *planes,
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 0.75)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+
+            result = self.run_analyzer(
+                first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertTrue(report["comparison"]["environment_irradiance_bit_exact"])
+        self.assertTrue(report["comparison"]["world_payload_bit_exact"])
+        self.assertFalse(report["comparison"]["terrain_shadow_receiver_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            ["comparison terrain-shadow receiver plane is not bit-exact"],
         )
 
     def test_cli_gates_direct_light_roi_delta_from_environment_identical_baseline(

@@ -1033,38 +1033,44 @@ def cross_process_metadata_mismatches(
 
 
 def compare(first: Capture, second: Capture) -> dict[str, object]:
-    base_compatible = (
-        first.width,
-        first.height,
-        first.backend,
-        first.spacing_voxels,
-        first.debug_view,
-    ) == (
-        second.width,
-        second.height,
-        second.backend,
-        second.spacing_voxels,
-        second.debug_view,
-    )
+    base_fields = ("width", "height", "backend", "spacing_voxels", "debug_view")
+    base_mismatches = [
+        field for field in base_fields if getattr(first, field) != getattr(second, field)
+    ]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         first, second
     )
-    compatible = base_compatible and not mismatches
+    compatible = not base_mismatches and not mismatches
+    environment_irradiance_bit_exact = first.payload == second.payload
+    world_payload_bit_exact = first.world_payload == second.world_payload
+    terrain_shadow_receiver_bit_exact = (
+        first.terrain_shadow_receiver_payload
+        == second.terrain_shadow_receiver_payload
+    )
+    direct_sun_shadow_bit_exact = (
+        first.direct_sun_shadow_payload == second.direct_sun_shadow_payload
+    )
+    direct_light_payload_bit_exact = (
+        first.direct_light_payload == second.direct_light_payload
+    )
     environment_bit_exact = (
         compatible
-        and first.payload == second.payload
-        and first.world_payload == second.world_payload
-        and first.terrain_shadow_receiver_payload
-        == second.terrain_shadow_receiver_payload
-        and first.direct_sun_shadow_payload == second.direct_sun_shadow_payload
+        and environment_irradiance_bit_exact
+        and world_payload_bit_exact
+        and terrain_shadow_receiver_bit_exact
+        and direct_sun_shadow_bit_exact
     )
-    direct_light_bit_exact = (
-        compatible and first.direct_light_payload == second.direct_light_payload
-    )
+    direct_light_bit_exact = compatible and direct_light_payload_bit_exact
     return {
         "compatible": compatible,
+        "base_mismatches": base_mismatches,
         "metadata_mismatches": mismatches,
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "environment_irradiance_bit_exact": environment_irradiance_bit_exact,
+        "world_payload_bit_exact": world_payload_bit_exact,
+        "terrain_shadow_receiver_bit_exact": terrain_shadow_receiver_bit_exact,
+        "direct_sun_shadow_bit_exact": direct_sun_shadow_bit_exact,
+        "direct_light_payload_bit_exact": direct_light_payload_bit_exact,
         "environment_bit_exact": environment_bit_exact,
         "direct_light_bit_exact": direct_light_bit_exact,
         "bit_exact": environment_bit_exact and direct_light_bit_exact,
@@ -1790,14 +1796,23 @@ def main() -> int:
     if args.compare is not None:
         comparison = compare(first, load_capture(args.compare))
         report["comparison"] = comparison
-        if not comparison["environment_bit_exact"]:
+        if not comparison["compatible"]:
             failures.append(
-                "comparison environment irradiance, world XYZ, or terrain hit mask "
-                "is not bit-exact"
+                "comparison capture identity is incompatible: "
+                f"base_mismatches={comparison['base_mismatches']} "
+                f"metadata_mismatches={comparison['metadata_mismatches']}"
             )
-            exit_code = 1
-        if args.compare_direct_light and not comparison["direct_light_bit_exact"]:
+        for field, label in (
+            ("environment_irradiance_bit_exact", "environment irradiance plane"),
+            ("world_payload_bit_exact", "world XYZ and terrain hit-mask plane"),
+            ("terrain_shadow_receiver_bit_exact", "terrain-shadow receiver plane"),
+            ("direct_sun_shadow_bit_exact", "direct-sun shadow plane"),
+        ):
+            if not comparison[field]:
+                failures.append(f"comparison {label} is not bit-exact")
+        if args.compare_direct_light and not comparison["direct_light_payload_bit_exact"]:
             failures.append("comparison direct-light plane is not bit-exact")
+        if failures:
             exit_code = 1
     elif args.compare_direct_light:
         failures.append("--compare-direct-light requires --compare")
