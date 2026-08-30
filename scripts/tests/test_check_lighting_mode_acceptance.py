@@ -463,7 +463,15 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             self.assertFalse(Path(f"{artifact}.app.log").exists())
 
     def test_invalid_timeout_fails_before_writing_state(self) -> None:
-        for timeout in ("0", "1201", "not-a-number"):
+        for timeout in (
+            "0",
+            "1201",
+            "not-a-number",
+            "9223372036854775807",
+            "9223372036854775808",
+            "18446744073709551616",
+            "9" * 4096,
+        ):
             with self.subTest(timeout=timeout), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 artifact = root / "capture.rflma"
