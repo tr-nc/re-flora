@@ -1,7 +1,7 @@
 use super::environment_lighting_test_scene::EnvironmentLightingTestScene;
 use crate::ddgi::{
-    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState,
-    DdgiVolumeStage,
+    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiFilterEpochProof,
+    DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
 use crate::tracer::{
@@ -16,10 +16,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 8;
+const CAPTURE_VERSION: u32 = 10;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
-const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
+const CAPTURE_HEADER_BYTE_COUNT: usize = 284;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STATE_CONVERGING: u32 = 1;
 const CAPTURE_STATE_CONVERGED: u32 = 2;
@@ -47,6 +47,7 @@ struct CaptureMetadata {
     max_rel_delta: f32,
     nonfinite_count: u32,
     valid_count: u32,
+    filter_proof: DdgiFilterEpochProof,
 }
 
 impl CaptureMetadata {
@@ -61,6 +62,86 @@ impl CaptureMetadata {
             "DDGI build token does not own the captured field: checkpoint={checkpoint:?}"
         );
         let source = checkpoint.field.source();
+        let filter_proof = checkpoint
+            .filter_proof
+            .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
+        let filter_evidence = filter_proof.evidence;
+        ensure!(
+            filter_proof.configuration.probe_count()? == filter_evidence.probe_count
+                && filter_proof.configuration.configured_history_retention_q16 <= 65_536,
+            "DDGI filter configuration identity does not match the captured epoch"
+        );
+        ensure!(
+            filter_evidence.field == checkpoint.field,
+            "DDGI filter evidence does not own the captured field"
+        );
+        ensure!(
+            filter_evidence.probe_count != 0
+                && filter_evidence.irradiance.probes == u64::from(filter_evidence.probe_count),
+            "DDGI filter evidence has an invalid probe partition"
+        );
+        let irradiance_actions = filter_evidence.irradiance.actions;
+        ensure!(
+            filter_evidence.irradiance.owner_version_mask == DDGI_FILTER_POLICY_OWNER_MASK
+                && irradiance_actions.replace
+                    + irradiance_actions.retain
+                    + irradiance_actions.blend
+                    == u64::from(filter_evidence.probe_count),
+            "DDGI irradiance history evidence is inconsistent"
+        );
+        validate_local_recovery_history(
+            filter_evidence.irradiance,
+            filter_proof.configuration.configured_history_retention_q16,
+            field.update_epoch(),
+            "irradiance",
+        )?;
+        if filter_evidence.visibility_written {
+            let visibility_actions = filter_evidence.visibility_history.actions;
+            ensure!(
+                filter_evidence.visibility_history.owner_version_mask
+                    == DDGI_FILTER_POLICY_OWNER_MASK
+                    && filter_evidence.visibility_samples.owner_version_mask
+                        == DDGI_FILTER_POLICY_OWNER_MASK
+                    && filter_evidence.visibility_history.probes
+                        == u64::from(filter_evidence.probe_count)
+                    && visibility_actions.replace
+                        + visibility_actions.retain
+                        + visibility_actions.blend
+                        == u64::from(filter_evidence.probe_count)
+                    && filter_evidence.visibility_samples.samples
+                        == filter_evidence.visibility_samples.accept
+                            + filter_evidence.visibility_samples.reject,
+                "DDGI visibility filter evidence is inconsistent"
+            );
+            let rays_per_probe = u64::from(DDGI_RAYS_PER_PROBE);
+            ensure!(
+                filter_evidence.visibility_samples.samples % rays_per_probe == 0
+                    && filter_evidence.visibility_samples.samples
+                        >= visibility_actions
+                            .blend
+                            .checked_mul(rays_per_probe)
+                            .context("DDGI visibility sample lower bound overflow")?
+                    && filter_evidence.visibility_samples.samples
+                        <= visibility_actions
+                            .blend
+                            .checked_add(visibility_actions.replace)
+                            .and_then(|probes| probes.checked_mul(rays_per_probe))
+                            .context("DDGI visibility sample upper bound overflow")?,
+                "DDGI visibility sample evidence is incomplete"
+            );
+            validate_local_recovery_history(
+                filter_evidence.visibility_history,
+                filter_proof.configuration.configured_history_retention_q16,
+                field.update_epoch(),
+                "visibility",
+            )?;
+        } else {
+            ensure!(
+                filter_evidence.visibility_history == Default::default()
+                    && filter_evidence.visibility_samples == Default::default(),
+                "unwritten DDGI visibility has filter evidence"
+            );
+        }
         Ok(Self {
             geometry_revision: field.geometry_revision(),
             radiance_revision: field.radiance_revision(),
@@ -87,6 +168,7 @@ impl CaptureMetadata {
             max_rel_delta: checkpoint.validation.max_relative_rgb_delta,
             nonfinite_count: checkpoint.validation.non_finite_count,
             valid_count: checkpoint.validation.valid_texel_count,
+            filter_proof,
         })
     }
 
@@ -116,8 +198,73 @@ impl CaptureMetadata {
         writer.write_all(&self.max_rel_delta.to_le_bytes())?;
         writer.write_all(&self.nonfinite_count.to_le_bytes())?;
         writer.write_all(&self.valid_count.to_le_bytes())?;
+        let proof = self.filter_proof;
+        let evidence = proof.evidence;
+        for value in [
+            1,
+            evidence.irradiance.owner_version_mask,
+            evidence.visibility_history.owner_version_mask,
+            evidence.visibility_samples.owner_version_mask,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
+        writer.write_all(&evidence.field.field().serial().to_le_bytes())?;
+        for value in [
+            evidence.field.field().update_epoch(),
+            evidence.probe_count,
+            u32::from(evidence.visibility_written),
+            0,
+            proof.configuration.grid_dimensions[0],
+            proof.configuration.grid_dimensions[1],
+            proof.configuration.grid_dimensions[2],
+            proof.configuration.configured_history_retention_q16,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
+        for value in [
+            evidence.irradiance.actions.replace,
+            evidence.irradiance.actions.retain,
+            evidence.irradiance.actions.blend,
+            evidence.irradiance.blend_retention_q16_sum,
+            u64::from(evidence.irradiance.blend_retention_q16_max),
+            evidence.visibility_history.actions.replace,
+            evidence.visibility_history.actions.retain,
+            evidence.visibility_history.actions.blend,
+            evidence.visibility_history.blend_retention_q16_sum,
+            u64::from(evidence.visibility_history.blend_retention_q16_max),
+            evidence.visibility_samples.samples,
+            evidence.visibility_samples.accept,
+            evidence.visibility_samples.reject,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
         Ok(())
     }
+}
+
+fn local_recovery_retention_q16(configured_history_retention_q16: u32, update_epoch: u32) -> u32 {
+    let denominator = u64::from(update_epoch) + 1;
+    let numerator = u64::from(update_epoch) * 65_536;
+    configured_history_retention_q16.min(((numerator + denominator / 2) / denominator) as u32)
+}
+
+fn validate_local_recovery_history(
+    history: crate::ddgi::DdgiFilterHistoryEvidence,
+    configured_history_retention_q16: u32,
+    update_epoch: u32,
+    label: &str,
+) -> Result<()> {
+    if history.actions.retain == 0 || history.actions.blend == 0 {
+        return Ok(());
+    }
+    let expected = local_recovery_retention_q16(configured_history_retention_q16, update_epoch);
+    ensure!(
+        history.blend_retention_q16_max == expected
+            && history.actions.blend.checked_mul(u64::from(expected))
+                == Some(history.blend_retention_q16_sum),
+        "DDGI {label} local-recovery retention does not match update epoch {update_epoch}"
+    );
+    Ok(())
 }
 
 fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
@@ -127,6 +274,36 @@ fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
     }
 }
 
+fn encode_capture_header(
+    width: u32,
+    height: u32,
+    spacing_voxels: u32,
+    debug_view: u32,
+    metadata: CaptureMetadata,
+) -> Result<Vec<u8>> {
+    let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
+    header.write_all(CAPTURE_MAGIC)?;
+    for value in [
+        CAPTURE_VERSION,
+        width,
+        height,
+        CAPTURE_CHANNEL_COUNT,
+        DDGI_BACKEND_ID,
+        spacing_voxels,
+        debug_view,
+        CAPTURE_PLANE_COUNT,
+    ] {
+        header.write_all(&value.to_le_bytes())?;
+    }
+    metadata.write_to(&mut header)?;
+    ensure!(
+        header.len() == CAPTURE_HEADER_BYTE_COUNT,
+        "capture header byte count mismatch: got {}, expected {}",
+        header.len(),
+        CAPTURE_HEADER_BYTE_COUNT,
+    );
+    Ok(header)
+}
 pub(super) struct EnvironmentIrradianceCaptureRuntime {
     base_path: Option<String>,
     coordinator: CaptureCoordinator,
@@ -586,28 +763,13 @@ impl EnvironmentIrradianceCaptureRuntime {
 
         let mut file = std::fs::File::create(&readback.path)
             .with_context(|| format!("create {}", readback.path))?;
-        let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
-        header.write_all(CAPTURE_MAGIC)?;
-        for value in [
-            CAPTURE_VERSION,
+        let header = encode_capture_header(
             readback.extent.width,
             readback.extent.height,
-            CAPTURE_CHANNEL_COUNT,
-            DDGI_BACKEND_ID,
             readback.spacing_voxels,
             readback.debug_view.as_u32(),
-            CAPTURE_PLANE_COUNT,
-        ] {
-            header.write_all(&value.to_le_bytes())?;
-        }
-        readback.metadata.write_to(&mut header)?;
-        if header.len() != CAPTURE_HEADER_BYTE_COUNT {
-            anyhow::bail!(
-                "capture header byte count mismatch: got {}, expected {}",
-                header.len(),
-                CAPTURE_HEADER_BYTE_COUNT,
-            );
-        }
+            readback.metadata,
+        )?;
         file.write_all(&header)?;
         file.write_all(&raw)?;
         file.flush()?;
@@ -651,7 +813,8 @@ mod tests {
     use crate::ddgi::{
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
-        DdgiFieldState,
+        DdgiFieldState, DdgiFilterActionCounts, DdgiFilterConfigurationIdentity,
+        DdgiFilterEpochEvidence, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     };
     use crate::tracer::record_capture_frame_for_test;
     use std::cell::{Cell, RefCell};
@@ -700,6 +863,7 @@ mod tests {
                 valid_texel_count: 42,
                 scanned_stored_texel_count: 64,
             },
+            filter_proof: None,
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Forward,
         }
@@ -1031,10 +1195,18 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 8);
+        assert_eq!(CAPTURE_VERSION, 10);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
-        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
+        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 284);
+    }
+
+    #[test]
+    fn local_recovery_retention_q16_is_derived_from_the_authoritative_epoch() {
+        assert_eq!(local_recovery_retention_q16(64_881, 0), 0);
+        assert_eq!(local_recovery_retention_q16(64_881, 1), 32_768);
+        assert_eq!(local_recovery_retention_q16(64_881, 8), 58_254);
+        assert_eq!(local_recovery_retention_q16(16_384, 8), 16_384);
     }
 
     #[test]
@@ -1059,6 +1231,45 @@ mod tests {
             build_token: token,
             field: published,
             validation,
+            filter_proof: Some(DdgiFilterEpochProof {
+                configuration: DdgiFilterConfigurationIdentity {
+                    grid_dimensions: [1, 2, 2],
+                    configured_history_retention_q16: 64_881,
+                },
+                evidence: DdgiFilterEpochEvidence {
+                    field: published,
+                    probe_count: 4,
+                    irradiance: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
+                    },
+                    visibility_history: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
+                    },
+                    visibility_samples: DdgiFilterVisibilitySampleEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        samples: 128,
+                        accept: 80,
+                        reject: 48,
+                    },
+                    visibility_written: true,
+                },
+            }),
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Reverse,
         };
@@ -1088,6 +1299,73 @@ mod tests {
         assert_eq!(metadata.max_rel_delta, 0.025);
         assert_eq!(metadata.nonfinite_count, 0);
         assert_eq!(metadata.valid_count, 314_432);
+        assert_eq!(metadata.filter_proof.evidence.field, published);
+        assert_eq!(
+            metadata.filter_proof.configuration.grid_dimensions,
+            [1, 2, 2]
+        );
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.retain, 2);
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.blend, 2);
+        let mut encoded_metadata = Vec::new();
+        metadata.write_to(&mut encoded_metadata).unwrap();
+        assert_eq!(
+            encoded_metadata.len(),
+            CAPTURE_HEADER_BYTE_COUNT - CAPTURE_MAGIC.len() - 8 * std::mem::size_of::<u32>()
+        );
+
+        let mut golden_capture = encode_capture_header(1, 1, 16, 22, metadata).unwrap();
+        for pixel in [
+            [0.25_f32, 0.5, 0.75, 1.0],
+            [1.0_f32, 2.0, 3.0, 0.0],
+            [0.0_f32, 0.0, 0.0, 1.0],
+            [1.0_f32 / 512.0, 1.0 / 512.0, 1.0 / 512.0, 1.0],
+            [1.0_f32, 1.0, 1.0, 1.0],
+        ] {
+            for value in pixel {
+                golden_capture.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let fixture_hex =
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v10.hex");
+        let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
+        let fixture: Vec<u8> = compact
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(golden_capture, fixture);
+
+        let mut low_retention_proof = checkpoint.filter_proof.unwrap();
+        low_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        for history in [
+            &mut low_retention_proof.evidence.irradiance,
+            &mut low_retention_proof.evidence.visibility_history,
+        ] {
+            history.blend_retention_q16_sum = 32_768;
+            history.blend_retention_q16_max = 16_384;
+        }
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(low_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_ok());
+        let mut mismatched_retention_proof = checkpoint.filter_proof.unwrap();
+        mismatched_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(mismatched_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_err());
 
         let mismatched_token = DdgiBuildToken::for_test(9002, 42, 16, DdgiBuildKind::Terrain);
         let mismatch = CaptureMetadata::from_checkpoint(

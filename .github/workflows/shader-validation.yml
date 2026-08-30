@@ -23,12 +23,17 @@ on:
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/analyze_bd2_blue_voxel.py"
       - "scripts/check_bd2_blue_voxel.sh"
+      - "scripts/analyze_current_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
       - "scripts/check_ddgi_sky_normalization_evidence.py"
+      - "scripts/rfirr_production_runner_contract.py"
+      - "scripts/shader_validation_workflow_contract.py"
+      - "scripts/summarize_ddgi_convergence.py"
+      - "scripts/validate_ddgi_radiance_lifecycle.py"
+      - "scripts/validate_ddgi_density_lifecycle.py"
       - "scripts/install_slang.py"
       - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
-      - "scripts/summarize_ddgi_convergence.py"
       - "scripts/tests/**"
       - "scripts/validate_capture_process_evidence.py"
       - "scripts/validate_spirv_artifacts.py"
@@ -44,6 +49,11 @@ on:
       - "src/main.rs"
       - "src/run_log.rs"
       - "src/tracer/mod.rs"
+      - "src/app/core/ddgi_spatial_weight_readback.rs"
+      - "src/app/core/environment_*.rs"
+      - "src/app/core/environment_lighting_test_scene/**"
+      - "src/cli.rs"
+      - "src/tracer/**"
   push:
     branches:
       - main
@@ -67,12 +77,17 @@ on:
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/analyze_bd2_blue_voxel.py"
       - "scripts/check_bd2_blue_voxel.sh"
+      - "scripts/analyze_current_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
       - "scripts/check_ddgi_sky_normalization_evidence.py"
+      - "scripts/rfirr_production_runner_contract.py"
+      - "scripts/shader_validation_workflow_contract.py"
+      - "scripts/summarize_ddgi_convergence.py"
+      - "scripts/validate_ddgi_radiance_lifecycle.py"
+      - "scripts/validate_ddgi_density_lifecycle.py"
       - "scripts/install_slang.py"
       - "scripts/lib/**"
       - "scripts/run_slang_tests.py"
-      - "scripts/summarize_ddgi_convergence.py"
       - "scripts/tests/**"
       - "scripts/validate_capture_process_evidence.py"
       - "scripts/validate_spirv_artifacts.py"
@@ -88,6 +103,11 @@ on:
       - "src/main.rs"
       - "src/run_log.rs"
       - "src/tracer/mod.rs"
+      - "src/app/core/ddgi_spatial_weight_readback.rs"
+      - "src/app/core/environment_*.rs"
+      - "src/app/core/environment_lighting_test_scene/**"
+      - "src/cli.rs"
+      - "src/tracer/**"
 
 permissions:
   contents: read
@@ -271,6 +291,15 @@ jobs:
           scripts.tests.test_runtime_log_diagnostics
           scripts.tests.test_check_latest_run_log
           scripts.tests.test_perf_suite
+
+      - name: Test Rust DDGI evidence fixture producer
+        run: cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity
+
+      - name: Test DDGI raw evidence owners
+        run: cargo test --locked ddgi::resources::tests::filter_
+
+      - name: Decode Rust DDGI evidence fixture
+        run: python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py

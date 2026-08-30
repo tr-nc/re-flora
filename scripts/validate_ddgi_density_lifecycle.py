@@ -13,6 +13,13 @@ from typing import NoReturn
 
 
 FIELD = re.compile(r"(?P<key>[A-Za-z][A-Za-z0-9_]*)=(?P<value>[^\s]+)")
+IDENTITY_FIELDS = (
+    "field_serial",
+    "source_field_serial",
+    "geometry_revision",
+    "build_token_serial",
+    "obsolete_density_token_serial",
+)
 
 
 class Phase(Enum):
@@ -516,12 +523,20 @@ def validate_density_lifecycle(console: Path) -> dict[str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("console", type=Path)
+    parser.add_argument(
+        "--identity-tsv",
+        action="store_true",
+        help="emit the validated capture identity required by the lifecycle runner",
+    )
     arguments = parser.parse_args()
     try:
         result = validate_density_lifecycle(arguments.console)
     except (OSError, DensityLifecycleError) as error:
         parser.error(str(error))
-    print(json.dumps(result, indent=2, sort_keys=True))
+    if arguments.identity_tsv:
+        print("\t".join(str(result[name]) for name in IDENTITY_FIELDS))
+    else:
+        print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import stat
 import subprocess
 import tempfile
@@ -100,7 +99,7 @@ done
                     '#!/usr/bin/env bash\n/usr/bin/tee "$@"\nexit 9\n',
                 )
             executable(
-                scripts / "analyze_environment_irradiance_capture.py",
+                scripts / "analyze_current_environment_irradiance_capture.py",
                 """#!/usr/bin/env bash
 if [[ "${FAKE_FAIL_DOGLEG:-0}" == 1 && "$1" == *dogleg* ]]; then exit 1; fi
 printf '{}\n'
@@ -155,7 +154,7 @@ done
         result = self.run_runner("--dry-run")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
+        output = result.stdout + result.stderr
         for spacing in (32, 16):
             for stage in ("e0", "e1", "converged"):
                 self.assertIn(
@@ -163,18 +162,22 @@ done
                     output,
                 )
                 label = f"sealed-spacing{spacing}-{stage}-forward"
-                command = re.search(
-                    rf"^\[DDGI_TRANSPORT\] analyze label={label} .*\n([^\n]+)$",
-                    output,
-                    re.MULTILINE,
+                command = next(
+                    (
+                        line
+                        for line in output.splitlines()
+                        if line.startswith("analyze_current_capture ")
+                        and f"/{label}.rfirr " in line
+                    ),
+                    None,
                 )
                 self.assertIsNotNone(command, label)
                 if stage == "e0":
-                    self.assertIn("--require-zero-rgb", command.group(1))
-                    self.assertNotIn("--max-luminance", command.group(1))
+                    self.assertIn("--require-zero-rgb", command)
+                    self.assertNotIn("--max-luminance", command)
                 else:
-                    self.assertIn("--max-luminance 0.00001", command.group(1))
-                    self.assertNotIn("--require-zero-rgb", command.group(1))
+                    self.assertIn("--max-luminance 0.00001", command)
+                    self.assertNotIn("--require-zero-rgb", command)
             for stage in ("e0", "converged"):
                 self.assertIn(
                     f"case=donor spacing={spacing} target={stage} order=forward",
@@ -204,7 +207,11 @@ done
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
             "filter-history-outcome=REQUIRED",
-            "--expect-version 8",
+            "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v10",
+            "analyze_current_capture",
+            "--require-filter-history-retain-blend",
+            "--require-filter-local-recovery-policy",
+            "--min-filter-visibility-reject-count 1",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
@@ -219,6 +226,10 @@ done
         self.assertNotIn("filter-history-outcome=ACCEPTED", output)
         self.assertNotIn("direct-sun-framebuffer=PROVEN", output)
         self.assertNotIn("--maximum-update-epoch", output)
+        self.assertNotIn(
+            "filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture",
+            RUNNER.read_text(),
+        )
 
     def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,
@@ -231,10 +242,15 @@ done
             "--max-roi-luminance-mean 0.00002",
             "--min-roi-luminance-gain 0.000035",
         ):
-            self.assertIn(contract, result.stdout)
+            self.assertIn(contract, result.stdout + result.stderr)
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
         self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
-        self.assertEqual(result.stdout.count("--expect-lifecycle-state converged"), 8)
+        self.assertEqual(
+            (result.stdout + result.stderr).count(
+                "--expect-lifecycle-state converged"
+            ),
+            8,
+        )
 
     def test_failed_invocation_never_claims_filter_history_proof(self) -> None:
         result = self.run_runner("--invalid")
@@ -275,7 +291,7 @@ done
         self.assertEqual(succeeded.returncode, 0, succeeded.stderr)
         self.assertEqual(succeeded.stdout.count("direct-sun-framebuffer=PROVEN"), 1)
         self.assertEqual(succeeded.stdout.count("filter-history-outcome=ACCEPTED"), 1)
-        self.assertNotIn("filter-history-action=PROVEN", succeeded.stdout)
+        self.assertEqual(succeeded.stdout.count("filter-history-action=PROVEN"), 1)
 
 
 if __name__ == "__main__":

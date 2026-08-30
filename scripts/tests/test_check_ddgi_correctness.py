@@ -58,7 +58,7 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
                 (SCRIPTS / "runtime_log_diagnostics.py").read_text(encoding="utf-8"),
             )
             executable(
-                scripts / "analyze_environment_irradiance_capture.py",
+                scripts / "analyze_current_environment_irradiance_capture.py",
                 "#!/usr/bin/env bash\nprintf '{}\\n'\n",
             )
             executable(
@@ -116,7 +116,7 @@ done
         result = self.run_runner("--dry-run")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
+        output = result.stdout + result.stderr
         expected_views = (
             "final",
             "moment-visibility",
@@ -143,7 +143,9 @@ done
         self.assertIn("views=8", output)
 
         capture_commands = [
-            line for line in output.splitlines() if line.startswith("cargo run ")
+            line
+            for line in output.splitlines()
+            if line.startswith("/usr/bin/env cargo run ")
         ]
         self.assertEqual(len(capture_commands), 48)
         self.assertTrue(
@@ -168,7 +170,7 @@ done
         self.assertIn("walls-spacing32-exact-irradiance.rfirr --max-reference-error-p99 0.40", output)
         self.assertIn("walls-spacing16-exact-irradiance.rfirr --max-reference-error-p99 0.375", output)
         self.assertIn(
-            "unoccluded-irradiance.rfirr --correctness --expect-version 8 "
+            "unoccluded-irradiance.rfirr --correctness "
             "--require-nonnegative-rgb --expect-debug-view unoccluded-irradiance "
             "--reference",
             output,
@@ -178,13 +180,20 @@ done
             output,
         )
         self.assertIn(
-            "equal-weight-irradiance.rfirr --correctness --expect-version 8 "
+            "equal-weight-irradiance.rfirr --correctness "
             "--require-nonnegative-rgb --expect-debug-view equal-weight-irradiance "
             "--reference",
             output,
         )
+        self.assertIn("analyze_current_capture", output)
+        self.assertNotIn("--expect-version", output)
         self.assertIn("unoccluded-irradiance.rfirr --min-reference-error-p99 0.01", output)
         self.assertIn("equal-weight-irradiance.rfirr --min-reference-error-p99 0.01", output)
+        self.assertEqual(
+            output.count("--min-filter-visibility-reject-count 1"),
+            2,
+            "only the two production walls final captures prove owner rejection",
+        )
 
     def test_capture_failures_are_accumulated_across_the_complete_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

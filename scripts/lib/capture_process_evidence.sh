@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Execute one capture process while preserving both its console stream and canonical run log.
 # Arguments before `--` are forwarded to validate_capture_process_evidence.py.
@@ -15,7 +18,7 @@ run_capture_with_process_evidence() {
     shift
 
     set +e
-    RUST_LOG="$rust_log" "$@" 2>&1 | tee "$console"
+    RUST_LOG="$rust_log" "$@" 2>&1 | /usr/bin/env tee "$console"
     local pipeline_status=("${PIPESTATUS[@]}")
     set -e
     local command_status="${pipeline_status[0]}"
@@ -32,3 +35,7 @@ run_capture_with_process_evidence() {
     "$repo_root/scripts/validate_capture_process_evidence.py" \
         "${validator_args[@]}" --preserve-run-log "$preserved_run_log" "$console"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    run_capture_with_process_evidence "$@"
+fi

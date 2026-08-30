@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 
 auto_exit="${DDGI_TRANSPORT_ACCEPTANCE_AUTO_EXIT:-120}"
 output_root="${DDGI_TRANSPORT_ACCEPTANCE_OUTPUT_DIR:-$repo_root/target/ddgi-transport-acceptance}"
@@ -15,6 +25,7 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 # Committed exact-gate calibration. These are correctness limits, not environment overrides;
 # provenance and the tighter spacing-specific observations live in the companion document.
@@ -28,9 +39,7 @@ dogleg_min_e1_luminance_gain=0.000035
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
 dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
-analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
-source "$repo_root/scripts/lib/capture_process_evidence.sh"
 capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::ddgi_convergence_evidence=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 failures=0
 filter_history_outcome_accepted=true
@@ -40,10 +49,11 @@ echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.
 echo "[DDGI_TRANSPORT] convergence-policy=RUNTIME_LOG source=DDGI_CONVERGENCE_POLICY"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=REQUIRED seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
 echo "[DDGI_TRANSPORT] filter-history-outcome=REQUIRED seam=dogleg-e0-e1-production-capture"
+echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v10"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -69,7 +79,7 @@ run_capture() {
     capture="$(capture_path "$case_name" "$spacing" "$target" "$order")"
     local console="${capture%.rfirr}.console.log"
     local command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$case_name"
         --environment-probe-spacing-voxels "$spacing"
@@ -85,7 +95,7 @@ run_capture() {
         return 0
     fi
 
-    if ! run_capture_with_process_evidence \
+    if ! "$repo_root/scripts/lib/capture_process_evidence.sh" \
         "$console" "$capture" "$capture_rust_log" \
         --require-test-scene-startup -- "${command[@]}"; then
         echo "[DDGI_TRANSPORT] FAIL process evidence case=$case_name spacing=$spacing target=$target order=$order" >&2
@@ -93,25 +103,30 @@ run_capture() {
     fi
 }
 
+execute_analysis() {
+    local json="$1"
+    shift
+    local sink=(cat)
+    if ! $dry_run; then
+        sink=(/usr/bin/env tee "$json")
+    fi
+    analyze_current_capture "$@" | "${sink[@]}"
+}
+
 run_analysis() {
     local label="$1"
     local capture="$2"
     shift 2
     local json="${capture%.rfirr}.analysis.json"
-    local command=(
-        "$analyzer" "$capture"
+    local arguments=(
+        "$capture"
         --correctness
-        --expect-version 8
         --expect-debug-view final
         --require-nonnegative-rgb
         "$@"
     )
     echo "[DDGI_TRANSPORT] analyze label=$label json=$json"
-    if $dry_run; then
-        print_command "${command[@]}"
-        return 0
-    fi
-    if ! "${command[@]}" | tee "$json"; then
+    if ! execute_analysis "$json" "${arguments[@]}"; then
         echo "[DDGI_TRANSPORT] FAIL analysis label=$label" >&2
         return 1
     fi
@@ -235,9 +250,8 @@ run_child() {
     local script="$1"
     if $dry_run; then
         print_command "$script" --dry-run
-        return 0
-    fi
-    if ! "$script"; then
+        "$script" --dry-run
+    elif ! "$script"; then
         failures=$((failures + 1))
         return 1
     fi
@@ -245,8 +259,13 @@ run_child() {
 }
 
 # Preserve the calibrated portal/walls exact-reference thresholds in the existing runner.
-run_child "$repo_root/scripts/check_ddgi_correctness.sh" || true
+correctness_evidence_passed=false
+runtime_recovery_evidence_passed=false
+if run_child "$repo_root/scripts/check_ddgi_correctness.sh"; then
+    correctness_evidence_passed=true
+fi
 if run_child "$repo_root/scripts/check_ddgi_runtime_terrain_edits.sh"; then
+    runtime_recovery_evidence_passed=true
     if ! $dry_run; then
         echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
     fi
@@ -254,8 +273,8 @@ fi
 
 normalization_evidence_checker="$repo_root/scripts/check_ddgi_sky_normalization_evidence.py"
 if $dry_run; then
-    print_command python3 "$normalization_evidence_checker"
-elif ! python3 "$normalization_evidence_checker"; then
+    print_command /usr/bin/env python3 "$normalization_evidence_checker"
+elif ! /usr/bin/env python3 "$normalization_evidence_checker"; then
     failures=$((failures + 1))
 fi
 
@@ -274,4 +293,7 @@ fi
 echo "[DDGI_TRANSPORT] output=$run_dir failures=$failures"
 if (( failures != 0 )); then
     exit 1
+fi
+if $correctness_evidence_passed && $runtime_recovery_evidence_passed; then
+    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v10"
 fi

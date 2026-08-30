@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-source "$repo_root/scripts/lib/capture_process_evidence.sh"
 capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
+
+analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 auto_exit="${DDGI_TERRAIN_EDIT_AUTO_EXIT:-60}"
 output_root="${DDGI_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-terrain-edit-cycle}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -16,11 +25,12 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 spacings=(32 16)
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 failures=0
@@ -31,7 +41,7 @@ run_case() {
     local capture="$run_dir/terrain-edits-spacing${spacing}-${mode}.rfirr"
     local console="$run_dir/terrain-edits-spacing${spacing}-${mode}.console.log"
     command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scenario"
         --environment-probe-spacing-voxels "$spacing"
@@ -44,16 +54,16 @@ run_case() {
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
-        return 0
     fi
 
-    echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running mode=$mode lifecycle"
-    if ! run_capture_with_process_evidence \
-        "$console" "$capture" "$capture_rust_log" \
-        --require-test-scene-startup -- "${command[@]}"; then
-        echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing mode=$mode process evidence" >&2
-        return 1
-    fi
+    if ! $dry_run; then
+        echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running mode=$mode lifecycle"
+        if ! "$repo_root/scripts/lib/capture_process_evidence.sh" \
+            "$console" "$capture" "$capture_rust_log" \
+            --require-test-scene-startup -- "${command[@]}"; then
+            echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing mode=$mode process evidence" >&2
+            return 1
+        fi
 
     initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
     if [[ -z "$initial_revision" ]]; then
@@ -97,13 +107,14 @@ run_case() {
         grep -E "ENV_LIGHT_EDIT_CYCLE|runtime terrain invalidation" "$console" | tail -n 24 >&2 || true
         return 1
     fi
+    fi
     if [[ "$mode" == "closed" ]]; then
-        if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+        if ! analyze_current_capture \
             "$capture" --max-luminance 0.00005; then
             echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing post-close capture leaks light" >&2
             return 1
         fi
-    elif ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+    elif ! analyze_current_capture \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing reopened portal capture is not lit" >&2
         return 1

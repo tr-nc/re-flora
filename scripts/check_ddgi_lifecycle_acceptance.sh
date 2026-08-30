@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-source "$repo_root/scripts/lib/capture_process_evidence.sh"
 capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
+
+analyze_current_capture() {
+    if $dry_run; then
+        printf '%q ' analyze_current_capture "$@" >&2
+        printf '\n' >&2
+        return 0
+    fi
+    "$repo_root/scripts/analyze_current_environment_irradiance_capture.py" "$@"
+}
+
 
 auto_exit="${DDGI_LIFECYCLE_AUTO_EXIT:-90}"
 output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-acceptance}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
-analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 radiance_validator="$repo_root/scripts/validate_ddgi_radiance_lifecycle.py"
 density_validator="$repo_root/scripts/validate_ddgi_density_lifecycle.py"
 failures=0
@@ -21,10 +29,11 @@ elif [[ $# -ne 0 ]]; then
     echo "usage: $0 [--dry-run]" >&2
     exit 2
 fi
+readonly dry_run
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
-    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+    /usr/bin/env cargo build --release --manifest-path "$repo_root/Cargo.toml"
 fi
 
 print_command() {
@@ -62,7 +71,7 @@ run_hidden() {
     local console="$6"
     shift 6
     local command=(
-        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
+        /usr/bin/env cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scene"
         --environment-probe-spacing-voxels "$spacing_voxels"
@@ -77,7 +86,7 @@ run_hidden() {
         print_command "${command[@]}"
         return 0
     fi
-    if ! run_capture_with_process_evidence \
+    if ! "$repo_root/scripts/lib/capture_process_evidence.sh" \
         "$console" "$capture" "$capture_rust_log" \
         --require-test-scene-startup -- "${command[@]}"; then
         echo "[DDGI_LIFECYCLE] FAIL group=$group process evidence" >&2
@@ -90,10 +99,14 @@ check_radiance() {
     local capture="$run_dir/radiance-changes-spacing-${spacing_voxels}.rfirr"
     local console="$run_dir/radiance-changes-spacing-${spacing_voxels}.console.log"
     run_hidden "RADIANCE-${spacing_voxels}" radiance-changes "$spacing_voxels" published "$capture" "$console" || return 1
+    local field_serial source_field_serial geometry_revision build_token_serial
     if $dry_run; then
-        return 0
-    fi
-    require_markers RADIANCE "$console" \
+        field_serial=1
+        source_field_serial=1
+        geometry_revision=1
+        build_token_serial=1
+    else
+        require_markers RADIANCE "$console" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r1-terminal" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=baseline" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-next-frame" \
@@ -108,25 +121,27 @@ check_radiance() {
         "[DDGI_ACCEPT][RADIANCE] checkpoint=complete" \
         "field_serial_gap_r2_to_r4=1" \
         "geometry_unchanged=true" \
-        "spacing_unchanged=true" || return 1
+            "spacing_unchanged=true" || return 1
 
-    local complete
-    complete="$(grep -F '[DDGI_ACCEPT][RADIANCE] checkpoint=complete' "$console" | tail -n 1)"
-    local field_serial source_field_serial geometry_revision
-    field_serial="$(field_value "$complete" field_serial)"
-    source_field_serial="$(field_value "$complete" source_field_serial)"
-    geometry_revision="$(field_value "$complete" geometry_revision)"
-    local checkpoint
-    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=published" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
-    local build_token_serial
-    build_token_serial="$(field_value "$checkpoint" build_token_serial)"
-    [[ -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
-        echo "[DDGI_LIFECYCLE] FAIL group=RADIANCE could not extract final canonical identity" >&2
-        return 1
-    }
+        local complete
+        complete="$(grep -F '[DDGI_ACCEPT][RADIANCE] checkpoint=complete' "$console" | tail -n 1)"
+        field_serial="$(field_value "$complete" field_serial)"
+        source_field_serial="$(field_value "$complete" source_field_serial)"
+        geometry_revision="$(field_value "$complete" geometry_revision)"
+        local checkpoint
+        checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=published" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
+        build_token_serial="$(field_value "$checkpoint" build_token_serial)"
+        [[ -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
+            echo "[DDGI_LIFECYCLE] FAIL group=RADIANCE could not extract final canonical identity" >&2
+            return 1
+        }
+    fi
+    local analysis_output="$run_dir/radiance-changes-spacing-${spacing_voxels}.analysis.json"
+    if $dry_run; then
+        analysis_output=/dev/null
+    fi
 
-    "$analyzer" "$capture" \
-        --expect-version 8 \
+    analyze_current_capture "$capture" \
         --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
@@ -140,7 +155,10 @@ check_radiance() {
         --expect-source-radiance-revision 2 \
         --expect-publication-state published \
         --expect-batch-order forward \
-        --require-nonnegative-rgb >"$run_dir/radiance-changes-spacing-${spacing_voxels}.analysis.json" || return 1
+        --require-nonnegative-rgb >"$analysis_output" || return 1
+    if $dry_run; then
+        return 0
+    fi
     "$radiance_validator" "$capture" \
         --expect-spacing-voxels "$spacing_voxels" \
         --direct-light-sunlit-roi 0.85 0.60 1.025 0.875 0.675 1.125 \
@@ -153,35 +171,27 @@ check_density() {
     local capture="$run_dir/density-changes.rfirr"
     local console="$run_dir/density-changes.console.log"
     run_hidden DENSITY density-changes 32 e0 "$capture" "$console" || return 1
+    local obsolete_token field_serial source_field_serial geometry_revision build_token_serial
     if $dry_run; then
-        return 0
+        obsolete_token=1
+        field_serial=1
+        source_field_serial=1
+        geometry_revision=1
+        build_token_serial=1
+    else
+        local identity
+        if ! identity="$(/usr/bin/env python3 "$density_validator" "$console" --identity-tsv)"; then
+            echo "[DDGI_LIFECYCLE] FAIL group=DENSITY ordered lifecycle validation" >&2
+            return 1
+        fi
+        IFS=$'\t' read -r field_serial source_field_serial geometry_revision build_token_serial obsolete_token <<<"$identity"
     fi
-    local lifecycle="$run_dir/density-changes.lifecycle.json"
-    if ! python3 "$density_validator" "$console" >"$lifecycle"; then
-        echo "[DDGI_LIFECYCLE] FAIL group=DENSITY ordered lifecycle validation" >&2
-        return 1
+    local analysis_output="$run_dir/density-changes.analysis.json"
+    if $dry_run; then
+        analysis_output=/dev/null
     fi
-    local identity
-    identity="$(python3 - "$lifecycle" <<'PY'
-import json
-import sys
 
-with open(sys.argv[1], encoding="utf-8") as source:
-    lifecycle = json.load(source)
-print("\t".join(str(lifecycle[name]) for name in (
-    "field_serial",
-    "source_field_serial",
-    "geometry_revision",
-    "build_token_serial",
-    "obsolete_density_token_serial",
-)))
-PY
-)" || return 1
-    local field_serial source_field_serial geometry_revision build_token_serial obsolete_token
-    IFS=$'\t' read -r field_serial source_field_serial geometry_revision build_token_serial obsolete_token <<<"$identity"
-
-    "$analyzer" "$capture" \
-        --expect-version 8 \
+    analyze_current_capture "$capture" \
         --expect-spacing-voxels 16 \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \
@@ -191,7 +201,7 @@ PY
         --expect-update-epoch 0 \
         --expect-publication-state published \
         --expect-batch-order forward \
-        --require-nonnegative-rgb >"$run_dir/density-changes.analysis.json" || return 1
+        --require-nonnegative-rgb >"$analysis_output" || return 1
     echo "[DDGI_LIFECYCLE] PASS group=DENSITY field_serial=$field_serial source_field_serial=$source_field_serial obsolete_token=$obsolete_token"
 }
 

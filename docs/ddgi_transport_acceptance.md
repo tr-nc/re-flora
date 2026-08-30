@@ -9,17 +9,93 @@ missing subordinate checker is a failure.
 
 Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `.rfirr` capture v8 contains pre-albedo environment irradiance, world position plus exact sun
+- `.rfirr` capture v10 contains pre-albedo environment irradiance, world position plus exact sun
   visibility, the raster terrain's independent direct-light RGB, and marcher receiver-center XYZ
   plus terrain VSM transmittance, followed by terrain/leaf/cloud/combined direct-shadow
-  transmittance;
+  transmittance. Its filter extension records exact owner-version masks, action partitions, and
+  Blend retention `sum+max` witnesses from one complete GPU-produced epoch. Its independent host
+  identity records the authoritative probe-grid dimensions and configured history-retention Q16;
 - `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
 - `.console.log` records scheduling, source/destination slots, per-epoch retention, full-atlas
   validation, atomic publication, and terminal sleep reason;
 - `convergence-calibration.json` contains every validated convergence curve.
 
-Old capture versions remain readable for committed historical evidence, but all current-runtime
-acceptance requires v8 `Converging` / `Converged` metadata and `update_epoch`.
+RFIRR v8 reference captures and the published 252-byte/11Q v9 evidence layout remain readable for
+committed historical evidence. All current-runtime acceptance requires the fixed v10 layout,
+`Converging` / `Converged` metadata, `update_epoch`, authoritative grid/config identity, and
+owner-generated filter evidence. Version selects the layout; byte length never selects a second
+layout for the same version. Source-shape tests remain wiring guards only; they are not runtime
+proof.
+
+Production runners invoke `scripts/analyze_current_environment_irradiance_capture.py`. That entry
+does not expose `--expect-version`; it binds the analyzer to `CURRENT_RFIRR_VERSION` internally, so
+escaped or dynamically expanded shell arguments cannot select a historical schema. Explicit
+numeric compatibility remains available only through
+`scripts/analyze_environment_irradiance_capture.py` for historical fixtures and tests.
+
+Each `check_ddgi*.sh` runner defines the same normalized `analyze_current_capture` function: its
+body directly executes the current-only entry and every analysis branch invokes that function in
+command position. Dry-run and production execution share those call sites; the wrapper alone turns
+execution into command emission for dry-run. Transport's narrow `execute_analysis` helper changes
+only the output sink (`cat` or `/usr/bin/env tee "$json"`) around its single analyzer invocation.
+Absolute `/usr/bin/env` owns external-tool resolution, preventing Bash functions from shadowing the
+production sink while retaining PATH lookup.
+`scripts/rfirr_production_runner_contract.py` is intentionally only a
+source-wiring tripwire for that controlled form; it does not claim to interpret arbitrary shell.
+The typed current-only CLI behavior above is the schema seal.
+The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
+runners and rejects missing canonical call sites, unexpected helper scopes, or later function
+overrides. Its deliberately narrow structural parser also rejects canonical analysis execution
+inside any single-line, backslash-continued, or multiline `if`/`elif`/`else` chain whose assembled
+condition names `dry_run`; `else` inherits ownership from the whole chain. A raw identifier
+inventory rejects analyzer mentions that the controlled parser cannot classify as the sealed
+wrapper or a canonical command-position invocation, including calls adjacent to redirection. This
+closes maintained source-form bypasses without claiming general Bash reachability. Each runner's
+`--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
+the corresponding production matrix would execute, and the behavioral tests pin those per-runner
+command counts and representative branch arguments. Transport additionally seals the dry-run
+`cat` sink, production `/usr/bin/env tee "$json"` sink, and exactly one two-stage analyzer-to-sink
+pipeline, with an executable function-shadow test for the production sink. A whole-tree manifest
+proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
+makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
+controlled stateful lexical pass tracks comments and quotes across lines. Its control stream masks
+ordinary double-quoted text, `$()` child-shell bodies, and legacy backtick bodies, so none can inject
+an outer `fi`; every shell-active backtick substitution is rejected while quoted/commented prose
+remains data. Separate code/active streams retain `$()` child commands and real expansions for
+authority auditing. Braced expansions are recursively inventoried by exact base identifier, including nested
+fallbacks. It inventories actual simple, compound, arithmetic, parameter, and loop-variable
+assignment, unset, readonly, and expansion facts while excluding `[[...]]` comparisons. Its logical
+command/argv policy recognizes maintained group/control bodies, unwraps `exec`/`command`/`env`, and
+explicitly rejects `eval`, `source`/`.`, shell `-c`, authority or dynamic targets passed to `printf -v`,
+`read`, `readarray`/`mapfile`, `getopts`, or `let`, and every declaration nameref. Literal writes to
+other variables, comparisons, comments, and quoted prose remain allowed. This is a fail-closed
+allowance for the maintained grammar, not a proof of arbitrary Bash. Parsed executable/argv tuples
+permit only maintained `/usr/bin/env cargo` build/run, decision `tee`, and normalization `python3`
+forms; quoted or wrapped alternatives fail closed. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
+build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
+launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
+sentinels dynamically cover those known entrypoints. This does not prove arbitrary
+variable-encoded Bash execution.
+
+Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
+it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
+evaluation still prevents a general static proof and would add a large dependency surface. The
+selected seam is the production-only current-schema entry above: all analysis behavior remains in
+the deep analyzer module, while the production interface makes schema selection unrepresentable.
+For dry-run parity specifically, line-local regex expansion was rejected because it cannot see an
+outer conditional; centralizing every capture/file policy behind one helper was rejected because
+it would widen that helper beyond analysis execution. The selected narrow conditional-stack seam
+tracks only the repository's controlled function, pending condition headers, and
+`if`/`elif`/`else` structure. For launch guarding, PATH-only substitution was rejected because
+absolute paths bypass it; general process tracing was rejected as platform-coupled and much wider
+than this CPU contract. The selected source-token inventory plus known-entrypoint sentinels keeps
+the interface narrow while covering both maintained path forms. Readonly policy/root authority and
+the absolute `/usr/bin/env` owner close mutable-name and function-shadow seams without exposing new
+runner parameters.
+
+The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
+supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any
+other glob special form rejects the workflow contract rather than approximating GitHub semantics.
 
 ## Resident publication ownership
 
@@ -31,9 +107,9 @@ preflight. Descriptor code can borrow resources only through the permit. A descr
 the permit without committing the Volume or scheduler; after descriptor success, consuming the
 permit is an infallible ownership transition.
 
-This E1 branch still writes and analyzes RFIRR v8. The later E3 semantic merge owns the v10
-current-only runner (with its documented v9 compatibility boundary); lifecycle work here must not
-rewrite that runner back to v8 when the branches are collected.
+The collected runtime writes RFIRR v10, and all seven production runners invoke the v10 current-only
+entry without a version-selection surface. The compatibility analyzer retains the published v9
+layout for historical evidence; it cannot redefine the production schema seal.
 
 The density runner feeds its console to one ordered parser rather than accepting independent marker
 matches. The parser advances through baseline, obsolete-density preemption, private terrain e0,
@@ -116,7 +192,7 @@ the retained source-owner contract covers wiring until runtime owner-tag evidenc
 particular, no signed global-mean ordering is required: changing visibility can change normalized
 probe weights, so Unoccluded is not mathematically required to be globally brighter than Final.
 
-The runner's 60-second auto-exit is a local readiness budget, increased after spacing-16 captures
+The runner's 120-second auto-exit is a local readiness budget, increased after spacing-16 captures
 occasionally missed the former 24-second limit. It has not been established as portable across GPU
 classes; cross-GPU CI or calibration must treat exhaustion as a readiness-risk signal, not silently
 weaken the correctness thresholds.
@@ -170,6 +246,16 @@ update, latest-geometry promotion, shared terrain/Flora identity, and no partial
 publication. Exact direct sun remains a separate capture plane and is not accepted as evidence that
 indirect continuity worked.
 
+For the real `sequential-reopened` local-recovery captures, the analyzer derives the required Q16
+retention independently from the configured Q16 identity and captured update epoch using
+`min(configured, epoch / (epoch + 1))`. The runner does not carry an `e1` or `e8` retention
+constant: with the default configured retention, e1 derives to `32768`, while e8 derives to
+`58254`; a lower configured value caps the witness.
+
+For v10, the grid product must equal the complete epoch probe count. Visibility samples must form
+whole 64-ray probes, cover every Blend probe, and cannot exceed the Blend+Replace fresh-probe
+partition. These relations are checked independently by the Rust producer and Python analyzer.
+
 ## Response latency and static sleep
 
 On the NVIDIA GeForce RTX 3060 Ti, three historical matched release runs of
@@ -194,8 +280,8 @@ evidence pinned to its historical commits. Those v3-v5 stage labels are retained
 describe the old artifacts; they do not reintroduce a current runtime stage path. Its private
 legacy-v2 comparator proves only fixed-command Final payload RGB deltas and an exact hit mask for
 the two audited commits. Those captures have no world/identity planes, so this historical evidence
-does not claim capture-v8 reference correctness and cannot weaken the current analyzer's v8-only
-reference contract.
+does not claim five-plane reference correctness and cannot weaken the compatibility analyzer's
+RFIRR v8-v10 five-plane contract or the production current-only v10 seal.
 
 ## Reproduction
 

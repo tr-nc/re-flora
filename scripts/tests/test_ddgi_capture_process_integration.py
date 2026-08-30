@@ -26,10 +26,13 @@ class DdgiCaptureProcessIntegrationTests(unittest.TestCase):
             with self.subTest(runner=runner):
                 source = (SCRIPTS / runner).read_text(encoding="utf-8")
                 self.assertIn(
+                    '"$repo_root/scripts/lib/capture_process_evidence.sh"',
+                    source,
+                )
+                self.assertNotIn(
                     'source "$repo_root/scripts/lib/capture_process_evidence.sh"',
                     source,
                 )
-                self.assertIn("run_capture_with_process_evidence", source)
                 self.assertIn("re_flora::run_log_binding=info", source)
                 self.assertNotIn("grep -Eiq '(^|[^[:alpha:]])(ERROR", source)
 
@@ -86,9 +89,7 @@ printf '%s\n' "$events"
             )
             fake_app.chmod(fake_app.stat().st_mode | stat.S_IXUSR)
             command = f"""
-repo_root={SCRIPTS.parent!s}
-source "$repo_root/scripts/lib/capture_process_evidence.sh"
-run_capture_with_process_evidence \
+{SCRIPTS / "lib" / "capture_process_evidence.sh"!s} \
   {console!s} {capture!s} '{rust_log.group(1)}' \
   --require-test-scene-startup -- {fake_app!s} {capture!s} '{canonical_log!s}'
 """

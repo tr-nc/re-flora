@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,10 +23,36 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
+CURRENT_RFIRR_VERSION = 10
+
+
+def parse_expected_rfirr_version(value: str) -> int:
+    if value == "current":
+        return CURRENT_RFIRR_VERSION
+    try:
+        return int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "expected an integer RFIRR version or 'current'"
+        ) from error
+
+
+def is_current_capture(capture: Capture) -> bool:
+    return capture.version == CURRENT_RFIRR_VERSION
+
+
+def local_recovery_retention_q16(
+    configured_history_retention_q16: int, update_epoch: int
+) -> int:
+    denominator = update_epoch + 1
+    epoch_q16 = (update_epoch * 65_536 + denominator // 2) // denominator
+    return min(configured_history_retention_q16, epoch_q16)
 
 DEBUG_VIEW_LABELS = {
     0: "final",
@@ -115,6 +142,9 @@ class Capture:
     max_rel_delta: float | None = None
     nonfinite_count: int | None = None
     valid_count: int | None = None
+    grid_dimensions: tuple[int, int, int] | None = None
+    configured_history_retention_q16: int | None = None
+    filter_evidence: dict[str, object] | None = None
 
     @property
     def sample_count(self) -> int:
@@ -193,16 +223,19 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6, 7, 8):
+    elif version in (4, 5, 6, 7, 8, 9, 10):
         header = {
             4: HEADER_V4,
             5: HEADER_V5,
             6: HEADER_V6,
             7: HEADER_V7,
             8: HEADER_V8,
+            9: HEADER_V9,
+            10: HEADER_V10,
         }[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
+        values = header.unpack_from(data)
         (
             _,
             _,
@@ -230,7 +263,7 @@ def load_capture(path: Path) -> Capture:
             max_rel_delta,
             nonfinite_count,
             valid_count,
-        ) = header.unpack_from(data)
+        ) = values[:26]
         header_size = header.size
         lifecycle_metadata = (
             {
@@ -263,19 +296,244 @@ def load_capture(path: Path) -> Capture:
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
             **lifecycle_metadata,
         }
+        if version == 9:
+            (
+                evidence_present,
+                irradiance_owner_version,
+                visibility_history_owner_version,
+                visibility_sample_owner_version,
+                evidence_field_serial,
+                evidence_update_epoch,
+                evidence_probe_count,
+                visibility_written,
+                evidence_reserved,
+                irradiance_replace,
+                irradiance_retain,
+                irradiance_blend,
+                irradiance_retention_sum_q16,
+                visibility_replace,
+                visibility_retain,
+                visibility_blend,
+                visibility_retention_sum_q16,
+                visibility_samples,
+                visibility_accept,
+                visibility_reject,
+            ) = values[26:]
+            if evidence_present != 1:
+                raise ValueError(f"{path}: v9 filter evidence is missing")
+            if evidence_reserved != 0:
+                raise ValueError(f"{path}: v9 filter evidence reserved lane is nonzero")
+            if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
+                raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
+            if evidence_probe_count == 0:
+                raise ValueError(f"{path}: filter evidence has zero probes")
+            if irradiance_owner_version != 1:
+                raise ValueError(f"{path}: irradiance history owner version mismatch")
+            if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
+                raise ValueError(f"{path}: irradiance history action partition mismatch")
+            if irradiance_blend == 0:
+                if irradiance_retention_sum_q16 != 0:
+                    raise ValueError(f"{path}: irradiance retention without Blend")
+            elif irradiance_retention_sum_q16 % irradiance_blend != 0:
+                raise ValueError(f"{path}: irradiance Blend retention is not exact")
+            if visibility_written not in (0, 1):
+                raise ValueError(f"{path}: invalid visibility-written flag")
+            if visibility_written:
+                if visibility_history_owner_version != 1 or visibility_sample_owner_version != 1:
+                    raise ValueError(f"{path}: visibility owner version mismatch")
+                if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
+                    raise ValueError(f"{path}: visibility history action partition mismatch")
+                if visibility_blend == 0:
+                    if visibility_retention_sum_q16 != 0:
+                        raise ValueError(f"{path}: visibility retention without Blend")
+                elif visibility_retention_sum_q16 % visibility_blend != 0:
+                    raise ValueError(f"{path}: visibility Blend retention is not exact")
+                if visibility_samples != visibility_accept + visibility_reject:
+                    raise ValueError(f"{path}: visibility sample partition mismatch")
+            elif any(
+                value != 0
+                for value in (
+                    visibility_history_owner_version,
+                    visibility_sample_owner_version,
+                    visibility_replace,
+                    visibility_retain,
+                    visibility_blend,
+                    visibility_retention_sum_q16,
+                    visibility_samples,
+                    visibility_accept,
+                    visibility_reject,
+                )
+            ):
+                raise ValueError(f"{path}: unwritten visibility has filter evidence")
+            metadata["filter_evidence"] = {
+                "field_serial": evidence_field_serial,
+                "update_epoch": evidence_update_epoch,
+                "probe_count": evidence_probe_count,
+                "visibility_written": bool(visibility_written),
+                "irradiance_history": {
+                    "owner_version": irradiance_owner_version,
+                    "replace": irradiance_replace,
+                    "retain": irradiance_retain,
+                    "blend": irradiance_blend,
+                    "blend_retention_q16": irradiance_retention_sum_q16,
+                },
+                "visibility_history": {
+                    "owner_version": visibility_history_owner_version,
+                    "replace": visibility_replace,
+                    "retain": visibility_retain,
+                    "blend": visibility_blend,
+                    "blend_retention_q16": visibility_retention_sum_q16,
+                },
+                "visibility_samples": {
+                    "owner_version": visibility_sample_owner_version,
+                    "samples": visibility_samples,
+                    "accept": visibility_accept,
+                    "reject": visibility_reject,
+                },
+            }
+        elif version == 10:
+            (
+                evidence_present,
+                irradiance_owner_version_mask,
+                visibility_history_owner_version_mask,
+                visibility_sample_owner_version_mask,
+                evidence_field_serial,
+                evidence_update_epoch,
+                evidence_probe_count,
+                visibility_written,
+                evidence_reserved,
+                grid_x,
+                grid_y,
+                grid_z,
+                configured_history_retention_q16,
+                irradiance_replace,
+                irradiance_retain,
+                irradiance_blend,
+                irradiance_retention_sum_q16,
+                irradiance_retention_max_q16,
+                visibility_replace,
+                visibility_retain,
+                visibility_blend,
+                visibility_retention_sum_q16,
+                visibility_retention_max_q16,
+                visibility_samples,
+                visibility_accept,
+                visibility_reject,
+            ) = values[26:]
+            if evidence_present != 1:
+                raise ValueError(f"{path}: v10 filter evidence is missing")
+            if evidence_reserved != 0:
+                raise ValueError(f"{path}: v10 filter evidence reserved lane is nonzero")
+            if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
+                raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
+            if evidence_probe_count == 0:
+                raise ValueError(f"{path}: filter evidence has zero probes")
+            grid_dimensions = (grid_x, grid_y, grid_z)
+            grid_product = grid_x * grid_y * grid_z
+            if any(dimension == 0 for dimension in grid_dimensions):
+                raise ValueError(f"{path}: v10 probe grid has a zero dimension")
+            if grid_product > 0xFFFFFFFF:
+                raise ValueError(f"{path}: v10 probe grid product exceeds u32")
+            if grid_product != evidence_probe_count:
+                raise ValueError(f"{path}: v10 probe grid product does not match filter evidence")
+            if configured_history_retention_q16 > 65_536:
+                raise ValueError(f"{path}: v10 configured history retention is out of range")
+            if irradiance_owner_version_mask != 2:
+                raise ValueError(f"{path}: irradiance history owner mask mismatch")
+            if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
+                raise ValueError(f"{path}: irradiance history action partition mismatch")
+            if irradiance_blend == 0:
+                if irradiance_retention_sum_q16 != 0 or irradiance_retention_max_q16 != 0:
+                    raise ValueError(f"{path}: irradiance retention without Blend")
+            elif (
+                irradiance_retention_max_q16 > 65_536
+                or irradiance_blend * irradiance_retention_max_q16
+                != irradiance_retention_sum_q16
+            ):
+                raise ValueError(f"{path}: irradiance history lacks one exact Blend retention")
+            if visibility_written not in (0, 1):
+                raise ValueError(f"{path}: invalid visibility-written flag")
+            if visibility_written:
+                if visibility_history_owner_version_mask != 2 or visibility_sample_owner_version_mask != 2:
+                    raise ValueError(f"{path}: visibility owner mask mismatch")
+                if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
+                    raise ValueError(f"{path}: visibility history action partition mismatch")
+                if visibility_blend == 0:
+                    if visibility_retention_sum_q16 != 0 or visibility_retention_max_q16 != 0:
+                        raise ValueError(f"{path}: visibility retention without Blend")
+                elif (
+                    visibility_retention_max_q16 > 65_536
+                    or visibility_blend * visibility_retention_max_q16
+                    != visibility_retention_sum_q16
+                ):
+                    raise ValueError(f"{path}: visibility history lacks one exact Blend retention")
+                if visibility_samples != visibility_accept + visibility_reject:
+                    raise ValueError(f"{path}: visibility sample partition mismatch")
+                if visibility_samples % 64 != 0:
+                    raise ValueError(f"{path}: visibility samples do not cover whole 64-ray probes")
+                if visibility_samples < visibility_blend * 64:
+                    raise ValueError(f"{path}: visibility samples undercounts Blend probes")
+                if visibility_samples > (visibility_blend + visibility_replace) * 64:
+                    raise ValueError(f"{path}: visibility samples exceeds fresh history probes")
+            elif any(
+                value != 0
+                for value in (
+                    visibility_history_owner_version_mask,
+                    visibility_sample_owner_version_mask,
+                    visibility_replace,
+                    visibility_retain,
+                    visibility_blend,
+                    visibility_retention_sum_q16,
+                    visibility_retention_max_q16,
+                    visibility_samples,
+                    visibility_accept,
+                    visibility_reject,
+                )
+            ):
+                raise ValueError(f"{path}: unwritten visibility has filter evidence")
+            metadata["filter_evidence"] = {
+                "field_serial": evidence_field_serial,
+                "update_epoch": evidence_update_epoch,
+                "probe_count": evidence_probe_count,
+                "visibility_written": bool(visibility_written),
+                "irradiance_history": {
+                    "owner_version_mask": irradiance_owner_version_mask,
+                    "replace": irradiance_replace,
+                    "retain": irradiance_retain,
+                    "blend": irradiance_blend,
+                    "blend_retention_q16_sum": irradiance_retention_sum_q16,
+                    "blend_retention_q16_max": irradiance_retention_max_q16,
+                },
+                "visibility_history": {
+                    "owner_version_mask": visibility_history_owner_version_mask,
+                    "replace": visibility_replace,
+                    "retain": visibility_retain,
+                    "blend": visibility_blend,
+                    "blend_retention_q16_sum": visibility_retention_sum_q16,
+                    "blend_retention_q16_max": visibility_retention_max_q16,
+                },
+                "visibility_samples": {
+                    "owner_version_mask": visibility_sample_owner_version_mask,
+                    "samples": visibility_samples,
+                    "accept": visibility_accept,
+                    "reject": visibility_reject,
+                },
+            }
+            metadata["grid_dimensions"] = grid_dimensions
+            metadata["configured_history_retention_q16"] = configured_history_retention_q16
     else:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
     expected_plane_counts = (
         (5,)
-        if version == 8
+        if version in (8, 9, 10)
         else ((4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2)))
     )
     if plane_count not in expected_plane_counts:
         expected_label = (
             "five"
-            if version == 8
+            if version in (8, 9, 10)
             else (
                 "four"
                 if version == 7
@@ -717,6 +975,9 @@ def summarize(
         "backend": capture.backend,
         "spacing_voxels": capture.spacing_voxels,
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
+        "grid_dimensions": capture.grid_dimensions,
+        "configured_history_retention_q16": capture.configured_history_retention_q16,
+        "filter_evidence": capture.filter_evidence,
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,
         "finite": finite
@@ -1149,7 +1410,7 @@ def required_capture_planes_finite(capture: Capture) -> bool:
 def has_reference_identity_planes(capture: Capture) -> bool:
     expected_plane_size = capture.sample_count * PIXEL.size
     return (
-        capture.version == 8
+        capture.version in (8, 9, 10)
         and capture.plane_count == 5
         and all(
             len(payload) == expected_plane_size
@@ -1487,7 +1748,9 @@ def compare_direct_light_baseline(
     }
 
 
-def main() -> int:
+def _run_cli(
+    argv: Sequence[str] | None, *, allow_version_override: bool
+) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
@@ -1569,7 +1832,18 @@ def main() -> int:
             "to have no more than this combined direct-shadow transmittance range"
         ),
     )
-    parser.add_argument("--expect-version", type=int)
+    if allow_version_override:
+        parser.add_argument(
+            "--expect-version",
+            type=parse_expected_rfirr_version,
+            default=CURRENT_RFIRR_VERSION,
+        )
+    else:
+        parser.set_defaults(expect_version=CURRENT_RFIRR_VERSION)
+    parser.add_argument("--require-filter-history-retain-blend", action="store_true")
+    parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
+    parser.add_argument("--expect-filter-blend-retention-q16", type=int)
+    parser.add_argument("--min-filter-visibility-reject-count", type=int)
     parser.add_argument(
         "--expect-debug-view", choices=tuple(DEBUG_VIEW_LABELS.values())
     )
@@ -1610,7 +1884,7 @@ def main() -> int:
         action="store_true",
         help="apply correctness-gate policy, including rejecting NonConverged fields",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     first = load_capture(args.capture)
     capture_summary = summarize(
@@ -1662,6 +1936,74 @@ def main() -> int:
     expect("source_radiance_revision", args.expect_source_radiance_revision)
     expect("publication_state", args.expect_publication_state)
     expect("batch_order", args.expect_batch_order)
+
+    filter_evidence = capture_summary["filter_evidence"]
+    if args.require_filter_history_retain_blend:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        else:
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                if history["retain"] == 0 or history["blend"] == 0:
+                    failures.append(f"{label}: expected both Retain and Blend actions")
+    if args.require_filter_local_recovery_policy:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        elif first.configured_history_retention_q16 is None:
+            failures.append("v10 configured history retention identity is missing")
+        else:
+            expected_q16 = local_recovery_retention_q16(
+                first.configured_history_retention_q16,
+                filter_evidence["update_epoch"]
+            )
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                expected_sum = history["blend"] * expected_q16
+                if history["retain"] == 0 or history["blend"] == 0:
+                    failures.append(
+                        f"{label}: local recovery requires both Retain and Blend actions"
+                    )
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"] != expected_q16
+                ):
+                    failures.append(
+                        f"{label}: expected epoch {filter_evidence['update_epoch']} "
+                        f"local-recovery retention q16 {expected_q16}, got "
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
+                    )
+    if args.expect_filter_blend_retention_q16 is not None:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        else:
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                expected_sum = history["blend"] * args.expect_filter_blend_retention_q16
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"]
+                    != args.expect_filter_blend_retention_q16
+                ):
+                    failures.append(
+                        f"{label}: expected Blend retention q16 "
+                        f"{args.expect_filter_blend_retention_q16}, got "
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
+                    )
+    if args.min_filter_visibility_reject_count is not None:
+        reject = (
+            None
+            if filter_evidence is None
+            else filter_evidence["visibility_samples"]["reject"]
+        )
+        if reject is None or reject < args.min_filter_visibility_reject_count:
+            failures.append(
+                "filter visibility reject count: expected at least "
+                f"{args.min_filter_visibility_reject_count}, got {reject}"
+            )
 
     def gate_min(field: str, threshold: float | None) -> None:
         nonlocal exit_code
@@ -1874,7 +2216,7 @@ def main() -> int:
             exit_code = 1
         if not reference.get("identity_planes_available", False):
             failures.append(
-                "reference comparison requires capture-v8 identity planes"
+                "reference comparison requires RFIRR v8-v10 five-plane identity evidence"
             )
             exit_code = 1
         if not reference.get("approximate_finite", False):
@@ -2079,6 +2421,16 @@ def main() -> int:
         exit_code = 1
     print(json.dumps(report, indent=2, sort_keys=True))
     return exit_code
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Compatibility CLI, including explicit historical RFIRR versions."""
+    return _run_cli(argv, allow_version_override=True)
+
+
+def main_current(argv: Sequence[str] | None = None) -> int:
+    """Production CLI whose interface only accepts the current RFIRR schema."""
+    return _run_cli(argv, allow_version_override=False)
 
 
 if __name__ == "__main__":

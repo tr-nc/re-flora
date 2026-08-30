@@ -1167,47 +1167,143 @@ mod tests {
         assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 
-    #[test]
-    fn ddgi_production_filters_consume_shared_policy_actions() {
-        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
-            let retained = filter
-                .split_once("if (historyPolicy.retain_source)")
-                .expect("retained partition gate")
-                .1
-                .split_once("if (metadata.state_and_reserved.x")
-                .expect("metadata validation follows retained partition")
-                .0;
-            assert!(retained.contains(retained_copy));
-            assert_eq!(retained.matches("return;").count(), 1);
-
-            let blended = filter
-                .split_once("if (historyPolicy.blend_history)")
-                .expect("history blend gate")
-                .1
-                .split_once("store")
-                .expect("atlas store follows history blend")
-                .0;
-            assert!(blended.contains(history_blend));
+    fn validate_ddgi_filter_owner_wiring(
+        irradiance: &str,
+        visibility: &str,
+    ) -> Result<(), &'static str> {
+        for (filter, owner_import, terminal, fresh) in [
+            (
+                irradiance,
+                "import ddgi_irradiance_filter_owner;",
+                "ddgiOwnerTryStoreTerminalIrradiance(",
+                "ddgiOwnerStoreFreshIrradiance(",
+            ),
+            (
+                visibility,
+                "import ddgi_visibility_filter_owner;",
+                "ddgiOwnerTryStoreTerminalVisibility(",
+                "ddgiOwnerStoreFreshVisibility(",
+            ),
+        ] {
+            if !filter.contains(owner_import)
+                || filter.matches("ddgiFilterHistoryDecision(").count() != 1
+                || filter.matches(terminal).count() != 1
+                || filter.matches(fresh).count() != 1
+            {
+                return Err("history terminal-owner wiring changed");
+            }
+            for forbidden in [
+                "RWTexture2D<",
+                "ddgiRecord",
+                "ddgiCommitHistory(",
+                "ddgiTryCommitRetainedHistory(",
+                "storeIrradiance(",
+                "storeVisibility(",
+                "ddgiFilterHistoryPolicy(",
+                ".retain_source",
+                ".blend_history",
+            ] {
+                if filter.contains(forbidden) {
+                    return Err("production filter regained a direct execution or store bypass");
+                }
+            }
         }
+        if visibility
+            .matches("ddgiOwnerAccumulateVisibilitySample(")
+            .count()
+            != 1
+            || visibility.matches("ddgiFilterVisibilityDecision(").count() != 1
+            || visibility.contains("ddgiAccumulateVisibility(")
+            || visibility.contains(".accepted")
+        {
+            return Err("visibility sample owner wiring changed");
+        }
+        Ok(())
+    }
 
+    #[test]
+    fn ddgi_production_filter_wiring_uses_terminal_owners() {
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
-        assert_eq!(visibility.matches("ddgiFilterVisibilitySample(").count(), 1);
-        assert_eq!(visibility.matches("ddgiFilterHistoryPolicy(").count(), 1);
-        assert_eq!(irradiance.matches("ddgiFilterHistoryPolicy(").count(), 1);
-        assert!(visibility.contains(
-            "if (!sample.accepted) continue;\n        float hitDistance = sample.distance;"
+        validate_ddgi_filter_owner_wiring(irradiance, visibility).unwrap();
+
+        let irradiance_owner = include_str!("../shader/slang/ddgi_irradiance_filter_owner.slang");
+        for causal_step in [
+            "DdgiExecutedHistory4 executed = ddgiExecuteHistory(",
+            "ddgiRecordIrradianceHistoryDecision(",
+            "ddgiOwnerStoreIrradianceValue(",
+        ] {
+            assert!(irradiance_owner.contains(causal_step));
+        }
+        let visibility_owner = include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
+        for causal_step in [
+            "DdgiExecutedHistory2 executed = ddgiExecuteHistory(",
+            "ddgiRecordVisibilityHistoryDecision(",
+            "ddgiRecordVisibilitySampleDecision(",
+            "ddgiAccumulateVisibility(",
+            "ddgiOwnerStoreVisibilityValue(",
+        ] {
+            assert!(visibility_owner.contains(causal_step));
+        }
+        let policy = include_str!("../shader/slang/ddgi_filter_policy.slang");
+        for removed_adapter in [
+            "DdgiFilterHistoryPolicy",
+            "ddgiFilterHistoryPolicy(",
+            "DdgiFilterVisibilitySample",
+            "ddgiFilterVisibilitySample(",
+        ] {
+            assert!(!policy.contains(removed_adapter));
+        }
+
+        let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
+        assert!(pipeline_builder.contains(
+            "for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter]"
         ));
-        assert_history_usage(
-            visibility,
-            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
-            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
+        assert!(pipeline_builder
+            .contains("write_buffer!(writes, \"ddgi_trace_stats\", &volume.ddgi_trace_stats);"));
+    }
+
+    #[test]
+    fn wiring_guard_rejects_irradiance_history_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
+            "ddgiOwnerStoreFreshIrradiance(",
+            "bypassHistoryCommit(",
+            1,
         );
-        assert_history_usage(
-            irradiance,
-            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
-            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_visibility_history_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
+            "ddgiOwnerStoreFreshVisibility(",
+            "bypassHistoryCommit(",
+            1,
         );
+        assert!(validate_ddgi_filter_owner_wiring(irradiance, &visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_visibility_sample_owner_bypass() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
+            "ddgiOwnerAccumulateVisibilitySample(",
+            "bypassVisibilityAccumulate(",
+            1,
+        );
+        assert!(validate_ddgi_filter_owner_wiring(irradiance, &visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_dead_owner_followed_by_manual_store_capability() {
+        let irradiance = format!(
+            "{}\nRWTexture2D<float4> bypass;\n",
+            include_str!("../shader/slang/ddgi_irradiance_filter.slang")
+        );
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
     }
 
     #[test]

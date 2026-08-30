@@ -449,6 +449,7 @@ mod tests {
                 valid_texel_count: 42,
                 scanned_stored_texel_count: 64,
             },
+            filter_proof: None,
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Forward,
         }
