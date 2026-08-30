@@ -37,5 +37,13 @@ scripts/check_lighting_mode_acceptance.sh target/lighting-mode-acceptance/r13-e2
 ```
 
 The runner refuses existing output paths, scans the app and worktree run log for failures, and then
-invokes `scripts/analyze_lighting_mode_acceptance.py`. Set `REFLORA_CARGO` to a cargo-compatible
-wrapper when validating against a local dependency checkout.
+invokes the repository-owned `scripts/analyze_lighting_mode_acceptance.py` with the preflighted
+`REFLORA_PYTHON` interpreter (default `python3`). `REFLORA_ANALYZER` is intentionally ignored: a
+caller-selected analyzer cannot produce authoritative acceptance. The runner validates the
+analyzer JSON schema, calibration, and `GREEN` verdict before reporting its own production GREEN.
+
+Runner unit tests may explicitly set both
+`REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ONLY=1` and
+`REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER=<path>`. That mode validates the same JSON contract
+but reports only `TEST_GREEN`; it can never report authoritative `GREEN`. Set `REFLORA_CARGO` to a
+cargo-compatible wrapper when validating against a local dependency checkout.

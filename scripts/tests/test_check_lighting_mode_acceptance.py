@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,7 +19,207 @@ def executable(path: Path, source: str) -> Path:
     return path
 
 
+def python_analyzer(path: Path, output: str, status: int = 0) -> Path:
+    return executable(
+        path,
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        f"print({output!r}, file={'sys.stderr' if status else 'sys.stdout'})\n"
+        f"raise SystemExit({status})\n",
+    )
+
+
+def test_analyzer_environment(analyzer: Path) -> dict[str, str]:
+    return {
+        "REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ONLY": "1",
+        "REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER": str(analyzer),
+    }
+
+
 class LightingModeAcceptanceRunnerTests(unittest.TestCase):
+    def test_production_ignores_arbitrary_analyzer_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean\n")
+            override_ran = root / "override-ran"
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf not-a-production-artifact > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            malicious = executable(
+                root / "analyzer",
+                "#!/usr/bin/env bash\n"
+                "printf ran > \"$OVERRIDE_RAN\"\n"
+                "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(malicious),
+                    "OVERRIDE_RAN": str(override_ran),
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            override_executed = override_ran.exists()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verdict=ANALYZER_FAILED", result.stderr)
+        self.assertFalse(override_executed)
+        self.assertNotIn("verdict=GREEN", result.stdout)
+
+    def test_explicit_test_analyzer_can_only_emit_test_green(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean\n")
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf fixture > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verdict=TEST_GREEN", result.stdout)
+        self.assertNotIn("verdict=GREEN", result.stdout)
+
+    def test_test_analyzer_without_explicit_test_mode_is_rejected_without_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            analyzer = python_analyzer(root / "analyzer.py", "{}")
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER": str(analyzer),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=test-analyzer-requires-test-only-mode", result.stderr)
+        self.assertFalse(artifact.exists())
+        self.assertFalse(Path(f"{artifact}.app.log").exists())
+
+    def test_analyzer_json_contract_rejects_wrong_authority_fields(self) -> None:
+        cases = (
+            "not-json",
+            '{"schema":"wrong","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
+            '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"wrong","verdict":"GREEN"}',
+            '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"RED"}',
+        )
+        for output in cases:
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                artifact = root / "capture.rflma"
+                bound_log = root / "bound.run.log"
+                bound_log.write_text("clean\n")
+                cargo = executable(
+                    root / "cargo",
+                    "#!/usr/bin/env bash\n"
+                    "artifact=\"${@: -1}\"\n"
+                    "printf fixture > \"$artifact\"\n"
+                    "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+                )
+                analyzer = python_analyzer(root / "analyzer.py", output)
+                result = subprocess.run(
+                    [str(RUNNER), str(artifact)],
+                    cwd=REPO_ROOT,
+                    env={
+                        **os.environ,
+                        "REFLORA_CARGO": str(cargo),
+                        "BOUND_RUN_LOG": str(bound_log),
+                        **test_analyzer_environment(analyzer),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reason=invalid-analyzer-json", result.stderr)
+            self.assertNotIn("verdict=TEST_GREEN", result.stdout)
+            self.assertNotIn("verdict=GREEN", result.stdout)
+
+    def test_preflighted_python_is_the_analyzer_interpreter(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean\n")
+            python_used = root / "python-used"
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf fixture > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
+            )
+            python = executable(
+                root / "python",
+                "#!/usr/bin/env bash\n"
+                "printf used >> \"$PYTHON_USED\"\n"
+                f"exec '{sys.executable}' \"$@\"\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_PYTHON": str(python),
+                    "PYTHON_USED": str(python_used),
+                    "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            interpreter_invocations = python_used.read_text()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("verdict=TEST_GREEN", result.stdout)
+        self.assertGreaterEqual(interpreter_invocations.count("used"), 2)
+
     def test_exit_zero_with_artifact_rejects_case_insensitive_fatal_log_markers(self) -> None:
         markers = (
             "eRrOr: mixed-case failure",
@@ -41,10 +242,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                     "printf artifact > \"$artifact\"\n"
                     "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
                 )
-                analyzer = executable(
-                    root / "analyzer",
-                    "#!/usr/bin/env bash\n"
-                    "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+                analyzer = python_analyzer(
+                    root / "analyzer.py",
+                    '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
                 )
                 result = subprocess.run(
                     [str(RUNNER), str(artifact)],
@@ -52,8 +252,8 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                     env={
                         **os.environ,
                         "REFLORA_CARGO": str(cargo),
-                        "REFLORA_ANALYZER": str(analyzer),
                         "BOUND_RUN_LOG": str(bound_log),
+                        **test_analyzer_environment(analyzer),
                     },
                     capture_output=True,
                     text=True,
@@ -79,10 +279,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 "printf artifact > \"$artifact\"\n"
                 "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
-            analyzer = executable(
-                root / "analyzer",
-                "#!/usr/bin/env bash\n"
-                "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
             )
             failing_rg = executable(
                 root / "rg",
@@ -99,9 +298,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_ANALYZER": str(analyzer),
                     "REFLORA_RG": str(failing_rg),
                     "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
                 },
                 capture_output=True,
                 text=True,
@@ -131,10 +330,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 "printf artifact > \"$artifact\"\n"
                 "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
-            analyzer = executable(
-                root / "analyzer",
-                "#!/usr/bin/env bash\n"
-                "printf '%s\\n' '{\"schema\": \"re-flora-lighting-mode-acceptance-v1\", \"calibration\": \"r13-e2-production-v1\", \"verdict\": \"GREEN\"}'\n",
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
             )
             result = subprocess.run(
                 [str(RUNNER), str(artifact)],
@@ -142,8 +340,8 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_ANALYZER": str(analyzer),
                     "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
                 },
                 capture_output=True,
                 text=True,
@@ -168,7 +366,8 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertEqual(result.stdout.count("cargo-command="), 1)
         self.assertIn("/tmp/local-petal-cargo run --release --", result.stdout)
         self.assertIn("--hidden --mute --lighting-mode-acceptance", result.stdout)
-        self.assertIn("analyzer-command=", result.stdout)
+        self.assertIn("analyzer-command= python3", result.stdout)
+        self.assertIn("scripts/analyze_lighting_mode_acceptance.py", result.stdout)
         self.assertFalse(artifact.exists())
         self.assertFalse(Path(f"{artifact}.app.log").exists())
 
@@ -178,18 +377,21 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             ("REFLORA_RG", "definitely-missing-rg"),
             ("REFLORA_PYTHON", "definitely-missing-python"),
             ("REFLORA_TIMEOUT", "definitely-missing-timeout"),
-            ("REFLORA_ANALYZER", "definitely-missing-analyzer"),
+            (
+                "REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER",
+                "definitely-missing-analyzer",
+            ),
         )
         for variable, missing in cases:
             with self.subTest(variable=variable), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 artifact = root / "capture.rflma"
                 cargo = executable(root / "cargo", "#!/usr/bin/env bash\nexit 99\n")
-                analyzer = executable(root / "analyzer", "#!/usr/bin/env bash\nexit 99\n")
+                analyzer = python_analyzer(root / "analyzer.py", "unused", status=99)
                 env = {
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_ANALYZER": str(analyzer),
+                    **test_analyzer_environment(analyzer),
                     variable: missing,
                 }
                 result = subprocess.run(
@@ -336,10 +538,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 "printf artifact > \"$artifact\"\n"
                 "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
-            analyzer = executable(
-                root / "analyzer",
-                "#!/usr/bin/env bash\n"
-                "printf '%s\\n' '{\"verdict\": \"GREEN\"}'\n",
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                '{"schema":"re-flora-lighting-mode-acceptance-v1","calibration":"r13-e2-production-v1","verdict":"GREEN"}',
             )
 
             result = subprocess.run(
@@ -348,9 +549,9 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_ANALYZER": str(analyzer),
                     "REFLORA_LOG_POINTER": str(log_pointer),
                     "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
                 },
                 capture_output=True,
                 text=True,
@@ -374,11 +575,10 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 "printf artifact > \"$artifact\"\n"
                 "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
-            analyzer = executable(
-                root / "analyzer",
-                "#!/usr/bin/env bash\n"
-                "printf '%s\\n' '[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=raw-alpha-drift' >&2\n"
-                "exit 1\n",
+            analyzer = python_analyzer(
+                root / "analyzer.py",
+                "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=raw-alpha-drift",
+                status=1,
             )
 
             result = subprocess.run(
@@ -387,8 +587,8 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_ANALYZER": str(analyzer),
                     "BOUND_RUN_LOG": str(bound_log),
+                    **test_analyzer_environment(analyzer),
                 },
                 capture_output=True,
                 text=True,

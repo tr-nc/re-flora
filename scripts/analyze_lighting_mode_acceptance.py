@@ -291,6 +291,7 @@ def analyze(path: Path) -> dict[str, Any]:
 
     return {
         "verdict": "GREEN",
+        "schema": SCHEMA,
         "artifact": str(path),
         "calibration": CALIBRATION,
         "terrain_pixels": sum(terrain_mask),

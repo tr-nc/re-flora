@@ -21,13 +21,21 @@ python_bin="${REFLORA_PYTHON:-python3}"
 timeout_bin="${REFLORA_TIMEOUT:-timeout}"
 timeout_seconds="${REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS:-1200}"
 app_output="${artifact}.app.log"
-analyzer="${REFLORA_ANALYZER:-$repo_root/scripts/analyze_lighting_mode_acceptance.py}"
+analyzer="$repo_root/scripts/analyze_lighting_mode_acceptance.py"
+test_only=false
+if [[ "${REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ONLY:-}" == "1" ]]; then
+    test_only=true
+    analyzer="${REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER:-}"
+elif [[ -n "${REFLORA_LIGHTING_MODE_ACCEPTANCE_TEST_ANALYZER:-}" ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=test-analyzer-requires-test-only-mode\n' >&2
+    exit 2
+fi
 command=(
     "$cargo_bin" run --release --
     --hidden --mute
     --lighting-mode-acceptance "$artifact"
 )
-analysis=("$analyzer" "$artifact")
+analysis=("$python_bin" "$analyzer" "$artifact")
 
 printf 'cargo-command='
 printf ' %q' "${command[@]}"
@@ -53,6 +61,10 @@ require_command cargo "$cargo_bin"
 require_command rg "$rg_bin"
 require_command python "$python_bin"
 require_command timeout "$timeout_bin"
+if [[ -z "$analyzer" ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=missing-test-analyzer\n' >&2
+    exit 2
+fi
 require_command analyzer "$analyzer"
 require_command awk awk
 require_command tail tail
@@ -164,6 +176,42 @@ if [[ $analysis_status -ne 0 ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ANALYZER_FAILED reason=see-analyzer-verdict\n' >&2
     exit "$analysis_status"
 fi
-printf '%s\n' "$analysis_output"
-printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=GREEN artifact=%s log=%s\n' \
-    "$artifact" "$run_log"
+set +e
+analysis_contract_error="$(
+    printf '%s' "$analysis_output" | "$python_bin" -c '
+import json
+import sys
+
+expected = {
+    "schema": "re-flora-lighting-mode-acceptance-v1",
+    "calibration": "r13-e2-production-v1",
+    "verdict": "GREEN",
+}
+try:
+    result = json.load(sys.stdin)
+except (json.JSONDecodeError, UnicodeError) as error:
+    raise SystemExit(f"invalid analyzer JSON: {error}")
+if not isinstance(result, dict):
+    raise SystemExit("analyzer JSON must be an object")
+for field, value in expected.items():
+    if result.get(field) != value:
+        raise SystemExit(
+            f"analyzer JSON {field} mismatch: expected={value!r} actual={result.get(field)!r}"
+        )
+' 2>&1
+)"
+analysis_contract_status=$?
+set -e
+if [[ $analysis_contract_status -ne 0 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ANALYZER_FAILED reason=invalid-analyzer-json\n' >&2
+    printf '%s\n' "$analysis_contract_error" >&2
+    exit 3
+fi
+if $test_only; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=TEST_GREEN artifact=%s log=%s\n' \
+        "$artifact" "$run_log"
+else
+    printf '%s\n' "$analysis_output"
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=GREEN artifact=%s log=%s\n' \
+        "$artifact" "$run_log"
+fi

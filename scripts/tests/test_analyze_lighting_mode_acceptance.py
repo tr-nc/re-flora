@@ -161,6 +161,8 @@ class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
             result = analyzer.analyze(path)
 
         self.assertEqual(result["verdict"], "GREEN")
+        self.assertEqual(result["schema"], "re-flora-lighting-mode-acceptance-v1")
+        self.assertEqual(result["calibration"], "r13-e2-production-v1")
         self.assertEqual(result["terrain_changed_ab"], 20)
         self.assertEqual(result["raster_changed_ad"], 20)
 
