@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -83,7 +84,7 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             root = Path(temporary)
             before = tuple(root.iterdir())
             execution_plan = plan(self.request(Suite.TRANSPORT, root))
-            host = RecordingHost()
+            host = RecordingHost(stdout=io.StringIO(), stderr=io.StringIO())
 
             report = execute(execution_plan, host)
 
