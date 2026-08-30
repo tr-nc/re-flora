@@ -137,7 +137,7 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
 
 fn publish_scaling_count(
     app: &mut App,
-    environment: &mut EnvironmentPhaseRequest,
+    environment: &mut EnvironmentPhasePayload,
     requested_count: usize,
 ) -> (u64, u64) {
     assert!(requested_count <= LOCAL_LIGHT_GPU_CAPACITY);
@@ -179,7 +179,7 @@ fn builder_matches(app: &App, state: LocalLightScalingState) -> bool {
 impl App {
     pub(super) fn advance_local_light_scaling(
         &mut self,
-        environment: &mut EnvironmentPhaseRequest,
+        environment: &mut EnvironmentPhasePayload,
         mut state: LocalLightScalingState,
     ) -> Option<TestScenePhase> {
         let next = match state.stage {
