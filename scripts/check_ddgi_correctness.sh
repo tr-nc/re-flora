@@ -102,11 +102,9 @@ for case_name in "${cases[@]}"; do
         done
         visibility_thresholds=()
         debug_difference_thresholds=()
-        unoccluded_gain_threshold=0
         if [[ "$case_name" == "walls" ]]; then
             visibility_thresholds=(--min-reference-error-p99 0.01)
             debug_difference_thresholds=(--min-reference-error-p99 0.01)
-            unoccluded_gain_threshold=0.005
         fi
         final_analysis=(
             "$analyzer" "$first"
@@ -165,8 +163,8 @@ for case_name in "${cases[@]}"; do
             --expect-version 8
             --require-nonnegative-rgb
             --expect-debug-view unoccluded-irradiance
-            --debug-baseline "$first"
-            --min-debug-roi-luminance-gain "$unoccluded_gain_threshold"
+            --reference "$first"
+            "${debug_difference_thresholds[@]}"
         )
         equal_weight_analysis=(
             "$analyzer" "$equal_weight"

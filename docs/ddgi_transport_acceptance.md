@@ -63,7 +63,12 @@ error `2.89e-6`. The stability gate therefore requires exact world XYZ and terra
 bounds both environment P99 and maximum error at `1e-5`, while intentionally excluding the known
 temporal direct-light and shadow planes from this DDGI-specific comparison. On walls, measured
 pairwise P99 differences were at least `0.0355` for Equal Weight versus Unoccluded and `0.214` for
-Raw Cage versus Equal Weight; the committed route-distinction floor is conservatively `0.01`.
+Raw Cage versus Equal Weight. Unoccluded versus Final measured symmetric P99 differences of
+`0.216342` at spacing 32 and `0.174522` at spacing 16. The committed route-distinction floor is
+conservatively `0.01`. These gates prove observably distinct production outputs, not route identity;
+the retained source-owner contract covers wiring until runtime owner-tag evidence exists. In
+particular, no signed global-mean ordering is required: changing visibility can change normalized
+probe weights, so Unoccluded is not mathematically required to be globally brighter than Final.
 
 The runner's 60-second auto-exit is a local readiness budget, increased after spacing-16 captures
 occasionally missed the former 24-second limit. It has not been established as portable across GPU

@@ -450,6 +450,42 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_reference_difference_gate_accepts_signed_luminance_reversal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            darker_path = Path(directory) / "darker.rfirr"
+            brighter_path = Path(directory) / "brighter.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                darker_path,
+                [(0.1, 0.1, 0.1, 1.0)],
+                *common_planes,
+                debug_view=12,
+            )
+            self.write_capture_v8(
+                brighter_path,
+                [(0.5, 0.5, 0.5, 1.0)],
+                *common_planes,
+                debug_view=0,
+            )
+
+            accepted = self.run_analyzer(
+                darker_path,
+                "--reference",
+                str(brighter_path),
+                "--min-reference-error-p99",
+                "0.39",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        comparison = json.loads(accepted.stdout)["reference_comparison"]
+        self.assertAlmostEqual(comparison["luminance_error_p99"], 0.4)
+
     def test_cli_reports_failed_reference_ceiling_gates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first_path = Path(directory) / "first.rfirr"

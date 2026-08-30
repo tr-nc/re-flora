@@ -51,8 +51,6 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertIn("--min-reference-error-p99", output)
         self.assertIn("--max-reference-error-p99 0.00001", output)
         self.assertIn("--max-reference-error-max 0.00001", output)
-        self.assertIn("--debug-baseline", output)
-        self.assertIn("--min-debug-roi-luminance-gain", output)
         self.assertIn("views=8", output)
 
         capture_commands = [
@@ -76,6 +74,16 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertIn("--max-reference-error-p99 0.01 --compare", output)
         self.assertIn("walls-spacing32-exact-irradiance.rfirr --max-reference-error-p99 0.40", output)
         self.assertIn("walls-spacing16-exact-irradiance.rfirr --max-reference-error-p99 0.375", output)
+        self.assertIn(
+            "unoccluded-irradiance.rfirr --correctness --expect-version 8 "
+            "--require-nonnegative-rgb --expect-debug-view unoccluded-irradiance "
+            "--reference",
+            output,
+        )
+        self.assertIn(
+            "final-a.rfirr --min-reference-error-p99 0.01",
+            output,
+        )
         self.assertIn(
             "equal-weight-irradiance.rfirr --correctness --expect-version 8 "
             "--require-nonnegative-rgb --expect-debug-view equal-weight-irradiance "
