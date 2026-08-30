@@ -33,7 +33,35 @@ pub struct TreeAudioManager {
     wind: Wind,
 }
 
+pub(crate) struct TreeAudioPublicationCheckpoint {
+    lifecycle: CanopyAudioLifecycle,
+}
+
 impl TreeAudioManager {
+    pub(crate) fn publication_checkpoint(&self) -> TreeAudioPublicationCheckpoint {
+        TreeAudioPublicationCheckpoint {
+            lifecycle: self.lifecycle.clone(),
+        }
+    }
+
+    pub(crate) fn restore_publication_checkpoint(
+        &mut self,
+        checkpoint: TreeAudioPublicationCheckpoint,
+        time_seconds: f32,
+    ) -> Result<()> {
+        self.lifecycle = checkpoint.lifecycle;
+        let snapshot = self.lifecycle.snapshot(time_seconds)?;
+        self.emitter_adapter.synchronize(
+            &snapshot,
+            &self.rustle_clip,
+            Self::base_volume_db(self.wind_volume_db),
+            self.wind_response_curve,
+            self.rustle_params.base_wind,
+            time_seconds,
+        )?;
+        Ok(())
+    }
+
     pub fn new(
         spatial_sound_manager: SpatialSoundManager,
         wind_response_curve: WindResponseCurve,

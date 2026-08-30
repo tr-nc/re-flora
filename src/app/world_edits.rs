@@ -18,7 +18,6 @@ pub(crate) enum TreePlacement {
 #[derive(Clone, Copy, Debug, Default)]
 #[allow(dead_code)]
 pub(crate) struct TreeAddOptions {
-    pub(crate) clean_before_add: bool,
     pub(crate) assign_new_id: bool,
 }
 

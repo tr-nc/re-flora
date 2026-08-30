@@ -160,7 +160,7 @@ struct CanopyGenerationLayer {
     power: PowerEnvelope,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct CanopyTreeLifecycle {
     layers: Vec<CanopyGenerationLayer>,
 }
@@ -174,6 +174,7 @@ pub struct CanopyTreeLifecycleDiagnostics {
     pub retired_generation_count: u64,
 }
 
+#[derive(Clone)]
 pub struct CanopyAudioLifecycle {
     crossfade_seconds: f32,
     trees: HashMap<u32, CanopyTreeLifecycle>,
