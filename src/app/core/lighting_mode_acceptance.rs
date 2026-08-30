@@ -102,9 +102,15 @@ pub(crate) struct ResolvedLightingFrameInputs {
     path_tracing_ambient_light: glam::Vec3,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
+}
+
+pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
+    ResolvedRasterLightingState {
+        raster_lighting_mode: RasterLightingMode::Ddgi,
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -227,7 +233,7 @@ impl ResolvedLightingFrameInputs {
         self.raster_lighting_mode
     }
 
-    pub(crate) const fn raster_lighting_state(self) -> ResolvedRasterLightingState {
+    pub(crate) const fn raster_lighting_state(&self) -> ResolvedRasterLightingState {
         ResolvedRasterLightingState {
             raster_lighting_mode: self.raster_lighting_mode,
         }
@@ -247,7 +253,7 @@ impl ResolvedLightingFrameInputs {
 }
 
 impl ResolvedRasterLightingState {
-    pub(crate) const fn is_ddgi(self) -> bool {
+    pub(crate) const fn is_ddgi(&self) -> bool {
         self.raster_lighting_mode.is_ddgi()
     }
 }
@@ -876,6 +882,11 @@ mod tests {
 
         assert!(!legacy.is_ddgi());
         assert!(ddgi.is_ddgi());
+    }
+
+    #[test]
+    fn owner_issued_initial_raster_state_preserves_startup_ddgi() {
+        assert!(initial_raster_lighting_state().is_ddgi());
     }
 
     #[test]

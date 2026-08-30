@@ -949,7 +949,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
-    raster_lighting_state: Option<ResolvedRasterLightingState>,
+    raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
@@ -1046,6 +1046,7 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
+        raster_lighting_state: ResolvedRasterLightingState,
         desc: TracerDesc,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
@@ -1200,7 +1201,7 @@ impl Tracer {
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-            raster_lighting_state: None,
+            raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
@@ -1214,8 +1215,7 @@ impl Tracer {
     }
 
     fn raster_lighting_is_ddgi(&self) -> bool {
-        self.raster_lighting_state
-            .map_or(true, ResolvedRasterLightingState::is_ddgi)
+        self.raster_lighting_state.is_ddgi()
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
@@ -2249,7 +2249,7 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());
+        self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;

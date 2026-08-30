@@ -1280,6 +1280,7 @@ impl App {
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
             plain_builder.get_resources(),
+            lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
                 scaling_factor: 0.5,
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,

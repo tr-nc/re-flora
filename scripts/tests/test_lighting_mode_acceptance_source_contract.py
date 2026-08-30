@@ -30,31 +30,43 @@ pub(crate) struct ResolvedLightingFrameInputs {
 pub(crate) struct ResolvedRasterLightingState {
     raster_lighting_mode: RasterLightingMode,
 }
+pub(super) fn initial_raster_lighting_state() -> ResolvedRasterLightingState {
+    ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Ddgi }
+}
 impl ResolvedLightingFrameInputs {
-    pub(crate) fn raster_lighting_state(self) -> ResolvedRasterLightingState {
+    pub(crate) fn raster_lighting_state(&self) -> ResolvedRasterLightingState {
         ResolvedRasterLightingState { raster_lighting_mode: self.raster_lighting_mode }
     }
 }
 impl ResolvedRasterLightingState {
-    pub(crate) fn is_ddgi(self) -> bool { self.raster_lighting_mode.is_ddgi() }
+    pub(crate) fn is_ddgi(&self) -> bool { self.raster_lighting_mode.is_ddgi() }
 }
 """,
         "src/app/core/mod.rs": """
-let plan = LightingModeAcceptanceRuntime::frame_plan(&runtime);
-let (timing, render) = LightingModeAcceptanceFramePlan::resolve_timing(plan, live_timing);
-let lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live_lighting);
-self.tracer.update_buffers(&time, &lighting, lights);
+impl App {
+    fn new() {
+        let tracer = Tracer::new(lighting_mode_acceptance::initial_raster_lighting_state());
+        let plan = LightingModeAcceptanceRuntime::frame_plan(&runtime);
+        let (timing, render) = LightingModeAcceptanceFramePlan::resolve_timing(plan, live_timing);
+        let lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live_lighting);
+        self.tracer.update_buffers(&time, &lighting, lights);
+    }
+}
 """,
         "src/tracer/mod.rs": """
 pub struct Tracer {
-    raster_lighting_state: Option<ResolvedRasterLightingState>,
+    raster_lighting_state: ResolvedRasterLightingState,
 }
 impl Tracer {
+    pub fn new(raster_lighting_state: ResolvedRasterLightingState) -> Self {
+        Self { raster_lighting_state }
+    }
+
     pub fn update_buffers(
         &mut self,
         lighting_frame: &ResolvedLightingFrameInputs,
     ) -> Result<()> {
-        self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());
+        self.raster_lighting_state = lighting_frame.raster_lighting_state();
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             resources,
             lighting_frame,
@@ -62,7 +74,7 @@ impl Tracer {
     }
 
     fn raster_lighting_is_ddgi(&self) -> bool {
-        self.raster_lighting_state.map_or(true, ResolvedRasterLightingState::is_ddgi)
+        self.raster_lighting_state.is_ddgi()
     }
 }
 """,
@@ -114,14 +126,19 @@ fn forge_state() -> ResolvedRasterLightingState {
     def test_plan_call_syntax_and_unreachable_decoys_are_not_source_contract_claims(self) -> None:
         sources = baseline_sources()
         sources["src/app/core/mod.rs"] = """
-let plan = runtime.frame_plan();
-let (timing, render) = plan.resolve_timing(live_timing);
-let lighting = render.resolve_lighting(live_lighting);
-self.tracer.update_buffers(&time, &lighting, lights);
-if false {
-    let _ = LightingModeAcceptanceRuntime::frame_plan;
-    let _ = LightingModeAcceptanceFramePlan::resolve_timing;
-    let _ = LightingModeAcceptanceRenderPlan::resolve_lighting;
+impl App {
+    fn new() {
+        let tracer = Tracer::new(lighting_mode_acceptance::initial_raster_lighting_state());
+        let plan = runtime.frame_plan();
+        let (timing, render) = plan.resolve_timing(live_timing);
+        let lighting = render.resolve_lighting(live_lighting);
+        self.tracer.update_buffers(&time, &lighting, lights);
+        if false {
+            let _ = LightingModeAcceptanceRuntime::frame_plan;
+            let _ = LightingModeAcceptanceFramePlan::resolve_timing;
+            let _ = LightingModeAcceptanceRenderPlan::resolve_lighting;
+        }
+    }
 }
 """
         sources["src/app/sibling.rs"] = """
@@ -141,8 +158,12 @@ let f = Renderer::resolve_lighting(renderer, live);
                 "dummy: fn(&ResolvedLightingFrameInputs), lighting_frame: bool,",
             ),
             (
+                "raster_lighting_state: ResolvedRasterLightingState,",
                 "raster_lighting_state: Option<ResolvedRasterLightingState>,",
-                "raster_lighting_state: Option<RasterLightingMode>,",
+            ),
+            (
+                "raster_lighting_state: ResolvedRasterLightingState,",
+                "raster_lighting_state: RasterLightingMode,",
             ),
         )
         for before, after in mutations:
@@ -156,22 +177,22 @@ let f = Renderer::resolve_lighting(renderer, live);
             (
                 "lighting_frame: &ResolvedLightingFrameInputs,",
                 "lighting_frame: &ResolvedLightingFrameInputs, forged_mode: RasterLightingMode,",
-                "self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());",
-                "self.raster_lighting_state = Some(forged_mode);",
+                "self.raster_lighting_state = lighting_frame.raster_lighting_state();",
+                "self.raster_lighting_state = forged_mode;",
             ),
             (
                 "lighting_frame: &ResolvedLightingFrameInputs,",
                 "lighting_frame: &ResolvedLightingFrameInputs, forged_mode: RasterLightingMode,",
-                "self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());",
+                "self.raster_lighting_state = lighting_frame.raster_lighting_state();",
                 """let forged_mode = RasterLightingMode::Legacy;
         let raster_lighting_state = forged_mode;
-        self.raster_lighting_state = Some(raster_lighting_state);""",
+        self.raster_lighting_state = raster_lighting_state;""",
             ),
             (
                 "",
                 "",
-                "self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());",
-                "self.raster_lighting_state = Some(ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Legacy });",
+                "self.raster_lighting_state = lighting_frame.raster_lighting_state();",
+                "self.raster_lighting_state = ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode::Legacy };",
             ),
         )
         for signature_before, signature_after, state_before, state_after in mutations:
@@ -182,6 +203,81 @@ let f = Renderer::resolve_lighting(renderer, live);
                     tracer = tracer.replace(signature_before, signature_after)
                 sources["src/tracer/mod.rs"] = tracer.replace(state_before, state_after)
                 self.assertNotEqual(checker.audit(sources), [])
+
+    def test_owner_issues_the_only_initial_state_and_tracer_moves_it_into_new(self) -> None:
+        mutations = (
+            (
+                "pub(super) fn initial_raster_lighting_state",
+                "pub(crate) fn initial_raster_lighting_state",
+            ),
+            (
+                "pub fn new(raster_lighting_state: ResolvedRasterLightingState)",
+                "pub fn new(raster_lighting_state: Option<ResolvedRasterLightingState>)",
+            ),
+            (
+                "Tracer::new(lighting_mode_acceptance::initial_raster_lighting_state())",
+                "Tracer::new(forged_initial_state)",
+            ),
+        )
+        for before, after in mutations:
+            with self.subTest(after=after):
+                sources = baseline_sources()
+                for path in (
+                    "src/app/core/lighting_mode_acceptance.rs",
+                    "src/app/core/mod.rs",
+                    "src/tracer/mod.rs",
+                ):
+                    sources[path] = sources[path].replace(before, after)
+                self.assertNotEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        sources["src/tracer/mod.rs"] += (
+            "fn bypass() { initial_raster_lighting_state(); }"
+        )
+        self.assertNotEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        sources["src/app/core/sibling.rs"] = (
+            "fn bypass() { initial_raster_lighting_state(); }"
+        )
+        self.assertNotEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        sources["src/tracer/mod.rs"] += """
+impl Tracer {
+    fn accept_again(&mut self, state: ResolvedRasterLightingState) { consume(state); }
+}
+"""
+        self.assertNotEqual(checker.audit(sources), [])
+
+    def test_opaque_state_is_not_copy_or_clone_and_observation_borrows(self) -> None:
+        mutations = (
+            (
+                "pub(crate) struct ResolvedRasterLightingState",
+                "#[derive(Clone, Copy)]\npub(crate) struct ResolvedRasterLightingState",
+            ),
+            ("pub(crate) fn is_ddgi(&self)", "pub(crate) fn is_ddgi(self)"),
+            (
+                "pub(crate) fn raster_lighting_state(&self)",
+                "pub(crate) fn raster_lighting_state(self)",
+            ),
+        )
+        for before, after in mutations:
+            with self.subTest(after=after):
+                sources = baseline_sources()
+                sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
+                    "src/app/core/lighting_mode_acceptance.rs"
+                ].replace(before, after)
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_second_raster_state_write_anywhere_in_tracer_is_rejected(self) -> None:
+        sources = baseline_sources()
+        sources["src/tracer/mod.rs"] += """
+impl Tracer {
+    fn clear(&mut self) { self.raster_lighting_state = None; }
+}
+"""
+        self.assertNotEqual(checker.audit(sources), [])
 
     def test_updater_requires_one_direct_capsule_and_no_primitive_mode_parameter(self) -> None:
         mutations = (
@@ -280,13 +376,52 @@ let f = Renderer::resolve_lighting(renderer, live);
                     )
                     self.assertNotEqual(checker.audit(sources), [])
 
+    def test_module_root_field_visibility_cannot_hide_behind_nested_same_name(self) -> None:
+        sources = baseline_sources()
+        owner = sources["src/app/core/lighting_mode_acceptance.rs"]
+        owner = """
+mod decoy {
+    struct ResolvedRasterLightingState { raster_lighting_mode: RasterLightingMode }
+}
+""" + owner.replace(
+            "    raster_lighting_mode: RasterLightingMode,",
+            "    pub(crate) raster_lighting_mode: RasterLightingMode,",
+            1,
+        )
+        sources["src/app/core/lighting_mode_acceptance.rs"] = owner
+        self.assertNotEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        owner = sources["src/app/core/lighting_mode_acceptance.rs"]
+        sources["src/app/core/lighting_mode_acceptance.rs"] = (
+            "mod decoy { struct ResolvedRasterLightingState { private: bool } }\n"
+            + owner.replace(
+                "pub(crate) struct ResolvedRasterLightingState",
+                "#[derive(Clone)]\npub(crate) struct ResolvedRasterLightingState",
+                1,
+            )
+        )
+        self.assertNotEqual(checker.audit(sources), [])
+
+    def test_resolved_types_in_parameters_and_returns_are_not_construction(self) -> None:
+        sources = baseline_sources()
+        sources["src/app/sibling.rs"] = """
+fn pass_state(
+    value: ResolvedRasterLightingState,
+) -> ResolvedRasterLightingState {
+    value
+}
+fn pass_frame(value: &ResolvedLightingFrameInputs) -> &ResolvedLightingFrameInputs { value }
+"""
+        self.assertEqual(checker.audit(sources), [])
+
     def test_ordinary_bitwise_or_is_not_misclassified_as_parameter_shadowing(self) -> None:
         sources = baseline_sources()
         sources["src/tracer/mod.rs"] = sources["src/tracer/mod.rs"].replace(
-            "self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());",
+            "self.raster_lighting_state = lighting_frame.raster_lighting_state();",
             """let combined_flags = left_flags | lighting_frame_bits | right_flags;
         consume(combined_flags);
-        self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());""",
+        self.raster_lighting_state = lighting_frame.raster_lighting_state();""",
         )
         self.assertEqual(checker.audit(sources), [])
 

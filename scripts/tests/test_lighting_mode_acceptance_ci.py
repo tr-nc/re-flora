@@ -18,12 +18,28 @@ ROUTES = (
     "src/**",
 )
 SOURCE_OWNERS = (
+    "src/app/mod.rs",
     "src/app/core/mod.rs",
     "src/app/core/lighting_mode_acceptance.rs",
     "src/tracer/mod.rs",
     "src/tracer/buffer_updater.rs",
 )
 CONCRETE_ROUTES = tuple(path for path in ROUTES if path != "src/**") + SOURCE_OWNERS
+
+
+def mapping_key(stripped: str) -> str | None:
+    if not stripped.endswith(":"):
+        return None
+    raw = stripped[:-1].strip()
+    if not raw:
+        return None
+    if raw[:1] in ('"', "'"):
+        try:
+            value = ast.literal_eval(raw)
+        except (SyntaxError, ValueError):
+            return None
+        return value if isinstance(value, str) else None
+    return raw if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", raw) else None
 
 
 def event_paths(workflow: str, event: str) -> list[str]:
@@ -38,21 +54,22 @@ def event_paths(workflow: str, event: str) -> list[str]:
         if not stripped or stripped.startswith("#"):
             continue
         indent = len(line) - len(stripped)
+        key = mapping_key(stripped)
         if indent == 0:
-            in_on = stripped == "on:"
+            in_on = key == "on"
             in_event = False
             in_paths = False
             continue
         if not in_on:
             continue
-        if indent == 2 and stripped.endswith(":"):
-            in_event = stripped == f"{event}:"
+        if indent == 2 and key is not None:
+            in_event = key == event
             in_paths = False
             continue
         if not in_event:
             continue
-        if indent == 4 and stripped.endswith(":"):
-            in_paths = stripped == "paths:"
+        if indent == 4 and key is not None:
+            in_paths = key == "paths"
             continue
         if in_paths and indent == 6 and stripped.startswith("- "):
             value = stripped[2:].strip()
@@ -148,6 +165,20 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
                 )
                 self.assertFalse(source_owners_are_routed(event_paths(mutated, event)))
 
+    def test_later_app_module_exclusion_cannot_remove_the_capability_route(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                event_start = workflow.index(f"  {event}:")
+                marker = '      - "src/**"'
+                replacement = marker + '\n      - "!src/app/mod.rs"'
+                mutated = workflow[:event_start] + workflow[event_start:].replace(
+                    marker, replacement, 1
+                )
+                paths = event_paths(mutated, event)
+                self.assertFalse(source_owners_are_routed(paths))
+                self.assertFalse(required_paths_are_routed(paths, CONCRETE_ROUTES))
+
     def test_later_script_or_doc_exclusion_cannot_remove_e2_routes(self) -> None:
         workflow = WORKFLOW.read_text()
         for event in ("pull_request", "push"):
@@ -179,6 +210,29 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertFalse(github_path_matches("src/app/core/mod.rs", pattern))
                 self.assertFalse(source_owners_are_routed(["src/**", pattern]))
+
+    def test_quoted_and_unquoted_event_keys_parse_the_same_paths(self) -> None:
+        workflow = WORKFLOW.read_text()
+        expected = {
+            event: event_paths(workflow, event) for event in ("pull_request", "push")
+        }
+        variants = (
+            workflow.replace("on:", '"on":', 1)
+            .replace("  pull_request:", '  "pull_request":', 1)
+            .replace("    paths:", '    "paths":', 1),
+            workflow.replace("on:", "'on':", 1)
+            .replace("  push:", "  'push':", 1)
+            .replace("    paths:", "    'paths':", 2),
+        )
+        for variant in variants:
+            for event, paths in expected.items():
+                with self.subTest(event=event, prefix=variant[:8]):
+                    self.assertEqual(event_paths(variant, event), paths)
+
+    def test_malformed_mapping_keys_fail_closed(self) -> None:
+        workflow = WORKFLOW.read_text().replace("on:", '"on:', 1)
+        self.assertEqual(event_paths(workflow, "pull_request"), [])
+        self.assertEqual(event_paths(workflow, "push"), [])
 
     def test_shader_validation_runs_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()

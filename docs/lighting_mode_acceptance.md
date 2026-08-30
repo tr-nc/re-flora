@@ -18,6 +18,15 @@ consumed by the GPU uniform sink. For Tracer's longer-lived draw/dispatch state,
 construct an opaque `ResolvedRasterLightingState`; Tracer stores that value and can ask only whether
 DDGI is active, so it cannot recreate a Legacy/DDGI value from a primitive or import alias.
 
+Three startup-state interfaces were compared. `Default` was rejected because it would make the
+lighting choice an implicit capability available wherever the type is visible. `Option` was rejected
+because absence creates a second primitive path (`None` formerly meant DDGI). The selected interface
+is an owner-issued initial capability: the acceptance module exposes a `pub(super)` constructor only
+to App core, App moves its DDGI state directly into `Tracer::new`, and subsequent frames replace it
+only from a borrowed `ResolvedLightingFrameInputs`. The opaque state is neither `Copy` nor `Clone`,
+and its only observation borrows it. This preserves startup DDGI without giving Tracer a mode
+constructor or an absence fallback.
+
 Rust privacy is the primary seal. Three raster-state seams were compared. Denying selected alias
 tokens was rejected as too shallow; counting source occurrences globally was rejected as brittle;
 the selected seam is the owner-constructed opaque raster state described above. Separately, three
@@ -30,8 +39,9 @@ implementations and the current inline `GuiInput` sink.
 Rust type checking and the capsule's private construction are the ownership guarantee.
 `scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file only as a
 structure-drift tripwire: it checks private resolved fields, external construction attempts, direct
-capsule signatures, the opaque Tracer field and its single current capsule-factory assignment,
-inline GPU getter shape, and that current production source contains no second `gui_input` write.
+capsule signatures, the App-to-Tracer initial move, the non-optional opaque Tracer field and its
+single current capsule-factory assignment, inline GPU getter shape, and that current production
+source contains no second `gui_input` write.
 It deliberately does not infer control flow, require a plan-call spelling, or claim to detect
 arbitrary shadowing and aliasing; it is not a proof of whole-program dataflow. Pure Rust logic tests
 cover live and fixed plan resolution. The

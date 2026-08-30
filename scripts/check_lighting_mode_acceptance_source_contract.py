@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 
 OWNER = "src/app/core/lighting_mode_acceptance.rs"
+CALLER = "src/app/core/mod.rs"
 TRACER_OWNER = "src/tracer/mod.rs"
 BUFFER_UPDATER_OWNER = "src/tracer/buffer_updater.rs"
 ENVIRONMENT_OWNER = "src/environment_lighting.rs"
@@ -162,16 +163,65 @@ def _contains(tokens: list[str] | tuple[str, ...], sequence: tuple[str, ...]) ->
     return any(tuple(tokens[index : index + width]) == sequence for index in range(len(tokens)))
 
 
-def _struct_body(tokens: list[str], name: str) -> list[str] | None:
-    for index in range(len(tokens) - 2):
-        if tokens[index : index + 2] == ["struct", name]:
+def _module_root_struct(tokens: list[str], name: str) -> tuple[int, list[str]] | None:
+    matches: list[tuple[int, list[str]]] = []
+    brace_depth = 0
+    for index, token in enumerate(tokens[:-1]):
+        if brace_depth == 0 and tokens[index : index + 2] == ["struct", name]:
             try:
                 opening = tokens.index("{", index + 2)
             except ValueError:
-                return None
+                continue
             closing = _closing(tokens, opening, "{", "}")
-            return None if closing is None else tokens[opening + 1 : closing]
-    return None
+            if closing is not None:
+                matches.append((index, tokens[opening + 1 : closing]))
+        if token == "{":
+            brace_depth += 1
+        elif token == "}" and brace_depth:
+            brace_depth -= 1
+    return matches[0] if len(matches) == 1 else None
+
+
+def _struct_body(tokens: list[str], name: str) -> list[str] | None:
+    root_struct = _module_root_struct(tokens, name)
+    return None if root_struct is None else root_struct[1]
+
+
+def _module_root_function(
+    tokens: list[str], name: str
+) -> tuple[int, Function] | None:
+    matches: list[tuple[int, Function]] = []
+    brace_depth = 0
+    for index, token in enumerate(tokens):
+        if brace_depth == 0 and token == "fn" and index + 1 < len(tokens):
+            function = _function_at(tokens, index)
+            if function is not None and function.name == name:
+                matches.append((index, function))
+        if token == "{":
+            brace_depth += 1
+        elif token == "}" and brace_depth:
+            brace_depth -= 1
+    return matches[0] if len(matches) == 1 else None
+
+
+def _struct_expression_count(tokens: list[str], type_name: str) -> int:
+    function_body_openings = {
+        function.body_start
+        for index, token in enumerate(tokens)
+        if token == "fn"
+        for function in [_function_at(tokens, index)]
+        if function is not None and function.body_start is not None
+    }
+    count = 0
+    for index in range(1, len(tokens) - 1):
+        if tokens[index : index + 2] != [type_name, "{"]:
+            continue
+        if tokens[index - 1] in ("struct", "impl", "for", ">"):
+            continue
+        if index + 1 in function_body_openings:
+            continue
+        count += 1
+    return count
 
 
 def _split_top_level(tokens: list[str], delimiter: str) -> list[tuple[str, ...]]:
@@ -407,14 +457,71 @@ def audit(sources: dict[str, str]) -> list[str]:
     for type_name in RESOLVED_TYPES:
         body = _struct_body(owner, type_name)
         if body is None:
-            errors.append(f"owner missing struct {type_name}")
-        elif "pub" in body:
+            errors.append(f"owner missing one module-root struct {type_name}")
+        elif any(
+            "pub" in field[: field.index(":")]
+            for field in _split_top_level(body, ",")
+            if ":" in field
+        ):
             errors.append(f"{type_name} exposes field visibility")
 
     for type_name in RESOLVED_TYPES:
         for path, tokens in external.items():
-            if _contains(tokens, (type_name, "{")):
+            if _struct_expression_count(tokens, type_name):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
+
+    state_struct = _module_root_struct(owner, "ResolvedRasterLightingState")
+    if state_struct is not None:
+        state_declaration = state_struct[0]
+        item_start = state_declaration
+        while item_start > 0 and owner[item_start - 1] not in (";", "}"):
+            item_start -= 1
+        declaration_prefix = owner[item_start:state_declaration]
+        if "Copy" in declaration_prefix or "Clone" in declaration_prefix:
+            errors.append("ResolvedRasterLightingState must not be Copy or Clone")
+    for tokens in tokenized.values():
+        if _contains(tokens, ("impl", "Copy", "for", "ResolvedRasterLightingState")) or _contains(
+            tokens, ("impl", "Clone", "for", "ResolvedRasterLightingState")
+        ):
+            errors.append("ResolvedRasterLightingState must not implement Copy or Clone")
+
+    initial_state = _module_root_function(owner, "initial_raster_lighting_state")
+    if initial_state is None:
+        errors.append("acceptance owner must define one module-root initial raster state capability")
+    else:
+        initial_index, initial_function = initial_state
+        if owner[max(0, initial_index - 4) : initial_index] != [
+            "pub",
+            "(",
+            "super",
+            ")",
+        ]:
+            errors.append("initial raster state capability must be pub(super)")
+        initial_body = _function_body(owner, initial_function)
+        if initial_body[-2:] == [",", "}"]:
+            initial_body = initial_body[:-2] + ["}"]
+        if initial_body != [
+            "ResolvedRasterLightingState",
+            "{",
+            "raster_lighting_mode",
+            ":",
+            "RasterLightingMode",
+            ":",
+            ":",
+            "Ddgi",
+            "}",
+        ]:
+            errors.append("initial raster state capability must issue the startup DDGI state")
+    initial_state_sites = [
+        path
+        for path, tokens in external.items()
+        for _ in range(tokens.count("initial_raster_lighting_state"))
+    ]
+    if initial_state_sites != [CALLER]:
+        errors.append(
+            f"initial raster state capability references must be exactly [{CALLER}], "
+            f"got {initial_state_sites}"
+        )
 
     state_factory = _canonical_function(
         owner, "ResolvedLightingFrameInputs", "raster_lighting_state"
@@ -424,6 +531,8 @@ def audit(sources: dict[str, str]) -> list[str]:
             "ResolvedLightingFrameInputs must own exactly one raster_lighting_state factory"
         )
     else:
+        if ("&", "self") not in state_factory.parameters:
+            errors.append("raster_lighting_state factory must borrow its capsule")
         factory_body = _function_body(owner, state_factory)
         if factory_body[-2:] == [",", "}"]:
             factory_body = factory_body[:-2] + ["}"]
@@ -438,18 +547,54 @@ def audit(sources: dict[str, str]) -> list[str]:
             "}",
         ]:
             errors.append("resolved raster state must be constructed only from its capsule field")
-    state_literal_count = sum(
-        owner[index : index + 2] == ["ResolvedRasterLightingState", "{"]
-        and index > 0
-        and owner[index - 1] not in ("struct", "impl", ">")
-        for index in range(len(owner) - 1)
+    state_observer = _canonical_function(
+        owner, "ResolvedRasterLightingState", "is_ddgi"
     )
-    if state_literal_count != 1:
+    if state_observer is None or ("&", "self") not in state_observer.parameters:
+        errors.append("ResolvedRasterLightingState::is_ddgi must borrow the opaque state")
+    if _struct_expression_count(owner, "ResolvedRasterLightingState") != 2:
         errors.append(
-            "owner must contain only the resolved raster state declaration and capsule factory"
+            "owner must contain only initial and per-frame resolved raster state construction"
         )
 
+    caller_tokens = tokenized.get(CALLER, [])
+    app_new = _canonical_function(caller_tokens, "App", "new")
+    if app_new is None:
+        errors.append("App inherent impl must own exactly one canonical new entry")
+    else:
+        app_new_body = _function_body(caller_tokens, app_new)
+        tracer_calls = _call_arguments(app_new_body, ("Tracer", ":", ":", "new", "("))
+        initial_argument = (
+            "lighting_mode_acceptance",
+            ":",
+            ":",
+            "initial_raster_lighting_state",
+            "(",
+            ")",
+        )
+        if len(tracer_calls) != 1 or initial_argument not in tracer_calls[0]:
+            errors.append("App::new must move the owner-issued initial state into Tracer::new")
+
     tracer_tokens = tokenized.get(TRACER_OWNER, [])
+    if "RasterLightingMode" in tracer_tokens:
+        errors.append("Tracer must not store or accept raw RasterLightingMode")
+    if "initial_raster_lighting_state" in tracer_tokens:
+        errors.append("Tracer must not call the owner-only initial state capability")
+    tracer_new = _canonical_function(tracer_tokens, "Tracer", "new")
+    if tracer_new is None:
+        errors.append("Tracer inherent impl must own exactly one new entry")
+    elif len(
+        _direct_named_parameters(tracer_new, ("ResolvedRasterLightingState",))
+    ) != 1:
+        errors.append("Tracer::new requires one directly moved ResolvedRasterLightingState")
+    for function in _inherent_impl_functions(tracer_tokens, "Tracer"):
+        if function.name != "new" and any(
+            "ResolvedRasterLightingState" in parameter
+            for parameter in function.parameters
+        ):
+            errors.append(
+                f"Tracer::{function.name} must not accept another resolved raster state"
+            )
     update_buffers = _canonical_function(tracer_tokens, "Tracer", "update_buffers")
     if update_buffers is None:
         errors.append("Tracer inherent impl must own exactly one update_buffers entry")
@@ -491,30 +636,27 @@ def audit(sources: dict[str, str]) -> list[str]:
             expected_state_field = (
                 "raster_lighting_state",
                 ":",
-                "Option",
-                "<",
                 "ResolvedRasterLightingState",
-                ">",
             )
             if fields.count(expected_state_field) != 1:
                 errors.append("Tracer must store exactly one opaque resolved raster state")
-            mode_assignments = _assignment_rhs(
-                body, ("self", ".", "raster_lighting_state")
-            )
+            mode_assignments = _assignment_rhs(body, ("self", ".", "raster_lighting_state"))
             expected_mode = (
-                "Some",
-                "(",
                 lighting_parameter,
                 ".",
                 "raster_lighting_state",
                 "(",
-                ")",
                 ")",
             )
             if mode_assignments != [expected_mode]:
                 errors.append(
                     "Tracer opaque raster state must be assigned once from its capsule factory"
                 )
+            all_state_assignments = _assignment_rhs(
+                tracer_tokens, ("self", ".", "raster_lighting_state")
+            )
+            if all_state_assignments != [expected_mode]:
+                errors.append("Tracer must contain no second raster state write")
 
     updater_tokens = tokenized.get(BUFFER_UPDATER_OWNER, [])
     update_gui_input = _canonical_function(updater_tokens, "BufferUpdater", "update_gui_input")
