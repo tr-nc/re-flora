@@ -73,12 +73,12 @@ run_log="$2"
 : >"$capture"
 : >"$run_log"
 run_log="$(realpath "$run_log")"
-events="[RUN_LOG] path=$run_log
-[ENV_LIGHT_TEST] static terrain ready case=terrain-edits terrain_revision=2 settling_frames=2
-[DDGI] initialization requested terrain_revision=2 spacing_voxels=32
-[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2
-[ENV_IRRADIANCE_CAPTURE] saved $capture
-[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
+events="[12:34:56.789 INFO re_flora] [RUN_LOG] path=$run_log
+[12:34:56.790 INFO re_flora::app::core::environment_lighting_test_scene] [ENV_LIGHT_TEST] static terrain ready case=terrain-edits terrain_revision=2 settling_frames=2
+[12:34:56.791 INFO re_flora::tracer] [DDGI] initialization requested terrain_revision=2 spacing_voxels=32
+[12:34:56.792 INFO re_flora::app::core::environment_lighting_test_scene] [ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2
+[12:34:56.793 INFO re_flora::app::core::environment_irradiance_capture] [ENV_IRRADIANCE_CAPTURE] saved path=$capture
+[12:34:56.794 INFO re_flora::app::core] [ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
 printf '%s\n' "$events" >"$run_log"
 printf '%s\n' "$events"
 """,

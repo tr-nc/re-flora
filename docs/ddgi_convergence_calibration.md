@@ -99,10 +99,14 @@ The private emitter checks that its dedicated target is enabled at Debug level b
 the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 
 The convergence summarizer independently parses both the capture console and its preserved,
-process-bound `.run.log`, then requires semantic equality of the policy, ordered validation curve,
-and terminal identity. Every physical line containing the convergence marker must be exactly one
-canonical validation or terminal record. Before selecting the capture identity, every validation
-record in each stream passes a cross-language wire mirror. The
+process-bound `.run.log`, then requires semantic equality of the complete initialization event,
+ordered validation curve, and terminal identity. The initialization identity retains the logger
+timestamp, terrain revision, spacing, probe count, stage, and policy; the curve must use that
+spacing and its captured geometry must name that terrain revision. Every authoritative event is a
+complete production logger line: initialization comes from `re_flora::tracer`, while validation
+and terminal events come from `re_flora::ddgi::runtime::convergence_evidence` at Debug level.
+Raw, prefixed, wrong-level, wrong-module, and suffixed marker lines are not evidence. Before
+selecting the capture identity, every validation record in each stream passes a cross-language wire mirror. The
 `[validation_wire]` table in `config/ddgi_convergence_acceptance.toml` is its single field/type
 owner: the Python parser derives all `u64`/`u32`/`f32` bounds and the decimal rounding cell from
 that table, while the runtime formatter test compiles each mapped getter or fact against the
@@ -120,16 +124,22 @@ and required consecutive count.
 
 The parser reconstructs every validation and terminal marker suffix in the production field order.
 Exponent notation, leading zeros, altered precision, repeated fields, and trailing text are not
-alternative wire spellings. Capture-analysis deltas are converted to Rust `f32` and rendered with
-the same eight decimal places before comparison. Threshold tokens use the production `f32` policy
+alternative wire spellings. Capture identity integers must be genuine JSON integers rather than
+booleans and fit their Rust `u32`/`u64` ranges. Capture-analysis deltas must be finite numeric values;
+they are converted to Rust `f32` and rendered with the same eight decimal places before comparison.
+Threshold tokens use the production `f32` policy
 with that precision. The initialization policy uses Rust's shortest display; its complete suffix
 must match the checked-in top-level contract tokens exactly rather than relying on a tolerance.
 
 Field serials are globally unique and strictly increasing. Every epoch zero starts a new generation,
 even when a later density rebuild uses the same geometry/radiance/spacing tuple. A source-free start
 must be Converging at epoch zero with streak zero. A source-backed start must name an earlier serial
-that is present in the process-bound stream and must equal the immediately preceding field; it
-classifies its first streak from previous streak zero. The first record must therefore be
+that is present in the process-bound stream. It need not be physically adjacent: a completed
+candidate that later becomes obsolete may appear between the resident source and the next
+authoritative geometry generation. Source and destination spacing must match, and the destination
+epoch must be source epoch plus one for an unchanged geometry/radiance revision or zero for a new
+transport revision. A source-backed epoch-zero start classifies its first streak from previous
+streak zero. The first record must therefore be
 source-free. Every nonzero epoch must retain the generation tuple, advance exactly one epoch, and
 name the immediately preceding field serial as its source. Thus generation identity is the explicit
 lineage, not the tuple. Capture validation selects the unique generation containing the terminal

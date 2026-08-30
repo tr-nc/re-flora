@@ -11,6 +11,10 @@ VALIDATOR = SCRIPTS / "validate_capture_process_evidence.py"
 
 
 class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def logged(module: str, payload: str, *, level: str = "INFO") -> str:
+        return f"[12:34:56.789 {level} {module}] {payload}\n"
+
     def validate(
         self,
         *,
@@ -27,30 +31,57 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
         truncate_run_log_after_marker: bool = False,
         preserve_run_log: bool = False,
         invalid_preserve_target: bool = False,
+        binding_style: str = "canonical",
+        event_module_overrides: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run_log = (root / run_log_name).resolve()
-            marker = f"[RUN_LOG] path={run_log}\n"
+            marker_payload = f"[RUN_LOG] path={run_log}"
+            marker = {
+                "canonical": self.logged("re_flora", marker_payload),
+                "raw": marker_payload + "\n",
+                "wrong-level": self.logged("re_flora", marker_payload, level="DEBUG"),
+                "wrong-module": self.logged("re_flora::run_log_binding", marker_payload),
+                "prefix": self.logged("re_flora", "[FAKE] " + marker_payload),
+                "suffix": self.logged("re_flora", marker_payload + " trailing-junk"),
+            }[binding_style]
+            modules = {
+                "publication": "re_flora::app::core::environment_lighting_test_scene",
+                "initialization": "re_flora::tracer",
+                "verification": "re_flora::app::core::environment_lighting_test_scene",
+                "saved": "re_flora::app::core::environment_irradiance_capture",
+                "complete": "re_flora::app::core",
+            }
+            modules.update(event_module_overrides or {})
             events = {
-                "publication": (
+                "publication": self.logged(
+                    modules["publication"],
                     "[ENV_LIGHT_TEST] static terrain ready case=sealed "
-                    f"terrain_revision={publication_revision} settling_frames=2\n"
+                    f"terrain_revision={publication_revision} settling_frames=2",
                 ),
-                "initialization": (
+                "initialization": self.logged(
+                    modules["initialization"],
                     "[DDGI] initialization requested "
-                    f"terrain_revision={initialization_revision} spacing_voxels=32\n"
+                    f"terrain_revision={initialization_revision} spacing_voxels=32",
                 ),
-                "verification": (
+                "verification": self.logged(
+                    modules["verification"],
                     "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 "
                     f"geometry_revision={build_revision} "
-                    f"visible_terrain_publication_revision={verified_publication_revision}\n"
+                    f"visible_terrain_publication_revision={verified_publication_revision}",
                 ),
             }
             startup = "".join(events[name] for name in order) if include_startup else ""
             capture_events = (
-                "[ENV_IRRADIANCE_CAPTURE] saved /tmp/capture.rfirr\n"
-                "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run\n"
+                self.logged(
+                    modules["saved"],
+                    "[ENV_IRRADIANCE_CAPTURE] saved path=/tmp/capture.rfirr",
+                )
+                + self.logged(
+                    modules["complete"],
+                    "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run",
+                )
             )
             body = startup + capture_events
             run_log.write_text(
@@ -96,6 +127,21 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
     def test_accepts_a_canonical_process_bound_log_path_with_spaces(self) -> None:
         result = self.validate(run_log_name="run evidence.log")
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_nonproduction_binding_logger_lines(self) -> None:
+        for style in ("raw", "wrong-level", "wrong-module", "prefix", "suffix"):
+            with self.subTest(style=style):
+                result = self.validate(binding_style=style)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("process-bound", result.stderr)
+
+    def test_rejects_capture_and_startup_events_from_the_wrong_module(self) -> None:
+        for event in ("publication", "initialization", "verification", "saved", "complete"):
+            with self.subTest(event=event):
+                result = self.validate(
+                    event_module_overrides={event: "attacker::forged_evidence"}
+                )
+                self.assertEqual(result.returncode, 1)
 
     def test_preserves_the_exact_bound_run_log_with_the_capture_artifacts(self) -> None:
         result = self.validate(preserve_run_log=True)

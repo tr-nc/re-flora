@@ -10,7 +10,19 @@ import sys
 from pathlib import Path
 
 
-RUN_LOG_MARKER = re.compile(r"^\[RUN_LOG\] path=(?P<path>.+?)\s*$", re.MULTILINE)
+LOG_TIME = r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}"
+
+
+def production_log_line(level: str, module: str, payload: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"^\[{LOG_TIME} {level} {re.escape(module)}\] {payload}$",
+        re.MULTILINE,
+    )
+
+
+RUN_LOG_MARKER = production_log_line(
+    "INFO", "re_flora", r"\[RUN_LOG\] path=(?P<path>.+?)"
+)
 FATAL_DIAGNOSTIC = re.compile(
     r"\b(?:VK_)?ERROR(?:_[A-Z0-9]+)+\b|\bERROR\b|"
     r"\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
@@ -18,19 +30,31 @@ FATAL_DIAGNOSTIC = re.compile(
     r"\bstale\s+readback\b",
     re.IGNORECASE | re.MULTILINE,
 )
-PUBLICATION = re.compile(
-    r"\[ENV_LIGHT_TEST\] static terrain ready .*?terrain_revision=(\d+)"
+PUBLICATION = production_log_line(
+    "INFO",
+    "re_flora::app::core::environment_lighting_test_scene",
+    r"\[ENV_LIGHT_TEST\] static terrain ready .*?terrain_revision=(\d+).*",
 )
-INITIALIZATION = re.compile(
-    r"\[DDGI\] initialization requested terrain_revision=(\d+)"
+INITIALIZATION = production_log_line(
+    "INFO",
+    "re_flora::tracer",
+    r"\[DDGI\] initialization requested terrain_revision=(\d+).*",
 )
-VERIFICATION = re.compile(
+VERIFICATION = production_log_line(
+    "INFO",
+    "re_flora::app::core::environment_lighting_test_scene",
     r"\[ENV_LIGHT_TEST\] first DDGI build verified .*?geometry_revision=(\d+) "
-    r"visible_terrain_publication_revision=(\d+)"
+    r"visible_terrain_publication_revision=(\d+).*",
 )
-CAPTURE_SAVED = re.compile(r"\[ENV_IRRADIANCE_CAPTURE\] saved\b")
-CAPTURE_COMPLETE = re.compile(
-    r"\[ENV_IRRADIANCE_CAPTURE\] complete; exiting one-shot capture run\b"
+CAPTURE_SAVED = production_log_line(
+    "INFO",
+    "re_flora::app::core::environment_irradiance_capture",
+    r"\[ENV_IRRADIANCE_CAPTURE\] saved\b.*",
+)
+CAPTURE_COMPLETE = production_log_line(
+    "INFO",
+    "re_flora::app::core",
+    r"\[ENV_IRRADIANCE_CAPTURE\] complete; exiting one-shot capture run",
 )
 
 

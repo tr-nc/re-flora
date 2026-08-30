@@ -10,6 +10,9 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 SUMMARIZER = SCRIPTS / "summarize_ddgi_convergence.py"
+EVIDENCE_LOG_PREFIX = (
+    "[12:34:56.790 DEBUG re_flora::ddgi::runtime::convergence_evidence] "
+)
 
 
 class SummarizeDdgiConvergenceTests(unittest.TestCase):
@@ -45,7 +48,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             (7, 0.001, 0.005, 2),
         )
         lines.append(
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 source_field_serial=none geometry_revision=1 radiance_revision=1 "
+            EVIDENCE_LOG_PREFIX
+            + "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 source_field_serial=none geometry_revision=1 radiance_revision=1 "
             "spacing_voxels=32 state=Converging update_epoch=0 "
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
             "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
@@ -54,7 +58,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         )
         for field_serial, (epoch, absolute, relative, consecutive) in enumerate(samples, 2):
             lines.append(
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated "
+                EVIDENCE_LOG_PREFIX
+                + "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated "
                 f"field_serial={field_serial} source_field_serial={field_serial - 1} "
                 "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
                 f"state={'Converged' if epoch == 7 else 'Converging'} update_epoch={epoch} "
@@ -66,7 +71,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 f"consecutive_below={consecutive}/{consecutive_epochs}"
             )
         lines.append(
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal "
+            EVIDENCE_LOG_PREFIX
+            + "[DDGI_CONVERGENCE_EVIDENCE] terminal "
             "field_serial=9 geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
             f"update_epoch=7 reason={terminal_reason}"
         )
@@ -772,10 +778,103 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 self.assertIn("authoritative runtime convergence policy", result.stderr)
 
+    def test_rejects_nonproduction_evidence_logger_lines(self) -> None:
+        mutations = {
+            "raw": "",
+            "wrong-level": EVIDENCE_LOG_PREFIX.replace(" DEBUG ", " INFO "),
+            "wrong-module": EVIDENCE_LOG_PREFIX.replace(
+                "re_flora::ddgi::runtime::convergence_evidence",
+                "attacker::forged_evidence",
+            ),
+            "prefix": "[FAKE] " + EVIDENCE_LOG_PREFIX,
+        }
+        for name, replacement in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(
+                        path.read_text().replace(EVIDENCE_LOG_PREFIX, replacement, 1)
+                    )
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("full-atlas validation line", result.stderr)
+
+    def test_rejects_one_stream_policy_or_evidence_event_identity_drift(self) -> None:
+        mutations = {
+            "policy-time": ("12:34:56.789", "12:34:56.788"),
+            "terrain": ("terrain_revision=2", "terrain_revision=99"),
+            "policy-spacing": ("spacing_voxels=32", "spacing_voxels=16"),
+            "probe-count": ("probes=4913", "probes=4912"),
+            "evidence-time": ("12:34:56.790", "12:34:56.791"),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                console = run_dir / "sealed-spacing32-converged-forward.console.log"
+                console.write_text(console.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("console and preserved run-log", result.stderr)
+
+    def test_rejects_dual_stream_initialization_identity_that_differs_from_curve(self) -> None:
+        mutations = {
+            "terrain": ("terrain_revision=2", "terrain_revision=3"),
+            "spacing": ("spacing_voxels=32", "spacing_voxels=16"),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("initialization", result.stderr)
+
     def test_rejects_capture_metric_drift_inside_the_old_tolerance(self) -> None:
         mutations = {
             "absolute": ("max_abs_delta", 0.00100004),
             "relative": ("max_rel_delta", 0.00500004),
+        }
+        for name, (field, value) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
+                payload = json.loads(analysis.read_text())
+                payload["capture"][field] = value
+                analysis.write_text(json.dumps(payload))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("capture", result.stderr)
+
+    def test_rejects_non_rust_capture_identity_types_and_ranges(self) -> None:
+        mutations = {
+            "bool-radiance": ("radiance_revision", True),
+            "negative-geometry": ("geometry_revision", -1),
+            "u32-overflow": ("update_epoch", 1 << 32),
+            "u64-overflow": ("field_serial", 1 << 64),
+            "bool-float": ("max_abs_delta", True),
         }
         for name, (field, value) in mutations.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:

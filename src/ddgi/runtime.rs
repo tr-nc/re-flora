@@ -398,16 +398,20 @@ mod convergence_evidence {
                 vec!["[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=2 source_field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=1 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"]
             );
 
+            let mut converged_scheduler = DdgiTransportScheduler::new();
+            converged_scheduler.observe_radiance(3);
+            converged_scheduler.request_geometry(17, 16);
+            let converged_work = converged_scheduler.claim_next().unwrap().unwrap();
             let converged_source =
-                DdgiFieldKey::new(8, 7, 3, 16, DdgiFieldState::Converging, 6).unwrap();
+                DdgiFieldKey::new(8, 17, 3, 16, DdgiFieldState::Converging, 6).unwrap();
             let converged_field = DdgiFieldIdentity::new(
-                DdgiFieldKey::new(9, 7, 3, 16, DdgiFieldState::Converged, 7).unwrap(),
+                DdgiFieldKey::new(9, 17, 3, 16, DdgiFieldState::Converged, 7).unwrap(),
                 Some(converged_source),
             )
             .unwrap();
             let converged = prepare(
                 DdgiValidatedIterationOutcome::Converged {
-                    work,
+                    work: converged_work,
                     field: converged_field,
                     consecutive_below_threshold: 2,
                     reason: DdgiConvergenceReason::Threshold,
@@ -417,8 +421,8 @@ mod convergence_evidence {
             assert_eq!(
                 converged.pending.0.lines(),
                 vec![
-                    "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=9 source_field_serial=8 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converged update_epoch=7 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2",
-                    "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=9 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=7 reason=Threshold",
+                    "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=9 source_field_serial=8 geometry_revision=17 radiance_revision=3 spacing_voxels=16 state=Converged update_epoch=7 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2",
+                    "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=9 geometry_revision=17 radiance_revision=3 spacing_voxels=16 update_epoch=7 reason=Threshold",
                 ]
             );
         }

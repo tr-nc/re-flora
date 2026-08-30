@@ -20,8 +20,14 @@ CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_a
 EVIDENCE_MARKER = "[DDGI_CONVERGENCE_EVIDENCE]"
 VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
 TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
+LOG_TIME_PATTERN = r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}"
+EVIDENCE_LOG_PREFIX = (
+    rf"^\[(?P<log_time>{LOG_TIME_PATTERN}) DEBUG "
+    r"re_flora::ddgi::runtime::convergence_evidence\] "
+)
 VALIDATION_PATTERN = re.compile(
-    re.escape(VALIDATION_MARKER)
+    EVIDENCE_LOG_PREFIX
+    + re.escape(VALIDATION_MARKER)
     + r" field_serial=(?P<field_serial>\d+) "
     r"source_field_serial=(?P<source>none|\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
@@ -38,14 +44,15 @@ VALIDATION_PATTERN = re.compile(
     r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)$"
 )
 TERMINAL_PATTERN = re.compile(
-    re.escape(TERMINAL_MARKER)
+    EVIDENCE_LOG_PREFIX
+    + re.escape(TERMINAL_MARKER)
     + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)$"
 )
 POLICY_PATTERN = re.compile(
-    r"^\[(?P<log_time>(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}) "
+    rf"^\[(?P<log_time>{LOG_TIME_PATTERN}) "
     r"INFO re_flora::tracer\] \[DDGI\] initialization requested "
     r"terrain_revision=(?P<terrain>\d+) "
     r"spacing_voxels=(?P<policy_spacing>\d+) "
@@ -71,7 +78,18 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class InitializationEvent:
+    log_time: str
+    terrain_revision: int
+    spacing_voxels: int
+    probe_count: int
+    stage: str
+    policy: Policy
+
+
+@dataclass(frozen=True)
 class TerminalIdentity:
+    log_time: str
     field_serial: int
     geometry_revision: int
     radiance_revision: int
@@ -363,7 +381,7 @@ def require_global_validation_legality(
     policy: Policy,
 ) -> list[list[dict[str, object]]]:
     for record in records:
-        numeric_fields = set(record) - {"state"}
+        numeric_fields = set(record) - {"state", "log_time"}
         contracted_fields = (
             set(wire.integer_types)
             | set(wire.optional_integer_types)
@@ -562,7 +580,10 @@ def expected_terminal_reason(record: dict[str, object], policy: Policy) -> str |
 def parse_curve(
     console_path: Path, contract_path: Path = CONTRACT_PATH
 ) -> tuple[
-    list[list[dict[str, object]]], TerminalIdentity, Policy, ValidationWireContract
+    list[list[dict[str, object]]],
+    TerminalIdentity,
+    InitializationEvent,
+    ValidationWireContract,
 ]:
     records: list[dict[str, object]] = []
     terminals: list[TerminalIdentity] = []
@@ -585,6 +606,23 @@ def parse_curve(
         int(policy_values["consecutive"]),
         int(policy_values["minimum"]),
         maximum_update_epochs - 1,
+    )
+    terrain_revision = int(policy_values["terrain"])
+    policy_spacing = int(policy_values["policy_spacing"])
+    probe_count = int(policy_values["probes"])
+    if not 0 <= terrain_revision <= (1 << 32) - 1:
+        raise ValueError("runtime initialization terrain revision exceeds u32")
+    if not 0 < policy_spacing <= (1 << 32) - 1:
+        raise ValueError("runtime initialization spacing must be a positive u32")
+    if not 0 < probe_count <= (1 << 64) - 1:
+        raise ValueError("runtime initialization probe count must be a positive u64")
+    initialization = InitializationEvent(
+        log_time=policy_values["log_time"],
+        terrain_revision=terrain_revision,
+        spacing_voxels=policy_spacing,
+        probe_count=probe_count,
+        stage=policy_values["stage"],
+        policy=policy,
     )
     require_policy_wire_legality(policy, maximum_update_epochs, console_path)
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
@@ -613,13 +651,14 @@ def parse_curve(
                     f"Converged validation in {console_path} is missing its immediate "
                     f"terminal marker event"
                 )
-            match = VALIDATION_PATTERN.search(line)
+            match = VALIDATION_PATTERN.fullmatch(line)
             if match is None:
                 raise ValueError(
                     f"malformed full-atlas validation line in {console_path}: {line}"
                 )
             values = match.groupdict()
             record: dict[str, object] = {
+                "log_time": values["log_time"],
                 "field_serial": int(values["field_serial"]),
                 "source_field_serial": (
                     None if values["source"] == "none" else int(values["source"])
@@ -653,11 +692,12 @@ def parse_curve(
                 raise ValueError(
                     f"orphan or premature terminal marker event in {console_path}: {line}"
                 )
-            match = TERMINAL_PATTERN.search(line)
+            match = TERMINAL_PATTERN.fullmatch(line)
             if match is None:
                 raise ValueError(f"malformed convergence line in {console_path}: {line}")
             values = match.groupdict()
             terminal = TerminalIdentity(
+                log_time=values["log_time"],
                 field_serial=int(values["field_serial"]),
                 geometry_revision=int(values["geometry"]),
                 radiance_revision=int(values["radiance"]),
@@ -714,7 +754,7 @@ def parse_curve(
     ):
         if getattr(terminal, field) != final[field]:
             raise ValueError(f"terminal {field} does not match final validation record")
-    return generations, terminal, policy, wire
+    return generations, terminal, initialization, wire
 
 
 def validate_curve(
@@ -723,9 +763,10 @@ def validate_curve(
     generations: list[list[dict[str, object]]],
     terminal: TerminalIdentity,
     analysis: dict[str, object],
-    policy: Policy,
+    initialization: InitializationEvent,
     wire: ValidationWireContract,
 ) -> dict[str, object]:
+    policy = initialization.policy
     capture = analysis.get("capture")
     if not isinstance(capture, dict):
         raise ValueError(f"{case_name} spacing {spacing}: analysis has no capture object")
@@ -736,13 +777,42 @@ def validate_curve(
         )
     if capture.get("lifecycle_state") != "converged":
         raise ValueError(f"{case_name} spacing {spacing}: capture is not converged")
-    if capture.get("spacing_voxels") != spacing:
+    integer_limits = {
+        "field_serial": (1, (1 << 64) - 1),
+        "geometry_revision": (0, (1 << 32) - 1),
+        "radiance_revision": (0, (1 << 32) - 1),
+        "spacing_voxels": (1, (1 << 32) - 1),
+        "update_epoch": (0, (1 << 32) - 1),
+    }
+    for field, (minimum, maximum) in integer_limits.items():
+        value = capture.get(field)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(
+                f"{case_name} spacing {spacing}: capture {field} is not a valid "
+                f"{'u64' if maximum > (1 << 32) - 1 else 'u32'}"
+            )
+    for field in ("max_abs_delta", "max_rel_delta"):
+        value = capture.get(field)
+        if type(value) not in (int, float) or not math.isfinite(float(value)):
+            raise ValueError(
+                f"{case_name} spacing {spacing}: capture {field} is not finite numeric evidence"
+            )
+    if initialization.spacing_voxels != spacing:
+        raise ValueError(
+            f"{case_name} spacing {spacing}: initialization spacing "
+            f"{initialization.spacing_voxels} differs from the requested curve"
+        )
+    if capture["spacing_voxels"] != spacing:
         raise ValueError(f"{case_name} spacing {spacing}: capture spacing mismatch")
-    geometry_revision = capture.get("geometry_revision")
-    radiance_revision = capture.get("radiance_revision")
-    field_serial = capture.get("field_serial")
-    if not isinstance(field_serial, int):
-        raise ValueError(f"{case_name} spacing {spacing}: capture has no field serial")
+    geometry_revision = capture["geometry_revision"]
+    radiance_revision = capture["radiance_revision"]
+    field_serial = capture["field_serial"]
+    if geometry_revision != initialization.terrain_revision:
+        raise ValueError(
+            f"{case_name} spacing {spacing}: capture geometry revision "
+            f"{geometry_revision} differs from initialization terrain revision "
+            f"{initialization.terrain_revision}"
+        )
     matching_generations = [
         generation
         for generation in generations
@@ -831,6 +901,13 @@ def validate_curve(
         "terminal_reason": terminal.reason,
         "final_max_absolute_rgb_delta": float(final["max_absolute_rgb_delta"]),
         "final_max_relative_rgb_delta": float(final["max_relative_rgb_delta"]),
+        "initialization": {
+            "log_time": initialization.log_time,
+            "terrain_revision": initialization.terrain_revision,
+            "spacing_voxels": initialization.spacing_voxels,
+            "probe_count": initialization.probe_count,
+            "stage": initialization.stage,
+        },
         "epochs": records,
     }
 
@@ -862,7 +939,8 @@ def main() -> int:
                         f"{case_name} spacing {spacing}: console and preserved run-log "
                         "convergence evidence differ"
                     )
-                generations, terminal, runtime_policy, wire = console_evidence
+                generations, terminal, initialization, wire = console_evidence
+                runtime_policy = initialization.policy
                 if policy is None:
                     policy = runtime_policy
                 elif runtime_policy != policy:
@@ -875,7 +953,7 @@ def main() -> int:
                     generations,
                     terminal,
                     json.loads(analysis_path.read_text()),
-                    runtime_policy,
+                    initialization,
                     wire,
                 )
                 curve["capture_analysis"] = analysis_path.name
