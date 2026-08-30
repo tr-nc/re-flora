@@ -1,4 +1,5 @@
 import ast
+from fnmatch import fnmatchcase
 from pathlib import Path
 import unittest
 
@@ -15,6 +16,12 @@ ROUTES = (
     "scripts/tests/test_lighting_mode_acceptance_source_contract.py",
     "docs/lighting_mode_acceptance.md",
     "src/**",
+)
+SOURCE_OWNERS = (
+    "src/app/core/mod.rs",
+    "src/app/core/lighting_mode_acceptance.rs",
+    "src/tracer/mod.rs",
+    "src/tracer/buffer_updater.rs",
 )
 
 
@@ -54,18 +61,35 @@ def event_paths(workflow: str, event: str) -> list[str]:
     return paths
 
 
+def source_owners_are_routed(paths: list[str]) -> bool:
+    if "src/**" not in paths:
+        return False
+    for owner in SOURCE_OWNERS:
+        included = False
+        for ordered_pattern in paths:
+            excluded = ordered_pattern.startswith("!")
+            pattern = ordered_pattern[1:] if excluded else ordered_pattern
+            if fnmatchcase(owner, pattern):
+                included = not excluded
+        if not included:
+            return False
+    return True
+
+
 class LightingModeAcceptanceCiTests(unittest.TestCase):
     def test_pull_request_routes_all_e2_sources_to_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()
         pull_request = event_paths(workflow, "pull_request")
         for path in ROUTES:
             self.assertIn(path, pull_request, path)
+        self.assertTrue(source_owners_are_routed(pull_request))
 
     def test_push_routes_all_e2_sources_to_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()
         push = event_paths(workflow, "push")
         for path in ROUTES:
             self.assertIn(path, push, path)
+        self.assertTrue(source_owners_are_routed(push))
 
     def test_commented_src_route_is_not_an_event_path_item(self) -> None:
         workflow = WORKFLOW.read_text()
@@ -77,6 +101,18 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
                     marker, '      # - "src/**"', 1
                 )
                 self.assertNotIn("src/**", event_paths(mutated, event))
+
+    def test_later_src_exclusion_cannot_remove_e2_owners_from_either_event(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                event_start = workflow.index(f"  {event}:")
+                marker = '      - "src/**"'
+                replacement = marker + '\n      - "!src/**"'
+                mutated = workflow[:event_start] + workflow[event_start:].replace(
+                    marker, replacement, 1
+                )
+                self.assertFalse(source_owners_are_routed(event_paths(mutated, event)))
 
     def test_shader_validation_runs_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()

@@ -32,7 +32,7 @@ pub(crate) struct ResolvedLightingFrameInputs {
 let plan = LightingModeAcceptanceRuntime::frame_plan(&runtime);
 let (timing, render) = LightingModeAcceptanceFramePlan::resolve_timing(plan, live_timing);
 let lighting = LightingModeAcceptanceRenderPlan::resolve_lighting(render, live_lighting);
-tracer.update_buffers(&time, &lighting, lights);
+self.tracer.update_buffers(&time, &lighting, lights);
 """,
         "src/tracer/mod.rs": """
 pub struct Tracer;
@@ -100,6 +100,32 @@ let f = Renderer::resolve_lighting(renderer, live);
 """
         self.assertEqual(checker.audit(sources), [])
 
+    def test_plan_resolution_requires_real_ufcs_calls_not_function_pointer_decoys(self) -> None:
+        mutations = (
+            (
+                "LightingModeAcceptanceRuntime::frame_plan(&runtime)",
+                "runtime.frame_plan()",
+                "let _ = LightingModeAcceptanceRuntime::frame_plan;",
+            ),
+            (
+                "LightingModeAcceptanceFramePlan::resolve_timing(plan, live_timing)",
+                "plan.resolve_timing(live_timing)",
+                "let _ = LightingModeAcceptanceFramePlan::resolve_timing;",
+            ),
+            (
+                "LightingModeAcceptanceRenderPlan::resolve_lighting(render, live_lighting)",
+                "render.resolve_lighting(live_lighting)",
+                "let _ = LightingModeAcceptanceRenderPlan::resolve_lighting;",
+            ),
+        )
+        for qualified_call, dot_call, decoy in mutations:
+            with self.subTest(dot_call=dot_call):
+                sources = baseline_sources()
+                sources["src/app/core/mod.rs"] = (
+                    sources["src/app/core/mod.rs"].replace(qualified_call, dot_call) + decoy
+                )
+                self.assertNotEqual(checker.audit(sources), [])
+
     def test_tracer_routes_its_direct_capsule_to_the_module_qualified_updater(self) -> None:
         mutations = (
             (
@@ -133,6 +159,50 @@ let f = Renderer::resolve_lighting(renderer, live);
                         "crate::tracer::buffer_updater::BufferUpdater::update_gui_input(",
                         "BufferUpdater::update_gui_input(",
                     )
+                self.assertNotEqual(checker.audit(sources), [])
+
+    def test_tracer_state_mode_must_derive_from_the_same_capsule_sent_to_updater(self) -> None:
+        mutations = (
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs, forged_mode: RasterLightingMode,",
+                "self.raster_lighting_mode = lighting_frame.raster_lighting_mode();",
+                "self.raster_lighting_mode = forged_mode;",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "self.raster_lighting_mode = lighting_frame.raster_lighting_mode();",
+                """let forged_mode = RasterLightingMode::Legacy;
+        self.raster_lighting_mode = forged_mode;
+        let decoy = lighting_frame.raster_lighting_mode();""",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "self.raster_lighting_mode = lighting_frame.raster_lighting_mode();",
+                """(|lighting_frame: &ResolvedLightingFrameInputs| {
+            self.raster_lighting_mode = lighting_frame.raster_lighting_mode();
+        })(forged);""",
+            ),
+            (
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "lighting_frame: &ResolvedLightingFrameInputs,",
+                "self.raster_lighting_mode = lighting_frame.raster_lighting_mode();",
+                """match forged {
+            lighting_frame => {
+                self.raster_lighting_mode = lighting_frame.raster_lighting_mode();
+            }
+        }""",
+            ),
+        )
+        for signature_before, signature_after, state_before, state_after in mutations:
+            with self.subTest(state_after=state_after):
+                sources = baseline_sources()
+                tracer = sources["src/tracer/mod.rs"].replace(
+                    signature_before, signature_after
+                )
+                sources["src/tracer/mod.rs"] = tracer.replace(state_before, state_after)
                 self.assertNotEqual(checker.audit(sources), [])
 
     def test_updater_requires_one_direct_capsule_and_no_primitive_mode_parameter(self) -> None:

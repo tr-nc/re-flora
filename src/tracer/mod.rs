@@ -2110,7 +2110,6 @@ impl Tracer {
     ) -> Result<()> {
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
-        let raster_lighting_mode = lighting_frame.raster_lighting_mode();
         self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
@@ -2261,7 +2260,7 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_lighting_mode = raster_lighting_mode;
+        self.raster_lighting_mode = lighting_frame.raster_lighting_mode();
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;

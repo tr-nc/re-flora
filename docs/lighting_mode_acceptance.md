@@ -28,10 +28,12 @@ uniform values are never an independently forgeable primitive bundle at that sea
 Rust type checking and the capsule's private construction are the ownership guarantee.
 `scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file only as a
 structure-drift tripwire: it checks the canonical qualified plan references, capsule signatures,
-inline getter shape, and that current production source contains no second `gui_input` write. It is
-not a proof of arbitrary Rust aliasing or whole-program dataflow. The shader-validation workflow
-routes all `src/**` changes, this checker, its tests, and this document through the same CPU contract
-gate; adding a new Rust module therefore cannot bypass the audit through an omitted path filter.
+their actual chained UFCS initializers, the direct Tracer raster-state assignment from the same
+capsule, inline getter shape, and that current production source contains no second `gui_input`
+write. It is not a proof of arbitrary Rust aliasing or whole-program dataflow. The
+shader-validation workflow evaluates the ordered `pull_request` and `push` path rules and routes all
+current E2 source owners, this checker, its tests, and this document through the same CPU contract
+gate.
 
 One release-hidden process waits for a converged DDGI field, latches the camera, visible-terrain
 revision, DDGI field, lighting revisions, and extents, then records these stages after a settling

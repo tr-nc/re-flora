@@ -313,6 +313,34 @@ def _call_arguments(tokens: list[str], prefix: tuple[str, ...]) -> list[list[tup
     return calls
 
 
+def _let_initialized_calls(
+    tokens: list[str], prefix: tuple[str, ...]
+) -> list[tuple[tuple[str, ...], list[tuple[str, ...]]]]:
+    calls: list[tuple[tuple[str, ...], list[tuple[str, ...]]]] = []
+    for index in range(len(tokens) - len(prefix) + 1):
+        if tuple(tokens[index : index + len(prefix)]) != prefix or index == 0:
+            continue
+        equals = index - 1
+        if tokens[equals] != "=":
+            continue
+        let_index = equals - 1
+        while let_index >= 0 and tokens[let_index] not in ("let", ";", "{"):
+            let_index -= 1
+        if let_index < 0 or tokens[let_index] != "let":
+            continue
+        opening = index + len(prefix) - 1
+        closing = _closing(tokens, opening, "(", ")")
+        if closing is None:
+            continue
+        calls.append(
+            (
+                tuple(tokens[let_index + 1 : equals]),
+                _split_top_level(tokens[opening + 1 : closing], ","),
+            )
+        )
+    return calls
+
+
 def _canonical_function(
     tokens: list[str], impl_name: str, function_name: str
 ) -> Function | None:
@@ -339,7 +367,52 @@ def _shadows(body: list[str], parameter_name: str) -> bool:
             if body[cursor] == parameter_name:
                 return True
             cursor += 1
+    for index, token in enumerate(body):
+        if token == "for":
+            cursor = index + 1
+            while cursor < len(body) and body[cursor] != "in":
+                if body[cursor] == parameter_name:
+                    return True
+                cursor += 1
+        elif token == "fn":
+            nested = _function_at(body, index)
+            if nested is not None and any(
+                parameter_name in parameter for parameter in nested.parameters
+            ):
+                return True
+        elif token == "=" and index + 1 < len(body) and body[index + 1] == ">":
+            cursor = index - 1
+            while cursor >= 0 and body[cursor] not in ("{", "}", ",", ";"):
+                if body[cursor] == parameter_name:
+                    return True
+                cursor -= 1
+    pipe = 0
+    while pipe < len(body):
+        if body[pipe] != "|":
+            pipe += 1
+            continue
+        closing = pipe + 1
+        while closing < len(body) and body[closing] != "|":
+            closing += 1
+        if closing < len(body) and parameter_name in body[pipe + 1 : closing]:
+            return True
+        pipe = closing + 1
     return False
+
+
+def _assignment_rhs(body: list[str], target: tuple[str, ...]) -> list[tuple[str, ...]]:
+    assignments: list[tuple[str, ...]] = []
+    width = len(target)
+    for index in range(len(body) - width):
+        if tuple(body[index : index + width]) != target or body[index + width] != "=":
+            continue
+        if index + width + 1 < len(body) and body[index + width + 1] == "=":
+            continue
+        end = index + width + 1
+        while end < len(body) and body[end] != ";":
+            end += 1
+        assignments.append(tuple(body[index + width + 1 : end]))
+    return assignments
 
 
 def _struct_field(argument: tuple[str, ...], field_name: str) -> tuple[str, ...] | None:
@@ -423,6 +496,10 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _contains(tokens, (type_name, "{")):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
+    caller_tokens = tokenized.get(CALLER, [])
+    initialized_plan_calls: list[
+        tuple[tuple[str, ...], list[tuple[str, ...]]]
+    ] = []
     for type_name, method in PLAN_REFERENCES:
         sites = [
             path
@@ -433,6 +510,41 @@ def audit(sources: dict[str, str]) -> list[str]:
             errors.append(
                 f"{type_name}::{method} references must be exactly [{CALLER}], got {sites}"
             )
+        calls = _let_initialized_calls(
+            caller_tokens, (type_name, ":", ":", method, "(")
+        )
+        if len(calls) != 1:
+            errors.append(
+                f"{type_name}::{method} must initialize one production value in {CALLER}"
+            )
+        initialized_plan_calls.extend(calls)
+    if len(initialized_plan_calls) == len(PLAN_REFERENCES):
+        frame_binding, frame_arguments = initialized_plan_calls[0]
+        timing_binding, timing_arguments = initialized_plan_calls[1]
+        lighting_binding, lighting_arguments = initialized_plan_calls[2]
+        bindings_are_chained = (
+            len(frame_binding) == 1
+            and frame_binding != ("_",)
+            and len(timing_binding) == 5
+            and timing_binding[0] == "("
+            and timing_binding[2] == ","
+            and timing_binding[4] == ")"
+            and len(lighting_binding) == 1
+            and lighting_binding != ("_",)
+            and bool(timing_arguments)
+            and timing_arguments[0] == frame_binding
+            and bool(lighting_arguments)
+            and lighting_arguments[0] == (timing_binding[3],)
+        )
+        update_calls = _call_arguments(
+            caller_tokens, ("self", ".", "tracer", ".", "update_buffers", "(")
+        )
+        if (
+            not bindings_are_chained
+            or len(update_calls) != 1
+            or ("&", lighting_binding[0]) not in update_calls[0]
+        ):
+            errors.append("qualified frame plan values must form the canonical Tracer call chain")
 
     tracer_tokens = tokenized.get(TRACER_OWNER, [])
     update_buffers = _canonical_function(tracer_tokens, "Tracer", "update_buffers")
@@ -454,6 +566,39 @@ def audit(sources: dict[str, str]) -> list[str]:
         else:
             lighting_parameter = lighting_parameters[0]
             body = _function_body(tracer_tokens, update_buffers)
+            primitive_names = {
+                "raster_lighting_mode",
+                "path_tracing_reference",
+                "path_tracing_max_bounces",
+                "path_tracing_ambient_light",
+            }
+            primitive_types = {
+                "RasterLightingMode",
+                "TerrainLightingMode",
+                "EffectiveLightingControls",
+            }
+            if any(
+                any(type_name in parameter for type_name in primitive_types)
+                or (parameter and parameter[0] in primitive_names)
+                for parameter in update_buffers.parameters
+            ):
+                errors.append("Tracer::update_buffers exposes a primitive lighting bypass")
+            if _shadows(body, lighting_parameter):
+                errors.append(f"Tracer::update_buffers shadows capsule {lighting_parameter}")
+            mode_assignments = _assignment_rhs(
+                body, ("self", ".", "raster_lighting_mode")
+            )
+            expected_mode = (
+                lighting_parameter,
+                ".",
+                "raster_lighting_mode",
+                "(",
+                ")",
+            )
+            if mode_assignments != [expected_mode]:
+                errors.append(
+                    "Tracer::update_buffers raster state must derive directly from its capsule"
+                )
             updater_calls = _call_arguments(
                 body,
                 (
