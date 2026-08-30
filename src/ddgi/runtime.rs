@@ -244,6 +244,16 @@ mod convergence_evidence {
         use super::*;
         use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler};
 
+        static_assertions::assert_not_impl_any!(
+            super::super::DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display
+        );
+        static_assertions::assert_not_impl_any!(
+            super::Pending: std::fmt::Debug, std::fmt::Display
+        );
+        static_assertions::assert_not_impl_any!(
+            super::Evidence: std::fmt::Debug, std::fmt::Display
+        );
+
         fn facts() -> (
             super::super::DdgiScheduledWork,
             DdgiFieldIdentity,

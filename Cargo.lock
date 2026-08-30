@@ -3265,6 +3265,7 @@ dependencies = [
  "resource_container_derive",
  "serde",
  "spirv-reflect",
+ "static_assertions",
  "tempfile",
  "thiserror 2.0.18",
  "time",

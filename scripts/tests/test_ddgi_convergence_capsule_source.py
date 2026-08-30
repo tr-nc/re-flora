@@ -178,6 +178,7 @@ def find_sequence(tokens: list[RustToken], values: tuple[str, ...], start=0, end
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
     token_sets = {path: production_tokens(source) for path, source in sources.items()}
+    all_runtime = rust_tokens(sources[RUNTIME])
     runtime = token_sets[RUNTIME]
     tracer = token_sets[TRACER]
 
@@ -187,72 +188,37 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     module_open = module + 2
     module_close = matching(runtime, module_open, "{", "}")
 
-    def struct_position(type_name: str, start: int, end: int) -> int:
-        return find_sequence(runtime, ("struct", type_name), start, end)
-
-    def rejects_debug_derive(type_name: str, start: int, end: int) -> None:
-        position = struct_position(type_name, start, end)
-        declaration_start = max(
-            (
-                index + 1
-                for index in range(start, position)
-                if runtime[index].value in (";", "}")
-            ),
-            default=start,
+    opaque_assertions = []
+    for index, token in enumerate(all_runtime):
+        if token.value != "assert_not_impl_any":
+            continue
+        if tuple(item.value for item in all_runtime[index + 1 : index + 3]) != ("!", "("):
+            continue
+        close = matching(all_runtime, index + 2, "(", ")")
+        opaque_assertions.append(
+            tuple(item.value for item in all_runtime[index + 3 : close])
         )
-        if any(
-            token.value == "Debug"
-            for token in runtime[declaration_start:position]
-        ):
-            raise AssertionError(f"{type_name} must not derive Debug")
-    rejects_debug_derive("DdgiBatchCompletion", 0, module)
-    for type_name in ("Pending", "Evidence"):
-        rejects_debug_derive(type_name, module_open, module_close)
-
-    sensitive_types = {"DdgiBatchCompletion", "Pending", "Evidence"}
-    for path, tokens in token_sets.items():
-        for index, token in enumerate(tokens):
-            if token.value != "impl":
-                continue
-            header_close = next(
-                (
-                    position
-                    for position in range(index + 1, len(tokens))
-                    if tokens[position].value == "{"
-                ),
-                None,
-            )
-            if header_close is None:
-                raise AssertionError(f"unterminated impl header in {path}")
-            header = tokens[index + 1 : header_close]
-            for_positions = [
-                position for position, item in enumerate(header) if item.value == "for"
-            ]
-            if not for_positions:
-                continue
-            split = for_positions[-1]
-            target_end = next(
-                (
-                    position
-                    for position in range(split + 1, len(header))
-                    if header[position].value == "where"
-                ),
-                len(header),
-            )
-            trait = next(
-                (item.value for item in reversed(header[:split]) if item.kind == "IDENT"),
-                "",
-            )
-            target = next(
-                (
-                    item.value
-                    for item in reversed(header[split + 1 : target_end])
-                    if item.kind == "IDENT"
-                ),
-                "",
-            )
-            if trait in ("Debug", "Display") and target in sensitive_types:
-                raise AssertionError(f"{path} exposes {target} through {trait}")
+    expected_opaque_assertions = [
+        (
+            "super", ":", ":", "super", ":", ":", "DdgiBatchCompletion", ":",
+            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
+            "std", ":", ":", "fmt", ":", ":", "Display",
+        ),
+        (
+            "super", ":", ":", "Pending", ":",
+            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
+            "std", ":", ":", "fmt", ":", ":", "Display",
+        ),
+        (
+            "super", ":", ":", "Evidence", ":",
+            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
+            "std", ":", ":", "fmt", ":", ":", "Display",
+        ),
+    ]
+    if opaque_assertions != expected_opaque_assertions:
+        raise AssertionError(
+            "rustc must own the exact Debug/Display negative assertions for the opaque types"
+        )
 
     evidence_field = find_sequence(
         runtime,
@@ -521,6 +487,50 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
     def test_private_runtime_capability_and_tracer_form_one_transaction(self) -> None:
         audit_convergence_evidence(production_sources())
 
+    def test_rustc_negative_trait_assertions_are_exact_owner_contracts(self) -> None:
+        sources = production_sources()
+        assertions = {
+            "completion": (
+                "super::super::DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display"
+            ),
+            "pending": "super::Pending: std::fmt::Debug, std::fmt::Display",
+            "evidence": "super::Evidence: std::fmt::Debug, std::fmt::Display",
+        }
+        mutations = {
+            "missing-completion": sources[RUNTIME].replace(assertions["completion"], "", 1),
+            "wrong-pending-target": sources[RUNTIME].replace(
+                assertions["pending"],
+                "super::Prepared: std::fmt::Debug, std::fmt::Display",
+                1,
+            ),
+            "missing-evidence-display": sources[RUNTIME].replace(
+                assertions["evidence"],
+                "super::Evidence: std::fmt::Debug",
+                1,
+            ),
+            "wrong-completion-trait": sources[RUNTIME].replace(
+                assertions["completion"],
+                "super::super::DdgiBatchCompletion: std::fmt::Debug, Clone",
+                1,
+            ),
+        }
+        for name, runtime in mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(runtime, sources[RUNTIME])
+                mutated = dict(sources)
+                mutated[RUNTIME] = runtime
+                with self.assertRaises(AssertionError):
+                    audit_convergence_evidence(mutated)
+
+        generic_wrapper = dict(sources)
+        generic_wrapper[RUNTIME] += (
+            "\nstruct DiagnosticWrapper<T>(T);\n"
+            "impl<T> std::fmt::Debug for DiagnosticWrapper<T> {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\n"
+        )
+        audit_convergence_evidence(generic_wrapper)
+
     def test_comments_unrelated_names_and_bad_commit_order_do_not_fool_the_seam(self) -> None:
         sources = production_sources()
         call = "completion.commit_convergence_evidence();"
@@ -569,17 +579,6 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 "    pub(crate) pending_convergence_evidence: Option<convergence_evidence::Pending>,",
                 1,
             ),
-            "debug-completion": sources[RUNTIME].replace(
-                "pub(crate) struct DdgiBatchCompletion {",
-                "#[derive(Debug)]\npub(crate) struct DdgiBatchCompletion {",
-                1,
-            ),
-            "debug-pending": sources[RUNTIME].replace(
-                "pub(super) struct Pending", "#[derive(Debug)]\n    pub(super) struct Pending", 1
-            ),
-            "debug-evidence": sources[RUNTIME].replace(
-                "    struct Evidence {", "    #[derive(Debug)]\n    struct Evidence {", 1
-            ),
             "visible-emitter": sources[RUNTIME].replace(
                 "        fn emit(self)", "        pub(super) fn emit(self)", 1
             ),
@@ -612,22 +611,6 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
             "parent-helper-early-ufcs-commit": sources[RUNTIME]
             + "\nfn parent_commit(mut alias: DdgiBatchCompletion) {\n"
             "    DdgiBatchCompletion::commit_convergence_evidence(&mut alias);\n"
-            "}\n",
-            "manual-debug-completion": sources[RUNTIME]
-            + "\nimpl std::fmt::Debug for DdgiBatchCompletion {\n"
-            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
-            "}\n",
-            "manual-debug-pending": sources[RUNTIME]
-            + "\nimpl std::fmt::Debug for convergence_evidence::Pending {\n"
-            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
-            "}\n",
-            "manual-debug-evidence": sources[RUNTIME]
-            + "\nimpl std::fmt::Debug for convergence_evidence::Evidence {\n"
-            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
-            "}\n",
-            "manual-display-pending": sources[RUNTIME]
-            + "\nimpl std::fmt::Display for convergence_evidence::Pending {\n"
-            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
             "}\n",
             "extra-target-outside-child": sources[RUNTIME]
             + '\nconst EXTRA_TARGET: &str = "re_flora::ddgi_convergence_evidence";\n',
