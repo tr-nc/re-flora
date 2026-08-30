@@ -16,6 +16,10 @@ if [[ $# -gt 1 ]]; then
 fi
 
 cargo_bin="${REFLORA_CARGO:-cargo}"
+rg_bin="${REFLORA_RG:-rg}"
+python_bin="${REFLORA_PYTHON:-python3}"
+timeout_bin="${REFLORA_TIMEOUT:-timeout}"
+timeout_seconds="${REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS:-1200}"
 app_output="${artifact}.app.log"
 analyzer="${REFLORA_ANALYZER:-$repo_root/scripts/analyze_lighting_mode_acceptance.py}"
 command=(
@@ -35,6 +39,29 @@ if $dry_run; then
     exit 0
 fi
 
+require_command() {
+    local label="$1"
+    local command_name="$2"
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=missing-dependency dependency=%s command=%s\n' \
+            "$label" "$command_name" >&2
+        exit 2
+    fi
+}
+
+require_command cargo "$cargo_bin"
+require_command rg "$rg_bin"
+require_command python "$python_bin"
+require_command timeout "$timeout_bin"
+require_command analyzer "$analyzer"
+require_command awk awk
+require_command tail tail
+if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=invalid-timeout seconds=%s\n' \
+        "$timeout_seconds" >&2
+    exit 2
+fi
+
 if [[ -e "$artifact" || -e "$app_output" ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=output-already-exists artifact=%s\n' \
         "$artifact" >&2
@@ -44,12 +71,13 @@ mkdir -p "$(dirname "$artifact")"
 
 set +e
 RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::app::core::lighting_mode_acceptance=info" \
+    "$timeout_bin" --signal=TERM --kill-after=15s "${timeout_seconds}s" \
     "${command[@]}" >"$app_output" 2>&1
 app_status=$?
 set -e
 
 mapfile -t run_log_markers < <(
-    rg --no-filename -o '\[RUN_LOG\] path=.*' "$app_output" 2>/dev/null || true
+    "$rg_bin" --no-filename -o '\[RUN_LOG\] path=.*' "$app_output" 2>/dev/null || true
 )
 if [[ ${#run_log_markers[@]} -ne 1 ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=run-log-marker-count count=%s app-status=%s log=%s\n' \
@@ -69,18 +97,28 @@ if [[ "$run_log" != /* || ! -f "$run_log" ]]; then
     exit 3
 fi
 runtime_red="$(
-    rg --no-filename -o '\[LIGHTING_MODE_ACCEPTANCE\] verdict=RED reason=.*' \
+    "$rg_bin" --no-filename -o '\[LIGHTING_MODE_ACCEPTANCE\] verdict=RED reason=.*' \
         "$app_output" "$run_log" 2>/dev/null | awk '!seen[$0]++' || true
 )"
 if [[ -n "$runtime_red" ]]; then
     printf '%s\n' "$runtime_red" >&2
+    if [[ $app_status -eq 124 ]]; then
+        printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=timeout app-status=%s seconds=%s path=%s\n' \
+            "$app_status" "$timeout_seconds" "$run_log" >&2
+        exit 3
+    fi
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_REJECTED reason=see-app-verdict app-status=%s\n' \
         "$app_status" >&2
     exit 3
 fi
-if rg -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >/dev/null 2>&1; then
+if [[ $app_status -eq 124 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=timeout app-status=%s seconds=%s path=%s\n' \
+        "$app_status" "$timeout_seconds" "$run_log" >&2
+    exit 3
+fi
+if "$rg_bin" -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >/dev/null 2>&1; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=error-marker\n' >&2
-    rg -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >&2 || true
+    "$rg_bin" -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >&2 || true
     exit 3
 fi
 if [[ $app_status -ne 0 ]]; then

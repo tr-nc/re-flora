@@ -38,6 +38,128 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertFalse(artifact.exists())
         self.assertFalse(Path(f"{artifact}.app.log").exists())
 
+    def test_missing_execution_dependency_fails_before_writing_state(self) -> None:
+        cases = (
+            ("REFLORA_CARGO", "definitely-missing-cargo"),
+            ("REFLORA_RG", "definitely-missing-rg"),
+            ("REFLORA_PYTHON", "definitely-missing-python"),
+            ("REFLORA_TIMEOUT", "definitely-missing-timeout"),
+            ("REFLORA_ANALYZER", "definitely-missing-analyzer"),
+        )
+        for variable, missing in cases:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                artifact = root / "capture.rflma"
+                cargo = executable(root / "cargo", "#!/usr/bin/env bash\nexit 99\n")
+                analyzer = executable(root / "analyzer", "#!/usr/bin/env bash\nexit 99\n")
+                env = {
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(analyzer),
+                    variable: missing,
+                }
+                result = subprocess.run(
+                    [str(RUNNER), str(artifact)],
+                    cwd=REPO_ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reason=missing-dependency", result.stderr)
+            self.assertIn(missing, result.stderr)
+            self.assertFalse(artifact.exists())
+            self.assertFalse(Path(f"{artifact}.app.log").exists())
+
+    def test_invalid_timeout_fails_before_writing_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            cargo = executable(root / "cargo", "#!/usr/bin/env bash\nexit 99\n")
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": "0",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=invalid-timeout", result.stderr)
+        self.assertFalse(artifact.exists())
+        self.assertFalse(Path(f"{artifact}.app.log").exists())
+
+    def test_timeout_fails_explicitly_after_recovering_bound_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean bound log before timeout\n")
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n"
+                "sleep 5\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": "1",
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verdict=APP_FAILED", result.stderr)
+        self.assertIn("reason=timeout", result.stderr)
+        self.assertIn(f"path={bound_log}", result.stderr)
+
+    def test_timeout_preserves_runtime_red_from_the_bound_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            runtime_red = "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=readback-timeout-root-cause"
+            bound_log.write_text(runtime_red + "\n" + "noise\n" * 120)
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n"
+                "sleep 5\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": "1",
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(runtime_red, result.stderr)
+        self.assertIn("verdict=APP_FAILED reason=timeout", result.stderr)
+
     def test_uses_process_bound_marker_instead_of_concurrent_latest_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
