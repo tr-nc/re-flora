@@ -16,6 +16,7 @@ mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
+mod lighting_mode_acceptance;
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -47,6 +48,7 @@ use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
+use self::lighting_mode_acceptance::{EffectiveLightingControls, LightingModeAcceptanceRuntime};
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
@@ -572,6 +574,7 @@ pub struct App {
     terrain_persistence: TerrainPersistenceRuntime,
     screenshot_capture: ScreenshotRuntime,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
+    lighting_mode_acceptance: LightingModeAcceptanceRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
@@ -1548,6 +1551,9 @@ impl App {
             screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 options.environment_irradiance_capture_path.clone(),
+            ),
+            lighting_mode_acceptance: LightingModeAcceptanceRuntime::new(
+                options.lighting_mode_acceptance.as_ref(),
             ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
@@ -3521,6 +3527,15 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
+                let effective_lighting_controls = self.lighting_mode_acceptance.effective_controls(
+                    EffectiveLightingControls::from_gui(
+                        self.debug_settings.adjustables.path_tracing_reference.value,
+                        self.debug_settings
+                            .adjustables
+                            .raster_flora_ddgi_lighting
+                            .value,
+                    ),
+                );
                 self.tracer
                     .update_buffers(
                         &self.time_info,
@@ -3531,11 +3546,8 @@ impl App {
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
                         self.debug_settings.adjustables.dither_strength_lsb.value,
-                        self.debug_settings
-                            .adjustables
-                            .raster_flora_ddgi_lighting
-                            .value,
-                        self.debug_settings.adjustables.path_tracing_reference.value,
+                        effective_lighting_controls.raster_flora_ddgi_lighting(),
+                        effective_lighting_controls.path_tracing_reference(),
                         self.debug_settings
                             .adjustables
                             .path_tracing_max_bounces

@@ -1,4 +1,5 @@
 use re_flora_vkn::PresentMode;
+use std::path::PathBuf;
 
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
@@ -290,6 +291,8 @@ pub struct AppOptions {
     pub water_edit_soak: bool,
     /// Build one deterministic static terrain case for environment-lighting validation.
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
+    /// Run the production lighting-mode acceptance transaction and write its raw artifact.
+    pub lighting_mode_acceptance: Option<LightingModeAcceptanceOptions>,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
     /// Save fixed saved-terrain DDGI probe-contribution readback as human-readable text.
@@ -345,6 +348,11 @@ pub struct DenoiserBenchOptions {
 pub struct ScreenshotOptions {
     pub path: String,
     pub delay: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LightingModeAcceptanceOptions {
+    pub artifact_path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -445,6 +453,13 @@ impl AppOptions {
             None => None,
         };
         let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
+        let lighting_mode_acceptance = parse_required_string_after(
+            "--lighting-mode-acceptance",
+            "an output .rflma artifact path",
+        )?
+        .map(|artifact_path| LightingModeAcceptanceOptions {
+            artifact_path: artifact_path.into(),
+        });
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -741,6 +756,7 @@ impl AppOptions {
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak,
             environment_lighting_test_scene,
+            lighting_mode_acceptance,
             environment_irradiance_capture_path,
             ddgi_spatial_weight_readback_path,
             environment_irradiance_capture_target,
@@ -1075,6 +1091,8 @@ Options:
                               density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
+  --lighting-mode-acceptance <artifact>
+                              Run the fixed single-process production lighting-mode acceptance matrix
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
   --ddgi-spatial-weight-readback <path>
@@ -1209,6 +1227,7 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
+        assert!(options.lighting_mode_acceptance.is_none());
         assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
@@ -1233,6 +1252,37 @@ mod tests {
         assert_eq!(options.authored_flora_bench_samples, 25);
         assert!(options.terrain_connectivity_bench.is_none());
         assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_typed_lighting_mode_acceptance_artifact() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--lighting-mode-acceptance",
+            "target/r13-e2.rflma",
+        ]);
+
+        assert_eq!(
+            options.lighting_mode_acceptance,
+            Some(LightingModeAcceptanceOptions {
+                artifact_path: "target/r13-e2.rflma".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_requires_an_artifact_path() {
+        let result = AppOptions::try_from_arg_strings(vec![
+            "re-flora".to_owned(),
+            "--lighting-mode-acceptance".to_owned(),
+        ]);
+
+        assert_eq!(
+            result.unwrap_err(),
+            "Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path."
+        );
     }
 
     #[test]
