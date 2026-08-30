@@ -6,3 +6,22 @@ consecutive_epochs = 2
 minimum_update_epochs = 8
 maximum_update_epochs = 128
 terminal_update_epoch = 127
+
+[validation_wire.integer_types]
+field_serial = "u64"
+geometry_revision = "u32"
+radiance_revision = "u32"
+spacing_voxels = "u32"
+update_epoch = "u32"
+nonfinite_count = "u32"
+negative_rgb_texel_count = "u32"
+valid_texel_count = "u32"
+scanned_stored_texel_count = "u32"
+consecutive_below_threshold = "u32"
+required_consecutive_epochs = "u32"
+
+[validation_wire.float_types]
+max_absolute_rgb_delta = "f32"
+max_relative_rgb_delta = "f32"
+absolute_threshold = "f32"
+relative_threshold = "f32"

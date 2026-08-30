@@ -279,8 +279,78 @@ mod convergence_evidence {
             (work, field, stats)
         }
 
+        fn assert_wire_contract_matches_runtime_types() {
+            let contract: toml::Value = toml::from_str(include_str!(
+                "../../config/ddgi_convergence_acceptance.toml"
+            ))
+            .unwrap();
+            let integers = contract["validation_wire"]["integer_types"]
+                .as_table()
+                .unwrap();
+            let floats = contract["validation_wire"]["float_types"]
+                .as_table()
+                .unwrap();
+            let expected_integers = [
+                ("field_serial", "u64"),
+                ("geometry_revision", "u32"),
+                ("radiance_revision", "u32"),
+                ("spacing_voxels", "u32"),
+                ("update_epoch", "u32"),
+                ("nonfinite_count", "u32"),
+                ("negative_rgb_texel_count", "u32"),
+                ("valid_texel_count", "u32"),
+                ("scanned_stored_texel_count", "u32"),
+                ("consecutive_below_threshold", "u32"),
+                ("required_consecutive_epochs", "u32"),
+            ];
+            let expected_floats = [
+                ("max_absolute_rgb_delta", "f32"),
+                ("max_relative_rgb_delta", "f32"),
+                ("absolute_threshold", "f32"),
+                ("relative_threshold", "f32"),
+            ];
+            assert_eq!(integers.len(), expected_integers.len());
+            assert_eq!(floats.len(), expected_floats.len());
+            for (field, type_name) in expected_integers {
+                assert_eq!(integers[field].as_str(), Some(type_name));
+            }
+            for (field, type_name) in expected_floats {
+                assert_eq!(floats[field].as_str(), Some(type_name));
+            }
+
+            fn u64_value(_: u64) {}
+            fn u32_value(_: u32) {}
+            fn f32_value(_: f32) {}
+            let (work, field, stats) = facts();
+            let key = field.field();
+            u64_value(key.serial());
+            u32_value(key.geometry_revision());
+            u32_value(key.radiance_revision());
+            u32_value(key.spacing_voxels());
+            u32_value(key.update_epoch());
+            u32_value(stats.non_finite_count);
+            u32_value(stats.negative_rgb_texel_count);
+            u32_value(stats.valid_texel_count);
+            u32_value(stats.scanned_stored_texel_count);
+            f32_value(stats.max_absolute_rgb_delta);
+            f32_value(stats.max_relative_rgb_delta);
+            f32_value(DDGI_CONVERGENCE_POLICY.absolute_threshold);
+            f32_value(DDGI_CONVERGENCE_POLICY.relative_threshold);
+            u32_value(DDGI_CONVERGENCE_POLICY.consecutive_epochs);
+            let prepared = prepare(
+                DdgiValidatedIterationOutcome::Published {
+                    work,
+                    field,
+                    consecutive_below_threshold: 1,
+                },
+                stats,
+            );
+            u32_value(prepared.pending.0.consecutive_below_threshold);
+        }
+
         #[test]
         fn private_evidence_lines_preserve_exact_count_content_and_order() {
+            assert_wire_contract_matches_runtime_types();
             let (work, field, stats) = facts();
             let published = prepare(
                 DdgiValidatedIterationOutcome::Published {

@@ -102,20 +102,33 @@ The convergence summarizer independently parses both the capture console and its
 process-bound `.run.log`, then requires semantic equality of the policy, ordered validation curve,
 and terminal identity. Every physical line containing the convergence marker must be exactly one
 canonical validation or terminal record. Before selecting the capture identity, every validation
-record in each stream must satisfy the production `DdgiFieldKey` legality contract: field serial,
-radiance revision, and spacing are nonzero, and a Converged field cannot be epoch zero. Across
-records, field serials must be globally unique and strictly increasing; identities must be
-contiguous; and each identity's epochs must start at zero and remain consecutive.
+record in each stream passes a cross-language wire mirror. The
+`[validation_wire]` table in `config/ddgi_convergence_acceptance.toml` is its single field/type
+owner: the Python parser derives all `u64`/`u32`/`f32` bounds from that table, while the runtime
+formatter test compiles each mapped getter or fact against the declared Rust type. This keeps the
+mirror synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's consecutive
+count, and `DDGI_CONVERGENCE_POLICY` without a second Python type registry.
+
+The mirror requires nonzero field serial/radiance revision/spacing and rejects Converged epoch
+zero. Every numeric field must fit its Rust type; delta and threshold floats must round to a finite,
+nonnegative `f32`. Validated atlas records require zero non-finite/negative counts, positive complete
+8x8/10x10 coverage, and the runtime policy's thresholds and required consecutive count. Across
+records, field serials are globally unique and strictly increasing, identities are contiguous, and
+each identity's epoch, consecutive-below count, and Converging/Converged state follow the production
+classification state machine. These checks apply to legal historical identities before capture
+selection, not only to the selected curve. Terminal integer bounds are inherited by its mandatory
+exact match to the final already-validated field identity. `max_rgb_value` is not in the evidence
+wire; production atlas validation checks that private fact before the capsule can be constructed.
 Consequently old-identity duplicates, raw stdout/stderr injection, direct run-log injection, and
 synchronized duplicate records fail closed even when the source tripwire cannot see how bytes were
 produced. Console-only or run-log-only evidence cannot qualify. It validates:
 
 - one authoritative typed runtime-policy record per process, checked against the shared acceptance
   contract with no runner-owned epoch-count copy;
-- one contiguous epoch sequence with unique ordered field serials for the capture's exact
-  geometry/radiance/spacing identity;
-- full valid/stored atlas coverage for every epoch;
-- finite, nonnegative RGB values;
+- legal, contiguous historical and captured identity sequences with unique ordered field serials;
+- full valid/stored atlas coverage and production-possible convergence classification for every
+  epoch;
+- finite, nonnegative delta and policy values representable as production `f32` fields;
 - the exact policy constants above;
 - exactly one dedicated typed terminal record whose identity and epoch match the final full-atlas
   validation and capture, including the final field serial;

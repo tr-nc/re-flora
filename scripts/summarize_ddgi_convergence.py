@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import re
+import struct
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -73,8 +74,47 @@ class TerminalIdentity:
     reason: str
 
 
+@dataclass(frozen=True)
+class ValidationWireContract:
+    integer_types: dict[str, str]
+    float_types: dict[str, str]
+
+
 def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
+
+
+def possible_below_threshold(record: dict[str, object], policy: Policy) -> set[bool]:
+    absolute = float(record["max_absolute_rgb_delta"])
+    relative = float(record["max_relative_rgb_delta"])
+    tolerance = 5.0e-8
+    if (
+        absolute > policy.absolute_threshold + tolerance
+        or relative > policy.relative_threshold + tolerance
+    ):
+        return {False}
+    if (
+        absolute < policy.absolute_threshold - tolerance
+        and relative < policy.relative_threshold - tolerance
+    ):
+        return {True}
+    return {False, True}
+
+
+def load_validation_wire_contract(path: Path) -> ValidationWireContract:
+    contract = tomllib.loads(path.read_text())
+    wire = contract.get("validation_wire")
+    if not isinstance(wire, dict):
+        raise ValueError("missing DDGI convergence validation wire contract")
+    integer_types = wire.get("integer_types")
+    float_types = wire.get("float_types")
+    if not isinstance(integer_types, dict) or not isinstance(float_types, dict):
+        raise ValueError("invalid DDGI convergence validation wire contract")
+    if any(type_name not in ("u32", "u64") for type_name in integer_types.values()):
+        raise ValueError("unsupported DDGI convergence integer wire type")
+    if any(type_name != "f32" for type_name in float_types.values()):
+        raise ValueError("unsupported DDGI convergence float wire type")
+    return ValidationWireContract(dict(integer_types), dict(float_types))
 
 
 def load_acceptance_contract(path: Path) -> Policy:
@@ -140,10 +180,63 @@ def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
             )
 
 
+def require_rust_unsigned(value: int, type_name: str, field: str, source: Path) -> None:
+    width = int(type_name.removeprefix("u"))
+    if value < 0 or value > (1 << width) - 1:
+        raise ValueError(
+            f"{field}={value} in {source} exceeds Rust wire type {type_name}"
+        )
+
+
+def require_nonnegative_f32(value: float, field: str, source: Path) -> None:
+    try:
+        rounded = struct.unpack("!f", struct.pack("!f", value))[0]
+    except OverflowError as error:
+        raise ValueError(
+            f"{field}={value} in {source} exceeds finite Rust wire type f32"
+        ) from error
+    if not math.isfinite(value) or not math.isfinite(rounded) or value < 0.0:
+        raise ValueError(
+            f"{field}={value} in {source} is not a nonnegative finite Rust f32"
+        )
+
+
+def require_policy_wire_legality(policy: Policy, maximum_epochs: int, source: Path) -> None:
+    for field in ("absolute_threshold", "relative_threshold", "relative_floor"):
+        require_nonnegative_f32(float(getattr(policy, field)), field, source)
+    require_rust_unsigned(policy.consecutive_epochs, "u32", "consecutive_epochs", source)
+    require_rust_unsigned(policy.minimum_epoch_count, "u32", "minimum_update_epochs", source)
+    require_rust_unsigned(maximum_epochs, "u32", "maximum_update_epochs", source)
+    if (
+        policy.consecutive_epochs == 0
+        or policy.minimum_epoch_count == 0
+        or maximum_epochs == 0
+        or policy.minimum_epoch_count > maximum_epochs
+    ):
+        raise ValueError(f"invalid DDGI convergence runtime policy in {source}")
+
+
 def require_global_validation_legality(
-    records: list[dict[str, object]], evidence_path: Path
+    records: list[dict[str, object]],
+    evidence_path: Path,
+    wire: ValidationWireContract,
+    policy: Policy,
 ) -> None:
     for record in records:
+        numeric_fields = set(record) - {"state"}
+        contracted_fields = set(wire.integer_types) | set(wire.float_types)
+        if numeric_fields != contracted_fields or set(wire.integer_types) & set(
+            wire.float_types
+        ):
+            raise ValueError(
+                f"DDGI validation wire contract does not cover the canonical record in "
+                f"{evidence_path}"
+            )
+        for field, type_name in wire.integer_types.items():
+            require_rust_unsigned(int(record[field]), type_name, field, evidence_path)
+        for field in wire.float_types:
+            require_nonnegative_f32(float(record[field]), field, evidence_path)
+
         serial = int(record["field_serial"])
         radiance_revision = int(record["radiance_revision"])
         spacing_voxels = int(record["spacing_voxels"])
@@ -159,6 +252,20 @@ def require_global_validation_legality(
             raise ValueError(
                 f"typed field identity in {evidence_path} cannot be Converged at epoch zero"
             )
+        if record["nonfinite_count"] != 0 or record["negative_rgb_texel_count"] != 0:
+            raise ValueError(f"validated atlas record in {evidence_path} has invalid texels")
+        valid = int(record["valid_texel_count"])
+        scanned = int(record["scanned_stored_texel_count"])
+        if valid == 0 or scanned == 0 or scanned * 64 != valid * 100:
+            raise ValueError(
+                f"validated atlas record in {evidence_path} has incomplete coverage"
+            )
+        if not close(float(record["absolute_threshold"]), policy.absolute_threshold):
+            raise ValueError(f"validation record in {evidence_path} has absolute policy drift")
+        if not close(float(record["relative_threshold"]), policy.relative_threshold):
+            raise ValueError(f"validation record in {evidence_path} has relative policy drift")
+        if record["required_consecutive_epochs"] != policy.consecutive_epochs:
+            raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
 
     field_serials = [int(record["field_serial"]) for record in records]
     if len(set(field_serials)) != len(field_serials) or any(
@@ -172,6 +279,8 @@ def require_global_validation_legality(
     completed_identities: set[tuple[int, int, int]] = set()
     active_identity: tuple[int, int, int] | None = None
     next_epoch = 0
+    previous_consecutive = 0
+    active_converged = False
     for record in records:
         identity = (
             int(record["geometry_revision"]),
@@ -188,12 +297,51 @@ def require_global_validation_legality(
                 completed_identities.add(active_identity)
             active_identity = identity
             next_epoch = 0
+            previous_consecutive = 0
+            active_converged = False
+        elif active_converged:
+            raise ValueError(
+                f"global validation order in {evidence_path} continued converged identity "
+                f"{identity}"
+            )
         epoch = int(record["update_epoch"])
         if epoch != next_epoch:
             raise ValueError(
                 f"global validation order in {evidence_path} has epoch {epoch}, "
                 f"expected {next_epoch} for identity {identity}"
             )
+        possible_below = possible_below_threshold(record, policy)
+        consecutive = int(record["consecutive_below_threshold"])
+        if epoch == 0:
+            allowed = {0} | ({1} if True in possible_below else set())
+            if consecutive not in allowed:
+                raise ValueError(
+                    f"global consecutive sequence in {evidence_path} starts with "
+                    f"{consecutive}, allowed {sorted(allowed)} for identity {identity}"
+                )
+        else:
+            expected_consecutive = {
+                previous_consecutive + 1 if below else 0 for below in possible_below
+            }
+            if consecutive not in expected_consecutive:
+                raise ValueError(
+                    f"global consecutive sequence in {evidence_path} has {consecutive}, "
+                    f"expected one of {sorted(expected_consecutive)} for identity "
+                    f"{identity} at e{epoch}"
+                )
+        completed_epoch_count = min(epoch + 1, (1 << 32) - 1)
+        should_converge = (
+            completed_epoch_count >= policy.minimum_epoch_count
+            and consecutive >= policy.consecutive_epochs
+        ) or completed_epoch_count >= policy.maximum_update_epoch + 1
+        is_converged = record["state"] == "Converged"
+        if is_converged != should_converge:
+            raise ValueError(
+                f"global convergence state in {evidence_path} is {record['state']} at "
+                f"e{epoch}, expected {'Converged' if should_converge else 'Converging'}"
+            )
+        previous_consecutive = consecutive
+        active_converged = is_converged
         next_epoch += 1
 
 
@@ -221,7 +369,9 @@ def parse_curve(
         int(policy_values["minimum"]),
         maximum_update_epochs - 1,
     )
+    require_policy_wire_legality(policy, maximum_update_epochs, console_path)
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
+    wire = load_validation_wire_contract(contract_path)
     for line in text.splitlines():
         evidence_marker_count = line.count(EVIDENCE_MARKER)
         if evidence_marker_count not in (0, 1):
@@ -279,7 +429,7 @@ def parse_curve(
             )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
-    require_global_validation_legality(records, console_path)
+    require_global_validation_legality(records, console_path, wire, policy)
     if len(terminals) != 1:
         raise ValueError(
             f"expected exactly one terminal convergence record in {console_path}, "
@@ -336,59 +486,16 @@ def validate_curve(
             f"{case_name} spacing {spacing}: no curve for captured geometry/radiance revision"
         )
 
-    epochs = [int(record["update_epoch"]) for record in records]
-    if epochs != list(range(epochs[-1] + 1)):
-        raise ValueError(f"{case_name} spacing {spacing}: incomplete epoch sequence {epochs}")
-    field_serials = [int(record["field_serial"]) for record in records]
-    if len(set(field_serials)) != len(field_serials) or any(
-        left >= right for left, right in zip(field_serials, field_serials[1:])
-    ):
-        raise ValueError(
-            f"{case_name} spacing {spacing}: non-unique or unordered field serials "
-            f"{field_serials}"
-        )
-
-    previous_consecutive = 0
-    first_threshold_epoch: int | None = None
-    for index, record in enumerate(records):
-        epoch = int(record["update_epoch"])
-        expected_state = "Converged" if index == len(records) - 1 else "Converging"
-        if record["state"] != expected_state:
-            raise ValueError(f"{case_name} spacing {spacing}: destination state drift")
-        if not close(float(record["absolute_threshold"]), policy.absolute_threshold):
-            raise ValueError(f"{case_name} spacing {spacing}: absolute policy drift")
-        if not close(float(record["relative_threshold"]), policy.relative_threshold):
-            raise ValueError(f"{case_name} spacing {spacing}: relative policy drift")
-        if record["required_consecutive_epochs"] != policy.consecutive_epochs:
-            raise ValueError(f"{case_name} spacing {spacing}: consecutive policy drift")
-        if record["nonfinite_count"] != 0 or record["negative_rgb_texel_count"] != 0:
-            raise ValueError(f"{case_name} spacing {spacing}: invalid atlas values")
-        valid = int(record["valid_texel_count"])
-        scanned = int(record["scanned_stored_texel_count"])
-        if valid <= 0 or scanned <= 0 or scanned * 64 != valid * 100:
-            raise ValueError(f"{case_name} spacing {spacing}: incomplete atlas coverage")
-
-        if epoch == 0:
-            expected_consecutive = 0
-        else:
-            below = (
-                float(record["max_absolute_rgb_delta"])
-                <= policy.absolute_threshold
-                and float(record["max_relative_rgb_delta"])
-                <= policy.relative_threshold
-            )
-            expected_consecutive = previous_consecutive + 1 if below else 0
-            previous_consecutive = expected_consecutive
-        if record["consecutive_below_threshold"] != expected_consecutive:
-            raise ValueError(
-                f"{case_name} spacing {spacing}: invalid consecutive classification at e{epoch}"
-            )
-        if (
-            epoch + 1 >= policy.minimum_epoch_count
-            and expected_consecutive >= policy.consecutive_epochs
-            and first_threshold_epoch is None
-        ):
-            first_threshold_epoch = epoch
+    first_threshold_epoch = next(
+        (
+            int(record["update_epoch"])
+            for record in records
+            if int(record["update_epoch"]) + 1 >= policy.minimum_epoch_count
+            and int(record["consecutive_below_threshold"])
+            >= policy.consecutive_epochs
+        ),
+        None,
+    )
 
     final = records[-1]
     if final["field_serial"] != field_serial:
