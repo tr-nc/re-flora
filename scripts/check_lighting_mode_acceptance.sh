@@ -58,13 +58,26 @@ run_log=""
 if [[ -f "$log_pointer" ]] && [[ "$(stat -c %Y "$log_pointer")" -ge "$run_started_epoch" ]]; then
     run_log="$(sed -n '1p' "$log_pointer")"
 fi
-if [[ -z "$run_log" || "$run_log" == "$previous_run_log" || ! -f "$run_log" || ! -s "$artifact" ]]; then
+if [[ -z "$run_log" || "$run_log" == "$previous_run_log" || ! -f "$run_log" ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=missing-artifact-or-run-log\n' >&2
+    exit 3
+fi
+runtime_red="$(
+    rg --no-filename -o '\[LIGHTING_MODE_ACCEPTANCE\] verdict=RED reason=.*' \
+        "$app_output" "$run_log" 2>/dev/null | awk '!seen[$0]++' || true
+)"
+if [[ -n "$runtime_red" ]]; then
+    printf '%s\n' "$runtime_red" >&2
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_REJECTED reason=see-app-verdict\n' >&2
     exit 3
 fi
 if rg -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >/dev/null 2>&1; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=error-marker\n' >&2
     rg -n 'ERROR|panic|VUID-|validation error|stale readback' "$app_output" "$run_log" >&2 || true
+    exit 3
+fi
+if [[ ! -s "$artifact" ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=missing-artifact\n' >&2
     exit 3
 fi
 
