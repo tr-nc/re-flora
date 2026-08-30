@@ -54,6 +54,10 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
                 ),
             )
             executable(
+                scripts / "runtime_log_diagnostics.py",
+                (SCRIPTS / "runtime_log_diagnostics.py").read_text(encoding="utf-8"),
+            )
+            executable(
                 scripts / "analyze_environment_irradiance_capture.py",
                 "#!/usr/bin/env bash\nprintf '{}\\n'\n",
             )

@@ -212,6 +212,32 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
             self.logged(
                 "sctk_adwaita::config",
                 "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: color-scheme",
+                level="WARN",
+            ),
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: color-scheme",
+                level="INFO",
+            ),
+            "XDG Settings Portal did not return response in time: "
+            "timeout: 100ms, key: color-scheme\n",
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 101ms, key: color-scheme",
+                level="ERROR",
+            ),
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 0100ms, key: color-scheme",
+                level="ERROR",
+            ),
+            self.logged(
+                "sctk_adwaita::config",
+                "XDG Settings Portal did not return response in time: "
                 "timeout: 100ms, key: cursor-theme",
                 level="ERROR",
             ),
@@ -225,6 +251,28 @@ class ValidateCaptureProcessEvidenceTests(unittest.TestCase):
         for mutation in mutations:
             with self.subTest(mutation=mutation):
                 result = self.validate(console_extra=mutation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("fatal or validation diagnostic", result.stderr)
+
+    def test_benign_portal_line_does_not_mask_an_independent_fatal_diagnostic(self) -> None:
+        benign = self.logged(
+            "sctk_adwaita::config",
+            "XDG Settings Portal did not return response in time: "
+            "timeout: 100ms, key: color-scheme",
+            level="ERROR",
+        )
+        result = self.validate(console_extra=benign + "VUID-independent-failure\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("fatal or validation diagnostic", result.stderr)
+
+    def test_preserves_cross_line_fatal_diagnostic_detection(self) -> None:
+        for diagnostic in (
+            "device\nlost",
+            "destroyed\ndescriptor",
+            "stale\nreadback",
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                result = self.validate(console_extra=diagnostic + "\n")
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("fatal or validation diagnostic", result.stderr)
 

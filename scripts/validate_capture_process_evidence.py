@@ -9,6 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from runtime_log_diagnostics import first_fatal_diagnostic
+
 
 LOG_TIME = r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}"
 
@@ -22,18 +24,6 @@ def production_log_line(level: str, module: str, payload: str) -> re.Pattern[str
 
 RUN_LOG_MARKER = production_log_line(
     "INFO", "re_flora", r"\[RUN_LOG\] path=(?P<path>.+?)"
-)
-FATAL_DIAGNOSTIC = re.compile(
-    r"\b(?:VK_)?ERROR(?:_[A-Z0-9]+)+\b|\bERROR\b|"
-    r"\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
-    r"VUID-|\bdevice\s+lost\b|\bdestroyed\s+descriptor\b|"
-    r"\bstale\s+readback\b",
-    re.IGNORECASE | re.MULTILINE,
-)
-BENIGN_PLATFORM_DIAGNOSTIC = re.compile(
-    rf"^\[{LOG_TIME} ERROR sctk_adwaita::config\] "
-    r"XDG Settings Portal did not return response in time: "
-    r"timeout: \d+ms, key: color-scheme$"
 )
 PUBLICATION = production_log_line(
     "INFO",
@@ -68,17 +58,6 @@ def exactly_one(pattern: re.Pattern[str], text: str, label: str) -> re.Match[str
     if len(matches) != 1:
         raise ValueError(f"expected exactly one {label}, found {len(matches)}")
     return matches[0]
-
-
-def first_fatal_diagnostic(text: str) -> re.Match[str] | None:
-    """Return the first fatal diagnostic, excluding one known cosmetic portal failure."""
-    for line in text.splitlines():
-        if BENIGN_PLATFORM_DIAGNOSTIC.fullmatch(line) is not None:
-            continue
-        diagnostic = FATAL_DIAGNOSTIC.search(line)
-        if diagnostic is not None:
-            return diagnostic
-    return None
 
 
 def validate(console_path: Path, *, require_test_scene_startup: bool) -> Path:

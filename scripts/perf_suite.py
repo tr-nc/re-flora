@@ -19,11 +19,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from runtime_log_diagnostics import fatal_diagnostic_excerpts
+
 DEFAULT_CONFIG = Path("config/perf_scenarios.toml")
-ERROR_PATTERN = re.compile(
-    r"validation error|\bERROR\b|panic|panicked|device lost|VUID-",
-    re.IGNORECASE,
-)
 GPU_FRAME_PATTERN = re.compile(r"\[PERF\]\[GPU_FRAME_SCOPE\] frame (\d+)(.*)")
 CPU_FRAME_PATTERN = re.compile(r"\[PERF\]\[CPU_FRAME_SCOPE\] frame (\d+)(.*)")
 GPU_SCOPE_PATTERN = re.compile(r"(?:^|\s)([A-Za-z0-9_.-]+)=([0-9]+(?:\.[0-9]+)?)us")
@@ -241,7 +239,7 @@ def git_value(root: Path, *args: str) -> str:
 
 
 def validate_log(log_text: str, scenario: Scenario) -> None:
-    diagnostics = [line for line in log_text.splitlines() if ERROR_PATTERN.search(line)]
+    diagnostics = fatal_diagnostic_excerpts(log_text)
     if diagnostics:
         excerpt = "\n".join(diagnostics[:20])
         raise ValueError(f"run contains fatal or validation diagnostics:\n{excerpt}")

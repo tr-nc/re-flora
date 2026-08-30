@@ -58,6 +58,10 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
                 ),
             )
             executable(
+                scripts / "runtime_log_diagnostics.py",
+                (SCRIPTS / "runtime_log_diagnostics.py").read_text(encoding="utf-8"),
+            )
+            executable(
                 fake_bin / "cargo",
                 """#!/usr/bin/env bash
 set -euo pipefail

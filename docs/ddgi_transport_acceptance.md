@@ -81,7 +81,9 @@ stale-readback diagnostic. The sole platform exception is the exact `sctk_adwait
 color-scheme Portal timeout: it is a cosmetic desktop-setting lookup and does not affect the native
 window, Vulkan surface, or capture completion. The classifier requires the complete production log
 identity and payload; a different module, Portal key, trailing diagnostic, or any other `ERROR`
-remains fatal.
+remains fatal. `scripts/runtime_log_diagnostics.py` owns this classification for process-bound DDGI
+evidence, sky-normalization evidence, the canonical latest-run smoke gate, and release performance
+logs, so those consumers cannot disagree about the same production event.
 
 ## Convergence policy
 

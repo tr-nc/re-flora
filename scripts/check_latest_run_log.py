@@ -4,14 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
-ERROR_PATTERN = re.compile(
-    r"validation error|\bERROR\b|panic|panicked|device lost|VUID-",
-    re.IGNORECASE,
-)
+from runtime_log_diagnostics import fatal_diagnostic_excerpts
 
 
 def main() -> int:
@@ -23,7 +19,7 @@ def main() -> int:
     pointer = args.log_root / "latest-run-log.txt"
     log = Path(pointer.read_text(encoding="utf-8").strip())
     text = log.read_text(encoding="utf-8", errors="replace")
-    matches = [line for line in text.splitlines() if ERROR_PATTERN.search(line)]
+    matches = fatal_diagnostic_excerpts(text)
     if matches:
         print("latest run contains fatal or validation diagnostics:", file=sys.stderr)
         print("\n".join(matches), file=sys.stderr)

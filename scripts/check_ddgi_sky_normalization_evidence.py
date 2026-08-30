@@ -18,7 +18,7 @@ from analyze_environment_irradiance_capture import (
     load_capture,
     summarize,
 )
-from validate_capture_process_evidence import first_fatal_diagnostic
+from runtime_log_diagnostics import first_fatal_diagnostic
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
