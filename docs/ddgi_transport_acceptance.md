@@ -122,7 +122,8 @@ so startup-volume epochs or records from another field cannot contaminate the ta
 - the final radiance epoch zero uses the expected prior complete source;
 - a density update leaves spacing 32 active while spacing 16 builds;
 - a geometry edit preempts the first density candidate without making it consumer-visible;
-- the latest geometry epoch zero publishes before the density retry;
+- the latest geometry epoch zero completes privately, the same typed generation survives local
+  recovery and publishes, and only then does the density retry begin;
 - spacing 16 first becomes visible only as a complete epoch-zero field.
 
 ## Terrain-edit continuity
@@ -135,14 +136,15 @@ indirect continuity worked.
 
 ## Response latency and static sleep
 
-On the NVIDIA GeForce RTX 3060 Ti, three matched release runs of
+On the NVIDIA GeForce RTX 3060 Ti, three historical matched release runs of
 `terrain-edits-closed` produced six complete edit-to-epoch-zero promotions in `31-36 ms`, with
 median `34.5 ms` and p95 `36 ms`. The retained two-stage baseline log contains `87 ms` and `88 ms`
-for the same two edits, median `87.5 ms`; the observed first-valid-field latency is therefore about
-`60.6%` lower. The old baseline has only two observations, so this is a response-latency result,
-not a broad frame-performance claim. Atomic descriptor/resource publication itself remained
-`0.0095 ms` median. Current evidence is under `target/ddgi-temporal-lifecycle-final/`; the baseline
-is under `target/ddgi-temporal-lifecycle-baseline/`.
+for the same two edits, median `87.5 ms`. These samples predate localized recovery and therefore do
+not measure the current edit-to-consumer-publication interval. They remain historical first-valid
+field evidence, not a broad frame-performance claim. Atomic descriptor/resource publication itself
+remained `0.0095 ms` median. The historical evidence is under
+`target/ddgi-temporal-lifecycle-final/`; the baseline is under
+`target/ddgi-temporal-lifecycle-baseline/`.
 
 A separate five-second static portal run under that historical 64-epoch policy reached
 `Converged e63` and recorded zero scheduler claims after the terminal publication. Camera/display
