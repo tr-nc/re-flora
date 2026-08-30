@@ -474,6 +474,10 @@ pub(crate) struct AuthoredEnvironmentLighting {
 }
 
 impl AuthoredEnvironmentLighting {
+    pub(crate) fn live_revision(&self) -> u64 {
+        self.current_live_revision
+    }
+
     pub fn observe(
         &mut self,
         input: AuthoredEnvironmentLightingInput,

@@ -48,7 +48,10 @@ use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::lighting_mode_acceptance::{EffectiveLightingControls, LightingModeAcceptanceRuntime};
+use self::lighting_mode_acceptance::{
+    EffectiveLightingControls, LightingModeAcceptanceIdentity, LightingModeAcceptanceRuntime,
+    PendingLightingModeCapture,
+};
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
@@ -617,6 +620,61 @@ impl Drop for App {
 }
 
 impl App {
+    fn lighting_mode_acceptance_identity(
+        &self,
+        screen_extent: Extent2D,
+        visual_time_seconds: f32,
+        sampling_serial: u32,
+    ) -> Option<LightingModeAcceptanceIdentity> {
+        if !self.lighting_mode_acceptance.is_active() || self.visible_terrain_revision == 0 {
+            return None;
+        }
+        let status = self.tracer.ddgi_runtime_status();
+        if status.staging().is_some() {
+            return None;
+        }
+        let active = status.active();
+        let published = active.published_field?;
+        let field = published.field();
+        let source = published.source()?;
+        if field.state() != crate::ddgi::DdgiFieldState::Converged
+            || field.geometry_revision() != self.visible_terrain_revision
+            || active.relocated_terrain_revision != Some(self.visible_terrain_revision)
+        {
+            return None;
+        }
+        let camera = self.tracer.camera_pose();
+        let render_extent = self.tracer.environment_irradiance_capture_extent();
+        let local_lighting_revision = self.local_lights.snapshot().source_revision();
+        Some(LightingModeAcceptanceIdentity {
+            camera_pose_bits: [
+                camera.position.x.to_bits(),
+                camera.position.y.to_bits(),
+                camera.position.z.to_bits(),
+                camera.yaw_deg.to_bits(),
+                camera.pitch_deg.to_bits(),
+                camera.fov_deg.to_bits(),
+            ],
+            render_extent: [render_extent.width, render_extent.height],
+            screen_extent: [screen_extent.width, screen_extent.height],
+            extent_generation: self.tracer.frame_extent_generation().serial(),
+            visible_terrain_revision: self.visible_terrain_revision,
+            ddgi_field_serial: field.serial(),
+            ddgi_geometry_revision: field.geometry_revision(),
+            ddgi_radiance_revision: field.radiance_revision(),
+            ddgi_spacing_voxels: field.spacing_voxels(),
+            ddgi_update_epoch: field.update_epoch(),
+            ddgi_source_field_serial: source.serial(),
+            ddgi_source_geometry_revision: source.geometry_revision(),
+            ddgi_source_radiance_revision: source.radiance_revision(),
+            ddgi_source_update_epoch: source.update_epoch(),
+            authored_lighting_revision: self.tracer.authored_environment_lighting_revision(),
+            local_lighting_revision,
+            visual_time_bits: visual_time_seconds.to_bits(),
+            sampling_serial,
+        })
+    }
+
     fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
         let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
             return;
@@ -1283,6 +1341,7 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+            || options.lighting_mode_acceptance.is_some()
         {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
@@ -1617,6 +1676,7 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
+            || options.lighting_mode_acceptance.is_some()
         {
             app.configure_foliage_shadow_bench_camera()?;
         }
@@ -2386,6 +2446,9 @@ impl App {
                     .as_ref()
                     .and_then(DenoiserBench::fixed_frame_delta_seconds)
                     .unwrap_or_else(|| self.time_info.delta_time());
+                let frame_delta_time = self
+                    .lighting_mode_acceptance
+                    .effective_frame_delta_seconds(frame_delta_time);
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -2405,6 +2468,9 @@ impl App {
                     .as_ref()
                     .and_then(DenoiserBench::visual_time_seconds)
                     .unwrap_or(time_since_start);
+                let visual_time_since_start = self
+                    .lighting_mode_acceptance
+                    .fixed_visual_time_seconds(visual_time_since_start);
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -3433,8 +3499,11 @@ impl App {
                     )
                 });
 
+                let effective_time_of_day = self
+                    .lighting_mode_acceptance
+                    .effective_time_of_day(self.world_clock.live_time_of_day());
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.world_clock.live_time_of_day(),
+                    effective_time_of_day,
                     self.debug_settings.adjustables.latitude.value,
                     self.debug_settings.adjustables.season.value,
                 );
@@ -3536,26 +3605,43 @@ impl App {
                             .value,
                     ),
                 );
+                let sampling_serial = self
+                    .lighting_mode_acceptance
+                    .fixed_sampling_serial(self.time_info.total_frame_count() as u32);
+                let dither_strength_lsb = self.lighting_mode_acceptance.effective_dither_strength(
+                    self.debug_settings.adjustables.dither_strength_lsb.value,
+                );
+                let path_tracing_max_bounces =
+                    self.lighting_mode_acceptance.effective_path_max_bounces(
+                        self.debug_settings
+                            .adjustables
+                            .path_tracing_max_bounces
+                            .value,
+                    );
+                let path_tracing_ambient_light = Vec3::from_array(
+                    self.lighting_mode_acceptance.effective_path_ambient_light(
+                        self.debug_settings
+                            .adjustables
+                            .path_tracing_ambient_light
+                            .get_vec3()
+                            .to_array(),
+                    ),
+                );
                 self.tracer
                     .update_buffers(
                         &self.time_info,
+                        sampling_serial,
                         &self.local_lights.snapshot(),
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
-                        self.debug_settings.adjustables.dither_strength_lsb.value,
+                        dither_strength_lsb,
                         effective_lighting_controls.raster_flora_ddgi_lighting(),
                         effective_lighting_controls.path_tracing_reference(),
-                        self.debug_settings
-                            .adjustables
-                            .path_tracing_max_bounces
-                            .value,
-                        self.debug_settings
-                            .adjustables
-                            .path_tracing_ambient_light
-                            .get_vec3(),
+                        path_tracing_max_bounces,
+                        path_tracing_ambient_light,
                         self.debug_settings
                             .adjustables
                             .terrain_ray_origin_offset_world
@@ -4233,6 +4319,18 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
+                let lighting_mode_identity = self.lighting_mode_acceptance_identity(
+                    render_area,
+                    visual_time_since_start,
+                    sampling_serial,
+                );
+                let mut lighting_mode_readback: Option<PendingLightingModeCapture> = self
+                    .lighting_mode_acceptance
+                    .record_if_ready(lighting_mode_identity, &self.tracer, cmdbuf)
+                    .unwrap_or_else(|err| {
+                        panic!("[LIGHTING_MODE_ACCEPTANCE] failed to record: {err:#}")
+                    });
+
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
                         &self.tracer,
@@ -4375,12 +4473,14 @@ impl App {
                 }
 
                 let mut denoiser_bench_complete = false;
+                let mut lighting_mode_acceptance_complete = false;
                 let mut environment_irradiance_capture_complete = false;
                 let mut ddgi_spatial_weight_readback_complete = false;
                 if screenshot_readback.is_some()
                     || denoiser_frame_readback.is_some()
                     || environment_irradiance_readback.is_some()
                     || ddgi_spatial_weight_readback.is_some()
+                    || lighting_mode_readback.is_some()
                 {
                     // Finish the GPU copy before handing CPU processing to a worker. Waiting on
                     // this frame's fence from the worker raced the frame manager resetting the
@@ -4411,6 +4511,16 @@ impl App {
                                         "[DDGI_SPATIAL_WEIGHT_READBACK] failed to write: {err:#}"
                                     ),
                                 }
+                            }
+                            if let Some(readback) = lighting_mode_readback.take() {
+                                lighting_mode_acceptance_complete = self
+                                    .lighting_mode_acceptance
+                                    .complete(readback)
+                                    .unwrap_or_else(|err| {
+                                        panic!(
+                                            "[LIGHTING_MODE_ACCEPTANCE] failed to complete: {err:#}"
+                                        )
+                                    });
                             }
                             if let Some(readback) = screenshot_readback.take() {
                                 self.screenshot_capture.complete(readback);
@@ -4567,6 +4677,12 @@ impl App {
                     }
                 }
                 if denoiser_bench_complete {
+                    self.on_terminate(event_loop);
+                }
+                if lighting_mode_acceptance_complete {
+                    log::info!(
+                        "[LIGHTING_MODE_ACCEPTANCE] complete; exiting production acceptance run"
+                    );
                     self.on_terminate(event_loop);
                 }
                 if environment_irradiance_capture_complete {

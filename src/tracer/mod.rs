@@ -121,11 +121,12 @@ use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_gpu_job, Allocator, Buffer, BufferUse, ClearValue, ColorClearValue,
-    CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource, DescriptorUpdate,
-    Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink, GpuProfiler,
-    GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDrawDescriptors, PushConstantInfo,
-    Texture, TextureLayout, Viewport, VulkanContext,
+    execute_one_time_gpu_job, Allocator, Buffer, BufferUsage, BufferUse, ClearValue,
+    ColorClearValue, CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource,
+    DescriptorUpdate, Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement,
+    FrameRetirementSink, GpuProfiler, GraphicsPipeline, MemoryLocation, PipelineBarrier,
+    PipelineStage, PreparedDrawDescriptors, PushConstantInfo, Texture, TextureLayout, Viewport,
+    VulkanContext,
 };
 use std::time::Instant;
 
@@ -139,6 +140,28 @@ fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<
             build_token.spacing_voxels(),
         )
     });
+}
+
+pub(crate) struct LightingModeProductionReadback {
+    terrain_rgbe: Buffer,
+    terrain_depth: Buffer,
+    raster_rgba: Buffer,
+}
+
+pub(crate) struct LightingModeProductionLayers {
+    pub terrain_rgbe: Vec<u8>,
+    pub terrain_depth: Vec<u8>,
+    pub raster_rgba: Vec<u8>,
+}
+
+impl LightingModeProductionReadback {
+    pub(crate) fn read(self) -> Result<LightingModeProductionLayers> {
+        Ok(LightingModeProductionLayers {
+            terrain_rgbe: self.terrain_rgbe.read_back()?,
+            terrain_depth: self.terrain_depth.read_back()?,
+            raster_rgba: self.raster_rgba.read_back()?,
+        })
+    }
 }
 
 fn local_light_impact_voxel_bound(
@@ -1653,6 +1676,10 @@ impl Tracer {
         self.ddgi_runtime.status().active().is_ready()
     }
 
+    pub(crate) fn authored_environment_lighting_revision(&self) -> u64 {
+        self.environment_lighting.live_revision()
+    }
+
     pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
         let status = self.ddgi_runtime.status().active();
         status.is_ready() && status.relocated_terrain_revision == Some(revision)
@@ -1703,6 +1730,50 @@ impl Tracer {
         assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
         cmdbuf.use_buffer(readback, BufferUse::HostRead);
+    }
+
+    pub(crate) fn prepare_lighting_mode_production_readback(
+        &self,
+    ) -> LightingModeProductionReadback {
+        let resources = &self.resources.extent_dependent_resources;
+        let make_buffer = |byte_count| {
+            Buffer::new_sized(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                BufferUsage::transfer_dst(),
+                MemoryLocation::GpuToCpu,
+                byte_count,
+            )
+        };
+        LightingModeProductionReadback {
+            terrain_rgbe: make_buffer(resources.compute_output_tex.get_image().get_size() as u64),
+            terrain_depth: make_buffer(resources.compute_depth_tex.get_image().get_size() as u64),
+            raster_rgba: make_buffer(resources.gfx_output_tex.get_image().get_size() as u64),
+        }
+    }
+
+    pub(crate) fn record_lighting_mode_production_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        readback: &LightingModeProductionReadback,
+    ) {
+        let resources = &self.resources.extent_dependent_resources;
+        for (source, destination) in [
+            (
+                resources.compute_output_tex.get_image(),
+                &readback.terrain_rgbe,
+            ),
+            (
+                resources.compute_depth_tex.get_image(),
+                &readback.terrain_depth,
+            ),
+            (resources.gfx_output_tex.get_image(), &readback.raster_rgba),
+        ] {
+            cmdbuf.use_buffer(destination, BufferUse::TransferWrite);
+            let final_layout = source.get_layout(0);
+            source.record_copy_to_buffer(cmdbuf, destination, final_layout);
+            cmdbuf.use_buffer(destination, BufferUse::HostRead);
+        }
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
@@ -1927,6 +1998,7 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
+        frame_serial_idx: u32,
         local_lights: &LocalLightSnapshot,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
@@ -2368,7 +2440,7 @@ impl Tracer {
             starlight_saturation,
         )?;
 
-        BufferUpdater::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
+        BufferUpdater::update_env_info(&self.resources, frame_serial_idx)?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();

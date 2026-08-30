@@ -460,6 +460,11 @@ impl AppOptions {
         .map(|artifact_path| LightingModeAcceptanceOptions {
             artifact_path: artifact_path.into(),
         });
+        if lighting_mode_acceptance.is_some()
+            && !(args.iter().any(|arg| arg == "--hidden") && args.iter().any(|arg| arg == "--mute"))
+        {
+            return Err("--lighting-mode-acceptance requires --hidden --mute".to_owned());
+        }
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -560,7 +565,15 @@ impl AppOptions {
                 "Do not combine --screenshot with --foliage-shadow-bench. {FOLIAGE_SHADOW_BENCH_USAGE}"
             ));
         }
-        let camera_snapshot = if let Some(screenshot) = &screenshot {
+        let camera_snapshot = if lighting_mode_acceptance.is_some() {
+            if screenshot.is_some()
+                || denoiser_bench.is_some()
+                || args.iter().any(|arg| arg == "--camera-snapshot")
+            {
+                return Err("--lighting-mode-acceptance owns its fixed scene and camera".to_owned());
+            }
+            None
+        } else if let Some(screenshot) = &screenshot {
             if args.iter().any(|a| a == "--camera-snapshot") {
                 return Err(format!(
                     "Do not combine --camera-snapshot with --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
@@ -598,6 +611,37 @@ impl AppOptions {
             .any(|arg| arg == "--canopy-audio-budget-diagnostic");
         let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
             || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
+        if lighting_mode_acceptance.is_some()
+            && (terrain_load_path.is_some()
+                || terrain_save_path.is_some()
+                || water_experience
+                || environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || house_scene
+                || water_edit_soak
+                || environment_irradiance_capture_path.is_some()
+                || ddgi_spatial_weight_readback_path.is_some()
+                || frame_stability_bench.is_some()
+                || screenshot_options.is_some()
+                || args.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--auto-exit"
+                            | "--no-tracer"
+                            | "--no-flora"
+                            | "--no-shadows"
+                            | "--no-leaf-shadows"
+                            | "--ddgi-debug-view"
+                            | "--environment-probe-spacing-voxels"
+                            | "--environment-probe-rebuild-spacing-voxels"
+                    )
+                }))
+        {
+            return Err(
+                "--lighting-mode-acceptance owns its fixed scene, camera, render controls, and exit"
+                    .to_owned(),
+            );
+        }
         if canopy_audio_diagnostic
             && (terrain_load_path.is_some()
                 || water_experience
@@ -723,7 +767,8 @@ impl AppOptions {
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
-            no_particles: args.iter().any(|a| a == "--no-particles"),
+            no_particles: lighting_mode_acceptance.is_some()
+                || args.iter().any(|a| a == "--no-particles"),
             no_flora: args.iter().any(|a| a == "--no-flora"),
             no_clouds: args.iter().any(|a| a == "--no-clouds"),
             present_mode,
@@ -1270,6 +1315,9 @@ mod tests {
                 artifact_path: "target/r13-e2.rflma".into(),
             })
         );
+        assert!(options.camera_snapshot.is_none());
+        assert!(!options.house_scene);
+        assert!(options.no_particles);
     }
 
     #[test]
@@ -1283,6 +1331,35 @@ mod tests {
             result.unwrap_err(),
             "Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path."
         );
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_rejects_visible_or_mutable_fixture_options() {
+        let visible = AppOptions::try_from_arg_strings(
+            ["re-flora", "--lighting-mode-acceptance", "out.rflma"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        )
+        .unwrap_err();
+        assert!(visible.contains("requires --hidden --mute"));
+
+        let camera = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--hidden",
+                "--mute",
+                "--lighting-mode-acceptance",
+                "out.rflma",
+                "--camera-snapshot",
+                "player-default",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(camera.contains("owns its fixed scene and camera"));
     }
 
     #[test]
