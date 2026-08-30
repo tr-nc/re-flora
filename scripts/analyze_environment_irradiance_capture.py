@@ -1801,12 +1801,22 @@ def main() -> int:
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
         ):
+            failures.append(
+                "reference luminance_error_p99: expected at most "
+                f"{args.max_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99'):g}"
+            )
             exit_code = 1
         if (
             args.max_reference_overestimate_p99 is not None
             and reference.get("luminance_overestimate_p99", math.inf)
             > args.max_reference_overestimate_p99
         ):
+            failures.append(
+                "reference luminance_overestimate_p99: expected at most "
+                f"{args.max_reference_overestimate_p99:g}, got "
+                f"{reference.get('luminance_overestimate_p99'):g}"
+            )
             exit_code = 1
     elif args.min_reference_error_p99 is not None:
         failures.append("--min-reference-error-p99 requires --reference")

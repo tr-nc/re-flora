@@ -424,6 +424,48 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_cli_reports_failed_reference_ceiling_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                first_path,
+                [(0.8, 0.8, 0.8, 1.0)],
+                *common_planes,
+            )
+            self.write_capture_v8(
+                reference_path,
+                [(0.2, 0.2, 0.2, 1.0)],
+                *common_planes,
+            )
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.5",
+                "--max-reference-overestimate-p99",
+                "0.5",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        failures = json.loads(rejected.stdout)["validation_failures"]
+        self.assertIn(
+            "reference luminance_error_p99: expected at most 0.5, got 0.6",
+            failures,
+        )
+        self.assertIn(
+            "reference luminance_overestimate_p99: expected at most 0.5, got 0.6",
+            failures,
+        )
+
     def test_cli_gates_debug_route_roi_gain_against_real_capture_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             final_path = Path(directory) / "final.rfirr"
