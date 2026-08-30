@@ -466,6 +466,24 @@ impl ScenarioOwner {
             | Self::TestScene(_) => Ok(false),
         }
     }
+
+    fn observe_completed_connectivity_frame(
+        &mut self,
+        plain_builder: &mut PlainBuilder,
+        record: CpuFrameRecord,
+    ) -> anyhow::Result<bool> {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                bench.observe_completed_frame_inner(plain_builder, record)
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => Ok(false),
+        }
+    }
 }
 
 fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
@@ -501,6 +519,35 @@ impl App {
             plain_builder,
             facts,
         )
+    }
+
+    pub(in crate::app::core) fn observe_completed_connectivity_benchmark_frame(
+        &mut self,
+        timing: super::super::frame_timing::FrameTimingSnapshot,
+    ) -> anyhow::Result<bool> {
+        let water = self.water_terrain_status().diagnostics();
+        let record = CpuFrameRecord {
+            frame: timing.frame,
+            total_us: timing.total_ms * 1_000.0,
+            gpu_present_us: timing.gpu_present_ms * 1_000.0,
+            tracked_us: timing.tracked_cpu_ms * 1_000.0,
+            untracked_us: timing.untracked_cpu_ms * 1_000.0,
+            terrain_collider_pending: self.terrain_physics.terrain_collider_pending_len(),
+            contree_cache_pending: self.contree_builder.cpu_chunk_cache_pending_len(),
+            water_source_pending: water.source_pending + water.source_active,
+            water_collider_pending: water.collider_pending + water.collider_active,
+            water_cache_pending: water.cache_pending + water.cache_active,
+            ddgi_ready: self
+                .tracer
+                .ddgi_ready_for_terrain_revision(self.visible_terrain_revision),
+            visible_revision: self.visible_terrain_revision,
+        };
+        let App {
+            scenario_owner,
+            plain_builder,
+            ..
+        } = self;
+        scenario_owner.observe_completed_connectivity_frame(plain_builder, record)
     }
 
     pub(in crate::app::core) fn advance_connectivity_benchmark(&mut self) -> anyhow::Result<()> {
@@ -1070,45 +1117,6 @@ impl TerrainConnectivityBench {
                 }
             }
             BenchState::Complete => {}
-        }
-    }
-
-    pub(in crate::app::core) fn observe_completed_frame(
-        app: &mut App,
-        timing: super::super::frame_timing::FrameTimingSnapshot,
-    ) -> anyhow::Result<bool> {
-        let water = app.water_terrain_status().diagnostics();
-        let record = CpuFrameRecord {
-            frame: timing.frame,
-            total_us: timing.total_ms * 1_000.0,
-            gpu_present_us: timing.gpu_present_ms * 1_000.0,
-            tracked_us: timing.tracked_cpu_ms * 1_000.0,
-            untracked_us: timing.untracked_cpu_ms * 1_000.0,
-            terrain_collider_pending: app.terrain_physics.terrain_collider_pending_len(),
-            contree_cache_pending: app.contree_builder.cpu_chunk_cache_pending_len(),
-            water_source_pending: water.source_pending + water.source_active,
-            water_collider_pending: water.collider_pending + water.collider_active,
-            water_cache_pending: water.cache_pending + water.cache_active,
-            ddgi_ready: app
-                .tracer
-                .ddgi_ready_for_terrain_revision(app.visible_terrain_revision),
-            visible_revision: app.visible_terrain_revision,
-        };
-        let App {
-            scenario_owner,
-            plain_builder,
-            ..
-        } = app;
-        match scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.observe_completed_frame_inner(plain_builder, record)
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                Ok(false)
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => Ok(false),
         }
     }
 

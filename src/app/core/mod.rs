@@ -57,7 +57,6 @@ use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
-use self::terrain_connectivity::bench::TerrainConnectivityBench;
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
@@ -4611,11 +4610,11 @@ impl App {
                         );
                     }
                 }
-                let complete =
-                    TerrainConnectivityBench::observe_completed_frame(self, frame_timing_snapshot)
-                        .unwrap_or_else(|err| {
-                            panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
-                        });
+                let complete = self
+                    .observe_completed_connectivity_benchmark_frame(frame_timing_snapshot)
+                    .unwrap_or_else(|err| {
+                        panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
+                    });
                 if complete {
                     self.on_terminate(event_loop);
                     return;
