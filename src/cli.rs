@@ -1179,6 +1179,12 @@ impl From<&AppOptions> for RenderFlags {
 mod tests {
     use super::*;
 
+    fn try_launch(args: &[&str]) -> Result<LaunchCommand, String> {
+        LaunchCommand::try_from_arg_strings(
+            args.iter().map(|argument| (*argument).to_owned()).collect(),
+        )
+    }
+
     fn parse(args: &[&str]) -> AppOptions {
         AppOptions::from_arg_strings(args.iter().map(|arg| (*arg).to_owned()).collect())
     }
@@ -2060,6 +2066,160 @@ mod tests {
         let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--audio-output-device"]))
             .expect_err("missing audio output device should panic");
         assert!(panic_message(panic).contains("Missing value for --audio-output-device"));
+    }
+
+    #[test]
+    fn launch_command_keeps_queries_disjoint_from_run_state() {
+        assert!(matches!(
+            try_launch(&["re-flora", "--help"]).unwrap(),
+            LaunchCommand::Help
+        ));
+        assert!(matches!(
+            try_launch(&["re-flora", "--list-camera-snapshots"]).unwrap(),
+            LaunchCommand::ListCameraSnapshots
+        ));
+        let LaunchCommand::InspectLogs(inspection) = try_launch(&[
+            "re-flora",
+            "--print-log-dir",
+            "--latest-log",
+            "--tail-latest-log",
+            "120",
+        ])
+        .unwrap() else {
+            panic!("log flags must produce an InspectLogs query");
+        };
+        assert!(inspection.print_directory);
+        assert!(inspection.print_latest_path);
+        assert_eq!(inspection.tail_latest_lines, Some(120));
+
+        for arguments in [
+            ["re-flora", "--help", "--hidden"],
+            ["re-flora", "--list-camera-snapshots", "--camera-snapshot"],
+            ["re-flora", "--latest-log", "--hidden"],
+        ] {
+            assert!(try_launch(&arguments).is_err(), "accepted {arguments:?}");
+        }
+    }
+
+    #[test]
+    fn run_plan_uses_closed_scenario_and_unique_camera_automation() {
+        let LaunchCommand::Run(plan) = try_launch(&[
+            "re-flora",
+            "--house-scene",
+            "--camera-snapshot",
+            "house-overlook",
+        ])
+        .unwrap() else {
+            panic!("run arguments must produce a Run plan");
+        };
+        assert!(matches!(plan.scenario, Scenario::House));
+        assert!(matches!(
+            plan.camera,
+            CameraAutomation::Snapshot(ref name) if name == "house-overlook"
+        ));
+
+        let competing = try_launch(&[
+            "re-flora",
+            "--environment-lighting-test-scene",
+            "portal",
+            "--hybrid-transparency-test-scene",
+        ])
+        .unwrap_err();
+        assert!(competing.contains("scenario"), "{competing}");
+    }
+
+    #[test]
+    fn every_numeric_argument_rejects_invalid_text_instead_of_defaulting() {
+        let cases: &[&[&str]] = &[
+            &["re-flora", "--swapchain-images", "invalid"],
+            &["re-flora", "--auto-exit", "invalid"],
+            &["re-flora", "--water-particles", "invalid"],
+            &["re-flora", "--water-particle-edge-len", "invalid"],
+            &["re-flora", "--water-grid", "invalid"],
+            &["re-flora", "--water-substep-hz", "invalid"],
+            &["re-flora", "--water-terrain-margin-cells", "invalid"],
+            &["re-flora", "--water-damping", "invalid"],
+            &["re-flora", "--water-terrain-tangent-damping", "invalid"],
+            &["re-flora", "--water-stiffness", "invalid"],
+            &["re-flora", "--water-gamma", "invalid"],
+            &["re-flora", "--water-j-min", "invalid"],
+            &[
+                "re-flora",
+                "--denoiser-bench",
+                "player-default",
+                "report.toml",
+                "--denoiser-bench-warmup-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--denoiser-bench",
+                "player-default",
+                "report.toml",
+                "--denoiser-bench-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--foliage-shadow-bench",
+                "report.toml",
+                "--foliage-shadow-bench-warmup-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--foliage-shadow-bench",
+                "report.toml",
+                "--foliage-shadow-bench-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--tree-bench",
+                "--tree-bench-samples",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--authored-flora-bench",
+                "--authored-flora-bench-samples",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--terrain-connectivity-bench",
+                "bounded",
+                "--terrain-connectivity-bench-available-particles",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--terrain-connectivity-bench",
+                "bounded",
+                "--terrain-connectivity-bench-warmup-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--terrain-connectivity-bench",
+                "bounded",
+                "--terrain-connectivity-bench-observe-frames",
+                "invalid",
+            ],
+            &[
+                "re-flora",
+                "--terrain-connectivity-bench",
+                "bounded",
+                "--terrain-connectivity-bench-voxel-budget",
+                "invalid",
+            ],
+            &["re-flora", "--tail-latest-log", "invalid"],
+        ];
+
+        for arguments in cases {
+            let error = try_launch(arguments).unwrap_err();
+            assert!(error.contains("Invalid"), "{arguments:?}: {error}");
+        }
     }
 
     fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
