@@ -266,6 +266,72 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_rejects_synchronized_duplicate_validation_from_an_old_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            console = run_dir / "sealed-spacing32-converged-forward.console.log"
+            run_log = run_dir / "sealed-spacing32-converged-forward.run.log"
+            old_identity = next(
+                line
+                for line in console.read_text().splitlines()
+                if "full-atlas validated" in line and "geometry_revision=1" in line
+            )
+            for path in (console, run_log):
+                path.write_text(old_identity + "\n" + path.read_text())
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("global validation order", result.stderr)
+
+    def test_rejects_an_old_identity_duplicate_in_either_process_stream(self) -> None:
+        for mutated_stream in ("console", "runlog"):
+            with (
+                self.subTest(mutated_stream=mutated_stream),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                path = run_dir / (
+                    "sealed-spacing32-converged-forward.console.log"
+                    if mutated_stream == "console"
+                    else "sealed-spacing32-converged-forward.run.log"
+                )
+                old_identity = next(
+                    line
+                    for line in path.read_text().splitlines()
+                    if "full-atlas validated" in line and "geometry_revision=1" in line
+                )
+                path.write_text(old_identity + "\n" + path.read_text())
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("global validation order", result.stderr)
+
+    def test_unrelated_non_marker_process_logs_remain_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            console = run_dir / "sealed-spacing32-converged-forward.console.log"
+            run_log = run_dir / "sealed-spacing32-converged-forward.run.log"
+            console.write_text("raw stderr telemetry\n" + console.read_text())
+            run_log.write_text("ordinary logger telemetry\n" + run_log.read_text())
+
+            result = self.run_summarizer(run_dir, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(output.read_text())
+
+        self.assertTrue(report["qualified"])
+
     def test_rejects_incomplete_or_changed_preserved_run_log_evidence(self) -> None:
         mutations = (
             ("truncated", lambda text: text.splitlines()[0] + "\n"),
@@ -372,7 +438,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 if len(mutated_sources) == 2:
                     self.assertIn(
-                        "terminal field_serial differs from the captured curve final record",
+                        "global validation order",
                         result.stderr,
                     )
 

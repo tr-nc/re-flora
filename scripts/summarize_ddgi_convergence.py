@@ -140,6 +140,46 @@ def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
             )
 
 
+def require_global_validation_order(
+    records: list[dict[str, object]], evidence_path: Path
+) -> None:
+    field_serials = [int(record["field_serial"]) for record in records]
+    if len(set(field_serials)) != len(field_serials) or any(
+        left >= right for left, right in zip(field_serials, field_serials[1:])
+    ):
+        raise ValueError(
+            f"global validation order in {evidence_path} has duplicate or unordered "
+            f"field serials: {field_serials}"
+        )
+
+    completed_identities: set[tuple[int, int, int]] = set()
+    active_identity: tuple[int, int, int] | None = None
+    next_epoch = 0
+    for record in records:
+        identity = (
+            int(record["geometry_revision"]),
+            int(record["radiance_revision"]),
+            int(record["spacing_voxels"]),
+        )
+        if identity != active_identity:
+            if identity in completed_identities:
+                raise ValueError(
+                    f"global validation order in {evidence_path} returned to completed "
+                    f"identity {identity}"
+                )
+            if active_identity is not None:
+                completed_identities.add(active_identity)
+            active_identity = identity
+            next_epoch = 0
+        epoch = int(record["update_epoch"])
+        if epoch != next_epoch:
+            raise ValueError(
+                f"global validation order in {evidence_path} has epoch {epoch}, "
+                f"expected {next_epoch} for identity {identity}"
+            )
+        next_epoch += 1
+
+
 def parse_curve(
     console_path: Path, contract_path: Path = CONTRACT_PATH
 ) -> tuple[list[dict[str, object]], TerminalIdentity, Policy]:
@@ -222,6 +262,7 @@ def parse_curve(
             )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
+    require_global_validation_order(records, console_path)
     if len(terminals) != 1:
         raise ValueError(
             f"expected exactly one terminal convergence record in {console_path}, "
