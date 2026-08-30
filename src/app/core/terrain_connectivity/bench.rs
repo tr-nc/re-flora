@@ -519,7 +519,11 @@ mod app_executor {
                 ConnectivityResult::AtomicityValidated(outcome)
             }
             ConnectivityAction::CommitBounded(payload) => {
-                let outcome = match app.prepare_bounded_connectivity(payload) {
+                let facts = BoundedPrepareFacts {
+                    visible_revision: app.visible_terrain_revision,
+                    available_particles: app.particle_system.available_capacity(),
+                };
+                let outcome = match PreparedBoundedConnectivity::prepare(payload, facts) {
                     Ok(prepared) => Ok(prepared.commit(app)),
                     Err(failure) => Err(failure),
                 };
@@ -1657,19 +1661,40 @@ impl App {
             ..EventStages::default()
         })
     }
+}
 
-    fn prepare_bounded_connectivity(
-        &mut self,
+#[derive(Clone, Copy)]
+struct BoundedPrepareFacts {
+    visible_revision: u32,
+    available_particles: usize,
+}
+
+struct PreparedBoundedConnectivity {
+    detachment: PreparedTerrainDetachment,
+    total_started: Instant,
+    release_frame: u64,
+    revision_before: u32,
+    snapshot_readback_us: f64,
+    classification_us: f64,
+    atomic_validation_us: f64,
+    sampling_us: f64,
+    staging_clear_us: f64,
+    classified_voxels: usize,
+    sampled_voxels: usize,
+}
+
+impl PreparedBoundedConnectivity {
+    fn prepare(
         mut payload: BoundedCommitPayload,
-    ) -> Result<PreparedBoundedConnectivity, FailedConnectivityAction<BoundedCommitPayload>> {
-        let app = self;
+        facts: BoundedPrepareFacts,
+    ) -> Result<Self, FailedConnectivityAction<BoundedCommitPayload>> {
         let total_started = Instant::now();
         let validation = (|| {
             anyhow::ensure!(
-                app.visible_terrain_revision == payload.revision_before,
+                facts.visible_revision == payload.revision_before,
                 "bounded topology commit revision changed from {} to {}",
                 payload.revision_before,
-                app.visible_terrain_revision,
+                facts.visible_revision,
             );
             anyhow::ensure!(payload.job.terminal == Some(BoundedDisposition::Detached));
             if !payload.manual {
@@ -1679,19 +1704,16 @@ impl App {
                 );
             }
             anyhow::ensure!(
-                app.particle_system.available_capacity() >= payload.visual_voxels.len(),
+                facts.available_particles >= payload.visual_voxels.len(),
                 "bounded topology visual capacity drifted before commit"
             );
             Ok(())
         })();
-        match validation {
-            Ok(()) => {}
-            Err(error) => {
-                return Err(FailedConnectivityAction {
-                    request: payload,
-                    error,
-                });
-            }
+        if let Err(error) = validation {
+            return Err(FailedConnectivityAction {
+                request: payload,
+                error,
+            });
         }
         let sampled_voxels = payload.visual_voxels.len();
         let atlas_data = std::mem::take(&mut payload.job.snapshot);
@@ -1731,7 +1753,7 @@ impl App {
         } = payload;
         let classified_voxels = job.component.len();
         debug_assert!(visual_voxels.is_empty());
-        Ok(PreparedBoundedConnectivity {
+        Ok(Self {
             detachment,
             total_started,
             release_frame,
@@ -1745,23 +1767,7 @@ impl App {
             sampled_voxels,
         })
     }
-}
 
-struct PreparedBoundedConnectivity {
-    detachment: PreparedTerrainDetachment,
-    total_started: Instant,
-    release_frame: u64,
-    revision_before: u32,
-    snapshot_readback_us: f64,
-    classification_us: f64,
-    atomic_validation_us: f64,
-    sampling_us: f64,
-    staging_clear_us: f64,
-    classified_voxels: usize,
-    sampled_voxels: usize,
-}
-
-impl PreparedBoundedConnectivity {
     fn commit(self, app: &mut App) -> EventStages {
         let committed = self.detachment.commit(app);
         EventStages {

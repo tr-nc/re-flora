@@ -22,7 +22,7 @@ struct PreparedAtlasWrite {
 pub(super) struct TerrainDetachmentRequest {
     world_dim: UVec3,
     atlas_writes: Vec<AtlasWriteRequest>,
-    affected_bound: UAabb3,
+    publication_edits: Vec<BuildEdit>,
     visual_voxels: Vec<(UVec3, u8)>,
     detached_voxels: usize,
 }
@@ -40,7 +40,7 @@ impl TerrainDetachmentRequest {
         Self {
             world_dim,
             atlas_writes: vec![AtlasWriteRequest { origin, dim, data }],
-            affected_bound,
+            publication_edits: vec![BuildEdit::RebuildMeshWithoutFlora(affected_bound)],
             visual_voxels,
             detached_voxels,
         }
@@ -59,7 +59,7 @@ impl TerrainDetachmentRequest {
                 .into_iter()
                 .map(|(origin, dim, data)| AtlasWriteRequest { origin, dim, data })
                 .collect(),
-            affected_bound,
+            publication_edits: vec![BuildEdit::RebuildMeshWithoutFlora(affected_bound)],
             visual_voxels,
             detached_voxels,
         }
@@ -150,10 +150,7 @@ impl PreparedTerrainDetachment {
                 request.visual_voxels.len() <= request.detached_voxels,
                 "terrain detachment cannot visualize more voxels than it clears"
             );
-            let change =
-                VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                    request.affected_bound,
-                )])?
+            let change = VisibleTerrainChange::from_build_edits(request.publication_edits.clone())?
                 .context("terrain detachment has no visible terrain chunks")?;
             Ok(VisibleTerrainPublication::edit(change)?)
         })();
