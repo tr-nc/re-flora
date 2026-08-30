@@ -1022,8 +1022,85 @@ mod tests {
     use super::{
         analysis_region, analyze_transition, box_downsample_luma,
         foliage_structure_analysis_region, keyframe_label, mean_frame_spatial_gradient,
-        rgba_region_to_luma, rgba_to_luma, AnalysisRegion, DenoiserMode,
+        rgba_region_to_luma, rgba_to_luma, AnalysisRegion, DenoiserBench, DenoiserMode,
     };
+    use crate::{DenoiserCaptureOptions, FoliageDenoiserOptions};
+
+    #[test]
+    fn report_publication_failure_leaves_no_partial_files_or_owner_progress() {
+        static_assertions::assert_not_impl_any!(DenoiserBench: Clone, Copy);
+
+        let output = tempfile::tempdir().unwrap();
+        let report_path = output.path().join("report.toml");
+        std::fs::create_dir(&report_path).unwrap();
+        let mut bench = foliage_bench(&report_path);
+
+        let error = bench
+            .record_frame(64, 64, &vec![80; 64 * 64 * 4])
+            .expect_err("a directory at the report path must reject atomic publication");
+
+        assert!(error.to_string().contains("publish denoiser report"));
+        assert_eq!(bench.presented_frames, 0);
+        assert_eq!(bench.captured_frames, 0);
+        assert!(bench.previous_luma.is_none());
+        assert!(bench.luma_sum.is_empty());
+        assert!(bench.captured_luma.is_empty());
+        assert!(bench.captured_structure_luma.is_empty());
+        assert!(bench.transitions.is_empty());
+        assert!(bench.keyframes.is_empty());
+        assert_eq!(directory_entries(output.path()), vec!["report.toml"]);
+    }
+
+    #[test]
+    fn truncated_staged_artifact_is_rejected_and_cleaned_before_owner_commit() {
+        let output = tempfile::tempdir().unwrap();
+        let report_path = output.path().join("report.toml");
+        let mut bench = foliage_bench(&report_path);
+        let mut prepared = bench.prepare_frame(64, 64, &vec![96; 64 * 64 * 4]).unwrap();
+        let staged_path = prepared
+            .report_publication_mut()
+            .expect("the final frame must stage a report")
+            .first_staged_artifact_path()
+            .to_owned();
+        let original_len = std::fs::metadata(&staged_path).unwrap().len();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&staged_path)
+            .unwrap();
+        assert_ne!(std::fs::metadata(&staged_path).unwrap().len(), original_len);
+
+        let error = bench
+            .publish_and_commit(prepared)
+            .expect_err("truncated staged bytes must fail validation");
+
+        assert!(error
+            .to_string()
+            .contains("staged denoiser artifact changed"));
+        assert_eq!(bench.captured_frames, 0);
+        assert!(bench.previous_luma.is_none());
+        assert!(bench.keyframes.is_empty());
+        assert!(directory_entries(output.path()).is_empty());
+    }
+
+    fn foliage_bench(report_path: &std::path::Path) -> DenoiserBench {
+        DenoiserBench::new_foliage(FoliageDenoiserOptions {
+            capture: DenoiserCaptureOptions {
+                report_path: report_path.display().to_string(),
+                warmup_frames: 0,
+                capture_frames: 1,
+            },
+        })
+    }
+
+    fn directory_entries(path: &std::path::Path) -> Vec<String> {
+        let mut entries = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
+    }
 
     #[test]
     fn identical_frames_have_zero_temporal_delta() {
