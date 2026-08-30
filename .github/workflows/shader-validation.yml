@@ -13,11 +13,19 @@ on:
       - "scripts/check_shader_manifest.py"
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
+      - "scripts/summarize_ddgi_convergence.py"
+      - "scripts/validate_ddgi_radiance_lifecycle.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
+      - "src/app/core/environment_irradiance_capture.rs"
+      - "src/app/core/mod.rs"
+      - "src/ddgi/**"
+      - "src/ddgi/resources.rs"
+      - "src/environment_lighting.rs"
+      - "src/tracer/**"
   push:
     branches:
       - main
@@ -31,11 +39,19 @@ on:
       - "scripts/check_shader_manifest.py"
       - "scripts/analyze_environment_irradiance_capture.py"
       - "scripts/check_ddgi*.sh"
+      - "scripts/summarize_ddgi_convergence.py"
+      - "scripts/validate_ddgi_radiance_lifecycle.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
+      - "src/app/core/environment_irradiance_capture.rs"
+      - "src/app/core/mod.rs"
+      - "src/ddgi/**"
+      - "src/ddgi/resources.rs"
+      - "src/environment_lighting.rs"
+      - "src/tracer/**"
 
 permissions:
   contents: read
@@ -189,6 +205,12 @@ jobs:
 
       - name: Check native Slang build
         run: cargo check --locked
+
+      - name: Run DDGI owner evidence codec tests
+        run: |
+          cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity
+          cargo test --locked ddgi::resources::tests::filter_
+          python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py
