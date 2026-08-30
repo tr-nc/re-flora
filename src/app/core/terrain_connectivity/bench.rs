@@ -446,6 +446,112 @@ fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Re
     }
 }
 
+impl App {
+    pub(in crate::app::core) fn advance_connectivity_benchmark(&mut self) -> anyhow::Result<()> {
+        let facts = ConnectivityFacts {
+            frame: self.time_info.total_frame_count(),
+            visible_revision: self.visible_terrain_revision,
+            contree_idle: self.contree_builder.cpu_chunk_cache_jobs_idle(),
+            terrain_collider_pending: self.terrain_physics.terrain_collider_pending_len(),
+            water_ready: self.water_terrain_status().is_ready(),
+            ddgi_ready: self
+                .tracer
+                .ddgi_ready_for_terrain_revision(self.visible_terrain_revision),
+            available_particles: self.particle_system.available_capacity(),
+        };
+        let action = self.scenario_owner.plan_connectivity_action(facts)?;
+        let result = self.execute_connectivity_action(action);
+        self.scenario_owner.apply_connectivity_result(result)
+    }
+
+    fn execute_connectivity_action(&mut self, action: ConnectivityAction) -> ConnectivityResult {
+        match action {
+            ConnectivityAction::None => ConnectivityResult::None,
+            ConnectivityAction::InstallFixture {
+                manual,
+                available_particles,
+            } => ConnectivityResult::FixtureInstalled((|| {
+                let started = Instant::now();
+                if manual {
+                    install_manual_fixture(self)?;
+                    configure_manual_camera(self)?;
+                } else {
+                    install_fixture(self)?;
+                }
+                let reserve_started = Instant::now();
+                set_available_particle_capacity(self, available_particles)?;
+                Ok(FixtureInstallResult {
+                    setup_us: started.elapsed().as_secs_f64() * 1_000_000.0,
+                    reserve_us: reserve_started.elapsed().as_secs_f64() * 1_000_000.0,
+                    available_particles: self.particle_system.available_capacity(),
+                    visible_revision: self.visible_terrain_revision,
+                })
+            })()),
+            ConnectivityAction::ReadBoundedSnapshot { bound, seed } => {
+                ConnectivityResult::SnapshotRead((|| {
+                    let snapshot_started = Instant::now();
+                    let snapshot = self
+                        .plain_builder
+                        .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
+                    Ok(SnapshotReadResult {
+                        job: BoundedTopologyJob::new(bound, snapshot, seed)?,
+                        snapshot_readback_us: snapshot_started.elapsed().as_secs_f64()
+                            * 1_000_000.0,
+                    })
+                })())
+            }
+            ConnectivityAction::RunReleaseEvent { mode } => {
+                ConnectivityResult::ReleaseEventRun(run_release_event(self, mode))
+            }
+            ConnectivityAction::ValidateAtomicity {
+                bound,
+                component,
+                expected_available_particles,
+            } => ConnectivityResult::AtomicityValidated((|| {
+                let validation_started = Instant::now();
+                let remaining_solids =
+                    count_component_solids(&mut self.plain_builder, bound, &component)?;
+                let atomic_validation_us = validation_started.elapsed().as_secs_f64() * 1_000_000.0;
+                let available_particles = self.particle_system.available_capacity();
+                anyhow::ensure!(available_particles == expected_available_particles);
+                Ok(AtomicityValidationResult {
+                    remaining_solids,
+                    available_particles,
+                    atomic_validation_us,
+                })
+            })()),
+            ConnectivityAction::CommitBounded(payload) => {
+                ConnectivityResult::BoundedCommitted(run_bounded_commit(
+                    self,
+                    payload.job,
+                    payload.release_frame,
+                    payload.revision_before,
+                    payload.snapshot_readback_us,
+                    payload.classification_us,
+                    payload.atomic_validation_us,
+                    payload.sampling_us,
+                    payload.staging_clear_us,
+                    payload.sampled_voxels,
+                    payload.manual,
+                ))
+            }
+            ConnectivityAction::SpawnVisualVoxels { voxels } => {
+                ConnectivityResult::VisualVoxelsSpawned((|| {
+                    let particle_started = Instant::now();
+                    let requested_particles = voxels.len();
+                    let spawned_particles = self.spawn_detached_terrain_voxel_particles(&voxels);
+                    anyhow::ensure!(spawned_particles == requested_particles);
+                    Ok(VisualSpawnResult {
+                        requested_particles,
+                        spawned_particles,
+                        particle_spawn_us: particle_started.elapsed().as_secs_f64() * 1_000_000.0,
+                    })
+                })())
+            }
+        }
+    }
+}
+
 impl TerrainConnectivityBench {
     pub(in crate::app::core) fn new(options: TerrainConnectivityBenchOptions) -> Self {
         Self {
@@ -542,64 +648,6 @@ impl TerrainConnectivityBench {
             self.options.voxel_budget,
         );
         Ok(())
-    }
-
-    pub(in crate::app::core) fn advance(app: &mut App) -> anyhow::Result<()> {
-        let water_ready = app.water_terrain_status().is_ready();
-        let facts = ConnectivityFacts {
-            frame: app.time_info.total_frame_count(),
-            visible_revision: app.visible_terrain_revision,
-            contree_idle: app.contree_builder.cpu_chunk_cache_jobs_idle(),
-            terrain_collider_pending: app.terrain_physics.terrain_collider_pending_len(),
-            water_ready,
-            ddgi_ready: app
-                .tracer
-                .ddgi_ready_for_terrain_revision(app.visible_terrain_revision),
-            available_particles: app.particle_system.available_capacity(),
-        };
-        let action = match &mut app.scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.next_action(facts)?
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                ConnectivityAction::None
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => ConnectivityAction::None,
-        };
-        let result = Self::execute_action(app, action);
-        match &mut app.scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.apply_result(result)
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                match result {
-                    ConnectivityResult::None => Ok(()),
-                    ConnectivityResult::FixtureInstalled(_)
-                    | ConnectivityResult::SnapshotRead(_)
-                    | ConnectivityResult::ReleaseEventRun(_)
-                    | ConnectivityResult::AtomicityValidated(_)
-                    | ConnectivityResult::BoundedCommitted(_)
-                    | ConnectivityResult::VisualVoxelsSpawned(_) => {
-                        anyhow::bail!("inactive scenario received a connectivity result")
-                    }
-                }
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => match result {
-                ConnectivityResult::None => Ok(()),
-                ConnectivityResult::FixtureInstalled(_)
-                | ConnectivityResult::SnapshotRead(_)
-                | ConnectivityResult::ReleaseEventRun(_)
-                | ConnectivityResult::AtomicityValidated(_)
-                | ConnectivityResult::BoundedCommitted(_)
-                | ConnectivityResult::VisualVoxelsSpawned(_) => {
-                    anyhow::bail!("inactive scenario received a connectivity result")
-                }
-            },
-        }
     }
 
     fn next_action(&mut self, facts: ConnectivityFacts) -> anyhow::Result<ConnectivityAction> {
@@ -802,93 +850,6 @@ impl TerrainConnectivityBench {
             BenchState::Complete => {}
         }
         Ok(ConnectivityAction::None)
-    }
-
-    fn execute_action(app: &mut App, action: ConnectivityAction) -> ConnectivityResult {
-        match action {
-            ConnectivityAction::None => ConnectivityResult::None,
-            ConnectivityAction::InstallFixture {
-                manual,
-                available_particles,
-            } => ConnectivityResult::FixtureInstalled((|| {
-                let started = Instant::now();
-                if manual {
-                    install_manual_fixture(app)?;
-                    configure_manual_camera(app)?;
-                } else {
-                    install_fixture(app)?;
-                }
-                let reserve_started = Instant::now();
-                set_available_particle_capacity(app, available_particles)?;
-                Ok(FixtureInstallResult {
-                    setup_us: started.elapsed().as_secs_f64() * 1_000_000.0,
-                    reserve_us: reserve_started.elapsed().as_secs_f64() * 1_000_000.0,
-                    available_particles: app.particle_system.available_capacity(),
-                    visible_revision: app.visible_terrain_revision,
-                })
-            })()),
-            ConnectivityAction::ReadBoundedSnapshot { bound, seed } => {
-                ConnectivityResult::SnapshotRead((|| {
-                    let snapshot_started = Instant::now();
-                    let snapshot = app
-                        .plain_builder
-                        .read_chunk_atlas_region(bound.min(), bound.dimensions())?;
-                    Ok(SnapshotReadResult {
-                        job: BoundedTopologyJob::new(bound, snapshot, seed)?,
-                        snapshot_readback_us: snapshot_started.elapsed().as_secs_f64()
-                            * 1_000_000.0,
-                    })
-                })())
-            }
-            ConnectivityAction::RunReleaseEvent { mode } => {
-                ConnectivityResult::ReleaseEventRun(run_release_event(app, mode))
-            }
-            ConnectivityAction::ValidateAtomicity {
-                bound,
-                component,
-                expected_available_particles,
-            } => ConnectivityResult::AtomicityValidated((|| {
-                let validation_started = Instant::now();
-                let remaining_solids =
-                    count_component_solids(&mut app.plain_builder, bound, &component)?;
-                let atomic_validation_us = validation_started.elapsed().as_secs_f64() * 1_000_000.0;
-                let available_particles = app.particle_system.available_capacity();
-                anyhow::ensure!(available_particles == expected_available_particles);
-                Ok(AtomicityValidationResult {
-                    remaining_solids,
-                    available_particles,
-                    atomic_validation_us,
-                })
-            })()),
-            ConnectivityAction::CommitBounded(payload) => {
-                ConnectivityResult::BoundedCommitted(run_bounded_commit(
-                    app,
-                    payload.job,
-                    payload.release_frame,
-                    payload.revision_before,
-                    payload.snapshot_readback_us,
-                    payload.classification_us,
-                    payload.atomic_validation_us,
-                    payload.sampling_us,
-                    payload.staging_clear_us,
-                    payload.sampled_voxels,
-                    payload.manual,
-                ))
-            }
-            ConnectivityAction::SpawnVisualVoxels { voxels } => {
-                ConnectivityResult::VisualVoxelsSpawned((|| {
-                    let particle_started = Instant::now();
-                    let requested_particles = voxels.len();
-                    let spawned_particles = app.spawn_detached_terrain_voxel_particles(&voxels);
-                    anyhow::ensure!(spawned_particles == requested_particles);
-                    Ok(VisualSpawnResult {
-                        requested_particles,
-                        spawned_particles,
-                        particle_spawn_us: particle_started.elapsed().as_secs_f64() * 1_000_000.0,
-                    })
-                })())
-            }
-        }
     }
 
     fn apply_result(&mut self, result: ConnectivityResult) -> anyhow::Result<()> {

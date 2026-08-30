@@ -3406,7 +3406,7 @@ impl App {
                     self.on_terminate(event_loop);
                     return;
                 }
-                TerrainConnectivityBench::advance(self)
+                self.advance_connectivity_benchmark()
                     .unwrap_or_else(|err| panic!("[TERRAIN_CONNECTIVITY_BENCH] failed: {err:#}"));
                 if AuthoredFloraBench::run_next(self) {
                     self.on_terminate(event_loop);
