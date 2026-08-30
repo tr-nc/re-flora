@@ -72,3 +72,154 @@ impl ApplicationHandler for AppController {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{LifecycleSlot, ResumeOutcome};
+    use std::{
+        cell::Cell,
+        panic::{catch_unwind, AssertUnwindSafe},
+        rc::Rc,
+    };
+
+    struct NonClonePlan {
+        token: String,
+    }
+
+    #[test]
+    fn failed_resume_preserves_the_non_clone_plan_for_retry() {
+        let attempts = Cell::new(0);
+        let mut slot = LifecycleSlot::<NonClonePlan, String>::Pending(NonClonePlan {
+            token: "launch-once".to_owned(),
+        });
+
+        let failure = slot.resume(|plan| {
+            attempts.set(attempts.get() + 1);
+            assert_eq!(plan.token, "launch-once");
+            Err("not ready")
+        });
+        assert_eq!(failure, Err("not ready"));
+        match &slot {
+            LifecycleSlot::Pending(plan) => assert_eq!(plan.token, "launch-once"),
+            LifecycleSlot::Running(_) => panic!("failed construction must not commit a runtime"),
+        }
+
+        assert!(catch_unwind(AssertUnwindSafe(|| slot.resume(
+            |_| -> Result<String, &str> {
+                attempts.set(attempts.get() + 1);
+                panic!("factory panic")
+            }
+        )))
+        .is_err());
+        match &slot {
+            LifecycleSlot::Pending(plan) => assert_eq!(plan.token, "launch-once"),
+            LifecycleSlot::Running(_) => panic!("panicked construction must not commit a runtime"),
+        }
+
+        let outcome = slot
+            .resume(|plan| {
+                attempts.set(attempts.get() + 1);
+                Ok::<_, &str>(plan.token.clone())
+            })
+            .unwrap();
+        assert_eq!(outcome, ResumeOutcome::Started);
+        assert_eq!(attempts.get(), 3);
+        match &slot {
+            LifecycleSlot::Pending(_) => panic!("successful retry must commit the runtime"),
+            LifecycleSlot::Running(runtime) => assert_eq!(runtime, "launch-once"),
+        }
+    }
+
+    #[derive(Default)]
+    struct LiveCounts {
+        live: Cell<usize>,
+        max_live: Cell<usize>,
+        drops: Cell<usize>,
+    }
+
+    struct DropProbe {
+        id: usize,
+        counts: Rc<LiveCounts>,
+    }
+
+    impl DropProbe {
+        fn new(id: usize, counts: Rc<LiveCounts>) -> Self {
+            let live = counts.live.get() + 1;
+            counts.live.set(live);
+            counts.max_live.set(counts.max_live.get().max(live));
+            Self { id, counts }
+        }
+    }
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.counts.live.set(self.counts.live.get() - 1);
+            self.counts.drops.set(self.counts.drops.get() + 1);
+        }
+    }
+
+    #[test]
+    fn redundant_resume_neither_calls_factory_nor_replaces_the_running_value() {
+        let calls = Cell::new(0);
+        let counts = Rc::new(LiveCounts::default());
+        let mut slot = LifecycleSlot::Pending(());
+
+        let first = slot
+            .resume(|_| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(DropProbe::new(1, Rc::clone(&counts)))
+            })
+            .unwrap();
+        let second = slot
+            .resume(|_| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(DropProbe::new(2, Rc::clone(&counts)))
+            })
+            .unwrap();
+        slot.preserve_on_suspend();
+
+        assert_eq!(first, ResumeOutcome::Started);
+        assert_eq!(second, ResumeOutcome::AlreadyRunning);
+        assert_eq!(calls.get(), 1);
+        assert_eq!(counts.live.get(), 1);
+        assert_eq!(counts.max_live.get(), 1);
+        assert_eq!(counts.drops.get(), 0);
+        assert_eq!(slot.running_mut().id, 1);
+        drop(slot);
+        assert_eq!(counts.live.get(), 0);
+        assert_eq!(counts.drops.get(), 1);
+    }
+
+    struct EventProbe {
+        dispatched: usize,
+    }
+
+    fn dispatch_one_event(slot: &mut LifecycleSlot<(), EventProbe>) {
+        slot.running_mut().dispatched += 1;
+    }
+
+    #[test]
+    fn event_dispatch_is_rejected_before_success_and_delivered_once_afterward() {
+        let mut slot = LifecycleSlot::Pending(());
+        assert!(catch_unwind(AssertUnwindSafe(|| dispatch_one_event(&mut slot))).is_err());
+
+        assert_eq!(
+            slot.resume(|_| Ok::<_, ()>(EventProbe { dispatched: 0 }))
+                .unwrap(),
+            ResumeOutcome::Started,
+        );
+        dispatch_one_event(&mut slot);
+        assert_eq!(slot.running_mut().dispatched, 1);
+    }
+
+    #[test]
+    fn controller_has_one_lifecycle_field_and_no_parallel_plan_or_app_option() {
+        let source = include_str!("app_controller.rs");
+        assert_eq!(
+            source.matches("slot: LifecycleSlot<RunPlan, App>").count(),
+            1
+        );
+        assert!(!source.contains(concat!("initialized: ", "Option<App>")));
+        assert!(!source.contains(concat!("    plan", ": RunPlan,")));
+    }
+}
