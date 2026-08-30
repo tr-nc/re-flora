@@ -6,49 +6,85 @@ use winit::{
     window::WindowId,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResumeOutcome {
+    Started,
+    AlreadyRunning,
+}
+
+enum LifecycleSlot<P, R> {
+    Pending(P),
+    Running(R),
+}
+
+impl<P, R> LifecycleSlot<P, R> {
+    fn resume<E>(&mut self, factory: impl FnOnce(&P) -> Result<R, E>) -> Result<ResumeOutcome, E> {
+        let candidate = match self {
+            Self::Pending(plan) => factory(plan)?,
+            Self::Running(_) => return Ok(ResumeOutcome::AlreadyRunning),
+        };
+        *self = Self::Running(candidate);
+        Ok(ResumeOutcome::Started)
+    }
+
+    fn running_mut(&mut self) -> &mut R {
+        match self {
+            Self::Pending(_) => panic!("App is not initialized"),
+            Self::Running(runtime) => runtime,
+        }
+    }
+
+    fn preserve_on_suspend(&mut self) {
+        match self {
+            Self::Pending(_) | Self::Running(_) => {}
+        }
+    }
+}
+
 pub struct AppController {
-    plan: RunPlan,
-    initialized: Option<App>,
+    slot: LifecycleSlot<RunPlan, App>,
 }
 
 impl AppController {
     pub fn new(plan: RunPlan) -> Self {
         Self {
-            plan,
-            initialized: None,
+            slot: LifecycleSlot::Pending(plan),
         }
     }
 }
 
 impl ApplicationHandler for AppController {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let RunPlan {
-            platform,
-            audio,
-            world,
-            automation,
-            scenario,
-        } = &self.plan;
-        let owners = prepare_startup_owners(automation.clone(), scenario.clone())
-            .unwrap_or_else(|error| panic!("invalid launch ownership: {error}"));
-        self.initialized = Some(
-            App::new(
-                event_loop,
-                platform.clone(),
-                world.clone(),
-                audio.clone(),
-                owners,
-            )
-            .unwrap(),
-        );
+        self.slot
+            .resume(|plan| {
+                let RunPlan {
+                    platform,
+                    audio,
+                    world,
+                    automation,
+                    scenario,
+                } = plan;
+                let owners = prepare_startup_owners(automation.clone(), scenario.clone())
+                    .map_err(|error| anyhow::anyhow!("invalid launch ownership: {error}"))?;
+                App::new(
+                    event_loop,
+                    platform.clone(),
+                    world.clone(),
+                    audio.clone(),
+                    owners,
+                )
+            })
+            .unwrap_or_else(|error| panic!("failed to initialize App: {error:#}"));
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.slot.preserve_on_suspend();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        if let Some(initialized) = &mut self.initialized {
-            initialized.on_window_event(event_loop, id, event);
-        } else {
-            panic!("App is not initialized");
-        }
+        self.slot
+            .running_mut()
+            .on_window_event(event_loop, id, event);
     }
 
     fn device_event(
@@ -57,19 +93,13 @@ impl ApplicationHandler for AppController {
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        if let Some(initialized) = &mut self.initialized {
-            initialized.on_device_event(event_loop, device_id, event);
-        } else {
-            panic!("App is not initialized");
-        }
+        self.slot
+            .running_mut()
+            .on_device_event(event_loop, device_id, event);
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(initialized) = &mut self.initialized {
-            initialized.on_about_to_wait(_event_loop);
-        } else {
-            panic!("App is not initialized");
-        }
+        self.slot.running_mut().on_about_to_wait(_event_loop);
     }
 }
 
@@ -216,7 +246,9 @@ mod tests {
     fn controller_has_one_lifecycle_field_and_no_parallel_plan_or_app_option() {
         let source = include_str!("app_controller.rs");
         assert_eq!(
-            source.matches("slot: LifecycleSlot<RunPlan, App>").count(),
+            source
+                .matches(concat!("slot: LifecycleSlot<", "RunPlan, App>"))
+                .count(),
             1
         );
         assert!(!source.contains(concat!("initialized: ", "Option<App>")));
