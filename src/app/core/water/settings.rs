@@ -298,6 +298,7 @@ fn finite_clamped(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
 mod tests {
     use super::*;
     use glam::Vec3;
+    use re_flora_water::collider::WaterBoxCollider;
 
     fn request(
         profile: Option<crate::WaterProfilePreference>,
@@ -352,6 +353,26 @@ mod tests {
     }
 
     #[test]
+    fn explicit_default_profile_also_ignores_persisted_gui_water_config() {
+        let mut gui = GuiAdjustables::default();
+        gui.water_damping.value = 0.25;
+
+        let resolved = request(
+            Some(crate::WaterProfilePreference::Default),
+            false,
+            gui,
+            no_overrides(),
+        )
+        .resolve();
+
+        assert!(!resolved.gui_config_applied);
+        assert_eq!(
+            resolved.effective.linear_damping_per_sec,
+            PondWaterConfig::default().linear_damping_per_sec
+        );
+    }
+
+    #[test]
     fn experience_launch_is_deterministic() {
         let mut gui = GuiAdjustables::default();
         gui.water_damping.value = 0.25;
@@ -361,11 +382,16 @@ mod tests {
         assert!(!resolved.gui_config_applied);
         assert_eq!(resolved.effective.particle_count, 10_000);
         assert_eq!(resolved.effective.substep_dt, 60.0_f32.recip());
+        assert_eq!(resolved.effective.terrain_collision_margin_cells, 0.0);
         assert_eq!(resolved.effective.linear_damping_per_sec, 1.5);
         assert_eq!(
-            resolved.effective.initial_fluid_bounds.unwrap().min_ws,
-            Vec3::new(0.48, 0.32, 0.48)
+            resolved.effective.initial_fluid_bounds,
+            Some(WaterBoxCollider::new(
+                Vec3::new(0.48, 0.32, 0.48),
+                Vec3::new(1.52, 0.72, 1.52),
+            ))
         );
+        assert!(resolved.effective.initial_fluid_bounds.unwrap().max_ws.y < 2.0);
     }
 
     #[test]
