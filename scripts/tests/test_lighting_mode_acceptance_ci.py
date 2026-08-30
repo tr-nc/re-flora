@@ -18,19 +18,17 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
             "scripts/tests/test_check_lighting_mode_acceptance.py",
             "scripts/tests/test_lighting_mode_acceptance_ci.py",
             "scripts/tests/test_lighting_mode_acceptance_source_contract.py",
-            "src/app/mod.rs",
-            "src/app/core/lighting_mode_acceptance.rs",
-            "src/app/core/loading.rs",
-            "src/app/core/mod.rs",
-            "src/cli.rs",
-            "src/environment_lighting.rs",
-            "src/main.rs",
-            "src/run_log.rs",
-            "src/tracer/buffer_updater.rs",
-            "src/tracer/extent_dependent_resources.rs",
-            "src/tracer/mod.rs",
+            "src/**",
         ):
             self.assertEqual(workflow.count(f'- "{path}"'), 2, path)
+        for redundant_rust_route in (
+            "src/app/mod.rs",
+            "src/app/core/lighting_mode_acceptance.rs",
+            "src/app/core/mod.rs",
+            "src/tracer/buffer_updater.rs",
+            "src/tracer/mod.rs",
+        ):
+            self.assertNotIn(f'- "{redundant_rust_route}"', workflow)
         self.assertIn(
             "python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance",
             workflow,

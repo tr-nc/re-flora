@@ -22,17 +22,7 @@ on:
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
       - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
-      - "src/app/mod.rs"
-      - "src/app/core/lighting_mode_acceptance.rs"
-      - "src/app/core/loading.rs"
-      - "src/app/core/mod.rs"
-      - "src/cli.rs"
-      - "src/environment_lighting.rs"
-      - "src/main.rs"
-      - "src/run_log.rs"
-      - "src/tracer/buffer_updater.rs"
-      - "src/tracer/extent_dependent_resources.rs"
-      - "src/tracer/mod.rs"
+      - "src/**"
   push:
     branches:
       - main
@@ -55,17 +45,7 @@ on:
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
       - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
-      - "src/app/mod.rs"
-      - "src/app/core/lighting_mode_acceptance.rs"
-      - "src/app/core/loading.rs"
-      - "src/app/core/mod.rs"
-      - "src/cli.rs"
-      - "src/environment_lighting.rs"
-      - "src/main.rs"
-      - "src/run_log.rs"
-      - "src/tracer/buffer_updater.rs"
-      - "src/tracer/extent_dependent_resources.rs"
-      - "src/tracer/mod.rs"
+      - "src/**"
 
 permissions:
   contents: read
