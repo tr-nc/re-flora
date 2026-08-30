@@ -265,6 +265,7 @@ struct DdgiAtlasFilterPushConstants {
     local_refresh_enabled: [u32; 4],
     local_refresh_world_min: [f32; 4],
     local_refresh_world_max: [f32; 4],
+    filter_evidence: [u32; 4],
 }
 
 #[repr(C)]
@@ -284,6 +285,7 @@ struct DdgiVisibilityFilterPushConstants {
     local_refresh_enabled: [u32; 4],
     local_refresh_world_min: [f32; 4],
     local_refresh_world_max: [f32; 4],
+    filter_evidence: [u32; 4],
 }
 
 #[repr(C)]
@@ -4934,6 +4936,12 @@ impl Tracer {
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
+            filter_evidence: [
+                u32::from(self.desc.environment_irradiance_capture_enabled),
+                0,
+                0,
+                0,
+            ],
         };
         self.pipeline_topology
             .compute()
@@ -4972,6 +4980,12 @@ impl Tracer {
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
+            filter_evidence: [
+                u32::from(self.desc.environment_irradiance_capture_enabled),
+                0,
+                0,
+                0,
+            ],
         };
         self.pipeline_topology
             .compute()

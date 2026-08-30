@@ -1,4 +1,6 @@
 import ddgi_config;
+import ddgi_filter_evidence;
+import ddgi_filter_execution;
 import ddgi_filter_policy;
 import ddgi_octahedral;
 import ddgi_sampling;
@@ -38,6 +40,7 @@ struct DdgiVisibilityFilterPushConstants
     uint4 local_refresh_enabled;
     float4 local_refresh_world_min;
     float4 local_refresh_world_max;
+    uint4 filter_evidence;
 };
 
 [[vk::push_constant]]
@@ -76,13 +79,19 @@ void main(uint3 groupId : SV_GroupID,
         metadata.nominal_position_and_min_clearance.xyz,
         pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
         pc.local_refresh_world_max.xyz);
-    DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
         pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
         pc.local_refresh_enabled.y, pc.history_retention);
-    if (historyPolicy.retain_source)
+    bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
+    ddgiRecordVisibilityHistoryDecision(
+        pc.filter_evidence.x, electedEvidenceLane, historyDecision);
+    float2 retainedHistory;
+    if (pc.has_history != 0u && ddgiTryCommitRetainedHistory(
+            historyDecision,
+            loadVisibility(pc.source_slot, atlasCoordinate), retainedHistory))
     {
         storeVisibility(
-            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));
+            atlasCoordinate, retainedHistory);
         return;
     }
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
@@ -117,18 +126,18 @@ void main(uint3 groupId : SV_GroupID,
             ddgi_transient_ray_data
                 .data[localProbeIndex * DDGI_RAYS_PER_PROBE + rayIndex]
                 .w;
-        DdgiFilterVisibilitySample sample = ddgiFilterVisibilitySample(
+        DdgiFilterVisibilityDecision visibilityDecision =
+            ddgiFilterVisibilityDecision(
             signedDistance, supportDistance, pc.far_distance_world);
         // Rohacek's cage-support correction: a distant directional sample
         // cannot claim support beyond this probe's relocated nominal cage.
         // Preserve sky misses as unoccluded support; reject only distant
         // geometry hits that would pull a local depth lobe outward.
-        if (!sample.accepted) continue;
-        float hitDistance = sample.distance;
-        weightedDistance += hitDistance * cosineWeight;
-        weightedSquaredDistance +=
-            hitDistance * hitDistance * cosineWeight;
-        accumulatedWeight += cosineWeight;
+        ddgiRecordVisibilitySampleDecision(
+            pc.filter_evidence.x, electedEvidenceLane, visibilityDecision);
+        ddgiAccumulateVisibility(
+            visibilityDecision, cosineWeight, weightedDistance,
+            weightedSquaredDistance, accumulatedWeight);
     }
 
     float2 current;
@@ -143,11 +152,9 @@ void main(uint3 groupId : SV_GroupID,
         current = float2(weightedDistance, weightedSquaredDistance) *
                   inverseWeight;
     }
-    if (historyPolicy.blend_history)
-    {
-        current = lerp(current,
-                       loadVisibility(pc.source_slot, atlasCoordinate),
-                       historyPolicy.retention);
-    }
+    float2 history = current;
+    if (pc.has_history != 0u)
+        history = loadVisibility(pc.source_slot, atlasCoordinate);
+    current = ddgiCommitHistory(historyDecision, current, history);
     storeVisibility(atlasCoordinate, current);
 }

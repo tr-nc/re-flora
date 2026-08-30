@@ -4,6 +4,20 @@ import ddgi_filter_policy;
 
 // Owner-owned execution is deliberately independent of capture and evidence schemas. Production
 // filters pass one typed policy decision here and store the returned value unchanged.
+public bool ddgiTryCommitRetainedHistory(
+    DdgiFilterHistoryDecision decision, float4 source, out float4 committed)
+{
+    committed = source;
+    return decision.action == DdgiFilterHistoryAction::Retain;
+}
+
+public bool ddgiTryCommitRetainedHistory(
+    DdgiFilterHistoryDecision decision, float2 source, out float2 committed)
+{
+    committed = source;
+    return decision.action == DdgiFilterHistoryAction::Retain;
+}
+
 public float4 ddgiCommitHistory(
     DdgiFilterHistoryDecision decision, float4 fresh, float4 source)
 {

@@ -1,4 +1,6 @@
 import ddgi_config;
+import ddgi_filter_evidence;
+import ddgi_filter_execution;
 import ddgi_filter_policy;
 import ddgi_octahedral;
 import ddgi_sampling;
@@ -36,6 +38,7 @@ struct DdgiAtlasFilterPushConstants
     uint4 local_refresh_enabled;
     float4 local_refresh_world_min;
     float4 local_refresh_world_max;
+    uint4 filter_evidence;
 };
 
 [[vk::push_constant]]
@@ -74,15 +77,21 @@ void main(uint3 groupId : SV_GroupID,
         metadata.nominal_position_and_min_clearance.xyz,
         pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
         pc.local_refresh_world_max.xyz);
-    DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
         pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
         pc.local_refresh_enabled.y, pc.history_retention);
-    if (historyPolicy.retain_source)
+    bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
+    ddgiRecordIrradianceHistoryDecision(
+        pc.filter_evidence.x, electedEvidenceLane, historyDecision);
+    float4 retainedHistory;
+    if (pc.has_history != 0u && ddgiTryCommitRetainedHistory(
+            historyDecision,
+            loadIrradiance(pc.source_slot, atlasCoordinate), retainedHistory))
     {
         // Geometry recovery owns only its explicit dirty partition. Keeping the other tiles
         // byte-for-byte identical avoids turning a local edit into global temporal noise.
         storeIrradiance(
-            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));
+            atlasCoordinate, retainedHistory);
         return;
     }
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
@@ -115,10 +124,9 @@ void main(uint3 groupId : SV_GroupID,
     // (1 / pi) * (4 * pi / N) * sum(L * max(0, n dot w)).
     irradiance *= DDGI_FOUR / float(DDGI_RAYS_PER_PROBE);
     float4 current = float4(irradiance, 1.0);
-    if (historyPolicy.blend_history)
-    {
-        float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
-        current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);
-    }
+    float4 history = current;
+    if (pc.has_history != 0u)
+        history = loadIrradiance(pc.source_slot, atlasCoordinate);
+    current = ddgiCommitHistory(historyDecision, current, history);
     storeIrradiance(atlasCoordinate, current);
 }

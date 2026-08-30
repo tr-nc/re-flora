@@ -66,7 +66,11 @@ export __extern_cpp int main()
 
     float4 fresh = float4(2.0, 4.0, 6.0, 1.0);
     float4 source = float4(10.0, 12.0, 14.0, 1.0);
+    float4 retained;
     bool historyExecution =
+        !ddgiTryCommitRetainedHistory(noHistory, source, retained) &&
+        ddgiTryCommitRetainedHistory(retainedPartition, source, retained) &&
+        all(retained == source) &&
         all(ddgiCommitHistory(noHistory, fresh, source) == fresh) &&
         all(ddgiCommitHistory(retainedPartition, fresh, source) == source) &&
         all(ddgiCommitHistory(

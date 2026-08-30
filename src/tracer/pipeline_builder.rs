@@ -1750,7 +1750,9 @@ impl PipelineTopology {
                 &volume.ddgi_transient_ray_data
             );
         }
-        write_buffer!(trace, "ddgi_trace_stats", &volume.ddgi_trace_stats);
+        for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
+            write_buffer!(writes, "ddgi_trace_stats", &volume.ddgi_trace_stats);
+        }
         write_buffer!(
             atlas_reduce,
             "ddgi_atlas_reduction",

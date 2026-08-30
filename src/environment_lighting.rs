@@ -1169,45 +1169,49 @@ mod tests {
 
     #[test]
     fn ddgi_production_filters_consume_shared_policy_actions() {
-        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
-            let retained = filter
-                .split_once("if (historyPolicy.retain_source)")
-                .expect("retained partition gate")
-                .1
-                .split_once("if (metadata.state_and_reserved.x")
-                .expect("metadata validation follows retained partition")
-                .0;
-            assert!(retained.contains(retained_copy));
-            assert_eq!(retained.matches("return;").count(), 1);
-
-            let blended = filter
-                .split_once("if (historyPolicy.blend_history)")
-                .expect("history blend gate")
-                .1
-                .split_once("store")
-                .expect("atlas store follows history blend")
-                .0;
-            assert!(blended.contains(history_blend));
+        fn assert_history_usage(filter: &str, evidence_call: &str) {
+            assert!(filter.contains("import ddgi_filter_execution;"));
+            assert!(filter.contains("import ddgi_filter_evidence;"));
+            assert_eq!(filter.matches("ddgiFilterHistoryDecision(").count(), 1);
+            assert_eq!(filter.matches(evidence_call).count(), 1);
+            assert_eq!(filter.matches("ddgiTryCommitRetainedHistory(").count(), 1);
+            assert_eq!(filter.matches("ddgiCommitHistory(").count(), 1);
+            for bypass in [
+                "ddgiFilterHistoryPolicy(",
+                ".retain_source",
+                ".blend_history",
+            ] {
+                assert!(!filter.contains(bypass), "production bypass `{bypass}`");
+            }
         }
 
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
-        assert_eq!(visibility.matches("ddgiFilterVisibilitySample(").count(), 1);
-        assert_eq!(visibility.matches("ddgiFilterHistoryPolicy(").count(), 1);
-        assert_eq!(irradiance.matches("ddgiFilterHistoryPolicy(").count(), 1);
+        assert_history_usage(irradiance, "ddgiRecordIrradianceHistoryDecision(");
+        assert_history_usage(visibility, "ddgiRecordVisibilityHistoryDecision(");
+        assert_eq!(
+            visibility.matches("ddgiFilterVisibilityDecision(").count(),
+            1
+        );
+        assert_eq!(
+            visibility
+                .matches("ddgiRecordVisibilitySampleDecision(")
+                .count(),
+            1
+        );
+        assert_eq!(visibility.matches("ddgiAccumulateVisibility(").count(), 1);
         assert!(visibility.contains(
-            "if (!sample.accepted) continue;\n        float hitDistance = sample.distance;"
+            "ddgiRecordVisibilitySampleDecision(\n            pc.filter_evidence.x, electedEvidenceLane, visibilityDecision);"
         ));
-        assert_history_usage(
-            visibility,
-            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
-            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
-        );
-        assert_history_usage(
-            irradiance,
-            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
-            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
-        );
+        assert!(!visibility.contains("ddgiFilterVisibilitySample("));
+        assert!(!visibility.contains(".accepted"));
+
+        let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
+        assert!(pipeline_builder.contains(
+            "for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter]"
+        ));
+        assert!(pipeline_builder
+            .contains("write_buffer!(writes, \"ddgi_trace_stats\", &volume.ddgi_trace_stats);"));
     }
 
     #[test]
