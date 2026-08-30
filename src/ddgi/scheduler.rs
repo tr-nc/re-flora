@@ -197,6 +197,12 @@ pub enum DdgiSchedulerError {
     InvalidIdentity(DdgiFieldIdentityError),
 }
 
+/// Linear proof that the scheduler accepted one exact in-flight completion.
+pub(crate) struct DdgiSchedulerCompletionPermit {
+    work: DdgiScheduledWork,
+    published: DdgiFieldIdentity,
+}
+
 impl From<DdgiFieldIdentityError> for DdgiSchedulerError {
     fn from(value: DdgiFieldIdentityError) -> Self {
         Self::InvalidIdentity(value)
@@ -384,16 +390,33 @@ impl DdgiTransportScheduler {
         validate_completion(work, published)
     }
 
+    pub(crate) fn preflight_completion(
+        &self,
+        work: DdgiScheduledWork,
+        published: DdgiFieldIdentity,
+    ) -> Result<DdgiSchedulerCompletionPermit, DdgiSchedulerError> {
+        self.validate_in_flight_completion(work, published)?;
+        Ok(DdgiSchedulerCompletionPermit { work, published })
+    }
+
+    pub(crate) fn commit_completion(
+        &mut self,
+        permit: DdgiSchedulerCompletionPermit,
+    ) -> DdgiFieldIdentity {
+        assert_eq!(self.in_flight, Some(permit.work));
+        self.in_flight = None;
+        self.published = Some(permit.published);
+        self.convergence_requested = permit.published.field.state == DdgiFieldState::Converging;
+        permit.published
+    }
+
     pub fn complete_in_flight(
         &mut self,
         work: DdgiScheduledWork,
         published: DdgiFieldIdentity,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
-        self.validate_in_flight_completion(work, published)?;
-        self.in_flight = None;
-        self.published = Some(published);
-        self.convergence_requested = published.field.state == DdgiFieldState::Converging;
-        Ok(published)
+        let permit = self.preflight_completion(work, published)?;
+        Ok(self.commit_completion(permit))
     }
 
     fn make_initial_update(

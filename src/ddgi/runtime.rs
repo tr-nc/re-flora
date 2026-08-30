@@ -9,14 +9,16 @@ use std::time::Duration;
 use super::resources::{
     DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
 };
+use super::scheduler::DdgiSchedulerCompletionPermit;
+#[cfg(test)]
+use super::DdgiSchedulerError;
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiConvergenceReason, DdgiFieldIdentity,
     DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes,
-    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTerrainRefresh,
-    DdgiTraceStats, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
-    DdgiVerifiedBatchOutcome, DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY,
-    DDGI_RAYS_PER_PROBE,
+    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh, DdgiTraceStats,
+    DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
 };
 
 const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
@@ -703,21 +705,28 @@ impl DdgiRuntime {
             self,
             disposition,
             |runtime, token| {
-                let resources = runtime.volumes().builder().published_consumer_resources()?;
+                let permit = runtime.volumes().preflight_staging_promotion(token)?;
+                let publication = permit.publication();
+                let (lighting_token, lighting_field, lighting) = runtime
+                    .completed_staging_authored_lighting
+                    .context("promotable DDGI staging Volume lost its authored lighting")?;
                 assert_eq!(
-                    resources.build_token, token,
-                    "DDGI consumer resources must retain the runtime candidate token"
+                    (lighting_token, lighting_field, lighting.revision()),
+                    (
+                        permit.token(),
+                        publication.field(),
+                        publication.field().field().radiance_revision(),
+                    ),
+                    "DDGI staging physical publication and authored lighting diverged"
                 );
-                publish_consumers(resources)
+                let resources = runtime.volumes().staging_consumer_resources(&permit);
+                publish_consumers(resources)?;
+                Ok(permit)
             },
-            |runtime, token, ()| {
-                let retired_active = runtime.volumes_mut().promote_staging(token).expect(
-                    "preflighted DDGI staging promotion must not fail after descriptor publication",
-                );
-                assert!(
-                    runtime.mark_promoted(token),
-                    "published DDGI token must remain coordinator-authoritative"
-                );
+            |runtime, token, permit| {
+                let publication = permit.publication();
+                let retired_active = runtime.volumes_mut().promote_staging(permit);
+                runtime.commit_promoted(token, publication.field());
                 retired_active
             },
         )?;
@@ -1105,16 +1114,25 @@ impl DdgiRuntime {
         Ok(Some(work))
     }
 
+    #[cfg(test)]
     pub(crate) fn complete_transport_work(
         &mut self,
         work: DdgiScheduledWork,
         published: DdgiFieldIdentity,
         build_token: DdgiBuildToken,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
-        // Validate before taking the snapshot: a stale completion may arrive after newer work has
-        // been claimed and must not consume that newer work's immutable authored lighting.
-        self.transport_scheduler
-            .validate_in_flight_completion(work, published)?;
+        let permit = self
+            .transport_scheduler
+            .preflight_completion(work, published)?;
+        Ok(self.commit_transport_work(work, build_token, permit))
+    }
+
+    fn commit_transport_work(
+        &mut self,
+        work: DdgiScheduledWork,
+        build_token: DdgiBuildToken,
+        permit: DdgiSchedulerCompletionPermit,
+    ) -> DdgiFieldIdentity {
         let lighting = self
             .in_flight_authored_lighting
             .take()
@@ -1124,9 +1142,7 @@ impl DdgiRuntime {
             work.destination().field().radiance_revision(),
             "completed DDGI work and authored lighting revision diverged",
         );
-        let published = self
-            .transport_scheduler
-            .complete_in_flight(work, published)?;
+        let published = self.transport_scheduler.commit_completion(permit);
         self.published_authored_lighting = Some(lighting);
         if self.active_build_token == Some(build_token) {
             self.resident_active_field = Some(published);
@@ -1135,7 +1151,7 @@ impl DdgiRuntime {
         } else {
             self.completed_staging_authored_lighting = Some((build_token, published, lighting));
         }
-        Ok(published)
+        published
     }
 
     #[cfg(test)]
@@ -1156,10 +1172,12 @@ impl DdgiRuntime {
         true
     }
 
-    pub(crate) fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
-        if !self.terrain_refresh.mark_promoted(token) {
-            return false;
-        }
+    fn commit_promoted(&mut self, token: DdgiBuildToken, publication: DdgiFieldIdentity) {
+        assert!(
+            self.terrain_refresh.token_can_promote(token),
+            "preflighted DDGI token lost coordinator authority"
+        );
+        assert!(self.terrain_refresh.mark_promoted(token));
         self.active_grid = DdgiVolumeGrid::new(
             self.active_grid.world_extent_voxels(),
             token.spacing_voxels(),
@@ -1175,6 +1193,10 @@ impl DdgiRuntime {
             candidate_token, token,
             "promoted DDGI token and completed staging lighting diverged"
         );
+        assert_eq!(
+            field, publication,
+            "promoted DDGI physical publication and scheduler field diverged"
+        );
         self.resident_active_field = Some(field);
         self.resident_active_authored_lighting = Some(lighting);
         if self
@@ -1183,7 +1205,6 @@ impl DdgiRuntime {
         {
             self.resident_active_capture_checkpoint = self.capture_checkpoint;
         }
-        true
     }
 
     pub(crate) fn status(&self) -> DdgiRuntimeStatus {
@@ -1209,11 +1230,11 @@ impl DdgiRuntime {
             }
             match checkpoint.publication {
                 DdgiCapturePublication::Published => {
-                    active.published_field == Some(checkpoint.field)
+                    active.publication.map(|publication| publication.field())
+                        == Some(checkpoint.field)
                 }
                 DdgiCapturePublication::Unpublished => {
-                    active.published_field.is_none()
-                        && active.complete_field == Some(checkpoint.field)
+                    active.publication.is_none() && active.complete_field == Some(checkpoint.field)
                 }
             }
         })
@@ -1433,19 +1454,27 @@ impl DdgiRuntime {
                 .volumes()
                 .builder()
                 .update_atlas_validation_from_readback()?;
-            let classified = self.volumes().builder().preview_validated_field(
+            let volume_permit = self.volumes().builder().preflight_atlas_publication(
                 identity,
                 stats,
                 DDGI_CONVERGENCE_POLICY,
             )?;
-            let work = self
+            let publication = volume_permit.publication();
+            let classified = publication.field();
+            let work = volume_permit.work();
+            let status_work = self
                 .volumes()
                 .builder()
                 .status()
                 .scheduled_work
                 .context("validated DDGI epoch must retain scheduled work")?;
-            self.transport_scheduler
-                .validate_in_flight_completion(work, classified)
+            anyhow::ensure!(
+                status_work == work,
+                "DDGI physical publication permit lost its scheduled work"
+            );
+            let scheduler_permit = self
+                .transport_scheduler
+                .preflight_completion(work, classified)
                 .map_err(|error| {
                     anyhow::anyhow!(
                         "DDGI scheduler rejected completion before publication: {error:?}"
@@ -1455,75 +1484,41 @@ impl DdgiRuntime {
                 .build_token
                 .context("validated DDGI field has no volume build token")?;
             let observed_capture = if self.volumes().builder_is_active() {
-                let transaction = execute_publication_transaction(
-                    self,
-                    PublicationDisposition::Publish(build_token),
-                    |runtime, token| {
-                        let resources = runtime
-                            .volumes()
-                            .builder()
-                            .candidate_consumer_resources(identity, classified)?;
-                        assert_eq!(
-                            resources.build_token, token,
-                            "DDGI consumer resources must retain the active field candidate token"
-                        );
-                        publish_consumers(resources)
-                    },
-                    |runtime, token, generation| {
-                        let validated = runtime
-                            .volumes_mut()
-                            .builder_mut()
-                            .mark_atlas_validated(identity, stats, DDGI_CONVERGENCE_POLICY)
-                            .expect(
-                                "preflighted DDGI field publication must not fail after consumers publish",
-                            );
-                        let prepared = convergence_evidence::prepare(validated, stats);
-                        let publication = prepared.publication;
-                        let validated_work = publication.work();
-                        let field = publication.field();
-                        assert_eq!(
-                            field, classified,
-                            "DDGI atlas classification changed during publication"
-                        );
-                        assert_eq!(
-                            validated_work, work,
-                            "DDGI validated work changed during publication"
-                        );
-                        runtime
-                            .complete_transport_work(work, field, token)
-                            .expect(
-                                "validated DDGI scheduler completion must not fail after consumers publish",
-                            );
-                        let capture_observed = runtime.observe_capture_checkpoint(
-                            token,
-                            field,
-                            stats,
-                            DdgiCapturePublication::Published,
-                        );
-                        (capture_observed, generation, prepared)
-                    },
-                )?;
-                match transaction {
-                    PublicationTransactionOutcome::Published {
-                        committed: (capture_observed, generation, prepared),
-                        ..
-                    } => {
-                        consumer_descriptor_generation = Some(generation);
-                        validated_publication = Some(prepared.publication);
-                        pending_convergence_evidence = Some(prepared.pending);
-                        capture_observed
-                    }
-                    PublicationTransactionOutcome::Idle
-                    | PublicationTransactionOutcome::Discarded(_) => {
-                        unreachable!("active DDGI field must execute a publication transaction")
-                    }
-                }
-            } else {
-                let validated = self.volumes_mut().builder_mut().mark_atlas_validated(
-                    identity,
+                assert_eq!(
+                    publication.generation().build_token(),
+                    build_token,
+                    "DDGI publication permit must retain the active candidate token"
+                );
+                let resources = self
+                    .volumes()
+                    .builder()
+                    .candidate_consumer_resources(&volume_permit);
+                let generation = publish_consumers(resources)?;
+                let validated = self
+                    .volumes_mut()
+                    .builder_mut()
+                    .commit_atlas_publication(volume_permit);
+                let prepared = convergence_evidence::prepare(validated, stats);
+                let publication = prepared.publication;
+                let field = publication.field();
+                assert_eq!(field, classified);
+                assert_eq!(publication.work(), work);
+                self.commit_transport_work(work, build_token, scheduler_permit);
+                let capture_observed = self.observe_capture_checkpoint(
+                    build_token,
+                    field,
                     stats,
-                    DDGI_CONVERGENCE_POLICY,
-                )?;
+                    DdgiCapturePublication::Published,
+                );
+                consumer_descriptor_generation = Some(generation);
+                validated_publication = Some(prepared.publication);
+                pending_convergence_evidence = Some(prepared.pending);
+                capture_observed
+            } else {
+                let validated = self
+                    .volumes_mut()
+                    .builder_mut()
+                    .commit_atlas_publication(volume_permit);
                 let prepared = convergence_evidence::prepare(validated, stats);
                 let publication = prepared.publication;
                 let validated_work = publication.work();
@@ -1536,10 +1531,7 @@ impl DdgiRuntime {
                     validated_work, work,
                     "private DDGI validated work changed during publication"
                 );
-                self.complete_transport_work(work, field, build_token)
-                    .expect(
-                    "validated private DDGI scheduler completion must not fail after field commit",
-                );
+                self.commit_transport_work(work, build_token, scheduler_permit);
                 let capture_observed = self.observe_capture_checkpoint(
                     build_token,
                     field,
@@ -2109,7 +2101,6 @@ mod tests {
             stage,
             scheduled_work: None,
             complete_field: Some(identity),
-            published_field: Some(identity),
             publication: token
                 .map(|token| crate::ddgi::DdgiFieldPublication::for_test(token, identity)),
             building_field: Some(identity),

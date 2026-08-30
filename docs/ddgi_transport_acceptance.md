@@ -21,6 +21,20 @@ Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 Old capture versions remain readable for committed historical evidence, but all current-runtime
 acceptance requires v8 `Converging` / `Converged` metadata and `update_epoch`.
 
+## Resident publication ownership
+
+The physical Volume owns one composite resident publication: its owner-issued generation root,
+current field, atlas/sky slots, build token, and latched radiance revision are validated together.
+There is no separate raw `published_field` authority. Atlas completion and staging promotion each
+mint a linear permit only after that complete tuple and the scheduler/coordinator transition pass
+preflight. Descriptor code can borrow resources only through the permit. A descriptor error drops
+the permit without committing the Volume or scheduler; after descriptor success, consuming the
+permit is an infallible ownership transition.
+
+This E1 branch still writes and analyzes RFIRR v8. The later E3 semantic merge owns the v10
+current-only runner (with its documented v9 compatibility boundary); lifecycle work here must not
+rewrite that runner back to v8 when the branches are collected.
+
 ## Transport matrix
 
 The matrix runs spacing 32 and 16 and includes:
