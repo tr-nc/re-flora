@@ -1153,6 +1153,16 @@ GlassResolveResult traceGlassVoxelCellRadiance(
     }
     averageGlassResolveSamples(2u, result);
 
+    // Camera effects are part of the cell-owned final color. Applying them later with each
+    // covered pixel's UV would reintroduce per-pixel variation after the voxel cache resolve.
+    float4 canonicalClip = mul(
+        camera_info.view_proj_mat, float4(faceCenter, 1.0));
+    if (canonicalClip.w > 0.0)
+    {
+        float2 canonicalScreenUv = canonicalClip.xy / canonicalClip.w * 0.5 + 0.5;
+        result.radiance = applyGlassCameraEffects(result.radiance, canonicalScreenUv);
+    }
+
     return result;
 }
 
@@ -1187,6 +1197,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
     float3 resolvedColor = opaqueColor;
     uint2 diagnostics = uint2(0u);
     bool usedCachedDiagnostics = false;
+    bool resolvedGlassCell = false;
     if ((frontData & 1u) != 0u)
     {
         if (glassDepthPrecedes(opaqueDepth, frontDepth))
@@ -1196,6 +1207,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
         }
         else
         {
+            resolvedGlassCell = true;
             Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
             SceneQueryEvent frontEvent = unpackGlassFrontEvent(
                 frontData, screenUv, frontDepth, ray);
@@ -1237,7 +1249,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent)
         resolvedColor = provenanceDebugColor(provenance);
     else if (shading_info.glass_debug_view == 3u)
         resolvedColor = screenValidityDebugColor(reason);
-    else
+    else if (!resolvedGlassCell)
         resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);
     glass_debug_tex[coordinate] = diagnostics;
     composited_tex[coordinate] = float4(resolvedColor, 1.0);

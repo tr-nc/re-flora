@@ -450,6 +450,29 @@ Feature-OFF `render-steady` A,B,B,A comparison also passed all eleven configured
 `frame.render` changed by -0.27%, `tracer.render` by -0.30%, and `frame.cpu_total` by +0.19%.
 Evidence is at `target/perf-glass-canonical-feature-off-abba/comparison.json`.
 
+## House pane depth and final-color ownership follow-up (2026-08-30)
+
+The authored Hobbit-house panes now occupy two terrain voxels in depth, growing inward from
+the unchanged outer facade plane. The house-plan regression test requires the exact two-voxel
+span so stored voxel normals have a same-medium neighbor without putting Glass outside the oak
+frame.
+
+The `fallback` house snapshot was also checked for the reported background-looking overlay.
+`Unrefracted Raster Fallback` was disabled, the legacy terrarium alpha path was inactive, and a
+screen-validity capture showed the entire visible pane using valid Glass screen hits rather than
+the opaque-foreground branch. The remaining final-color ownership violation was downstream of
+the cache: lens flare and god rays were sampled again with each covered pixel's screen UV.
+
+Camera effects are now evaluated once at the canonical Glass face center and stored in the
+cell-owned cache result. The pixel resolve copies that result directly for Glass, uses an opaque
+alpha of one, and applies per-pixel camera effects only to non-Glass pixels or real foreground.
+There is no same-pixel opaque-scene alpha overlay in the voxel Glass resolve. Three projected
+cell interiors in the Release `fallback` capture each remained within a 20 encoded-luma range;
+the residual band is display tone mapping and dithering.
+
+Diagnostic artifacts are under `target/glass-clean-cell/`: `pre-final.png`,
+`pre-validity.png`, and `post-final.png`.
+
 ## Memory and lifetime
 
 At 800x500, enabled Glass extent resources total 22,237,188 bytes (21.21 MiB):
@@ -538,6 +561,11 @@ python scripts/perf_suite.py run glass-coverage-25 \
   tests plus four auxiliary binary tests, and all 83 Python tests pass. Stored-normal and
   voxel-face Release captures complete without non-finite output or runtime errors; Glass-on and
   Feature-OFF Release A,B,B,A comparisons pass every configured gate.
+- Two-voxel house panes and final-color ownership: the two focused regressions pass, the Rust
+  suite passes 686 tests with one ignored and only the documented dirty-snapshot PATT fixture
+  filtered, and all 83 Python tests pass. Release `fallback` and screen-validity captures complete
+  cleanly; the matching Feature-OFF smoke retains 168-byte 2x2 placeholders and records no Glass
+  resolve path.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root

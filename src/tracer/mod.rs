@@ -327,11 +327,40 @@ const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 2;
 #[cfg(test)]
 mod glass_voxel_cache_contract_tests {
     #[test]
-    fn visible_glass_voxel_has_no_pixel_exact_output_override() {
+    fn visible_glass_voxel_owns_final_pixel_color_without_alpha_overlay() {
         let shader = include_str!("../../shader/slang/glass_resolve.slang");
+        let cell_shading = shader
+            .split_once("GlassResolveResult traceGlassVoxelCellRadiance")
+            .expect("Glass cell shading function")
+            .1
+            .split_once("void shadeGlassVoxelCache")
+            .expect("end of Glass cell shading function")
+            .0;
+        let pixel_resolve = shader
+            .split_once("void resolveGlassVoxelPixel")
+            .expect("Glass pixel resolve function")
+            .1
+            .split_once("[shader(\"compute\")]")
+            .expect("end of Glass pixel resolve function")
+            .0;
 
         assert!(shader.contains("traceGlassVoxelCellRadiance"));
         assert!(shader.contains("glass_voxel_cache_radiance[slot].rgb"));
+        assert!(
+            cell_shading.contains(
+                "result.radiance = applyGlassCameraEffects(result.radiance, canonicalScreenUv);"
+            ),
+            "camera effects on visible Glass must be owned by the canonical cell color"
+        );
+        assert!(
+            pixel_resolve.contains("else if (!resolvedGlassCell)\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
+            "pixel resolve may apply camera effects only when it did not resolve a Glass cell"
+        );
+        assert!(
+            !pixel_resolve.contains("lerp("),
+            "Glass pixel resolve must not blend the opaque pixel back over the cell color"
+        );
+        assert!(pixel_resolve.contains("composited_tex[coordinate] = float4(resolvedColor, 1.0);"));
         for forbidden in [
             "GLASS_EXACT_PIXEL",
             "forceExact",
