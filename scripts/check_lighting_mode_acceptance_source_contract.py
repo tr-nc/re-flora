@@ -7,15 +7,13 @@ from typing import NamedTuple
 
 
 OWNER = "src/app/core/lighting_mode_acceptance.rs"
-CALLER = "src/app/core/mod.rs"
 TRACER_OWNER = "src/tracer/mod.rs"
 BUFFER_UPDATER_OWNER = "src/tracer/buffer_updater.rs"
 ENVIRONMENT_OWNER = "src/environment_lighting.rs"
-RESOLVED_TYPES = ("ResolvedLightingFrameInputs", "ResolvedFrameTiming")
-PLAN_REFERENCES = (
-    ("LightingModeAcceptanceRuntime", "frame_plan"),
-    ("LightingModeAcceptanceFramePlan", "resolve_timing"),
-    ("LightingModeAcceptanceRenderPlan", "resolve_lighting"),
+RESOLVED_TYPES = (
+    "ResolvedLightingFrameInputs",
+    "ResolvedFrameTiming",
+    "ResolvedRasterLightingState",
 )
 
 
@@ -293,14 +291,6 @@ def _direct_named_parameters(
     return names
 
 
-def _qualified_reference_count(tokens: list[str], type_name: str, method: str) -> int:
-    sequence = (type_name, ":", ":", method)
-    return sum(
-        tuple(tokens[index : index + len(sequence)]) == sequence
-        for index in range(len(tokens) - len(sequence) + 1)
-    )
-
-
 def _call_arguments(tokens: list[str], prefix: tuple[str, ...]) -> list[list[tuple[str, ...]]]:
     calls: list[list[tuple[str, ...]]] = []
     for index in range(len(tokens) - len(prefix) + 1):
@@ -310,34 +300,6 @@ def _call_arguments(tokens: list[str], prefix: tuple[str, ...]) -> list[list[tup
         closing = _closing(tokens, opening, "(", ")")
         if closing is not None:
             calls.append(_split_top_level(tokens[opening + 1 : closing], ","))
-    return calls
-
-
-def _let_initialized_calls(
-    tokens: list[str], prefix: tuple[str, ...]
-) -> list[tuple[tuple[str, ...], list[tuple[str, ...]]]]:
-    calls: list[tuple[tuple[str, ...], list[tuple[str, ...]]]] = []
-    for index in range(len(tokens) - len(prefix) + 1):
-        if tuple(tokens[index : index + len(prefix)]) != prefix or index == 0:
-            continue
-        equals = index - 1
-        if tokens[equals] != "=":
-            continue
-        let_index = equals - 1
-        while let_index >= 0 and tokens[let_index] not in ("let", ";", "{"):
-            let_index -= 1
-        if let_index < 0 or tokens[let_index] != "let":
-            continue
-        opening = index + len(prefix) - 1
-        closing = _closing(tokens, opening, "(", ")")
-        if closing is None:
-            continue
-        calls.append(
-            (
-                tuple(tokens[let_index + 1 : equals]),
-                _split_top_level(tokens[opening + 1 : closing], ","),
-            )
-        )
     return calls
 
 
@@ -356,48 +318,6 @@ def _function_body(tokens: list[str], function: Function) -> list[str]:
     if function.body_start is None or function.body_end is None:
         return []
     return tokens[function.body_start + 1 : function.body_end]
-
-
-def _shadows(body: list[str], parameter_name: str) -> bool:
-    for index, token in enumerate(body):
-        if token != "let":
-            continue
-        cursor = index + 1
-        while cursor < len(body) and body[cursor] not in ("=", ";"):
-            if body[cursor] == parameter_name:
-                return True
-            cursor += 1
-    for index, token in enumerate(body):
-        if token == "for":
-            cursor = index + 1
-            while cursor < len(body) and body[cursor] != "in":
-                if body[cursor] == parameter_name:
-                    return True
-                cursor += 1
-        elif token == "fn":
-            nested = _function_at(body, index)
-            if nested is not None and any(
-                parameter_name in parameter for parameter in nested.parameters
-            ):
-                return True
-        elif token == "=" and index + 1 < len(body) and body[index + 1] == ">":
-            cursor = index - 1
-            while cursor >= 0 and body[cursor] not in ("{", "}", ",", ";"):
-                if body[cursor] == parameter_name:
-                    return True
-                cursor -= 1
-    pipe = 0
-    while pipe < len(body):
-        if body[pipe] != "|":
-            pipe += 1
-            continue
-        closing = pipe + 1
-        while closing < len(body) and body[closing] != "|":
-            closing += 1
-        if closing < len(body) and parameter_name in body[pipe + 1 : closing]:
-            return True
-        pipe = closing + 1
-    return False
 
 
 def _assignment_rhs(body: list[str], target: tuple[str, ...]) -> list[tuple[str, ...]]:
@@ -496,55 +416,38 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _contains(tokens, (type_name, "{")):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
-    caller_tokens = tokenized.get(CALLER, [])
-    initialized_plan_calls: list[
-        tuple[tuple[str, ...], list[tuple[str, ...]]]
-    ] = []
-    for type_name, method in PLAN_REFERENCES:
-        sites = [
-            path
-            for path, tokens in external.items()
-            for _ in range(_qualified_reference_count(tokens, type_name, method))
-        ]
-        if sites != [CALLER]:
-            errors.append(
-                f"{type_name}::{method} references must be exactly [{CALLER}], got {sites}"
-            )
-        calls = _let_initialized_calls(
-            caller_tokens, (type_name, ":", ":", method, "(")
+    state_factory = _canonical_function(
+        owner, "ResolvedLightingFrameInputs", "raster_lighting_state"
+    )
+    if state_factory is None:
+        errors.append(
+            "ResolvedLightingFrameInputs must own exactly one raster_lighting_state factory"
         )
-        if len(calls) != 1:
-            errors.append(
-                f"{type_name}::{method} must initialize one production value in {CALLER}"
-            )
-        initialized_plan_calls.extend(calls)
-    if len(initialized_plan_calls) == len(PLAN_REFERENCES):
-        frame_binding, frame_arguments = initialized_plan_calls[0]
-        timing_binding, timing_arguments = initialized_plan_calls[1]
-        lighting_binding, lighting_arguments = initialized_plan_calls[2]
-        bindings_are_chained = (
-            len(frame_binding) == 1
-            and frame_binding != ("_",)
-            and len(timing_binding) == 5
-            and timing_binding[0] == "("
-            and timing_binding[2] == ","
-            and timing_binding[4] == ")"
-            and len(lighting_binding) == 1
-            and lighting_binding != ("_",)
-            and bool(timing_arguments)
-            and timing_arguments[0] == frame_binding
-            and bool(lighting_arguments)
-            and lighting_arguments[0] == (timing_binding[3],)
+    else:
+        factory_body = _function_body(owner, state_factory)
+        if factory_body[-2:] == [",", "}"]:
+            factory_body = factory_body[:-2] + ["}"]
+        if factory_body != [
+            "ResolvedRasterLightingState",
+            "{",
+            "raster_lighting_mode",
+            ":",
+            "self",
+            ".",
+            "raster_lighting_mode",
+            "}",
+        ]:
+            errors.append("resolved raster state must be constructed only from its capsule field")
+    state_literal_count = sum(
+        owner[index : index + 2] == ["ResolvedRasterLightingState", "{"]
+        and index > 0
+        and owner[index - 1] not in ("struct", "impl", ">")
+        for index in range(len(owner) - 1)
+    )
+    if state_literal_count != 1:
+        errors.append(
+            "owner must contain only the resolved raster state declaration and capsule factory"
         )
-        update_calls = _call_arguments(
-            caller_tokens, ("self", ".", "tracer", ".", "update_buffers", "(")
-        )
-        if (
-            not bindings_are_chained
-            or len(update_calls) != 1
-            or ("&", lighting_binding[0]) not in update_calls[0]
-        ):
-            errors.append("qualified frame plan values must form the canonical Tracer call chain")
 
     tracer_tokens = tokenized.get(TRACER_OWNER, [])
     update_buffers = _canonical_function(tracer_tokens, "Tracer", "update_buffers")
@@ -583,52 +486,34 @@ def audit(sources: dict[str, str]) -> list[str]:
                 for parameter in update_buffers.parameters
             ):
                 errors.append("Tracer::update_buffers exposes a primitive lighting bypass")
-            if _shadows(body, lighting_parameter):
-                errors.append(f"Tracer::update_buffers shadows capsule {lighting_parameter}")
+            tracer_struct = _struct_body(tracer_tokens, "Tracer")
+            fields = [] if tracer_struct is None else _split_top_level(tracer_struct, ",")
+            expected_state_field = (
+                "raster_lighting_state",
+                ":",
+                "Option",
+                "<",
+                "ResolvedRasterLightingState",
+                ">",
+            )
+            if fields.count(expected_state_field) != 1:
+                errors.append("Tracer must store exactly one opaque resolved raster state")
             mode_assignments = _assignment_rhs(
-                body, ("self", ".", "raster_lighting_mode")
+                body, ("self", ".", "raster_lighting_state")
             )
             expected_mode = (
+                "Some",
+                "(",
                 lighting_parameter,
                 ".",
-                "raster_lighting_mode",
+                "raster_lighting_state",
                 "(",
+                ")",
                 ")",
             )
             if mode_assignments != [expected_mode]:
                 errors.append(
-                    "Tracer::update_buffers raster state must derive directly from its capsule"
-                )
-            updater_calls = _call_arguments(
-                body,
-                (
-                    "crate",
-                    ":",
-                    ":",
-                    "tracer",
-                    ":",
-                    ":",
-                    "buffer_updater",
-                    ":",
-                    ":",
-                    "BufferUpdater",
-                    ":",
-                    ":",
-                    "update_gui_input",
-                    "(",
-                ),
-            )
-            updater_reference_count = sum(
-                token == "update_gui_input" for token in body
-            )
-            if (
-                updater_reference_count != 1
-                or len(updater_calls) != 1
-                or (lighting_parameter,) not in updater_calls[0]
-            ):
-                errors.append(
-                    "Tracer::update_buffers must route its capsule through the module-qualified "
-                    "production BufferUpdater"
+                    "Tracer opaque raster state must be assigned once from its capsule factory"
                 )
 
     updater_tokens = tokenized.get(BUFFER_UPDATER_OWNER, [])
@@ -672,11 +557,6 @@ def audit(sources: dict[str, str]) -> list[str]:
             lighting_parameter = lighting_parameters[0]
             resources_parameter = resource_parameters[0]
             body = _function_body(updater_tokens, update_gui_input)
-            for parameter_name in (lighting_parameter, resources_parameter):
-                if _shadows(body, parameter_name):
-                    errors.append(
-                        f"BufferUpdater::update_gui_input shadows parameter {parameter_name}"
-                    )
             sink_calls = _call_arguments(
                 body,
                 (

@@ -68,7 +68,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
-use crate::app::{RasterLightingMode, ResolvedLightingFrameInputs};
+use crate::app::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
@@ -677,11 +677,11 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 }
 
 fn flora_lighting_cache_dispatch_enabled(
-    raster_lighting_mode: RasterLightingMode,
+    raster_lighting_is_ddgi: bool,
     local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    (raster_lighting_mode.is_ddgi() || local_lights_active) && required_entries > 0
+    (raster_lighting_is_ddgi || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
@@ -710,26 +710,10 @@ mod flora_lighting_cache_location_tests {
 
     #[test]
     fn cache_dispatch_requires_environment_or_local_lighting_and_visible_flora() {
-        assert!(flora_lighting_cache_dispatch_enabled(
-            RasterLightingMode::Ddgi,
-            false,
-            1
-        ));
-        assert!(flora_lighting_cache_dispatch_enabled(
-            RasterLightingMode::Legacy,
-            true,
-            1
-        ));
-        assert!(!flora_lighting_cache_dispatch_enabled(
-            RasterLightingMode::Ddgi,
-            true,
-            0
-        ));
-        assert!(!flora_lighting_cache_dispatch_enabled(
-            RasterLightingMode::Legacy,
-            false,
-            1
-        ));
+        assert!(flora_lighting_cache_dispatch_enabled(true, false, 1));
+        assert!(flora_lighting_cache_dispatch_enabled(false, true, 1));
+        assert!(!flora_lighting_cache_dispatch_enabled(true, true, 0));
+        assert!(!flora_lighting_cache_dispatch_enabled(false, false, 1));
     }
 
     #[test]
@@ -965,7 +949,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
-    raster_lighting_mode: RasterLightingMode,
+    raster_lighting_state: Option<ResolvedRasterLightingState>,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
@@ -1216,7 +1200,7 @@ impl Tracer {
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-            raster_lighting_mode: RasterLightingMode::Ddgi,
+            raster_lighting_state: None,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
@@ -1227,6 +1211,11 @@ impl Tracer {
 
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
         self.ddgi_runtime.status()
+    }
+
+    fn raster_lighting_is_ddgi(&self) -> bool {
+        self.raster_lighting_state
+            .map_or(true, ResolvedRasterLightingState::is_ddgi)
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
@@ -2260,7 +2249,7 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_lighting_mode = lighting_frame.raster_lighting_mode();
+        self.raster_lighting_state = Some(lighting_frame.raster_lighting_state());
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
@@ -3729,7 +3718,7 @@ impl Tracer {
             .expect("visible raster flora lighting cache entry count overflow");
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
-            self.raster_lighting_mode,
+            self.raster_lighting_is_ddgi(),
             self.local_light_live_publication.observation().count > 0,
             required_lighting_cache_entries,
         ) {
@@ -4129,7 +4118,7 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
-            if self.raster_lighting_mode.is_ddgi() && recorded_flora_instance_count > 0 {
+            if self.raster_lighting_is_ddgi() && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())

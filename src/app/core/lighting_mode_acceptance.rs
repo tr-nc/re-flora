@@ -102,6 +102,11 @@ pub(crate) struct ResolvedLightingFrameInputs {
     path_tracing_ambient_light: glam::Vec3,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedRasterLightingState {
+    raster_lighting_mode: RasterLightingMode,
+}
+
 #[derive(Debug, PartialEq)]
 pub(super) struct LightingModeAcceptanceRenderPlan {
     lighting: PlannedLightingFrameInputs,
@@ -222,6 +227,12 @@ impl ResolvedLightingFrameInputs {
         self.raster_lighting_mode
     }
 
+    pub(crate) const fn raster_lighting_state(self) -> ResolvedRasterLightingState {
+        ResolvedRasterLightingState {
+            raster_lighting_mode: self.raster_lighting_mode,
+        }
+    }
+
     pub(crate) const fn path_tracing_reference(self) -> bool {
         self.path_tracing_reference
     }
@@ -232,6 +243,12 @@ impl ResolvedLightingFrameInputs {
 
     pub(crate) const fn path_tracing_ambient_light(self) -> glam::Vec3 {
         self.path_tracing_ambient_light
+    }
+}
+
+impl ResolvedRasterLightingState {
+    pub(crate) const fn is_ddgi(self) -> bool {
+        self.raster_lighting_mode.is_ddgi()
     }
 }
 
@@ -826,6 +843,39 @@ mod tests {
                     .controls(inputs.lighting_controls),
             }
         );
+    }
+
+    #[test]
+    fn resolved_raster_state_exposes_only_the_narrow_ddgi_observation() {
+        let live = LiveLightingFrameInputs {
+            time_of_day: 0.75,
+            sampling_serial: 23,
+            dither_strength_lsb: 0.25,
+            path_tracing_max_bounces: 7,
+            path_tracing_ambient_light: [0.1, 0.2, 0.3],
+            lighting_controls: EffectiveLightingControls::from_gui(false, false),
+        };
+        let legacy = LightingModeAcceptancePhase::C
+            .frame_plan()
+            .resolve_timing(LiveFrameTiming {
+                visual_time_seconds: 1.0,
+                frame_delta_seconds: 1.0 / 60.0,
+            })
+            .1
+            .resolve_lighting(live)
+            .raster_lighting_state();
+        let ddgi = LightingModeAcceptancePhase::B
+            .frame_plan()
+            .resolve_timing(LiveFrameTiming {
+                visual_time_seconds: 1.0,
+                frame_delta_seconds: 1.0 / 60.0,
+            })
+            .1
+            .resolve_lighting(live)
+            .raster_lighting_state();
+
+        assert!(!legacy.is_ddgi());
+        assert!(ddgi.is_ddgi());
     }
 
     #[test]

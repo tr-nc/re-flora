@@ -17,7 +17,9 @@ mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
 mod lighting_mode_acceptance;
-pub(crate) use lighting_mode_acceptance::{RasterLightingMode, ResolvedLightingFrameInputs};
+pub(crate) use lighting_mode_acceptance::{
+    ResolvedLightingFrameInputs, ResolvedRasterLightingState,
+};
 mod loading;
 mod local_player_footsteps;
 mod moisture;

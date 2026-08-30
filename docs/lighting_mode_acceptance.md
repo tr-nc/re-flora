@@ -12,25 +12,29 @@ considered: a neutral frame-input module would expose a shallow seven-value cont
 acceptance-only factory; Tracer ownership would reverse the dependency by making the renderer own
 fixture timing and phase policy; acceptance ownership keeps the fixed bundle, resolution order,
 identity, and private construction in one module. Callers can consume the resolved views but cannot
-construct or destructure them. `RasterLightingMode` remains typed through Tracer and is lowered only
-when the opaque resolved lighting capsule is consumed by `BufferUpdater` at the production GPU
-uniform seam.
+construct or destructure them. The two-stage timing/render plan remains a typed consuming seam, but
+does not mandate UFCS or dot-call syntax. `RasterLightingMode` stays in planning and in the capsule
+consumed by the GPU uniform sink. For Tracer's longer-lived draw/dispatch state, only the capsule can
+construct an opaque `ResolvedRasterLightingState`; Tracer stores that value and can ask only whether
+DDGI is active, so it cannot recreate a Legacy/DDGI value from a primitive or import alias.
 
-Rust privacy is the primary seal. Three source-audit seams were compared. A repository-wide unique
-bare function name was rejected because ordinary builder helpers legitimately share names such as
-`update_buffers`. Fixed paths plus substring presence were rejected because they cannot prove the
-receiver, a direct parameter type, or sink ownership. The selected seam parses the canonical
-`Tracer` and `BufferUpdater` inherent implementations. `Tracer` passes its opaque
-`ResolvedLightingFrameInputs` directly through a module-and-type-qualified production call;
-`BufferUpdater` consumes that capsule in one inline `GuiInput` construction, so the four lighting
-uniform values are never an independently forgeable primitive bundle at that seam.
+Rust privacy is the primary seal. Three raster-state seams were compared. Denying selected alias
+tokens was rejected as too shallow; counting source occurrences globally was rejected as brittle;
+the selected seam is the owner-constructed opaque raster state described above. Separately, three
+source-audit seams were compared. A repository-wide unique bare function name was rejected because
+ordinary builder helpers legitimately share names such as `update_buffers`. Fixed paths plus
+substring presence were rejected because they cannot prove the receiver or a direct parameter type.
+The selected structural tripwire parses the canonical `Tracer` and `BufferUpdater` inherent
+implementations and the current inline `GuiInput` sink.
 
 Rust type checking and the capsule's private construction are the ownership guarantee.
 `scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file only as a
-structure-drift tripwire: it checks the canonical qualified plan references, capsule signatures,
-their actual chained UFCS initializers, the direct Tracer raster-state assignment from the same
-capsule, inline getter shape, and that current production source contains no second `gui_input`
-write. It is not a proof of arbitrary Rust aliasing or whole-program dataflow. The
+structure-drift tripwire: it checks private resolved fields, external construction attempts, direct
+capsule signatures, the opaque Tracer field and its single current capsule-factory assignment,
+inline GPU getter shape, and that current production source contains no second `gui_input` write.
+It deliberately does not infer control flow, require a plan-call spelling, or claim to detect
+arbitrary shadowing and aliasing; it is not a proof of whole-program dataflow. Pure Rust logic tests
+cover live and fixed plan resolution. The
 shader-validation workflow evaluates the ordered `pull_request` and `push` path rules and routes all
 current E2 source owners, this checker, its tests, and this document through the same CPU contract
 gate.

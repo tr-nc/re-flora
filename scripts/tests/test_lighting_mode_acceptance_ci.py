@@ -1,6 +1,6 @@
 import ast
-from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import unittest
 
 
@@ -23,6 +23,7 @@ SOURCE_OWNERS = (
     "src/tracer/mod.rs",
     "src/tracer/buffer_updater.rs",
 )
+CONCRETE_ROUTES = tuple(path for path in ROUTES if path != "src/**") + SOURCE_OWNERS
 
 
 def event_paths(workflow: str, event: str) -> list[str]:
@@ -61,19 +62,52 @@ def event_paths(workflow: str, event: str) -> list[str]:
     return paths
 
 
-def source_owners_are_routed(paths: list[str]) -> bool:
-    if "src/**" not in paths:
+def github_path_matches(path: str, pattern: str) -> bool:
+    if any(token in pattern for token in ("?", "[", "]")) or re.search(
+        r"[!+*@?]\(", pattern
+    ):
         return False
-    for owner in SOURCE_OWNERS:
+    regex = ""
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**", index):
+            index += 2
+            if index < len(pattern) and pattern[index] == "/":
+                regex += "(?:.*/)?"
+                index += 1
+            else:
+                regex += ".*"
+        elif pattern[index] == "*":
+            regex += "[^/]*"
+            index += 1
+        else:
+            regex += re.escape(pattern[index])
+            index += 1
+    return re.fullmatch(regex, path) is not None
+
+
+def required_paths_are_routed(paths: list[str], required_paths: tuple[str, ...]) -> bool:
+    normalized: list[tuple[bool, str]] = []
+    for ordered_pattern in paths:
+        excluded = ordered_pattern.startswith("!")
+        pattern = ordered_pattern[1:] if excluded else ordered_pattern
+        if any(token in pattern for token in ("?", "[", "]")) or re.search(
+            r"[!+*@?]\(", pattern
+        ):
+            return False
+        normalized.append((excluded, pattern))
+    for required_path in required_paths:
         included = False
-        for ordered_pattern in paths:
-            excluded = ordered_pattern.startswith("!")
-            pattern = ordered_pattern[1:] if excluded else ordered_pattern
-            if fnmatchcase(owner, pattern):
+        for excluded, pattern in normalized:
+            if github_path_matches(required_path, pattern):
                 included = not excluded
         if not included:
             return False
     return True
+
+
+def source_owners_are_routed(paths: list[str]) -> bool:
+    return "src/**" in paths and required_paths_are_routed(paths, SOURCE_OWNERS)
 
 
 class LightingModeAcceptanceCiTests(unittest.TestCase):
@@ -82,14 +116,14 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
         pull_request = event_paths(workflow, "pull_request")
         for path in ROUTES:
             self.assertIn(path, pull_request, path)
-        self.assertTrue(source_owners_are_routed(pull_request))
+        self.assertTrue(required_paths_are_routed(pull_request, CONCRETE_ROUTES))
 
     def test_push_routes_all_e2_sources_to_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()
         push = event_paths(workflow, "push")
         for path in ROUTES:
             self.assertIn(path, push, path)
-        self.assertTrue(source_owners_are_routed(push))
+        self.assertTrue(required_paths_are_routed(push, CONCRETE_ROUTES))
 
     def test_commented_src_route_is_not_an_event_path_item(self) -> None:
         workflow = WORKFLOW.read_text()
@@ -113,6 +147,38 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
                     marker, replacement, 1
                 )
                 self.assertFalse(source_owners_are_routed(event_paths(mutated, event)))
+
+    def test_later_script_or_doc_exclusion_cannot_remove_e2_routes(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for event in ("pull_request", "push"):
+            for exclusion in ("!scripts/**", "!docs/**"):
+                with self.subTest(event=event, exclusion=exclusion):
+                    event_start = workflow.index(f"  {event}:")
+                    marker = '      - "src/**"'
+                    replacement = marker + f'\n      - "{exclusion}"'
+                    mutated = workflow[:event_start] + workflow[event_start:].replace(
+                        marker, replacement, 1
+                    )
+                    self.assertFalse(
+                        required_paths_are_routed(
+                            event_paths(mutated, event), CONCRETE_ROUTES
+                        )
+                    )
+
+    def test_single_star_cannot_reinclude_nested_owners_after_recursive_exclusion(self) -> None:
+        paths = ["src/**", "!src/**", "src/*"]
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                self.assertFalse(source_owners_are_routed(paths))
+                self.assertFalse(required_paths_are_routed(paths, CONCRETE_ROUTES))
+        self.assertFalse(github_path_matches("src/app/core/mod.rs", "src/*"))
+        self.assertFalse(github_path_matches("src/tracer/mod.rs", "src/*"))
+
+    def test_unsupported_github_glob_syntax_fails_closed(self) -> None:
+        for pattern in ("src/?", "src/[ab]/**", "src/@(app|tracer)/**"):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(github_path_matches("src/app/core/mod.rs", pattern))
+                self.assertFalse(source_owners_are_routed(["src/**", pattern]))
 
     def test_shader_validation_runs_cpu_contract_gates(self) -> None:
         workflow = WORKFLOW.read_text()

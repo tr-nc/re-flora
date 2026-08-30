@@ -12,5 +12,5 @@ mod world_edits;
 mod world_ops;
 
 pub use app_controller::AppController;
-pub(crate) use core::{RasterLightingMode, ResolvedLightingFrameInputs};
+pub(crate) use core::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
 pub use gui_config::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
