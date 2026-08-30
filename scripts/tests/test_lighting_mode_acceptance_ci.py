@@ -13,9 +13,12 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
         for path in (
             "scripts/analyze_lighting_mode_acceptance.py",
             "scripts/check_lighting_mode_acceptance.sh",
+            "scripts/check_lighting_mode_acceptance_source_contract.py",
             "scripts/tests/test_analyze_lighting_mode_acceptance.py",
             "scripts/tests/test_check_lighting_mode_acceptance.py",
             "scripts/tests/test_lighting_mode_acceptance_ci.py",
+            "scripts/tests/test_lighting_mode_acceptance_source_contract.py",
+            "src/app/mod.rs",
             "src/app/core/lighting_mode_acceptance.rs",
             "src/app/core/loading.rs",
             "src/app/core/mod.rs",
@@ -34,6 +37,10 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
         )
         self.assertIn(
             "python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance",
+            workflow,
+        )
+        self.assertIn(
+            "python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract",
             workflow,
         )
         self.assertIn("cargo test --locked lighting_mode_acceptance", workflow)

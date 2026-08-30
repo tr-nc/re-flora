@@ -12,6 +12,7 @@ on:
       - "scripts/check_latest_run_log.py"
       - "scripts/analyze_lighting_mode_acceptance.py"
       - "scripts/check_lighting_mode_acceptance.sh"
+      - "scripts/check_lighting_mode_acceptance_source_contract.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
@@ -19,7 +20,9 @@ on:
       - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
       - "scripts/tests/test_check_lighting_mode_acceptance.py"
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
+      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
+      - "src/app/mod.rs"
       - "src/app/core/lighting_mode_acceptance.rs"
       - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
@@ -42,6 +45,7 @@ on:
       - "scripts/check_latest_run_log.py"
       - "scripts/analyze_lighting_mode_acceptance.py"
       - "scripts/check_lighting_mode_acceptance.sh"
+      - "scripts/check_lighting_mode_acceptance_source_contract.py"
       - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
@@ -49,7 +53,9 @@ on:
       - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
       - "scripts/tests/test_check_lighting_mode_acceptance.py"
       - "scripts/tests/test_lighting_mode_acceptance_ci.py"
+      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
+      - "src/app/mod.rs"
       - "src/app/core/lighting_mode_acceptance.rs"
       - "src/app/core/loading.rs"
       - "src/app/core/mod.rs"
@@ -223,6 +229,7 @@ jobs:
           python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance
           python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance
           python3 -m unittest scripts.tests.test_lighting_mode_acceptance_ci
+          python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract
           cargo test --locked lighting_mode_acceptance
           cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path
 
