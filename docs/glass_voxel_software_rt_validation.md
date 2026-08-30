@@ -45,10 +45,11 @@ results; it does not replace or modify that guide.
 ### Hobbit house integration
 
 `--house-scene` now enables the same compile-time-specialized Glass renderer and stamps Sand ID 3
-only into the two round window openings after the openings are carved. The door remains open, the
-procedural terrain generator continues to emit Dirt and Rock rather than Sand, and terrain
-persistence is disabled for the scene. Starting without either Glass scene flag still selects the
-ordinary Sand material and the feature-OFF renderer graph.
+only into the two round window openings after the openings are carved. Each one-voxel pane is inset
+behind the facade plane so it sits inside the outward oak frame rather than on the outer sill. The
+door remains open, the procedural terrain generator continues to emit Dirt and Rock rather than
+Sand, and terrain persistence is disabled for the scene. Starting without either Glass scene flag
+still selects the ordinary Sand material and the feature-OFF renderer graph.
 
 ## Fixed-scene acceptance
 
