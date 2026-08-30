@@ -35,6 +35,12 @@ This E1 branch still writes and analyzes RFIRR v8. The later E3 semantic merge o
 current-only runner (with its documented v9 compatibility boundary); lifecycle work here must not
 rewrite that runner back to v8 when the branches are collected.
 
+The density runner feeds its console to one ordered parser rather than accepting independent marker
+matches. The parser advances through baseline, obsolete-density preemption, private terrain e0,
+terrain promotion and consumer publication, recovered same-generation observation, density retry,
+density promotion and consumer publication, then final capture/summary. Duplicate or shuffled
+checkpoints, mixed token lineages, and any obsolete-token promotion/consumer event fail closed.
+
 ## Transport matrix
 
 The matrix runs spacing 32 and 16 and includes:

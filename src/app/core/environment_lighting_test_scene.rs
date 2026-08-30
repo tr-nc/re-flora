@@ -5078,7 +5078,7 @@ impl App {
                     target_revision,
                 );
                 let epoch_zero = geometry_generation.epoch_zero_field();
-                log_acceptance_field("DENSITY", "geometry-e0-private", epoch_zero);
+                log_acceptance_field("DENSITY", "geometry-e0-private-field", epoch_zero);
                 log::info!(
                     "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} private_current_field_serial={} private_current_update_epoch={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
@@ -5133,7 +5133,11 @@ impl App {
                 );
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
-                log_acceptance_field("DENSITY", "geometry-recovery-published", geometry_field);
+                log_acceptance_field(
+                    "DENSITY",
+                    "geometry-recovery-published-field",
+                    geometry_field,
+                );
                 log::info!(
                     "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-recovery-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} published_field_serial={} published_update_epoch={} same_generation=true active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
