@@ -9,6 +9,8 @@ use crate::builder::{ContreeBuilder, PlainBuilder};
 use anyhow::Result;
 use glam::{UVec3, Vec3};
 use re_flora_water::PondWaterConfig;
+#[cfg(test)]
+use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Duration;
 
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
@@ -347,8 +349,7 @@ impl WaterRuntime {
         if self.phase == WaterPhase::Shutdown {
             return;
         }
-        self.sim.shutdown();
-        self.terrain.stop_worker_threads_for_test();
+        self.stop_owned_workers();
         self.phase = WaterPhase::Shutdown;
         self.quiescence = None;
     }
@@ -356,6 +357,25 @@ impl WaterRuntime {
     #[cfg(test)]
     fn child_workers_stopped_for_test(&self) -> bool {
         self.sim.worker_stopped_for_test() && self.terrain.workers_stopped_for_test()
+    }
+
+    #[cfg(test)]
+    fn worker_exit_probes_for_test(&self) -> (Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        (
+            self.sim.worker_exit_probe_for_test(),
+            self.terrain.worker_exit_probe_for_test(),
+        )
+    }
+
+    fn stop_owned_workers(&mut self) {
+        self.sim.shutdown();
+        self.terrain.stop_worker_threads();
+    }
+}
+
+impl Drop for WaterRuntime {
+    fn drop(&mut self) {
+        self.stop_owned_workers();
     }
 }
 
@@ -420,6 +440,7 @@ mod tests {
     use crate::app::GuiAdjustables;
     use glam::UVec3;
     use re_flora_water::PondWaterConfig;
+    use std::sync::atomic::Ordering;
 
     fn running_runtime() -> WaterRuntime {
         let mut runtime = WaterRuntime::for_test(PondWaterConfig::default());
@@ -565,11 +586,28 @@ mod tests {
     #[test]
     fn shutdown_is_idempotent_and_consumes_both_child_workers() {
         let mut runtime = running_runtime();
+        let (sim_exits, terrain_exits) = runtime.worker_exit_probes_for_test();
 
         runtime.shutdown_workers_for_test();
         runtime.shutdown_workers_for_test();
 
         assert_eq!(runtime.phase(), WaterPhase::Shutdown);
         assert!(runtime.child_workers_stopped_for_test());
+        assert_eq!(sim_exits.load(Ordering::SeqCst), 1);
+        assert_eq!(terrain_exits.load(Ordering::SeqCst), 2);
+        drop(runtime);
+        assert_eq!(sim_exits.load(Ordering::SeqCst), 1);
+        assert_eq!(terrain_exits.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn fallback_drop_joins_every_owned_worker() {
+        let runtime = running_runtime();
+        let (sim_exits, terrain_exits) = runtime.worker_exit_probes_for_test();
+
+        drop(runtime);
+
+        assert_eq!(sim_exits.load(Ordering::SeqCst), 1);
+        assert_eq!(terrain_exits.load(Ordering::SeqCst), 2);
     }
 }

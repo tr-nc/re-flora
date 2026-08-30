@@ -6,6 +6,8 @@ use re_flora_water::{
     WaterTerrainCacheBuildRequest, WaterTerrainCachePatch, WaterTerrainColliderChunk,
     WaterTerrainColliderSet,
 };
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     sync::{mpsc, Arc, Mutex, TryLockError},
     thread::{self, JoinHandle},
@@ -20,6 +22,24 @@ const WATER_SIM_THREAD_IDLE_SLEEP: Duration = Duration::from_millis(16);
 // One complete frame every four former bucket intervals keeps the average particle-copy
 // rate approximately unchanged without exposing mixed-time particle sets.
 const WATER_SIM_COHERENT_FRAME_INTERVAL_MULTIPLIER: u32 = 4;
+
+#[derive(Clone, Default)]
+struct WaterSimWorkerExitProbe {
+    #[cfg(test)]
+    exits: Arc<AtomicUsize>,
+}
+
+impl WaterSimWorkerExitProbe {
+    fn mark_exited(&self) {
+        #[cfg(test)]
+        self.exits.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    fn counter(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.exits)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WaterSimRuntimeOptions {
@@ -235,6 +255,8 @@ pub(super) struct AsyncWaterSim {
     snapshot_poll_accumulator: f32,
     last_sent_config: PondWaterConfig,
     runtime_options: WaterSimRuntimeOptions,
+    #[cfg(test)]
+    worker_exit_probe: WaterSimWorkerExitProbe,
 }
 
 impl AsyncWaterSim {
@@ -244,9 +266,14 @@ impl AsyncWaterSim {
         let shared = Arc::new(Mutex::new(WaterSimThreadShared::default()));
         let worker_shared = Arc::clone(&shared);
         let worker_config = config.clone();
+        let worker_exit_probe = WaterSimWorkerExitProbe::default();
+        let thread_exit_probe = worker_exit_probe.clone();
         let worker = thread::Builder::new()
             .name("water-sim".to_owned())
-            .spawn(move || run_water_sim_thread(worker_config, command_rx, worker_shared))
+            .spawn(move || {
+                run_water_sim_thread(worker_config, command_rx, worker_shared);
+                thread_exit_probe.mark_exited();
+            })
             .expect("failed to spawn water simulation thread");
         Self {
             config: config.clone(),
@@ -259,6 +286,8 @@ impl AsyncWaterSim {
             snapshot_poll_accumulator: 0.0,
             last_sent_config: config,
             runtime_options: WaterSimRuntimeOptions::default(),
+            #[cfg(test)]
+            worker_exit_probe,
         }
     }
 
@@ -502,6 +531,11 @@ impl AsyncWaterSim {
     #[cfg(test)]
     pub(super) fn worker_stopped_for_test(&self) -> bool {
         self.worker.is_none()
+    }
+
+    #[cfg(test)]
+    pub(super) fn worker_exit_probe_for_test(&self) -> Arc<AtomicUsize> {
+        self.worker_exit_probe.counter()
     }
 }
 
