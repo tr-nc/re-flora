@@ -2333,6 +2333,23 @@ mod tests {
     }
 
     #[test]
+    fn production_fixture_prepare_rejects_capacity_without_an_app() {
+        let request = FixtureInstallRequest {
+            manual: false,
+            available_particles: PARTICLE_CAPACITY + 1,
+        };
+        let failure = match PreparedFixtureInstallation::prepare(request) {
+            Ok(_) => panic!("impossible fixture capacity unexpectedly prepared"),
+            Err(failure) => failure,
+        };
+
+        assert!(!failure.request.manual);
+        assert_eq!(failure.request.available_particles, PARTICLE_CAPACITY + 1);
+        assert!(failure.error.to_string().contains("particle capacity"));
+        static_assertions::assert_not_impl_any!(PreparedFixtureInstallation: Clone, Copy);
+    }
+
+    #[test]
     fn failed_physical_result_does_not_commit_connectivity_owner_state() {
         let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
             mode: TerrainConnectivityBenchMode::Bounded,
