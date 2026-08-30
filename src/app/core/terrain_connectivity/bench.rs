@@ -25,7 +25,7 @@ const PRE_EVENT_FRAME_SAMPLES: usize = 120;
 const MANUAL_SUPPORT_HALF_WIDTH: u32 = 2;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug)]
 enum BenchState {
     InstallFixture,
     Warmup {
@@ -33,12 +33,14 @@ enum BenchState {
     },
     AwaitingManualEdit,
     Tracing {
+        job: BoundedTopologyJob,
         release_frame: u64,
         revision_before: u32,
         snapshot_readback_us: f64,
         classification_us: f64,
     },
     ValidateAtomicity {
+        job: BoundedTopologyJob,
         release_frame: u64,
         revision_before: u32,
         snapshot_readback_us: f64,
@@ -54,28 +56,17 @@ enum BenchState {
         ready_after_frame: u64,
     },
     AwaitingAtomicityResult {
+        job: BoundedTopologyJob,
         release_frame: u64,
         revision_before: u32,
         snapshot_readback_us: f64,
         classification_us: f64,
     },
-    Commit {
-        release_frame: u64,
-        revision_before: u32,
-        snapshot_readback_us: f64,
-        classification_us: f64,
-        atomic_validation_us: f64,
-        sampling_us: f64,
-        staging_clear_us: f64,
-        sampled_voxels: usize,
-    },
+    Commit(BoundedCommitPayload),
     AwaitingCommitResult {
         event_frame: u64,
     },
     Observing {
-        event_frame: u64,
-    },
-    AwaitingVisualSpawnResult {
         event_frame: u64,
     },
     Complete,
@@ -106,6 +97,7 @@ struct BoundedStep {
     processed: usize,
 }
 
+#[derive(Debug)]
 struct BoundedTopologyJob {
     bound: UAabb3,
     dim: UVec3,
@@ -280,8 +272,6 @@ pub(in crate::app::core) struct TerrainConnectivityBench {
     gpu_source_frame_by_slot: Vec<Option<u64>>,
     high_water: QueueHighWater,
     stages: Option<EventStages>,
-    bounded_job: Option<BoundedTopologyJob>,
-    pending_visual_voxels: Option<Vec<(UVec3, u8)>>,
 }
 
 #[derive(Clone, Copy)]
@@ -320,9 +310,6 @@ enum ConnectivityAction {
         expected_available_particles: usize,
     },
     CommitBounded(BoundedCommitPayload),
-    SpawnVisualVoxels {
-        voxels: Vec<(UVec3, u8)>,
-    },
     HandleManualRelease(ManualReleasePlan),
     ObserveCompletedFrame {
         record: CpuFrameRecord,
@@ -350,10 +337,6 @@ struct AtomicityValidationRequest {
     expected_available_particles: usize,
 }
 
-struct VisualSpawnRequest {
-    voxels: Vec<(UVec3, u8)>,
-}
-
 struct CompletedFrameRequest {
     record: CpuFrameRecord,
     expected_fixture_solids: Option<usize>,
@@ -374,8 +357,10 @@ enum ManualReleasePlan {
     },
 }
 
+#[derive(Debug)]
 struct BoundedCommitPayload {
     job: BoundedTopologyJob,
+    visual_voxels: Vec<(UVec3, u8)>,
     release_frame: u64,
     revision_before: u32,
     snapshot_readback_us: f64,
@@ -383,7 +368,6 @@ struct BoundedCommitPayload {
     atomic_validation_us: f64,
     sampling_us: f64,
     staging_clear_us: f64,
-    sampled_voxels: usize,
     manual: bool,
 }
 
@@ -399,7 +383,6 @@ enum ConnectivityResult {
         Result<AtomicityValidationResult, FailedConnectivityAction<AtomicityValidationRequest>>,
     ),
     BoundedCommitted(Result<EventStages, FailedConnectivityAction<BoundedCommitPayload>>),
-    VisualVoxelsSpawned(Result<VisualSpawnResult, FailedConnectivityAction<VisualSpawnRequest>>),
     ManualReleaseHandled(
         Result<Option<ManualReleasePrepared>, FailedConnectivityAction<ManualReleasePlan>>,
     ),
@@ -439,24 +422,10 @@ mod app_executor {
                 };
                 ConnectivityResult::FixtureInstalled {
                     frame,
-                    outcome: (|| {
-                        let started = Instant::now();
-                        if request.manual {
-                            app.install_manual_connectivity_fixture()?;
-                            app.configure_manual_connectivity_camera()?;
-                        } else {
-                            app.install_connectivity_fixture()?;
-                        }
-                        let reserve_started = Instant::now();
-                        app.reserve_connectivity_particle_capacity(request.available_particles)?;
-                        Ok(FixtureInstallResult {
-                            setup_us: started.elapsed().as_secs_f64() * 1_000_000.0,
-                            reserve_us: reserve_started.elapsed().as_secs_f64() * 1_000_000.0,
-                            available_particles: app.particle_system.available_capacity(),
-                            visible_revision: app.visible_terrain_revision,
-                        })
-                    })()
-                    .map_err(|error| FailedConnectivityAction { request, error }),
+                    outcome: match app.prepare_connectivity_fixture_installation(request) {
+                        Ok(prepared) => Ok(prepared.commit(app)),
+                        Err(failure) => Err(failure),
+                    },
                 }
             }
             ConnectivityAction::ReadBoundedSnapshot { bound, seed } => {
@@ -513,30 +482,11 @@ mod app_executor {
                 ConnectivityResult::AtomicityValidated(outcome)
             }
             ConnectivityAction::CommitBounded(payload) => {
-                let outcome = app.commit_bounded_connectivity(&payload).map_err(|error| {
-                    FailedConnectivityAction {
-                        request: payload,
-                        error,
-                    }
-                });
+                let outcome = match app.prepare_bounded_connectivity(payload) {
+                    Ok(prepared) => Ok(prepared.commit(app)),
+                    Err(failure) => Err(failure),
+                };
                 ConnectivityResult::BoundedCommitted(outcome)
-            }
-            ConnectivityAction::SpawnVisualVoxels { voxels } => {
-                let request = VisualSpawnRequest { voxels };
-                let outcome = (|| {
-                    let particle_started = Instant::now();
-                    let requested_particles = request.voxels.len();
-                    let spawned_particles =
-                        app.spawn_detached_terrain_voxel_particles(&request.voxels);
-                    anyhow::ensure!(spawned_particles == requested_particles);
-                    Ok(VisualSpawnResult {
-                        requested_particles,
-                        spawned_particles,
-                        particle_spawn_us: particle_started.elapsed().as_secs_f64() * 1_000_000.0,
-                    })
-                })()
-                .map_err(|error| FailedConnectivityAction { request, error });
-                ConnectivityResult::VisualVoxelsSpawned(outcome)
             }
             ConnectivityAction::HandleManualRelease(plan) => {
                 let request = plan;
@@ -645,12 +595,6 @@ struct AtomicityValidationResult {
     atomic_validation_us: f64,
 }
 
-struct VisualSpawnResult {
-    requested_particles: usize,
-    spawned_particles: usize,
-    particle_spawn_us: f64,
-}
-
 impl ScenarioOwner {
     fn plan_connectivity_action(
         &mut self,
@@ -676,7 +620,7 @@ impl ScenarioOwner {
                 Ok(ConnectivityEffect {
                     manual_release_handled,
                     observation_complete: observation_requested
-                        && bench.state == BenchState::Complete
+                        && matches!(bench.state, BenchState::Complete)
                         && bench.options.mode != TerrainConnectivityBenchMode::Manual,
                 })
             }
@@ -711,7 +655,7 @@ impl ScenarioOwner {
 
     pub(in crate::app::core) fn allows_ambient_particle_emitters(&mut self) -> bool {
         match self {
-            Self::Connectivity(bench) => bench.state == BenchState::Complete,
+            Self::Connectivity(bench) => matches!(bench.state, BenchState::Complete),
             Self::Standard(_) => true,
         }
     }
@@ -748,7 +692,6 @@ fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Re
         | ConnectivityResult::ReleaseEventRun(_)
         | ConnectivityResult::AtomicityValidated(_)
         | ConnectivityResult::BoundedCommitted(_)
-        | ConnectivityResult::VisualVoxelsSpawned(_)
         | ConnectivityResult::ManualReleaseHandled(_)
         | ConnectivityResult::CompletedFrameObserved(_)
         | ConnectivityResult::FixtureInstalled { .. } => {
@@ -840,13 +783,11 @@ impl TerrainConnectivityBench {
             gpu_source_frame_by_slot: Vec::new(),
             high_water: QueueHighWater::default(),
             stages: None,
-            bounded_job: None,
-            pending_visual_voxels: None,
         }
     }
 
     fn plan_manual_release(&self, facts: ManualReleaseFacts) -> ConnectivityAction {
-        if self.state == BenchState::AwaitingManualEdit {
+        if matches!(self.state, BenchState::AwaitingManualEdit) {
             ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
                 frame: facts.frame,
                 revision_before: facts.visible_revision,
@@ -860,7 +801,20 @@ impl TerrainConnectivityBench {
 
     fn next_action(&mut self, facts: ConnectivityFacts) -> anyhow::Result<ConnectivityAction> {
         let frame = facts.frame;
-        match self.state {
+        if matches!(self.state, BenchState::Commit(_)) {
+            let state = std::mem::replace(
+                &mut self.state,
+                BenchState::AwaitingCommitResult { event_frame: frame },
+            );
+            let BenchState::Commit(payload) = state else {
+                unreachable!("the commit phase was checked before it was consumed")
+            };
+            return Ok(ConnectivityAction::CommitBounded(payload));
+        }
+
+        let mut trace_transition = None;
+        let mut atomicity_action = None;
+        match &mut self.state {
             BenchState::InstallFixture => {
                 return Ok(ConnectivityAction::InstallFixture {
                     manual: self.options.mode == TerrainConnectivityBenchMode::Manual,
@@ -868,7 +822,8 @@ impl TerrainConnectivityBench {
                 });
             }
             BenchState::Warmup { ready_after_frame } => {
-                let ready = frame >= ready_after_frame
+                let prior_ready_after_frame = *ready_after_frame;
+                let ready = frame >= prior_ready_after_frame
                     && facts.contree_idle
                     && (self.options.mode == TerrainConnectivityBenchMode::Manual
                         || facts.terrain_collider_pending == 0)
@@ -892,7 +847,7 @@ impl TerrainConnectivityBench {
                         self.state = BenchState::AwaitingSnapshotResult {
                             frame,
                             revision_before: facts.visible_revision,
-                            ready_after_frame,
+                            ready_after_frame: prior_ready_after_frame,
                         };
                         return Ok(ConnectivityAction::ReadBoundedSnapshot {
                             bound,
@@ -901,7 +856,7 @@ impl TerrainConnectivityBench {
                     } else {
                         self.state = BenchState::AwaitingReleaseResult {
                             event_frame: frame,
-                            ready_after_frame,
+                            ready_after_frame: prior_ready_after_frame,
                         };
                         return Ok(ConnectivityAction::RunReleaseEvent {
                             mode: self.options.mode,
@@ -911,7 +866,7 @@ impl TerrainConnectivityBench {
                     log::info!(
                         "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=warmup frame={} ready_after={} contree_idle={} terrain_collider_pending={} water_ready={} ddgi_ready={} revision={}",
                         frame,
-                        ready_after_frame,
+                        prior_ready_after_frame,
                         facts.contree_idle,
                         facts.terrain_collider_pending,
                         facts.water_ready,
@@ -922,54 +877,37 @@ impl TerrainConnectivityBench {
             }
             BenchState::AwaitingManualEdit => {}
             BenchState::Tracing {
+                job,
                 release_frame,
                 revision_before,
-                snapshot_readback_us,
-                mut classification_us,
+                snapshot_readback_us: _,
+                classification_us,
             } => {
                 anyhow::ensure!(
-                    facts.visible_revision == revision_before,
+                    facts.visible_revision == *revision_before,
                     "bounded topology input revision changed while pending"
                 );
                 let step_started = Instant::now();
-                let job = self
-                    .bounded_job
-                    .as_mut()
-                    .context("bounded topology state lost its job")?;
                 let step = job.advance(self.options.voxel_budget);
                 let step_us = step_started.elapsed().as_secs_f64() * 1_000_000.0;
-                classification_us += step_us;
+                *classification_us += step_us;
                 log::info!(
                     "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=job_frame mode=bounded release_frame={} frame={} relative={} voxel_budget={} processed={} processed_total={} pending={} step_us={:.0} classification_us={:.0} disposition={} visible_revision={}",
-                    release_frame,
+                    *release_frame,
                     frame,
-                    frame.saturating_sub(release_frame),
+                    frame.saturating_sub(*release_frame),
                     self.options.voxel_budget,
                     step.processed,
                     job.component_len(),
                     job.pending_len(),
                     step_us,
-                    classification_us,
+                    *classification_us,
                     step.disposition.label(),
                     facts.visible_revision,
                 );
                 match step.disposition {
-                    BoundedDisposition::Pending => {
-                        self.state = BenchState::Tracing {
-                            release_frame,
-                            revision_before,
-                            snapshot_readback_us,
-                            classification_us,
-                        };
-                    }
-                    BoundedDisposition::Detached => {
-                        self.state = BenchState::ValidateAtomicity {
-                            release_frame,
-                            revision_before,
-                            snapshot_readback_us,
-                            classification_us,
-                        };
-                    }
+                    BoundedDisposition::Pending => {}
+                    BoundedDisposition::Detached => trace_transition = Some(true),
                     BoundedDisposition::Anchored | BoundedDisposition::Deferred => {
                         if self.options.mode == TerrainConnectivityBenchMode::Manual {
                             log::info!(
@@ -978,8 +916,7 @@ impl TerrainConnectivityBench {
                                 job.component_len(),
                                 facts.visible_revision,
                             );
-                            self.bounded_job = None;
-                            self.state = BenchState::AwaitingManualEdit;
+                            trace_transition = Some(false);
                         } else {
                             anyhow::bail!(
                                 "bounded detached fixture ended as {}",
@@ -990,89 +927,89 @@ impl TerrainConnectivityBench {
                 }
             }
             BenchState::ValidateAtomicity {
-                release_frame,
+                job,
+                release_frame: _,
                 revision_before,
-                snapshot_readback_us,
-                classification_us,
+                snapshot_readback_us: _,
+                classification_us: _,
             } => {
-                let job = self
-                    .bounded_job
-                    .as_ref()
-                    .context("bounded topology validation lost its job")?;
-                anyhow::ensure!(facts.visible_revision == revision_before);
-                let action = ConnectivityAction::ValidateAtomicity {
+                anyhow::ensure!(facts.visible_revision == *revision_before);
+                atomicity_action = Some(ConnectivityAction::ValidateAtomicity {
                     bound: job.bound,
                     component: job.component.clone(),
                     expected_available_particles: self.options.available_particles,
-                };
-                self.state = BenchState::AwaitingAtomicityResult {
-                    release_frame,
-                    revision_before,
-                    snapshot_readback_us,
-                    classification_us,
-                };
-                return Ok(action);
+                });
             }
-            BenchState::Commit {
+            BenchState::Commit(_) => unreachable!("commit was consumed before matching phases"),
+            BenchState::Observing { .. } => {}
+            BenchState::AwaitingSnapshotResult { .. }
+            | BenchState::AwaitingReleaseResult { .. }
+            | BenchState::AwaitingAtomicityResult { .. }
+            | BenchState::AwaitingCommitResult { .. } => {
+                anyhow::bail!("connectivity bench advanced while awaiting an action result")
+            }
+            BenchState::Complete => {}
+        }
+
+        if let Some(detached) = trace_transition {
+            let state = std::mem::replace(&mut self.state, BenchState::Complete);
+            let BenchState::Tracing {
+                job,
                 release_frame,
                 revision_before,
                 snapshot_readback_us,
                 classification_us,
-                atomic_validation_us,
-                sampling_us,
-                staging_clear_us,
-                sampled_voxels,
-            } => {
-                let event_frame = frame;
-                let payload = BoundedCommitPayload {
-                    job: self
-                        .bounded_job
-                        .take()
-                        .context("bounded topology commit lost its job")?,
+            } = state
+            else {
+                unreachable!("only tracing can schedule a topology transition")
+            };
+            self.state = if detached {
+                BenchState::ValidateAtomicity {
+                    job,
                     release_frame,
                     revision_before,
                     snapshot_readback_us,
                     classification_us,
-                    atomic_validation_us,
-                    sampling_us,
-                    staging_clear_us,
-                    sampled_voxels,
-                    manual: self.options.mode == TerrainConnectivityBenchMode::Manual,
-                };
-                self.state = BenchState::AwaitingCommitResult { event_frame };
-                return Ok(ConnectivityAction::CommitBounded(payload));
-            }
-            BenchState::Observing { event_frame } => {
-                if let Some(visual_voxels) = self.pending_visual_voxels.take() {
-                    self.state = BenchState::AwaitingVisualSpawnResult { event_frame };
-                    return Ok(ConnectivityAction::SpawnVisualVoxels {
-                        voxels: visual_voxels,
-                    });
                 }
-            }
-            BenchState::AwaitingSnapshotResult { .. }
-            | BenchState::AwaitingReleaseResult { .. }
-            | BenchState::AwaitingAtomicityResult { .. }
-            | BenchState::AwaitingCommitResult { .. }
-            | BenchState::AwaitingVisualSpawnResult { .. } => {
-                anyhow::bail!("connectivity bench advanced while awaiting an action result")
-            }
-            BenchState::Complete => {}
+            } else {
+                BenchState::AwaitingManualEdit
+            };
+        }
+
+        if let Some(action) = atomicity_action {
+            let state = std::mem::replace(&mut self.state, BenchState::Complete);
+            let BenchState::ValidateAtomicity {
+                job,
+                release_frame,
+                revision_before,
+                snapshot_readback_us,
+                classification_us,
+            } = state
+            else {
+                unreachable!("only validated topology can schedule atomicity evidence")
+            };
+            self.state = BenchState::AwaitingAtomicityResult {
+                job,
+                release_frame,
+                revision_before,
+                snapshot_readback_us,
+                classification_us,
+            };
+            return Ok(action);
         }
         Ok(ConnectivityAction::None)
     }
 
     fn apply_result(&mut self, result: ConnectivityResult) -> anyhow::Result<()> {
-        match (self.state, result) {
-            #[cfg(test)]
-            (_, ConnectivityResult::None) => Ok(()),
-            (state, ConnectivityResult::ManualReleaseHandled(outcome)) => {
+        match result {
+            ConnectivityResult::None => Ok(()),
+            ConnectivityResult::ManualReleaseHandled(outcome) => {
                 let prepared = match outcome {
                     Ok(prepared) => prepared,
                     Err(failure) => {
                         anyhow::ensure!(
                             matches!(
-                                (&failure.request, state),
+                                (&failure.request, &self.state),
                                 (
                                     ManualReleasePlan::Prepare { .. },
                                     BenchState::AwaitingManualEdit
@@ -1087,11 +1024,12 @@ impl TerrainConnectivityBench {
                     return Ok(());
                 };
                 anyhow::ensure!(
-                    state == BenchState::AwaitingManualEdit,
-                    "manual connectivity release completed while state={state:?}"
+                    matches!(self.state, BenchState::AwaitingManualEdit),
+                    "manual connectivity release completed while state={:?}",
+                    self.state,
                 );
-                self.bounded_job = Some(prepared.snapshot.job);
                 self.state = BenchState::Tracing {
+                    job: prepared.snapshot.job,
                     release_frame: prepared.frame,
                     revision_before: prepared.revision_before,
                     snapshot_readback_us: prepared.snapshot.snapshot_readback_us,
@@ -1105,10 +1043,12 @@ impl TerrainConnectivityBench {
                 );
                 Ok(())
             }
-            (
-                BenchState::InstallFixture,
-                ConnectivityResult::FixtureInstalled { frame, outcome },
-            ) => {
+            ConnectivityResult::FixtureInstalled { frame, outcome } => {
+                anyhow::ensure!(
+                    matches!(self.state, BenchState::InstallFixture),
+                    "fixture result does not match bench state {:?}",
+                    self.state,
+                );
                 let installed = match outcome {
                     Ok(installed) => installed,
                     Err(failure) => {
@@ -1140,14 +1080,15 @@ impl TerrainConnectivityBench {
                 );
                 Ok(())
             }
-            (
-                BenchState::AwaitingSnapshotResult {
-                    frame,
-                    revision_before,
-                    ready_after_frame,
-                },
-                ConnectivityResult::SnapshotRead(outcome),
-            ) => {
+            ConnectivityResult::SnapshotRead(outcome) => {
+                let (frame, revision_before, ready_after_frame) = match &self.state {
+                    BenchState::AwaitingSnapshotResult {
+                        frame,
+                        revision_before,
+                        ready_after_frame,
+                    } => (*frame, *revision_before, *ready_after_frame),
+                    state => anyhow::bail!("snapshot result does not match bench state {state:?}"),
+                };
                 let snapshot = match outcome {
                     Ok(snapshot) => snapshot,
                     Err(failure) => {
@@ -1161,8 +1102,8 @@ impl TerrainConnectivityBench {
                     }
                 };
                 let bound = snapshot.job.bound;
-                self.bounded_job = Some(snapshot.job);
                 self.state = BenchState::Tracing {
+                    job: snapshot.job,
                     release_frame: frame,
                     revision_before,
                     snapshot_readback_us: snapshot.snapshot_readback_us,
@@ -1179,13 +1120,14 @@ impl TerrainConnectivityBench {
                 );
                 Ok(())
             }
-            (
-                BenchState::AwaitingReleaseResult {
-                    event_frame,
-                    ready_after_frame,
-                },
-                ConnectivityResult::ReleaseEventRun(outcome),
-            ) => {
+            ConnectivityResult::ReleaseEventRun(outcome) => {
+                let (event_frame, ready_after_frame) = match &self.state {
+                    BenchState::AwaitingReleaseResult {
+                        event_frame,
+                        ready_after_frame,
+                    } => (*event_frame, *ready_after_frame),
+                    state => anyhow::bail!("release result does not match bench state {state:?}"),
+                };
                 let stages = match outcome {
                     Ok(stages) => stages,
                     Err(failure) => {
@@ -1202,22 +1144,31 @@ impl TerrainConnectivityBench {
                 log_event(self.options, event_frame, stages);
                 Ok(())
             }
-            (
-                BenchState::AwaitingAtomicityResult {
-                    release_frame,
-                    revision_before,
-                    snapshot_readback_us,
-                    classification_us,
-                },
-                ConnectivityResult::AtomicityValidated(outcome),
-            ) => {
+            ConnectivityResult::AtomicityValidated(outcome) => {
+                let (release_frame, revision_before, snapshot_readback_us, classification_us) =
+                    match &self.state {
+                        BenchState::AwaitingAtomicityResult {
+                            release_frame,
+                            revision_before,
+                            snapshot_readback_us,
+                            classification_us,
+                            ..
+                        } => (
+                            *release_frame,
+                            *revision_before,
+                            *snapshot_readback_us,
+                            *classification_us,
+                        ),
+                        state => {
+                            anyhow::bail!("atomicity result does not match bench state {state:?}")
+                        }
+                    };
                 let validation = match outcome {
                     Ok(validation) => validation,
                     Err(failure) => {
-                        let job = self
-                            .bounded_job
-                            .as_ref()
-                            .context("failed atomicity validation lost its topology job")?;
+                        let BenchState::AwaitingAtomicityResult { job, .. } = &self.state else {
+                            unreachable!("the atomicity state was checked above")
+                        };
                         anyhow::ensure!(
                             failure.request.bound == job.bound
                                 && failure.request.component == job.component
@@ -1225,7 +1176,12 @@ impl TerrainConnectivityBench {
                                     == self.options.available_particles,
                             "atomicity executor returned a request from another topology job"
                         );
+                        let state = std::mem::replace(&mut self.state, BenchState::Complete);
+                        let BenchState::AwaitingAtomicityResult { job, .. } = state else {
+                            unreachable!("the atomicity state was checked above")
+                        };
                         self.state = BenchState::ValidateAtomicity {
+                            job,
                             release_frame,
                             revision_before,
                             snapshot_readback_us,
@@ -1234,10 +1190,9 @@ impl TerrainConnectivityBench {
                         return Err(failure.error);
                     }
                 };
-                let job = self
-                    .bounded_job
-                    .as_mut()
-                    .context("bounded topology validation lost its job")?;
+                let BenchState::AwaitingAtomicityResult { job, .. } = &self.state else {
+                    unreachable!("the atomicity state was checked above")
+                };
                 anyhow::ensure!(
                     validation.remaining_solids == job.component_len(),
                     "bounded topology modified live terrain while pending: remaining={} expected={}",
@@ -1252,11 +1207,15 @@ impl TerrainConnectivityBench {
                     validation.atomic_validation_us,
                     validation.available_particles,
                 );
+                let state = std::mem::replace(&mut self.state, BenchState::Complete);
+                let BenchState::AwaitingAtomicityResult { mut job, .. } = state else {
+                    unreachable!("the atomicity state was checked above")
+                };
                 let (visual_voxels, sampling_us, staging_clear_us) =
-                    prepare_bounded_commit(job, self.options.available_particles);
-                let sampled_voxels = visual_voxels.len();
-                self.pending_visual_voxels = Some(visual_voxels);
-                self.state = BenchState::Commit {
+                    prepare_bounded_commit(&mut job, self.options.available_particles);
+                self.state = BenchState::Commit(BoundedCommitPayload {
+                    job,
+                    visual_voxels,
                     release_frame,
                     revision_before,
                     snapshot_readback_us,
@@ -1264,19 +1223,23 @@ impl TerrainConnectivityBench {
                     atomic_validation_us: validation.atomic_validation_us,
                     sampling_us,
                     staging_clear_us,
-                    sampled_voxels,
-                };
+                    manual: self.options.mode == TerrainConnectivityBenchMode::Manual,
+                });
                 Ok(())
             }
-            (
-                BenchState::AwaitingCommitResult { event_frame },
-                ConnectivityResult::BoundedCommitted(outcome),
-            ) => {
+            ConnectivityResult::BoundedCommitted(outcome) => {
+                let event_frame = match &self.state {
+                    BenchState::AwaitingCommitResult { event_frame } => *event_frame,
+                    ref state => {
+                        anyhow::bail!("bounded commit result does not match bench state {state:?}")
+                    }
+                };
                 let stages = match outcome {
                     Ok(stages) => stages,
                     Err(failure) => {
                         let BoundedCommitPayload {
                             job,
+                            visual_voxels,
                             release_frame,
                             revision_before,
                             snapshot_readback_us,
@@ -1284,15 +1247,15 @@ impl TerrainConnectivityBench {
                             atomic_validation_us,
                             sampling_us,
                             staging_clear_us,
-                            sampled_voxels,
                             manual,
                         } = failure.request;
                         anyhow::ensure!(
                             manual == (self.options.mode == TerrainConnectivityBenchMode::Manual),
                             "bounded executor returned a payload for another benchmark mode"
                         );
-                        self.bounded_job = Some(job);
-                        self.state = BenchState::Commit {
+                        self.state = BenchState::Commit(BoundedCommitPayload {
+                            job,
+                            visual_voxels,
                             release_frame,
                             revision_before,
                             snapshot_readback_us,
@@ -1300,8 +1263,8 @@ impl TerrainConnectivityBench {
                             atomic_validation_us,
                             sampling_us,
                             staging_clear_us,
-                            sampled_voxels,
-                        };
+                            manual,
+                        });
                         return Err(failure.error);
                     }
                 };
@@ -1310,35 +1273,7 @@ impl TerrainConnectivityBench {
                 log_event(self.options, event_frame, stages);
                 Ok(())
             }
-            (
-                BenchState::AwaitingVisualSpawnResult { event_frame },
-                ConnectivityResult::VisualVoxelsSpawned(outcome),
-            ) => {
-                let visual = match outcome {
-                    Ok(visual) => visual,
-                    Err(failure) => {
-                        self.pending_visual_voxels = Some(failure.request.voxels);
-                        self.state = BenchState::Observing { event_frame };
-                        return Err(failure.error);
-                    }
-                };
-                anyhow::ensure!(visual.spawned_particles == visual.requested_particles);
-                let stages = self
-                    .stages
-                    .as_mut()
-                    .context("bounded visual spawn lost event stages")?;
-                stages.particle_spawn_us = visual.particle_spawn_us;
-                stages.spawned_particles = visual.spawned_particles;
-                self.state = BenchState::Observing { event_frame };
-                log::info!(
-                    "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=visual_spawn mode=bounded event_frame={} spawned_particles={} particle_spawn_us={:.0}",
-                    event_frame,
-                    visual.spawned_particles,
-                    visual.particle_spawn_us,
-                );
-                Ok(())
-            }
-            (_, ConnectivityResult::CompletedFrameObserved(outcome)) => match outcome {
+            ConnectivityResult::CompletedFrameObserved(outcome) => match outcome {
                 Ok(observation) => {
                     self.observe_completed_frame_inner(
                         observation.record,
@@ -1351,9 +1286,6 @@ impl TerrainConnectivityBench {
                     Err(failure.error)
                 }
             },
-            (state, _) => {
-                anyhow::bail!("connectivity action result does not match bench state {state:?}")
-            }
         }
     }
 
@@ -1387,7 +1319,7 @@ impl TerrainConnectivityBench {
             scopes: results.scopes.len(),
             dropped: results.dropped_scope_count as usize,
         };
-        match self.state {
+        match &self.state {
             BenchState::InstallFixture
             | BenchState::Warmup { .. }
             | BenchState::AwaitingManualEdit
@@ -1396,14 +1328,13 @@ impl TerrainConnectivityBench {
             | BenchState::AwaitingSnapshotResult { .. }
             | BenchState::AwaitingReleaseResult { .. }
             | BenchState::AwaitingAtomicityResult { .. }
-            | BenchState::Commit { .. }
-            | BenchState::AwaitingCommitResult { .. }
-            | BenchState::AwaitingVisualSpawnResult { .. } => {
+            | BenchState::Commit(_)
+            | BenchState::AwaitingCommitResult { .. } => {
                 push_bounded(&mut self.pre_event_gpu, record);
             }
             BenchState::Observing { event_frame } => {
-                if source_frame >= event_frame {
-                    log_gpu_frame(event_frame, record);
+                if source_frame >= *event_frame {
+                    log_gpu_frame(*event_frame, record);
                 }
             }
             BenchState::Complete => {}
@@ -1411,9 +1342,9 @@ impl TerrainConnectivityBench {
     }
 
     fn plan_completed_frame(&self, record: CpuFrameRecord) -> ConnectivityAction {
-        let expected_fixture_solids = match self.state {
+        let expected_fixture_solids = match &self.state {
             BenchState::Observing { event_frame }
-                if record.frame.saturating_sub(event_frame)
+                if record.frame.saturating_sub(*event_frame)
                     >= u64::from(self.options.observe_frames) =>
             {
                 Some(match self.options.mode {
@@ -1458,7 +1389,7 @@ impl TerrainConnectivityBench {
                 anyhow::bail!("connectivity fixture was validated before the observation deadline")
             }
         };
-        match self.state {
+        match &self.state {
             BenchState::InstallFixture
             | BenchState::Warmup { .. }
             | BenchState::AwaitingManualEdit
@@ -1467,9 +1398,8 @@ impl TerrainConnectivityBench {
             | BenchState::AwaitingSnapshotResult { .. }
             | BenchState::AwaitingReleaseResult { .. }
             | BenchState::AwaitingAtomicityResult { .. }
-            | BenchState::Commit { .. }
-            | BenchState::AwaitingCommitResult { .. }
-            | BenchState::AwaitingVisualSpawnResult { .. } => {
+            | BenchState::Commit(_)
+            | BenchState::AwaitingCommitResult { .. } => {
                 push_bounded(&mut self.pre_event_cpu, record);
                 Ok(false)
             }
@@ -1492,16 +1422,16 @@ impl TerrainConnectivityBench {
                     .max(record.water_collider_pending);
                 self.high_water.water_cache =
                     self.high_water.water_cache.max(record.water_cache_pending);
-                if record.frame == event_frame {
+                if record.frame == *event_frame {
                     for prior in self.pre_event_cpu.drain(..) {
-                        log_cpu_frame(event_frame, prior);
+                        log_cpu_frame(*event_frame, prior);
                     }
                     for prior in self.pre_event_gpu.drain(..) {
-                        log_gpu_frame(event_frame, prior);
+                        log_gpu_frame(*event_frame, prior);
                     }
                 }
-                log_cpu_frame(event_frame, record);
-                if record.frame.saturating_sub(event_frame)
+                log_cpu_frame(*event_frame, record);
+                if record.frame.saturating_sub(*event_frame)
                     >= u64::from(self.options.observe_frames)
                 {
                     let remaining = remaining
@@ -1512,7 +1442,7 @@ impl TerrainConnectivityBench {
                     log::info!(
                         "[PERF][TERRAIN_CONNECTIVITY_BENCH] phase=summary mode={} event_frame={} observed_frames={} remaining_fixture_voxels={} disposition={} invalidated_voxels={} spawned_particles={} revision_before={} revision_after={} high_water_terrain_collider={} high_water_contree_cache={} high_water_water_source={} high_water_water_collider={} high_water_water_cache={} ddgi_ready={}",
                         self.options.mode.label(),
-                        event_frame,
+                        *event_frame,
                         self.options.observe_frames,
                         remaining,
                         if self.options.mode == TerrainConnectivityBenchMode::Existing {
@@ -1647,62 +1577,126 @@ impl App {
         })
     }
 
-    fn commit_bounded_connectivity(
+    fn prepare_bounded_connectivity(
         &mut self,
-        payload: &BoundedCommitPayload,
-    ) -> anyhow::Result<EventStages> {
+        payload: BoundedCommitPayload,
+    ) -> Result<PreparedBoundedConnectivity, FailedConnectivityAction<BoundedCommitPayload>> {
         let app = self;
         let total_started = Instant::now();
-        anyhow::ensure!(
-            app.visible_terrain_revision == payload.revision_before,
-            "bounded topology commit revision changed from {} to {}",
-            payload.revision_before,
-            app.visible_terrain_revision,
-        );
-        anyhow::ensure!(payload.job.terminal == Some(BoundedDisposition::Detached));
-        if !payload.manual {
+        let preflight = (|| {
             anyhow::ensure!(
-                payload.job.component.len() == FIXTURE_VOXELS,
-                "bounded topology commit is not one complete detached fixture"
+                app.visible_terrain_revision == payload.revision_before,
+                "bounded topology commit revision changed from {} to {}",
+                payload.revision_before,
+                app.visible_terrain_revision,
             );
-        }
-        let invalidation_started = Instant::now();
-        app.plain_builder.write_chunk_atlas_region(
-            payload.job.bound.min(),
-            payload.job.bound.dimensions(),
-            &payload.job.snapshot,
-        )?;
-        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-        let publication_started = Instant::now();
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+            anyhow::ensure!(payload.job.terminal == Some(BoundedDisposition::Detached));
+            if !payload.manual {
+                anyhow::ensure!(
+                    payload.job.component.len() == FIXTURE_VOXELS,
+                    "bounded topology commit is not one complete detached fixture"
+                );
+            }
+            anyhow::ensure!(
+                app.particle_system.available_capacity() >= payload.visual_voxels.len(),
+                "bounded topology visual capacity drifted before commit"
+            );
+            PreparedTerrainDetachment::preflight_region(
+                CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+                payload.job.bound.min(),
+                payload.job.bound.dimensions(),
+                &payload.job.snapshot,
+                payload.job.component.len(),
+                payload.visual_voxels.len(),
                 fixture_bound(),
-            )])?
-            .context("bounded fixture invalidation has no visible terrain chunks")?;
-        app.publish_visible_terrain(change)?;
-        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
+            )
+        })();
+        let preflight = match preflight {
+            Ok(preflight) => preflight,
+            Err(error) => {
+                return Err(FailedConnectivityAction {
+                    request: payload,
+                    error,
+                });
+            }
+        };
+        let BoundedCommitPayload {
+            job,
+            visual_voxels,
+            release_frame,
+            revision_before,
+            snapshot_readback_us,
+            classification_us,
+            atomic_validation_us,
+            sampling_us,
+            staging_clear_us,
+            manual: _,
+        } = payload;
+        let classified_voxels = job.component.len();
+        let sampled_voxels = visual_voxels.len();
+        let detachment = PreparedTerrainDetachment::from_preflighted_region(
+            preflight,
+            job.bound.min(),
+            job.bound.dimensions(),
+            job.snapshot,
+            visual_voxels,
+            classified_voxels,
+        );
+        Ok(PreparedBoundedConnectivity {
+            detachment,
+            total_started,
+            release_frame,
+            revision_before,
+            snapshot_readback_us,
+            classification_us,
+            atomic_validation_us,
+            sampling_us,
+            staging_clear_us,
+            classified_voxels,
+            sampled_voxels,
+        })
+    }
+}
 
-        Ok(EventStages {
-            total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
-            primary_readback_us: payload.snapshot_readback_us,
-            classification_us: payload.classification_us,
-            sampling_us: payload.sampling_us,
-            staging_clear_us: payload.staging_clear_us,
-            invalidation_us,
-            publication_us,
-            classified_voxels: payload.job.component.len(),
-            invalidated_voxels: payload.job.component.len(),
-            sampled_voxels: payload.sampled_voxels,
-            revision_before: payload.revision_before,
+struct PreparedBoundedConnectivity {
+    detachment: PreparedTerrainDetachment,
+    total_started: Instant,
+    release_frame: u64,
+    revision_before: u32,
+    snapshot_readback_us: f64,
+    classification_us: f64,
+    atomic_validation_us: f64,
+    sampling_us: f64,
+    staging_clear_us: f64,
+    classified_voxels: usize,
+    sampled_voxels: usize,
+}
+
+impl PreparedBoundedConnectivity {
+    fn commit(self, app: &mut App) -> EventStages {
+        let committed = self.detachment.commit(app);
+        EventStages {
+            total_us: self.total_started.elapsed().as_secs_f64() * 1_000_000.0,
+            primary_readback_us: self.snapshot_readback_us,
+            classification_us: self.classification_us,
+            sampling_us: self.sampling_us,
+            staging_clear_us: self.staging_clear_us,
+            invalidation_us: committed.invalidation_us,
+            publication_us: committed.publication_us,
+            particle_spawn_us: committed.particle_spawn_us,
+            classified_voxels: self.classified_voxels,
+            invalidated_voxels: committed.detached_voxels,
+            sampled_voxels: self.sampled_voxels,
+            spawned_particles: committed.spawned_particles,
+            revision_before: self.revision_before,
             revision_after: app.visible_terrain_revision,
             release_to_commit_frames: app
                 .time_info
                 .total_frame_count()
-                .saturating_sub(payload.release_frame),
-            atomic_validation_us: payload.atomic_validation_us,
+                .saturating_sub(self.release_frame),
+            atomic_validation_us: self.atomic_validation_us,
             ..EventStages::default()
-        })
+        }
     }
 }
 
@@ -1729,62 +1723,146 @@ fn prepare_bounded_commit(
     (visual_voxels, sampling_us, staging_clear_us)
 }
 
+struct PreparedFixtureInstallation {
+    atlas_writes: Vec<PreparedAtlasWrite>,
+    publications: Vec<VisibleTerrainPublication>,
+    manual_camera: Option<(Vec3, Vec3)>,
+    available_particles: usize,
+    started: Instant,
+}
+
 impl App {
-    fn install_connectivity_fixture(&mut self) -> anyhow::Result<()> {
-        let app = self;
-        let isolation = isolation_bound();
-        let isolation_data = vec![0; voxel_count(isolation) as usize];
-        app.plain_builder.write_chunk_atlas_region(
-            isolation.min(),
-            isolation.dimensions(),
-            &isolation_data,
-        )?;
-        let fixture = generate_hollow_canopy();
-        app.plain_builder.write_chunk_atlas_region(
-            fixture_bound().min(),
-            fixture_bound().dimensions(),
-            &fixture,
-        )?;
-        app.plain_builder.mark_all_solid_workgroups_dirty();
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                isolation,
-            )])?
-            .context("fixture installation has no visible terrain chunks")?;
-        app.publish_visible_terrain(change)?;
-        anyhow::ensure!(count_fixture_solids(&mut app.plain_builder)? == FIXTURE_VOXELS);
-        Ok(())
-    }
+    fn prepare_connectivity_fixture_installation(
+        &mut self,
+        request: FixtureInstallRequest,
+    ) -> Result<PreparedFixtureInstallation, FailedConnectivityAction<FixtureInstallRequest>> {
+        let started = Instant::now();
+        let prepared = (|| {
+            anyhow::ensure!(request.available_particles <= PARTICLE_CAPACITY);
+            let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+            let mut atlas_writes = Vec::with_capacity(if request.manual { 3 } else { 2 });
+            let mut publications = Vec::with_capacity(if request.manual { 2 } else { 1 });
 
-    fn install_manual_connectivity_fixture(&mut self) -> anyhow::Result<()> {
-        self.install_connectivity_fixture()?;
-        let app = self;
-        let bound = manual_support_bound();
-        let support = generate_manual_support();
-        app.plain_builder
-            .write_chunk_atlas_region(bound.min(), bound.dimensions(), &support)?;
-        app.plain_builder.mark_all_solid_workgroups_dirty();
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                bound,
-            )])?
-            .context("manual support installation has no visible terrain chunks")?;
-        app.publish_visible_terrain(change)?;
-        Ok(())
-    }
+            let isolation = isolation_bound();
+            let isolation_data = vec![0; voxel_count(isolation) as usize];
+            atlas_writes.push(PreparedAtlasWrite::new(
+                world_dim,
+                isolation.min(),
+                isolation.dimensions(),
+                isolation_data,
+            )?);
+            let fixture = generate_hollow_canopy();
+            atlas_writes.push(PreparedAtlasWrite::new(
+                world_dim,
+                fixture_bound().min(),
+                fixture_bound().dimensions(),
+                fixture,
+            )?);
+            let change =
+                VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                    isolation,
+                )])?
+                .context("fixture installation has no visible terrain chunks")?;
+            publications.push(VisibleTerrainPublication::edit(change)?);
 
-    fn configure_manual_connectivity_camera(&mut self) -> anyhow::Result<()> {
-        let app = self;
-        let center = manual_support_center().as_vec3() / VOXELS_PER_WORLD_UNIT;
-        let target = center + Vec3::Y * 0.035;
-        let position = target + Vec3::new(-0.24, 0.04, -0.28);
-        app.camera_control.apply_snapshot_mode(true);
-        app.camera_control.set_orbit_focus(target);
-        anyhow::ensure!(
-            app.tracer.set_camera_pose_looking_at(position, target),
-            "failed to configure terrain connectivity manual camera"
+            let manual_camera = if request.manual {
+                let bound = manual_support_bound();
+                atlas_writes.push(PreparedAtlasWrite::new(
+                    world_dim,
+                    bound.min(),
+                    bound.dimensions(),
+                    generate_manual_support(),
+                )?);
+                let change = VisibleTerrainChange::from_build_edits(vec![
+                    BuildEdit::RebuildMeshWithoutFlora(bound),
+                ])?
+                .context("manual support installation has no visible terrain chunks")?;
+                publications.push(VisibleTerrainPublication::edit(change)?);
+                let center = manual_support_center().as_vec3() / VOXELS_PER_WORLD_UNIT;
+                let target = center + Vec3::Y * 0.035;
+                Some((target + Vec3::new(-0.24, 0.04, -0.28), target))
+            } else {
+                None
+            };
+
+            Ok(PreparedFixtureInstallation {
+                atlas_writes,
+                publications,
+                manual_camera,
+                available_particles: request.available_particles,
+                started,
+            })
+        })();
+        prepared.map_err(|error| FailedConnectivityAction { request, error })
+    }
+}
+
+impl PreparedFixtureInstallation {
+    fn commit(self, app: &mut App) -> FixtureInstallResult {
+        for write in self.atlas_writes {
+            app.plain_builder
+                .write_chunk_atlas_region(write.origin, write.dim, &write.data)
+                .unwrap_or_else(|error| {
+                    panic!("connectivity fixture atlas commit failed after preflight: {error:#}")
+                });
+        }
+        app.plain_builder.mark_all_solid_workgroups_dirty();
+        for publication in self.publications {
+            app.commit_prepared_visible_terrain(publication);
+        }
+        if let Some((position, target)) = self.manual_camera {
+            app.camera_control.apply_snapshot_mode(true);
+            app.camera_control.set_orbit_focus(target);
+            assert!(
+                app.tracer.set_camera_pose_looking_at(position, target),
+                "manual connectivity camera failed after fixture preflight"
+            );
+        }
+
+        let reserve_started = Instant::now();
+        app.particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
+        app.particle_snapshots.clear();
+        app.terrain_harvest_particle_handles.clear();
+        let reserved = PARTICLE_CAPACITY - self.available_particles;
+        for index in 0..reserved {
+            app.particle_system
+                .spawn(ParticleSpawn {
+                    position: Vec3::splat(-10.0),
+                    velocity: Vec3::ZERO,
+                    color: Vec4::ZERO,
+                    size: 0.0,
+                    lifetime: f32::MAX,
+                    wind_factor: 0.0,
+                    gravity_factor: 0.0,
+                    drift_direction: Vec3::ZERO,
+                    drift_strength: 0.0,
+                    drift_frequency: 0.0,
+                    speed_noise_offset: index as f32,
+                    motion_mode: MotionMode::Free,
+                    sink_on_lifetime: false,
+                    sink_speed: 0.0,
+                    texture_variant: 0,
+                    render_kind: ParticleRenderKind::TerrainVoxel,
+                    despawn_on_lifetime: false,
+                    despawn_below_ground: false,
+                    update: ParticleUpdateConfig::new(60.0, 1),
+                })
+                .unwrap_or_else(|| {
+                    panic!("reserved particle slot {index} disappeared after capacity preflight")
+                });
+        }
+        assert_eq!(
+            app.particle_system.available_capacity(),
+            self.available_particles,
+            "connectivity fixture particle reservation diverged after preflight"
         );
-        Ok(())
+
+        FixtureInstallResult {
+            setup_us: self.started.elapsed().as_secs_f64() * 1_000_000.0,
+            reserve_us: reserve_started.elapsed().as_secs_f64() * 1_000_000.0,
+            available_particles: app.particle_system.available_capacity(),
+            visible_revision: app.visible_terrain_revision,
+        }
     }
 }
 
@@ -1851,43 +1929,6 @@ fn deterministic_visual_sample(voxels: &[(UVec3, u8)], capacity: usize) -> Vec<(
     (0..count)
         .map(|sample| voxels[sample * voxels.len() / count])
         .collect()
-}
-
-impl App {
-    fn reserve_connectivity_particle_capacity(&mut self, available: usize) -> anyhow::Result<()> {
-        let app = self;
-        anyhow::ensure!(available <= PARTICLE_CAPACITY);
-        app.particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
-        app.particle_snapshots.clear();
-        app.terrain_harvest_particle_handles.clear();
-        let reserved = PARTICLE_CAPACITY - available;
-        for index in 0..reserved {
-            let handle = app.particle_system.spawn(ParticleSpawn {
-                position: Vec3::splat(-10.0),
-                velocity: Vec3::ZERO,
-                color: Vec4::ZERO,
-                size: 0.0,
-                lifetime: f32::MAX,
-                wind_factor: 0.0,
-                gravity_factor: 0.0,
-                drift_direction: Vec3::ZERO,
-                drift_strength: 0.0,
-                drift_frequency: 0.0,
-                speed_noise_offset: index as f32,
-                motion_mode: MotionMode::Free,
-                sink_on_lifetime: false,
-                sink_speed: 0.0,
-                texture_variant: 0,
-                render_kind: ParticleRenderKind::TerrainVoxel,
-                despawn_on_lifetime: false,
-                despawn_below_ground: false,
-                update: ParticleUpdateConfig::new(60.0, 1),
-            });
-            anyhow::ensure!(handle.is_some(), "failed to reserve particle slot {index}");
-        }
-        anyhow::ensure!(app.particle_system.available_capacity() == available);
-        Ok(())
-    }
 }
 
 fn count_fixture_solids(plain_builder: &mut PlainBuilder) -> anyhow::Result<usize> {
@@ -2076,7 +2117,6 @@ mod tests {
         static_assertions::assert_not_impl_any!(ReleaseEventRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(AtomicityValidationRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(BoundedCommitPayload: Clone, Copy);
-        static_assertions::assert_not_impl_any!(VisualSpawnRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(ManualReleasePlan: Clone, Copy);
         static_assertions::assert_not_impl_any!(CompletedFrameRequest: Clone, Copy);
         assert!(!include_str!("bench.rs").contains(concat!("Execution", "Failed")));
@@ -2137,6 +2177,8 @@ mod tests {
         > = App::prepare_bounded_connectivity;
         let _: fn(PreparedBoundedConnectivity, &mut App) -> EventStages =
             PreparedBoundedConnectivity::commit;
+        static_assertions::assert_not_impl_any!(PreparedFixtureInstallation: Clone, Copy);
+        static_assertions::assert_not_impl_any!(PreparedBoundedConnectivity: Clone, Copy);
 
         let source = include_str!("bench.rs");
         assert!(!source.contains(concat!("bounded_", "job: Option")));
@@ -2184,7 +2226,7 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("injected fixture failure"));
-        assert_eq!(bench.state, BenchState::InstallFixture);
+        assert!(matches!(bench.state, BenchState::InstallFixture));
         assert!(matches!(
             bench.next_action(facts).unwrap(),
             ConnectivityAction::InstallFixture {
@@ -2232,12 +2274,12 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("injected snapshot read failure"));
-        assert_eq!(
+        assert!(matches!(
             bench.state,
             BenchState::Warmup {
                 ready_after_frame: 0
             }
-        );
+        ));
         assert!(matches!(
             bench.next_action(facts).unwrap(),
             ConnectivityAction::ReadBoundedSnapshot { bound, seed }
@@ -2283,12 +2325,12 @@ mod tests {
         assert!(error
             .to_string()
             .contains("injected release preflight failure"));
-        assert_eq!(
+        assert!(matches!(
             bench.state,
             BenchState::Warmup {
                 ready_after_frame: 0
             }
-        );
+        ));
         assert!(matches!(
             bench.next_action(facts).unwrap(),
             ConnectivityAction::RunReleaseEvent {
@@ -2308,8 +2350,8 @@ mod tests {
         });
         let job = fixture_job();
         let expected_component = job.component.clone();
-        bench.bounded_job = Some(job);
         bench.state = BenchState::ValidateAtomicity {
+            job,
             release_frame: 19,
             revision_before: 7,
             snapshot_readback_us: 2.0,
@@ -2365,8 +2407,9 @@ mod tests {
             observe_frames: 1,
             voxel_budget: 8,
         });
-        bench.bounded_job = Some(fixture_job());
-        bench.state = BenchState::Commit {
+        bench.state = BenchState::Commit(BoundedCommitPayload {
+            job: fixture_job(),
+            visual_voxels: vec![(UVec3::new(1, 2, 3), 7)],
             release_frame: 19,
             revision_before: 7,
             snapshot_readback_us: 2.0,
@@ -2374,8 +2417,8 @@ mod tests {
             atomic_validation_us: 4.0,
             sampling_us: 5.0,
             staging_clear_us: 6.0,
-            sampled_voxels: 8,
-        };
+            manual: false,
+        });
         let facts = ConnectivityFacts {
             frame: 23,
             visible_revision: 7,
@@ -2390,6 +2433,7 @@ mod tests {
             _ => panic!("commit phase did not move its payload into the action"),
         };
         let snapshot_address = payload.job.snapshot.as_ptr();
+        let visual_address = payload.visual_voxels.as_ptr();
 
         let error = bench
             .apply_result(ConnectivityResult::BoundedCommitted(Err(
@@ -2408,51 +2452,7 @@ mod tests {
             _ => panic!("failed bounded commit was not replanned"),
         };
         assert_eq!(retried.job.snapshot.as_ptr(), snapshot_address);
-    }
-
-    #[test]
-    fn failed_visual_spawn_returns_the_same_voxel_allocation() {
-        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
-            mode: TerrainConnectivityBenchMode::Bounded,
-            available_particles: 8,
-            warmup_frames: 1,
-            observe_frames: 1,
-            voxel_budget: 8,
-        });
-        bench.state = BenchState::Observing { event_frame: 23 };
-        bench.pending_visual_voxels = Some(vec![(UVec3::new(1, 2, 3), 7)]);
-        let facts = ConnectivityFacts {
-            frame: 24,
-            visible_revision: 7,
-            contree_idle: true,
-            terrain_collider_pending: 0,
-            water_ready: true,
-            ddgi_ready: true,
-            available_particles: 8,
-        };
-        let request = match bench.next_action(facts).unwrap() {
-            ConnectivityAction::SpawnVisualVoxels { voxels } => VisualSpawnRequest { voxels },
-            _ => panic!("pending visual voxels were not moved into the action"),
-        };
-        let voxels_address = request.voxels.as_ptr();
-
-        let error = bench
-            .apply_result(ConnectivityResult::VisualVoxelsSpawned(Err(
-                FailedConnectivityAction {
-                    request,
-                    error: anyhow::anyhow!("injected visual capacity failure"),
-                },
-            )))
-            .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("injected visual capacity failure"));
-        assert!(matches!(
-            bench.next_action(facts).unwrap(),
-            ConnectivityAction::SpawnVisualVoxels { voxels }
-                if voxels.as_ptr() == voxels_address
-        ));
+        assert_eq!(retried.visual_voxels.as_ptr(), visual_address);
     }
 
     #[test]
@@ -2582,7 +2582,10 @@ mod tests {
         let ScenarioOwner::Connectivity(bench) = owner else {
             panic!("test constructed the wrong scenario owner");
         };
-        assert_eq!(bench.state, BenchState::Observing { event_frame: 40 });
+        assert!(matches!(
+            bench.state,
+            BenchState::Observing { event_frame: 40 }
+        ));
         assert_eq!(bench.high_water.terrain_collider, 0);
         assert!(matches!(
             bench.plan_completed_frame(record),

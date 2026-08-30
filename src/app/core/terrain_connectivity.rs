@@ -332,6 +332,11 @@ struct PreparedAtlasWrite {
 
 impl PreparedAtlasWrite {
     fn new(world_dim: UVec3, origin: UVec3, dim: UVec3, data: Vec<u8>) -> anyhow::Result<Self> {
+        Self::validate(world_dim, origin, dim, &data)?;
+        Ok(Self { origin, dim, data })
+    }
+
+    fn validate(world_dim: UVec3, origin: UVec3, dim: UVec3, data: &[u8]) -> anyhow::Result<()> {
         anyhow::ensure!(
             dim.cmpgt(UVec3::ZERO).all(),
             "terrain detachment cannot prepare an empty atlas write"
@@ -346,8 +351,12 @@ impl PreparedAtlasWrite {
             "terrain detachment atlas write has {} bytes, expected {expected}",
             data.len()
         );
-        Ok(Self { origin, dim, data })
+        Ok(())
     }
+}
+
+pub(super) struct TerrainDetachmentPreflight {
+    publication: VisibleTerrainPublication,
 }
 
 pub(super) struct PreparedTerrainDetachment {
@@ -366,6 +375,46 @@ pub(super) struct CommittedTerrainDetachment {
 }
 
 impl PreparedTerrainDetachment {
+    pub(super) fn preflight_region(
+        world_dim: UVec3,
+        origin: UVec3,
+        dim: UVec3,
+        data: &[u8],
+        detached_voxels: usize,
+        visual_voxels: usize,
+        affected_bound: UAabb3,
+    ) -> anyhow::Result<TerrainDetachmentPreflight> {
+        PreparedAtlasWrite::validate(world_dim, origin, dim, data)?;
+        anyhow::ensure!(
+            visual_voxels <= detached_voxels,
+            "terrain detachment cannot visualize more voxels than it clears"
+        );
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                affected_bound,
+            )])?
+            .context("terrain detachment has no visible terrain chunks")?;
+        Ok(TerrainDetachmentPreflight {
+            publication: VisibleTerrainPublication::edit(change)?,
+        })
+    }
+
+    pub(super) fn from_preflighted_region(
+        preflight: TerrainDetachmentPreflight,
+        origin: UVec3,
+        dim: UVec3,
+        data: Vec<u8>,
+        visual_voxels: Vec<(UVec3, u8)>,
+        detached_voxels: usize,
+    ) -> Self {
+        Self {
+            atlas_writes: vec![PreparedAtlasWrite { origin, dim, data }],
+            publication: preflight.publication,
+            visual_voxels,
+            detached_voxels,
+        }
+    }
+
     fn from_all_selected_voxels(
         plain_builder: &mut PlainBuilder,
         world_dim: UVec3,
