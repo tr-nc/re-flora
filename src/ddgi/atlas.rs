@@ -16,15 +16,37 @@ const _: () = assert!(super::DDGI_RAYS_PER_PROBE.is_multiple_of(DDGI_TRACE_WORKG
 pub const SUPPORTED_DDGI_SPACINGS_VOXELS: [u32; 4] = [64, 32, 16, 8];
 pub const DEFAULT_DDGI_SPACING_VOXELS: u32 = 32;
 
-pub fn validate_ddgi_spacing(spacing_voxels: u32) -> Result<u32, String> {
-    if SUPPORTED_DDGI_SPACINGS_VOXELS.contains(&spacing_voxels) {
-        Ok(spacing_voxels)
-    } else {
-        Err(format!(
-            "Unsupported DDGI spacing {spacing_voxels}. Supported values: {}",
-            supported_ddgi_spacings_label()
-        ))
+/// A supported DDGI Probe spacing at the runtime seam.
+///
+/// Raw voxel counts belong to configuration, diagnostics, and capture wire formats. Runtime
+/// scheduling and physical Volume ownership carry this type so an invalid spacing cannot enter a
+/// queued or in-flight build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiProbeSpacing(u32);
+
+impl DdgiProbeSpacing {
+    pub const fn voxels(self) -> u32 {
+        self.0
     }
+}
+
+impl TryFrom<u32> for DdgiProbeSpacing {
+    type Error = String;
+
+    fn try_from(spacing_voxels: u32) -> Result<Self, Self::Error> {
+        if SUPPORTED_DDGI_SPACINGS_VOXELS.contains(&spacing_voxels) {
+            Ok(Self(spacing_voxels))
+        } else {
+            Err(format!(
+                "Unsupported DDGI spacing {spacing_voxels}. Supported values: {}",
+                supported_ddgi_spacings_label()
+            ))
+        }
+    }
+}
+
+pub fn validate_ddgi_spacing(spacing_voxels: u32) -> Result<u32, String> {
+    DdgiProbeSpacing::try_from(spacing_voxels).map(DdgiProbeSpacing::voxels)
 }
 
 pub fn supported_ddgi_spacings_label() -> String {
@@ -38,17 +60,14 @@ pub fn supported_ddgi_spacings_label() -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiVolumeGrid {
     world_extent_voxels: UVec3,
-    spacing_voxels: u32,
+    spacing: DdgiProbeSpacing,
     dimensions: UVec3,
     probe_count: u32,
 }
 
 impl DdgiVolumeGrid {
-    pub fn new(world_extent_voxels: UVec3, spacing_voxels: u32) -> Result<Self> {
-        ensure!(
-            SUPPORTED_DDGI_SPACINGS_VOXELS.contains(&spacing_voxels),
-            "unsupported DDGI spacing {spacing_voxels}"
-        );
+    pub fn new(world_extent_voxels: UVec3, spacing: DdgiProbeSpacing) -> Result<Self> {
+        let spacing_voxels = spacing.voxels();
         ensure!(
             world_extent_voxels.cmpgt(UVec3::ZERO).all(),
             "DDGI world extent must be non-zero"
@@ -67,7 +86,7 @@ impl DdgiVolumeGrid {
 
         Ok(Self {
             world_extent_voxels,
-            spacing_voxels,
+            spacing,
             dimensions,
             probe_count: probe_count as u32,
         })
@@ -80,7 +99,11 @@ impl DdgiVolumeGrid {
 
     #[allow(dead_code)]
     pub fn spacing_voxels(self) -> u32 {
-        self.spacing_voxels
+        self.spacing.voxels()
+    }
+
+    pub(crate) fn spacing(self) -> DdgiProbeSpacing {
+        self.spacing
     }
 
     pub fn dimensions(self) -> UVec3 {
@@ -117,7 +140,7 @@ impl DdgiVolumeGrid {
     #[allow(dead_code)]
     pub fn nominal_voxel_position(self, index: u32) -> Option<Vec3> {
         self.unflatten(index)
-            .map(|coordinate| coordinate.as_vec3() * self.spacing_voxels as f32)
+            .map(|coordinate| coordinate.as_vec3() * self.spacing.voxels() as f32)
     }
 }
 
@@ -211,6 +234,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn probe_spacing_accepts_only_supported_runtime_values() {
+        for spacing_voxels in SUPPORTED_DDGI_SPACINGS_VOXELS {
+            let spacing = DdgiProbeSpacing::try_from(spacing_voxels).unwrap();
+            assert_eq!(spacing.voxels(), spacing_voxels);
+        }
+
+        for spacing_voxels in [0, 1, 7, 15, 24, 65, u32::MAX] {
+            assert!(DdgiProbeSpacing::try_from(spacing_voxels).is_err());
+        }
+    }
+
+    #[test]
     fn planned_volume_dimensions_and_counts_are_exact() {
         for (spacing, side, count) in [
             (64, 9, 729),
@@ -218,7 +253,11 @@ mod tests {
             (16, 33, 35_937),
             (8, 65, 274_625),
         ] {
-            let grid = DdgiVolumeGrid::new(UVec3::splat(512), spacing).unwrap();
+            let grid = DdgiVolumeGrid::new(
+                UVec3::splat(512),
+                DdgiProbeSpacing::try_from(spacing).unwrap(),
+            )
+            .unwrap();
             assert_eq!(grid.world_extent_voxels(), UVec3::splat(512));
             assert_eq!(grid.spacing_voxels(), spacing);
             assert_eq!(grid.dimensions(), UVec3::splat(side));
@@ -228,7 +267,8 @@ mod tests {
 
     #[test]
     fn flatten_and_unflatten_round_trip_every_spacing_16_probe() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), DdgiProbeSpacing::try_from(16).unwrap())
+            .unwrap();
         for index in 0..grid.probe_count() {
             let coordinate = grid.unflatten(index).unwrap();
             assert_eq!(grid.flatten(coordinate), Some(index));
@@ -262,7 +302,7 @@ mod tests {
 
     #[test]
     fn planned_spacing_8_atlases_fit_in_expected_extents() {
-        let count = DdgiVolumeGrid::new(UVec3::splat(512), 8)
+        let count = DdgiVolumeGrid::new(UVec3::splat(512), DdgiProbeSpacing::try_from(8).unwrap())
             .unwrap()
             .probe_count();
         let irradiance = DdgiAtlasLayout::new(count, DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();

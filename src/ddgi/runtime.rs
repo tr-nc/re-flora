@@ -16,10 +16,11 @@ use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiConvergenceReason, DdgiFieldIdentity,
     DdgiFilterConfigurationIdentity, DdgiFilterEpochAccumulator, DdgiFilterEpochProof,
-    DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes,
-    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh, DdgiTraceStats,
-    DdgiTransportScheduler, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
+    DdgiProbePriority, DdgiProbePriorityReason, DdgiProbeSpacing, DdgiRayBatch, DdgiRefreshState,
+    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh,
+    DdgiTraceStats, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolumeGrid, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY,
+    DDGI_RAYS_PER_PROBE,
 };
 
 const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(200);
@@ -271,7 +272,7 @@ mod convergence_evidence {
         ) {
             let mut scheduler = DdgiTransportScheduler::new();
             scheduler.observe_radiance(3);
-            scheduler.request_geometry(7, 16);
+            scheduler.request_geometry(7, crate::ddgi::DdgiProbeSpacing::try_from(16).unwrap());
             let work = scheduler.claim_next().unwrap().unwrap();
             let field = DdgiFieldIdentity::new(
                 DdgiFieldKey::new(1, 7, 3, 16, DdgiFieldState::Converging, 0).unwrap(),
@@ -312,8 +313,11 @@ mod convergence_evidence {
                 "acceptance grid must match the production terrain extent"
             );
             for (spacing, probe_count) in [(32, 4_913), (16, 35_937)] {
-                let grid = DdgiVolumeGrid::new(glam::UVec3::splat(world_extent), spacing)
-                    .expect("acceptance spacing must produce a runtime grid");
+                let grid = DdgiVolumeGrid::new(
+                    glam::UVec3::splat(world_extent),
+                    crate::ddgi::DdgiProbeSpacing::try_from(spacing).unwrap(),
+                )
+                .expect("acceptance spacing must produce a runtime grid");
                 assert_eq!(grid.probe_count(), probe_count);
             }
             let (work, field, stats) = facts();
@@ -416,7 +420,8 @@ mod convergence_evidence {
 
             let mut converged_scheduler = DdgiTransportScheduler::new();
             converged_scheduler.observe_radiance(3);
-            converged_scheduler.request_geometry(17, 16);
+            converged_scheduler
+                .request_geometry(17, crate::ddgi::DdgiProbeSpacing::try_from(16).unwrap());
             let converged_work = converged_scheduler.claim_next().unwrap().unwrap();
             let converged_source =
                 DdgiFieldKey::new(8, 17, 3, 16, DdgiFieldState::Converging, 6).unwrap();
@@ -908,8 +913,8 @@ impl DdgiRuntime {
         self.lighting_impact_probe_priority = voxel_bound.map(|bound| (radiance_revision, bound));
     }
 
-    pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
-        self.terrain_refresh.request_density_rebuild(spacing_voxels);
+    pub(crate) fn request_density_rebuild(&mut self, spacing: DdgiProbeSpacing) {
+        self.terrain_refresh.request_density_rebuild(spacing);
     }
 
     /// Chooses the next physical Volume allocation and atomically installs its logical transport
@@ -919,7 +924,7 @@ impl DdgiRuntime {
             let terrain_revision = self.latest_visible_terrain_revision?;
             let token = self
                 .terrain_refresh
-                .allocate_initial_build_token(terrain_revision, self.active_grid.spacing_voxels());
+                .allocate_initial_build_token(terrain_revision, self.active_grid.spacing());
             self.terrain_refresh
                 .consume_initial_revision(terrain_revision);
             self.active_build_token = Some(token);
@@ -936,10 +941,9 @@ impl DdgiRuntime {
         let active_token = self
             .active_build_token
             .expect("initialized DDGI runtime must retain its active build token");
-        let token = self.terrain_refresh.claim_next_build(
-            self.active_grid.spacing_voxels(),
-            active_token.terrain_revision(),
-        )?;
+        let token = self
+            .terrain_refresh
+            .claim_next_build(self.active_grid.spacing(), active_token.terrain_revision())?;
         match token.kind() {
             DdgiBuildKind::Terrain => self.request_geometry_transport(token),
             DdgiBuildKind::Density => self.request_density_transport(token),
@@ -1000,16 +1004,14 @@ impl DdgiRuntime {
             .filter(|source| source.field().spacing_voxels() == token.spacing_voxels());
         let preempted = self.transport_scheduler.request_geometry_from(
             token.terrain_revision(),
-            token.spacing_voxels(),
+            token.spacing(),
             transport_source,
         );
         self.clear_preempted_snapshot(preempted);
     }
 
     fn request_density_transport(&mut self, token: DdgiBuildToken) {
-        let preempted = self
-            .transport_scheduler
-            .request_density(token.spacing_voxels());
+        let preempted = self.transport_scheduler.request_density(token.spacing());
         self.clear_preempted_snapshot(preempted);
     }
 
@@ -1182,11 +1184,9 @@ impl DdgiRuntime {
             "preflighted DDGI token lost coordinator authority"
         );
         assert!(self.terrain_refresh.mark_promoted(token));
-        self.active_grid = DdgiVolumeGrid::new(
-            self.active_grid.world_extent_voxels(),
-            token.spacing_voxels(),
-        )
-        .expect("promoted DDGI token must retain a supported Volume grid");
+        self.active_grid =
+            DdgiVolumeGrid::new(self.active_grid.world_extent_voxels(), token.spacing())
+                .expect("promoted DDGI token must retain a supported Volume grid");
         self.active_build_token = Some(token);
         self.active_ready = true;
         let (candidate_token, field, lighting) = self
@@ -1923,6 +1923,10 @@ mod tests {
     };
     use glam::{UVec3, Vec3};
 
+    fn probe_spacing(voxels: u32) -> DdgiProbeSpacing {
+        DdgiProbeSpacing::try_from(voxels).unwrap()
+    }
+
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
         DdgiFieldIdentity::new(
             DdgiFieldKey::new(
@@ -2109,7 +2113,7 @@ mod tests {
     }
 
     fn initialized_runtime() -> (DdgiRuntime, DdgiBuildToken, DdgiFieldIdentity) {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
         assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
@@ -2130,7 +2134,7 @@ mod tests {
         radiance_revision: u32,
         stage: DdgiVolumeStage,
     ) -> DdgiVolumeStatus {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let identity = field(geometry_revision, radiance_revision);
         DdgiVolumeStatus {
             build_token: token,
@@ -2173,7 +2177,7 @@ mod tests {
             "Probes: active field available"
         );
 
-        runtime.request_density_rebuild(32);
+        runtime.request_density_rebuild(probe_spacing(32));
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
         let token = runtime.claim_volume_build().unwrap().token();
         let staging = volume_status(Some(token), 8, 4, DdgiVolumeStage::Rebuilding);
@@ -2262,7 +2266,7 @@ mod tests {
 
     #[test]
     fn terrain_observation_drives_initialization_and_local_invalidation() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
 
@@ -2289,7 +2293,7 @@ mod tests {
 
     #[test]
     fn frame_work_identity_is_stable_and_failure_settles_through_runtime_interface() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let plan = DdgiFramePlan {
             global_sky_needs_update: true,
@@ -2422,7 +2426,7 @@ mod tests {
     #[test]
     fn density_request_uses_the_active_geometry_and_requested_spacing() {
         let (mut runtime, active_token, _) = initialized_runtime();
-        runtime.request_density_rebuild(32);
+        runtime.request_density_rebuild(probe_spacing(32));
         let build = runtime.claim_volume_build().unwrap();
         assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Staging);
         assert_eq!(build.token().kind(), DdgiBuildKind::Density);
@@ -2438,7 +2442,7 @@ mod tests {
 
     #[test]
     fn continuous_sun_changes_coalesce_to_the_latest_cadenced_transport() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial_transport = runtime.observe_authored_lighting(initial);
@@ -2475,7 +2479,7 @@ mod tests {
 
     #[test]
     fn metadata_only_local_light_observation_keeps_authored_revision_and_transport_stable() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut authored = AuthoredEnvironmentLighting::default();
         let mut runtime = DdgiRuntime::new(grid);
 
@@ -2506,7 +2510,7 @@ mod tests {
 
     #[test]
     fn authored_sky_identity_change_is_an_immediate_transport_input_step() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut authored = AuthoredEnvironmentLighting::default();
         let mut runtime = DdgiRuntime::new(grid);
         let input = authored_input(lighting_snapshot(1.0));
@@ -2536,7 +2540,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "reused live revision 1 for a different identity")]
     fn runtime_rejects_reused_live_revision_for_a_different_authoritative_identity() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
         runtime.observe_authored_lighting(lighting_at(
@@ -2548,7 +2552,7 @@ mod tests {
 
     #[test]
     fn large_sun_and_material_discontinuities_publish_immediately() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = runtime.observe_authored_lighting(lighting(1, 1.0));
         assert_eq!(initial.transport.revision(), 1);
@@ -2577,7 +2581,7 @@ mod tests {
 
     #[test]
     fn local_lights_are_cadenced_latest_wins_and_retain_history() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let initial = lighting_at(1, Duration::ZERO, lighting_snapshot(1.0));
         let initial = runtime.observe_authored_lighting(initial);

@@ -101,12 +101,12 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
-    DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
-    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
-    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes,
-    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals,
+    DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
+    DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume,
+    DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
@@ -1138,7 +1138,8 @@ impl Tracer {
             &vulkan_ctx,
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
-            desc.environment_probe_spacing_voxels,
+            DdgiProbeSpacing::try_from(desc.environment_probe_spacing_voxels)
+                .map_err(anyhow::Error::msg)?,
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
@@ -1249,7 +1250,9 @@ impl Tracer {
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) {
-        self.ddgi_runtime.request_density_rebuild(spacing_voxels);
+        let spacing = DdgiProbeSpacing::try_from(spacing_voxels)
+            .expect("DDGI rebuild caller must select a supported Probe spacing");
+        self.ddgi_runtime.request_density_rebuild(spacing);
         log::info!(
             "[DDGI] density rebuild queued spacing_voxels={} coordinator={:?}",
             spacing_voxels,
@@ -1264,7 +1267,7 @@ impl Tracer {
             &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            build_token.spacing_voxels(),
+            build_token.spacing(),
             self.desc.voxel_dim_per_chunk,
             self.desc.ddgi_batch_order,
         )?;

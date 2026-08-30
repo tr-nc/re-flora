@@ -76,7 +76,9 @@ use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
     VOXEL_MOISTURE_MAX,
 };
-use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
+use crate::ddgi::{
+    DdgiProbeSpacing, DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS,
+};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
@@ -2502,7 +2504,8 @@ impl App {
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
                     CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
-                    self.environment_probe_spacing_draft,
+                    DdgiProbeSpacing::try_from(self.environment_probe_spacing_draft)
+                        .expect("environment probe UI only exposes supported spacings"),
                 )
                 .expect("environment probe UI only exposes supported spacings");
                 let environment_probe_draft_bytes =

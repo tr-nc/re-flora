@@ -46,10 +46,10 @@ pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_PIXELS: [[u32; 2];
 ];
 
 pub use atlas::{
-    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
-    DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiProbeSpacing,
+    DdgiVolumeGrid, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarget};
 pub use config::{
