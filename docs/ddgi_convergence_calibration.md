@@ -111,24 +111,41 @@ synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's cons
 `DDGI_CONVERGENCE_POLICY` without a second Python type or formatting registry.
 
 The mirror requires nonzero field serial/radiance revision/spacing and rejects Converged epoch
-zero. Every numeric field must fit its Rust type; delta and threshold floats must round to a finite,
-nonnegative `f32`. Validated atlas records require zero non-finite/negative counts, positive complete
-8x8/10x10 coverage, and the runtime policy's thresholds and required consecutive count. Threshold
-tokens must exactly equal the production `f32` policy rendered with the wire's eight decimal places;
-nearby decimal values are not treated as equivalent. The initialization policy uses Rust's shortest
-round-tripping `f32` display instead, so the parser compares its reconstructed `f32` exactly with the
-top-level contract rather than applying the evidence format or a numeric tolerance. Across records,
-field serials are globally unique and strictly increasing, identities are contiguous, and each
-identity's epoch, consecutive-below count, and Converging/Converged state follow the production
-classification state machine. A displayed delta is ambiguous only when its configured eight-place
-decimal rounding cell crosses the actual Rust `f32` threshold; clearly above or below cells have one
-possible streak outcome. The first process-bound validation record is the source-free initial
-publication and therefore requires streak zero regardless of its deltas. Every later identity is
-source-backed, so its epoch-zero streak follows the same threshold classification with previous
-streak zero: clearly below requires one, clearly above requires zero, and only a true rounding-cell
-crossing permits either. These checks apply to legal historical identities before capture selection,
-not only to the selected curve. Terminal integer bounds are inherited by its mandatory exact match
-to the final already-validated field identity. `max_rgb_value` is not in the evidence wire;
+zero. The canonical validation record carries `source_field_serial=none|<u64>` directly from
+`DdgiFieldIdentity::source()`; it never infers provenance from record position or the
+geometry/radiance/spacing tuple. Every numeric field must fit its Rust type; delta and threshold
+floats must round to a finite, nonnegative `f32`. Validated atlas records require zero
+non-finite/negative counts, positive complete 8x8/10x10 coverage, and the runtime policy's thresholds
+and required consecutive count.
+
+The parser reconstructs every validation and terminal marker suffix in the production field order.
+Exponent notation, leading zeros, altered precision, repeated fields, and trailing text are not
+alternative wire spellings. Capture-analysis deltas are converted to Rust `f32` and rendered with
+the same eight decimal places before comparison. Threshold tokens use the production `f32` policy
+with that precision. The initialization policy uses Rust's shortest display; its complete suffix
+must match the checked-in top-level contract tokens exactly rather than relying on a tolerance.
+
+Field serials are globally unique and strictly increasing. Every epoch zero starts a new generation,
+even when a later density rebuild uses the same geometry/radiance/spacing tuple. A source-free start
+must be Converging at epoch zero with streak zero. A source-backed start must name an earlier serial
+that is present in the process-bound stream and must equal the immediately preceding field; it
+classifies its first streak from previous streak zero. The first record must therefore be
+source-free. Every nonzero epoch must retain the generation tuple, advance exactly one epoch, and
+name the immediately preceding field serial as its source. Thus generation identity is the explicit
+lineage, not the tuple. Capture validation selects the unique generation containing the terminal
+field serial, so an earlier same-tuple density generation cannot be mixed into the reported epochs.
+Each generation's
+consecutive-below count and Converging/Converged state follow the production classification state
+machine. A displayed delta is ambiguous only when its configured eight-place rounding cell crosses
+the actual Rust `f32` threshold; clearly above or below cells have one possible streak outcome. These
+checks apply to legal historical generations before capture selection, not only to the selected
+curve.
+
+Markers form an ordered event stream. A Published/Converging validation has no terminal; every
+Converged validation must be followed by its matching terminal as the next marker event, although
+ordinary non-marker logs may intervene. Premature, orphaned, missing, or duplicate terminals fail.
+Acceptance additionally requires the process's one terminal to match the final validation and RFIRR
+capture. Terminal integer bounds are inherited by that exact match. `max_rgb_value` is not in the evidence wire;
 production atlas validation checks that private fact before the capsule can be constructed.
 Consequently old-identity duplicates, raw stdout/stderr injection, direct run-log injection, and
 synchronized duplicate records fail closed even when the source tripwire cannot see how bytes were
@@ -136,7 +153,7 @@ produced. Console-only or run-log-only evidence cannot qualify. It validates:
 
 - one authoritative typed runtime-policy record per process, checked against the shared acceptance
   contract with no runner-owned epoch-count copy;
-- legal, contiguous historical and captured identity sequences with unique ordered field serials;
+- legal explicit-lineage historical and captured generations with unique ordered field serials;
 - full valid/stored atlas coverage and production-possible convergence classification for every
   epoch;
 - finite, nonnegative delta and policy values representable as production `f32` fields;

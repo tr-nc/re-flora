@@ -22,7 +22,8 @@ VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
 TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
 VALIDATION_PATTERN = re.compile(
     re.escape(VALIDATION_MARKER)
-    + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
+    + r" field_serial=(?P<field_serial>\d+) "
+    r"source_field_serial=(?P<source>none|\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"state=(?P<state>Converging|Converged) update_epoch=(?P<epoch>\d+) "
@@ -50,7 +51,8 @@ POLICY_PATTERN = re.compile(
     r"convergence_relative_floor=(?P<relative_floor>[0-9.eE+-]+) "
     r"convergence_consecutive_epochs=(?P<consecutive>\d+) "
     r"convergence_minimum_update_epochs=(?P<minimum>\d+) "
-    r"convergence_maximum_update_epochs=(?P<maximum>\d+)"
+    r"convergence_maximum_update_epochs=(?P<maximum>\d+)$",
+    re.MULTILINE,
 )
 
 
@@ -78,11 +80,8 @@ class TerminalIdentity:
 class ValidationWireContract:
     decimal_places: int
     integer_types: dict[str, str]
+    optional_integer_types: dict[str, str]
     float_types: dict[str, str]
-
-
-def close(left: float, right: float) -> bool:
-    return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
 
 
 def rust_f32(value: float) -> float:
@@ -129,15 +128,78 @@ def validation_float_token(value: float, decimal_places: int) -> str:
     return f"{rust_f32(value):.{decimal_places}f}"
 
 
+def canonical_validation_line(
+    record: dict[str, object], policy: Policy, wire: ValidationWireContract
+) -> str:
+    source = record["source_field_serial"]
+    source_token = "none" if source is None else str(source)
+    return (
+        f"{VALIDATION_MARKER} field_serial={record['field_serial']} "
+        f"source_field_serial={source_token} "
+        f"geometry_revision={record['geometry_revision']} "
+        f"radiance_revision={record['radiance_revision']} "
+        f"spacing_voxels={record['spacing_voxels']} state={record['state']} "
+        f"update_epoch={record['update_epoch']} "
+        f"max_abs_rgb_delta={validation_float_token(float(record['max_absolute_rgb_delta']), wire.decimal_places)} "
+        f"max_rel_rgb_delta={validation_float_token(float(record['max_relative_rgb_delta']), wire.decimal_places)} "
+        f"non_finite={record['nonfinite_count']} "
+        f"negative_rgb_texels={record['negative_rgb_texel_count']} "
+        f"valid_texels={record['valid_texel_count']} "
+        f"scanned_stored_texels={record['scanned_stored_texel_count']} "
+        f"abs_threshold={validation_float_token(policy.absolute_threshold, wire.decimal_places)} "
+        f"rel_threshold={validation_float_token(policy.relative_threshold, wire.decimal_places)} "
+        f"consecutive_below={record['consecutive_below_threshold']}/"
+        f"{record['required_consecutive_epochs']}"
+    )
+
+
+def canonical_terminal_line(terminal: TerminalIdentity) -> str:
+    return (
+        f"{TERMINAL_MARKER} field_serial={terminal.field_serial} "
+        f"geometry_revision={terminal.geometry_revision} "
+        f"radiance_revision={terminal.radiance_revision} "
+        f"spacing_voxels={terminal.spacing_voxels} "
+        f"update_epoch={terminal.update_epoch} reason={terminal.reason}"
+    )
+
+
+def canonical_policy_suffix(contract_path: Path) -> str:
+    source = contract_path.read_text().split("[", 1)[0]
+
+    def token(field: str) -> str:
+        matches = re.findall(rf"(?m)^{re.escape(field)}\s*=\s*(\S+)\s*$", source)
+        if len(matches) != 1:
+            raise ValueError(
+                f"expected exactly one {field} token in convergence contract"
+            )
+        return matches[0]
+
+    return (
+        "convergence_max_absolute_rgb_delta="
+        f"{token('absolute_threshold')} "
+        "convergence_max_relative_rgb_delta="
+        f"{token('relative_threshold')} "
+        f"convergence_relative_floor={token('relative_floor')} "
+        f"convergence_consecutive_epochs={token('consecutive_epochs')} "
+        f"convergence_minimum_update_epochs={token('minimum_update_epochs')} "
+        f"convergence_maximum_update_epochs={token('maximum_update_epochs')}"
+    )
+
+
 def load_validation_wire_contract(path: Path) -> ValidationWireContract:
     contract = tomllib.loads(path.read_text())
     wire = contract.get("validation_wire")
     if not isinstance(wire, dict):
         raise ValueError("missing DDGI convergence validation wire contract")
     integer_types = wire.get("integer_types")
+    optional_integer_types = wire.get("optional_integer_types")
     float_types = wire.get("float_types")
     decimal_places = wire.get("decimal_places")
-    if not isinstance(integer_types, dict) or not isinstance(float_types, dict):
+    if (
+        not isinstance(integer_types, dict)
+        or not isinstance(optional_integer_types, dict)
+        or not isinstance(float_types, dict)
+    ):
         raise ValueError("invalid DDGI convergence validation wire contract")
     if (
         not isinstance(decimal_places, int)
@@ -147,10 +209,29 @@ def load_validation_wire_contract(path: Path) -> ValidationWireContract:
         raise ValueError("invalid DDGI convergence validation decimal precision")
     if any(type_name not in ("u32", "u64") for type_name in integer_types.values()):
         raise ValueError("unsupported DDGI convergence integer wire type")
+    if any(
+        type_name not in ("u32", "u64")
+        for type_name in optional_integer_types.values()
+    ):
+        raise ValueError("unsupported DDGI convergence optional integer wire type")
     if any(type_name != "f32" for type_name in float_types.values()):
         raise ValueError("unsupported DDGI convergence float wire type")
+    field_sets = (
+        set(integer_types),
+        set(optional_integer_types),
+        set(float_types),
+    )
+    if any(
+        left & right
+        for index, left in enumerate(field_sets)
+        for right in field_sets[index + 1 :]
+    ):
+        raise ValueError("DDGI convergence validation wire field sets must be disjoint")
     return ValidationWireContract(
-        decimal_places, dict(integer_types), dict(float_types)
+        decimal_places,
+        dict(integer_types),
+        dict(optional_integer_types),
+        dict(float_types),
     )
 
 
@@ -264,10 +345,15 @@ def require_global_validation_legality(
     evidence_path: Path,
     wire: ValidationWireContract,
     policy: Policy,
-) -> None:
+) -> list[list[dict[str, object]]]:
+    seen_field_serials: set[int] = set()
     for record in records:
         numeric_fields = set(record) - {"state"}
-        contracted_fields = set(wire.integer_types) | set(wire.float_types)
+        contracted_fields = (
+            set(wire.integer_types)
+            | set(wire.optional_integer_types)
+            | set(wire.float_types)
+        )
         if numeric_fields != contracted_fields or set(wire.integer_types) & set(
             wire.float_types
         ):
@@ -277,6 +363,10 @@ def require_global_validation_legality(
             )
         for field, type_name in wire.integer_types.items():
             require_rust_unsigned(int(record[field]), type_name, field, evidence_path)
+        for field, type_name in wire.optional_integer_types.items():
+            value = record[field]
+            if value is not None:
+                require_rust_unsigned(int(value), type_name, field, evidence_path)
         for field in wire.float_types:
             require_nonnegative_f32(float(record[field]), field, evidence_path)
 
@@ -285,6 +375,7 @@ def require_global_validation_legality(
         spacing_voxels = int(record["spacing_voxels"])
         state = str(record["state"])
         epoch = int(record["update_epoch"])
+        source_field_serial = record["source_field_serial"]
         if serial == 0 or radiance_revision == 0 or spacing_voxels == 0:
             raise ValueError(
                 f"typed field identity in {evidence_path} has a zero serial, radiance "
@@ -295,6 +386,25 @@ def require_global_validation_legality(
             raise ValueError(
                 f"typed field identity in {evidence_path} cannot be Converged at epoch zero"
             )
+        consecutive = int(record["consecutive_below_threshold"])
+        if source_field_serial is None:
+            if epoch != 0 or state != "Converging" or consecutive != 0:
+                raise ValueError(
+                    f"source-free field in {evidence_path} must be Converging epoch zero "
+                    f"with streak zero"
+                )
+        else:
+            source_serial = int(source_field_serial)
+            if source_serial == 0 or source_serial >= serial:
+                raise ValueError(
+                    f"source field serial in {evidence_path} must be nonzero and precede "
+                    f"destination serial {serial}"
+                )
+            if source_serial not in seen_field_serials:
+                raise ValueError(
+                    f"source field serial {source_serial} in {evidence_path} does not "
+                    "reference an earlier process-bound validation"
+                )
         if record["nonfinite_count"] != 0 or record["negative_rgb_texel_count"] != 0:
             raise ValueError(f"validated atlas record in {evidence_path} has invalid texels")
         valid = int(record["valid_texel_count"])
@@ -305,6 +415,7 @@ def require_global_validation_legality(
             )
         if record["required_consecutive_epochs"] != policy.consecutive_epochs:
             raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
+        seen_field_serials.add(serial)
 
     field_serials = [int(record["field_serial"]) for record in records]
     if len(set(field_serials)) != len(field_serials) or any(
@@ -315,40 +426,54 @@ def require_global_validation_legality(
             f"field serials: {field_serials}"
         )
 
-    completed_identities: set[tuple[int, int, int]] = set()
-    active_identity: tuple[int, int, int] | None = None
-    next_epoch = 0
+    generation_identity: tuple[int, int, int] | None = None
+    generations: list[list[dict[str, object]]] = []
+    previous_record: dict[str, object] | None = None
     previous_consecutive = 0
     active_converged = False
-    for record_index, record in enumerate(records):
+    for record in records:
         identity = (
             int(record["geometry_revision"]),
             int(record["radiance_revision"]),
             int(record["spacing_voxels"]),
         )
-        if identity != active_identity:
-            if identity in completed_identities:
-                raise ValueError(
-                    f"global validation order in {evidence_path} returned to completed "
-                    f"identity {identity}"
-                )
-            if active_identity is not None:
-                completed_identities.add(active_identity)
-            active_identity = identity
-            next_epoch = 0
+        epoch = int(record["update_epoch"])
+        if epoch == 0:
+            if record["source_field_serial"] is not None:
+                if previous_record is None or record["source_field_serial"] != int(
+                    previous_record["field_serial"]
+                ):
+                    raise ValueError(
+                        f"global lineage in {evidence_path} starts source-backed generation "
+                        f"from {record['source_field_serial']}, expected previous field "
+                        f"{None if previous_record is None else previous_record['field_serial']}"
+                    )
+            generation_identity = identity
+            generations.append([])
             previous_consecutive = 0
             active_converged = False
-        elif active_converged:
-            raise ValueError(
-                f"global validation order in {evidence_path} continued converged identity "
-                f"{identity}"
-            )
-        epoch = int(record["update_epoch"])
-        if epoch != next_epoch:
-            raise ValueError(
-                f"global validation order in {evidence_path} has epoch {epoch}, "
-                f"expected {next_epoch} for identity {identity}"
-            )
+        else:
+            if previous_record is None:
+                raise ValueError(
+                    f"global lineage in {evidence_path} starts at nonzero epoch {epoch}"
+                )
+            expected_epoch = int(previous_record["update_epoch"]) + 1
+            expected_source = int(previous_record["field_serial"])
+            if (
+                generation_identity != identity
+                or epoch != expected_epoch
+                or record["source_field_serial"] != expected_source
+            ):
+                raise ValueError(
+                    f"global lineage in {evidence_path} has identity={identity} e{epoch} "
+                    f"source={record['source_field_serial']}, expected "
+                    f"identity={generation_identity} e{expected_epoch} "
+                    f"source={expected_source}"
+                )
+            if active_converged:
+                raise ValueError(
+                    f"global lineage in {evidence_path} continued a converged generation"
+                )
         possible_below = possible_below_threshold(
             record, policy, wire.decimal_places
         )
@@ -356,7 +481,7 @@ def require_global_validation_legality(
         if epoch == 0:
             allowed = (
                 {0}
-                if record_index == 0
+                if record["source_field_serial"] is None
                 else {1 if below else 0 for below in possible_below}
             )
             if consecutive not in allowed:
@@ -387,12 +512,30 @@ def require_global_validation_legality(
             )
         previous_consecutive = consecutive
         active_converged = is_converged
-        next_epoch += 1
+        generations[-1].append(record)
+        previous_record = record
+    return generations
+
+
+def expected_terminal_reason(record: dict[str, object], policy: Policy) -> str | None:
+    completed_epoch_count = min(int(record["update_epoch"]) + 1, (1 << 32) - 1)
+    threshold_converged = (
+        completed_epoch_count >= policy.minimum_epoch_count
+        and int(record["consecutive_below_threshold"])
+        >= policy.consecutive_epochs
+    )
+    if threshold_converged:
+        return "Threshold"
+    if completed_epoch_count >= policy.maximum_update_epoch + 1:
+        return "SampleBudget"
+    return None
 
 
 def parse_curve(
     console_path: Path, contract_path: Path = CONTRACT_PATH
-) -> tuple[list[dict[str, object]], TerminalIdentity, Policy]:
+) -> tuple[
+    list[list[dict[str, object]]], TerminalIdentity, Policy, ValidationWireContract
+]:
     records: list[dict[str, object]] = []
     terminals: list[TerminalIdentity] = []
     text = console_path.read_text()
@@ -403,6 +546,10 @@ def parse_curve(
             f"{console_path}, found {len(policy_matches)}"
         )
     policy_values = policy_matches[0].groupdict()
+    policy_suffix = policy_matches[0].group(0)
+    policy_suffix = policy_suffix[
+        policy_suffix.index("convergence_max_absolute_rgb_delta=") :
+    ]
     maximum_update_epochs = int(policy_values["maximum"])
     if maximum_update_epochs == 0:
         raise ValueError("runtime convergence maximum_update_epochs must be positive")
@@ -416,7 +563,12 @@ def parse_curve(
     )
     require_policy_wire_legality(policy, maximum_update_epochs, console_path)
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
+    if policy_suffix != canonical_policy_suffix(contract_path):
+        raise ValueError(
+            f"noncanonical authoritative runtime convergence policy in {console_path}"
+        )
     wire = load_validation_wire_contract(contract_path)
+    awaiting_terminal: dict[str, object] | None = None
     for line in text.splitlines():
         evidence_marker_count = line.count(EVIDENCE_MARKER)
         if evidence_marker_count not in (0, 1):
@@ -431,64 +583,96 @@ def parse_curve(
                 f"malformed DDGI convergence evidence in {console_path}: {line}"
             )
         if VALIDATION_MARKER in line:
+            if awaiting_terminal is not None:
+                raise ValueError(
+                    f"Converged validation in {console_path} is missing its immediate "
+                    f"terminal marker event"
+                )
             match = VALIDATION_PATTERN.search(line)
             if match is None:
                 raise ValueError(
                     f"malformed full-atlas validation line in {console_path}: {line}"
                 )
             values = match.groupdict()
-            expected_absolute_threshold = validation_float_token(
-                policy.absolute_threshold, wire.decimal_places
-            )
-            expected_relative_threshold = validation_float_token(
-                policy.relative_threshold, wire.decimal_places
-            )
-            if values["absolute_threshold"] != expected_absolute_threshold:
+            record: dict[str, object] = {
+                "field_serial": int(values["field_serial"]),
+                "source_field_serial": (
+                    None if values["source"] == "none" else int(values["source"])
+                ),
+                "geometry_revision": int(values["geometry"]),
+                "radiance_revision": int(values["radiance"]),
+                "spacing_voxels": int(values["spacing"]),
+                "state": values["state"],
+                "update_epoch": int(values["epoch"]),
+                "max_absolute_rgb_delta": float(values["absolute"]),
+                "max_relative_rgb_delta": float(values["relative"]),
+                "nonfinite_count": int(values["nonfinite"]),
+                "negative_rgb_texel_count": int(values["negative"]),
+                "valid_texel_count": int(values["valid"]),
+                "scanned_stored_texel_count": int(values["scanned"]),
+                "absolute_threshold": float(values["absolute_threshold"]),
+                "relative_threshold": float(values["relative_threshold"]),
+                "consecutive_below_threshold": int(values["consecutive"]),
+                "required_consecutive_epochs": int(values["required"]),
+            }
+            marker_payload = line[line.index(EVIDENCE_MARKER) :]
+            if marker_payload != canonical_validation_line(record, policy, wire):
                 raise ValueError(
-                    f"validation record in {console_path} has absolute Rust f32 policy drift"
+                    f"noncanonical full-atlas validation line in {console_path}: {line}"
                 )
-            if values["relative_threshold"] != expected_relative_threshold:
-                raise ValueError(
-                    f"validation record in {console_path} has relative Rust f32 policy drift"
-                )
-            records.append(
-                {
-                    "field_serial": int(values["field_serial"]),
-                    "geometry_revision": int(values["geometry"]),
-                    "radiance_revision": int(values["radiance"]),
-                    "spacing_voxels": int(values["spacing"]),
-                    "state": values["state"],
-                    "update_epoch": int(values["epoch"]),
-                    "max_absolute_rgb_delta": float(values["absolute"]),
-                    "max_relative_rgb_delta": float(values["relative"]),
-                    "nonfinite_count": int(values["nonfinite"]),
-                    "negative_rgb_texel_count": int(values["negative"]),
-                    "valid_texel_count": int(values["valid"]),
-                    "scanned_stored_texel_count": int(values["scanned"]),
-                    "absolute_threshold": float(values["absolute_threshold"]),
-                    "relative_threshold": float(values["relative_threshold"]),
-                    "consecutive_below_threshold": int(values["consecutive"]),
-                    "required_consecutive_epochs": int(values["required"]),
-                }
-            )
+            records.append(record)
+            if record["state"] == "Converged":
+                awaiting_terminal = record
         if TERMINAL_MARKER in line:
+            if awaiting_terminal is None:
+                raise ValueError(
+                    f"orphan or premature terminal marker event in {console_path}: {line}"
+                )
             match = TERMINAL_PATTERN.search(line)
             if match is None:
                 raise ValueError(f"malformed convergence line in {console_path}: {line}")
             values = match.groupdict()
-            terminals.append(
-                TerminalIdentity(
-                    field_serial=int(values["field_serial"]),
-                    geometry_revision=int(values["geometry"]),
-                    radiance_revision=int(values["radiance"]),
-                    spacing_voxels=int(values["spacing"]),
-                    update_epoch=int(values["epoch"]),
-                    reason=values["reason"],
-                )
+            terminal = TerminalIdentity(
+                field_serial=int(values["field_serial"]),
+                geometry_revision=int(values["geometry"]),
+                radiance_revision=int(values["radiance"]),
+                spacing_voxels=int(values["spacing"]),
+                update_epoch=int(values["epoch"]),
+                reason=values["reason"],
             )
+            marker_payload = line[line.index(EVIDENCE_MARKER) :]
+            if marker_payload != canonical_terminal_line(terminal):
+                raise ValueError(
+                    f"noncanonical terminal line in {console_path}: {line}"
+                )
+            for field in (
+                "field_serial",
+                "geometry_revision",
+                "radiance_revision",
+                "spacing_voxels",
+                "update_epoch",
+            ):
+                if getattr(terminal, field) != awaiting_terminal[field]:
+                    raise ValueError(
+                        f"terminal {field} does not match its preceding Converged validation"
+                    )
+            expected_reason = expected_terminal_reason(awaiting_terminal, policy)
+            if terminal.reason != expected_reason:
+                raise ValueError(
+                    f"terminal reason {terminal.reason} does not match its preceding "
+                    f"Converged validation reason {expected_reason}"
+                )
+            terminals.append(terminal)
+            awaiting_terminal = None
+    if awaiting_terminal is not None:
+        raise ValueError(
+            f"Converged validation in {console_path} is missing its terminal marker event"
+        )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
-    require_global_validation_legality(records, console_path, wire, policy)
+    generations = require_global_validation_legality(
+        records, console_path, wire, policy
+    )
     if len(terminals) != 1:
         raise ValueError(
             f"expected exactly one terminal convergence record in {console_path}, "
@@ -505,16 +689,17 @@ def parse_curve(
     ):
         if getattr(terminal, field) != final[field]:
             raise ValueError(f"terminal {field} does not match final validation record")
-    return records, terminal, policy
+    return generations, terminal, policy, wire
 
 
 def validate_curve(
     case_name: str,
     spacing: int,
-    records: list[dict[str, object]],
+    generations: list[list[dict[str, object]]],
     terminal: TerminalIdentity,
     analysis: dict[str, object],
     policy: Policy,
+    wire: ValidationWireContract,
 ) -> dict[str, object]:
     capture = analysis.get("capture")
     if not isinstance(capture, dict):
@@ -533,16 +718,25 @@ def validate_curve(
     field_serial = capture.get("field_serial")
     if not isinstance(field_serial, int):
         raise ValueError(f"{case_name} spacing {spacing}: capture has no field serial")
-    records = [
-        record
-        for record in records
-        if record["geometry_revision"] == geometry_revision
-        and record["radiance_revision"] == radiance_revision
-        and record["spacing_voxels"] == spacing
+    matching_generations = [
+        generation
+        for generation in generations
+        if any(record["field_serial"] == field_serial for record in generation)
     ]
-    if not records:
+    if len(matching_generations) != 1:
         raise ValueError(
-            f"{case_name} spacing {spacing}: no curve for captured geometry/radiance revision"
+            f"{case_name} spacing {spacing}: expected one lineage generation for captured "
+            f"field serial {field_serial}, found {len(matching_generations)}"
+        )
+    records = matching_generations[0]
+    if any(
+        record["geometry_revision"] != geometry_revision
+        or record["radiance_revision"] != radiance_revision
+        or record["spacing_voxels"] != spacing
+        for record in records
+    ):
+        raise ValueError(
+            f"{case_name} spacing {spacing}: captured lineage tuple mismatch"
         )
 
     first_threshold_epoch = next(
@@ -591,9 +785,17 @@ def validate_curve(
         )
     if capture.get("update_epoch") != final_epoch:
         raise ValueError(f"{case_name} spacing {spacing}: capture epoch mismatch")
-    if not close(float(capture["max_abs_delta"]), float(final["max_absolute_rgb_delta"])):
+    if validation_float_token(
+        float(capture["max_abs_delta"]), wire.decimal_places
+    ) != validation_float_token(
+        float(final["max_absolute_rgb_delta"]), wire.decimal_places
+    ):
         raise ValueError(f"{case_name} spacing {spacing}: capture absolute delta mismatch")
-    if not close(float(capture["max_rel_delta"]), float(final["max_relative_rgb_delta"])):
+    if validation_float_token(
+        float(capture["max_rel_delta"]), wire.decimal_places
+    ) != validation_float_token(
+        float(final["max_relative_rgb_delta"]), wire.decimal_places
+    ):
         raise ValueError(f"{case_name} spacing {spacing}: capture relative delta mismatch")
 
     return {
@@ -635,7 +837,7 @@ def main() -> int:
                         f"{case_name} spacing {spacing}: console and preserved run-log "
                         "convergence evidence differ"
                     )
-                records, terminal, runtime_policy = console_evidence
+                generations, terminal, runtime_policy, wire = console_evidence
                 if policy is None:
                     policy = runtime_policy
                 elif runtime_policy != policy:
@@ -645,10 +847,11 @@ def main() -> int:
                 curve = validate_curve(
                     case_name,
                     spacing,
-                    records,
+                    generations,
                     terminal,
                     json.loads(analysis_path.read_text()),
                     runtime_policy,
+                    wire,
                 )
                 curve["capture_analysis"] = analysis_path.name
                 curve["console_log"] = console_path.name

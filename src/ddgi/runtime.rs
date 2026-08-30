@@ -203,11 +203,17 @@ mod convergence_evidence {
 
     impl Evidence {
         fn lines(self) -> Vec<String> {
-            let field = self.publication.field.field();
+            let identity = self.publication.field;
+            let field = identity.field();
+            let source_field_serial = identity
+                .source()
+                .map(|source| source.serial().to_string())
+                .unwrap_or_else(|| "none".to_owned());
             let stats = self.publication.atlas_validation;
             let validation = format!(
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.precision$} max_rel_rgb_delta={:.precision$} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.precision$} rel_threshold={:.precision$} consecutive_below={}/{}",
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} source_field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.precision$} max_rel_rgb_delta={:.precision$} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.precision$} rel_threshold={:.precision$} consecutive_below={}/{}",
                 field.serial(),
+                source_field_serial,
                 field.geometry_revision(),
                 field.radiance_revision(),
                 field.spacing_voxels(),
@@ -289,6 +295,9 @@ mod convergence_evidence {
             let floats = contract["validation_wire"]["float_types"]
                 .as_table()
                 .unwrap();
+            let optional_integers = contract["validation_wire"]["optional_integer_types"]
+                .as_table()
+                .unwrap();
             assert_eq!(
                 contract["validation_wire"]["decimal_places"].as_integer(),
                 Some(DECIMAL_PLACES as i64)
@@ -305,10 +314,23 @@ mod convergence_evidence {
             );
 
             let mut integer_count = 0;
+            let mut optional_integer_count = 0;
             let mut float_count = 0;
             macro_rules! assert_wire_row {
                 ($table:ident, $count:ident, $field:literal : $rust_type:ty = $value:expr) => {{
                     let _: $rust_type = $value;
+                    assert_eq!(
+                        $table[$field].as_str(),
+                        Some(stringify!($rust_type)),
+                        "wire type drift for {}",
+                        $field
+                    );
+                    $count += 1;
+                }};
+            }
+            macro_rules! assert_optional_wire_row {
+                ($table:ident, $count:ident, $field:literal : $rust_type:ty = $value:expr) => {{
+                    let _: Option<$rust_type> = $value;
                     assert_eq!(
                         $table[$field].as_str(),
                         Some(stringify!($rust_type)),
@@ -329,11 +351,13 @@ mod convergence_evidence {
             assert_wire_row!(integers, integer_count, "scanned_stored_texel_count": u32 = stats.scanned_stored_texel_count);
             assert_wire_row!(integers, integer_count, "consecutive_below_threshold": u32 = prepared.pending.0.consecutive_below_threshold);
             assert_wire_row!(integers, integer_count, "required_consecutive_epochs": u32 = DDGI_CONVERGENCE_POLICY.consecutive_epochs);
+            assert_optional_wire_row!(optional_integers, optional_integer_count, "source_field_serial": u64 = prepared.pending.0.publication.field.source().map(|source| source.serial()));
             assert_wire_row!(floats, float_count, "max_absolute_rgb_delta": f32 = stats.max_absolute_rgb_delta);
             assert_wire_row!(floats, float_count, "max_relative_rgb_delta": f32 = stats.max_relative_rgb_delta);
             assert_wire_row!(floats, float_count, "absolute_threshold": f32 = DDGI_CONVERGENCE_POLICY.absolute_threshold);
             assert_wire_row!(floats, float_count, "relative_threshold": f32 = DDGI_CONVERGENCE_POLICY.relative_threshold);
             assert_eq!(integers.len(), integer_count);
+            assert_eq!(optional_integers.len(), optional_integer_count);
             assert_eq!(floats.len(), float_count);
         }
 
@@ -347,7 +371,7 @@ mod convergence_evidence {
                 DdgiValidatedIterationOutcome::Published {
                     work,
                     field,
-                    consecutive_below_threshold: 1,
+                    consecutive_below_threshold: 0,
                 },
                 stats,
             );
@@ -355,14 +379,39 @@ mod convergence_evidence {
             assert_eq!(published.publication.atlas_validation(), stats);
             assert_eq!(
                 published.pending.0.lines(),
-                vec!["[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"]
+                vec!["[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 source_field_serial=none geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=0/2"]
             );
 
+            let sourced_field = DdgiFieldIdentity::new(
+                DdgiFieldKey::new(2, 7, 3, 16, DdgiFieldState::Converging, 1).unwrap(),
+                Some(field.field()),
+            )
+            .unwrap();
+            let sourced = prepare(
+                DdgiValidatedIterationOutcome::Published {
+                    work,
+                    field: sourced_field,
+                    consecutive_below_threshold: 1,
+                },
+                stats,
+            );
+            assert_eq!(
+                sourced.pending.0.lines(),
+                vec!["[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=2 source_field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=1 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=1/2"]
+            );
+
+            let converged_source =
+                DdgiFieldKey::new(8, 7, 3, 16, DdgiFieldState::Converging, 6).unwrap();
+            let converged_field = DdgiFieldIdentity::new(
+                DdgiFieldKey::new(9, 7, 3, 16, DdgiFieldState::Converged, 7).unwrap(),
+                Some(converged_source),
+            )
+            .unwrap();
             let converged = prepare(
                 DdgiValidatedIterationOutcome::Converged {
                     work,
-                    field,
-                    consecutive_below_threshold: 7,
+                    field: converged_field,
+                    consecutive_below_threshold: 2,
                     reason: DdgiConvergenceReason::Threshold,
                 },
                 stats,
@@ -370,8 +419,8 @@ mod convergence_evidence {
             assert_eq!(
                 converged.pending.0.lines(),
                 vec![
-                    "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=0 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=7/2",
-                    "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=1 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=0 reason=Threshold",
+                    "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=9 source_field_serial=8 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converged update_epoch=7 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2",
+                    "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=9 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=7 reason=Threshold",
                 ]
             );
         }
@@ -381,6 +430,16 @@ mod convergence_evidence {
         fn validation_wire_type_drift_is_rejected_by_its_typed_row() {
             let contract = include_str!("../../config/ddgi_convergence_acceptance.toml")
                 .replace("geometry_revision = \"u32\"", "geometry_revision = \"u64\"");
+            assert_wire_contract_matches_runtime_types(&contract);
+        }
+
+        #[test]
+        #[should_panic(expected = "wire type drift for source_field_serial")]
+        fn optional_source_wire_type_drift_is_rejected_by_its_typed_row() {
+            let contract = include_str!("../../config/ddgi_convergence_acceptance.toml").replace(
+                "source_field_serial = \"u64\"",
+                "source_field_serial = \"u32\"",
+            );
             assert_wire_contract_matches_runtime_types(&contract);
         }
     }

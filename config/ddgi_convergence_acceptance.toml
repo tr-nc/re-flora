@@ -23,6 +23,9 @@ scanned_stored_texel_count = "u32"
 consecutive_below_threshold = "u32"
 required_consecutive_epochs = "u32"
 
+[validation_wire.optional_integer_types]
+source_field_serial = "u64"
+
 [validation_wire.float_types]
 max_absolute_rgb_delta = "f32"
 max_relative_rgb_delta = "f32"
