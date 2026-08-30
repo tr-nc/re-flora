@@ -95,6 +95,21 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             capture, "--expect-version", str(version), *arguments
         )
 
+    def run_current_analyzer(
+        self, capture: Path, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "analyze_current_environment_irradiance_capture.py"),
+                str(capture),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def write_capture_v3(
         self,
         path: Path,
@@ -1626,6 +1641,44 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             explicit_compatibility.returncode, 0, explicit_compatibility.stderr
         )
         self.assertEqual(explicit_current.returncode, 0, explicit_current.stderr)
+
+    def test_production_cli_accepts_only_current_without_a_version_surface(self) -> None:
+        fixtures = Path(__file__).with_name("fixtures")
+        with tempfile.TemporaryDirectory() as directory:
+            current_path = Path(directory) / "current-v10.rfirr"
+            current_path.write_bytes(
+                bytes.fromhex(
+                    (fixtures / "ddgi_filter_evidence_v10.hex").read_text()
+                )
+            )
+            historical_path = Path(directory) / "historical-v9.rfirr"
+            historical_path.write_bytes(
+                bytes.fromhex(
+                    (fixtures / "ddgi_filter_evidence_v9.hex").read_text()
+                )
+            )
+
+            current = self.run_current_analyzer(current_path)
+            historical = self.run_current_analyzer(historical_path)
+            version_overrides = tuple(
+                self.run_current_analyzer(historical_path, *arguments)
+                for arguments in (
+                    ("--expect-version", "9"),
+                    ("--expect-version=9",),
+                    ("--expect-version", "current"),
+                )
+            )
+
+        self.assertEqual(current.returncode, 0, current.stderr)
+        self.assertEqual(json.loads(current.stdout)["capture"]["version"], 10)
+        self.assertEqual(historical.returncode, 1, historical.stderr)
+        self.assertIn(
+            "version: expected 10, got 9",
+            json.loads(historical.stdout)["validation_failures"],
+        )
+        for result in version_overrides:
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unrecognized arguments", result.stderr)
 
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
