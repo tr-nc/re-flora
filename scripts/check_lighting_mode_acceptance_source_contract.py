@@ -328,6 +328,66 @@ def _inherent_impl_functions(tokens: list[str], type_name: str) -> list[Function
     return functions
 
 
+def _top_level_token(tokens: list[str], expected: str) -> int | None:
+    depths = {"(": 0, "[": 0, "{": 0, "<": 0}
+    pairs = {")": "(", "]": "[", "}": "{", ">": "<"}
+    for index, token in enumerate(tokens):
+        if token == expected and not any(depths.values()):
+            return index
+        if token in depths:
+            depths[token] += 1
+        elif token in pairs and depths[pairs[token]]:
+            depths[pairs[token]] -= 1
+    return None
+
+
+def _terminal_path_identifier(tokens: list[str]) -> str | None:
+    for token in reversed(tokens):
+        if token == "_" or token[:1].isalpha():
+            return token
+    return None
+
+
+def _trait_impl_terminals(tokens: list[str]) -> list[tuple[str | None, str | None]]:
+    terminals: list[tuple[str | None, str | None]] = []
+    for impl_index, token in enumerate(tokens):
+        if token != "impl":
+            continue
+        cursor = impl_index + 1
+        if cursor < len(tokens) and tokens[cursor] == "<":
+            closing = _closing(tokens, cursor, "<", ">")
+            if closing is None:
+                continue
+            cursor = closing + 1
+        header_start = cursor
+        angle_depth = 0
+        while cursor < len(tokens):
+            if tokens[cursor] == "<":
+                angle_depth += 1
+            elif tokens[cursor] == ">" and angle_depth:
+                angle_depth -= 1
+            elif tokens[cursor] == "{" and not angle_depth:
+                break
+            cursor += 1
+        if cursor >= len(tokens):
+            continue
+        header = tokens[header_start:cursor]
+        for_index = _top_level_token(header, "for")
+        if for_index is None:
+            continue
+        target = header[for_index + 1 :]
+        where_index = _top_level_token(target, "where")
+        if where_index is not None:
+            target = target[:where_index]
+        terminals.append(
+            (
+                _terminal_path_identifier(header[:for_index]),
+                _terminal_path_identifier(target),
+            )
+        )
+    return terminals
+
+
 def _direct_named_parameters(
     function: Function, expected_type: tuple[str, ...]
 ) -> list[str]:
@@ -480,8 +540,10 @@ def audit(sources: dict[str, str]) -> list[str]:
         if "Copy" in declaration_prefix or "Clone" in declaration_prefix:
             errors.append("ResolvedRasterLightingState must not be Copy or Clone")
     for tokens in tokenized.values():
-        if _contains(tokens, ("impl", "Copy", "for", "ResolvedRasterLightingState")) or _contains(
-            tokens, ("impl", "Clone", "for", "ResolvedRasterLightingState")
+        if any(
+            trait_name in ("Copy", "Clone")
+            and target_name == "ResolvedRasterLightingState"
+            for trait_name, target_name in _trait_impl_terminals(tokens)
         ):
             errors.append("ResolvedRasterLightingState must not implement Copy or Clone")
 

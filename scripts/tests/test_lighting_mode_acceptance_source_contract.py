@@ -270,6 +270,17 @@ impl Tracer {
                 ].replace(before, after)
                 self.assertNotEqual(checker.audit(sources), [])
 
+        for trait_impl in (
+            "impl Copy for ResolvedRasterLightingState {}",
+            "impl Clone for ResolvedRasterLightingState { fn clone(&self) -> Self { unreachable!() } }",
+            "impl ::core::marker::Copy for ResolvedRasterLightingState where ResolvedRasterLightingState: Sized {}",
+            "impl std::clone::Clone for ResolvedRasterLightingState where Self: Sized { fn clone(&self) -> Self { unreachable!() } }",
+        ):
+            with self.subTest(trait_impl=trait_impl):
+                sources = baseline_sources()
+                sources["src/app/sibling.rs"] = trait_impl
+                self.assertNotEqual(checker.audit(sources), [])
+
     def test_second_raster_state_write_anywhere_in_tracer_is_rejected(self) -> None:
         sources = baseline_sources()
         sources["src/tracer/mod.rs"] += """

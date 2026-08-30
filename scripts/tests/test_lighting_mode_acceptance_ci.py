@@ -23,6 +23,7 @@ SOURCE_OWNERS = (
     "src/app/core/lighting_mode_acceptance.rs",
     "src/tracer/mod.rs",
     "src/tracer/buffer_updater.rs",
+    "src/environment_lighting.rs",
 )
 CONCRETE_ROUTES = tuple(path for path in ROUTES if path != "src/**") + SOURCE_OWNERS
 
@@ -172,6 +173,20 @@ class LightingModeAcceptanceCiTests(unittest.TestCase):
                 event_start = workflow.index(f"  {event}:")
                 marker = '      - "src/**"'
                 replacement = marker + '\n      - "!src/app/mod.rs"'
+                mutated = workflow[:event_start] + workflow[event_start:].replace(
+                    marker, replacement, 1
+                )
+                paths = event_paths(mutated, event)
+                self.assertFalse(source_owners_are_routed(paths))
+                self.assertFalse(required_paths_are_routed(paths, CONCRETE_ROUTES))
+
+    def test_later_environment_owner_exclusion_cannot_remove_the_gpu_sink_route(self) -> None:
+        workflow = WORKFLOW.read_text()
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                event_start = workflow.index(f"  {event}:")
+                marker = '      - "src/**"'
+                replacement = marker + '\n      - "!src/environment_lighting.rs"'
                 mutated = workflow[:event_start] + workflow[event_start:].replace(
                     marker, replacement, 1
                 )
