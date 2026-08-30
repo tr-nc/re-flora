@@ -13,10 +13,6 @@ from collections import Counter
 
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
-FUNCTION_INVOCATION = re.compile(
-    r"^\s*(?:(?:if|elif)\s+(?:!\s+)?)?"
-    r"analyze_current_capture(?=$|[\s<>|;&])"
-)
 ANALYZER_IDENTIFIER = re.compile(r"\banalyze_current_capture\b")
 SHELL_FUNCTION = re.compile(
     r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
