@@ -1227,10 +1227,29 @@ mod tests {
     }
 
     #[test]
-    fn glass_raster_visibility_comparison_controls_default_off() {
+    fn glass_raster_reflections_are_mandatory_not_gui_adjustable() {
+        let config = include_str!("../../config/gui.toml");
+
+        assert!(
+            !config.contains("id = \"glass_raster_reflections\""),
+            "mandatory Glass raster reflections must not be exposed as a GUI checkbox",
+        );
+    }
+
+    #[test]
+    fn legacy_per_voxel_glass_is_fixed_not_gui_adjustable() {
+        let config = include_str!("../../config/gui.toml");
+
+        assert!(
+            !config.contains("id = \"glass_per_voxel_reflection\""),
+            "fixed legacy per-voxel Glass must not be exposed as a GUI checkbox",
+        );
+    }
+
+    #[test]
+    fn glass_unrefracted_raster_fallback_defaults_off() {
         let settings = DebugSettings::from_config(GuiConfigLoader::load());
 
-        assert!(!settings.adjustables.glass_raster_reflections.value);
         assert!(!settings.adjustables.glass_unrefracted_raster_fallback.value);
     }
 

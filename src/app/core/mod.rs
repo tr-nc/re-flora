@@ -3719,16 +3719,6 @@ impl App {
                                 .value,
                             ssr_strength: self.debug_settings.adjustables.glass_ssr_strength.value,
                             ssr_steps: self.debug_settings.adjustables.glass_ssr_steps.value,
-                            raster_reflections: self
-                                .debug_settings
-                                .adjustables
-                                .glass_raster_reflections
-                                .value,
-                            per_voxel_reflection: self
-                                .debug_settings
-                                .adjustables
-                                .glass_per_voxel_reflection
-                                .value,
                             ssr_min_hit_thickness_voxels: self
                                 .debug_settings
                                 .adjustables

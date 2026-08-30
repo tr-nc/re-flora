@@ -53,7 +53,6 @@ struct GlassVoxelCachePushConstants
 {
     uint pass;
     uint enable_unrefracted_raster_fallback;
-    uint enable_raster_reflections;
 };
 
 [[vk::push_constant]]
@@ -718,10 +717,7 @@ void spawnGlassInterfacePaths(
     reflected.throughput = path.throughput * fresnel;
     reflected.serial = nextSerial++;
     reflected.active = 1u;
-    reflected.screen_query_mode =
-        glass_voxel_cache_push.enable_raster_reflections != 0u
-            ? GLASS_SCREEN_QUERY_REFLECTION
-            : GLASS_SCREEN_QUERY_NONE;
+    reflected.screen_query_mode = GLASS_SCREEN_QUERY_REFLECTION;
 
     float3 transmittedDirection;
     if (sceneQueryRefractDielectric(

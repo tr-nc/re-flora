@@ -518,18 +518,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Glass",
-        id: "glass_raster_reflections",
-        kind: "bool",
-        label: "Raster Reflections (SSR)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Glass",
-        id: "glass_per_voxel_reflection",
-        kind: "bool",
-        label: "Per-Voxel Glass",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Glass",
         id: "glass_ssr_min_hit_thickness_voxels",
         kind: "float",
         label: "SSR Min Hit Thickness (Voxels)",
@@ -1544,8 +1532,6 @@ pub struct GuiAdjustables {
     pub glass_reflection_strength: crate::gui_adjustables::FloatParam,
     pub glass_ssr_strength: crate::gui_adjustables::FloatParam,
     pub glass_ssr_steps: crate::gui_adjustables::UintParam,
-    pub glass_raster_reflections: crate::gui_adjustables::BoolParam,
-    pub glass_per_voxel_reflection: crate::gui_adjustables::BoolParam,
     pub glass_ssr_min_hit_thickness_voxels: crate::gui_adjustables::FloatParam,
     pub glass_ssr_footprint_pixels: crate::gui_adjustables::FloatParam,
     pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
@@ -1796,8 +1782,6 @@ impl GuiAdjustables {
         let mut glass_reflection_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_ssr_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_ssr_steps_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut glass_raster_reflections_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut glass_per_voxel_reflection_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut glass_ssr_min_hit_thickness_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_ssr_footprint_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2499,16 +2483,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             glass_ssr_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "glass_raster_reflections" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            glass_raster_reflections_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "glass_per_voxel_reflection" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            glass_per_voxel_reflection_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "glass_ssr_min_hit_thickness_voxels" => {
@@ -3638,8 +3612,6 @@ impl GuiAdjustables {
             glass_reflection_strength: glass_reflection_strength_field.expect("Missing parameter: glass_reflection_strength"),
             glass_ssr_strength: glass_ssr_strength_field.expect("Missing parameter: glass_ssr_strength"),
             glass_ssr_steps: glass_ssr_steps_field.expect("Missing parameter: glass_ssr_steps"),
-            glass_raster_reflections: glass_raster_reflections_field.expect("Missing parameter: glass_raster_reflections"),
-            glass_per_voxel_reflection: glass_per_voxel_reflection_field.expect("Missing parameter: glass_per_voxel_reflection"),
             glass_ssr_min_hit_thickness_voxels: glass_ssr_min_hit_thickness_voxels_field.expect("Missing parameter: glass_ssr_min_hit_thickness_voxels"),
             glass_ssr_footprint_pixels: glass_ssr_footprint_pixels_field.expect("Missing parameter: glass_ssr_footprint_pixels"),
             glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
@@ -4046,8 +4018,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&adjustables.wind_source_3_muted),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
-        "glass_raster_reflections" => Some(&adjustables.glass_raster_reflections),
-        "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
@@ -4332,8 +4302,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&mut adjustables.wind_source_3_muted),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
-        "glass_raster_reflections" => Some(&mut adjustables.glass_raster_reflections),
-        "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),

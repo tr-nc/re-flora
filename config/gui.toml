@@ -946,24 +946,6 @@ min = 1
 max = 64
 
 [[section.param]]
-id = "glass_raster_reflections"
-kind = "bool"
-label = "Raster Reflections (SSR)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "glass_per_voxel_reflection"
-kind = "bool"
-label = "Per-Voxel Glass"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "glass_ssr_min_hit_thickness_voxels"
 kind = "float"
 label = "SSR Min Hit Thickness (Voxels)"

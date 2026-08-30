@@ -346,12 +346,11 @@ mod glass_voxel_cache_contract_tests {
     }
 
     #[test]
-    fn raster_secondary_visibility_is_explicitly_switchable() {
+    fn raster_secondary_visibility_keeps_reflections_and_switches_only_refraction_fallback() {
         let shader = include_str!("../../shader/slang/glass_resolve.slang");
 
         for required in [
             "enable_unrefracted_raster_fallback",
-            "enable_raster_reflections",
             "GLASS_SCREEN_QUERY_REFRACTION",
             "GLASS_SCREEN_QUERY_REFLECTION",
             "glassUnrefractedRasterFallbackEnabled",
@@ -362,8 +361,33 @@ mod glass_voxel_cache_contract_tests {
             );
         }
         assert!(
-            !shader.contains("reflected.screen_candidate = 0u;"),
-            "Fresnel reflection must not be permanently barred from raster visibility",
+            shader.contains("reflected.screen_query_mode = GLASS_SCREEN_QUERY_REFLECTION;"),
+            "Fresnel reflection must always retain raster visibility",
+        );
+        assert!(
+            !shader.contains("enable_raster_reflections"),
+            "mandatory raster reflections must not retain a runtime switch",
+        );
+    }
+
+    #[test]
+    fn legacy_terrarium_reflection_is_fixed_to_per_voxel_shading() {
+        let shader = include_str!("../../shader/slang/composition_terrarium_glass.slang");
+
+        for required in [
+            "float3 reflectionOriginWorld = voxelCenterWorld;",
+            "float3 reflectionNormal = voxelReflectionNormal;",
+            "float reflectionVoxelLens = pane * (0.12 + cellNoiseC * 0.08);",
+        ] {
+            assert!(
+                shader.contains(required),
+                "fixed legacy per-voxel Glass path is missing `{required}`",
+            );
+        }
+        assert!(
+            !shader.contains("glass_per_voxel_reflection")
+                && !shader.contains("usePerVoxelReflection"),
+            "legacy per-voxel Glass must not retain a runtime switch",
         );
     }
 }
@@ -400,8 +424,6 @@ pub struct GlassGuiParams {
     pub reflection_strength: f32,
     pub ssr_strength: f32,
     pub ssr_steps: u32,
-    pub raster_reflections: bool,
-    pub per_voxel_reflection: bool,
     pub ssr_min_hit_thickness_voxels: f32,
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,
@@ -1004,7 +1026,6 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
-    glass_raster_reflections: bool,
     glass_unrefracted_raster_fallback: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
@@ -1369,7 +1390,6 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
-            glass_raster_reflections: false,
             glass_unrefracted_raster_fallback: false,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
@@ -3292,7 +3312,6 @@ impl Tracer {
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
-        self.glass_raster_reflections = glass_gui_params.raster_reflections;
         self.glass_unrefracted_raster_fallback = glass_gui_params.unrefracted_raster_fallback;
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
@@ -6664,7 +6683,6 @@ impl Tracer {
                 enable_unrefracted_raster_fallback: u32::from(
                     self.glass_unrefracted_raster_fallback,
                 ),
-                enable_raster_reflections: u32::from(self.glass_raster_reflections),
                 ..bytemuck::Zeroable::zeroed()
             };
             pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
