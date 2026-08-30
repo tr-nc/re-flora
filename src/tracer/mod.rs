@@ -322,10 +322,29 @@ struct GlassPushConstants {
 
 const GLASS_VOXEL_CACHE_BUILD_PASS: u32 = 0;
 const GLASS_VOXEL_CACHE_SHADE_PASS: u32 = 1;
-const GLASS_VOXEL_CACHE_CLASSIFY_PASS: u32 = 2;
-const GLASS_EXACT_PIXEL_BUILD_PASS: u32 = 3;
-const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 4;
-const GLASS_EXACT_PIXEL_RESOLVE_PASS: u32 = 5;
+const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 2;
+
+#[cfg(test)]
+mod glass_voxel_cache_contract_tests {
+    #[test]
+    fn visible_glass_voxel_has_no_pixel_exact_output_override() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+
+        assert!(shader.contains("traceGlassVoxelCellRadiance"));
+        assert!(shader.contains("glass_voxel_cache_radiance[slot].rgb"));
+        for forbidden in [
+            "GLASS_EXACT_PIXEL",
+            "forceExact",
+            "primary_screen_contribution",
+            "traceGlassPrimaryScreenContributionFromFrontEvent",
+        ] {
+            assert!(
+                !shader.contains(forbidden),
+                "per-pixel Glass output override `{forbidden}` breaks one-color-per-voxel",
+            );
+        }
+    }
+}
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
@@ -6599,42 +6618,16 @@ impl Tracer {
             0,
         );
         let extent = resources.composited_tex.get_image().get_desc().extent;
-        // Build a cell-key table from visible Glass pixels, then shade and classify its dense
-        // unique-cell list once. Reflected resource tracking inserts barriers between these
-        // ordered dispatches.
+        // Build a cell-key table from visible Glass pixels, shade its dense unique-cell list
+        // once, then resolve every visible pixel from that one stored color. Reflected resource
+        // tracking inserts barriers between these ordered dispatches.
         for (pass, dispatch_extent) in [
             (GLASS_VOXEL_CACHE_BUILD_PASS, extent),
             (
                 GLASS_VOXEL_CACHE_SHADE_PASS,
                 Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
             ),
-            (
-                GLASS_VOXEL_CACHE_CLASSIFY_PASS,
-                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
-            ),
-        ] {
-            let push = PushConstantGlassResolve {
-                pass,
-                ..bytemuck::Zeroable::zeroed()
-            };
-            pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
-        }
-
-        // The cell list is no longer needed. Reuse it to compact sparse exact-boundary pixels,
-        // keeping the normal cached resolve free of divergent software-ray-tracing branches.
-        resources.glass_voxel_cache_active_count.record_fill(
-            cmdbuf,
-            0,
-            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
-            0,
-        );
-        for (pass, dispatch_extent) in [
-            (GLASS_EXACT_PIXEL_BUILD_PASS, extent),
             (GLASS_VOXEL_CACHE_RESOLVE_PASS, extent),
-            (
-                GLASS_EXACT_PIXEL_RESOLVE_PASS,
-                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
-            ),
         ] {
             let push = PushConstantGlassResolve {
                 pass,

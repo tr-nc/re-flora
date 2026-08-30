@@ -5,8 +5,10 @@
 The staged experimental implementation is complete through Phase 4 and includes the
 distance-invariant secondary-visibility stabilization through commit `8c5f8c96`, raster
 silhouette stabilization through commit `ff51a38a`, and raster-disocclusion stabilization
-recorded below. Correctness, isolation, Vulkan validation, fallback, bounded-work, targeted
-visual regression, and feature-OFF gates pass. The original
+recorded below. The final resolve also enforces one normal and one complete output color for every
+visible Glass voxel; no screen-space pixel may replace part of that cached transport. Correctness,
+isolation, Vulkan validation, fallback, bounded-work, targeted visual regression, and feature-OFF
+gates pass. The original
 25% coverage planning target against feature OFF still does not pass, so this remains an
 isolated experiment and is not ship-ready.
 
@@ -221,7 +223,8 @@ The user-authored `test` snapshot isolated two independent failures:
   normal and one complete transport color per voxel cannot itself represent a resolvable
   secondary-visibility edge inside that voxel.
 
-The retained design keeps the complete one-normal/one-color cache for smooth and subpixel cells.
+The initial fix, later superseded by the per-voxel final-output contract below, kept the complete
+one-normal/one-color cache for smooth and subpixel cells.
 A cell-level pass marks only same-face neighbors whose raster-hit state differs, whose cached HDR
 delta is at least 0.25, and whose projected face is at least one internal pixel. A pixel then
 qualifies only on the wrong side of the cached raster state and within six internal pixels of an
@@ -286,7 +289,7 @@ or raster hit thickness did not change either artifact. A diagnostic second rast
 did not address the missing raster/voxel semantic link, so it was reverted rather than adding a
 new pass and another set of full-resolution images.
 
-The retained fix has two parts. Terminal resolution now preserves the source unified-opaque texel
+The interim fix had two parts. Terminal resolution preserved the source unified-opaque texel
 when depth proves that it is behind Glass and provenance proves that it came from a raster-only
 producer; this is a conservative visibility fallback, not an unvalidated color blend. Cache
 classification then uses projected screen footprint as an LOD: subpixel voxels keep one complete
@@ -364,19 +367,59 @@ Evidence is at `target/perf/glass-feature-off-specialized-abba/comparison.json`.
 `tracer.render` -0.57%. Evidence is at
 `target/perf/glass-specialization-coverage25-clean-pair.json`.
 
+## Per-voxel final-output contract
+
+The user-authored `not-pervox` snapshot exposed the architectural conflict in the interim raster
+corrections. Two Glass layers separated by air showed detailed grass silhouettes inside a single
+projected front Glass cell. Controlled Release captures isolated both causes: disabling only the
+large-footprint exact-primary tier made three of four sampled cells constant, and disabling the
+remaining raster-boundary exact tier made all four constant. Camera effects did not cause the
+failure.
+
+The final resolve has only three ordered stages: collect unique visible front Glass cells, compute
+one deterministic complete transport color per cell, and resolve each visible pixel from that
+single color. The classification, exact-pixel compaction, and second resolve dispatches are gone.
+The cache-miss/readiness fallback also evaluates the same deterministic cell-center transport
+instead of a pixel ray, so exceptional paths cannot bypass the contract. The authoritative raster
+depth/provenance fallback remains part of the cell sample; it is no longer allowed to reveal
+sub-voxel raster detail by rewriting individual output pixels.
+
+Two delayed 2880x1620 Release captures passed the deterministic four-cell analyzer. The pre-fix
+encoded luma ranges were 284 to 632; both final captures were 20 to 25, the narrow residual band
+from downstream camera effects and encoding. Both runs reported 136,513 Glass pixels, zero
+exhaustion, and zero non-finite pixels. Evidence is under
+`target/glass-not-pervox-diagnosis/`.
+
+The simplification removes two full-screen dispatches, two fixed-capacity dispatches, and the
+second cached float4. At 1440x810 internal resolution the Glass resource total falls from
+48.60 MiB to 44.60 MiB. A 30-second fixed-25% RTX 3060 Ti Release A,B,B,A comparison pooled
+61 baseline and 68 candidate post-warm-up samples:
+
+| Metric | Baseline median/p95 | Candidate median/p95 | Delta median/p95 | Gate |
+|---|---:|---:|---:|---:|
+| `frame.render` | 26.973 / 28.632 ms | 24.142 / 25.559 ms | -10.50% / -10.73% | pass |
+| `tracer.render` | 17.932 / 19.572 ms | 14.952 / 16.408 ms | -16.62% / -16.17% | pass |
+| `tracer.pass` | 8.842 / 10.507 ms | 8.846 / 10.414 ms | +0.04% / -0.88% | pass |
+| `glass.resolve` | 7.635 / 8.157 ms | 4.624 / 4.990 ms | -39.44% / -38.83% | pass |
+
+Evidence is at `target/perf-glass-per-voxel-final-30s-valid/comparison.json`. A separately rebuilt,
+reverse-order Feature-OFF `render-steady` comparison passed all eleven gates: `frame.render`
+changed by -0.04%, `tracer.render` by -0.10%, and `frame.cpu_total` by -0.21%. Evidence is at
+`target/perf-feature-off-per-voxel-final-reverse/comparison.json`.
+
 ## Memory and lifetime
 
-At 800x500, enabled Glass extent resources total 26,431,492 bytes (25.21 MiB):
+At 800x500, enabled Glass extent resources total 22,237,188 bytes (21.21 MiB):
 
 | Resource group | Format bytes/pixel | Bytes | Lifetime and alias opportunity |
 |---|---:|---:|---|
 | `GlassFront` depth + packed event | 4 + 4 | 3,200,000 | Written by Glass tracer, consumed by resolve; dead afterward. Packing/precision reduction is possible after measurement. |
 | Unified opaque HDR + depth + provenance | 8 + 4 + 4 | 6,400,000 | Written by composition and consumed by resolve. It overlaps `GlassFront`, so same-frame aliasing is not currently valid. |
 | Glass debug counters | 8 | 3,200,000 | Written by resolve and read only by acceptance capture. A non-diagnostic build can remove or lazily allocate it. |
-| Cell metadata, two transport values, and reused active list | n/a | 13,631,492 | Experiment-only fixed-capacity cache. The second float4 adds 4 MiB for exact primary-transmission replacement; the active list is reused for compacted boundary pixels after cell classification. |
+| Cell metadata, one transport value, and active list | n/a | 9,437,188 | Experiment-only fixed-capacity cache. One float4 is the complete final color for one visible Glass voxel; the active list contains only unique cache slots. |
 
 Feature OFF allocates 2x2 true-2D placeholders for the six images plus one-entry cache buffers:
-184 bytes total. It does not allocate or clear full-resolution Glass targets, and it does not
+168 bytes total. It does not allocate or clear full-resolution Glass targets, and it does not
 record the Glass resolve pass.
 
 ## Artifacts and reproducibility
@@ -444,6 +487,10 @@ python scripts/perf_suite.py run glass-coverage-25 \
   modules, all eleven `render-steady` Release A,B,B,A gates pass, and the Glass resolve module and
   pipeline are not created. Repeated specialized Release captures at
   `target/glass-border-specialized/` retain both raster-disocclusion fixes.
+- Per-voxel final-output correction: `cargo fmt --check`, `cargo check`, 678 main Rust tests plus
+  four auxiliary binary tests, and all 83 Python tests pass. Two repeated `not-pervox` Release
+  captures pass the four-cell constancy analyzer; Glass and reverse-order Feature-OFF performance
+  gates pass.
 
 An additional package-only `cargo test -p re-flora-shader-build` invocation did not reach test
 execution because Cargo itself panicked in feature resolution. The authoritative root
