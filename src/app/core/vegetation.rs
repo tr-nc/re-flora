@@ -848,6 +848,32 @@ enum TreePublicationAction {
     CommitPublication,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationMetric {
+    Leaves,
+    Fruit,
+    Shadows,
+    Audio,
+}
+
+impl TreePublicationAction {
+    fn metric(self) -> Option<TreePublicationMetric> {
+        match self {
+            Self::PublishLeaves | Self::RemoveLeaves => Some(TreePublicationMetric::Leaves),
+            Self::PublishFruitLifecycle
+            | Self::PublishAttachedFruit
+            | Self::RemoveFruitLifecycle => Some(TreePublicationMetric::Fruit),
+            Self::InvalidateLocalShadows => Some(TreePublicationMetric::Shadows),
+            Self::PublishCanopyAudio | Self::RemoveCanopyAudio => {
+                Some(TreePublicationMetric::Audio)
+            }
+            Self::PublishTrunks | Self::FinalizeObserverPublication | Self::CommitPublication => {
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TreePublicationPrimitive {
@@ -1075,7 +1101,9 @@ impl PreparedTreePublication {
 struct TreePublicationReceipt {
     trunk_mutation_elapsed: std::time::Duration,
     trunk_publication_elapsed: std::time::Duration,
-    add_leaves_elapsed: std::time::Duration,
+    leaf_publication_elapsed: std::time::Duration,
+    fruit_publication_elapsed: std::time::Duration,
+    shadow_invalidation_elapsed: std::time::Duration,
     cluster_elapsed: std::time::Duration,
     audio_elapsed: std::time::Duration,
     canonical_commit_elapsed: std::time::Duration,
@@ -1099,6 +1127,13 @@ struct TreePlacementPerformance {
 }
 
 impl TreePublicationReceipt {
+    fn observer_publication_elapsed(&self) -> std::time::Duration {
+        self.leaf_publication_elapsed
+            + self.fruit_publication_elapsed
+            + self.shadow_invalidation_elapsed
+            + self.audio_elapsed
+    }
+
     #[cfg(test)]
     fn canopy_audio_source_count(&self) -> usize {
         self.canopy_audio_source_count
@@ -1254,22 +1289,27 @@ impl GardenTrees {
         let mut receipts = Vec::with_capacity(publications.len());
         for publication in &publications {
             let tree_id = publication.tree_id;
-            let mut add_leaves_elapsed = std::time::Duration::ZERO;
+            let mut leaf_publication_elapsed = std::time::Duration::ZERO;
+            let mut fruit_publication_elapsed = std::time::Duration::ZERO;
+            let mut shadow_invalidation_elapsed = std::time::Duration::ZERO;
             let mut audio_elapsed = std::time::Duration::ZERO;
             let mut canopy_audio_source_count = 0;
             for &action in plan.actions {
                 let action_start = Instant::now();
                 let outcome = executor.execute(action, tree_id, Some(publication));
                 let action_elapsed = action_start.elapsed();
-                match action {
-                    TreePublicationAction::PublishLeaves
-                    | TreePublicationAction::PublishFruitLifecycle
-                    | TreePublicationAction::PublishAttachedFruit
-                    | TreePublicationAction::InvalidateLocalShadows => {
-                        add_leaves_elapsed += action_elapsed;
+                match action.metric() {
+                    Some(TreePublicationMetric::Leaves) => {
+                        leaf_publication_elapsed += action_elapsed;
                     }
-                    TreePublicationAction::PublishCanopyAudio => audio_elapsed = action_elapsed,
-                    _ => {}
+                    Some(TreePublicationMetric::Fruit) => {
+                        fruit_publication_elapsed += action_elapsed;
+                    }
+                    Some(TreePublicationMetric::Shadows) => {
+                        shadow_invalidation_elapsed += action_elapsed;
+                    }
+                    Some(TreePublicationMetric::Audio) => audio_elapsed += action_elapsed,
+                    None => {}
                 }
                 match outcome {
                     Ok(TreePublicationActionOutput::CanopyAudioSourceCount(count)) => {
@@ -1295,7 +1335,9 @@ impl GardenTrees {
             receipts.push(TreePublicationReceipt {
                 trunk_mutation_elapsed: trunk_outcome.mutation_elapsed / publications.len() as u32,
                 trunk_publication_elapsed: trunk_outcome.publication_elapsed,
-                add_leaves_elapsed,
+                leaf_publication_elapsed,
+                fruit_publication_elapsed,
+                shadow_invalidation_elapsed,
                 cluster_elapsed: publication.cluster_elapsed,
                 audio_elapsed,
                 canonical_commit_elapsed: std::time::Duration::ZERO,
@@ -2209,7 +2251,7 @@ impl App {
         log::info!(
             "[PERF][TREE_GUI] replace_total {:.2}ms publication {:.2}ms",
             total_start.elapsed().as_secs_f32() * 1000.0,
-            receipt.add_leaves_elapsed.as_secs_f32() * 1000.0,
+            receipt.observer_publication_elapsed().as_secs_f32() * 1000.0,
         );
 
         Ok(())
@@ -2932,7 +2974,15 @@ impl App {
             crate::util::BENCH
                 .lock()
                 .unwrap()
-                .record("tree_gui_add_leaves", receipt.add_leaves_elapsed);
+                .record("tree_gui_add_leaves", receipt.leaf_publication_elapsed);
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_fruit_publication",
+                receipt.fruit_publication_elapsed,
+            );
+            crate::util::BENCH.lock().unwrap().record(
+                "tree_gui_shadow_invalidation",
+                receipt.shadow_invalidation_elapsed,
+            );
             crate::util::BENCH
                 .lock()
                 .unwrap()
@@ -2947,11 +2997,13 @@ impl App {
                 .record("tree_gui_leaf_emitter", receipt.canonical_commit_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms leaves {:.2}ms fruit {:.2}ms shadow {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} leaf_clusters {} canopy_generation {} canopy_audio_sources {} rebuild_chunks {} bound {:?}",
                 performance.total_start.elapsed().as_secs_f32() * 1000.0,
                 performance.compile_elapsed.as_secs_f32() * 1000.0,
                 performance.trunk_elapsed.as_secs_f32() * 1000.0,
-                receipt.add_leaves_elapsed.as_secs_f32() * 1000.0,
+                receipt.leaf_publication_elapsed.as_secs_f32() * 1000.0,
+                receipt.fruit_publication_elapsed.as_secs_f32() * 1000.0,
+                receipt.shadow_invalidation_elapsed.as_secs_f32() * 1000.0,
                 performance.rebuild_elapsed.as_secs_f32() * 1000.0,
                 receipt.cluster_elapsed.as_secs_f32() * 1000.0,
                 receipt.audio_elapsed.as_secs_f32() * 1000.0,
@@ -3290,6 +3342,32 @@ mod tests {
                 tree_id,
             ),
         ]
+    }
+
+    #[test]
+    fn tree_publication_metrics_attribute_each_production_action_to_its_owner() {
+        assert_eq!(
+            TreePublicationAction::PublishLeaves.metric(),
+            Some(TreePublicationMetric::Leaves)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishFruitLifecycle.metric(),
+            Some(TreePublicationMetric::Fruit)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishAttachedFruit.metric(),
+            Some(TreePublicationMetric::Fruit)
+        );
+        assert_eq!(
+            TreePublicationAction::InvalidateLocalShadows.metric(),
+            Some(TreePublicationMetric::Shadows)
+        );
+        assert_eq!(
+            TreePublicationAction::PublishCanopyAudio.metric(),
+            Some(TreePublicationMetric::Audio)
+        );
+        assert_eq!(TreePublicationAction::PublishTrunks.metric(), None);
+        assert_eq!(TreePublicationAction::CommitPublication.metric(), None);
     }
 
     #[test]
