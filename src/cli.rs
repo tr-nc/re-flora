@@ -292,7 +292,7 @@ pub struct AppOptions {
     /// Build one deterministic static terrain case for environment-lighting validation.
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
     /// Run the production lighting-mode acceptance transaction and write its raw artifact.
-    pub lighting_mode_acceptance: Option<LightingModeAcceptanceOptions>,
+    pub exclusive_run_mode: ExclusiveRunMode,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
     /// Save fixed saved-terrain DDGI probe-contribution readback as human-readable text.
@@ -355,6 +355,21 @@ pub struct LightingModeAcceptanceOptions {
     pub artifact_path: PathBuf,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExclusiveRunMode {
+    Ordinary,
+    LightingModeAcceptance(LightingModeAcceptanceOptions),
+}
+
+impl ExclusiveRunMode {
+    pub fn lighting_mode_acceptance(&self) -> Option<&LightingModeAcceptanceOptions> {
+        match self {
+            Self::Ordinary => None,
+            Self::LightingModeAcceptance(options) => Some(options),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ParsedScreenshot {
     preset_name: String,
@@ -375,6 +390,7 @@ impl AppOptions {
     }
 
     fn try_from_arg_strings(args: Vec<String>) -> Result<Self, String> {
+        let exclusive_run_mode = parse_exclusive_run_mode(&args)?;
         let parse_f32_after = |flag: &str| -> Option<f32> {
             args.iter()
                 .position(|a| a == flag)
@@ -453,18 +469,7 @@ impl AppOptions {
             None => None,
         };
         let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
-        let lighting_mode_acceptance = parse_required_string_after(
-            "--lighting-mode-acceptance",
-            "an output .rflma artifact path",
-        )?
-        .map(|artifact_path| LightingModeAcceptanceOptions {
-            artifact_path: artifact_path.into(),
-        });
-        if lighting_mode_acceptance.is_some()
-            && !(args.iter().any(|arg| arg == "--hidden") && args.iter().any(|arg| arg == "--mute"))
-        {
-            return Err("--lighting-mode-acceptance requires --hidden --mute".to_owned());
-        }
+        let lighting_mode_acceptance = exclusive_run_mode.lighting_mode_acceptance();
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -566,12 +571,6 @@ impl AppOptions {
             ));
         }
         let camera_snapshot = if lighting_mode_acceptance.is_some() {
-            if screenshot.is_some()
-                || denoiser_bench.is_some()
-                || args.iter().any(|arg| arg == "--camera-snapshot")
-            {
-                return Err("--lighting-mode-acceptance owns its fixed scene and camera".to_owned());
-            }
             None
         } else if let Some(screenshot) = &screenshot {
             if args.iter().any(|a| a == "--camera-snapshot") {
@@ -611,37 +610,6 @@ impl AppOptions {
             .any(|arg| arg == "--canopy-audio-budget-diagnostic");
         let canopy_audio_diagnostic = canopy_audio_budget_diagnostic
             || args.iter().any(|arg| arg == "--canopy-audio-diagnostic");
-        if lighting_mode_acceptance.is_some()
-            && (terrain_load_path.is_some()
-                || terrain_save_path.is_some()
-                || water_experience
-                || environment_lighting_test_scene.is_some()
-                || hybrid_transparency_test_scene
-                || house_scene
-                || water_edit_soak
-                || environment_irradiance_capture_path.is_some()
-                || ddgi_spatial_weight_readback_path.is_some()
-                || frame_stability_bench.is_some()
-                || screenshot_options.is_some()
-                || args.iter().any(|arg| {
-                    matches!(
-                        arg.as_str(),
-                        "--auto-exit"
-                            | "--no-tracer"
-                            | "--no-flora"
-                            | "--no-shadows"
-                            | "--no-leaf-shadows"
-                            | "--ddgi-debug-view"
-                            | "--environment-probe-spacing-voxels"
-                            | "--environment-probe-rebuild-spacing-voxels"
-                    )
-                }))
-        {
-            return Err(
-                "--lighting-mode-acceptance owns its fixed scene, camera, render controls, and exit"
-                    .to_owned(),
-            );
-        }
         if canopy_audio_diagnostic
             && (terrain_load_path.is_some()
                 || water_experience
@@ -801,7 +769,7 @@ impl AppOptions {
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak,
             environment_lighting_test_scene,
-            lighting_mode_acceptance,
+            exclusive_run_mode,
             environment_irradiance_capture_path,
             ddgi_spatial_weight_readback_path,
             environment_irradiance_capture_target,
@@ -827,6 +795,60 @@ impl AppOptions {
             help: args.iter().any(|a| a == "--help" || a == "-h"),
         })
     }
+}
+
+fn parse_exclusive_run_mode(args: &[String]) -> Result<ExclusiveRunMode, String> {
+    if !args
+        .iter()
+        .any(|argument| argument == "--lighting-mode-acceptance")
+    {
+        return Ok(ExclusiveRunMode::Ordinary);
+    }
+
+    let mut artifact_path = None;
+    let mut hidden_count = 0;
+    let mut mute_count = 0;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--hidden" => {
+                hidden_count += 1;
+                index += 1;
+            }
+            "--mute" => {
+                mute_count += 1;
+                index += 1;
+            }
+            "--lighting-mode-acceptance" => {
+                if artifact_path.is_some() {
+                    return Err("Only one --lighting-mode-acceptance is supported.".to_owned());
+                }
+                let Some(value) = args.get(index + 1) else {
+                    return Err("Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path.".to_owned());
+                };
+                if value.starts_with("--") {
+                    return Err("Missing value for --lighting-mode-acceptance. Expected an output .rflma artifact path.".to_owned());
+                }
+                artifact_path = Some(value.into());
+                index += 2;
+            }
+            unexpected => {
+                return Err(format!(
+                    "--lighting-mode-acceptance owns fixed scene, camera, render controls, and exit; unexpected argument {unexpected}"
+                ));
+            }
+        }
+    }
+
+    if hidden_count != 1 || mute_count != 1 {
+        return Err("--lighting-mode-acceptance requires --hidden --mute exactly once".to_owned());
+    }
+
+    Ok(ExclusiveRunMode::LightingModeAcceptance(
+        LightingModeAcceptanceOptions {
+            artifact_path: artifact_path.expect("acceptance token was observed"),
+        },
+    ))
 }
 
 fn parse_denoiser_bench_request(
@@ -1272,7 +1294,7 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
-        assert!(options.lighting_mode_acceptance.is_none());
+        assert_eq!(options.exclusive_run_mode, ExclusiveRunMode::Ordinary);
         assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
@@ -1310,8 +1332,8 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.lighting_mode_acceptance,
-            Some(LightingModeAcceptanceOptions {
+            options.exclusive_run_mode,
+            ExclusiveRunMode::LightingModeAcceptance(LightingModeAcceptanceOptions {
                 artifact_path: "target/r13-e2.rflma".into(),
             })
         );
@@ -1359,7 +1381,55 @@ mod tests {
             .collect(),
         )
         .unwrap_err();
-        assert!(camera.contains("owns its fixed scene and camera"));
+        assert!(camera.contains("owns fixed scene, camera, render controls, and exit"));
+    }
+
+    #[test]
+    fn lighting_mode_acceptance_exclusively_owns_scene_camera_render_and_exit() {
+        let conflicts: &[&[&str]] = &[
+            &["--canopy-audio-diagnostic"],
+            &["--canopy-audio-budget-diagnostic"],
+            &["--egui-texture-lifecycle-test"],
+            &["--resize-lifecycle-test"],
+            &["--tree-bench"],
+            &["--authored-flora-bench"],
+            &["--terrain-connectivity-bench", "correct"],
+            &["--camera-snapshot", "player-default"],
+            &["--auto-exit", "1"],
+            &["--future-run-owner"],
+        ];
+
+        for conflict in conflicts {
+            let mut args = vec![
+                "re-flora",
+                "--hidden",
+                "--mute",
+                "--lighting-mode-acceptance",
+                "out.rflma",
+            ];
+            args.extend_from_slice(conflict);
+            let error =
+                AppOptions::try_from_arg_strings(args.into_iter().map(str::to_owned).collect())
+                    .unwrap_err();
+
+            assert!(
+                error.contains("owns fixed scene, camera, render controls, and exit"),
+                "unexpected error for {conflict:?}: {error}"
+            );
+            assert!(
+                error.contains(conflict[0]),
+                "error did not identify {conflict:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_hidden_muted_run_remains_legal() {
+        let options = parse(&["re-flora", "--hidden", "--mute"]);
+
+        assert!(options.hidden);
+        assert!(options.mute);
+        assert_eq!(options.exclusive_run_mode, ExclusiveRunMode::Ordinary);
     }
 
     #[test]

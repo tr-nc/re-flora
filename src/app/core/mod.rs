@@ -1341,7 +1341,10 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-            || options.lighting_mode_acceptance.is_some()
+            || options
+                .exclusive_run_mode
+                .lighting_mode_acceptance()
+                .is_some()
         {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
@@ -1612,7 +1615,7 @@ impl App {
                 options.environment_irradiance_capture_path.clone(),
             ),
             lighting_mode_acceptance: LightingModeAcceptanceRuntime::new(
-                options.lighting_mode_acceptance.as_ref(),
+                options.exclusive_run_mode.lighting_mode_acceptance(),
             ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
@@ -1676,7 +1679,10 @@ impl App {
             .denoiser_bench
             .as_ref()
             .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-            || options.lighting_mode_acceptance.is_some()
+            || options
+                .exclusive_run_mode
+                .lighting_mode_acceptance()
+                .is_some()
         {
             app.configure_foliage_shadow_bench_camera()?;
         }
