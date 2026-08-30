@@ -278,3 +278,46 @@ impl App {
         self.launch_owners.commit_hybrid_frame(next_phase);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::core::launch_owners::prepare_startup_owners;
+    use crate::cli::{AutomationPlan, Scenario};
+
+    #[test]
+    fn hybrid_phase_transaction_rejects_without_advancing_the_leaf_owner() {
+        let mut owners =
+            prepare_startup_owners(AutomationPlan::default(), Scenario::HybridTransparency)
+                .unwrap();
+        let rejected = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(
+                rejected,
+                HybridPhaseResult::Rejected(TestScenePhase::Ready),
+            )
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Pending,
+                ..
+            }
+        ));
+
+        let committed = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(
+                committed,
+                HybridPhaseResult::Commit(TestScenePhase::Ready),
+            )
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Ready,
+                ..
+            }
+        ));
+    }
+}

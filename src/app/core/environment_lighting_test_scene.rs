@@ -6176,6 +6176,8 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::launch_owners::prepare_startup_owners;
+    use crate::cli::{AutomationPlan, Scenario};
     use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
     #[test]
@@ -6210,6 +6212,41 @@ mod tests {
             "first DDGI build terrain revision 16 does not match test-scene Visible Terrain Publication revision 17"
         ));
         assert!(!publication.first_build_verified);
+    }
+
+    #[test]
+    fn environment_phase_transaction_commits_or_discards_the_owned_candidate_atomically() {
+        let mut owners = prepare_startup_owners(
+            AutomationPlan::default(),
+            Scenario::EnvironmentLighting(EnvironmentLightingTestCase::Sealed),
+        )
+        .unwrap();
+
+        let mut rejected = owners.begin_environment_phase();
+        let EnvironmentPhaseTxn::Active { staged, .. } = &mut rejected else {
+            panic!("environment scenario must mint an active phase transaction")
+        };
+        staged.phase = TestScenePhase::Ready;
+        owners
+            .finish_environment_phase(rejected, EnvironmentPhaseResult::Rejected)
+            .unwrap();
+        let EnvironmentPhaseTxn::Active { staged, .. } = owners.begin_environment_phase() else {
+            panic!("environment scenario must remain active")
+        };
+        assert_eq!(staged.phase, TestScenePhase::Pending);
+
+        let mut committed = owners.begin_environment_phase();
+        let EnvironmentPhaseTxn::Active { staged, .. } = &mut committed else {
+            unreachable!()
+        };
+        staged.phase = TestScenePhase::Ready;
+        owners
+            .finish_environment_phase(committed, EnvironmentPhaseResult::Commit)
+            .unwrap();
+        let EnvironmentPhaseTxn::Active { staged, .. } = owners.begin_environment_phase() else {
+            unreachable!()
+        };
+        assert_eq!(staged.phase, TestScenePhase::Ready);
     }
 
     #[test]
