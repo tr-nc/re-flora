@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 import subprocess
 import sys
@@ -464,6 +465,123 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertIn(
             "reference luminance_overestimate_p99: expected at most 0.5, got 0.6",
             failures,
+        )
+
+    def test_reference_gates_require_reference_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "capture.rfirr"
+            self.write_capture(capture_path, [(0.1, 0.2, 0.3, 1.0)])
+
+            for option in (
+                "--min-reference-error-p99",
+                "--max-reference-error-p99",
+                "--max-reference-overestimate-p99",
+                "--max-reference-error-max",
+            ):
+                with self.subTest(option=option):
+                    rejected = self.run_analyzer(capture_path, option, "0.1")
+                    self.assertEqual(rejected.returncode, 1, rejected.stderr)
+                    self.assertIn(
+                        f"{option} requires --reference",
+                        json.loads(rejected.stdout)["validation_failures"],
+                    )
+
+    def test_incompatible_reference_with_ceiling_returns_failure_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            self.write_capture(first_path, [(0.1, 0.2, 0.3, 1.0)])
+            self.write_capture(
+                reference_path,
+                [(0.1, 0.2, 0.3, 1.0), (0.1, 0.2, 0.3, 1.0)],
+            )
+
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.1",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertNotIn("Traceback", rejected.stderr)
+        self.assertIn(
+            "reference comparison is incompatible",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
+    def test_reference_requires_finite_planes_and_exact_world_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            nonfinite_path = Path(directory) / "nonfinite-reference.rfirr"
+            moved_path = Path(directory) / "moved-reference.rfirr"
+            voxel = 1.0 / 256.0
+            irradiance = [(0.2, 0.2, 0.2, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.0, 0.0, 0.0, 1.0)]
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)]
+            shadows = [(1.0, 1.0, 1.0, 1.0)]
+            self.write_capture_v8(
+                first_path, irradiance, world, direct, receiver, shadows
+            )
+            self.write_capture_v8(
+                nonfinite_path,
+                irradiance,
+                world,
+                [(math.nan, 0.0, 0.0, 1.0)],
+                receiver,
+                shadows,
+            )
+            self.write_capture_v8(
+                moved_path,
+                irradiance,
+                [(1.0 + voxel, 2.0, 3.0, 0.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+
+            nonfinite = self.run_analyzer(
+                first_path, "--reference", str(nonfinite_path)
+            )
+            moved = self.run_analyzer(first_path, "--reference", str(moved_path))
+
+        self.assertEqual(nonfinite.returncode, 1, nonfinite.stderr)
+        self.assertIn(
+            "reference capture contains non-finite required-plane values",
+            json.loads(nonfinite.stdout)["validation_failures"],
+        )
+        self.assertEqual(moved.returncode, 1, moved.stderr)
+        self.assertIn(
+            "reference world XYZ payload does not match capture",
+            json.loads(moved.stdout)["validation_failures"],
+        )
+
+    def test_reference_max_gate_rejects_a_small_tail_outlier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            reference_path = Path(directory) / "reference.rfirr"
+            pixels = [(0.0, 0.0, 0.0, 1.0)] * 100
+            reference_pixels = list(pixels)
+            reference_pixels[-1] = (1.0, 1.0, 1.0, 1.0)
+            self.write_capture(first_path, pixels)
+            self.write_capture(reference_path, reference_pixels)
+
+            rejected = self.run_analyzer(
+                first_path,
+                "--reference",
+                str(reference_path),
+                "--max-reference-error-p99",
+                "0.02",
+                "--max-reference-error-max",
+                "0.5",
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "reference luminance_error_max: expected at most 0.5, got 1",
+            json.loads(rejected.stdout)["validation_failures"],
         )
 
     def test_cli_gates_debug_route_roi_gain_against_real_capture_baseline(self) -> None:

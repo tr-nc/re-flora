@@ -1122,6 +1122,23 @@ def float4_alpha_payload(payload: bytes) -> bytes:
     )
 
 
+def required_capture_planes_finite(capture: Capture) -> bool:
+    payloads = (
+        capture.payload,
+        capture.world_payload,
+        capture.direct_light_payload,
+        capture.terrain_shadow_receiver_payload,
+        capture.direct_sun_shadow_payload,
+    )
+    return all(
+        math.isfinite(value)
+        for payload in payloads
+        if payload
+        for pixel in PIXEL.iter_unpack(payload)
+        for value in pixel
+    )
+
+
 def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, object]:
     base_compatible = (
         current.version,
@@ -1183,18 +1200,36 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         approximate, exact
     )
+    approximate_finite = required_capture_planes_finite(approximate)
+    reference_finite = required_capture_planes_finite(exact)
+    world_xyz_matches = world_xyz_payload(
+        approximate.world_payload
+    ) == world_xyz_payload(exact.world_payload)
+    hit_mask_matches = float4_alpha_payload(
+        approximate.payload
+    ) == float4_alpha_payload(exact.payload)
     compatible = base_compatible and not mismatches
-    if not compatible:
+    comparison_ready = (
+        compatible
+        and approximate_finite
+        and reference_finite
+        and world_xyz_matches
+        and hit_mask_matches
+    )
+    if not comparison_ready:
         return {
-            "compatible": False,
+            "compatible": compatible,
             "metadata_mismatches": mismatches,
             "process_local_identity_mismatches": process_local_identity_mismatches,
+            "approximate_finite": approximate_finite,
+            "reference_finite": reference_finite,
+            "world_xyz_matches": world_xyz_matches,
+            "hit_mask_matches": hit_mask_matches,
         }
 
     luminance_errors: list[float] = []
     luminance_overestimates: list[float] = []
     channel_errors: list[float] = []
-    hit_mask_matches = True
     peak_error = (-1.0, 0, 0)
     peak_overestimate = (0.0, 0, 0)
     for index, (approx_pixel, exact_pixel) in enumerate(
@@ -1202,7 +1237,6 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     ):
         ar, ag, ab, ah = approx_pixel
         er, eg, eb, eh = exact_pixel
-        hit_mask_matches = hit_mask_matches and ((ah > 0.5) == (eh > 0.5))
         if ah <= 0.5 or eh <= 0.5:
             continue
         rgb_error = (abs(ar - er), abs(ag - eg), abs(ab - eb))
@@ -1228,6 +1262,9 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         "compatible": True,
         "metadata_mismatches": [],
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "approximate_finite": True,
+        "reference_finite": True,
+        "world_xyz_matches": True,
         "hit_mask_matches": hit_mask_matches,
         "sample_count": len(luminance_errors),
         "luminance_error_mean": (
@@ -1445,6 +1482,7 @@ def main() -> int:
     parser.add_argument("--require-nonnegative-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
+    parser.add_argument("--max-reference-error-max", type=float)
     parser.add_argument("--min-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
     parser.add_argument("--world-roi", type=float, nargs=6)
@@ -1783,10 +1821,35 @@ def main() -> int:
     if args.reference is not None:
         reference = compare_reference(first, load_capture(args.reference))
         report["reference_comparison"] = reference
-        if not reference["compatible"] or not reference.get("hit_mask_matches", False):
+        if not reference["compatible"]:
+            failures.append("reference comparison is incompatible")
             exit_code = 1
+        if not reference.get("approximate_finite", False):
+            failures.append("capture contains non-finite required-plane values")
+            exit_code = 1
+        if not reference.get("reference_finite", False):
+            failures.append(
+                "reference capture contains non-finite required-plane values"
+            )
+            exit_code = 1
+        if not reference.get("world_xyz_matches", False):
+            failures.append("reference world XYZ payload does not match capture")
+            exit_code = 1
+        if not reference.get("hit_mask_matches", False):
+            failures.append("reference terrain hit mask does not match capture")
+            exit_code = 1
+        reference_ready = all(
+            (
+                reference["compatible"],
+                reference.get("approximate_finite", False),
+                reference.get("reference_finite", False),
+                reference.get("world_xyz_matches", False),
+                reference.get("hit_mask_matches", False),
+            )
+        )
         if (
-            args.min_reference_error_p99 is not None
+            reference_ready
+            and args.min_reference_error_p99 is not None
             and reference.get("luminance_error_p99", -math.inf)
             < args.min_reference_error_p99
         ):
@@ -1797,7 +1860,8 @@ def main() -> int:
             )
             exit_code = 1
         if (
-            args.max_reference_error_p99 is not None
+            reference_ready
+            and args.max_reference_error_p99 is not None
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
         ):
@@ -1808,7 +1872,8 @@ def main() -> int:
             )
             exit_code = 1
         if (
-            args.max_reference_overestimate_p99 is not None
+            reference_ready
+            and args.max_reference_overestimate_p99 is not None
             and reference.get("luminance_overestimate_p99", math.inf)
             > args.max_reference_overestimate_p99
         ):
@@ -1818,9 +1883,31 @@ def main() -> int:
                 f"{reference.get('luminance_overestimate_p99'):g}"
             )
             exit_code = 1
-    elif args.min_reference_error_p99 is not None:
-        failures.append("--min-reference-error-p99 requires --reference")
-        exit_code = 1
+        if (
+            reference_ready
+            and args.max_reference_error_max is not None
+            and reference.get("luminance_error_max", math.inf)
+            > args.max_reference_error_max
+        ):
+            failures.append(
+                "reference luminance_error_max: expected at most "
+                f"{args.max_reference_error_max:g}, got "
+                f"{reference.get('luminance_error_max'):g}"
+            )
+            exit_code = 1
+    else:
+        for option, threshold in (
+            ("--min-reference-error-p99", args.min_reference_error_p99),
+            ("--max-reference-error-p99", args.max_reference_error_p99),
+            (
+                "--max-reference-overestimate-p99",
+                args.max_reference_overestimate_p99,
+            ),
+            ("--max-reference-error-max", args.max_reference_error_max),
+        ):
+            if threshold is not None:
+                failures.append(f"{option} requires --reference")
+                exit_code = 1
     if args.debug_baseline is not None:
         debug_baseline = compare_debug_baseline(
             first,
