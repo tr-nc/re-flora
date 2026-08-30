@@ -3,8 +3,8 @@ use super::App;
 use crate::app::world_edits::{TerrainRemovalEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
-    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason, DdgiRefreshState,
-    DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
+    DdgiBuildKind, DdgiFieldGeneration, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason,
+    DdgiRefreshState, DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::lighting::{
@@ -373,12 +373,18 @@ enum TestScenePhase {
         obsolete_density_field: DdgiFieldIdentity,
         target_revision: u32,
     },
-    WaitingForDensityGeometryPublished {
+    WaitingForDensityGeometryEpochZero {
         baseline: DdgiFieldIdentity,
         obsolete_density_token_serial: u64,
         obsolete_density_field: DdgiFieldIdentity,
         terrain_token_serial: u64,
         target_revision: u32,
+    },
+    WaitingForDensityGeometryPublished {
+        baseline: DdgiFieldIdentity,
+        obsolete_density_token_serial: u64,
+        terrain_token_serial: u64,
+        geometry_generation: DdgiFieldGeneration,
     },
     WaitingForDensityRetryMidflight {
         geometry_field: DdgiFieldIdentity,
@@ -470,13 +476,18 @@ fn assert_initial_epoch_zero(
     assert_eq!(field.source(), None);
 }
 
-fn assert_geometry_epoch_zero(
-    field: DdgiFieldIdentity,
+fn assert_geometry_generation_epoch_zero(
+    generation: DdgiFieldGeneration,
     source: DdgiFieldIdentity,
     geometry_revision: u32,
 ) {
+    let build_token = generation.build_token();
+    let field = generation.epoch_zero_field();
     let key = field.field();
     let source_key = source.field();
+    assert_eq!(build_token.kind(), DdgiBuildKind::Terrain);
+    assert_eq!(build_token.terrain_revision(), geometry_revision);
+    assert_eq!(build_token.spacing_voxels(), source_key.spacing_voxels());
     assert_eq!(key.geometry_revision(), geometry_revision);
     assert_eq!(key.radiance_revision(), source_key.radiance_revision());
     assert_eq!(key.spacing_voxels(), source_key.spacing_voxels());
@@ -672,9 +683,18 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityGeometryReplacement {
                 target_revision, ..
             }
-            | TestScenePhase::WaitingForDensityGeometryPublished {
+            | TestScenePhase::WaitingForDensityGeometryEpochZero {
                 target_revision, ..
             } => Some(target_revision),
+            TestScenePhase::WaitingForDensityGeometryPublished {
+                geometry_generation,
+                ..
+            } => Some(
+                geometry_generation
+                    .epoch_zero_field()
+                    .field()
+                    .geometry_revision(),
+            ),
             TestScenePhase::WaitingForDensityRetryMidflight { geometry_field, .. }
             | TestScenePhase::WaitingForDensityFinalPublished { geometry_field, .. } => {
                 Some(geometry_field.field().geometry_revision())
@@ -892,6 +912,9 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityMidflight { .. } => "waiting-for-density-midflight",
             TestScenePhase::WaitingForDensityGeometryReplacement { .. } => {
                 "waiting-for-density-geometry-replacement"
+            }
+            TestScenePhase::WaitingForDensityGeometryEpochZero { .. } => {
+                "waiting-for-density-geometry-epoch-zero"
             }
             TestScenePhase::WaitingForDensityGeometryPublished { .. } => {
                 "waiting-for-density-geometry-published"
@@ -5004,7 +5027,7 @@ impl App {
                     token.serial(),
                     target_revision,
                 );
-                TestScenePhase::WaitingForDensityGeometryPublished {
+                TestScenePhase::WaitingForDensityGeometryEpochZero {
                     baseline,
                     obsolete_density_token_serial,
                     obsolete_density_field,
@@ -5012,7 +5035,7 @@ impl App {
                     target_revision,
                 }
             }
-            TestScenePhase::WaitingForDensityGeometryPublished {
+            TestScenePhase::WaitingForDensityGeometryEpochZero {
                 baseline,
                 obsolete_density_token_serial,
                 obsolete_density_field,
@@ -5029,25 +5052,99 @@ impl App {
                     Some(obsolete_density_field),
                     "obsolete density field became consumer-visible"
                 );
+                assert_ne!(
+                    runtime.active_token_serial(),
+                    Some(terrain_token_serial),
+                    "terrain generation promoted before acceptance observed its private epoch zero"
+                );
+                assert_eq!(runtime.active().published_field(), Some(baseline));
+                assert_eq!(runtime.active().grid.spacing_voxels(), 32);
+                assert!(runtime.active_consumers_are_available());
+                assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
+                let staging = runtime.staging().expect(
+                    "terrain generation must remain private until local recovery completes",
+                );
+                let Some(publication) = staging.publication else {
+                    return;
+                };
+                let geometry_generation = publication.generation();
+                assert_eq!(
+                    geometry_generation.build_token().serial(),
+                    terrain_token_serial
+                );
+                assert_geometry_generation_epoch_zero(
+                    geometry_generation,
+                    baseline,
+                    target_revision,
+                );
+                let epoch_zero = geometry_generation.epoch_zero_field();
+                log_acceptance_field("DENSITY", "geometry-e0-private", epoch_zero);
+                log::info!(
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-private terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} private_current_field_serial={} private_current_update_epoch={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    terrain_token_serial,
+                    obsolete_density_token_serial,
+                    target_revision,
+                    epoch_zero.field().serial(),
+                    publication.field().field().serial(),
+                    publication.field().field().update_epoch(),
+                );
+                TestScenePhase::WaitingForDensityGeometryPublished {
+                    baseline,
+                    obsolete_density_token_serial,
+                    terrain_token_serial,
+                    geometry_generation,
+                }
+            }
+            TestScenePhase::WaitingForDensityGeometryPublished {
+                baseline,
+                obsolete_density_token_serial,
+                terrain_token_serial,
+                geometry_generation,
+            } => {
+                let runtime = self.tracer.ddgi_runtime_status();
+                assert_ne!(
+                    runtime.active_token_serial(),
+                    Some(obsolete_density_token_serial)
+                );
                 if runtime.active_token_serial() != Some(terrain_token_serial) {
                     assert_eq!(runtime.active().published_field(), Some(baseline));
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     assert!(runtime.active_consumers_are_available());
+                    if let Some(private_publication) =
+                        runtime.staging().and_then(|staging| staging.publication)
+                    {
+                        assert_eq!(
+                            private_publication.generation(),
+                            geometry_generation,
+                            "private terrain recovery changed transport generation"
+                        );
+                    }
                     return;
                 }
-                let geometry_field = runtime
+                let publication = runtime
                     .active()
-                    .published_field()
-                    .expect("terrain epoch zero must be published before promotion");
-                assert_geometry_epoch_zero(geometry_field, baseline, target_revision);
+                    .publication
+                    .expect("promoted terrain Volume must retain its field publication");
+                assert_eq!(publication.generation(), geometry_generation);
+                let geometry_field = publication.field();
+                assert!(
+                    geometry_field.field().update_epoch() > 0,
+                    "localized recovery must not expose the raw geometry epoch zero"
+                );
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
-                log_acceptance_field("DENSITY", "geometry-e0-published", geometry_field);
+                log_acceptance_field("DENSITY", "geometry-recovery-published", geometry_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-recovery-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} epoch_zero_field_serial={} published_field_serial={} published_update_epoch={} same_generation=true active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
                     obsolete_density_token_serial,
-                    target_revision,
+                    geometry_generation
+                        .epoch_zero_field()
+                        .field()
+                        .geometry_revision(),
+                    geometry_generation.epoch_zero_field().field().serial(),
+                    geometry_field.field().serial(),
+                    geometry_field.field().update_epoch(),
                 );
                 TestScenePhase::WaitingForDensityRetryMidflight {
                     geometry_field,
@@ -5523,7 +5620,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey};
+    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
     #[test]
     fn initial_test_scene_requires_a_visible_terrain_publication() {
@@ -5647,6 +5744,27 @@ mod tests {
         .unwrap();
 
         assert_initial_epoch_zero(epoch_zero, 2, 1, 16);
+    }
+
+    #[test]
+    fn density_geometry_acceptance_uses_the_owner_validated_private_epoch_zero() {
+        let baseline_source =
+            DdgiFieldKey::new(9, 1, 1, 32, DdgiFieldState::Converging, 3).unwrap();
+        let baseline = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(10, 1, 1, 32, DdgiFieldState::Converging, 4).unwrap(),
+            Some(baseline_source),
+        )
+        .unwrap();
+        let epoch_zero = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(11, 2, 1, 32, DdgiFieldState::Converging, 0).unwrap(),
+            Some(baseline.field()),
+        )
+        .unwrap();
+        let token = DdgiBuildToken::for_test(3, 2, 32, DdgiBuildKind::Terrain);
+        let publication = DdgiFieldPublication::for_test(token, epoch_zero);
+
+        assert_geometry_generation_epoch_zero(publication.generation(), baseline, 2);
+        assert_eq!(publication.generation().epoch_zero_field(), epoch_zero);
     }
 
     #[test]
