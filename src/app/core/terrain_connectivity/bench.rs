@@ -32,6 +32,10 @@ enum BenchState {
         ready_after_frame: u64,
     },
     AwaitingManualEdit,
+    RetryManualRelease {
+        request: ManualReleaseRequest,
+        resume: Box<BenchState>,
+    },
     Tracing {
         job: BoundedTopologyJob,
         release_frame: u64,
@@ -68,6 +72,10 @@ enum BenchState {
     },
     Observing {
         event_frame: u64,
+    },
+    RetryCompletedFrame {
+        request: CompletedFrameRequest,
+        resume: Box<BenchState>,
     },
     Complete,
 }
@@ -310,11 +318,8 @@ enum ConnectivityAction {
         expected_available_particles: usize,
     },
     CommitBounded(BoundedCommitPayload),
-    HandleManualRelease(ManualReleasePlan),
-    ObserveCompletedFrame {
-        record: CpuFrameRecord,
-        expected_fixture_solids: Option<usize>,
-    },
+    HandleManualRelease(ManualReleaseRequest),
+    ObserveCompletedFrame(CompletedFrameRequest),
 }
 
 struct FixtureInstallRequest {
@@ -337,9 +342,26 @@ struct AtomicityValidationRequest {
     expected_available_particles: usize,
 }
 
-struct CompletedFrameRequest {
+#[derive(Debug)]
+struct CompletedFramePayload {
     record: CpuFrameRecord,
     expected_fixture_solids: Option<usize>,
+}
+
+#[derive(Debug)]
+struct CompletedFrameRequest(Box<CompletedFramePayload>);
+
+impl CompletedFrameRequest {
+    fn new(record: CpuFrameRecord, expected_fixture_solids: Option<usize>) -> Self {
+        Self(Box::new(CompletedFramePayload {
+            record,
+            expected_fixture_solids,
+        }))
+    }
+
+    fn payload(&self) -> &CompletedFramePayload {
+        &self.0
+    }
 }
 
 struct FailedConnectivityAction<R> {
@@ -347,6 +369,7 @@ struct FailedConnectivityAction<R> {
     error: anyhow::Error,
 }
 
+#[derive(Debug)]
 enum ManualReleasePlan {
     Ignore,
     Prepare {
@@ -355,6 +378,19 @@ enum ManualReleasePlan {
         bound: UAabb3,
         seed: UVec3,
     },
+}
+
+#[derive(Debug)]
+struct ManualReleaseRequest(Box<ManualReleasePlan>);
+
+impl ManualReleaseRequest {
+    fn new(plan: ManualReleasePlan) -> Self {
+        Self(Box::new(plan))
+    }
+
+    fn payload(&self) -> &ManualReleasePlan {
+        &self.0
+    }
 }
 
 #[derive(Debug)]
@@ -384,7 +420,7 @@ enum ConnectivityResult {
     ),
     BoundedCommitted(Result<EventStages, FailedConnectivityAction<BoundedCommitPayload>>),
     ManualReleaseHandled(
-        Result<Option<ManualReleasePrepared>, FailedConnectivityAction<ManualReleasePlan>>,
+        Result<Option<ManualReleasePrepared>, FailedConnectivityAction<ManualReleaseRequest>>,
     ),
     CompletedFrameObserved(
         Result<CompletedFrameObservation, FailedConnectivityAction<CompletedFrameRequest>>,
@@ -490,7 +526,7 @@ mod app_executor {
             }
             ConnectivityAction::HandleManualRelease(plan) => {
                 let request = plan;
-                let outcome = match &request {
+                let outcome = match request.payload() {
                     ManualReleasePlan::Ignore => Ok(None),
                     ManualReleasePlan::Prepare {
                         frame,
@@ -523,16 +559,9 @@ mod app_executor {
                 .map_err(|error| FailedConnectivityAction { request, error });
                 ConnectivityResult::ManualReleaseHandled(outcome)
             }
-            ConnectivityAction::ObserveCompletedFrame {
-                record,
-                expected_fixture_solids,
-            } => {
-                let request = CompletedFrameRequest {
-                    record,
-                    expected_fixture_solids,
-                };
+            ConnectivityAction::ObserveCompletedFrame(request) => {
                 let outcome = (|| {
-                    let fixture_count = match request.expected_fixture_solids {
+                    let fixture_count = match request.payload().expected_fixture_solids {
                         Some(expected) => {
                             count_fixture_solids(&mut app.plain_builder).map(|remaining| {
                                 Some(FixtureCount {
@@ -544,7 +573,7 @@ mod app_executor {
                         None => Ok(None),
                     }?;
                     Ok(CompletedFrameObservation {
-                        record: request.record,
+                        record: request.payload().record,
                         fixture_count,
                     })
                 })()
@@ -786,21 +815,39 @@ impl TerrainConnectivityBench {
         }
     }
 
-    fn plan_manual_release(&self, facts: ManualReleaseFacts) -> ConnectivityAction {
+    fn plan_manual_release(&mut self, facts: ManualReleaseFacts) -> ConnectivityAction {
+        if matches!(self.state, BenchState::RetryManualRelease { .. }) {
+            let state = std::mem::replace(&mut self.state, BenchState::Complete);
+            let BenchState::RetryManualRelease { request, resume } = state else {
+                unreachable!("the manual retry phase was checked before it was consumed")
+            };
+            self.state = *resume;
+            return ConnectivityAction::HandleManualRelease(request);
+        }
         if matches!(self.state, BenchState::AwaitingManualEdit) {
-            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
-                frame: facts.frame,
-                revision_before: facts.visible_revision,
-                bound: isolation_bound(),
-                seed: manual_canopy_seed(),
-            })
+            ConnectivityAction::HandleManualRelease(ManualReleaseRequest::new(
+                ManualReleasePlan::Prepare {
+                    frame: facts.frame,
+                    revision_before: facts.visible_revision,
+                    bound: isolation_bound(),
+                    seed: manual_canopy_seed(),
+                },
+            ))
         } else {
-            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Ignore)
+            ConnectivityAction::HandleManualRelease(ManualReleaseRequest::new(
+                ManualReleasePlan::Ignore,
+            ))
         }
     }
 
     fn next_action(&mut self, facts: ConnectivityFacts) -> anyhow::Result<ConnectivityAction> {
         let frame = facts.frame;
+        if matches!(
+            self.state,
+            BenchState::RetryManualRelease { .. } | BenchState::RetryCompletedFrame { .. }
+        ) {
+            return Ok(ConnectivityAction::None);
+        }
         if matches!(self.state, BenchState::Commit(_)) {
             let state = std::mem::replace(
                 &mut self.state,
@@ -948,6 +995,9 @@ impl TerrainConnectivityBench {
             | BenchState::AwaitingCommitResult { .. } => {
                 anyhow::bail!("connectivity bench advanced while awaiting an action result")
             }
+            BenchState::RetryManualRelease { .. } | BenchState::RetryCompletedFrame { .. } => {
+                unreachable!("retry phases return before the main benchmark FSM advances")
+            }
             BenchState::Complete => {}
         }
 
@@ -1009,7 +1059,7 @@ impl TerrainConnectivityBench {
                     Err(failure) => {
                         anyhow::ensure!(
                             matches!(
-                                (&failure.request, &self.state),
+                                (failure.request.payload(), &self.state),
                                 (
                                     ManualReleasePlan::Prepare { .. },
                                     BenchState::AwaitingManualEdit
@@ -1017,6 +1067,11 @@ impl TerrainConnectivityBench {
                             ),
                             "manual executor returned a request from another owner phase"
                         );
+                        let resume = std::mem::replace(&mut self.state, BenchState::Complete);
+                        self.state = BenchState::RetryManualRelease {
+                            request: failure.request,
+                            resume: Box::new(resume),
+                        };
                         return Err(failure.error);
                     }
                 };
@@ -1282,7 +1337,11 @@ impl TerrainConnectivityBench {
                     Ok(())
                 }
                 Err(failure) => {
-                    let _retry_request = failure.request;
+                    let resume = std::mem::replace(&mut self.state, BenchState::Complete);
+                    self.state = BenchState::RetryCompletedFrame {
+                        request: failure.request,
+                        resume: Box::new(resume),
+                    };
                     Err(failure.error)
                 }
             },
@@ -1337,11 +1396,29 @@ impl TerrainConnectivityBench {
                     log_gpu_frame(*event_frame, record);
                 }
             }
+            BenchState::RetryManualRelease { .. } => {
+                push_bounded(&mut self.pre_event_gpu, record);
+            }
+            BenchState::RetryCompletedFrame { resume, .. } => match resume.as_ref() {
+                BenchState::Observing { event_frame } if source_frame >= *event_frame => {
+                    log_gpu_frame(*event_frame, record);
+                }
+                BenchState::Complete => {}
+                _ => push_bounded(&mut self.pre_event_gpu, record),
+            },
             BenchState::Complete => {}
         }
     }
 
-    fn plan_completed_frame(&self, record: CpuFrameRecord) -> ConnectivityAction {
+    fn plan_completed_frame(&mut self, record: CpuFrameRecord) -> ConnectivityAction {
+        if matches!(self.state, BenchState::RetryCompletedFrame { .. }) {
+            let state = std::mem::replace(&mut self.state, BenchState::Complete);
+            let BenchState::RetryCompletedFrame { request, resume } = state else {
+                unreachable!("the completed-frame retry was checked before it was consumed")
+            };
+            self.state = *resume;
+            return ConnectivityAction::ObserveCompletedFrame(request);
+        }
         let expected_fixture_solids = match &self.state {
             BenchState::Observing { event_frame }
                 if record.frame.saturating_sub(*event_frame)
@@ -1356,10 +1433,10 @@ impl TerrainConnectivityBench {
             }
             _ => None,
         };
-        ConnectivityAction::ObserveCompletedFrame {
+        ConnectivityAction::ObserveCompletedFrame(CompletedFrameRequest::new(
             record,
             expected_fixture_solids,
-        }
+        ))
     }
 
     fn observe_completed_frame_inner(
@@ -1465,6 +1542,9 @@ impl TerrainConnectivityBench {
                     return Ok(self.options.mode != TerrainConnectivityBenchMode::Manual);
                 }
                 Ok(false)
+            }
+            BenchState::RetryManualRelease { .. } | BenchState::RetryCompletedFrame { .. } => {
+                anyhow::bail!("completed-frame result arrived before its exact retry was replanned")
             }
             BenchState::Complete => Ok(self.options.mode != TerrainConnectivityBenchMode::Manual),
         }
@@ -2117,6 +2197,7 @@ mod tests {
         static_assertions::assert_not_impl_any!(ReleaseEventRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(AtomicityValidationRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(BoundedCommitPayload: Clone, Copy);
+        static_assertions::assert_not_impl_any!(ManualReleaseRequest: Clone, Copy);
         static_assertions::assert_not_impl_any!(ManualReleasePlan: Clone, Copy);
         static_assertions::assert_not_impl_any!(CompletedFrameRequest: Clone, Copy);
         assert!(!include_str!("bench.rs").contains(concat!("Execution", "Failed")));
@@ -2511,9 +2592,9 @@ mod tests {
         assert!(matches!(
             &owner,
             ScenarioOwner::Connectivity(TerrainConnectivityBench {
-                state: BenchState::AwaitingManualEdit,
+                state: BenchState::RetryManualRelease { resume, .. },
                 ..
-            })
+            }) if matches!(resume.as_ref(), BenchState::AwaitingManualEdit)
         ));
         let retried = owner
             .plan_manual_connectivity_release(ManualReleaseFacts {
@@ -2592,12 +2673,15 @@ mod tests {
         assert!(error
             .to_string()
             .contains("injected fixture validation failure"));
-        let ScenarioOwner::Connectivity(bench) = owner else {
+        let ScenarioOwner::Connectivity(mut bench) = owner else {
             panic!("test constructed the wrong scenario owner");
         };
         assert!(matches!(
-            bench.state,
-            BenchState::Observing { event_frame: 40 }
+            &bench.state,
+            BenchState::RetryCompletedFrame {
+                resume,
+                ..
+            } if matches!(resume.as_ref(), BenchState::Observing { event_frame: 40 })
         ));
         assert_eq!(bench.high_water.terrain_collider, 0);
         let mut changed_record = record;
