@@ -182,25 +182,47 @@ impl LightingModeAcceptancePhase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct LightingModeAcceptanceIdentity {
+pub(super) struct LightingModeAcceptanceSceneObservation {
     pub camera_pose_bits: [u32; 6],
+    pub visible_terrain_revision: u32,
+    pub visual_time_bits: u32,
+    pub sampling_serial: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LightingModeAcceptanceRenderObservation {
     pub render_extent: [u32; 2],
     pub screen_extent: [u32; 2],
     pub extent_generation: u64,
-    pub visible_terrain_revision: u32,
-    pub ddgi_field_serial: u64,
-    pub ddgi_geometry_revision: u32,
-    pub ddgi_radiance_revision: u32,
-    pub ddgi_spacing_voxels: u32,
-    pub ddgi_update_epoch: u32,
-    pub ddgi_source_field_serial: u64,
-    pub ddgi_source_geometry_revision: u32,
-    pub ddgi_source_radiance_revision: u32,
-    pub ddgi_source_update_epoch: u32,
-    pub authored_lighting_revision: u64,
-    pub local_lighting_revision: u64,
-    pub visual_time_bits: u32,
-    pub sampling_serial: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LightingModeAcceptanceDdgiFieldObservation {
+    pub serial: u64,
+    pub geometry_revision: u32,
+    pub radiance_revision: u32,
+    pub update_epoch: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LightingModeAcceptanceDdgiObservation {
+    pub published: LightingModeAcceptanceDdgiFieldObservation,
+    pub source: LightingModeAcceptanceDdgiFieldObservation,
+    pub spacing_voxels: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LightingModeAcceptanceLightingObservation {
+    pub authored_revision: u64,
+    pub local_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LightingModeAcceptanceIdentity {
+    pub scene: LightingModeAcceptanceSceneObservation,
+    pub render: LightingModeAcceptanceRenderObservation,
+    pub ddgi: LightingModeAcceptanceDdgiObservation,
+    pub lighting: LightingModeAcceptanceLightingObservation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -449,7 +471,7 @@ fn phase_manifest(
         TerrainLightingMode::Ddgi,
         RasterLightingMode::Ddgi,
     ));
-    let extent = capture.identity.render_extent;
+    let extent = capture.identity.render.render_extent;
     let mut layers = Vec::with_capacity(3);
     for (kind, format, bytes) in [
         ("terrain_rgbe", "R32_UINT", &capture.layers.terrain_rgbe),
@@ -481,24 +503,24 @@ fn phase_manifest(
         },
         binary_identity: format!("fnv1a64:{binary_identity:016x}"),
         fixture: FIXTURE_ID,
-        camera_pose_bits: identity.camera_pose_bits,
-        render_extent: identity.render_extent,
-        screen_extent: identity.screen_extent,
-        extent_generation: identity.extent_generation,
-        visible_terrain_revision: identity.visible_terrain_revision,
-        ddgi_field_serial: identity.ddgi_field_serial,
-        ddgi_geometry_revision: identity.ddgi_geometry_revision,
-        ddgi_radiance_revision: identity.ddgi_radiance_revision,
-        ddgi_spacing_voxels: identity.ddgi_spacing_voxels,
-        ddgi_update_epoch: identity.ddgi_update_epoch,
-        ddgi_source_field_serial: identity.ddgi_source_field_serial,
-        ddgi_source_geometry_revision: identity.ddgi_source_geometry_revision,
-        ddgi_source_radiance_revision: identity.ddgi_source_radiance_revision,
-        ddgi_source_update_epoch: identity.ddgi_source_update_epoch,
-        authored_lighting_revision: identity.authored_lighting_revision,
-        local_lighting_revision: identity.local_lighting_revision,
-        visual_time_bits: identity.visual_time_bits,
-        sampling_serial: identity.sampling_serial,
+        camera_pose_bits: identity.scene.camera_pose_bits,
+        render_extent: identity.render.render_extent,
+        screen_extent: identity.render.screen_extent,
+        extent_generation: identity.render.extent_generation,
+        visible_terrain_revision: identity.scene.visible_terrain_revision,
+        ddgi_field_serial: identity.ddgi.published.serial,
+        ddgi_geometry_revision: identity.ddgi.published.geometry_revision,
+        ddgi_radiance_revision: identity.ddgi.published.radiance_revision,
+        ddgi_spacing_voxels: identity.ddgi.spacing_voxels,
+        ddgi_update_epoch: identity.ddgi.published.update_epoch,
+        ddgi_source_field_serial: identity.ddgi.source.serial,
+        ddgi_source_geometry_revision: identity.ddgi.source.geometry_revision,
+        ddgi_source_radiance_revision: identity.ddgi.source.radiance_revision,
+        ddgi_source_update_epoch: identity.ddgi.source.update_epoch,
+        authored_lighting_revision: identity.lighting.authored_revision,
+        local_lighting_revision: identity.lighting.local_revision,
+        visual_time_bits: identity.scene.visual_time_bits,
+        sampling_serial: identity.scene.sampling_serial,
         layers,
     }
 }
@@ -700,24 +722,36 @@ mod tests {
 
     fn identity(revision: u32) -> LightingModeAcceptanceIdentity {
         LightingModeAcceptanceIdentity {
-            camera_pose_bits: [1, 2, 3, 4, 5, 6],
-            render_extent: [960, 540],
-            screen_extent: [1920, 1080],
-            extent_generation: 7,
-            visible_terrain_revision: revision,
-            ddgi_field_serial: 11,
-            ddgi_geometry_revision: revision,
-            ddgi_radiance_revision: 13,
-            ddgi_spacing_voxels: 32,
-            ddgi_update_epoch: 9,
-            ddgi_source_field_serial: 10,
-            ddgi_source_geometry_revision: revision,
-            ddgi_source_radiance_revision: 13,
-            ddgi_source_update_epoch: 8,
-            authored_lighting_revision: 17,
-            local_lighting_revision: 19,
-            visual_time_bits: 0,
-            sampling_serial: 23,
+            scene: LightingModeAcceptanceSceneObservation {
+                camera_pose_bits: [1, 2, 3, 4, 5, 6],
+                visible_terrain_revision: revision,
+                visual_time_bits: 0,
+                sampling_serial: FIXED_SAMPLING_SERIAL,
+            },
+            render: LightingModeAcceptanceRenderObservation {
+                render_extent: [960, 540],
+                screen_extent: [1920, 1080],
+                extent_generation: 7,
+            },
+            ddgi: LightingModeAcceptanceDdgiObservation {
+                published: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: 11,
+                    geometry_revision: revision,
+                    radiance_revision: 13,
+                    update_epoch: 9,
+                },
+                source: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: 10,
+                    geometry_revision: revision,
+                    radiance_revision: 13,
+                    update_epoch: 8,
+                },
+                spacing_voxels: 32,
+            },
+            lighting: LightingModeAcceptanceLightingObservation {
+                authored_revision: 17,
+                local_revision: 19,
+            },
         }
     }
 
@@ -754,6 +788,67 @@ mod tests {
             runtime.claim_capture(identity(6)).unwrap_err(),
             LightingModeAcceptanceError::IdentityDrift
         );
+    }
+
+    #[test]
+    fn runtime_fails_closed_when_any_observation_group_drifts() {
+        let baseline = identity(5);
+        let mut scene = baseline;
+        scene.scene.camera_pose_bits[0] ^= 1;
+        let mut render = baseline;
+        render.render.extent_generation += 1;
+        let mut ddgi_published = baseline;
+        ddgi_published.ddgi.published.serial += 1;
+        let mut ddgi_source = baseline;
+        ddgi_source.ddgi.source.update_epoch += 1;
+        let mut lighting = baseline;
+        lighting.lighting.local_revision += 1;
+
+        for drifted in [scene, render, ddgi_published, ddgi_source, lighting] {
+            let options = LightingModeAcceptanceOptions {
+                artifact_path: "target/r13-e2.rflma".into(),
+            };
+            let mut runtime = LightingModeAcceptanceRuntime::new(Some(&options));
+            assert_eq!(runtime.claim_capture(baseline).unwrap(), None);
+            assert_eq!(
+                runtime.claim_capture(drifted).unwrap_err(),
+                LightingModeAcceptanceError::IdentityDrift
+            );
+        }
+    }
+
+    #[test]
+    fn grouped_observation_serializes_the_existing_flat_v1_identity() {
+        let capture = CapturedLightingModePhase {
+            phase: LightingModeAcceptancePhase::A,
+            identity: identity(5),
+            layers: LightingModeProductionLayers {
+                terrain_rgbe: vec![0; 4],
+                terrain_depth: vec![0; 4],
+                raster_rgba: vec![0; 4],
+            },
+        };
+        let manifest = phase_manifest(&capture, 0x1234, &mut Vec::new());
+        let encoded = toml::to_string(&manifest).unwrap();
+
+        for flat_key in [
+            "camera_pose_bits",
+            "render_extent",
+            "screen_extent",
+            "extent_generation",
+            "visible_terrain_revision",
+            "ddgi_field_serial",
+            "ddgi_source_field_serial",
+            "authored_lighting_revision",
+            "local_lighting_revision",
+            "visual_time_bits",
+            "sampling_serial",
+        ] {
+            assert!(encoded.contains(&format!("{flat_key} =")), "{flat_key}");
+        }
+        for internal_group in ["scene", "render", "ddgi", "lighting", "published", "source"] {
+            assert!(!encoded.contains(&format!("[{internal_group}]")));
+        }
     }
 
     #[test]

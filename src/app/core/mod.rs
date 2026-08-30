@@ -49,8 +49,11 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::lighting_mode_acceptance::{
-    EffectiveLightingControls, LightingModeAcceptanceFramePlan, LightingModeAcceptanceIdentity,
-    LightingModeAcceptanceRuntime, PendingLightingModeCapture,
+    EffectiveLightingControls, LightingModeAcceptanceDdgiFieldObservation,
+    LightingModeAcceptanceDdgiObservation, LightingModeAcceptanceFramePlan,
+    LightingModeAcceptanceIdentity, LightingModeAcceptanceLightingObservation,
+    LightingModeAcceptanceRenderObservation, LightingModeAcceptanceRuntime,
+    LightingModeAcceptanceSceneObservation, PendingLightingModeCapture,
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
@@ -647,31 +650,43 @@ impl App {
         let render_extent = self.tracer.environment_irradiance_capture_extent();
         let local_lighting_revision = self.local_lights.snapshot().source_revision();
         Some(LightingModeAcceptanceIdentity {
-            camera_pose_bits: [
-                camera.position.x.to_bits(),
-                camera.position.y.to_bits(),
-                camera.position.z.to_bits(),
-                camera.yaw_deg.to_bits(),
-                camera.pitch_deg.to_bits(),
-                camera.fov_deg.to_bits(),
-            ],
-            render_extent: [render_extent.width, render_extent.height],
-            screen_extent: [screen_extent.width, screen_extent.height],
-            extent_generation: self.tracer.frame_extent_generation().serial(),
-            visible_terrain_revision: self.visible_terrain_revision,
-            ddgi_field_serial: field.serial(),
-            ddgi_geometry_revision: field.geometry_revision(),
-            ddgi_radiance_revision: field.radiance_revision(),
-            ddgi_spacing_voxels: field.spacing_voxels(),
-            ddgi_update_epoch: field.update_epoch(),
-            ddgi_source_field_serial: source.serial(),
-            ddgi_source_geometry_revision: source.geometry_revision(),
-            ddgi_source_radiance_revision: source.radiance_revision(),
-            ddgi_source_update_epoch: source.update_epoch(),
-            authored_lighting_revision: self.tracer.authored_environment_lighting_revision(),
-            local_lighting_revision,
-            visual_time_bits: visual_time_seconds.to_bits(),
-            sampling_serial,
+            scene: LightingModeAcceptanceSceneObservation {
+                camera_pose_bits: [
+                    camera.position.x.to_bits(),
+                    camera.position.y.to_bits(),
+                    camera.position.z.to_bits(),
+                    camera.yaw_deg.to_bits(),
+                    camera.pitch_deg.to_bits(),
+                    camera.fov_deg.to_bits(),
+                ],
+                visible_terrain_revision: self.visible_terrain_revision,
+                visual_time_bits: visual_time_seconds.to_bits(),
+                sampling_serial,
+            },
+            render: LightingModeAcceptanceRenderObservation {
+                render_extent: [render_extent.width, render_extent.height],
+                screen_extent: [screen_extent.width, screen_extent.height],
+                extent_generation: self.tracer.frame_extent_generation().serial(),
+            },
+            ddgi: LightingModeAcceptanceDdgiObservation {
+                published: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: field.serial(),
+                    geometry_revision: field.geometry_revision(),
+                    radiance_revision: field.radiance_revision(),
+                    update_epoch: field.update_epoch(),
+                },
+                source: LightingModeAcceptanceDdgiFieldObservation {
+                    serial: source.serial(),
+                    geometry_revision: source.geometry_revision(),
+                    radiance_revision: source.radiance_revision(),
+                    update_epoch: source.update_epoch(),
+                },
+                spacing_voxels: field.spacing_voxels(),
+            },
+            lighting: LightingModeAcceptanceLightingObservation {
+                authored_revision: self.tracer.authored_environment_lighting_revision(),
+                local_revision: local_lighting_revision,
+            },
         })
     }
 
