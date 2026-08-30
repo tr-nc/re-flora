@@ -590,7 +590,7 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
-        if !self.water_terrain_status().is_initialized() {
+        if !self.water.terrain_status().is_initialized() {
             return;
         }
 
@@ -599,14 +599,14 @@ impl App {
             return;
         }
 
-        let bounds = self.water_sim.config.collider;
+        let bounds = self.water.config().collider;
         let water_particle_size = water_debug_particle_size(
             self.debug_settings
                 .adjustables
                 .water_particle_quad_size
                 .value,
         );
-        let Some(frame) = self.water_sim.latest_particle_frame() else {
+        let Some(frame) = self.water.latest_particle_frame() else {
             return;
         };
         for particle in frame

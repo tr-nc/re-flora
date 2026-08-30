@@ -103,7 +103,7 @@ use crate::wind::{WindResponseCurve, WindSource};
 use crate::RenderFlags;
 use crate::{
     egui_renderer::EguiRenderer, window::WindowState, DenoiserBenchScene,
-    EnvironmentLightingTestCase, WaterProfilePreference,
+    EnvironmentLightingTestCase,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -115,7 +115,6 @@ use re_flora_vkn::{
     SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
-use re_flora_water::PondWaterConfig;
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
@@ -560,9 +559,7 @@ pub struct App {
     sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
     particle_animation_time_sec: f32,
-    water_sim: water::AsyncWaterSim,
-    water_runtime_overrides: water::WaterRuntimeOverrides,
-    water_terrain: water::WaterTerrainRuntime,
+    water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -1347,77 +1344,17 @@ impl App {
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
-        // Start with the chosen profile and proportional world grid. For the implicit
-        // default run, apply persisted GUI water sliders, then let explicit CLI
-        // overrides win on top.
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
-        let world_grid_dim = UVec3::new(
-            (world_extent.x * cells_per_unit).ceil() as u32,
-            (world_extent.y * cells_per_unit).ceil() as u32,
-            (world_extent.z * cells_per_unit).ceil() as u32,
-        );
-        let mut water_config = match options.water_profile {
-            Some(WaterProfilePreference::Default) | None => PondWaterConfig::default()
-                .with_collider_bounds(Vec3::ZERO, world_extent)
-                .with_grid_dim(world_grid_dim),
-            Some(WaterProfilePreference::Performance) => PondWaterConfig::default()
-                .with_substep_hz(60.0)
-                .with_terrain_collision_margin_cells(0.0)
-                .with_linear_damping_per_sec(1.5)
-                .with_collider_bounds(Vec3::ZERO, world_extent)
-                .with_grid_dim(world_grid_dim),
-        };
-        let water_gui_config_applied = options.water_profile.is_none() && !options.water_experience;
-        if water_gui_config_applied {
-            water::apply_water_gui_adjustables_to_config(
-                &mut water_config,
-                &debug_settings.adjustables,
-            );
-        }
-        if options.water_experience {
-            water_experience_scene::WaterExperienceScene::configure_water(&mut water_config);
-        }
-        let water_profile_config = (options.water_profile.is_some() || options.water_experience)
-            .then(|| water_config.clone());
-        let water_runtime_overrides =
-            water::WaterRuntimeOverrides::from_options(options, water_profile_config);
-        water_runtime_overrides.apply(&mut water_config);
-
-        log::info!(
-            "[WATER] config profile={:?} experience={} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid={:?} cells_per_unit={}",
-            options.water_profile,
-            options.water_experience,
-            water_gui_config_applied,
-            water_config.particle_count,
-            water_config.grid_dim,
-            water_config.substep_dt,
-            water_config.terrain_collision_margin_cells,
-            water_config.terrain_density_min_fluid_fraction,
-            water_config.terrain_density_max_correction_factor,
-            water_config.terrain_density_occupancy_transition_cells,
-            water_config.linear_damping_per_sec,
-            water_config.quiet_settling_velocity_damping_per_sec,
-            water_config.quiet_settling_affine_damping_per_sec,
-            water_config.terrain_tangent_damping_per_sec,
-            water_config.debug_spawn_height_offset,
-            water_config.gravity,
-            water_config.stiffness,
-            water_config.gamma,
-            water_config.j_min,
-            water_config.dynamic_viscosity,
-            water_config.pressure_floor,
-            water_config.wall_damping,
-            water_config.collider.min_ws,
-            water_config.collider.max_ws,
-            water_config.initial_fluid_bounds,
+        let water = water::WaterRuntime::launch(water::WaterLaunchRequest::from_options(
+            options,
+            &debug_settings.adjustables,
+            world_extent,
             cells_per_unit,
-        );
+        ));
         let water_experience_scene = options.water_experience.then(|| {
-            water_experience_scene::WaterExperienceScene::new(water_config.particle_count)
+            water_experience_scene::WaterExperienceScene::new(water.config().particle_count)
         });
-        let water_sim = water::AsyncWaterSim::new(water_config);
-        let water_terrain = water::WaterTerrainRuntime::new();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -1536,9 +1473,7 @@ impl App {
             sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
             particle_animation_time_sec: 0.0,
-            water_sim,
-            water_runtime_overrides,
-            water_terrain,
+            water,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -2535,7 +2470,7 @@ impl App {
                     self.tracer.clear_tree_geometry_preview();
                 }
                 let water_status_text = self
-                    .water_sim
+                    .water
                     .status_text(self.water_particle_handoff_main_thread_ms);
                 let placeable_hint = format!(
                     "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
@@ -3322,7 +3257,6 @@ impl App {
                 cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
                 cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
                 cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
-                self.maybe_resume_terrain_persistence_water();
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });
@@ -3365,9 +3299,7 @@ impl App {
                 );
 
                 if self.render_flags.enable_particles {
-                    if self.water_terrain_status().is_initialized()
-                        && self.terrain_persistence.allows_water_simulation()
-                    {
+                    if self.water.is_running() {
                         let water_handoff_start = Instant::now();
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
@@ -4473,7 +4405,7 @@ impl App {
                 if frame_perf_enabled {
                     let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
-                        let water_terrain = self.water_terrain_status().diagnostics();
+                        let water_terrain = self.water.terrain_status().diagnostics();
                         log::info!(
                             "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms emissive_voxel_scan {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,

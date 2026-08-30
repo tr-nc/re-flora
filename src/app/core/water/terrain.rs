@@ -1,4 +1,4 @@
-use super::super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::super::{CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use super::runtime::AsyncWaterSim;
 use crate::builder::{
     ChunkSolidSampleJob, ContreeBuilder, ContreeCpuVoxelSourceDependency, PlainBuilder,
@@ -12,8 +12,14 @@ use re_flora_water::{
     build_terrain_grid_cache_patch, WaterTerrainCacheBuildRequest, WaterTerrainCachePatch,
     WaterTerrainColliderChunk,
 };
+#[cfg(test)]
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::{
     collections::HashMap,
+    io,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -22,6 +28,24 @@ use std::{
 const TERRAIN_SDF_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const TERRAIN_SDF_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 const TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
+
+#[derive(Clone, Default)]
+struct WaterTerrainWorkerExitProbe {
+    #[cfg(test)]
+    exits: Arc<AtomicUsize>,
+}
+
+impl WaterTerrainWorkerExitProbe {
+    fn mark_exited(&self) {
+        #[cfg(test)]
+        self.exits.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    fn counter(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.exits)
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TerrainSdfSourceRevision {
     dependencies: Vec<ContreeCpuVoxelSourceDependency>,
@@ -79,6 +103,76 @@ struct WaterTerrainCacheWorkerResult {
     patch: WaterTerrainCachePatch,
 }
 
+type TerrainSdfColliderWorkerSpawn = (
+    mpsc::Sender<TerrainSdfColliderWorkerJob>,
+    mpsc::Receiver<TerrainSdfColliderWorkerResult>,
+    thread::JoinHandle<()>,
+);
+
+type WaterTerrainCacheWorkerSpawn = (
+    mpsc::Sender<WaterTerrainCacheWorkerJob>,
+    mpsc::Receiver<WaterTerrainCacheWorkerResult>,
+    thread::JoinHandle<()>,
+);
+
+#[derive(Default)]
+struct WaterTerrainWorkers {
+    collider_job_tx: Option<mpsc::Sender<TerrainSdfColliderWorkerJob>>,
+    collider_worker: Option<thread::JoinHandle<()>>,
+    cache_job_tx: Option<mpsc::Sender<WaterTerrainCacheWorkerJob>>,
+    cache_worker: Option<thread::JoinHandle<()>>,
+}
+
+impl WaterTerrainWorkers {
+    fn with_collider(
+        job_tx: mpsc::Sender<TerrainSdfColliderWorkerJob>,
+        worker: thread::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            collider_job_tx: Some(job_tx),
+            collider_worker: Some(worker),
+            cache_job_tx: None,
+            cache_worker: None,
+        }
+    }
+
+    fn install_cache(
+        &mut self,
+        job_tx: mpsc::Sender<WaterTerrainCacheWorkerJob>,
+        worker: thread::JoinHandle<()>,
+    ) {
+        self.cache_job_tx = Some(job_tx);
+        self.cache_worker = Some(worker);
+    }
+
+    fn stop_and_join(&mut self) {
+        self.collider_job_tx.take();
+        if let Some(worker) = self.collider_worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[SHUTDOWN][TERRAIN] collider worker panicked during shutdown");
+            }
+        }
+
+        self.cache_job_tx.take();
+        if let Some(worker) = self.cache_worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn stopped(&self) -> bool {
+        self.collider_worker.is_none() && self.cache_worker.is_none()
+    }
+}
+
+impl Drop for WaterTerrainWorkers {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
 
@@ -87,7 +181,7 @@ struct TerrainSdfSourceRefreshRequest {
     ready_at: Instant,
 }
 
-pub(in crate::app::core) struct WaterTerrainRuntime {
+pub(super) struct WaterTerrainRuntime {
     initialized: bool,
     collider_cache_rebuild_pending: bool,
     source_refreshes: LatestChunkQueue<TerrainSdfSourceRefreshRequest>,
@@ -96,13 +190,12 @@ pub(in crate::app::core) struct WaterTerrainRuntime {
     built_source_revisions: HashMap<UVec3, TerrainSdfSourceRevision>,
     source_refresh_inflight: Option<TerrainSdfSourceRefreshInFlight>,
     collider_build_inflight: bool,
-    collider_job_tx: Option<mpsc::Sender<TerrainSdfColliderWorkerJob>>,
     collider_result_rx: mpsc::Receiver<TerrainSdfColliderWorkerResult>,
-    collider_worker: Option<thread::JoinHandle<()>>,
     cache_rebuild_inflight: bool,
-    cache_job_tx: Option<mpsc::Sender<WaterTerrainCacheWorkerJob>>,
     cache_result_rx: mpsc::Receiver<WaterTerrainCacheWorkerResult>,
-    cache_worker: Option<thread::JoinHandle<()>>,
+    workers: WaterTerrainWorkers,
+    #[cfg(test)]
+    worker_exit_probe: WaterTerrainWorkerExitProbe,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -113,7 +206,7 @@ pub(in crate::app::core) struct WaterTerrainAdvanceTimings {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WaterTerrainAdvanceMode {
+pub(super) enum WaterTerrainAdvanceMode {
     Loading,
     Running,
 }
@@ -156,13 +249,30 @@ impl WaterTerrainStatus {
 }
 
 impl WaterTerrainRuntime {
-    pub(in crate::app::core) fn new() -> Self {
-        let (collider_job_tx, collider_result_rx, collider_worker) =
-            Self::spawn_terrain_sdf_collider_worker();
-        let (cache_job_tx, cache_result_rx, cache_worker) =
-            Self::spawn_water_terrain_cache_worker();
+    pub(super) fn new() -> Self {
+        let worker_exit_probe = WaterTerrainWorkerExitProbe::default();
+        Self::try_new_with_cache_worker_spawn(
+            worker_exit_probe,
+            Self::spawn_water_terrain_cache_worker,
+        )
+        .expect("failed to spawn water terrain worker")
+    }
 
-        Self {
+    fn try_new_with_cache_worker_spawn<F>(
+        worker_exit_probe: WaterTerrainWorkerExitProbe,
+        spawn_cache_worker: F,
+    ) -> io::Result<Self>
+    where
+        F: FnOnce(WaterTerrainWorkerExitProbe) -> io::Result<WaterTerrainCacheWorkerSpawn>,
+    {
+        let (collider_job_tx, collider_result_rx, collider_worker) =
+            Self::spawn_terrain_sdf_collider_worker(worker_exit_probe.clone())?;
+        let mut workers = WaterTerrainWorkers::with_collider(collider_job_tx, collider_worker);
+        let (cache_job_tx, cache_result_rx, cache_worker) =
+            spawn_cache_worker(worker_exit_probe.clone())?;
+        workers.install_cache(cache_job_tx, cache_worker);
+
+        Ok(Self {
             initialized: false,
             collider_cache_rebuild_pending: false,
             source_refreshes: LatestChunkQueue::default(),
@@ -171,17 +281,16 @@ impl WaterTerrainRuntime {
             built_source_revisions: HashMap::new(),
             source_refresh_inflight: None,
             collider_build_inflight: false,
-            collider_job_tx: Some(collider_job_tx),
             collider_result_rx,
-            collider_worker: Some(collider_worker),
             cache_rebuild_inflight: false,
-            cache_job_tx: Some(cache_job_tx),
             cache_result_rx,
-            cache_worker: Some(cache_worker),
-        }
+            workers,
+            #[cfg(test)]
+            worker_exit_probe,
+        })
     }
 
-    fn status(&self) -> WaterTerrainStatus {
+    pub(super) fn status(&self) -> WaterTerrainStatus {
         let work_active = !self.source_refreshes.is_idle()
             || !self.collider_rebuilds.is_idle()
             || !self.cache_rebuilds.is_idle();
@@ -201,7 +310,7 @@ impl WaterTerrainRuntime {
         }
     }
 
-    fn advance(
+    pub(super) fn advance(
         &mut self,
         plain_builder: &mut PlainBuilder,
         contree_builder: &mut ContreeBuilder,
@@ -259,7 +368,7 @@ impl WaterTerrainRuntime {
         }
     }
 
-    fn shutdown(&mut self, plain_builder: &mut PlainBuilder) -> Result<()> {
+    pub(super) fn shutdown(&mut self, plain_builder: &mut PlainBuilder) -> Result<()> {
         let discard_result = self.discard_terrain_sdf_source_refresh_for_shutdown(plain_builder);
         self.stop_worker_threads();
         discard_result
@@ -272,52 +381,8 @@ fn elapsed_ms(start: Option<Instant>) -> f32 {
         .unwrap_or(0.0)
 }
 
-impl App {
-    pub(in crate::app::core) fn enqueue_startup_water_terrain_collider_rebuilds(&mut self) {
-        let bounds = self.water_sim.config.collider;
-        self.water_terrain
-            .observe_full_terrain(CHUNK_DIM, bounds.min_ws, bounds.max_ws);
-    }
-
-    pub(in crate::app::core) fn advance_water_terrain(
-        &mut self,
-        measure_timings: bool,
-    ) -> WaterTerrainAdvanceTimings {
-        self.water_terrain.advance(
-            &mut self.plain_builder,
-            &mut self.contree_builder,
-            &mut self.water_sim,
-            self.tracer.camera_position(),
-            measure_timings,
-            WaterTerrainAdvanceMode::Running,
-        )
-    }
-
-    pub(in crate::app::core) fn advance_loading_water_terrain(
-        &mut self,
-        measure_timings: bool,
-    ) -> WaterTerrainAdvanceTimings {
-        self.water_terrain.advance(
-            &mut self.plain_builder,
-            &mut self.contree_builder,
-            &mut self.water_sim,
-            self.tracer.camera_position(),
-            measure_timings,
-            WaterTerrainAdvanceMode::Loading,
-        )
-    }
-
-    pub(in crate::app::core) fn water_terrain_status(&self) -> WaterTerrainStatus {
-        self.water_terrain.status()
-    }
-
-    pub(in crate::app::core) fn shutdown_water_terrain(&mut self) -> Result<()> {
-        self.water_terrain.shutdown(&mut self.plain_builder)
-    }
-}
-
 impl WaterTerrainRuntime {
-    fn observe_full_terrain(&mut self, chunk_dim: UVec3, min_ws: Vec3, max_ws: Vec3) {
+    pub(super) fn observe_full_terrain(&mut self, chunk_dim: UVec3, min_ws: Vec3, max_ws: Vec3) {
         let mut enqueued = 0usize;
         let mut skipped = 0usize;
         for x in 0..chunk_dim.x {
@@ -731,7 +796,7 @@ impl WaterTerrainRuntime {
             request,
         };
         self.cache_rebuild_inflight = true;
-        let Some(job_tx) = self.cache_job_tx.as_ref() else {
+        let Some(job_tx) = self.workers.cache_job_tx.as_ref() else {
             log::error!(
                 "[WATER][TERRAIN_CACHE] worker input unavailable during shutdown chunk {:?} rev {}",
                 chunk_id,
@@ -806,72 +871,89 @@ impl WaterTerrainRuntime {
 }
 
 impl WaterTerrainRuntime {
-    fn spawn_terrain_sdf_collider_worker() -> (
-        mpsc::Sender<TerrainSdfColliderWorkerJob>,
-        mpsc::Receiver<TerrainSdfColliderWorkerResult>,
-        thread::JoinHandle<()>,
-    ) {
+    fn spawn_terrain_sdf_collider_worker(
+        exit_probe: WaterTerrainWorkerExitProbe,
+    ) -> io::Result<TerrainSdfColliderWorkerSpawn> {
         let (job_tx, job_rx) = mpsc::channel::<TerrainSdfColliderWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            while let Ok(job) = job_rx.recv() {
-                let build =
-                    build_terrain_sdf_collider_chunk(&job.source, job.chunk_id, job.revision);
-                let result = TerrainSdfColliderWorkerResult {
-                    chunk_key: job.chunk_key,
-                    chunk_id: job.chunk_id,
-                    revision: job.revision,
-                    source_revision: job.source_revision,
-                    build,
-                };
-                if result_tx.send(result).is_err() {
-                    break;
+        let worker = thread::Builder::new()
+            .name("water-terrain-collider".to_owned())
+            .spawn(move || {
+                while let Ok(job) = job_rx.recv() {
+                    let build =
+                        build_terrain_sdf_collider_chunk(&job.source, job.chunk_id, job.revision);
+                    let result = TerrainSdfColliderWorkerResult {
+                        chunk_key: job.chunk_key,
+                        chunk_id: job.chunk_id,
+                        revision: job.revision,
+                        source_revision: job.source_revision,
+                        build,
+                    };
+                    if result_tx.send(result).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+                exit_probe.mark_exited();
+            })?;
 
-        (job_tx, result_rx, worker)
+        Ok((job_tx, result_rx, worker))
     }
 
-    fn spawn_water_terrain_cache_worker() -> (
-        mpsc::Sender<WaterTerrainCacheWorkerJob>,
-        mpsc::Receiver<WaterTerrainCacheWorkerResult>,
-        thread::JoinHandle<()>,
-    ) {
+    fn spawn_water_terrain_cache_worker(
+        exit_probe: WaterTerrainWorkerExitProbe,
+    ) -> io::Result<WaterTerrainCacheWorkerSpawn> {
         let (job_tx, job_rx) = mpsc::channel::<WaterTerrainCacheWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            while let Ok(job) = job_rx.recv() {
-                let patch = build_terrain_grid_cache_patch(job.request);
-                let result = WaterTerrainCacheWorkerResult {
-                    chunk_key: job.chunk_key,
-                    chunk_id: job.chunk_id,
-                    revision: job.revision,
-                    patch,
-                };
-                if result_tx.send(result).is_err() {
-                    break;
+        let worker = thread::Builder::new()
+            .name("water-terrain-cache".to_owned())
+            .spawn(move || {
+                while let Ok(job) = job_rx.recv() {
+                    let patch = build_terrain_grid_cache_patch(job.request);
+                    let result = WaterTerrainCacheWorkerResult {
+                        chunk_key: job.chunk_key,
+                        chunk_id: job.chunk_id,
+                        revision: job.revision,
+                        patch,
+                    };
+                    if result_tx.send(result).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+                exit_probe.mark_exited();
+            })?;
 
-        (job_tx, result_rx, worker)
+        Ok((job_tx, result_rx, worker))
     }
 
-    fn stop_worker_threads(&mut self) {
-        self.collider_job_tx.take();
-        if let Some(worker) = self.collider_worker.take() {
-            if worker.join().is_err() {
-                log::warn!("[SHUTDOWN][TERRAIN] collider worker panicked during shutdown");
-            }
-        }
+    pub(super) fn stop_worker_threads(&mut self) {
+        self.workers.stop_and_join();
+    }
 
-        self.cache_job_tx.take();
-        if let Some(worker) = self.cache_worker.take() {
-            if worker.join().is_err() {
-                log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
-            }
-        }
+    #[cfg(test)]
+    pub(super) fn complete_all_work_for_test(&mut self) {
+        self.initialized = true;
+        self.source_refreshes = LatestChunkQueue::default();
+        self.collider_rebuilds = LatestChunkQueue::default();
+        self.cache_rebuilds = LatestChunkQueue::default();
+        self.source_refresh_inflight = None;
+        self.collider_build_inflight = false;
+        self.cache_rebuild_inflight = false;
+    }
+
+    #[cfg(test)]
+    pub(super) fn workers_stopped_for_test(&self) -> bool {
+        self.workers.stopped()
+    }
+
+    #[cfg(test)]
+    pub(super) fn worker_exit_probe_for_test(&self) -> Arc<AtomicUsize> {
+        self.worker_exit_probe.counter()
+    }
+}
+
+impl Drop for WaterTerrainRuntime {
+    fn drop(&mut self) {
+        self.stop_worker_threads();
     }
 }
 
@@ -943,7 +1025,7 @@ impl WaterTerrainRuntime {
             source,
         };
         self.collider_build_inflight = true;
-        let Some(job_tx) = self.collider_job_tx.as_ref() else {
+        let Some(job_tx) = self.workers.collider_job_tx.as_ref() else {
             log::error!(
                 "[WATER][TERRAIN] collider worker input unavailable during shutdown chunk {:?} rev {}",
                 chunk_id,
@@ -1382,6 +1464,19 @@ fn grid_index(dim: UVec3, x: u32, y: u32, z: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_worker_construction_joins_the_started_worker() {
+        let exit_probe = WaterTerrainWorkerExitProbe::default();
+        let exits = exit_probe.counter();
+
+        let result = WaterTerrainRuntime::try_new_with_cache_worker_spawn(exit_probe, |_| {
+            Err(std::io::Error::other("forced cache worker spawn failure"))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(exits.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn water_terrain_status_hides_queue_mechanics_behind_readiness() {

@@ -1,11 +1,8 @@
 use super::super::App;
-use super::runtime;
+use super::coordinator::WaterFrameRequest;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::VOXEL_TYPE_ROCK;
 use glam::{Vec2, Vec3};
-use std::time::Duration;
-
-const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::app::core) struct WaterEditSoak {
@@ -33,34 +30,19 @@ impl App {
         frame_delta_time: f32,
         world_tick_seconds: f32,
     ) {
-        self.water_sim.apply_gui_adjustables(
+        self.water.advance_frame(
             &self.debug_settings.adjustables,
-            &self.water_runtime_overrides,
+            WaterFrameRequest {
+                frame_delta_time,
+                world_tick_seconds,
+                world_tick_multiplier: self
+                    .debug_settings
+                    .adjustables
+                    .water_world_tick_multiplier
+                    .value,
+                perf_logging: self.perf_logging,
+            },
         );
-        let max_substeps = if self.water_terrain_status().has_work() {
-            WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS
-        } else {
-            runtime::WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS
-        };
-        let water_world_tick_multiplier = self
-            .debug_settings
-            .adjustables
-            .water_world_tick_multiplier
-            .value
-            .clamp(0.0, 1.0);
-        let water_tick_seconds = crate::game_time::clamp_world_tick_seconds(
-            world_tick_seconds * water_world_tick_multiplier,
-        );
-        let snapshot_interval = Duration::from_secs_f32(water_tick_seconds);
-        self.water_sim.set_runtime_options(
-            true,
-            self.perf_logging,
-            max_substeps,
-            snapshot_interval,
-        );
-
-        self.water_sim
-            .poll_latest_particle_frame_after_frame(frame_delta_time, water_tick_seconds);
     }
 
     pub(in crate::app::core) fn process_water_edit_soak(&mut self) {
@@ -77,7 +59,7 @@ impl App {
         if render_start.elapsed().as_secs_f32() < step.delay_sec {
             return;
         }
-        if !self.water_terrain_status().is_ready() {
+        if !self.water.terrain_status().is_ready() {
             return;
         }
 

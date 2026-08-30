@@ -385,7 +385,7 @@ impl TerrainConnectivityBench {
                     && app.contree_builder.cpu_chunk_cache_jobs_idle()
                     && (self.options.mode == TerrainConnectivityBenchMode::Manual
                         || app.terrain_physics.terrain_collider_pending_len() == 0)
-                    && app.water_terrain_status().is_ready()
+                    && app.water.terrain_status().is_ready()
                     && app
                         .tracer
                         .ddgi_ready_for_terrain_revision(app.visible_terrain_revision);
@@ -443,7 +443,7 @@ impl TerrainConnectivityBench {
                         ready_after_frame,
                         app.contree_builder.cpu_chunk_cache_jobs_idle(),
                         app.terrain_physics.terrain_collider_pending_len(),
-                        app.water_terrain_status().is_ready(),
+                        app.water.terrain_status().is_ready(),
                         app.tracer
                             .ddgi_ready_for_terrain_revision(app.visible_terrain_revision),
                         app.visible_terrain_revision,
@@ -690,7 +690,7 @@ impl TerrainConnectivityBench {
         app: &mut App,
         timing: super::super::frame_timing::FrameTimingSnapshot,
     ) -> anyhow::Result<bool> {
-        let water = app.water_terrain_status().diagnostics();
+        let water = app.water.terrain_status().diagnostics();
         let record = CpuFrameRecord {
             frame: timing.frame,
             total_us: timing.total_ms * 1_000.0,

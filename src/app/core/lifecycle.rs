@@ -39,12 +39,12 @@ impl App {
 
         log::info!("[SHUTDOWN] phase=quiesce_producers");
         self.stop_terrain_edit_loop_sound();
-        self.water_sim.shutdown();
 
         log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
         self.abort_loading_visible_terrain_publication();
-        self.shutdown_water_terrain()
-            .context("shut down water terrain runtime")?;
+        self.water
+            .shutdown(&mut self.plain_builder)
+            .context("shut down water runtime")?;
         self.contree_builder
             .discard_active_cpu_chunk_cache_job()
             .context("discard active Contree CPU-cache GPU readback")?;
