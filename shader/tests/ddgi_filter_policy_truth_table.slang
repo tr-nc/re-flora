@@ -66,16 +66,25 @@ export __extern_cpp int main()
 
     float4 fresh = float4(2.0, 4.0, 6.0, 1.0);
     float4 source = float4(10.0, 12.0, 14.0, 1.0);
-    float4 retained;
+    DdgiExecutedHistory4 replacedFresh = ddgiExecuteHistory(
+        noHistory, true, fresh, source);
+    DdgiExecutedHistory4 retainedFresh = ddgiExecuteHistory(
+        retainedPartition, true, fresh, source);
+    DdgiExecutedHistory4 invalidFresh = ddgiExecuteHistory(
+        laterRecovery, false, fresh, source);
+    DdgiExecutedHistory4 blendedFresh = ddgiExecuteHistory(
+        ddgiFilterHistoryDecision(1u, 1u, true, 1u, 0.9),
+        true, fresh, source);
     bool historyExecution =
-        !ddgiTryCommitRetainedHistory(noHistory, source, retained) &&
-        ddgiTryCommitRetainedHistory(retainedPartition, source, retained) &&
-        all(retained == source) &&
-        all(ddgiCommitHistory(noHistory, fresh, source) == fresh) &&
-        all(ddgiCommitHistory(retainedPartition, fresh, source) == source) &&
-        all(ddgiCommitHistory(
-            ddgiFilterHistoryDecision(1u, 1u, true, 1u, 0.9),
-            fresh, source) == float4(6.0, 8.0, 10.0, 1.0));
+        all(replacedFresh.value == fresh) &&
+        replacedFresh.decision.action == DdgiFilterHistoryAction::Replace &&
+        all(retainedFresh.value == source) &&
+        retainedFresh.decision.action == DdgiFilterHistoryAction::Retain &&
+        all(blendedFresh.value == float4(6.0, 8.0, 10.0, 1.0)) &&
+        blendedFresh.decision.action == DdgiFilterHistoryAction::Blend &&
+        all(invalidFresh.value == float4(0.0)) &&
+        invalidFresh.decision.action == DdgiFilterHistoryAction::Replace &&
+        nearlyEqual(invalidFresh.decision.retention, 0.0);
 
     float weightedDistance = 3.0;
     float weightedSquaredDistance = 9.0;

@@ -1167,73 +1167,95 @@ mod tests {
         assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 
-    fn validate_ddgi_history_owner_wiring(
-        filter: &str,
-        evidence_call: &str,
-    ) -> Result<(), &'static str> {
-        for required in [
-            "import ddgi_filter_execution;",
-            "import ddgi_filter_evidence;",
-        ] {
-            if !filter.contains(required) {
-                return Err("missing owner import");
-            }
-        }
-        for owner_call in [
-            "ddgiFilterHistoryDecision(",
-            evidence_call,
-            "ddgiTryCommitRetainedHistory(",
-            "ddgiCommitHistory(",
-        ] {
-            if filter.matches(owner_call).count() != 1 {
-                return Err("history owner call count changed");
-            }
-        }
-        for bypass in [
-            "ddgiFilterHistoryPolicy(",
-            ".retain_source",
-            ".blend_history",
-        ] {
-            if filter.contains(bypass) {
-                return Err("history policy bypassed typed owner");
-            }
-        }
-        Ok(())
-    }
-
     fn validate_ddgi_filter_owner_wiring(
         irradiance: &str,
         visibility: &str,
     ) -> Result<(), &'static str> {
-        validate_ddgi_history_owner_wiring(irradiance, "ddgiRecordIrradianceHistoryDecision(")?;
-        validate_ddgi_history_owner_wiring(visibility, "ddgiRecordVisibilityHistoryDecision(")?;
-        for owner_call in [
-            "ddgiFilterVisibilityDecision(",
-            "ddgiRecordVisibilitySampleDecision(",
-            "ddgiAccumulateVisibility(",
+        for (filter, owner_import, terminal, fresh) in [
+            (
+                irradiance,
+                "import ddgi_irradiance_filter_owner;",
+                "ddgiOwnerTryStoreTerminalIrradiance(",
+                "ddgiOwnerStoreFreshIrradiance(",
+            ),
+            (
+                visibility,
+                "import ddgi_visibility_filter_owner;",
+                "ddgiOwnerTryStoreTerminalVisibility(",
+                "ddgiOwnerStoreFreshVisibility(",
+            ),
         ] {
-            if visibility.matches(owner_call).count() != 1 {
-                return Err("visibility sample owner call count changed");
+            if !filter.contains(owner_import)
+                || filter.matches("ddgiFilterHistoryDecision(").count() != 1
+                || filter.matches(terminal).count() != 1
+                || filter.matches(fresh).count() != 1
+            {
+                return Err("history terminal-owner wiring changed");
+            }
+            for forbidden in [
+                "RWTexture2D<",
+                "ddgiRecord",
+                "ddgiCommitHistory(",
+                "ddgiTryCommitRetainedHistory(",
+                "storeIrradiance(",
+                "storeVisibility(",
+                "ddgiFilterHistoryPolicy(",
+                ".retain_source",
+                ".blend_history",
+            ] {
+                if filter.contains(forbidden) {
+                    return Err("production filter regained a direct execution or store bypass");
+                }
             }
         }
-        if !visibility.contains(
-            "ddgiRecordVisibilitySampleDecision(\n            pc.filter_evidence.x, electedEvidenceLane, visibilityDecision);",
-        ) {
-            return Err("visibility evidence does not use the owner decision");
-        }
-        for bypass in ["ddgiFilterVisibilitySample(", ".accepted"] {
-            if visibility.contains(bypass) {
-                return Err("visibility sample bypassed typed owner");
-            }
+        if visibility
+            .matches("ddgiOwnerAccumulateVisibilitySample(")
+            .count()
+            != 1
+            || visibility.matches("ddgiFilterVisibilityDecision(").count() != 1
+            || visibility.contains("ddgiAccumulateVisibility(")
+            || visibility.contains(".accepted")
+        {
+            return Err("visibility sample owner wiring changed");
         }
         Ok(())
     }
 
     #[test]
-    fn ddgi_production_filters_consume_shared_policy_actions() {
+    fn ddgi_production_filter_wiring_uses_terminal_owners() {
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
         validate_ddgi_filter_owner_wiring(irradiance, visibility).unwrap();
+
+        let irradiance_owner =
+            include_str!("../shader/slang/ddgi_irradiance_filter_owner.slang");
+        for causal_step in [
+            "DdgiExecutedHistory4 executed = ddgiExecuteHistory(",
+            "ddgiRecordIrradianceHistoryDecision(",
+            "ddgiOwnerStoreIrradianceValue(",
+        ] {
+            assert!(irradiance_owner.contains(causal_step));
+        }
+        let visibility_owner =
+            include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
+        for causal_step in [
+            "DdgiExecutedHistory2 executed = ddgiExecuteHistory(",
+            "ddgiRecordVisibilityHistoryDecision(",
+            "ddgiRecordVisibilitySampleDecision(",
+            "ddgiAccumulateVisibility(",
+            "ddgiOwnerStoreVisibilityValue(",
+        ] {
+            assert!(visibility_owner.contains(causal_step));
+        }
+        let policy = include_str!("../shader/slang/ddgi_filter_policy.slang");
+        for removed_adapter in [
+            "DdgiFilterHistoryPolicy",
+            "ddgiFilterHistoryPolicy(",
+            "DdgiFilterVisibilitySample",
+            "ddgiFilterVisibilitySample(",
+        ] {
+            assert!(!policy.contains(removed_adapter));
+        }
 
         let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
         assert!(pipeline_builder.contains(
@@ -1244,9 +1266,9 @@ mod tests {
     }
 
     #[test]
-    fn mutation_audit_rejects_irradiance_history_owner_bypass() {
+    fn wiring_guard_rejects_irradiance_history_owner_bypass() {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
-            "ddgiCommitHistory(",
+            "ddgiOwnerStoreFreshIrradiance(",
             "bypassHistoryCommit(",
             1,
         );
@@ -1255,10 +1277,10 @@ mod tests {
     }
 
     #[test]
-    fn mutation_audit_rejects_visibility_history_owner_bypass() {
+    fn wiring_guard_rejects_visibility_history_owner_bypass() {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
-            "ddgiCommitHistory(",
+            "ddgiOwnerStoreFreshVisibility(",
             "bypassHistoryCommit(",
             1,
         );
@@ -1266,14 +1288,24 @@ mod tests {
     }
 
     #[test]
-    fn mutation_audit_rejects_visibility_sample_owner_bypass() {
+    fn wiring_guard_rejects_visibility_sample_owner_bypass() {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang").replacen(
-            "ddgiAccumulateVisibility(",
+            "ddgiOwnerAccumulateVisibilitySample(",
             "bypassVisibilityAccumulate(",
             1,
         );
         assert!(validate_ddgi_filter_owner_wiring(irradiance, &visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_dead_owner_followed_by_manual_store_capability() {
+        let irradiance = format!(
+            "{}\nRWTexture2D<float4> bypass;\n",
+            include_str!("../shader/slang/ddgi_irradiance_filter.slang")
+        );
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
     }
 
     #[test]
