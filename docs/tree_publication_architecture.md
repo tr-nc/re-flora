@@ -27,10 +27,11 @@ extra generation/version machinery would be speculative, so this design is rejec
 
 `GardenTrees::{place, replace, remove}` is the selected interface. Placement compilation produces
 one `PreparedTreePublication` whose fields are meaningful tree facts, not caller-selected service
-arguments. `GardenTrees` executes a closed `TreePublicationAction` sequence through an internal
-host seam. The production host applies actions to owned runtime modules; the recording host proves
-ordering, identity, omission sensitivity, preparation failure, and compensation without GPU work.
-Leaf clusters and the canonical record commit together as the final action.
+arguments. `GardenTrees` executes a closed `TreePublicationAction` sequence through one internal
+executor. That executor alone maps actions to typed publication primitives. The production and
+recording hosts implement those same primitives, so an omitted or exchanged production mapping
+changes the recorded behavior without duplicating the action match. Leaf clusters and the canonical
+record commit together after the final observer-publication primitive succeeds.
 
 This design has the smallest caller interface, keeps protocol changes local to one owner, and uses
 a real seam because production and recording adapters both exist. It deliberately does not add a

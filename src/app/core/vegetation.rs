@@ -835,20 +835,29 @@ enum TreePublicationOperation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TreePublicationAction {
-    #[cfg(test)]
-    Prepare(TreePublicationOperation),
     PublishLeaves,
     PublishFruitLifecycle,
     PublishAttachedFruit,
     InvalidateLocalShadows,
     PublishCanopyAudio,
-    CommitCanonicalTree,
+    FinalizeObserverPublication,
     RemoveLeaves,
     RemoveFruitLifecycle,
     RemoveCanopyAudio,
-    RemoveCanonicalTree,
-    #[cfg(test)]
-    Compensate,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreePublicationPrimitive {
+    PublishLeaves,
+    PublishFruitLifecycle,
+    PublishAttachedFruit,
+    InvalidateLocalShadows,
+    PublishCanopyAudio,
+    RemoveLeaves,
+    RemoveFruitLifecycle,
+    RemoveCanopyAudio,
+    FinalizeObserverPublication,
 }
 
 struct TreePublicationPlan {
@@ -863,14 +872,14 @@ impl TreePublicationPlan {
         TreePublicationAction::PublishAttachedFruit,
         TreePublicationAction::InvalidateLocalShadows,
         TreePublicationAction::PublishCanopyAudio,
-        TreePublicationAction::CommitCanonicalTree,
+        TreePublicationAction::FinalizeObserverPublication,
     ];
     const REMOVE_ACTIONS: &'static [TreePublicationAction] = &[
         TreePublicationAction::RemoveLeaves,
         TreePublicationAction::RemoveFruitLifecycle,
         TreePublicationAction::InvalidateLocalShadows,
         TreePublicationAction::RemoveCanopyAudio,
-        TreePublicationAction::RemoveCanonicalTree,
+        TreePublicationAction::FinalizeObserverPublication,
     ];
 
     fn for_operation(operation: TreePublicationOperation) -> Self {
@@ -889,7 +898,7 @@ enum TreePublicationActionOutput {
     CanopyAudioSourceCount(usize),
 }
 
-trait TreePublicationHost {
+trait TreePublicationPrimitiveHost {
     /// Validate and stage everything that can fail before the first observable publication action.
     fn prepare(
         &mut self,
@@ -898,15 +907,90 @@ trait TreePublicationHost {
         publication: Option<&PreparedTreePublication>,
     ) -> Result<()>;
 
+    fn publish_leaves(&mut self, tree_id: u32, publication: &PreparedTreePublication)
+        -> Result<()>;
+    fn publish_fruit_lifecycle(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<()>;
+    fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()>;
+    fn invalidate_local_shadows(&mut self, tree_id: u32) -> Result<()>;
+    fn publish_canopy_audio(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<usize>;
+    fn remove_leaves(&mut self, tree_id: u32) -> Result<()>;
+    fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()>;
+    fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()>;
+    fn finalize_observer_publication(&mut self, tree_id: u32) -> Result<()>;
+
+    /// Restore the previous canonical publication, or remove a partially published new tree.
+    fn compensate(&mut self, tree_id: u32, previous: Option<&TreeRecord>) -> Result<()>;
+}
+
+struct TreePublicationExecutor<'a, H> {
+    host: &'a mut H,
+}
+
+impl<'a, H: TreePublicationPrimitiveHost> TreePublicationExecutor<'a, H> {
+    fn new(host: &'a mut H) -> Self {
+        Self { host }
+    }
+
+    fn prepare(
+        &mut self,
+        operation: TreePublicationOperation,
+        tree_id: u32,
+        publication: Option<&PreparedTreePublication>,
+    ) -> Result<()> {
+        self.host.prepare(operation, tree_id, publication)
+    }
+
     fn execute(
         &mut self,
         action: TreePublicationAction,
         tree_id: u32,
         publication: Option<&PreparedTreePublication>,
-    ) -> Result<TreePublicationActionOutput>;
+    ) -> Result<TreePublicationActionOutput> {
+        match action {
+            TreePublicationAction::PublishLeaves => self.host.publish_leaves(
+                tree_id,
+                publication.context("tree leaf publication is missing prepared data")?,
+            )?,
+            TreePublicationAction::PublishFruitLifecycle => self.host.publish_fruit_lifecycle(
+                tree_id,
+                publication.context("tree fruit publication is missing prepared data")?,
+            )?,
+            TreePublicationAction::PublishAttachedFruit => {
+                self.host.publish_attached_fruit(tree_id)?
+            }
+            TreePublicationAction::InvalidateLocalShadows => {
+                self.host.invalidate_local_shadows(tree_id)?
+            }
+            TreePublicationAction::PublishCanopyAudio => {
+                let count = self.host.publish_canopy_audio(
+                    tree_id,
+                    publication.context("tree audio publication is missing prepared data")?,
+                )?;
+                return Ok(TreePublicationActionOutput::CanopyAudioSourceCount(count));
+            }
+            TreePublicationAction::RemoveLeaves => self.host.remove_leaves(tree_id)?,
+            TreePublicationAction::RemoveFruitLifecycle => {
+                self.host.remove_fruit_lifecycle(tree_id)?
+            }
+            TreePublicationAction::RemoveCanopyAudio => self.host.remove_canopy_audio(tree_id)?,
+            TreePublicationAction::FinalizeObserverPublication => {
+                self.host.finalize_observer_publication(tree_id)?
+            }
+        }
+        Ok(TreePublicationActionOutput::Complete)
+    }
 
-    /// Restore the previous canonical publication, or remove a partially published new tree.
-    fn compensate(&mut self, tree_id: u32, previous: Option<&TreeRecord>) -> Result<()>;
+    fn compensate(&mut self, tree_id: u32, previous: Option<&TreeRecord>) -> Result<()> {
+        self.host.compensate(tree_id, previous)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1100,19 +1184,20 @@ impl GardenTrees {
         &mut self,
         operation: TreePublicationOperation,
         publication: PreparedTreePublication,
-        host: &mut impl TreePublicationHost,
+        host: &mut impl TreePublicationPrimitiveHost,
     ) -> Result<TreePublicationReceipt> {
         let tree_id = publication.tree_id;
         let previous = self.records.get(&tree_id).cloned();
         let plan = TreePublicationPlan::for_operation(operation);
-        host.prepare(plan.operation, tree_id, Some(&publication))?;
+        let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare(plan.operation, tree_id, Some(&publication))?;
 
         let mut add_leaves_elapsed = std::time::Duration::ZERO;
         let mut audio_elapsed = std::time::Duration::ZERO;
         let mut canopy_audio_source_count = 0;
         for &action in plan.actions {
             let action_start = Instant::now();
-            let outcome = host.execute(action, tree_id, Some(&publication));
+            let outcome = executor.execute(action, tree_id, Some(&publication));
             let action_elapsed = action_start.elapsed();
             match action {
                 TreePublicationAction::PublishLeaves
@@ -1130,7 +1215,7 @@ impl GardenTrees {
                 }
                 Ok(TreePublicationActionOutput::Complete) => {}
                 Err(error) => {
-                    return match host.compensate(tree_id, previous.as_ref()) {
+                    return match executor.compensate(tree_id, previous.as_ref()) {
                         Ok(()) => Err(error).with_context(|| {
                             format!("publishing tree {tree_id} during {operation:?}")
                         }),
@@ -1170,7 +1255,7 @@ impl GardenTrees {
     fn place(
         &mut self,
         publication: PreparedTreePublication,
-        host: &mut impl TreePublicationHost,
+        host: &mut impl TreePublicationPrimitiveHost,
     ) -> Result<TreePublicationReceipt> {
         anyhow::ensure!(
             !self.records.contains_key(&publication.tree_id),
@@ -1183,7 +1268,7 @@ impl GardenTrees {
     fn replace(
         &mut self,
         publication: PreparedTreePublication,
-        host: &mut impl TreePublicationHost,
+        host: &mut impl TreePublicationPrimitiveHost,
     ) -> Result<TreePublicationReceipt> {
         anyhow::ensure!(
             self.records.contains_key(&publication.tree_id),
@@ -1196,16 +1281,17 @@ impl GardenTrees {
     fn remove(
         &mut self,
         tree_id: u32,
-        host: &mut impl TreePublicationHost,
+        host: &mut impl TreePublicationPrimitiveHost,
     ) -> Result<Option<TreeRecord>> {
         let Some(previous) = self.records.get(&tree_id).cloned() else {
             return Ok(None);
         };
         let plan = TreePublicationPlan::for_operation(TreePublicationOperation::Remove);
-        host.prepare(plan.operation, tree_id, None)?;
+        let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare(plan.operation, tree_id, None)?;
         for &action in plan.actions {
-            if let Err(error) = host.execute(action, tree_id, None) {
-                return match host.compensate(tree_id, Some(&previous)) {
+            if let Err(error) = executor.execute(action, tree_id, None) {
+                return match executor.compensate(tree_id, Some(&previous)) {
                     Ok(()) => Err(error).with_context(|| format!("removing tree {tree_id}")),
                     Err(compensation_error) => Err(anyhow::anyhow!(
                         "removing tree {tree_id} failed: {error:#}; compensation failed: {compensation_error:#}"
@@ -1285,7 +1371,7 @@ impl AppTreePublicationHost<'_> {
         Ok(())
     }
 
-    fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
+    fn publish_attached_fruit_instances(&mut self, tree_id: u32) -> Result<()> {
         let attached_fruits = self
             .terrain_physics
             .attached_tree_fruits(tree_id)
@@ -1310,13 +1396,13 @@ impl AppTreePublicationHost<'_> {
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
         )?;
-        self.publish_attached_fruit(tree_id)?;
+        self.publish_attached_fruit_instances(tree_id)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         Ok(())
     }
 }
 
-impl TreePublicationHost for AppTreePublicationHost<'_> {
+impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
     fn prepare(
         &mut self,
         _operation: TreePublicationOperation,
@@ -1338,78 +1424,79 @@ impl TreePublicationHost for AppTreePublicationHost<'_> {
         Ok(())
     }
 
-    fn execute(
+    fn publish_leaves(
         &mut self,
-        action: TreePublicationAction,
         tree_id: u32,
-        publication: Option<&PreparedTreePublication>,
-    ) -> Result<TreePublicationActionOutput> {
-        let record = publication.map(|publication| &publication.record);
-        match action {
-            TreePublicationAction::PublishLeaves => {
-                let record = record.context("tree leaf publication is missing prepared data")?;
-                self.tracer.add_tree_leaves(
-                    self.surface_resources,
-                    tree_id,
-                    &record.leaf_render_positions,
-                    &record.leaf_render_local_positions,
-                )?;
-            }
-            TreePublicationAction::PublishFruitLifecycle => {
-                let record = record.context("tree fruit publication is missing prepared data")?;
-                self.terrain_physics.publish_tree_fruits(
-                    tree_id,
-                    record.fruit_specs.clone(),
-                    self.tracer,
-                )?;
-            }
-            TreePublicationAction::PublishAttachedFruit => {
-                self.publish_attached_fruit(tree_id)?;
-            }
-            TreePublicationAction::InvalidateLocalShadows => {
-                self.tracer.invalidate_local_direct_sun_shadow_histories();
-            }
-            TreePublicationAction::PublishCanopyAudio => {
-                let record = record.context("tree audio publication is missing prepared data")?;
-                let source_count = self
-                    .tree_audio_manager
-                    .upsert_tree(
-                        tree_id,
-                        record.canopy_acoustic_descriptor.clone(),
-                        self.time_seconds,
-                    )?
-                    .len();
-                return Ok(TreePublicationActionOutput::CanopyAudioSourceCount(
-                    source_count,
-                ));
-            }
-            TreePublicationAction::RemoveLeaves => {
-                self.tracer
-                    .remove_tree_leaves(self.surface_resources, tree_id)?;
-            }
-            TreePublicationAction::RemoveFruitLifecycle => {
-                self.terrain_physics
-                    .unpublish_tree_fruits(tree_id, self.tracer)?;
-            }
-            TreePublicationAction::RemoveCanopyAudio => {
-                self.tree_audio_manager
-                    .remove_tree(tree_id, self.time_seconds)?;
-            }
-            TreePublicationAction::CommitCanonicalTree
-            | TreePublicationAction::RemoveCanonicalTree => {
-                let checkpoint = self
-                    .fruit_checkpoint
-                    .take()
-                    .context("tree fruit publication checkpoint is missing during commit")?;
-                self.terrain_physics
-                    .commit_tree_fruit_publication(checkpoint);
-            }
-            #[cfg(test)]
-            TreePublicationAction::Prepare(_) | TreePublicationAction::Compensate => {
-                anyhow::bail!("non-executable tree publication action {action:?}")
-            }
-        }
-        Ok(TreePublicationActionOutput::Complete)
+        publication: &PreparedTreePublication,
+    ) -> Result<()> {
+        let record = &publication.record;
+        self.tracer.add_tree_leaves(
+            self.surface_resources,
+            tree_id,
+            &record.leaf_render_positions,
+            &record.leaf_render_local_positions,
+        )
+    }
+
+    fn publish_fruit_lifecycle(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<()> {
+        self.terrain_physics.publish_tree_fruits(
+            tree_id,
+            publication.record.fruit_specs.clone(),
+            self.tracer,
+        )
+    }
+
+    fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
+        self.publish_attached_fruit_instances(tree_id)
+    }
+
+    fn invalidate_local_shadows(&mut self, _tree_id: u32) -> Result<()> {
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
+        Ok(())
+    }
+
+    fn publish_canopy_audio(
+        &mut self,
+        tree_id: u32,
+        publication: &PreparedTreePublication,
+    ) -> Result<usize> {
+        Ok(self
+            .tree_audio_manager
+            .upsert_tree(
+                tree_id,
+                publication.record.canopy_acoustic_descriptor.clone(),
+                self.time_seconds,
+            )?
+            .len())
+    }
+
+    fn remove_leaves(&mut self, tree_id: u32) -> Result<()> {
+        self.tracer
+            .remove_tree_leaves(self.surface_resources, tree_id)
+    }
+
+    fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()> {
+        self.terrain_physics
+            .unpublish_tree_fruits(tree_id, self.tracer)
+    }
+
+    fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()> {
+        self.tree_audio_manager
+            .remove_tree(tree_id, self.time_seconds)
+    }
+
+    fn finalize_observer_publication(&mut self, _tree_id: u32) -> Result<()> {
+        let checkpoint = self
+            .fruit_checkpoint
+            .take()
+            .context("tree fruit publication checkpoint is missing during commit")?;
+        self.terrain_physics
+            .commit_tree_fruit_publication(checkpoint);
+        Ok(())
     }
 
     fn compensate(&mut self, tree_id: u32, previous: Option<&TreeRecord>) -> Result<()> {
@@ -2747,15 +2834,34 @@ mod tests {
     use super::*;
     use std::f32::consts::FRAC_PI_4;
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum TreePublicationEvent {
+        Prepare(TreePublicationOperation),
+        Primitive(TreePublicationPrimitive),
+        Compensate,
+    }
+
     #[derive(Default)]
     struct RecordingTreePublicationHost {
-        events: Vec<(TreePublicationAction, u32)>,
+        events: Vec<(TreePublicationEvent, u32)>,
         fail_prepare: bool,
-        fail_action: Option<TreePublicationAction>,
+        fail_primitive: Option<TreePublicationPrimitive>,
         fail_compensation: bool,
     }
 
-    impl TreePublicationHost for RecordingTreePublicationHost {
+    impl RecordingTreePublicationHost {
+        fn record(&mut self, primitive: TreePublicationPrimitive, tree_id: u32) -> Result<()> {
+            self.events
+                .push((TreePublicationEvent::Primitive(primitive), tree_id));
+            anyhow::ensure!(
+                self.fail_primitive != Some(primitive),
+                "injected action failure"
+            );
+            Ok(())
+        }
+    }
+
+    impl TreePublicationPrimitiveHost for RecordingTreePublicationHost {
         fn prepare(
             &mut self,
             operation: TreePublicationOperation,
@@ -2763,30 +2869,66 @@ mod tests {
             _publication: Option<&PreparedTreePublication>,
         ) -> Result<()> {
             self.events
-                .push((TreePublicationAction::Prepare(operation), tree_id));
+                .push((TreePublicationEvent::Prepare(operation), tree_id));
             anyhow::ensure!(!self.fail_prepare, "injected preparation failure");
             Ok(())
         }
 
-        fn execute(
+        fn publish_leaves(
             &mut self,
-            action: TreePublicationAction,
             tree_id: u32,
-            _publication: Option<&PreparedTreePublication>,
-        ) -> Result<TreePublicationActionOutput> {
-            self.events.push((action, tree_id));
-            anyhow::ensure!(self.fail_action != Some(action), "injected action failure");
-            Ok(match action {
-                TreePublicationAction::PublishCanopyAudio => {
-                    TreePublicationActionOutput::CanopyAudioSourceCount(3)
-                }
-                _ => TreePublicationActionOutput::Complete,
-            })
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishLeaves, tree_id)
+        }
+
+        fn publish_fruit_lifecycle(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishFruitLifecycle, tree_id)
+        }
+
+        fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::PublishAttachedFruit, tree_id)
+        }
+
+        fn invalidate_local_shadows(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::InvalidateLocalShadows, tree_id)
+        }
+
+        fn publish_canopy_audio(
+            &mut self,
+            tree_id: u32,
+            _publication: &PreparedTreePublication,
+        ) -> Result<usize> {
+            self.record(TreePublicationPrimitive::PublishCanopyAudio, tree_id)?;
+            Ok(3)
+        }
+
+        fn remove_leaves(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveLeaves, tree_id)
+        }
+
+        fn remove_fruit_lifecycle(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveFruitLifecycle, tree_id)
+        }
+
+        fn remove_canopy_audio(&mut self, tree_id: u32) -> Result<()> {
+            self.record(TreePublicationPrimitive::RemoveCanopyAudio, tree_id)
+        }
+
+        fn finalize_observer_publication(&mut self, tree_id: u32) -> Result<()> {
+            self.record(
+                TreePublicationPrimitive::FinalizeObserverPublication,
+                tree_id,
+            )
         }
 
         fn compensate(&mut self, tree_id: u32, _previous: Option<&TreeRecord>) -> Result<()> {
             self.events
-                .push((TreePublicationAction::Compensate, tree_id));
+                .push((TreePublicationEvent::Compensate, tree_id));
             anyhow::ensure!(!self.fail_compensation, "injected compensation failure");
             Ok(())
         }
@@ -2808,15 +2950,66 @@ mod tests {
     fn placement_events(
         operation: TreePublicationOperation,
         tree_id: u32,
-    ) -> Vec<(TreePublicationAction, u32)> {
+    ) -> Vec<(TreePublicationEvent, u32)> {
         vec![
-            (TreePublicationAction::Prepare(operation), tree_id),
-            (TreePublicationAction::PublishLeaves, tree_id),
-            (TreePublicationAction::PublishFruitLifecycle, tree_id),
-            (TreePublicationAction::PublishAttachedFruit, tree_id),
-            (TreePublicationAction::InvalidateLocalShadows, tree_id),
-            (TreePublicationAction::PublishCanopyAudio, tree_id),
-            (TreePublicationAction::CommitCanonicalTree, tree_id),
+            (TreePublicationEvent::Prepare(operation), tree_id),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishLeaves),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishFruitLifecycle),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishAttachedFruit),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::InvalidateLocalShadows),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::PublishCanopyAudio),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(
+                    TreePublicationPrimitive::FinalizeObserverPublication,
+                ),
+                tree_id,
+            ),
+        ]
+    }
+
+    fn removal_events(tree_id: u32) -> Vec<(TreePublicationEvent, u32)> {
+        vec![
+            (
+                TreePublicationEvent::Prepare(TreePublicationOperation::Remove),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveLeaves),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveFruitLifecycle),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::InvalidateLocalShadows),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(TreePublicationPrimitive::RemoveCanopyAudio),
+                tree_id,
+            ),
+            (
+                TreePublicationEvent::Primitive(
+                    TreePublicationPrimitive::FinalizeObserverPublication,
+                ),
+                tree_id,
+            ),
         ]
     }
 
@@ -2915,20 +3108,7 @@ mod tests {
         let removed = garden.remove(7, &mut host).expect("removal should publish");
 
         assert!(removed.is_some());
-        assert_eq!(
-            host.events,
-            vec![
-                (
-                    TreePublicationAction::Prepare(TreePublicationOperation::Remove),
-                    7,
-                ),
-                (TreePublicationAction::RemoveLeaves, 7),
-                (TreePublicationAction::RemoveFruitLifecycle, 7),
-                (TreePublicationAction::InvalidateLocalShadows, 7),
-                (TreePublicationAction::RemoveCanopyAudio, 7),
-                (TreePublicationAction::RemoveCanonicalTree, 7),
-            ]
-        );
+        assert_eq!(host.events, removal_events(7));
         assert_eq!(garden.canonical_canopy_generation(7), None);
         assert_eq!(garden.len(), 0);
     }
@@ -2961,7 +3141,7 @@ mod tests {
         assert_eq!(
             host.events,
             vec![(
-                TreePublicationAction::Prepare(TreePublicationOperation::Place),
+                TreePublicationEvent::Prepare(TreePublicationOperation::Place),
                 1,
             )]
         );
@@ -2974,28 +3154,17 @@ mod tests {
         let mut host = RecordingTreePublicationHost::default();
         garden.place(prepared_tree(0, 71, 701), &mut host).unwrap();
         host.events.clear();
-        host.fail_action = Some(TreePublicationAction::PublishCanopyAudio);
+        host.fail_primitive = Some(TreePublicationPrimitive::PublishCanopyAudio);
 
         let error = garden
             .replace(prepared_tree(0, 72, 702), &mut host)
             .expect_err("injected action failure should compensate");
 
         assert!(format!("{error:#}").contains("injected action failure"));
-        assert_eq!(
-            host.events,
-            vec![
-                (
-                    TreePublicationAction::Prepare(TreePublicationOperation::Replace),
-                    0,
-                ),
-                (TreePublicationAction::PublishLeaves, 0),
-                (TreePublicationAction::PublishFruitLifecycle, 0),
-                (TreePublicationAction::PublishAttachedFruit, 0),
-                (TreePublicationAction::InvalidateLocalShadows, 0),
-                (TreePublicationAction::PublishCanopyAudio, 0),
-                (TreePublicationAction::Compensate, 0),
-            ]
-        );
+        let mut expected = placement_events(TreePublicationOperation::Replace, 0);
+        expected.truncate(6);
+        expected.push((TreePublicationEvent::Compensate, 0));
+        assert_eq!(host.events, expected);
         assert_eq!(garden.canonical_canopy_generation(0), Some(71));
         assert_eq!(garden.len(), 1);
     }
@@ -3004,7 +3173,7 @@ mod tests {
     fn garden_tree_reports_original_and_compensation_failures_without_committing() {
         let mut garden = GardenTrees::new(LeafEmitterDesc::default());
         let mut host = RecordingTreePublicationHost {
-            fail_action: Some(TreePublicationAction::PublishCanopyAudio),
+            fail_primitive: Some(TreePublicationPrimitive::PublishCanopyAudio),
             fail_compensation: true,
             ..RecordingTreePublicationHost::default()
         };
@@ -3027,7 +3196,7 @@ mod tests {
     fn garden_tree_final_action_failure_cannot_commit_canonical_identity_early() {
         let mut garden = GardenTrees::new(LeafEmitterDesc::default());
         let mut host = RecordingTreePublicationHost {
-            fail_action: Some(TreePublicationAction::CommitCanonicalTree),
+            fail_primitive: Some(TreePublicationPrimitive::FinalizeObserverPublication),
             ..RecordingTreePublicationHost::default()
         };
 
@@ -3037,7 +3206,7 @@ mod tests {
 
         assert!(format!("{error:#}").contains("injected action failure"));
         let mut expected = placement_events(TreePublicationOperation::Place, 3);
-        expected.push((TreePublicationAction::Compensate, 3));
+        expected.push((TreePublicationEvent::Compensate, 3));
         assert_eq!(host.events, expected);
         assert_eq!(garden.canonical_canopy_generation(3), None);
         assert_eq!(garden.len(), 0);
@@ -3049,27 +3218,17 @@ mod tests {
         let mut host = RecordingTreePublicationHost::default();
         garden.place(prepared_tree(9, 81, 801), &mut host).unwrap();
         host.events.clear();
-        host.fail_action = Some(TreePublicationAction::RemoveCanopyAudio);
+        host.fail_primitive = Some(TreePublicationPrimitive::RemoveCanopyAudio);
 
         let error = garden
             .remove(9, &mut host)
             .expect_err("injected removal failure should compensate");
 
         assert!(format!("{error:#}").contains("injected action failure"));
-        assert_eq!(
-            host.events,
-            vec![
-                (
-                    TreePublicationAction::Prepare(TreePublicationOperation::Remove),
-                    9,
-                ),
-                (TreePublicationAction::RemoveLeaves, 9),
-                (TreePublicationAction::RemoveFruitLifecycle, 9),
-                (TreePublicationAction::InvalidateLocalShadows, 9),
-                (TreePublicationAction::RemoveCanopyAudio, 9),
-                (TreePublicationAction::Compensate, 9),
-            ]
-        );
+        let mut expected = removal_events(9);
+        expected.truncate(5);
+        expected.push((TreePublicationEvent::Compensate, 9));
+        assert_eq!(host.events, expected);
         assert_eq!(garden.canonical_canopy_generation(9), Some(81));
         assert_eq!(garden.len(), 1);
     }
@@ -3080,7 +3239,7 @@ mod tests {
         let mut host = RecordingTreePublicationHost::default();
         garden.place(prepared_tree(10, 91, 901), &mut host).unwrap();
         host.events.clear();
-        host.fail_action = Some(TreePublicationAction::RemoveCanonicalTree);
+        host.fail_primitive = Some(TreePublicationPrimitive::FinalizeObserverPublication);
 
         garden
             .remove(10, &mut host)
@@ -3088,7 +3247,7 @@ mod tests {
 
         assert_eq!(
             host.events.last(),
-            Some(&(TreePublicationAction::Compensate, 10))
+            Some(&(TreePublicationEvent::Compensate, 10))
         );
         assert_eq!(garden.canonical_canopy_generation(10), Some(91));
         assert_eq!(garden.len(), 1);
