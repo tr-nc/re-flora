@@ -275,6 +275,52 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertIn("capture field serial mismatch", result.stderr)
 
+    def test_rejects_a_foreign_later_curve_spliced_after_the_captured_field(self) -> None:
+        def splice_foreign_curve(text: str) -> str:
+            lines = text.splitlines()
+            captured_final = next(
+                line
+                for line in lines
+                if "full-atlas validated" in line and "field_serial=9" in line
+            )
+            captured_terminal = next(line for line in lines if " terminal " in line)
+            lines.remove(captured_terminal)
+            foreign_final = (
+                captured_final.replace("field_serial=9", "field_serial=10")
+                .replace("geometry_revision=2", "geometry_revision=3")
+                .replace("radiance_revision=1", "radiance_revision=4")
+            )
+            foreign_terminal = (
+                captured_terminal.replace("field_serial=9", "field_serial=10")
+                .replace("geometry_revision=2", "geometry_revision=3")
+                .replace("radiance_revision=1", "radiance_revision=4")
+            )
+            return "\n".join([*lines, foreign_final, foreign_terminal]) + "\n"
+
+        for mutated_sources in (("console",), ("runlog",), ("console", "runlog")):
+            with self.subTest(mutated_sources=mutated_sources), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                paths = {
+                    "console": run_dir
+                    / "sealed-spacing32-converged-forward.console.log",
+                    "runlog": run_dir / "sealed-spacing32-converged-forward.run.log",
+                }
+                for source in mutated_sources:
+                    path = paths[source]
+                    path.write_text(splice_foreign_curve(path.read_text()))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(output.exists())
+                if len(mutated_sources) == 2:
+                    self.assertIn(
+                        "terminal field_serial differs from the captured curve final record",
+                        result.stderr,
+                    )
+
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)

@@ -58,6 +58,16 @@ class Policy:
     maximum_update_epoch: int
 
 
+@dataclass(frozen=True)
+class TerminalIdentity:
+    field_serial: int
+    geometry_revision: int
+    radiance_revision: int
+    spacing_voxels: int
+    update_epoch: int
+    reason: str
+
+
 def close(left: float, right: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=5.0e-8)
 
@@ -127,9 +137,9 @@ def require_policy_matches_contract(policy: Policy, contract: Policy) -> None:
 
 def parse_curve(
     console_path: Path, contract_path: Path = CONTRACT_PATH
-) -> tuple[list[dict[str, object]], str, Policy]:
+) -> tuple[list[dict[str, object]], TerminalIdentity, Policy]:
     records: list[dict[str, object]] = []
-    terminals: list[dict[str, object]] = []
+    terminals: list[TerminalIdentity] = []
     text = console_path.read_text()
     policy_matches = list(POLICY_PATTERN.finditer(text))
     if len(policy_matches) != 1:
@@ -184,14 +194,14 @@ def parse_curve(
                 raise ValueError(f"malformed convergence line in {console_path}: {line}")
             values = match.groupdict()
             terminals.append(
-                {
-                    "field_serial": int(values["field_serial"]),
-                    "geometry_revision": int(values["geometry"]),
-                    "radiance_revision": int(values["radiance"]),
-                    "spacing_voxels": int(values["spacing"]),
-                    "update_epoch": int(values["epoch"]),
-                    "reason": values["reason"],
-                }
+                TerminalIdentity(
+                    field_serial=int(values["field_serial"]),
+                    geometry_revision=int(values["geometry"]),
+                    radiance_revision=int(values["radiance"]),
+                    spacing_voxels=int(values["spacing"]),
+                    update_epoch=int(values["epoch"]),
+                    reason=values["reason"],
+                )
             )
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
@@ -209,16 +219,16 @@ def parse_curve(
         "spacing_voxels",
         "update_epoch",
     ):
-        if terminal[field] != final[field]:
+        if getattr(terminal, field) != final[field]:
             raise ValueError(f"terminal {field} does not match final validation record")
-    return records, str(terminal["reason"]), policy
+    return records, terminal, policy
 
 
 def validate_curve(
     case_name: str,
     spacing: int,
     records: list[dict[str, object]],
-    terminal_reason: str,
+    terminal: TerminalIdentity,
     analysis: dict[str, object],
     policy: Policy,
 ) -> dict[str, object]:
@@ -309,6 +319,23 @@ def validate_curve(
     if final["field_serial"] != field_serial:
         raise ValueError(f"{case_name} spacing {spacing}: capture field serial mismatch")
     final_epoch = int(final["update_epoch"])
+    for field in (
+        "field_serial",
+        "geometry_revision",
+        "radiance_revision",
+        "spacing_voxels",
+        "update_epoch",
+    ):
+        terminal_value = getattr(terminal, field)
+        if terminal_value != final[field]:
+            raise ValueError(
+                f"{case_name} spacing {spacing}: terminal {field} differs from "
+                "the captured curve final record"
+            )
+        if terminal_value != capture.get(field):
+            raise ValueError(
+                f"{case_name} spacing {spacing}: terminal {field} differs from capture"
+            )
     expected_reason = (
         "Threshold" if first_threshold_epoch == final_epoch else "SampleBudget"
     )
@@ -316,9 +343,9 @@ def validate_curve(
         raise ValueError(f"{case_name} spacing {spacing}: curve continued after threshold sleep")
     if first_threshold_epoch is None and final_epoch != policy.maximum_update_epoch:
         raise ValueError(f"{case_name} spacing {spacing}: sample budget ended at e{final_epoch}")
-    if terminal_reason != expected_reason:
+    if terminal.reason != expected_reason:
         raise ValueError(
-            f"{case_name} spacing {spacing}: terminal reason {terminal_reason}, "
+            f"{case_name} spacing {spacing}: terminal reason {terminal.reason}, "
             f"expected {expected_reason}"
         )
     if capture.get("update_epoch") != final_epoch:
@@ -333,7 +360,7 @@ def validate_curve(
         "spacing_voxels": spacing,
         "qualified": True,
         "final_update_epoch": final_epoch,
-        "terminal_reason": terminal_reason,
+        "terminal_reason": terminal.reason,
         "final_max_absolute_rgb_delta": float(final["max_absolute_rgb_delta"]),
         "final_max_relative_rgb_delta": float(final["max_relative_rgb_delta"]),
         "epochs": records,
@@ -367,7 +394,7 @@ def main() -> int:
                         f"{case_name} spacing {spacing}: console and preserved run-log "
                         "convergence evidence differ"
                     )
-                records, terminal_reason, runtime_policy = console_evidence
+                records, terminal, runtime_policy = console_evidence
                 if policy is None:
                     policy = runtime_policy
                 elif runtime_policy != policy:
@@ -378,7 +405,7 @@ def main() -> int:
                     case_name,
                     spacing,
                     records,
-                    terminal_reason,
+                    terminal,
                     json.loads(analysis_path.read_text()),
                     runtime_policy,
                 )
