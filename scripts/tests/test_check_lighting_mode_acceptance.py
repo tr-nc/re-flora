@@ -410,27 +410,28 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             self.assertFalse(Path(f"{artifact}.app.log").exists())
 
     def test_invalid_timeout_fails_before_writing_state(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            artifact = root / "capture.rflma"
-            cargo = executable(root / "cargo", "#!/usr/bin/env bash\nexit 99\n")
-            result = subprocess.run(
-                [str(RUNNER), str(artifact)],
-                cwd=REPO_ROOT,
-                env={
-                    **os.environ,
-                    "REFLORA_CARGO": str(cargo),
-                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": "0",
-                },
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+        for timeout in ("0", "1201", "not-a-number"):
+            with self.subTest(timeout=timeout), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                artifact = root / "capture.rflma"
+                cargo = executable(root / "cargo", "#!/usr/bin/env bash\nexit 99\n")
+                result = subprocess.run(
+                    [str(RUNNER), str(artifact)],
+                    cwd=REPO_ROOT,
+                    env={
+                        **os.environ,
+                        "REFLORA_CARGO": str(cargo),
+                        "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": timeout,
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("reason=invalid-timeout", result.stderr)
-        self.assertFalse(artifact.exists())
-        self.assertFalse(Path(f"{artifact}.app.log").exists())
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reason=invalid-timeout", result.stderr)
+            self.assertFalse(artifact.exists())
+            self.assertFalse(Path(f"{artifact}.app.log").exists())
 
     def test_timeout_fails_explicitly_after_recovering_bound_log(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

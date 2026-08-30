@@ -68,7 +68,7 @@ fi
 require_command analyzer "$analyzer"
 require_command awk awk
 require_command tail tail
-if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || (( timeout_seconds > 1200 )); then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=ERROR reason=invalid-timeout seconds=%s\n' \
         "$timeout_seconds" >&2
     exit 2
