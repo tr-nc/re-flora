@@ -310,7 +310,7 @@ impl App {
     }
 
     pub(super) fn finish_player_terrain_connectivity_hold(&mut self) -> anyhow::Result<()> {
-        if bench::TerrainConnectivityBench::try_begin_manual_release(self)? {
+        if self.try_begin_manual_connectivity_benchmark_release()? {
             return Ok(());
         }
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;

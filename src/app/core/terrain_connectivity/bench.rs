@@ -296,6 +296,12 @@ struct ConnectivityFacts {
     available_particles: usize,
 }
 
+#[derive(Clone, Copy)]
+struct ManualReleaseFacts {
+    frame: u64,
+    visible_revision: u32,
+}
+
 enum ConnectivityAction {
     None,
     InstallFixture {
@@ -430,6 +436,36 @@ impl ScenarioOwner {
             | Self::TestScene(_) => true,
         }
     }
+
+    fn try_begin_manual_connectivity_release(
+        &mut self,
+        terrain_connectivity: &mut TerrainConnectivityRuntime,
+        plain_builder: &mut PlainBuilder,
+        facts: ManualReleaseFacts,
+    ) -> anyhow::Result<bool> {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench))
+                if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
+            {
+                bench
+                    .begin_manual_release(
+                        terrain_connectivity,
+                        plain_builder,
+                        facts.frame,
+                        facts.visible_revision,
+                    )
+                    .map(|_| true)
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_)
+                | DiagnosticScenarioOwner::TerrainConnectivity(_)
+                | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => Ok(false),
+        }
+    }
 }
 
 fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
@@ -447,6 +483,26 @@ fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Re
 }
 
 impl App {
+    pub(in crate::app::core) fn try_begin_manual_connectivity_benchmark_release(
+        &mut self,
+    ) -> anyhow::Result<bool> {
+        let facts = ManualReleaseFacts {
+            frame: self.time_info.total_frame_count(),
+            visible_revision: self.visible_terrain_revision,
+        };
+        let App {
+            scenario_owner,
+            terrain_connectivity,
+            plain_builder,
+            ..
+        } = self;
+        scenario_owner.try_begin_manual_connectivity_release(
+            terrain_connectivity,
+            plain_builder,
+            facts,
+        )
+    }
+
     pub(in crate::app::core) fn advance_connectivity_benchmark(&mut self) -> anyhow::Result<()> {
         let facts = ConnectivityFacts {
             frame: self.time_info.total_frame_count(),
@@ -569,39 +625,6 @@ impl TerrainConnectivityBench {
 
     pub(in crate::app::core) fn active(&self) -> bool {
         self.state != BenchState::Complete
-    }
-
-    pub(in crate::app::core) fn try_begin_manual_release(app: &mut App) -> anyhow::Result<bool> {
-        let frame = app.time_info.total_frame_count();
-        let revision_before = app.visible_terrain_revision;
-        let App {
-            scenario_owner,
-            terrain_connectivity,
-            plain_builder,
-            ..
-        } = app;
-        match scenario_owner {
-            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench))
-                if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
-            {
-                bench
-                    .begin_manual_release(
-                        terrain_connectivity,
-                        plain_builder,
-                        frame,
-                        revision_before,
-                    )
-                    .map(|_| true)
-            }
-            ScenarioOwner::World(_) | ScenarioOwner::Water(_) | ScenarioOwner::TestScene(_) => {
-                Ok(false)
-            }
-            ScenarioOwner::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_)
-                | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => Ok(false),
-        }
     }
 
     fn begin_manual_release(
