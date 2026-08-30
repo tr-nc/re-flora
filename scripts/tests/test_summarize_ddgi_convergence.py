@@ -44,7 +44,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         )
         lines.append(
             "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=1 geometry_revision=1 radiance_revision=1 "
-            "spacing_voxels=32 state=Converging update_epoch=0 source=None "
+            "spacing_voxels=32 state=Converging update_epoch=0 "
             "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
             "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
             "scanned_stored_texels=100 abs_threshold=0.00250000 "
@@ -390,6 +390,46 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 1)
                     self.assertFalse(output.exists())
                     self.assertIn("malformed", result.stderr)
+
+    def test_rejects_extra_validation_fields_in_each_process_stream(self) -> None:
+        def mutate_validation(text: str, replacement: str) -> str:
+            return text.replace("update_epoch=4 ", f"update_epoch=4 {replacement} ", 1)
+
+        mutations = (
+            ("epoch-junk", "unexpected=value"),
+            (
+                "duplicate-identity",
+                "field_serial=5 geometry_revision=2 radiance_revision=1 spacing_voxels=32",
+            ),
+            (
+                "fake-stats",
+                "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000",
+            ),
+        )
+        for name, replacement in mutations:
+            for mutated_sources in (("console",), ("runlog",), ("console", "runlog")):
+                with (
+                    self.subTest(name=name, mutated_sources=mutated_sources),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    run_dir = Path(directory)
+                    output = run_dir / "summary.json"
+                    self.write_curve(run_dir)
+                    paths = {
+                        "console": run_dir
+                        / "sealed-spacing32-converged-forward.console.log",
+                        "runlog": run_dir
+                        / "sealed-spacing32-converged-forward.run.log",
+                    }
+                    for source in mutated_sources:
+                        path = paths[source]
+                        path.write_text(mutate_validation(path.read_text(), replacement))
+
+                    result = self.run_summarizer(run_dir, output)
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output.exists())
+                    self.assertIn("malformed full-atlas validation", result.stderr)
 
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

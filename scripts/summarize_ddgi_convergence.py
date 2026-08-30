@@ -23,7 +23,7 @@ VALIDATION_PATTERN = re.compile(
     + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
-    r"state=(?P<state>\w+) update_epoch=(?P<epoch>\d+).*?"
+    r"state=(?P<state>Converging|Converged) update_epoch=(?P<epoch>\d+) "
     r"max_abs_rgb_delta=(?P<absolute>[0-9.eE+-]+) "
     r"max_rel_rgb_delta=(?P<relative>[0-9.eE+-]+) "
     r"non_finite=(?P<nonfinite>\d+) "
@@ -32,14 +32,14 @@ VALIDATION_PATTERN = re.compile(
     r"scanned_stored_texels=(?P<scanned>\d+) "
     r"abs_threshold=(?P<absolute_threshold>[0-9.eE+-]+) "
     r"rel_threshold=(?P<relative_threshold>[0-9.eE+-]+) "
-    r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)\s*$"
+    r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)$"
 )
 TERMINAL_PATTERN = re.compile(
     re.escape(TERMINAL_MARKER)
     + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
-    r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)\s*$"
+    r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)$"
 )
 POLICY_PATTERN = re.compile(
     r"initialization requested .*?"

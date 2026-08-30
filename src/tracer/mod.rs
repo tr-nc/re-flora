@@ -90,11 +90,10 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCaptureTarget, DdgiConvergenceReason, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState,
-    DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus,
-    DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
-    DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
+    DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
+    DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
+    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -130,8 +129,6 @@ use re_flora_vkn::{
 };
 use std::{fmt, time::Instant};
 
-const DDGI_CONVERGENCE_EVIDENCE_TARGET: &str = "re_flora::ddgi_convergence_evidence";
-
 struct DdgiConvergencePolicyEvidence;
 
 impl fmt::Display for DdgiConvergencePolicyEvidence {
@@ -145,66 +142,6 @@ impl fmt::Display for DdgiConvergencePolicyEvidence {
             DDGI_CONVERGENCE_POLICY.consecutive_epochs,
             DDGI_CONVERGENCE_POLICY.minimum_update_epochs,
             DDGI_CONVERGENCE_POLICY.maximum_update_epochs,
-        )
-    }
-}
-
-struct DdgiConvergenceValidationEvidence {
-    field_serial: u64,
-    geometry_revision: u32,
-    radiance_revision: u32,
-    spacing_voxels: u32,
-    state: DdgiFieldState,
-    update_epoch: u32,
-    stats: DdgiAtlasValidationStats,
-    consecutive_below_threshold: u32,
-}
-
-impl fmt::Display for DdgiConvergenceValidationEvidence {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{}",
-            self.field_serial,
-            self.geometry_revision,
-            self.radiance_revision,
-            self.spacing_voxels,
-            self.state,
-            self.update_epoch,
-            self.stats.max_absolute_rgb_delta,
-            self.stats.max_relative_rgb_delta,
-            self.stats.non_finite_count,
-            self.stats.negative_rgb_texel_count,
-            self.stats.valid_texel_count,
-            self.stats.scanned_stored_texel_count,
-            DDGI_CONVERGENCE_POLICY.absolute_threshold,
-            DDGI_CONVERGENCE_POLICY.relative_threshold,
-            self.consecutive_below_threshold,
-            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
-        )
-    }
-}
-
-struct DdgiConvergenceTerminalEvidence {
-    field_serial: u64,
-    geometry_revision: u32,
-    radiance_revision: u32,
-    spacing_voxels: u32,
-    update_epoch: u32,
-    reason: DdgiConvergenceReason,
-}
-
-impl fmt::Display for DdgiConvergenceTerminalEvidence {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
-            self.field_serial,
-            self.geometry_revision,
-            self.radiance_revision,
-            self.spacing_voxels,
-            self.update_epoch,
-            self.reason,
         )
     }
 }
@@ -682,41 +619,6 @@ mod ddgi_convergence_evidence_tests {
         assert_eq!(
             DdgiConvergencePolicyEvidence.to_string(),
             "convergence_max_absolute_rgb_delta=0.0025 convergence_max_relative_rgb_delta=0.02 convergence_relative_floor=0.05 convergence_consecutive_epochs=2 convergence_minimum_update_epochs=8 convergence_maximum_update_epochs=128"
-        );
-        let validation = DdgiConvergenceValidationEvidence {
-            field_serial: 11,
-            geometry_revision: 7,
-            radiance_revision: 3,
-            spacing_voxels: 16,
-            state: DdgiFieldState::Converging,
-            update_epoch: 127,
-            stats: DdgiAtlasValidationStats {
-                max_absolute_rgb_delta: 0.001,
-                max_relative_rgb_delta: 0.005,
-                non_finite_count: 0,
-                negative_rgb_texel_count: 0,
-                valid_texel_count: 64,
-                scanned_stored_texel_count: 100,
-                ..Default::default()
-            },
-            consecutive_below_threshold: 2,
-        };
-        assert_eq!(
-            validation.to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial=11 geometry_revision=7 radiance_revision=3 spacing_voxels=16 state=Converging update_epoch=127 max_abs_rgb_delta=0.00100000 max_rel_rgb_delta=0.00500000 non_finite=0 negative_rgb_texels=0 valid_texels=64 scanned_stored_texels=100 abs_threshold=0.00250000 rel_threshold=0.02000000 consecutive_below=2/2"
-        );
-
-        let terminal = DdgiConvergenceTerminalEvidence {
-            field_serial: 11,
-            geometry_revision: 7,
-            radiance_revision: 3,
-            spacing_voxels: 16,
-            update_epoch: 127,
-            reason: DdgiConvergenceReason::SampleBudget,
-        };
-        assert_eq!(
-            terminal.to_string(),
-            "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=11 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=127 reason=SampleBudget"
         );
     }
 }
@@ -2659,37 +2561,6 @@ impl Tracer {
                     let work = publication.work();
                     let field = publication.field();
                     let atlas_stats = publication.atlas_validation();
-                    let key = field.field();
-                    let validation_evidence = DdgiConvergenceValidationEvidence {
-                        field_serial: key.serial(),
-                        geometry_revision: key.geometry_revision(),
-                        radiance_revision: key.radiance_revision(),
-                        spacing_voxels: key.spacing_voxels(),
-                        state: key.state(),
-                        update_epoch: key.update_epoch(),
-                        stats: atlas_stats,
-                        consecutive_below_threshold: publication.consecutive_below_threshold(),
-                    };
-                    log::debug!(
-                        target: DDGI_CONVERGENCE_EVIDENCE_TARGET,
-                        "{validation_evidence}"
-                    );
-                    if let Some(terminal) = publication.terminal() {
-                        let terminal_key = terminal.field().field();
-                        let terminal_evidence = DdgiConvergenceTerminalEvidence {
-                            field_serial: terminal_key.serial(),
-                            geometry_revision: terminal_key.geometry_revision(),
-                            radiance_revision: terminal_key.radiance_revision(),
-                            spacing_voxels: terminal_key.spacing_voxels(),
-                            update_epoch: terminal_key.update_epoch(),
-                            reason: terminal.reason(),
-                        };
-                        log::debug!(
-                            target: DDGI_CONVERGENCE_EVIDENCE_TARGET,
-                            "{terminal_evidence}"
-                        );
-                    }
-
                     let lighting = self.ddgi_runtime.lighting_diagnostics();
                     log::debug!(
                         "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",

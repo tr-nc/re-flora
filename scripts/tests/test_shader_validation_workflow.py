@@ -9,6 +9,17 @@ WORKFLOW = ROOT / ".github/workflows/shader-validation.yml"
 
 
 class ShaderValidationWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def event_route(workflow: str, event: str, following: str) -> str:
+        start = workflow.index(f"  {event}:\n")
+        following_header = (
+            f"\n{following}:\n"
+            if following == "permissions"
+            else f"  {following}:\n"
+        )
+        end = workflow.index(following_header, start)
+        return workflow[start:end]
+
     def test_policy_inputs_and_targeted_rust_gates_are_continuous(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -67,6 +78,22 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             self.assertIn(gate, workflow)
         self.assertIn("timeout-minutes: 45", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
+
+    def test_migration_document_routes_through_pull_request_and_push(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        path = '      - "docs/ddgi_migration_plan.md"'
+        pull_request = self.event_route(workflow, "pull_request", "push")
+        push = self.event_route(workflow, "push", "permissions")
+
+        self.assertEqual(pull_request.count(path), 1)
+        self.assertEqual(push.count(path), 1)
+        for event, following in (("pull_request", "push"), ("push", "permissions")):
+            route = self.event_route(workflow, event, following)
+            mutated = workflow.replace(route, route.replace(path, "", 1), 1)
+            with self.assertRaises(AssertionError):
+                self.assertEqual(
+                    self.event_route(mutated, event, following).count(path), 1
+                )
 
 
 if __name__ == "__main__":
