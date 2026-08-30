@@ -1,7 +1,8 @@
 #[cfg(test)]
 use super::denoiser_bench::{
-    CameraDenoiserCommand, CameraDenoiserPresentation, DenoiserCaptureStep, DenoiserFrame,
-    DenoiserFrameRun, FixedVisualFrame, FoliageDenoiserCommand, FoliageDenoiserPresentation,
+    CameraDenoiserCommand, CameraDenoiserPresentation, CameraFrameMotion, DenoiserCaptureStep,
+    DenoiserFrame, DenoiserFrameRun, DenoiserReadbackStep, DenoiserUiStep, FixedVisualFrame,
+    FoliageDenoiserCommand, FoliageDenoiserPresentation,
 };
 #[cfg(test)]
 use super::CanopyAudioDiagnosticCounters;
@@ -1127,6 +1128,53 @@ mod tests {
                 },
             }
         ));
+    }
+
+    #[test]
+    fn opaque_denoiser_run_retains_each_leafs_frame_steps() {
+        let camera = camera_denoiser_owners().begin_denoiser_frame().into_run();
+        assert_eq!(
+            camera.timeline(0.25, 2.0),
+            FixedVisualFrame {
+                frame_delta_seconds: 0.25,
+                visual_time_seconds: 2.0,
+            }
+        );
+        assert!(matches!(
+            camera.camera_step(),
+            CameraFrameMotion::Scripted {
+                capture_frame: 0,
+                is_last: false,
+            }
+        ));
+        assert_eq!(camera.ui_step(), DenoiserUiStep::CameraCapture);
+        assert_eq!(camera.readback_step(), DenoiserReadbackStep::Record);
+
+        let foliage = foliage_denoiser_owners().begin_denoiser_frame().into_run();
+        assert_eq!(
+            foliage.timeline(0.25, 2.0),
+            FixedVisualFrame {
+                frame_delta_seconds: 1.0 / 60.0,
+                visual_time_seconds: 0.0,
+            }
+        );
+        assert_eq!(foliage.camera_step(), CameraFrameMotion::Fixed);
+        assert_eq!(foliage.ui_step(), DenoiserUiStep::FoliageStability);
+        assert_eq!(foliage.readback_step(), DenoiserReadbackStep::Record);
+
+        let inactive = launch_for(Scenario::Garden)
+            .begin_denoiser_frame()
+            .into_run();
+        assert_eq!(
+            inactive.timeline(0.25, 2.0),
+            FixedVisualFrame {
+                frame_delta_seconds: 0.25,
+                visual_time_seconds: 2.0,
+            }
+        );
+        assert_eq!(inactive.camera_step(), CameraFrameMotion::Fixed);
+        assert_eq!(inactive.ui_step(), DenoiserUiStep::Inactive);
+        assert_eq!(inactive.readback_step(), DenoiserReadbackStep::Skip);
     }
 
     #[test]
