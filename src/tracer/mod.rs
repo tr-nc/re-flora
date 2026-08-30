@@ -91,12 +91,12 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
-    DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
-    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
-    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiDebugView, DdgiFieldIdentity, DdgiFilterConfigurationIdentity, DdgiLocalLightTraceTotals,
+    DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes,
+    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
@@ -286,6 +286,12 @@ struct DdgiVisibilityFilterPushConstants {
     local_refresh_world_min: [f32; 4],
     local_refresh_world_max: [f32; 4],
     filter_evidence: [u32; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DdgiPendingTraceStatsReadback {
+    batch: DdgiRayBatch,
+    filter_configuration: DdgiFilterConfigurationIdentity,
 }
 
 #[repr(C)]
@@ -909,7 +915,7 @@ pub struct Tracer {
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
-    ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
+    ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
     ddgi_relocation_stats_readback_pending: bool,
@@ -2464,14 +2470,16 @@ impl Tracer {
             );
         }
 
-        if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
+        if let Some(pending) = self.ddgi_trace_stats_readback_pending.take() {
+            let batch = pending.batch;
             let completion = {
                 let topology = &self.pipeline_topology;
                 let next_generation = &mut self.descriptor_generation;
-                self.ddgi_runtime
-                    .complete_pending_batch(batch, |resources| {
-                        topology.publish_ddgi_consumers(resources, next_generation)
-                    })?
+                self.ddgi_runtime.complete_pending_batch(
+                    batch,
+                    pending.filter_configuration,
+                    |resources| topology.publish_ddgi_consumers(resources, next_generation),
+                )?
             };
             if completion.is_stale() {
                 log::warn!(
@@ -2789,7 +2797,13 @@ impl Tracer {
             if iteration_will_complete {
                 volume.record_atlas_reduction_readback(cmdbuf);
             }
-            self.ddgi_trace_stats_readback_pending = Some(batch);
+            self.ddgi_trace_stats_readback_pending = Some(DdgiPendingTraceStatsReadback {
+                batch,
+                filter_configuration: DdgiFilterConfigurationIdentity::from_grid(
+                    volume.status().grid,
+                    self.ddgi_history_retention,
+                ),
+            });
         }
 
         self.ddgi_runtime

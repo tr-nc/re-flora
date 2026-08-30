@@ -21,7 +21,7 @@ HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
 HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
-HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -49,6 +49,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(capture.version, 10)
         self.assertEqual(capture.update_epoch, 6)
+        self.assertEqual(capture.grid_dimensions, (1, 2, 2))
+        self.assertEqual(capture.configured_history_retention_q16, 64_881)
         evidence = capture.filter_evidence
         self.assertIsNotNone(evidence)
         assert evidence is not None
@@ -397,9 +399,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         path: Path,
         *,
         debug_view: int = 0,
-        visibility_samples: int = 12,
-        visibility_accept: int = 8,
-        visibility_reject: int = 4,
+        grid_dimensions: tuple[int, int, int] = (1, 2, 2),
+        configured_retention_q16: int = 64_881,
+        visibility_samples: int = 128,
+        visibility_accept: int = 80,
+        visibility_reject: int = 48,
         irradiance_retention_sum_q16: int = 65_536,
         irradiance_retention_max_q16: int = 32_768,
         visibility_retention_sum_q16: int = 65_536,
@@ -443,6 +447,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             4,
             1,
             0,
+            *grid_dimensions,
+            configured_retention_q16,
             0,
             2,
             2,
@@ -499,7 +505,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             32_768,
         )
         self.assertEqual(
-            capture["filter_evidence"]["visibility_samples"]["reject"], 4
+            capture["filter_evidence"]["visibility_samples"]["reject"], 48
         )
 
     def test_v10_filter_evidence_rejects_an_invalid_sample_partition(self) -> None:
@@ -507,12 +513,37 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             capture_path = Path(directory) / "invalid-filter-evidence.rfirr"
             self.write_capture_v10(
                 capture_path,
-                visibility_samples=12,
-                visibility_accept=8,
-                visibility_reject=5,
+                visibility_samples=128,
+                visibility_accept=80,
+                visibility_reject=49,
             )
             with self.assertRaisesRegex(ValueError, "visibility sample partition"):
                 analyzer.load_capture(capture_path)
+
+    def test_v10_filter_evidence_requires_the_authoritative_grid_product(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "grid-mismatch.rfirr"
+            self.write_capture_v10(capture_path, grid_dimensions=(1, 1, 3))
+            with self.assertRaisesRegex(ValueError, "grid product"):
+                analyzer.load_capture(capture_path)
+
+    def test_v10_visibility_samples_reject_under_over_and_partial_probe_counts(self) -> None:
+        mutations = (
+            (64, 40, 24, "undercounts Blend probes"),
+            (192, 120, 72, "exceeds fresh history probes"),
+            (127, 80, 47, "whole 64-ray probes"),
+        )
+        for samples, accept, reject, message in mutations:
+            with self.subTest(samples=samples), tempfile.TemporaryDirectory() as directory:
+                capture_path = Path(directory) / "sample-completeness.rfirr"
+                self.write_capture_v10(
+                    capture_path,
+                    visibility_samples=samples,
+                    visibility_accept=accept,
+                    visibility_reject=reject,
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    analyzer.load_capture(capture_path)
 
     def test_v10_filter_evidence_rejects_an_average_only_retention_witness(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

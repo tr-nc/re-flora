@@ -23,7 +23,7 @@ HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
 HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
-HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I13Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -122,6 +122,8 @@ class Capture:
     max_rel_delta: float | None = None
     nonfinite_count: int | None = None
     valid_count: int | None = None
+    grid_dimensions: tuple[int, int, int] | None = None
+    configured_history_retention_q16: int | None = None
     filter_evidence: dict[str, object] | None = None
 
     @property
@@ -380,6 +382,10 @@ def load_capture(path: Path) -> Capture:
                 evidence_probe_count,
                 visibility_written,
                 evidence_reserved,
+                grid_x,
+                grid_y,
+                grid_z,
+                configured_history_retention_q16,
                 irradiance_replace,
                 irradiance_retain,
                 irradiance_blend,
@@ -402,6 +408,16 @@ def load_capture(path: Path) -> Capture:
                 raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
             if evidence_probe_count == 0:
                 raise ValueError(f"{path}: filter evidence has zero probes")
+            grid_dimensions = (grid_x, grid_y, grid_z)
+            grid_product = grid_x * grid_y * grid_z
+            if any(dimension == 0 for dimension in grid_dimensions):
+                raise ValueError(f"{path}: v10 probe grid has a zero dimension")
+            if grid_product > 0xFFFFFFFF:
+                raise ValueError(f"{path}: v10 probe grid product exceeds u32")
+            if grid_product != evidence_probe_count:
+                raise ValueError(f"{path}: v10 probe grid product does not match filter evidence")
+            if configured_history_retention_q16 > 65_536:
+                raise ValueError(f"{path}: v10 configured history retention is out of range")
             if irradiance_owner_version_mask != 2:
                 raise ValueError(f"{path}: irradiance history owner mask mismatch")
             if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
@@ -433,6 +449,12 @@ def load_capture(path: Path) -> Capture:
                     raise ValueError(f"{path}: visibility history lacks one exact Blend retention")
                 if visibility_samples != visibility_accept + visibility_reject:
                     raise ValueError(f"{path}: visibility sample partition mismatch")
+                if visibility_samples % 64 != 0:
+                    raise ValueError(f"{path}: visibility samples do not cover whole 64-ray probes")
+                if visibility_samples < visibility_blend * 64:
+                    raise ValueError(f"{path}: visibility samples undercounts Blend probes")
+                if visibility_samples > (visibility_blend + visibility_replace) * 64:
+                    raise ValueError(f"{path}: visibility samples exceeds fresh history probes")
             elif any(
                 value != 0
                 for value in (
@@ -477,6 +499,8 @@ def load_capture(path: Path) -> Capture:
                     "reject": visibility_reject,
                 },
             }
+            metadata["grid_dimensions"] = grid_dimensions
+            metadata["configured_history_retention_q16"] = configured_history_retention_q16
     else:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
@@ -931,6 +955,8 @@ def summarize(
         "backend": capture.backend,
         "spacing_voxels": capture.spacing_voxels,
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
+        "grid_dimensions": capture.grid_dimensions,
+        "configured_history_retention_q16": capture.configured_history_retention_q16,
         "filter_evidence": capture.filter_evidence,
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,

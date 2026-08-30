@@ -11,9 +11,9 @@ use super::resources::{
 };
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiFilterEpochAccumulator,
-    DdgiFilterEpochEvidence, DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch,
-    DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiFilterConfigurationIdentity,
+    DdgiFilterEpochAccumulator, DdgiFilterEpochProof, DdgiProbePriority, DdgiProbePriorityReason,
+    DdgiRayBatch, DdgiRefreshState, DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind,
     DdgiSchedulerError, DdgiTerrainRefresh, DdgiTraceStats, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolumeGrid, DdgiVolumeStage,
     DDGI_CONVERGENCE_POLICY, DDGI_RAYS_PER_PROBE,
@@ -856,7 +856,7 @@ impl DdgiRuntime {
         build_token: DdgiBuildToken,
         field: DdgiFieldIdentity,
         validation: DdgiAtlasValidationStats,
-        filter_evidence: Option<DdgiFilterEpochEvidence>,
+        filter_proof: Option<DdgiFilterEpochProof>,
         publication: DdgiCapturePublication,
     ) -> bool {
         if !self.capture_enabled || !self.capture_target.matches_checkpoint(field, publication) {
@@ -866,7 +866,7 @@ impl DdgiRuntime {
             build_token,
             field,
             validation,
-            filter_evidence,
+            filter_proof,
             publication,
             batch_order: self.capture_batch_order,
         };
@@ -1013,6 +1013,7 @@ impl DdgiRuntime {
     pub(crate) fn complete_pending_batch(
         &mut self,
         batch: DdgiRayBatch,
+        filter_configuration: DdgiFilterConfigurationIdentity,
         publish_consumers: impl FnOnce(DdgiConsumerResources<'_>) -> Result<u64>,
     ) -> Result<DdgiBatchCompletion> {
         let before = self.volumes().builder().status();
@@ -1055,13 +1056,13 @@ impl DdgiRuntime {
             if replace_accumulator {
                 self.filter_evidence_accumulator = Some(DdgiFilterEpochAccumulator::new(
                     batch.logical(),
-                    before.grid.probe_count(),
-                ));
+                    filter_configuration,
+                )?);
             }
             self.filter_evidence_accumulator
                 .as_mut()
                 .expect("capture-enabled DDGI batch must retain its epoch accumulator")
-                .observe(batch, evidence)?;
+                .observe(batch, filter_configuration, evidence)?;
         }
         let radiance_snapshot = self
             .volumes()
@@ -1072,7 +1073,7 @@ impl DdgiRuntime {
             .volumes_mut()
             .builder_mut()
             .mark_trace_stats_verified(batch)?;
-        let filter_epoch_evidence = if matches!(
+        let filter_epoch_proof = if matches!(
             outcome,
             DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(_)
         ) && self.capture_enabled
@@ -1162,7 +1163,7 @@ impl DdgiRuntime {
                             token,
                             field,
                             stats,
-                            filter_epoch_evidence,
+                            filter_epoch_proof,
                             DdgiCapturePublication::Published,
                         );
                         (field, capture_observed, generation)
@@ -1207,7 +1208,7 @@ impl DdgiRuntime {
                     build_token,
                     field,
                     stats,
-                    filter_epoch_evidence,
+                    filter_epoch_proof,
                     DdgiCapturePublication::Published,
                 );
                 (field, capture_observed)
@@ -1821,12 +1822,19 @@ mod tests {
             visibility_samples: Default::default(),
             visibility_written: true,
         };
+        let filter_proof = DdgiFilterEpochProof {
+            configuration: DdgiFilterConfigurationIdentity {
+                grid_dimensions: [4, 1, 1],
+                configured_history_retention_q16: 64_881,
+            },
+            evidence: filter_evidence,
+        };
         runtime.configure_capture(true, DdgiCaptureTarget::Published, DdgiBatchOrder::Reverse);
         runtime.observe_capture_checkpoint(
             token,
             captured_field,
             DdgiAtlasValidationStats::default(),
-            Some(filter_evidence),
+            Some(filter_proof),
             DdgiCapturePublication::Published,
         );
 
@@ -1837,7 +1845,7 @@ mod tests {
             .expect("resident published field should expose the checkpoint");
         assert_eq!(checkpoint.field, captured_field);
         assert_eq!(checkpoint.batch_order, DdgiBatchOrder::Reverse);
-        assert_eq!(checkpoint.filter_evidence, Some(filter_evidence));
+        assert_eq!(checkpoint.filter_proof, Some(filter_proof));
 
         let wrong_token = DdgiBuildToken::for_test(2, 7, 16, DdgiBuildKind::Terrain);
         let staging_field = field(8, 4);

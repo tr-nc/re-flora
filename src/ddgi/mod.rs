@@ -63,9 +63,10 @@ pub(crate) use resources::DdgiConsumerResources;
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
-    DdgiFilterActionCounts, DdgiFilterEpochAccumulator, DdgiFilterEpochEvidence,
-    DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence, DdgiLocalLightTraceTotals,
-    DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes, DdgiTraceStats,
+    DdgiFilterActionCounts, DdgiFilterConfigurationIdentity, DdgiFilterEpochAccumulator,
+    DdgiFilterEpochEvidence, DdgiFilterEpochProof, DdgiFilterHistoryEvidence,
+    DdgiFilterVisibilitySampleEvidence, DdgiLocalLightTraceTotals, DdgiProbePriority,
+    DdgiProbePriorityReason, DdgiRayBatch, DdgiResourceBytes, DdgiTraceStats,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
     DdgiVolumes, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_MASK,
     DDGI_FILTER_POLICY_OWNER_VERSION,

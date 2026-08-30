@@ -2,8 +2,8 @@ use super::environment_lighting_test_scene::{
     EnvironmentLightingTestScene, RadianceCaptureCheckpoint, RadianceCaptureRequest,
 };
 use crate::ddgi::{
-    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState,
-    DdgiFilterEpochEvidence, DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK,
+    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiFilterEpochProof,
+    DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
 use crate::tracer::{Tracer, ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT};
@@ -16,7 +16,7 @@ const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
 const CAPTURE_VERSION: u32 = 10;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
-const CAPTURE_HEADER_BYTE_COUNT: usize = 268;
+const CAPTURE_HEADER_BYTE_COUNT: usize = 284;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STATE_CONVERGING: u32 = 1;
 const CAPTURE_STATE_CONVERGED: u32 = 2;
@@ -44,7 +44,7 @@ struct CaptureMetadata {
     max_rel_delta: f32,
     nonfinite_count: u32,
     valid_count: u32,
-    filter_evidence: DdgiFilterEpochEvidence,
+    filter_proof: DdgiFilterEpochProof,
 }
 
 impl CaptureMetadata {
@@ -59,9 +59,15 @@ impl CaptureMetadata {
             "DDGI build token does not own the captured field: checkpoint={checkpoint:?}"
         );
         let source = checkpoint.field.source();
-        let filter_evidence = checkpoint
-            .filter_evidence
+        let filter_proof = checkpoint
+            .filter_proof
             .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
+        let filter_evidence = filter_proof.evidence;
+        ensure!(
+            filter_proof.configuration.probe_count()? == filter_evidence.probe_count
+                && filter_proof.configuration.configured_history_retention_q16 <= 65_536,
+            "DDGI filter configuration identity does not match the captured epoch"
+        );
         ensure!(
             filter_evidence.field == checkpoint.field,
             "DDGI filter evidence does not own the captured field"
@@ -103,6 +109,22 @@ impl CaptureMetadata {
                             + filter_evidence.visibility_samples.reject,
                 "DDGI visibility filter evidence is inconsistent"
             );
+            let rays_per_probe = u64::from(DDGI_RAYS_PER_PROBE);
+            ensure!(
+                filter_evidence.visibility_samples.samples % rays_per_probe == 0
+                    && filter_evidence.visibility_samples.samples
+                        >= visibility_actions
+                            .blend
+                            .checked_mul(rays_per_probe)
+                            .context("DDGI visibility sample lower bound overflow")?
+                    && filter_evidence.visibility_samples.samples
+                        <= visibility_actions
+                            .blend
+                            .checked_add(visibility_actions.replace)
+                            .and_then(|probes| probes.checked_mul(rays_per_probe))
+                            .context("DDGI visibility sample upper bound overflow")?,
+                "DDGI visibility sample evidence is incomplete"
+            );
             validate_local_recovery_history(
                 filter_evidence.visibility_history,
                 field.update_epoch(),
@@ -141,7 +163,7 @@ impl CaptureMetadata {
             max_rel_delta: checkpoint.validation.max_relative_rgb_delta,
             nonfinite_count: checkpoint.validation.non_finite_count,
             valid_count: checkpoint.validation.valid_texel_count,
-            filter_evidence,
+            filter_proof,
         })
     }
 
@@ -171,7 +193,8 @@ impl CaptureMetadata {
         writer.write_all(&self.max_rel_delta.to_le_bytes())?;
         writer.write_all(&self.nonfinite_count.to_le_bytes())?;
         writer.write_all(&self.valid_count.to_le_bytes())?;
-        let evidence = self.filter_evidence;
+        let proof = self.filter_proof;
+        let evidence = proof.evidence;
         for value in [
             1,
             evidence.irradiance.owner_version_mask,
@@ -186,6 +209,10 @@ impl CaptureMetadata {
             evidence.probe_count,
             u32::from(evidence.visibility_written),
             0,
+            proof.configuration.grid_dimensions[0],
+            proof.configuration.grid_dimensions[1],
+            proof.configuration.grid_dimensions[2],
+            proof.configuration.configured_history_retention_q16,
         ] {
             writer.write_all(&value.to_le_bytes())?;
         }
@@ -747,8 +774,8 @@ mod tests {
     use crate::ddgi::{
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
-        DdgiFieldState, DdgiFilterActionCounts, DdgiFilterHistoryEvidence,
-        DdgiFilterVisibilitySampleEvidence,
+        DdgiFieldState, DdgiFilterActionCounts, DdgiFilterConfigurationIdentity,
+        DdgiFilterEpochEvidence, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     };
 
     #[test]
@@ -773,7 +800,7 @@ mod tests {
         assert_eq!(CAPTURE_VERSION, 10);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
-        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 268);
+        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 284);
     }
 
     #[test]
@@ -805,38 +832,44 @@ mod tests {
             build_token: token,
             field: published,
             validation,
-            filter_evidence: Some(DdgiFilterEpochEvidence {
-                field: published,
-                probe_count: 4,
-                irradiance: DdgiFilterHistoryEvidence {
-                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
-                    probes: 4,
-                    actions: DdgiFilterActionCounts {
-                        replace: 0,
-                        retain: 2,
-                        blend: 2,
+            filter_proof: Some(DdgiFilterEpochProof {
+                configuration: DdgiFilterConfigurationIdentity {
+                    grid_dimensions: [1, 2, 2],
+                    configured_history_retention_q16: 64_881,
+                },
+                evidence: DdgiFilterEpochEvidence {
+                    field: published,
+                    probe_count: 4,
+                    irradiance: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
                     },
-                    blend_retention_q16_sum: 112_348,
-                    blend_retention_q16_max: 56_174,
-                },
-                visibility_history: DdgiFilterHistoryEvidence {
-                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
-                    probes: 4,
-                    actions: DdgiFilterActionCounts {
-                        replace: 0,
-                        retain: 2,
-                        blend: 2,
+                    visibility_history: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
                     },
-                    blend_retention_q16_sum: 112_348,
-                    blend_retention_q16_max: 56_174,
+                    visibility_samples: DdgiFilterVisibilitySampleEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        samples: 128,
+                        accept: 80,
+                        reject: 48,
+                    },
+                    visibility_written: true,
                 },
-                visibility_samples: DdgiFilterVisibilitySampleEvidence {
-                    owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
-                    samples: 12,
-                    accept: 8,
-                    reject: 4,
-                },
-                visibility_written: true,
             }),
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Reverse,
@@ -867,9 +900,13 @@ mod tests {
         assert_eq!(metadata.max_rel_delta, 0.025);
         assert_eq!(metadata.nonfinite_count, 0);
         assert_eq!(metadata.valid_count, 314_432);
-        assert_eq!(metadata.filter_evidence.field, published);
-        assert_eq!(metadata.filter_evidence.irradiance.actions.retain, 2);
-        assert_eq!(metadata.filter_evidence.irradiance.actions.blend, 2);
+        assert_eq!(metadata.filter_proof.evidence.field, published);
+        assert_eq!(
+            metadata.filter_proof.configuration.grid_dimensions,
+            [1, 2, 2]
+        );
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.retain, 2);
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.blend, 2);
         let mut encoded_metadata = Vec::new();
         metadata.write_to(&mut encoded_metadata).unwrap();
         assert_eq!(
