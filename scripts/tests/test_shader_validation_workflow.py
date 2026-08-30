@@ -19,6 +19,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "config/ddgi_convergence_acceptance.toml",
             "docs/ddgi_convergence_calibration.md",
             "docs/ddgi_indirect_transport_spec.md",
+            "docs/ddgi_migration_plan.md",
             "docs/ddgi_transport_acceptance.md",
             "scripts/analyze_bd2_blue_voxel.py",
             "scripts/check_bd2_blue_voxel.sh",

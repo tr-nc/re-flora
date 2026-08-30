@@ -6,6 +6,7 @@ from pathlib import Path
 
 SPEC = Path(__file__).resolve().parents[2] / "docs" / "ddgi_indirect_transport_spec.md"
 ACCEPTANCE = Path(__file__).resolve().parents[2] / "docs" / "ddgi_transport_acceptance.md"
+MIGRATION = Path(__file__).resolve().parents[2] / "docs" / "ddgi_migration_plan.md"
 
 
 class DdgiIndirectTransportSpecTests(unittest.TestCase):
@@ -28,6 +29,15 @@ class DdgiIndirectTransportSpecTests(unittest.TestCase):
         for index in e63_lines:
             context = " ".join(lines[max(0, index - 1) : index + 2]).lower()
             self.assertIn("historical", context, lines[index])
+
+    def test_migration_e63_observations_are_explicitly_historical(self) -> None:
+        lines = MIGRATION.read_text(encoding="utf-8").splitlines()
+        e63_lines = [index for index, line in enumerate(lines) if "e63" in line]
+
+        self.assertGreater(len(e63_lines), 0)
+        for index in e63_lines:
+            context = " ".join(lines[max(0, index - 1) : index + 2]).lower()
+            self.assertIn("historical 64-epoch", context, lines[index])
 
 
 if __name__ == "__main__":

@@ -19,7 +19,8 @@ CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config/ddgi_convergence_a
 VALIDATION_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated"
 TERMINAL_MARKER = "[DDGI_CONVERGENCE_EVIDENCE] terminal"
 VALIDATION_PATTERN = re.compile(
-    r"field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
+    re.escape(VALIDATION_MARKER)
+    + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"state=(?P<state>\w+) update_epoch=(?P<epoch>\d+).*?"
@@ -34,7 +35,8 @@ VALIDATION_PATTERN = re.compile(
     r"consecutive_below=(?P<consecutive>\d+)/(?P<required>\d+)\s*$"
 )
 TERMINAL_PATTERN = re.compile(
-    r"terminal field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
+    re.escape(TERMINAL_MARKER)
+    + r" field_serial=(?P<field_serial>\d+) geometry_revision=(?P<geometry>\d+) "
     r"radiance_revision=(?P<radiance>\d+) "
     r"spacing_voxels=(?P<spacing>\d+) "
     r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)\s*$"

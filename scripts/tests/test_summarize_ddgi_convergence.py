@@ -356,6 +356,41 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                         result.stderr,
                     )
 
+    def test_rejects_junk_between_marker_and_payload_in_each_process_stream(self) -> None:
+        def insert_junk_after_marker(text: str, marker: str) -> str:
+            lines = text.splitlines()
+            index = next(index for index, line in enumerate(lines) if marker in line)
+            lines[index] = lines[index].replace(marker, f"{marker} malformed-junk", 1)
+            return "\n".join(lines) + "\n"
+
+        for marker in (
+            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated",
+            "[DDGI_CONVERGENCE_EVIDENCE] terminal",
+        ):
+            for mutated_sources in (("console",), ("runlog",), ("console", "runlog")):
+                with (
+                    self.subTest(marker=marker, mutated_sources=mutated_sources),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    run_dir = Path(directory)
+                    output = run_dir / "summary.json"
+                    self.write_curve(run_dir)
+                    paths = {
+                        "console": run_dir
+                        / "sealed-spacing32-converged-forward.console.log",
+                        "runlog": run_dir
+                        / "sealed-spacing32-converged-forward.run.log",
+                    }
+                    for source in mutated_sources:
+                        path = paths[source]
+                        path.write_text(insert_junk_after_marker(path.read_text(), marker))
+
+                    result = self.run_summarizer(run_dir, output)
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output.exists())
+                    self.assertIn("malformed", result.stderr)
+
     def test_rejects_a_curve_without_the_authoritative_runtime_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
