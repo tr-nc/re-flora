@@ -814,22 +814,7 @@ impl DdgiRuntime {
             |runtime, token| {
                 let permit = runtime.volumes().preflight_staging_promotion(token)?;
                 let publication = permit.publication();
-                let completed = runtime
-                    .completed_staging_publication
-                    .context("promotable DDGI staging Volume lost its runtime publication")?;
-                assert_eq!(
-                    (
-                        completed.generation.token(),
-                        completed.field,
-                        completed.authored_lighting.revision()
-                    ),
-                    (
-                        permit.token(),
-                        publication,
-                        publication.field().field().radiance_revision(),
-                    ),
-                    "DDGI staging physical and runtime publications diverged"
-                );
+                runtime.preflight_staging_publication(permit.token(), publication)?;
                 let resources = runtime.volumes().staging_consumer_resources(&permit);
                 publish_consumers(resources)?;
                 Ok(permit)
@@ -858,6 +843,29 @@ impl DdgiRuntime {
                 retired_active,
             }),
         }
+    }
+
+    fn preflight_staging_publication(
+        &self,
+        token: DdgiBuildToken,
+        physical_publication: super::DdgiFieldPublication,
+    ) -> Result<DdgiPublishedVolume> {
+        let completed = self
+            .completed_staging_publication
+            .context("promotable DDGI staging Volume lost its runtime publication")?;
+        anyhow::ensure!(
+            (
+                completed.generation.token(),
+                completed.field,
+                completed.authored_lighting.revision()
+            ) == (
+                token,
+                physical_publication,
+                physical_publication.field().field().radiance_revision(),
+            ),
+            "DDGI staging physical and runtime publications diverged"
+        );
+        Ok(completed)
     }
 
     pub(crate) fn configure_capture(
@@ -2385,6 +2393,40 @@ mod tests {
             Some(proof)
         );
         assert!(runtime.completed_staging_publication.is_none());
+    }
+
+    #[test]
+    fn promotion_preflight_rejects_the_wrong_exact_payload_without_committing_owner_state() {
+        let (mut runtime, _, _) = initialized_runtime();
+        let resident = runtime.active_publication.published().unwrap();
+        runtime.observe_visible_terrain(8, edit_bound(200, 220));
+        let replacement = replacement_generation(runtime.claim_volume_build().unwrap());
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        runtime
+            .complete_transport_work(work, work.destination(), replacement.token())
+            .unwrap();
+        let staged = runtime.completed_staging_publication.unwrap();
+        let wrong_publication = super::super::DdgiFieldPublication::for_test(
+            replacement.token(),
+            field(8, staged.authored_lighting.revision() + 1),
+        );
+
+        let error = runtime
+            .preflight_staging_publication(replacement.token(), wrong_publication)
+            .expect_err("promotion must reject a physical publication from another field root");
+
+        assert!(error
+            .to_string()
+            .contains("physical and runtime publications diverged"));
+        assert_eq!(
+            runtime.active_publication.published().unwrap().field,
+            resident.field
+        );
+        assert_eq!(
+            runtime.completed_staging_publication.unwrap().field,
+            staged.field
+        );
+        assert!(runtime.token_can_promote(replacement.token()));
     }
 
     fn volume_status(
