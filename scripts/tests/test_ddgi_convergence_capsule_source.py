@@ -178,7 +178,6 @@ def find_sequence(tokens: list[RustToken], values: tuple[str, ...], start=0, end
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
     token_sets = {path: production_tokens(source) for path, source in sources.items()}
-    all_runtime = rust_tokens(sources[RUNTIME])
     runtime = token_sets[RUNTIME]
     tracer = token_sets[TRACER]
 
@@ -188,37 +187,71 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     module_open = module + 2
     module_close = matching(runtime, module_open, "{", "}")
 
-    opaque_assertions = []
-    for index, token in enumerate(all_runtime):
+    opaque_assertions: list[tuple[int, tuple[str, ...]]] = []
+    for index, token in enumerate(runtime):
         if token.value != "assert_not_impl_any":
             continue
-        if tuple(item.value for item in all_runtime[index + 1 : index + 3]) != ("!", "("):
+        if tuple(item.value for item in runtime[index + 1 : index + 3]) != ("!", "("):
             continue
-        close = matching(all_runtime, index + 2, "(", ")")
+        close = matching(runtime, index + 2, "(", ")")
         opaque_assertions.append(
-            tuple(item.value for item in all_runtime[index + 3 : close])
+            (index, tuple(item.value for item in runtime[index + 3 : close]))
         )
-    expected_opaque_assertions = [
+    expected_opaque_payloads = [
         (
-            "super", ":", ":", "super", ":", ":", "DdgiBatchCompletion", ":",
+            "DdgiBatchCompletion", ":",
             "std", ":", ":", "fmt", ":", ":", "Debug", ",",
             "std", ":", ":", "fmt", ":", ":", "Display",
         ),
         (
-            "super", ":", ":", "Pending", ":",
+            "Pending", ":",
             "std", ":", ":", "fmt", ":", ":", "Debug", ",",
             "std", ":", ":", "fmt", ":", ":", "Display",
         ),
         (
-            "super", ":", ":", "Evidence", ":",
+            "Evidence", ":",
             "std", ":", ":", "fmt", ":", ":", "Debug", ",",
             "std", ":", ":", "fmt", ":", ":", "Display",
         ),
     ]
-    if opaque_assertions != expected_opaque_assertions:
+    if [payload for _, payload in opaque_assertions] != expected_opaque_payloads:
         raise AssertionError(
-            "rustc must own the exact Debug/Display negative assertions for the opaque types"
+            "production rustc must own the exact Debug/Display assertions for the opaque types"
         )
+
+    def declaration_end(type_name: str, start: int, end: int) -> int:
+        declaration = find_sequence(runtime, ("struct", type_name), start, end)
+        opening = next(
+            index
+            for index in range(declaration + 2, end)
+            if runtime[index].value in ("{", "(")
+        )
+        closing = matching(
+            runtime,
+            opening,
+            runtime[opening].value,
+            "}" if runtime[opening].value == "{" else ")",
+        )
+        if runtime[opening].value == "(":
+            if runtime[closing + 1].value != ";":
+                raise AssertionError(f"{type_name} tuple struct must end with a semicolon")
+            return closing + 1
+        return closing
+
+    assertion_positions = [position for position, _ in opaque_assertions]
+    expected_positions = [
+        declaration_end("DdgiBatchCompletion", 0, module) + 1,
+        declaration_end("Pending", module_open, module_close) + 1,
+        declaration_end("Evidence", module_open, module_close) + 1,
+    ]
+    for assertion, expected in zip(assertion_positions, expected_positions, strict=True):
+        prefix = tuple(token.value for token in runtime[expected : expected + 4])
+        if assertion != expected + 3 or prefix != (
+            "static_assertions", ":", ":", "assert_not_impl_any"
+        ):
+            raise AssertionError(
+                "each negative assertion must be an unconfigured direct item adjacent to its struct"
+            )
 
     evidence_field = find_sequence(
         runtime,
@@ -490,27 +523,55 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
     def test_rustc_negative_trait_assertions_are_exact_owner_contracts(self) -> None:
         sources = production_sources()
         assertions = {
-            "completion": (
-                "super::super::DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display"
-            ),
-            "pending": "super::Pending: std::fmt::Debug, std::fmt::Display",
-            "evidence": "super::Evidence: std::fmt::Debug, std::fmt::Display",
+            "completion": "DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display",
+            "pending": "Pending: std::fmt::Debug, std::fmt::Display",
+            "evidence": "Evidence: std::fmt::Debug, std::fmt::Display",
         }
         mutations = {
             "missing-completion": sources[RUNTIME].replace(assertions["completion"], "", 1),
             "wrong-pending-target": sources[RUNTIME].replace(
                 assertions["pending"],
-                "super::Prepared: std::fmt::Debug, std::fmt::Display",
+                "Prepared: std::fmt::Debug, std::fmt::Display",
                 1,
             ),
             "missing-evidence-display": sources[RUNTIME].replace(
                 assertions["evidence"],
-                "super::Evidence: std::fmt::Debug",
+                "Evidence: std::fmt::Debug",
                 1,
             ),
             "wrong-completion-trait": sources[RUNTIME].replace(
                 assertions["completion"],
-                "super::super::DdgiBatchCompletion: std::fmt::Debug, Clone",
+                "DdgiBatchCompletion: std::fmt::Debug, Clone",
+                1,
+            ),
+            "cfg-test-completion": sources[RUNTIME].replace(
+                "static_assertions::assert_not_impl_any!(\n"
+                "    DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display\n"
+                ");",
+                "#[cfg(test)]\n"
+                "static_assertions::assert_not_impl_any!(\n"
+                "    DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display\n"
+                ");",
+                1,
+            ),
+            "nested-cfg-any-pending": sources[RUNTIME].replace(
+                "static_assertions::assert_not_impl_any!(Pending: std::fmt::Debug, std::fmt::Display);",
+                "#[cfg(any())]\n"
+                "    mod disabled_seal {\n"
+                "        static_assertions::assert_not_impl_any!(\n"
+                "            super::Pending: std::fmt::Debug, std::fmt::Display\n"
+                "        );\n"
+                "    }",
+                1,
+            ),
+            "nested-test-module-evidence": sources[RUNTIME].replace(
+                "static_assertions::assert_not_impl_any!(Evidence: std::fmt::Debug, std::fmt::Display);",
+                "#[cfg(test)]\n"
+                "    mod seal_tests {\n"
+                "        static_assertions::assert_not_impl_any!(\n"
+                "            super::Evidence: std::fmt::Debug, std::fmt::Display\n"
+                "        );\n"
+                "    }",
                 1,
             ),
         }

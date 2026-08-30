@@ -38,6 +38,7 @@ petalsonic = "0.8.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 tempfile = "3.23.0"
+static_assertions = "1.1"
 # or use a local development version
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -48,9 +49,6 @@ objc2-app-kit = { version = "0.3.2", features = ["NSCursor"] }
 toml = "1.1.2"
 re-flora-shader-build = { path = "crates/re-flora-shader-build" }
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
-
-[dev-dependencies]
-static_assertions = "1.1"
 
 [features]
 default = []

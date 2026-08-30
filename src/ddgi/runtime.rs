@@ -93,6 +93,9 @@ pub(crate) struct DdgiBatchCompletion {
     pub consumer_descriptor_generation: Option<u64>,
     pub capture_observed: bool,
 }
+static_assertions::assert_not_impl_any!(
+    DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display
+);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiValidatedPublication {
@@ -134,6 +137,7 @@ mod convergence_evidence {
     const TARGET: &str = "re_flora::ddgi_convergence_evidence";
 
     pub(super) struct Pending(Evidence);
+    static_assertions::assert_not_impl_any!(Pending: std::fmt::Debug, std::fmt::Display);
 
     pub(super) struct Prepared {
         pub(super) publication: DdgiValidatedPublication,
@@ -146,6 +150,7 @@ mod convergence_evidence {
         consecutive_below_threshold: u32,
         terminal_reason: Option<DdgiConvergenceReason>,
     }
+    static_assertions::assert_not_impl_any!(Evidence: std::fmt::Debug, std::fmt::Display);
 
     pub(super) fn prepare(
         outcome: DdgiValidatedIterationOutcome,
@@ -243,16 +248,6 @@ mod convergence_evidence {
         use super::super::DdgiFieldIdentity;
         use super::*;
         use crate::ddgi::{DdgiFieldKey, DdgiFieldState, DdgiTransportScheduler};
-
-        static_assertions::assert_not_impl_any!(
-            super::super::DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display
-        );
-        static_assertions::assert_not_impl_any!(
-            super::Pending: std::fmt::Debug, std::fmt::Display
-        );
-        static_assertions::assert_not_impl_any!(
-            super::Evidence: std::fmt::Debug, std::fmt::Display
-        );
 
         fn facts() -> (
             super::super::DdgiScheduledWork,
