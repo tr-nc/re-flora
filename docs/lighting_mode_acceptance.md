@@ -15,11 +15,20 @@ identity, and private construction in one module. Callers can consume the resolv
 construct or destructure them. `RasterLightingMode` remains typed through Tracer and is lowered only
 when `BufferUpdater` writes the production GPU uniform.
 
-Rust privacy is the primary seal. `scripts/check_lighting_mode_acceptance_source_contract.py`
-tokenizes every `src/**/*.rs` file to guard the unique plan-resolution route and typed consumer
-capabilities. The shader-validation workflow routes all `src/**` changes, this checker, its tests,
-and this document through the same CPU contract gate; adding a new Rust module therefore cannot
-bypass the audit through an omitted path filter.
+Rust privacy is the primary seal. Three source-audit seams were compared. A repository-wide unique
+bare function name was rejected because ordinary builder helpers legitimately share names such as
+`update_buffers`. Fixed paths plus substring presence were rejected because they cannot prove the
+receiver, a direct parameter type, or sink ownership. The selected seam parses the canonical
+`Tracer` and `BufferUpdater` inherent implementations, requires their direct typed capability
+parameters, follows the typed raster mode into the production uniform value, and requires the final
+`gui_input.fill_uniform` sink to be globally unique and inside that typed entry. The audit also
+guards the unique plan-resolution route, but does not reserve unrelated helper names across the
+repository.
+
+`scripts/check_lighting_mode_acceptance_source_contract.py` lexes every `src/**/*.rs` file for that
+capability-and-sink seal. The shader-validation workflow routes all `src/**` changes, this checker,
+its tests, and this document through the same CPU contract gate; adding a new Rust module therefore
+cannot bypass the audit through an omitted path filter.
 
 One release-hidden process waits for a converged DDGI field, latches the camera, visible-terrain
 revision, DDGI field, lighting revisions, and extents, then records these stages after a settling

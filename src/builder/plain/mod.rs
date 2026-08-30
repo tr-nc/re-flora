@@ -1643,7 +1643,7 @@ impl PlainBuilder {
         if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
             return Ok(());
         }
-        fill_plain_region_info(&self.resources, atlas_offset, atlas_dim)?;
+        update_buffers(&self.resources, atlas_offset, atlas_dim)?;
 
         // re-record the command buffer with updated descriptor sets
         self.build_cmdbuf = Self::record_build_cmdbuf(
@@ -1663,7 +1663,7 @@ impl PlainBuilder {
             .wait_complete()?;
         return Ok(());
 
-        fn fill_plain_region_info(
+        fn update_buffers(
             resources: &PlainBuilderResources,
             offset: UVec3,
             dim: UVec3,

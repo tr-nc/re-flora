@@ -3,13 +3,24 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 
 OWNER = "src/app/core/lighting_mode_acceptance.rs"
 CALLER = "src/app/core/mod.rs"
+TRACER_OWNER = "src/tracer/mod.rs"
+BUFFER_UPDATER_OWNER = "src/tracer/buffer_updater.rs"
 ENVIRONMENT_OWNER = "src/environment_lighting.rs"
 RESOLVED_TYPES = ("ResolvedLightingFrameInputs", "ResolvedFrameTiming")
 PLAN_METHODS = ("frame_plan", "resolve_timing", "resolve_lighting")
+
+
+class Function(NamedTuple):
+    name: str
+    generic_tokens: tuple[str, ...]
+    parameters: tuple[tuple[str, ...], ...]
+    body_start: int | None
+    body_end: int | None
 
 
 def read_sources(src_root: Path) -> dict[str, str]:
@@ -20,7 +31,35 @@ def read_sources(src_root: Path) -> dict[str, str]:
     }
 
 
+def _raw_string_end(source: str, index: int) -> int | None:
+    for prefix in ("br", "cr", "r"):
+        if not source.startswith(prefix, index):
+            continue
+        quote = index + len(prefix)
+        while quote < len(source) and source[quote] == "#":
+            quote += 1
+        if quote >= len(source) or source[quote] != '"':
+            continue
+        terminator = '"' + ("#" * (quote - index - len(prefix)))
+        end = source.find(terminator, quote + 1)
+        return len(source) if end < 0 else end + len(terminator)
+    return None
+
+
+def _quoted_end(source: str, quote: int, delimiter: str) -> int:
+    index = quote + 1
+    while index < len(source):
+        if source[index] == "\\":
+            index += 2
+        elif source[index] == delimiter:
+            return index + 1
+        else:
+            index += 1
+    return len(source)
+
+
 def tokenize(source: str) -> list[str]:
+    """Tokenize the Rust syntax needed by this audit, excluding all literal contents."""
     tokens: list[str] = []
     index = 0
     length = len(source)
@@ -47,51 +86,44 @@ def tokenize(source: str) -> list[str]:
                     index += 1
             continue
 
-        raw_start = index
-        if source.startswith("br", raw_start):
-            raw_start += 2
-        elif source.startswith("r", raw_start):
-            raw_start += 1
-        else:
-            raw_start = -1
-        if raw_start >= 0:
-            quote = raw_start
-            while quote < length and source[quote] == "#":
-                quote += 1
-            if quote < length and source[quote] == '"':
-                hashes = quote - raw_start
-                terminator = '"' + ("#" * hashes)
-                end = source.find(terminator, quote + 1)
-                index = length if end < 0 else end + len(terminator)
-                continue
-
-        string_quote = index
-        if char in ("b", "c") and index + 1 < length and source[index + 1] == '"':
-            string_quote = index + 1
-        if source[string_quote] == '"':
-            index = string_quote + 1
-            while index < length:
-                if source[index] == "\\":
-                    index += 2
-                elif source[index] == '"':
-                    index += 1
-                    break
-                else:
-                    index += 1
+        raw_end = _raw_string_end(source, index)
+        if raw_end is not None:
+            index = raw_end
             continue
 
+        if char in ("b", "c") and index + 1 < length and source[index + 1] == '"':
+            index = _quoted_end(source, index + 1, '"')
+            continue
+        if char == '"':
+            index = _quoted_end(source, index, '"')
+            continue
+        if char == "b" and index + 1 < length and source[index + 1] == "'":
+            index = _quoted_end(source, index + 1, "'")
+            continue
         if char == "'":
+            # A closing quote distinguishes a character from a lifetime such as 'frame.
             if index + 2 < length and source[index + 2] == "'":
+                tokens.append("<char>")
                 index += 3
                 continue
             if index + 1 < length and source[index + 1] == "\\":
-                end = index + 2
-                while end < length and source[end] not in ("'", "\n"):
-                    end += 1
-                if end < length and source[end] == "'":
-                    index = end + 1
-                    continue
+                char_end = _quoted_end(source, index, "'")
+                tokens.append("<char>")
+                index = char_end
+                continue
+            tokens.append(char)
+            index += 1
+            continue
 
+        if source.startswith("r#", index) and index + 2 < length:
+            first = source[index + 2]
+            if first == "_" or first.isalpha():
+                end = index + 3
+                while end < length and (source[end] == "_" or source[end].isalnum()):
+                    end += 1
+                tokens.append(source[index + 2 : end])
+                index = end
+                continue
         if char == "_" or char.isalpha():
             end = index + 1
             while end < length and (source[end] == "_" or source[end].isalnum()):
@@ -123,7 +155,7 @@ def _closing(tokens: list[str], opening: int, left: str, right: str) -> int | No
     return None
 
 
-def _contains(tokens: list[str], sequence: tuple[str, ...]) -> bool:
+def _contains(tokens: list[str] | tuple[str, ...], sequence: tuple[str, ...]) -> bool:
     width = len(sequence)
     return any(tuple(tokens[index : index + width]) == sequence for index in range(len(tokens)))
 
@@ -140,15 +172,120 @@ def _struct_body(tokens: list[str], name: str) -> list[str] | None:
     return None
 
 
-def _function_parameters(tokens: list[str], name: str) -> list[list[str]]:
-    parameters: list[list[str]] = []
-    for index in range(len(tokens) - 2):
-        if tokens[index] != "fn" or tokens[index + 1] != name or tokens[index + 2] != "(":
+def _split_top_level(tokens: list[str], delimiter: str) -> list[tuple[str, ...]]:
+    chunks: list[tuple[str, ...]] = []
+    start = 0
+    depths = {"(": 0, "[": 0, "{": 0, "<": 0}
+    pairs = {")": "(", "]": "[", "}": "{", ">": "<"}
+    for index, token in enumerate(tokens):
+        if token in depths:
+            depths[token] += 1
+        elif token in pairs and depths[pairs[token]]:
+            depths[pairs[token]] -= 1
+        elif token == delimiter and not any(depths.values()):
+            if index > start:
+                chunks.append(tuple(tokens[start:index]))
+            start = index + 1
+    if start < len(tokens):
+        chunks.append(tuple(tokens[start:]))
+    return chunks
+
+
+def _function_at(tokens: list[str], fn_index: int) -> Function | None:
+    if fn_index + 1 >= len(tokens):
+        return None
+    name = tokens[fn_index + 1]
+    cursor = fn_index + 2
+    generic_tokens: tuple[str, ...] = ()
+    if cursor < len(tokens) and tokens[cursor] == "<":
+        closing = _closing(tokens, cursor, "<", ">")
+        if closing is None:
+            return None
+        generic_tokens = tuple(tokens[cursor + 1 : closing])
+        cursor = closing + 1
+    if cursor >= len(tokens) or tokens[cursor] != "(":
+        return None
+    params_end = _closing(tokens, cursor, "(", ")")
+    if params_end is None:
+        return None
+    parameters = tuple(_split_top_level(tokens[cursor + 1 : params_end], ","))
+
+    body_start = None
+    body_end = None
+    cursor = params_end + 1
+    angle_depth = 0
+    while cursor < len(tokens):
+        token = tokens[cursor]
+        if token == "<":
+            angle_depth += 1
+        elif token == ">" and angle_depth:
+            angle_depth -= 1
+        elif not angle_depth and token == ";":
+            break
+        elif not angle_depth and token == "{":
+            body_start = cursor
+            body_end = _closing(tokens, cursor, "{", "}")
+            break
+        cursor += 1
+    return Function(name, generic_tokens, parameters, body_start, body_end)
+
+
+def _inherent_impl_functions(tokens: list[str], type_name: str) -> list[Function]:
+    functions: list[Function] = []
+    for impl_index, token in enumerate(tokens):
+        if token != "impl":
             continue
-        closing = _closing(tokens, index + 2, "(", ")")
-        if closing is not None:
-            parameters.append(tokens[index + 3 : closing])
-    return parameters
+        cursor = impl_index + 1
+        if cursor < len(tokens) and tokens[cursor] == "<":
+            closing = _closing(tokens, cursor, "<", ">")
+            if closing is None:
+                continue
+            cursor = closing + 1
+        header_start = cursor
+        angle_depth = 0
+        while cursor < len(tokens):
+            if tokens[cursor] == "<":
+                angle_depth += 1
+            elif tokens[cursor] == ">" and angle_depth:
+                angle_depth -= 1
+            elif tokens[cursor] == "{" and not angle_depth:
+                break
+            cursor += 1
+        if cursor >= len(tokens):
+            continue
+        header = tokens[header_start:cursor]
+        if "for" in header or not header or header[0] != type_name:
+            continue
+        impl_end = _closing(tokens, cursor, "{", "}")
+        if impl_end is None:
+            continue
+        depth = 0
+        item = cursor + 1
+        while item < impl_end:
+            if tokens[item] == "{":
+                depth += 1
+            elif tokens[item] == "}":
+                depth -= 1
+            elif tokens[item] == "fn" and depth == 0:
+                function = _function_at(tokens, item)
+                if function is not None:
+                    functions.append(function)
+                    if function.body_end is not None:
+                        item = function.body_end
+            item += 1
+    return functions
+
+
+def _direct_named_parameter(
+    function: Function, expected_type: tuple[str, ...]
+) -> str | None:
+    for parameter in function.parameters:
+        if ":" not in parameter:
+            continue
+        colon = parameter.index(":")
+        if colon == 1 and tuple(parameter[colon + 1 :]) == expected_type:
+            return parameter[0]
+    return None
 
 
 def _method_reference_count(tokens: list[str], name: str) -> int:
@@ -163,6 +300,29 @@ def _method_reference_count(tokens: list[str], name: str) -> int:
         if dotted or associated:
             count += 1
     return count
+
+
+def _call_arguments(tokens: list[str], prefix: tuple[str, ...]) -> list[list[tuple[str, ...]]]:
+    calls: list[list[tuple[str, ...]]] = []
+    for index in range(len(tokens) - len(prefix) + 1):
+        if tuple(tokens[index : index + len(prefix)]) != prefix:
+            continue
+        opening = index + len(prefix) - 1
+        closing = _closing(tokens, opening, "(", ")")
+        if closing is not None:
+            calls.append(_split_top_level(tokens[opening + 1 : closing], ","))
+    return calls
+
+
+def _canonical_function(
+    tokens: list[str], impl_name: str, function_name: str
+) -> Function | None:
+    matches = [
+        function
+        for function in _inherent_impl_functions(tokens, impl_name)
+        if function.name == function_name
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def audit(sources: dict[str, str]) -> list[str]:
@@ -194,31 +354,92 @@ def audit(sources: dict[str, str]) -> list[str]:
         if sites != [CALLER]:
             errors.append(f"{method} call sites must be exactly [{CALLER}], got {sites}")
 
-    update_declarations = [
-        (path, parameters)
-        for path, tokens in external.items()
-        for parameters in _function_parameters(tokens, "update_buffers")
-    ]
-    if len(update_declarations) != 1 or update_declarations[0][0] != "src/tracer/mod.rs":
-        errors.append(
-            "update_buffers declaration must be unique in src/tracer/mod.rs, got "
-            f"{[path for path, _ in update_declarations]}"
+    tracer_tokens = tokenized.get(TRACER_OWNER, [])
+    update_buffers = _canonical_function(tracer_tokens, "Tracer", "update_buffers")
+    if update_buffers is None:
+        errors.append("Tracer inherent impl must own exactly one update_buffers entry")
+    else:
+        if update_buffers.generic_tokens:
+            errors.append("Tracer::update_buffers must use the production non-generic entry")
+        if ("&", "mut", "self") not in update_buffers.parameters:
+            errors.append("Tracer::update_buffers requires &mut self receiver")
+        lighting_parameter = _direct_named_parameter(
+            update_buffers, ("&", "ResolvedLightingFrameInputs")
         )
-    elif not _contains(update_declarations[0][1], ("&", "ResolvedLightingFrameInputs")):
-        errors.append("update_buffers lacks typed ResolvedLightingFrameInputs capability")
+        if lighting_parameter is None:
+            errors.append(
+                "Tracer::update_buffers requires a direct &ResolvedLightingFrameInputs parameter"
+            )
+        elif update_buffers.body_start is not None and update_buffers.body_end is not None:
+            body = tracer_tokens[update_buffers.body_start + 1 : update_buffers.body_end]
+            if not _contains(
+                body,
+                (
+                    "let",
+                    "raster_lighting_mode",
+                    "=",
+                    lighting_parameter,
+                    ".",
+                    "raster_lighting_mode",
+                    "(",
+                    ")",
+                    ";",
+                ),
+            ):
+                errors.append("Tracer::update_buffers must resolve the typed raster lighting mode")
+            updater_calls = _call_arguments(
+                body, ("BufferUpdater", ":", ":", "update_gui_input", "(")
+            )
+            if len(updater_calls) != 1 or ("raster_lighting_mode",) not in updater_calls[0]:
+                errors.append("Tracer::update_buffers must route the typed mode to BufferUpdater")
 
-    gui_declarations = [
-        (path, parameters)
-        for path, tokens in external.items()
-        for parameters in _function_parameters(tokens, "update_gui_input")
-    ]
-    if len(gui_declarations) != 1 or gui_declarations[0][0] != "src/tracer/buffer_updater.rs":
-        errors.append(
-            "update_gui_input declaration must be unique in src/tracer/buffer_updater.rs, got "
-            f"{[path for path, _ in gui_declarations]}"
-        )
-    elif "RasterLightingMode" not in gui_declarations[0][1]:
-        errors.append("update_gui_input lacks typed RasterLightingMode capability")
+    updater_tokens = tokenized.get(BUFFER_UPDATER_OWNER, [])
+    update_gui_input = _canonical_function(updater_tokens, "BufferUpdater", "update_gui_input")
+    if update_gui_input is None:
+        errors.append("BufferUpdater inherent impl must own exactly one update_gui_input entry")
+    else:
+        if update_gui_input.generic_tokens:
+            errors.append("BufferUpdater::update_gui_input must use the production non-generic entry")
+        if any("self" in parameter for parameter in update_gui_input.parameters):
+            errors.append("BufferUpdater::update_gui_input must remain an associated function")
+        raster_parameter = _direct_named_parameter(update_gui_input, ("RasterLightingMode",))
+        if raster_parameter is None:
+            errors.append(
+                "BufferUpdater::update_gui_input requires a direct RasterLightingMode parameter"
+            )
+        elif update_gui_input.body_start is not None and update_gui_input.body_end is not None:
+            body = updater_tokens[update_gui_input.body_start + 1 : update_gui_input.body_end]
+            if not _contains(
+                body,
+                (
+                    "raster_flora_ddgi_lighting",
+                    ":",
+                    raster_parameter,
+                    ".",
+                    "is_ddgi",
+                    "(",
+                    ")",
+                    "as",
+                    "u32",
+                ),
+            ):
+                errors.append("GUI uniform mode must derive from the typed RasterLightingMode")
+
+    sink_sites: list[tuple[str, int]] = []
+    for path, tokens in tokenized.items():
+        for index in range(len(tokens) - 3):
+            if tokens[index : index + 4] == ["gui_input", ".", "fill_uniform", "("]:
+                sink_sites.append((path, index))
+    if len(sink_sites) != 1:
+        errors.append(f"gui_input.fill_uniform sink must be globally unique, got {sink_sites}")
+    elif update_gui_input is None or sink_sites[0][0] != BUFFER_UPDATER_OWNER:
+        errors.append("gui_input.fill_uniform sink must belong to BufferUpdater::update_gui_input")
+    elif not (
+        update_gui_input.body_start is not None
+        and update_gui_input.body_end is not None
+        and update_gui_input.body_start < sink_sites[0][1] < update_gui_input.body_end
+    ):
+        errors.append("gui_input.fill_uniform sink must be inside BufferUpdater::update_gui_input")
 
     if "ResolvedLightingFrameInputs" in tokenized.get(ENVIRONMENT_OWNER, []):
         errors.append(f"acceptance resolved input leaked into {ENVIRONMENT_OWNER}")

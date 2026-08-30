@@ -1427,7 +1427,7 @@ impl ContreeBuilder {
         node_write_offset: u64,
         leaf_write_offset: u64,
     ) -> Result<()> {
-        fill_contree_build_info(
+        update_buffers(
             &self.resources.contree_build_info,
             contree_dim,
             get_level(contree_dim),
@@ -1455,7 +1455,7 @@ impl ContreeBuilder {
 
         return Ok(());
 
-        fn fill_contree_build_info(
+        fn update_buffers(
             contree_build_info: &Buffer,
             contree_dim: UVec3,
             max_level: u32,
