@@ -3,6 +3,8 @@ use super::denoiser_bench::{
     CameraDenoiserCommand, CameraDenoiserPresentation, DenoiserCaptureStep, DenoiserFrame,
     DenoiserFrameRun, FixedVisualFrame, FoliageDenoiserCommand, FoliageDenoiserPresentation,
 };
+#[cfg(test)]
+use super::CanopyAudioDiagnosticCounters;
 use super::{
     authored_flora_bench::AuthoredFloraBench,
     canopy_audio_diagnostic::CanopyAudioDiagnosticRuntime,
@@ -16,20 +18,18 @@ use super::{
     tree_bench::TreeBench,
     water::{self, WaterEditSoak},
     water_experience_scene::WaterExperienceScene,
-    CanopyAudioDiagnosticCounters,
 };
 pub(super) use super::{
     canopy_audio_diagnostic::{
         AudioTelemetryMarker, CanopyAudioFrameCommand, CanopyAudioFrameEffect,
-        CanopyAudioFrameReceipt, CanopyAudioSetup, CanopyAudioStartObservation,
-        CanopyAudioStartResult, CanopyAudioStartTxn, CanopyAudioStartupPolicy,
-        CanopyAudioTelemetry, CanopyAudioTrajectoryResult, CanopyAudioTrajectoryTxn,
+        CanopyAudioFrameReceipt, CanopyAudioStartObservation, CanopyAudioStartupPolicy,
     },
     water::{WaterEditFrameResult, WaterEditFrameTxn},
     water_experience_scene::{
         WaterExperienceFrameResult, WaterExperienceFrameTxn, WaterExperienceReadyReceipt,
     },
 };
+#[cfg(test)]
 use crate::audio::CanopyAudioTelemetrySnapshot;
 use crate::cli::{AutomationPlan, CameraAutomation, Scenario};
 use re_flora_vkn::GpuProfilerFrameResults;
@@ -202,6 +202,7 @@ impl ScenarioOwner {
 
 pub(in crate::app) struct LaunchOwners {
     screenshot: ScreenshotRuntime,
+    canopy_audio_startup_policy: Option<CanopyAudioStartupPolicy>,
     pub(super) tree_bench: Option<TreeBench>,
     pub(super) authored_flora_bench: Option<AuthoredFloraBench>,
     pub(super) mode: LaunchMode,
@@ -369,102 +370,46 @@ impl LaunchOwners {
         }
     }
 
-    pub(super) fn canopy_audio_setup(&self) -> CanopyAudioSetup {
-        match &self.mode {
-            LaunchMode::CanopyAudio { owner, .. } => owner.setup(),
-            LaunchMode::General { .. }
-            | LaunchMode::Environment { .. }
-            | LaunchMode::FoliageShadow { .. } => CanopyAudioSetup::Disabled,
-        }
-    }
-
-    pub(super) fn begin_canopy_audio_start(
-        &self,
-        observation: CanopyAudioStartObservation,
-    ) -> CanopyAudioStartTxn {
-        match &self.mode {
-            LaunchMode::CanopyAudio { owner, .. } => owner.begin_start(observation),
-            LaunchMode::General { .. }
-            | LaunchMode::Environment { .. }
-            | LaunchMode::FoliageShadow { .. } => CanopyAudioStartTxn::Inactive,
-        }
-    }
-
-    pub(super) fn finish_canopy_audio_start(
+    pub(super) fn take_canopy_audio_startup_policy(
         &mut self,
-        transaction: CanopyAudioStartTxn,
-        result: CanopyAudioStartResult,
-    ) -> anyhow::Result<bool> {
-        match (&mut self.mode, transaction) {
-            (
-                LaunchMode::CanopyAudio { owner, .. },
-                transaction @ (CanopyAudioStartTxn::AlreadyStarted
-                | CanopyAudioStartTxn::Observation { .. }),
-            ) => owner.finish_start(transaction, result),
-            (
-                LaunchMode::General { .. }
-                | LaunchMode::Environment { .. }
-                | LaunchMode::CanopyAudio { .. }
-                | LaunchMode::FoliageShadow { .. },
-                CanopyAudioStartTxn::Inactive,
-            ) => Ok(false),
-            _ => anyhow::bail!("canopy audio start transaction changed launch owner"),
-        }
+    ) -> anyhow::Result<CanopyAudioStartupPolicy> {
+        self.canopy_audio_startup_policy
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("canopy audio startup policy was already consumed"))
     }
 
-    pub(super) fn begin_canopy_audio_trajectory(
+    pub(super) fn begin_canopy_audio_frame(
         &self,
         tree_origin_world: glam::Vec3,
         time_seconds: f32,
-    ) -> CanopyAudioTrajectoryTxn {
+    ) -> CanopyAudioFrameCommand {
         match &self.mode {
             LaunchMode::CanopyAudio { owner, .. } => {
-                owner.begin_trajectory(tree_origin_world, time_seconds)
+                owner.begin_frame(tree_origin_world, time_seconds)
             }
             LaunchMode::General { .. }
             | LaunchMode::Environment { .. }
-            | LaunchMode::FoliageShadow { .. } => CanopyAudioTrajectoryTxn::Inactive,
+            | LaunchMode::FoliageShadow { .. } => CanopyAudioFrameCommand::Standard,
         }
     }
 
-    pub(super) fn finish_canopy_audio_trajectory(
+    pub(super) fn finish_canopy_audio_frame(
         &mut self,
-        transaction: CanopyAudioTrajectoryTxn,
-        result: CanopyAudioTrajectoryResult,
-    ) -> anyhow::Result<()> {
-        match (&mut self.mode, transaction) {
+        command: CanopyAudioFrameCommand,
+        effect: CanopyAudioFrameEffect,
+    ) -> anyhow::Result<CanopyAudioFrameReceipt> {
+        match (&mut self.mode, command) {
             (
                 LaunchMode::CanopyAudio { owner, .. },
-                transaction @ (CanopyAudioTrajectoryTxn::Waiting { .. }
-                | CanopyAudioTrajectoryTxn::Active { .. }),
-            ) => owner.finish_trajectory(transaction, result),
+                command @ CanopyAudioFrameCommand::Diagnostic { .. },
+            ) => owner.finish_frame(command, effect),
             (
                 LaunchMode::General { .. }
                 | LaunchMode::Environment { .. }
-                | LaunchMode::CanopyAudio { .. }
                 | LaunchMode::FoliageShadow { .. },
-                CanopyAudioTrajectoryTxn::Inactive,
-            ) => Ok(()),
-            _ => anyhow::bail!("canopy audio trajectory transaction changed launch owner"),
-        }
-    }
-
-    pub(super) fn canopy_audio_telemetry(
-        &self,
-        tree_origin_world: glam::Vec3,
-        time_seconds: f32,
-        snapshot: &CanopyAudioTelemetrySnapshot,
-    ) -> CanopyAudioTelemetry {
-        match &self.mode {
-            LaunchMode::CanopyAudio { owner, .. } => {
-                owner.telemetry(tree_origin_world, time_seconds, snapshot)
-            }
-            LaunchMode::General { .. }
-            | LaunchMode::Environment { .. }
-            | LaunchMode::FoliageShadow { .. } => CanopyAudioTelemetry {
-                marker: AudioTelemetryMarker::NotDiagnostic,
-                counters: CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
-            },
+                CanopyAudioFrameCommand::Standard,
+            ) => Ok(CanopyAudioFrameReceipt::standard(effect)),
+            _ => anyhow::bail!("canopy audio frame command changed launch owner"),
         }
     }
 
@@ -595,6 +540,7 @@ pub(in crate::app) fn prepare_startup_owners(
         };
         return Ok(LaunchOwners {
             screenshot: ScreenshotRuntime::new(None),
+            canopy_audio_startup_policy: Some(CanopyAudioStartupPolicy::Standard),
             tree_bench,
             authored_flora_bench,
             mode: LaunchMode::FoliageShadow {
@@ -622,51 +568,78 @@ pub(in crate::app) fn prepare_startup_owners(
             ScreenshotRuntime::new(None),
         ),
     };
-    let mode = match scenario {
-        Scenario::Garden => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::World(WorldScenarioOwner::Garden),
-        },
-        Scenario::CanopyAudioDiagnostic { constrained_budget } => LaunchMode::CanopyAudio {
-            camera,
-            owner: CanopyAudioDiagnosticRuntime::new(constrained_budget),
-        },
-        Scenario::WaterExperience => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(
-                WaterExperienceScene::pending(),
-            )),
-        },
-        Scenario::WaterEditSoak => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::Water(WaterScenarioOwner::EditSoak(
-                water::WaterEditSoak::default(),
-            )),
-        },
-        Scenario::EnvironmentLighting(case) => LaunchMode::Environment {
-            camera,
-            owner: EnvironmentLightingTestScene::new(case),
-        },
-        Scenario::HybridTransparency => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::TestScene(TestSceneOwner::Hybrid(
-                HybridTransparencyTestScene::new(),
-            )),
-        },
-        Scenario::House => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::World(WorldScenarioOwner::House(HouseSceneOwner)),
-        },
-        Scenario::TerrainConnectivityBenchmark(options) => LaunchMode::General {
-            camera,
-            scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
-                TerrainConnectivityBench::new(options),
-            )),
-        },
+    let (mode, canopy_audio_startup_policy) = match scenario {
+        Scenario::Garden => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::World(WorldScenarioOwner::Garden),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::CanopyAudioDiagnostic { constrained_budget } => (
+            LaunchMode::CanopyAudio {
+                camera,
+                owner: CanopyAudioDiagnosticRuntime::new(),
+            },
+            CanopyAudioStartupPolicy::Diagnostic {
+                budget_stress: constrained_budget,
+            },
+        ),
+        Scenario::WaterExperience => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::Water(WaterScenarioOwner::Experience(
+                    WaterExperienceScene::pending(),
+                )),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::WaterEditSoak => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::Water(WaterScenarioOwner::EditSoak(
+                    water::WaterEditSoak::default(),
+                )),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::EnvironmentLighting(case) => (
+            LaunchMode::Environment {
+                camera,
+                owner: EnvironmentLightingTestScene::new(case),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::HybridTransparency => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::TestScene(TestSceneOwner::Hybrid(
+                    HybridTransparencyTestScene::new(),
+                )),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::House => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::World(WorldScenarioOwner::House(HouseSceneOwner)),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
+        Scenario::TerrainConnectivityBenchmark(options) => (
+            LaunchMode::General {
+                camera,
+                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                    TerrainConnectivityBench::new(options),
+                )),
+            },
+            CanopyAudioStartupPolicy::Standard,
+        ),
         Scenario::FoliageShadowBenchmark(_) => unreachable!("foliage handled before camera setup"),
     };
     Ok(LaunchOwners {
         screenshot,
+        canopy_audio_startup_policy: Some(canopy_audio_startup_policy),
         tree_bench,
         authored_flora_bench,
         mode,
@@ -905,18 +878,42 @@ mod tests {
 
     #[test]
     fn non_diagnostic_scenarios_never_request_the_canopy_camera_pose() {
-        let garden = launch_for(Scenario::Garden);
+        let mut garden = launch_for(Scenario::Garden);
         assert!(matches!(
-            garden.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.0),
-            CanopyAudioTrajectoryTxn::Inactive
+            garden.take_canopy_audio_startup_policy().unwrap(),
+            CanopyAudioStartupPolicy::Standard
         ));
+        assert!(garden.take_canopy_audio_startup_policy().is_err());
+        assert!(matches!(
+            garden.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0),
+            CanopyAudioFrameCommand::Standard
+        ));
+        let mut snapshot = CanopyAudioTelemetrySnapshot::default();
+        snapshot.petal_direct_ray_count = 9;
+        let command = garden.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0);
+        let receipt = garden
+            .finish_canopy_audio_frame(
+                command,
+                CanopyAudioFrameEffect::Applied {
+                    start_observation: None,
+                    telemetry_counters: Some(CanopyAudioDiagnosticCounters::from_snapshot(
+                        &snapshot,
+                    )),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            receipt.telemetry().unwrap().marker,
+            AudioTelemetryMarker::NotDiagnostic
+        ));
+        assert_eq!(receipt.telemetry().unwrap().counters.direct_rays, 9);
 
         let canopy = launch_for(Scenario::CanopyAudioDiagnostic {
             constrained_budget: false,
         });
         assert!(matches!(
-            canopy.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.0),
-            CanopyAudioTrajectoryTxn::Waiting { .. }
+            canopy.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0),
+            CanopyAudioFrameCommand::Diagnostic { .. }
         ));
     }
 
@@ -1262,50 +1259,6 @@ mod tests {
     }
 
     #[test]
-    fn canopy_audio_transactions_start_and_publish_telemetry_only_after_commit() {
-        let mut owners = launch_for(Scenario::CanopyAudioDiagnostic {
-            constrained_budget: true,
-        });
-        assert_eq!(
-            owners.canopy_audio_setup(),
-            CanopyAudioSetup::Diagnostic {
-                budget_stress: true
-            }
-        );
-
-        let mut baseline = CanopyAudioTelemetrySnapshot::default();
-        baseline.telemetry.extent_response_count = 10;
-        baseline.petal_direct_ray_count = 100;
-        let rejected =
-            owners.begin_canopy_audio_start(CanopyAudioStartObservation::new(1.0, true, &baseline));
-        owners
-            .finish_canopy_audio_start(rejected, CanopyAudioStartResult::Rejected)
-            .unwrap();
-
-        for time_seconds in [1.0, 1.11] {
-            let transaction = owners.begin_canopy_audio_start(CanopyAudioStartObservation::new(
-                time_seconds,
-                true,
-                &baseline,
-            ));
-            owners
-                .finish_canopy_audio_start(transaction, CanopyAudioStartResult::Observed)
-                .unwrap();
-        }
-
-        let mut current = baseline.clone();
-        current.telemetry.extent_response_count = 14;
-        current.petal_direct_ray_count = 164;
-        let telemetry = owners.canopy_audio_telemetry(glam::Vec3::ZERO, 1.25, &current);
-        assert!(matches!(
-            telemetry.marker,
-            AudioTelemetryMarker::Active(elapsed, _) if (elapsed - 0.14).abs() < 1.0e-6
-        ));
-        assert_eq!(telemetry.counters.extent_responses, 4);
-        assert_eq!(telemetry.counters.direct_rays, 64);
-    }
-
-    #[test]
     fn canopy_startup_policy_and_frame_effect_are_each_consumed_once() {
         static_assertions::assert_not_impl_any!(CanopyAudioStartupPolicy: Clone, Copy);
         static_assertions::assert_not_impl_any!(CanopyAudioFrameCommand: Clone, Copy);
@@ -1375,54 +1328,5 @@ mod tests {
             .begin_canopy_audio_frame(glam::Vec3::ZERO, 1.25)
             .phase_log()
             .is_none());
-    }
-
-    #[test]
-    fn rejected_canopy_trajectory_does_not_commit_its_phase_transition() {
-        let mut owners = launch_for(Scenario::CanopyAudioDiagnostic {
-            constrained_budget: false,
-        });
-        let baseline = CanopyAudioTelemetrySnapshot::default();
-        for time_seconds in [1.0, 1.11] {
-            let transaction = owners.begin_canopy_audio_start(CanopyAudioStartObservation::new(
-                time_seconds,
-                true,
-                &baseline,
-            ));
-            owners
-                .finish_canopy_audio_start(transaction, CanopyAudioStartResult::Observed)
-                .unwrap();
-        }
-
-        let rejected = owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25);
-        assert!(matches!(
-            rejected,
-            CanopyAudioTrajectoryTxn::Active {
-                phase_changed: true,
-                ..
-            }
-        ));
-        owners
-            .finish_canopy_audio_trajectory(rejected, CanopyAudioTrajectoryResult::Rejected)
-            .unwrap();
-        assert!(matches!(
-            owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25),
-            CanopyAudioTrajectoryTxn::Active {
-                phase_changed: true,
-                ..
-            }
-        ));
-
-        let applied = owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25);
-        owners
-            .finish_canopy_audio_trajectory(applied, CanopyAudioTrajectoryResult::Applied)
-            .unwrap();
-        assert!(matches!(
-            owners.begin_canopy_audio_trajectory(glam::Vec3::ZERO, 1.25),
-            CanopyAudioTrajectoryTxn::Active {
-                phase_changed: false,
-                ..
-            }
-        ));
     }
 }

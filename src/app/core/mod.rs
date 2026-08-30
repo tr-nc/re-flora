@@ -482,6 +482,8 @@ pub struct App {
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     auto_exit_delay: Option<f32>,
+    canopy_audio_diagnostic_active: bool,
+    canopy_audio_budget_stress_tree_pending: Option<bool>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
     visible_terrain_revision: u32,
     shutdown_started: bool,
@@ -511,92 +513,71 @@ impl Drop for App {
 }
 
 impl App {
-    fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
-        let transaction = self
+    fn begin_canopy_audio_diagnostic_frame(
+        &mut self,
+        time_seconds: f32,
+    ) -> (launch_owners::CanopyAudioFrameCommand, bool) {
+        let command = self
             .launch_owners
-            .begin_canopy_audio_trajectory(self.debug_tree_pos, time_seconds);
-        let Some(pose) = transaction.pose() else {
-            return;
+            .begin_canopy_audio_frame(self.debug_tree_pos, time_seconds);
+        let applied = command.pose().is_none_or(|pose| {
+            self.tracer
+                .set_camera_pose_looking_at(pose.position_world, pose.target_world)
+        });
+        (command, applied)
+    }
+
+    fn finish_canopy_audio_diagnostic_frame(
+        &mut self,
+        command: launch_owners::CanopyAudioFrameCommand,
+        pose_applied: bool,
+        time_seconds: f32,
+    ) {
+        let telemetry_due = self
+            .canopy_audio_telemetry_next_log_seconds
+            .is_some_and(|next_log_seconds| time_seconds >= next_log_seconds);
+        let snapshot = self.tree_audio_manager.canopy_telemetry_snapshot();
+        let effect = if pose_applied {
+            launch_owners::CanopyAudioFrameEffect::Applied {
+                start_observation: snapshot.as_ref().map(|snapshot| {
+                    launch_owners::CanopyAudioStartObservation::new(
+                        time_seconds,
+                        self.spatial_sound_manager
+                            .acoustic_response_matches_published_scene(),
+                        snapshot,
+                    )
+                }),
+                telemetry_counters: snapshot
+                    .as_ref()
+                    .filter(|_| telemetry_due)
+                    .map(CanopyAudioDiagnosticCounters::from_snapshot),
+            }
+        } else {
+            launch_owners::CanopyAudioFrameEffect::Rejected
         };
-        let applied = self
-            .tracer
-            .set_camera_pose_looking_at(pose.position_world, pose.target_world);
-        let active_sample = match &transaction {
-            launch_owners::CanopyAudioTrajectoryTxn::Active {
-                elapsed_seconds,
-                phase_changed,
-                ..
-            } => Some((*elapsed_seconds, *phase_changed)),
-            launch_owners::CanopyAudioTrajectoryTxn::Inactive
-            | launch_owners::CanopyAudioTrajectoryTxn::Waiting { .. } => None,
-        };
-        self.launch_owners
-            .finish_canopy_audio_trajectory(
-                transaction,
-                if applied {
-                    launch_owners::CanopyAudioTrajectoryResult::Applied
-                } else {
-                    launch_owners::CanopyAudioTrajectoryResult::Rejected
-                },
-            )
+        let receipt = self
+            .launch_owners
+            .finish_canopy_audio_frame(command, effect)
             .unwrap_or_else(|error| {
-                panic!("[AUDIO][CANOPY][TRAJECTORY] stale owner transaction: {error:#}")
+                panic!("[AUDIO][CANOPY][DIAGNOSTIC] stale frame command: {error:#}")
             });
-        let Some((elapsed_seconds, phase_changed)) = active_sample else {
-            // Hold the exact initial trajectory pose while the matching acoustic response and
-            // render pump settle. Diagnostic time and counters have not started yet.
-            return;
-        };
-        if phase_changed {
+        if receipt.started() {
             log::info!(
-                "[AUDIO][CANOPY][TRAJECTORY] elapsed_seconds={:.6} phase={:?} position_world={:?} target_world={:?}",
-                elapsed_seconds,
-                pose.phase,
-                pose.position_world,
-                pose.target_world,
+                "[AUDIO][CANOPY][DIAGNOSTIC] trajectory counters started after settled current-scene acoustic response"
             );
         }
-    }
-
-    fn start_canopy_audio_diagnostic_when_ready(&mut self, time_seconds: f32) {
-        let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
-            return;
-        };
-        let transaction = self.launch_owners.begin_canopy_audio_start(
-            launch_owners::CanopyAudioStartObservation::new(
-                time_seconds,
-                self.spatial_sound_manager
-                    .acoustic_response_matches_published_scene(),
-                &snapshot,
-            ),
-        );
-        let started = self
-            .launch_owners
-            .finish_canopy_audio_start(transaction, launch_owners::CanopyAudioStartResult::Observed)
-            .unwrap_or_else(|error| {
-                panic!("[AUDIO][CANOPY][DIAGNOSTIC] stale start transaction: {error:#}")
-            });
-        if !started {
-            return;
+        if let Some(phase) = receipt.phase_log() {
+            log::info!(
+                "[AUDIO][CANOPY][TRAJECTORY] elapsed_seconds={:.6} phase={:?} position_world={:?} target_world={:?}",
+                phase.elapsed_seconds,
+                phase.phase,
+                phase.pose.position_world,
+                phase.pose.target_world,
+            );
         }
-        log::info!(
-            "[AUDIO][CANOPY][DIAGNOSTIC] trajectory counters started after settled current-scene acoustic response"
-        );
-    }
-
-    fn log_canopy_audio_telemetry(&mut self, time_seconds: f32) {
-        let Some(next_log_seconds) = self.canopy_audio_telemetry_next_log_seconds else {
+        let Some(telemetry) = receipt.telemetry() else {
             return;
         };
-        if time_seconds < next_log_seconds {
-            return;
-        }
-        let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
-            return;
-        };
-        let telemetry =
-            self.launch_owners
-                .canopy_audio_telemetry(self.debug_tree_pos, time_seconds, &snapshot);
         let trajectory_marker = match telemetry.marker {
             launch_owners::AudioTelemetryMarker::NotDiagnostic => None,
             launch_owners::AudioTelemetryMarker::WaitingForStart => return,
@@ -606,6 +587,9 @@ impl App {
             .map_or((-1.0, None), |(elapsed_seconds, phase)| {
                 (elapsed_seconds, Some(phase))
             });
+        let Some(snapshot) = snapshot else {
+            return;
+        };
 
         self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
         let counters = telemetry.counters;
@@ -1014,9 +998,14 @@ impl App {
             TestSceneKind::Environment(case) => Some(case),
             TestSceneKind::None | TestSceneKind::Hybrid => None,
         };
-        let canopy_audio_diagnostic = match launch_owners.canopy_audio_setup() {
-            launch_owners::CanopyAudioSetup::Disabled => None,
-            launch_owners::CanopyAudioSetup::Diagnostic { budget_stress } => Some(budget_stress),
+        let canopy_audio_diagnostic = match launch_owners
+            .take_canopy_audio_startup_policy()
+            .context("take canopy audio startup policy")?
+        {
+            launch_owners::CanopyAudioStartupPolicy::Standard => None,
+            launch_owners::CanopyAudioStartupPolicy::Diagnostic { budget_stress } => {
+                Some(budget_stress)
+            }
         };
         let water_experience =
             launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
@@ -1494,6 +1483,8 @@ impl App {
                 lighting.spatial_weight_readback_path.clone(),
             ),
             auto_exit_delay: lifecycle.auto_exit_delay,
+            canopy_audio_diagnostic_active: canopy_audio_diagnostic.is_some(),
+            canopy_audio_budget_stress_tree_pending: canopy_audio_diagnostic,
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
                 || canopy_audio_diagnostic.is_some())
             .then_some(0.0),
@@ -2369,7 +2360,8 @@ impl App {
                 if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {
                     log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
-                self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
+                let (canopy_audio_frame, canopy_pose_applied) =
+                    self.begin_canopy_audio_diagnostic_frame(time_since_start);
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
@@ -2384,11 +2376,10 @@ impl App {
                 }
                 let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources = match self.launch_owners.canopy_audio_setup() {
-                    launch_owners::CanopyAudioSetup::Diagnostic { .. } => {
-                        &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
-                    }
-                    launch_owners::CanopyAudioSetup::Disabled => &configured_wind_sources,
+                let active_wind_sources = if self.canopy_audio_diagnostic_active {
+                    &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
+                } else {
+                    &configured_wind_sources
                 };
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
@@ -4416,8 +4407,11 @@ impl App {
                 });
                 self.tree_audio_manager
                     .observe_canopy_acoustic_telemetry(canopy_audio_observations);
-                self.start_canopy_audio_diagnostic_when_ready(time_since_start);
-                self.log_canopy_audio_telemetry(time_since_start);
+                self.finish_canopy_audio_diagnostic_frame(
+                    canopy_audio_frame,
+                    canopy_pose_applied,
+                    time_since_start,
+                );
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

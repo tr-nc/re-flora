@@ -7,13 +7,96 @@ use glam::Vec3;
 
 const ACOUSTIC_SETTLE_SECONDS: f32 = 0.1;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CanopyAudioSetup {
-    Disabled,
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CanopyAudioStartupPolicy {
+    Standard,
     Diagnostic { budget_stress: bool },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CanopyAudioPhaseLog {
+    pub(super) elapsed_seconds: f32,
+    pub(super) phase: CanopyAudioTrajectoryPhase,
+    pub(super) pose: CanopyAudioDiagnosticPose,
+}
+
+#[derive(Debug)]
+pub(super) enum CanopyAudioFrameCommand {
+    Standard,
+    Diagnostic {
+        permit_revision: u64,
+        tree_origin_world: Vec3,
+        time_seconds: f32,
+        pose: CanopyAudioDiagnosticPose,
+        active: Option<CanopyAudioPhaseLog>,
+        permit_previous_phase: Option<CanopyAudioTrajectoryPhase>,
+    },
+}
+
+impl CanopyAudioFrameCommand {
+    pub(super) fn pose(&self) -> Option<CanopyAudioDiagnosticPose> {
+        match self {
+            Self::Standard => None,
+            Self::Diagnostic { pose, .. } => Some(*pose),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn phase_log(&self) -> Option<CanopyAudioPhaseLog> {
+        match self {
+            Self::Standard => None,
+            Self::Diagnostic { active, .. } => *active,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum CanopyAudioFrameEffect {
+    Rejected,
+    Applied {
+        start_observation: Option<CanopyAudioStartObservation>,
+        telemetry_counters: Option<CanopyAudioDiagnosticCounters>,
+    },
+}
+
+pub(super) struct CanopyAudioFrameReceipt {
+    started: bool,
+    phase_log: Option<CanopyAudioPhaseLog>,
+    telemetry: Option<CanopyAudioTelemetry>,
+}
+
+impl CanopyAudioFrameReceipt {
+    pub(super) fn standard(effect: CanopyAudioFrameEffect) -> Self {
+        let telemetry = match effect {
+            CanopyAudioFrameEffect::Rejected => None,
+            CanopyAudioFrameEffect::Applied {
+                telemetry_counters, ..
+            } => telemetry_counters.map(|counters| CanopyAudioTelemetry {
+                marker: AudioTelemetryMarker::NotDiagnostic,
+                counters,
+            }),
+        };
+        Self {
+            started: false,
+            phase_log: None,
+            telemetry,
+        }
+    }
+
+    pub(super) fn started(&self) -> bool {
+        self.started
+    }
+
+    pub(super) fn phase_log(&self) -> Option<CanopyAudioPhaseLog> {
+        self.phase_log
+    }
+
+    pub(super) fn telemetry(&self) -> Option<&CanopyAudioTelemetry> {
+        self.telemetry.as_ref()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(super) struct CanopyAudioStartObservation {
     time_seconds: f32,
     response_matches_published_scene: bool,
@@ -36,62 +119,6 @@ impl CanopyAudioStartObservation {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct ReadinessPermit {
-    ready_since_seconds: Option<f32>,
-    render_rejected_response_count: Option<u64>,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct StartCommit {
-    time_seconds: f32,
-    counters: CanopyAudioDiagnosticCounters,
-}
-
-pub(super) enum CanopyAudioStartTxn {
-    Inactive,
-    AlreadyStarted,
-    Observation {
-        permit: ReadinessPermit,
-        next: ReadinessPermit,
-        start: Option<StartCommit>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CanopyAudioStartResult {
-    Observed,
-    Rejected,
-}
-
-pub(super) enum CanopyAudioTrajectoryTxn {
-    Inactive,
-    Waiting {
-        pose: CanopyAudioDiagnosticPose,
-    },
-    Active {
-        pose: CanopyAudioDiagnosticPose,
-        elapsed_seconds: f32,
-        phase_changed: bool,
-        permit_previous_phase: Option<CanopyAudioTrajectoryPhase>,
-    },
-}
-
-impl CanopyAudioTrajectoryTxn {
-    pub(super) fn pose(&self) -> Option<CanopyAudioDiagnosticPose> {
-        match self {
-            Self::Inactive => None,
-            Self::Waiting { pose } | Self::Active { pose, .. } => Some(*pose),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CanopyAudioTrajectoryResult {
-    Applied,
-    Rejected,
-}
-
 pub(super) enum AudioTelemetryMarker {
     NotDiagnostic,
     WaitingForStart,
@@ -109,185 +136,141 @@ pub(super) struct CanopyAudioDiagnosticRuntime {
     counter_baseline: Option<CanopyAudioDiagnosticCounters>,
     acoustic_ready_since_seconds: Option<f32>,
     last_render_rejected_response_count: Option<u64>,
-    budget_stress: bool,
+    transaction_revision: u64,
 }
 
 impl CanopyAudioDiagnosticRuntime {
-    pub(super) fn new(budget_stress: bool) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             start_time_seconds: None,
             previous_phase: None,
             counter_baseline: None,
             acoustic_ready_since_seconds: None,
             last_render_rejected_response_count: None,
-            budget_stress,
+            transaction_revision: 0,
         }
     }
 
-    pub(super) fn setup(&self) -> CanopyAudioSetup {
-        CanopyAudioSetup::Diagnostic {
-            budget_stress: self.budget_stress,
-        }
-    }
-
-    pub(super) fn begin_start(
-        &self,
-        observation: CanopyAudioStartObservation,
-    ) -> CanopyAudioStartTxn {
-        if self.start_time_seconds.is_some() {
-            return CanopyAudioStartTxn::AlreadyStarted;
-        }
-        let permit = ReadinessPermit {
-            ready_since_seconds: self.acoustic_ready_since_seconds,
-            render_rejected_response_count: self.last_render_rejected_response_count,
-        };
-        let (next, start) = if !observation.response_matches_published_scene {
-            (
-                ReadinessPermit {
-                    ready_since_seconds: None,
-                    render_rejected_response_count: None,
-                },
-                None,
-            )
-        } else if permit.render_rejected_response_count
-            != Some(observation.render_rejected_response_count)
-        {
-            (
-                ReadinessPermit {
-                    ready_since_seconds: Some(observation.time_seconds),
-                    render_rejected_response_count: Some(
-                        observation.render_rejected_response_count,
-                    ),
-                },
-                None,
-            )
-        } else {
-            let ready_since_seconds = permit
-                .ready_since_seconds
-                .unwrap_or(observation.time_seconds);
-            let settled = observation.time_seconds >= ready_since_seconds
-                && observation.time_seconds - ready_since_seconds >= ACOUSTIC_SETTLE_SECONDS;
-            (
-                ReadinessPermit {
-                    ready_since_seconds: Some(ready_since_seconds),
-                    render_rejected_response_count: permit.render_rejected_response_count,
-                },
-                settled.then_some(StartCommit {
-                    time_seconds: observation.time_seconds,
-                    counters: observation.counters,
-                }),
-            )
-        };
-        CanopyAudioStartTxn::Observation {
-            permit,
-            next,
-            start,
-        }
-    }
-
-    pub(super) fn finish_start(
-        &mut self,
-        transaction: CanopyAudioStartTxn,
-        result: CanopyAudioStartResult,
-    ) -> anyhow::Result<bool> {
-        match transaction {
-            CanopyAudioStartTxn::Inactive => {
-                anyhow::bail!("active canopy diagnostic received an inactive start transaction")
-            }
-            CanopyAudioStartTxn::AlreadyStarted => return Ok(false),
-            CanopyAudioStartTxn::Observation {
-                permit,
-                next,
-                start,
-            } => {
-                anyhow::ensure!(
-                    self.acoustic_ready_since_seconds == permit.ready_since_seconds
-                        && self.last_render_rejected_response_count
-                            == permit.render_rejected_response_count,
-                    "stale canopy audio start transaction"
-                );
-                if result == CanopyAudioStartResult::Rejected {
-                    return Ok(false);
-                }
-                self.acoustic_ready_since_seconds = next.ready_since_seconds;
-                self.last_render_rejected_response_count = next.render_rejected_response_count;
-                if let Some(start) = start {
-                    self.start_time_seconds = Some(start.time_seconds);
-                    self.counter_baseline = Some(start.counters);
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-        }
-    }
-
-    pub(super) fn begin_trajectory(
+    pub(super) fn begin_frame(
         &self,
         tree_origin_world: Vec3,
         time_seconds: f32,
-    ) -> CanopyAudioTrajectoryTxn {
-        let Some(start_time_seconds) = self.start_time_seconds else {
-            return CanopyAudioTrajectoryTxn::Waiting {
-                pose: canopy_audio_diagnostic_pose(tree_origin_world, 0.0),
-            };
-        };
-        let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
-        let pose = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds);
-        CanopyAudioTrajectoryTxn::Active {
+    ) -> CanopyAudioFrameCommand {
+        let (pose, active) = self.start_time_seconds.map_or_else(
+            || (canopy_audio_diagnostic_pose(tree_origin_world, 0.0), None),
+            |start_time_seconds| {
+                let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
+                let pose = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds);
+                let active =
+                    (self.previous_phase != Some(pose.phase)).then_some(CanopyAudioPhaseLog {
+                        elapsed_seconds,
+                        phase: pose.phase,
+                        pose,
+                    });
+                (pose, active)
+            },
+        );
+        CanopyAudioFrameCommand::Diagnostic {
+            permit_revision: self.transaction_revision,
+            tree_origin_world,
+            time_seconds,
             pose,
-            elapsed_seconds,
-            phase_changed: self.previous_phase != Some(pose.phase),
+            active,
             permit_previous_phase: self.previous_phase,
         }
     }
 
-    pub(super) fn finish_trajectory(
+    pub(super) fn finish_frame(
         &mut self,
-        transaction: CanopyAudioTrajectoryTxn,
-        result: CanopyAudioTrajectoryResult,
-    ) -> anyhow::Result<()> {
-        match transaction {
-            CanopyAudioTrajectoryTxn::Inactive => anyhow::bail!(
-                "active canopy diagnostic received an inactive trajectory transaction"
-            ),
-            CanopyAudioTrajectoryTxn::Waiting { .. } => Ok(()),
-            CanopyAudioTrajectoryTxn::Active {
-                pose,
-                permit_previous_phase,
-                ..
-            } => {
-                anyhow::ensure!(
-                    self.previous_phase == permit_previous_phase,
-                    "stale canopy audio trajectory transaction"
-                );
-                if result == CanopyAudioTrajectoryResult::Applied {
-                    self.previous_phase = Some(pose.phase);
-                }
-                Ok(())
-            }
-        }
+        command: CanopyAudioFrameCommand,
+        effect: CanopyAudioFrameEffect,
+    ) -> anyhow::Result<CanopyAudioFrameReceipt> {
+        let CanopyAudioFrameCommand::Diagnostic {
+            permit_revision,
+            tree_origin_world,
+            time_seconds,
+            pose,
+            active,
+            permit_previous_phase,
+        } = command
+        else {
+            anyhow::bail!("active canopy diagnostic received a standard frame command")
+        };
+        anyhow::ensure!(
+            self.transaction_revision == permit_revision
+                && self.previous_phase == permit_previous_phase,
+            "stale canopy audio frame command"
+        );
+        let CanopyAudioFrameEffect::Applied {
+            start_observation,
+            telemetry_counters,
+        } = effect
+        else {
+            return Ok(CanopyAudioFrameReceipt {
+                started: false,
+                phase_log: None,
+                telemetry: None,
+            });
+        };
+
+        self.previous_phase = self.start_time_seconds.map(|_| pose.phase);
+        let started = start_observation
+            .map(|observation| self.apply_start_observation(observation))
+            .transpose()?
+            .unwrap_or(false);
+        let telemetry = telemetry_counters.map(|counters| {
+            let counters = self
+                .counter_baseline
+                .map_or(counters, |baseline| counters.activity_since(baseline));
+            let marker = self.start_time_seconds.map_or(
+                AudioTelemetryMarker::WaitingForStart,
+                |start_time_seconds| {
+                    let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
+                    let phase =
+                        canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds).phase;
+                    AudioTelemetryMarker::Active(elapsed_seconds, phase)
+                },
+            );
+            CanopyAudioTelemetry { marker, counters }
+        });
+        self.transaction_revision = self.transaction_revision.wrapping_add(1);
+        Ok(CanopyAudioFrameReceipt {
+            started,
+            phase_log: active,
+            telemetry,
+        })
     }
 
-    pub(super) fn telemetry(
-        &self,
-        tree_origin_world: Vec3,
-        time_seconds: f32,
-        snapshot: &CanopyAudioTelemetrySnapshot,
-    ) -> CanopyAudioTelemetry {
-        let counters = self.counter_baseline.map_or_else(
-            || CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
-            |baseline| {
-                CanopyAudioDiagnosticCounters::from_snapshot(snapshot).activity_since(baseline)
-            },
-        );
-        let marker = self.start_time_seconds.map_or(
-            AudioTelemetryMarker::WaitingForStart,
-            |start_time_seconds| {
-                let elapsed_seconds = (time_seconds - start_time_seconds).max(0.0);
-                let phase = canopy_audio_diagnostic_pose(tree_origin_world, elapsed_seconds).phase;
-                AudioTelemetryMarker::Active(elapsed_seconds, phase)
-            },
-        );
-        CanopyAudioTelemetry { marker, counters }
+    fn apply_start_observation(
+        &mut self,
+        observation: CanopyAudioStartObservation,
+    ) -> anyhow::Result<bool> {
+        if self.start_time_seconds.is_some() {
+            return Ok(false);
+        }
+        if !observation.response_matches_published_scene {
+            self.acoustic_ready_since_seconds = None;
+            self.last_render_rejected_response_count = None;
+            return Ok(false);
+        }
+        if self.last_render_rejected_response_count
+            != Some(observation.render_rejected_response_count)
+        {
+            self.acoustic_ready_since_seconds = Some(observation.time_seconds);
+            self.last_render_rejected_response_count =
+                Some(observation.render_rejected_response_count);
+            return Ok(false);
+        }
+        let ready_since_seconds = self
+            .acoustic_ready_since_seconds
+            .unwrap_or(observation.time_seconds);
+        self.acoustic_ready_since_seconds = Some(ready_since_seconds);
+        let settled = observation.time_seconds >= ready_since_seconds
+            && observation.time_seconds - ready_since_seconds >= ACOUSTIC_SETTLE_SECONDS;
+        if settled {
+            self.start_time_seconds = Some(observation.time_seconds);
+            self.counter_baseline = Some(observation.counters);
+        }
+        Ok(settled)
     }
 }

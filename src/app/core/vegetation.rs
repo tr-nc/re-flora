@@ -1095,13 +1095,10 @@ impl App {
     pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
-        match self.launch_owners.canopy_audio_setup() {
-            super::launch_owners::CanopyAudioSetup::Disabled => {}
-            super::launch_owners::CanopyAudioSetup::Diagnostic { budget_stress } => {
-                self.log_canopy_audio_layout_comparison();
-                if budget_stress {
-                    self.plant_canopy_audio_budget_diagnostic_trees()?;
-                }
+        if let Some(budget_stress) = self.canopy_audio_budget_stress_tree_pending.take() {
+            self.log_canopy_audio_layout_comparison();
+            if budget_stress {
+                self.plant_canopy_audio_budget_diagnostic_trees()?;
             }
         }
         log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
