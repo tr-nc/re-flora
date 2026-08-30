@@ -18,6 +18,7 @@ from analyze_environment_irradiance_capture import (
     load_capture,
     summarize,
 )
+from validate_capture_process_evidence import FATAL_DIAGNOSTIC
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -65,10 +66,6 @@ AUTHORED_SCENE_MARKER = (
 LEGACY_V2_PROOF_SCOPE = (
     "fixed-command legacy-v2 final payload RGB and hit-mask difference only; "
     "does not prove world identity or capture-v8 reference correctness"
-)
-ERROR_MARKER = re.compile(
-    r"(^|[^A-Za-z])(ERROR|panic|VUID-|validation error|stale readback)",
-    re.IGNORECASE | re.MULTILINE,
 )
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
@@ -395,7 +392,7 @@ def validate_evidence(
                 )
                 if expected_capture_marker not in console_text:
                     failures.append(f"spacing {spacing}: {label} console lacks capture marker")
-                if ERROR_MARKER.search(console_text):
+                if FATAL_DIAGNOSTIC.search(console_text):
                     failures.append(f"spacing {spacing}: {label} console contains error marker")
 
     if evidence.get("overall_result") != "pass":

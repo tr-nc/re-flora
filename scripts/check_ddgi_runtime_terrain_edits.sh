@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+source "$repo_root/scripts/lib/capture_process_evidence.sh"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 auto_exit="${DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT:-60}"
 minimum_local_recovery_epoch="${DDGI_RUNTIME_TERRAIN_EDIT_MIN_RECOVERY_EPOCH:-4}"
 output_root="${DDGI_RUNTIME_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-runtime-terrain-edits}"
@@ -89,18 +91,10 @@ run_capture() {
     fi
 
     echo "[DDGI_RUNTIME_EDIT] state=$state spacing=$spacing view=$view label=$label"
-    set +e
-    RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
-    local command_status=${PIPESTATUS[0]}
-    set -e
-    if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing label=$label status=$command_status capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
-        return 1
-    fi
-    if grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback)' "$console"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing label=$label error marker in console" >&2
-        grep -Ei 'ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback' "$console" | tail -n 20 >&2 || true
+    if ! run_capture_with_process_evidence \
+        "$console" "$capture" "$capture_rust_log" \
+        --require-test-scene-startup -- "${command[@]}"; then
+        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing label=$label process evidence" >&2
         return 1
     fi
 }

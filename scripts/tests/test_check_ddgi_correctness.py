@@ -30,8 +30,10 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scripts = root / "scripts"
+            scripts_lib = scripts / "lib"
             fake_bin = root / "bin"
             scripts.mkdir()
+            scripts_lib.mkdir()
             fake_bin.mkdir()
 
             def executable(path: Path, contents: str) -> None:
@@ -39,6 +41,12 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
                 path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
             executable(scripts / RUNNER.name, RUNNER.read_text(encoding="utf-8"))
+            executable(
+                scripts_lib / "capture_process_evidence.sh",
+                (SCRIPTS / "lib" / "capture_process_evidence.sh").read_text(
+                    encoding="utf-8"
+                ),
+            )
             executable(
                 scripts / "validate_capture_process_evidence.py",
                 (SCRIPTS / "validate_capture_process_evidence.py").read_text(
@@ -64,7 +72,9 @@ for ((index = 0; index < ${#arguments[@]}; ++index)); do
         marker="[RUN_LOG] path=$run_log"
         events="[ENV_LIGHT_TEST] static terrain ready case=sealed terrain_revision=2 settling_frames=2
 [DDGI] initialization requested terrain_revision=2 spacing_voxels=32
-[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2"
+[ENV_LIGHT_TEST] first DDGI build verified build_token_serial=1 geometry_revision=2 visible_terrain_publication_revision=2
+[ENV_IRRADIANCE_CAPTURE] saved $capture
+[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
         run_log_extra=""
         console_extra=""
         if [[ "${FAKE_DIRTY_SOURCE:-}" == "runlog" ]]; then run_log_extra="VUID-dirty"; fi

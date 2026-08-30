@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+source "$repo_root/scripts/lib/capture_process_evidence.sh"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 
 output_root="${DDGI_LOCAL_TERRAIN_OUTPUT_DIR:-$repo_root/target/ddgi-local-terrain-convergence}"
 auto_exit="${DDGI_LOCAL_TERRAIN_AUTO_EXIT:-30}"
@@ -41,26 +43,16 @@ fi
 mkdir -p "$run_dir"
 cargo build --quiet --release --manifest-path "$repo_root/Cargo.toml"
 
-set +e
-RUST_LOG="warn,re_flora::tracer=debug,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-    "${command[@]}" >"$console" 2>&1
-command_status=$?
-set -e
-
 failures=0
 fail() {
     echo "[DDGI_LOCAL_TERRAIN] FAIL $*" >&2
     failures=$((failures + 1))
 }
 
-if (( command_status != 0 )); then
-    fail "runtime status=$command_status"
-fi
-if [[ ! -f "$capture" ]]; then
-    fail "capture missing path=$capture"
-fi
-if grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback)' "$console"; then
-    fail "runtime error marker"
+if ! run_capture_with_process_evidence \
+    "$console" "$capture" "$capture_rust_log" \
+    --require-test-scene-startup -- "${command[@]}"; then
+    fail "capture process evidence"
 fi
 
 initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"

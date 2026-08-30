@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+source "$repo_root/scripts/lib/capture_process_evidence.sh"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 auto_exit="${DDGI_INFLIGHT_EDIT_AUTO_EXIT:-12}"
 output_root="${DDGI_INFLIGHT_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-inflight-terrain-edits}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -43,11 +45,12 @@ run_case() {
     fi
 
     echo "[DDGI_INFLIGHT_EDIT] spacing=$spacing repeat=$repeat running"
-    set +e
-    RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
-    command_status=${PIPESTATUS[0]}
-    set -e
+    if ! run_capture_with_process_evidence \
+        "$console" "$capture" "$capture_rust_log" \
+        --require-test-scene-startup -- "${command[@]}"; then
+        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat process evidence" >&2
+        return 1
+    fi
 
     initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
     if [[ -z "$initial_revision" ]]; then
@@ -81,8 +84,8 @@ run_case() {
         echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat obsolete terrain revision $obsolete_revision became active" >&2
         return 1
     fi
-    if (( command_status != 0 || ${#missing[@]} != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat status=$command_status missing_markers=${#missing[@]} capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
+    if (( ${#missing[@]} != 0 )); then
+        echo "[DDGI_INFLIGHT_EDIT] FAIL spacing=$spacing repeat=$repeat missing_markers=${#missing[@]}" >&2
         for marker in "${missing[@]}"; do
             echo "[DDGI_INFLIGHT_EDIT] missing: $marker" >&2
         done

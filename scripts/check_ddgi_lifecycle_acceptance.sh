@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+source "$repo_root/scripts/lib/capture_process_evidence.sh"
+capture_rust_log="warn,re_flora::run_log_binding=info,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info"
 
 auto_exit="${DDGI_LIFECYCLE_AUTO_EXIT:-90}"
 output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-acceptance}"
@@ -74,18 +76,10 @@ run_hidden() {
         print_command "${command[@]}"
         return 0
     fi
-    set +e
-    RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
-        "${command[@]}" 2>&1 | tee "$console"
-    local command_status=${PIPESTATUS[0]}
-    set -e
-    if (( command_status != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_LIFECYCLE] FAIL group=$group status=$command_status capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
-        return 1
-    fi
-    if grep -Eiq '(^|[^[:alpha:]])(ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback)' "$console"; then
-        echo "[DDGI_LIFECYCLE] FAIL group=$group error marker in console" >&2
-        grep -Ei 'ERROR|panic|VUID-|validation error|destroyed descriptor|stale readback' "$console" | tail -n 20 >&2 || true
+    if ! run_capture_with_process_evidence \
+        "$console" "$capture" "$capture_rust_log" \
+        --require-test-scene-startup -- "${command[@]}"; then
+        echo "[DDGI_LIFECYCLE] FAIL group=$group process evidence" >&2
         return 1
     fi
 }
