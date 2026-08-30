@@ -23,6 +23,7 @@ on:
       - "shader/**"
       - "src/app/core/ddgi_spatial_weight_readback.rs"
       - "src/app/core/environment_*.rs"
+      - "src/app/core/environment_lighting_test_scene/**"
       - "src/app/core/mod.rs"
       - "src/cli.rs"
       - "src/ddgi/**"
@@ -51,6 +52,7 @@ on:
       - "shader/**"
       - "src/app/core/ddgi_spatial_weight_readback.rs"
       - "src/app/core/environment_*.rs"
+      - "src/app/core/environment_lighting_test_scene/**"
       - "src/app/core/mod.rs"
       - "src/cli.rs"
       - "src/ddgi/**"
@@ -210,11 +212,14 @@ jobs:
       - name: Check native Slang build
         run: cargo check --locked
 
-      - name: Run DDGI owner evidence codec tests
-        run: |
-          cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity
-          cargo test --locked ddgi::resources::tests::filter_
-          python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
+      - name: Test Rust DDGI evidence fixture producer
+        run: cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity
+
+      - name: Test DDGI raw evidence owners
+        run: cargo test --locked ddgi::resources::tests::filter_
+
+      - name: Decode Rust DDGI evidence fixture
+        run: python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py

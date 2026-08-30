@@ -14,6 +14,7 @@ REQUIRED_OWNER_PATHS = (
     "src/app/core/ddgi_spatial_weight_readback.rs",
     "src/app/core/environment_irradiance_capture.rs",
     "src/app/core/environment_lighting_test_scene.rs",
+    "src/app/core/environment_lighting_test_scene/local_light_scaling.rs",
     "src/app/core/mod.rs",
     "src/cli.rs",
     "src/ddgi/capture.rs",
@@ -64,7 +65,13 @@ def _route_patterns(lines: list[str], event: str) -> tuple[str, ...]:
 
 
 def _routes(patterns: tuple[str, ...], path: str) -> bool:
-    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+    routed = False
+    for pattern in patterns:
+        excluded = pattern.startswith("!")
+        candidate = pattern[1:] if excluded else pattern
+        if fnmatch.fnmatchcase(path, candidate):
+            routed = not excluded
+    return routed
 
 
 def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
@@ -86,34 +93,52 @@ def _step_blocks(lines: list[str], job: str) -> list[list[str]]:
     return steps
 
 
-def _statically_disabled(lines: list[str], indent: int) -> bool:
-    for line in lines:
-        if _indent(line) != indent or not line.strip().startswith("if:"):
+def _field(
+    lines: list[str], key: str, indent: int
+) -> tuple[str, tuple[str, ...]] | None:
+    prefix = f"{key}:"
+    for index, line in enumerate(lines):
+        if _indent(line) != indent or not line.strip().startswith(prefix):
             continue
         value = line.strip().split(":", 1)[1].split("#", 1)[0].strip()
-        if value.lower() in {"false", "'false'", '"false"', "${{ false }}"}:
-            return True
-    return False
-
-
-def _step_run_lines(step: list[str]) -> tuple[str, ...]:
-    if _statically_disabled(step, 8):
-        return ()
-    for index, line in enumerate(step):
-        if _indent(line) != 8 or not line.strip().startswith("run:"):
-            continue
-        value = line.strip().split(":", 1)[1].strip()
         if value not in {"|", ">", "|-", ">-"}:
-            return (value.strip('"\''),) if value else ()
-        commands: list[str] = []
-        for block_line in step[index + 1 :]:
-            if block_line.strip() and _indent(block_line) <= 8:
+            return "scalar", ((value.strip('"\''),) if value else ())
+        values: list[str] = []
+        for block_line in lines[index + 1 :]:
+            if block_line.strip() and _indent(block_line) <= indent:
                 break
-            command = block_line.strip()
-            if command and not command.startswith("#"):
-                commands.append(command)
-        return tuple(commands)
-    return ()
+            block_value = block_line.strip()
+            if block_value and not block_value.startswith("#"):
+                values.append(block_value)
+        return "block", tuple(values)
+    return None
+
+
+def _field_is_true(lines: list[str], key: str, indent: int) -> bool:
+    field = _field(lines, key, indent)
+    if field is None or len(field[1]) != 1:
+        return False
+    value = field[1][0].strip('"\'').lower()
+    return value in {"true", "${{ true }}"}
+
+
+def _statically_disabled(lines: list[str], indent: int) -> bool:
+    field = _field(lines, "if", indent)
+    if field is None or len(field[1]) != 1:
+        return False
+    value = field[1][0].strip('"\'').lower()
+    return value in {"false", "${{ false }}"}
+
+
+def _step_single_command(step: list[str]) -> str | None:
+    if _statically_disabled(step, 8):
+        return None
+    if _field_is_true(step, "continue-on-error", 8):
+        return None
+    run = _field(step, "run", 8)
+    if run is None or run[0] != "scalar" or len(run[1]) != 1:
+        return None
+    return run[1][0]
 
 
 def workflow_contract_failures(source: str) -> list[str]:
@@ -128,7 +153,7 @@ def workflow_contract_failures(source: str) -> list[str]:
     fedora_commands = {
         command
         for step in _step_blocks(lines, "fedora")
-        for command in _step_run_lines(step)
+        if (command := _step_single_command(step)) is not None
     }
     for command in REQUIRED_FEDORA_COMMANDS:
         if command not in fedora_commands:
