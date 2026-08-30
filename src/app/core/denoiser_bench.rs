@@ -237,16 +237,14 @@ pub(super) struct CameraDenoiserCommand {
 }
 
 impl CameraDenoiserCommand {
+    #[cfg(test)]
     pub(super) fn presentation(&self) -> CameraDenoiserPresentation {
         self.presentation
     }
 
     pub(super) fn into_run(self) -> DenoiserFrameRun {
         DenoiserFrameRun::Camera(CameraDenoiserRun {
-            capture: match self.presentation {
-                CameraDenoiserPresentation::Fixed { capture }
-                | CameraDenoiserPresentation::Scripted { capture, .. } => capture,
-            },
+            presentation: self.presentation,
             permit: self.permit,
         })
     }
@@ -259,13 +257,14 @@ pub(super) struct FoliageDenoiserCommand {
 }
 
 impl FoliageDenoiserCommand {
+    #[cfg(test)]
     pub(super) fn presentation(&self) -> FoliageDenoiserPresentation {
         self.presentation
     }
 
     pub(super) fn into_run(self) -> DenoiserFrameRun {
         DenoiserFrameRun::Foliage(FoliageDenoiserRun {
-            capture: self.presentation.capture,
+            presentation: self.presentation,
             permit: self.permit,
         })
     }
@@ -273,13 +272,13 @@ impl FoliageDenoiserCommand {
 
 #[derive(Debug)]
 pub(super) struct CameraDenoiserRun {
-    capture: DenoiserCaptureStep,
+    presentation: CameraDenoiserPresentation,
     permit: DenoiserFramePermit,
 }
 
 #[derive(Debug)]
 pub(super) struct FoliageDenoiserRun {
-    capture: DenoiserCaptureStep,
+    presentation: FoliageDenoiserPresentation,
     permit: DenoiserFramePermit,
 }
 
@@ -288,6 +287,19 @@ pub(super) enum DenoiserFrameRun {
     Inactive,
     Camera(CameraDenoiserRun),
     Foliage(FoliageDenoiserRun),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DenoiserUiStep {
+    Inactive,
+    CameraCapture,
+    FoliageStability,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DenoiserReadbackStep {
+    Skip,
+    Record,
 }
 
 impl DenoiserFrameCommand {
@@ -323,23 +335,91 @@ pub(super) enum DenoiserFrameCompletion {
 }
 
 impl DenoiserFrameRun {
+    pub(super) fn timeline(
+        &self,
+        realtime_frame_delta: f32,
+        time_since_start: f32,
+    ) -> FixedVisualFrame {
+        match self {
+            Self::Foliage(FoliageDenoiserRun { presentation, .. }) => presentation.timeline,
+            Self::Inactive | Self::Camera(_) => FixedVisualFrame {
+                frame_delta_seconds: realtime_frame_delta,
+                visual_time_seconds: time_since_start,
+            },
+        }
+    }
+
+    pub(super) fn camera_step(&self) -> CameraFrameMotion {
+        match self {
+            Self::Camera(CameraDenoiserRun {
+                presentation:
+                    CameraDenoiserPresentation::Scripted {
+                        capture_frame,
+                        is_last,
+                        ..
+                    },
+                ..
+            }) => CameraFrameMotion::Scripted {
+                capture_frame: *capture_frame,
+                is_last: *is_last,
+            },
+            Self::Inactive
+            | Self::Camera(CameraDenoiserRun {
+                presentation: CameraDenoiserPresentation::Fixed { .. },
+                ..
+            })
+            | Self::Foliage(_) => CameraFrameMotion::Fixed,
+        }
+    }
+
+    pub(super) fn ui_step(&self) -> DenoiserUiStep {
+        match self {
+            Self::Inactive => DenoiserUiStep::Inactive,
+            Self::Camera(_) => DenoiserUiStep::CameraCapture,
+            Self::Foliage(_) => DenoiserUiStep::FoliageStability,
+        }
+    }
+
+    pub(super) fn readback_step(&self) -> DenoiserReadbackStep {
+        let capture = match self {
+            Self::Inactive => DenoiserCaptureStep::Skip,
+            Self::Camera(CameraDenoiserRun { presentation, .. }) => match presentation {
+                CameraDenoiserPresentation::Fixed { capture }
+                | CameraDenoiserPresentation::Scripted { capture, .. } => *capture,
+            },
+            Self::Foliage(FoliageDenoiserRun { presentation, .. }) => presentation.capture,
+        };
+        match capture {
+            DenoiserCaptureStep::Skip => DenoiserReadbackStep::Skip,
+            DenoiserCaptureStep::Record { .. } => DenoiserReadbackStep::Record,
+        }
+    }
+
     pub(super) fn complete(self, readback: DenoiserReadbackOutcome) -> DenoiserFrameCompletion {
         match self {
             Self::Inactive => DenoiserFrameCompletion::Inactive(readback),
-            Self::Camera(CameraDenoiserRun { capture, permit }) => {
+            Self::Camera(CameraDenoiserRun {
+                presentation,
+                permit,
+            }) => {
+                let capture = match presentation {
+                    CameraDenoiserPresentation::Fixed { capture }
+                    | CameraDenoiserPresentation::Scripted { capture, .. } => capture,
+                };
                 DenoiserFrameCompletion::Camera {
                     capture,
                     permit,
                     readback,
                 }
             }
-            Self::Foliage(FoliageDenoiserRun { capture, permit }) => {
-                DenoiserFrameCompletion::Foliage {
-                    capture,
-                    permit,
-                    readback,
-                }
-            }
+            Self::Foliage(FoliageDenoiserRun {
+                presentation,
+                permit,
+            }) => DenoiserFrameCompletion::Foliage {
+                capture: presentation.capture,
+                permit,
+                readback,
+            },
         }
     }
 }

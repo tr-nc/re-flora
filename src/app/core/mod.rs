@@ -42,9 +42,8 @@ use self::camera_control::{CameraControlRuntime, ORBIT_CAMERA_DEFAULT_FOCUS};
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
 use self::ddgi_spatial_weight_readback::DdgiSpatialWeightReadbackRuntime;
 use self::denoiser_bench::{
-    CameraDenoiserPresentation, CameraFrameMotion, DenoiserCaptureStep, DenoiserFrameCommand,
-    DenoiserReadbackOutcome, FoliageDenoiserPresentation, CAMERA_FORWARD_PER_FRAME_WORLD,
-    CAMERA_STRAFE_PER_FRAME_WORLD, CAMERA_YAW_PER_FRAME_RADIANS,
+    CameraFrameMotion, DenoiserReadbackOutcome, DenoiserReadbackStep, DenoiserUiStep,
+    CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD, CAMERA_YAW_PER_FRAME_RADIANS,
 };
 use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
@@ -2276,66 +2275,11 @@ impl App {
 
                 let time_since_start = self.time_info.time_since_start();
                 let realtime_frame_delta = self.time_info.delta_time();
-                let (
-                    denoiser_frame,
-                    frame_delta_time,
-                    visual_time_since_start,
-                    camera_motion,
-                    denoiser_active,
-                    foliage_stability_bench,
-                    denoiser_capture_requested,
-                ) = match self.launch_owners.begin_denoiser_frame() {
-                    DenoiserFrameCommand::Inactive => (
-                        DenoiserFrameCommand::Inactive.into_run(),
-                        realtime_frame_delta,
-                        time_since_start,
-                        CameraFrameMotion::Fixed,
-                        false,
-                        false,
-                        false,
-                    ),
-                    DenoiserFrameCommand::Camera(command) => {
-                        let presentation = command.presentation();
-                        let (capture, motion) = match presentation {
-                            CameraDenoiserPresentation::Fixed { capture } => {
-                                (capture, CameraFrameMotion::Fixed)
-                            }
-                            CameraDenoiserPresentation::Scripted {
-                                capture,
-                                capture_frame,
-                                is_last,
-                            } => (
-                                capture,
-                                CameraFrameMotion::Scripted {
-                                    capture_frame,
-                                    is_last,
-                                },
-                            ),
-                        };
-                        (
-                            command.into_run(),
-                            realtime_frame_delta,
-                            time_since_start,
-                            motion,
-                            true,
-                            false,
-                            matches!(capture, DenoiserCaptureStep::Record { .. }),
-                        )
-                    }
-                    DenoiserFrameCommand::Foliage(command) => {
-                        let FoliageDenoiserPresentation { capture, timeline } =
-                            command.presentation();
-                        (
-                            command.into_run(),
-                            timeline.frame_delta_seconds,
-                            timeline.visual_time_seconds,
-                            CameraFrameMotion::Fixed,
-                            true,
-                            true,
-                            matches!(capture, DenoiserCaptureStep::Record { .. }),
-                        )
-                    }
-                };
+                let denoiser_frame = self.launch_owners.begin_denoiser_frame().into_run();
+                let denoiser_timeline =
+                    denoiser_frame.timeline(realtime_frame_delta, time_since_start);
+                let frame_delta_time = denoiser_timeline.frame_delta_seconds;
+                let visual_time_since_start = denoiser_timeline.visual_time_seconds;
 
                 if self.terrain_persistence.allows_world_updates()
                     && self.player_tools.continuous_hold_active()
@@ -2566,8 +2510,10 @@ impl App {
                     .launch_owners
                     .test_scene_frame_plan()
                     .owns_capture_scene()
-                    && (self.launch_owners.screenshot().is_scheduled() || denoiser_active);
-                let hide_ui_for_frame_stability_bench = foliage_stability_bench;
+                    && (self.launch_owners.screenshot().is_scheduled()
+                        || !matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive));
+                let hide_ui_for_frame_stability_bench =
+                    matches!(denoiser_frame.ui_step(), DenoiserUiStep::FoliageStability);
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -3340,7 +3286,7 @@ impl App {
                 }
                 self.process_water_experience_scene();
 
-                self.apply_denoiser_benchmark_camera_motion(camera_motion);
+                self.apply_denoiser_benchmark_camera_motion(denoiser_frame.camera_step());
 
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
@@ -4268,22 +4214,23 @@ impl App {
                     &frame,
                     screenshot_readiness,
                 );
-                let mut denoiser_frame_readback =
-                    if screenshot_readback.is_none() && denoiser_capture_requested {
-                        Some(
-                            PendingDenoiserFrame::record(
-                                &self.tracer,
-                                &self.vulkan_ctx,
-                                &self.swapchain,
-                                &frame,
-                            )
-                            .unwrap_or_else(|err| {
-                                panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
-                            }),
+                let mut denoiser_frame_readback = if screenshot_readback.is_none()
+                    && matches!(denoiser_frame.readback_step(), DenoiserReadbackStep::Record)
+                {
+                    Some(
+                        PendingDenoiserFrame::record(
+                            &self.tracer,
+                            &self.vulkan_ctx,
+                            &self.swapchain,
+                            &frame,
                         )
-                    } else {
-                        None
-                    };
+                        .unwrap_or_else(|err| {
+                            panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
+                        }),
+                    )
+                } else {
+                    None
+                };
 
                 if let Some(scope) = frame_gpu_scope {
                     if let Some(profiler) = self.gpu_profiler.as_mut() {
