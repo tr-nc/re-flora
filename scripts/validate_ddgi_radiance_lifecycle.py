@@ -28,13 +28,25 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def require_v9_capture(
+def require_v10_capture(
     capture: analyzer.Capture, checkpoint: str, failures: list[str]
 ) -> None:
-    require(capture.version == 9, f"{checkpoint}: capture is not v9", failures)
+    require(capture.version == 10, f"{checkpoint}: capture is not v10", failures)
     require(
-        capture.filter_evidence is not None,
-        f"{checkpoint}: owner-generated filter evidence is missing",
+        capture.filter_evidence is not None
+        and capture.grid_dimensions is not None
+        and capture.configured_history_retention_q16 is not None,
+        f"{checkpoint}: v10 DDGI filter proof is incomplete",
+        failures,
+    )
+
+
+def require_required_planes_finite(
+    capture: analyzer.Capture, checkpoint: str, failures: list[str]
+) -> None:
+    require(
+        analyzer.required_capture_planes_finite(capture),
+        f"{checkpoint}: required capture planes contain non-finite values",
         failures,
     )
 
@@ -69,7 +81,8 @@ def validate(
     for checkpoint in CHECKPOINTS:
         capture = captures[checkpoint]
         identity = identities[checkpoint]
-        require_v9_capture(capture, checkpoint, failures)
+        require_v10_capture(capture, checkpoint, failures)
+        require_required_planes_finite(capture, checkpoint, failures)
         require(
             capture.spacing_voxels == spacing_voxels,
             f"{checkpoint}: spacing is not {spacing_voxels}",
@@ -87,7 +100,7 @@ def validate(
         )
         require(
             field_matches_capture(identity["active_field"], capture),
-            f"{checkpoint}: sidecar active field does not match v9 header",
+            f"{checkpoint}: sidecar active field does not match v10 header",
             failures,
         )
 

@@ -77,7 +77,7 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         self.assertIn("walls-spacing32-exact-irradiance.rfirr --max-reference-error-p99 0.40", output)
         self.assertIn("walls-spacing16-exact-irradiance.rfirr --max-reference-error-p99 0.375", output)
         self.assertIn(
-            "equal-weight-irradiance.rfirr --correctness --expect-version 9 "
+            "equal-weight-irradiance.rfirr --correctness --expect-version 10 "
             "--require-nonnegative-rgb --expect-debug-view equal-weight-irradiance "
             "--reference",
             output,

@@ -278,7 +278,7 @@ check_captures() {
     fi
     local analysis=(
         "$repo_root/scripts/analyze_environment_irradiance_capture.py"
-        "$first" --correctness --expect-version 9
+        "$first" --correctness --expect-version 10
         --compare "$second" --reference "$reference" "${thresholds[@]}"
     )
     if [[ "$state" == "sequential-reopened" ]]; then
@@ -315,7 +315,7 @@ check_inflight_stale_active_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --compare-direct-light --expect-version 9 \
+        "$first" --compare "$second" --compare-direct-light --expect-version 10 \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \

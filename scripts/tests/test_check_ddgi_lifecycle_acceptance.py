@@ -69,8 +69,8 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
         self.assertIn("--environment-irradiance-capture-target e0", output)
         self.assertIn("[DDGI_LIFECYCLE] dry-run complete scenarios=3", output)
         runner_source = RUNNER.read_text()
-        self.assertNotIn("--expect-version 8", runner_source)
-        self.assertEqual(runner_source.count("--expect-version 9"), 2)
+        self.assertNotIn("--expect-version 9", runner_source)
+        self.assertEqual(runner_source.count("--expect-version 10"), 2)
 
     def test_rejects_unknown_arguments_without_running_cargo(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
