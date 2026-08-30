@@ -63,10 +63,15 @@ impl WaterExperienceOwner {
         *self = Self::Active(WaterExperienceScene::new(expected_particle_count));
     }
 
-    fn waiting_particle_count(&self) -> Option<usize> {
+    fn progress(&self) -> WaterProgress {
         match self {
-            Self::Pending => None,
-            Self::Active(scene) => scene.waiting_particle_count(),
+            Self::Pending => WaterProgress::ExperiencePending,
+            Self::Active(scene) => scene.waiting_particle_count().map_or(
+                WaterProgress::ExperienceReady,
+                |expected_particle_count| WaterProgress::ExperienceWaiting {
+                    expected_particle_count,
+                },
+            ),
         }
     }
 
@@ -112,6 +117,21 @@ pub(super) enum LoadingDirective {
     Garden,
     WaterExperience,
     House,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WaterProgress {
+    Inactive,
+    ExperiencePending,
+    ExperienceWaiting { expected_particle_count: usize },
+    ExperienceReady,
+    EditSoak { step: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CanopyAudioMode {
+    Disabled,
+    Diagnostic { budget_stress: bool },
 }
 
 pub(super) enum TestSceneEvent<'a> {
@@ -180,39 +200,6 @@ pub(super) enum FoliageCaptureEventMut<'a> {
     Active(&'a mut DenoiserBench),
 }
 
-pub(super) enum WaterEvent<'a> {
-    None,
-    Experience(&'a WaterExperienceOwner),
-    EditSoak(&'a WaterEditSoak),
-}
-
-impl WaterEvent<'_> {
-    pub(super) fn waiting_particle_count(&self) -> Option<usize> {
-        match self {
-            Self::None | Self::EditSoak(_) => None,
-            Self::Experience(owner) => owner.waiting_particle_count(),
-        }
-    }
-
-    pub(super) fn edit_soak_step(&self) -> Option<usize> {
-        match self {
-            Self::None | Self::Experience(_) => None,
-            Self::EditSoak(owner) => Some(owner.current_step()),
-        }
-    }
-}
-
-pub(super) enum WaterEventMut<'a> {
-    None,
-    Experience(&'a mut WaterExperienceOwner),
-    EditSoak(&'a mut WaterEditSoak),
-}
-
-pub(super) enum AudioEvent<'a> {
-    None,
-    Canopy(&'a mut CanopyAudioDiagnosticRuntime),
-}
-
 pub(super) enum AudioTelemetryMarker {
     NotDiagnostic,
     WaitingForStart,
@@ -264,44 +251,41 @@ impl ConnectivityEvent<'_> {
     }
 }
 
-impl AudioEvent<'_> {
-    pub(super) fn is_canopy_diagnostic(&self) -> bool {
+impl DiagnosticScenarioOwner {
+    fn canopy_audio_mode(&self) -> CanopyAudioMode {
         match self {
-            Self::None => false,
-            Self::Canopy(_) => true,
+            Self::CanopyAudio(runtime) => CanopyAudioMode::Diagnostic {
+                budget_stress: runtime.budget_stress(),
+            },
+            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => CanopyAudioMode::Disabled,
         }
     }
 
-    pub(super) fn budget_stress(&self) -> bool {
-        match self {
-            Self::None => false,
-            Self::Canopy(runtime) => runtime.budget_stress(),
-        }
-    }
-
-    pub(super) fn trajectory_sample(
+    fn sample_canopy_audio_trajectory(
         &mut self,
         tree_origin_world: glam::Vec3,
         time_seconds: f32,
     ) -> AudioTrajectorySample {
         match self {
-            Self::None => AudioTrajectorySample::NotDiagnostic,
-            Self::Canopy(runtime) => runtime.sample(tree_origin_world, time_seconds).map_or(
+            Self::CanopyAudio(runtime) => runtime.sample(tree_origin_world, time_seconds).map_or(
                 AudioTrajectorySample::WaitingForStart,
                 |(pose, elapsed, changed)| AudioTrajectorySample::Active(pose, elapsed, changed),
             ),
+            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
+                AudioTrajectorySample::NotDiagnostic
+            }
         }
     }
 
-    pub(super) fn start_when_acoustics_are_ready(
+    fn start_canopy_audio_when_ready(
         &mut self,
         time_seconds: f32,
         response_matches_published_scene: bool,
         snapshot: &CanopyAudioTelemetrySnapshot,
     ) -> bool {
         let runtime = match self {
-            Self::None => return false,
-            Self::Canopy(runtime) => runtime,
+            Self::CanopyAudio(runtime) => runtime,
+            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => return false,
         };
         if runtime.started()
             || !runtime.observe_acoustic_readiness(
@@ -316,57 +300,70 @@ impl AudioEvent<'_> {
         true
     }
 
-    pub(super) fn telemetry_marker(
+    fn canopy_audio_telemetry_marker(
         &self,
         tree_origin_world: glam::Vec3,
         time_seconds: f32,
     ) -> AudioTelemetryMarker {
         match self {
-            Self::None => AudioTelemetryMarker::NotDiagnostic,
-            Self::Canopy(runtime) => runtime
+            Self::CanopyAudio(runtime) => runtime
                 .telemetry_marker(tree_origin_world, time_seconds)
                 .map_or(AudioTelemetryMarker::WaitingForStart, |(elapsed, phase)| {
                     AudioTelemetryMarker::Active(elapsed, phase)
                 }),
+            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
+                AudioTelemetryMarker::NotDiagnostic
+            }
         }
     }
 
-    pub(super) fn counters(
+    fn canopy_audio_counters(
         &self,
         snapshot: &CanopyAudioTelemetrySnapshot,
     ) -> CanopyAudioDiagnosticCounters {
         match self {
-            Self::None => CanopyAudioDiagnosticCounters::from_snapshot(snapshot),
-            Self::Canopy(runtime) => runtime
+            Self::CanopyAudio(runtime) => runtime
                 .counters(snapshot)
                 .unwrap_or_else(|| CanopyAudioDiagnosticCounters::from_snapshot(snapshot)),
+            Self::TerrainConnectivity(_) | Self::FoliageShadow(_) => {
+                CanopyAudioDiagnosticCounters::from_snapshot(snapshot)
+            }
         }
     }
 }
 
-impl WaterEventMut<'_> {
-    pub(super) fn activate_experience(&mut self, expected_particle_count: usize) {
+impl WaterScenarioOwner {
+    fn progress(&self) -> WaterProgress {
+        match self {
+            Self::Experience(owner) => owner.progress(),
+            Self::EditSoak(owner) => WaterProgress::EditSoak {
+                step: owner.current_step(),
+            },
+        }
+    }
+
+    fn activate_experience(&mut self, expected_particle_count: usize) {
         match self {
             Self::Experience(owner) => owner.activate(expected_particle_count),
-            Self::None | Self::EditSoak(_) => {
+            Self::EditSoak(_) => {
                 panic!("only a water-experience scenario can be activated")
             }
         }
     }
 
-    pub(super) fn mark_experience_ready(&mut self) {
+    fn mark_experience_ready(&mut self) {
         match self {
             Self::Experience(owner) => owner.mark_ready(),
-            Self::None | Self::EditSoak(_) => {
+            Self::EditSoak(_) => {
                 panic!("only a water-experience scenario can become ready")
             }
         }
     }
 
-    pub(super) fn advance_edit_soak(&mut self) -> bool {
+    fn advance_edit_soak(&mut self) -> bool {
         match self {
             Self::EditSoak(owner) => owner.advance(),
-            Self::None | Self::Experience(_) => false,
+            Self::Experience(_) => false,
         }
     }
 }
@@ -433,34 +430,100 @@ impl ScenarioOwner {
         }
     }
 
-    pub(super) fn water_event(&self) -> WaterEvent<'_> {
+    pub(super) fn water_progress(&self) -> WaterProgress {
         match self {
-            Self::Water(WaterScenarioOwner::Experience(owner)) => WaterEvent::Experience(owner),
-            Self::Water(WaterScenarioOwner::EditSoak(owner)) => WaterEvent::EditSoak(owner),
-            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => WaterEvent::None,
+            Self::Water(owner) => owner.progress(),
+            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => WaterProgress::Inactive,
         }
     }
 
-    pub(super) fn water_event_mut(&mut self) -> WaterEventMut<'_> {
+    pub(super) fn activate_water_experience(&mut self, expected_particle_count: usize) {
         match self {
-            Self::Water(WaterScenarioOwner::Experience(owner)) => WaterEventMut::Experience(owner),
-            Self::Water(WaterScenarioOwner::EditSoak(owner)) => WaterEventMut::EditSoak(owner),
-            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => WaterEventMut::None,
-        }
-    }
-
-    pub(super) fn audio_event(&mut self) -> AudioEvent<'_> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::CanopyAudio(runtime)) => {
-                AudioEvent::Canopy(runtime)
+            Self::Water(owner) => owner.activate_experience(expected_particle_count),
+            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => {
+                panic!("only a water-experience scenario can be activated")
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::TerrainConnectivity(_)
-                | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => AudioEvent::None,
+        }
+    }
+
+    pub(super) fn mark_water_experience_ready(&mut self) {
+        match self {
+            Self::Water(owner) => owner.mark_experience_ready(),
+            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => {
+                panic!("only a water-experience scenario can become ready")
+            }
+        }
+    }
+
+    pub(super) fn advance_water_edit_soak(&mut self) -> bool {
+        match self {
+            Self::Water(owner) => owner.advance_edit_soak(),
+            Self::World(_) | Self::TestScene(_) | Self::Diagnostic(_) => false,
+        }
+    }
+
+    pub(super) fn canopy_audio_mode(&self) -> CanopyAudioMode {
+        match self {
+            Self::Diagnostic(owner) => owner.canopy_audio_mode(),
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => CanopyAudioMode::Disabled,
+        }
+    }
+
+    pub(super) fn sample_canopy_audio_trajectory(
+        &mut self,
+        tree_origin_world: glam::Vec3,
+        time_seconds: f32,
+    ) -> AudioTrajectorySample {
+        match self {
+            Self::Diagnostic(owner) => {
+                owner.sample_canopy_audio_trajectory(tree_origin_world, time_seconds)
+            }
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
+                AudioTrajectorySample::NotDiagnostic
+            }
+        }
+    }
+
+    pub(super) fn start_canopy_audio_when_ready(
+        &mut self,
+        time_seconds: f32,
+        response_matches_published_scene: bool,
+        snapshot: &CanopyAudioTelemetrySnapshot,
+    ) -> bool {
+        match self {
+            Self::Diagnostic(owner) => owner.start_canopy_audio_when_ready(
+                time_seconds,
+                response_matches_published_scene,
+                snapshot,
+            ),
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => false,
+        }
+    }
+
+    pub(super) fn canopy_audio_telemetry_marker(
+        &self,
+        tree_origin_world: glam::Vec3,
+        time_seconds: f32,
+    ) -> AudioTelemetryMarker {
+        match self {
+            Self::Diagnostic(owner) => {
+                owner.canopy_audio_telemetry_marker(tree_origin_world, time_seconds)
+            }
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
+                AudioTelemetryMarker::NotDiagnostic
+            }
+        }
+    }
+
+    pub(super) fn canopy_audio_counters(
+        &self,
+        snapshot: &CanopyAudioTelemetrySnapshot,
+    ) -> CanopyAudioDiagnosticCounters {
+        match self {
+            Self::Diagnostic(owner) => owner.canopy_audio_counters(snapshot),
+            Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
+                CanopyAudioDiagnosticCounters::from_snapshot(snapshot)
+            }
         }
     }
 
@@ -804,10 +867,7 @@ mod tests {
     #[test]
     fn non_diagnostic_scenarios_never_request_the_canopy_camera_pose() {
         let mut garden = owner_for(Scenario::Garden);
-        match garden
-            .audio_event()
-            .trajectory_sample(glam::Vec3::ZERO, 1.0)
-        {
+        match garden.sample_canopy_audio_trajectory(glam::Vec3::ZERO, 1.0) {
             AudioTrajectorySample::NotDiagnostic => {}
             AudioTrajectorySample::WaitingForStart | AudioTrajectorySample::Active(_, _, _) => {
                 panic!("garden must not participate in canopy camera automation")
@@ -817,15 +877,30 @@ mod tests {
         let mut canopy = owner_for(Scenario::CanopyAudioDiagnostic {
             constrained_budget: false,
         });
-        match canopy
-            .audio_event()
-            .trajectory_sample(glam::Vec3::ZERO, 1.0)
-        {
+        match canopy.sample_canopy_audio_trajectory(glam::Vec3::ZERO, 1.0) {
             AudioTrajectorySample::WaitingForStart => {}
             AudioTrajectorySample::NotDiagnostic | AudioTrajectorySample::Active(_, _, _) => {
                 panic!("unstarted canopy diagnostic must hold its initial camera pose")
             }
         }
+    }
+
+    #[test]
+    fn water_progress_is_an_owned_closed_port() {
+        let experience = owner_for(Scenario::WaterExperience);
+        assert_eq!(
+            experience.water_progress(),
+            WaterProgress::ExperiencePending
+        );
+
+        let edit_soak = owner_for(Scenario::WaterEditSoak);
+        assert_eq!(
+            edit_soak.water_progress(),
+            WaterProgress::EditSoak { step: 0 }
+        );
+
+        let garden = owner_for(Scenario::Garden);
+        assert_eq!(garden.water_progress(), WaterProgress::Inactive);
     }
 
     #[test]

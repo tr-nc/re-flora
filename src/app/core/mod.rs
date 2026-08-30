@@ -704,8 +704,7 @@ impl App {
     fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
         let trajectory = self
             .scenario_owner
-            .audio_event()
-            .trajectory_sample(self.debug_tree_pos, time_seconds);
+            .sample_canopy_audio_trajectory(self.debug_tree_pos, time_seconds);
         let (pose, active_sample) = match trajectory {
             launch_owners::AudioTrajectorySample::NotDiagnostic => return,
             launch_owners::AudioTrajectorySample::WaitingForStart => {
@@ -737,16 +736,12 @@ impl App {
         let Some(snapshot) = self.tree_audio_manager.canopy_telemetry_snapshot() else {
             return;
         };
-        if !self
-            .scenario_owner
-            .audio_event()
-            .start_when_acoustics_are_ready(
-                time_seconds,
-                self.spatial_sound_manager
-                    .acoustic_response_matches_published_scene(),
-                &snapshot,
-            )
-        {
+        if !self.scenario_owner.start_canopy_audio_when_ready(
+            time_seconds,
+            self.spatial_sound_manager
+                .acoustic_response_matches_published_scene(),
+            &snapshot,
+        ) {
             return;
         }
         log::info!(
@@ -763,8 +758,7 @@ impl App {
         }
         let trajectory_marker = match self
             .scenario_owner
-            .audio_event()
-            .telemetry_marker(self.debug_tree_pos, time_seconds)
+            .canopy_audio_telemetry_marker(self.debug_tree_pos, time_seconds)
         {
             launch_owners::AudioTelemetryMarker::NotDiagnostic => None,
             launch_owners::AudioTelemetryMarker::WaitingForStart => return,
@@ -779,7 +773,7 @@ impl App {
             return;
         };
         self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
-        let counters = self.scenario_owner.audio_event().counters(&snapshot);
+        let counters = self.scenario_owner.canopy_audio_counters(&snapshot);
         let emitter_count = snapshot
             .samples
             .iter()
@@ -1187,10 +1181,10 @@ impl App {
             launch_owners::TestSceneEvent::Environment(scene) => Some(scene.case()),
             launch_owners::TestSceneEvent::None | launch_owners::TestSceneEvent::Hybrid(_) => None,
         };
-        let canopy_audio_diagnostic = scenario_owner
-            .audio_event()
-            .is_canopy_diagnostic()
-            .then(|| scenario_owner.audio_event().budget_stress());
+        let canopy_audio_diagnostic = match scenario_owner.canopy_audio_mode() {
+            launch_owners::CanopyAudioMode::Disabled => None,
+            launch_owners::CanopyAudioMode::Diagnostic { budget_stress } => Some(budget_stress),
+        };
         let water_experience =
             scenario_owner.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
         let hybrid_transparency = match scenario_owner.test_scene_event() {
@@ -1538,9 +1532,7 @@ impl App {
             cells_per_unit,
         );
         if water_experience {
-            scenario_owner
-                .water_event_mut()
-                .activate_experience(water_config.particle_count);
+            scenario_owner.activate_water_experience(water_config.particle_count);
         }
         let water_sim = water::AsyncWaterSim::new(water_config);
         let water_terrain = water::WaterTerrainRuntime::new();
@@ -2514,12 +2506,12 @@ impl App {
                 }
                 let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources =
-                    if self.scenario_owner.audio_event().is_canopy_diagnostic() {
+                let active_wind_sources = match self.scenario_owner.canopy_audio_mode() {
+                    launch_owners::CanopyAudioMode::Diagnostic { .. } => {
                         &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
-                    } else {
-                        &configured_wind_sources
-                    };
+                    }
+                    launch_owners::CanopyAudioMode::Disabled => &configured_wind_sources,
+                };
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
                     active_wind_sources,

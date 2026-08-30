@@ -78,7 +78,9 @@ impl App {
         let Some(render_start) = self.render_start_time else {
             return;
         };
-        let Some(current_step) = self.scenario_owner.water_event().edit_soak_step() else {
+        let super::super::launch_owners::WaterProgress::EditSoak { step: current_step } =
+            self.scenario_owner.water_progress()
+        else {
             return;
         };
         let Some(step) = water_edit_soak_step(current_step) else {
@@ -100,7 +102,7 @@ impl App {
                 err,
             );
         }
-        if self.scenario_owner.water_event_mut().advance_edit_soak() {
+        if self.scenario_owner.advance_water_edit_soak() {
             log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
         }
     }
