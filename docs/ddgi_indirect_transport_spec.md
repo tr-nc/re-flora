@@ -171,7 +171,9 @@ matrix construction and emits the current-analyzer command at each canonical ana
 Dry-run and production use the same call sites; only the canonical wrapper changes execution into
 emission, while transport's narrow execution-policy helper selects an output sink around one
 analyzer invocation. That proves the maintained normal-entry inventory, not arbitrary Bash
-control-flow reachability.
+control-flow reachability. The source tripwire additionally rejects canonical analysis execution
+under a syntactic `dry_run` `if`/`elif`/`else` chain, and behavioral dry-run tests require an
+unchanged whole repository tree plus zero `cargo` or Re: Flora binary launches.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

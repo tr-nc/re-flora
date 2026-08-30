@@ -164,6 +164,24 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
                         [],
                     )
 
+    def test_indented_function_closing_brace_ends_scope(self) -> None:
+        runner_name = "check_ddgi_inflight_terrain_edits.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        mutated = source.replace(
+            '    echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing repeat=$repeat active revision skipped $obsolete_revision and reached $replacement_revision"\n'
+            "    fi\n"
+            "}\n\n"
+            'for spacing in "${spacings[@]}"; do',
+            '    echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing repeat=$repeat active revision skipped $obsolete_revision and reached $replacement_revision"\n'
+            "    fi\n"
+            "    }\n\n"
+            'for spacing in "${spacings[@]}"; do',
+            1,
+        )
+        self.assertEqual(
+            production_runner_invocation_failures(runner_name, mutated), []
+        )
+
     def test_runner_dependency_inventory_closes_over_all_production_helpers(self) -> None:
         sources = {
             runner.name: runner.read_text(encoding="utf-8")

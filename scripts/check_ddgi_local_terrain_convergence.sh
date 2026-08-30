@@ -128,7 +128,7 @@ if ! $dry_run && [[ -n "$final_revision" ]]; then
 fi
 
 analysis_output=/dev/null
-if [[ "$dry_run" == true || -f "$capture" ]] && ! analyze_current_capture \
+if ! analyze_current_capture \
     "$capture" --max-luminance 0.00005 >"$analysis_output"; then
     fail "closed scene retained stale light"
 fi

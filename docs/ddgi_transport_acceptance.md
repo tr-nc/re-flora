@@ -43,16 +43,24 @@ source-wiring tripwire for that controlled form; it does not claim to interpret 
 The typed current-only CLI behavior above is the schema seal.
 The tripwire owns an exact per-runner, per-function invocation inventory for all seven production
 runners and rejects missing canonical call sites, unexpected helper scopes, or later function
-overrides. It does not prove reachability through arbitrary Bash control flow. Each runner's
+overrides. Its deliberately narrow structural parser also rejects canonical analysis execution
+inside any `if`/`elif`/`else` chain whose condition names `dry_run`; this closes dry-only execution
+bypasses without claiming general Bash reachability. Each runner's
 `--dry-run` is the executable normal-entry contract: it emits every current-analyzer command that
 the corresponding production matrix would execute, and the behavioral tests pin those per-runner
-command counts and representative branch arguments without creating capture files or directories.
+command counts and representative branch arguments. A whole-tree manifest proves no filesystem
+side effects, while `cargo` and the Cargo package binary are shadowed by fail-fast sentinels to
+prove dry-run launches neither the build tool nor the app.
 
 Three ownership seams were compared. Extending a regex or custom shell lexer was rejected because
 it cannot establish the executed argv. Parsing a complete shell AST was rejected because dynamic
 evaluation still prevents a general static proof and would add a large dependency surface. The
 selected seam is the production-only current-schema entry above: all analysis behavior remains in
 the deep analyzer module, while the production interface makes schema selection unrepresentable.
+For dry-run parity specifically, line-local regex expansion was rejected because it cannot see an
+outer conditional; centralizing every capture/file policy behind one helper was rejected because
+it would widen that helper beyond analysis execution. The selected narrow conditional-stack seam
+tracks only the repository's controlled function and `if`/`elif`/`else` structure.
 
 The shader-validation workflow contract likewise uses a fail-closed path-filter subset. It
 supports literals, `*`, and `**` (including zero-directory `**/`) with ordered `!` exclusions; any

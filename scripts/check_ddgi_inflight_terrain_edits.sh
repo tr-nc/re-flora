@@ -117,9 +117,8 @@ for spacing in "${spacings[@]}"; do
     first="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat1.rfirr"
     second="$run_dir/terrain-edits-inflight-spacing${spacing}-repeat2.rfirr"
     analysis_output=/dev/null
-    if [[ "$dry_run" == true || ( -f "$first" && -f "$second" ) ]] && \
-            analyze_current_capture \
-                "$first" --compare "$second" --compare-direct-light >"$analysis_output"; then
+    if analyze_current_capture \
+        "$first" --compare "$second" --compare-direct-light >"$analysis_output"; then
         if ! $dry_run; then
             echo "[DDGI_INFLIGHT_EDIT] PASS spacing=$spacing deterministic final captures"
         fi

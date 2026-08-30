@@ -14,7 +14,8 @@ from collections import Counter
 CURRENT_ENTRY = "analyze_current_environment_irradiance_capture.py"
 COMPATIBILITY_ENTRY = "analyze_environment_irradiance_capture.py"
 FUNCTION_INVOCATION = re.compile(
-    r"^\s*(?:(?:if|elif)\b.*?\s!\s+)?analyze_current_capture(?:\s|$)"
+    r"^\s*(?:(?:if|elif)\s+(?:!\s+)?)?"
+    r"analyze_current_capture(?:\s|$)"
 )
 SHELL_FUNCTION = re.compile(
     r"^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_]*)"
@@ -137,6 +138,12 @@ def production_runner_invocation_failures(
             "runner current-schema invocation inventory differs from "
             f"{expected_inventory}"
         )
+    dry_run_controlled = _dry_run_controlled_analysis_calls(runner_name, lines)
+    if dry_run_controlled:
+        failures.append(
+            "runner current-schema analysis execution is controlled by dry_run at "
+            + ", ".join(dry_run_controlled)
+        )
     if runner_name == "check_ddgi_transport_acceptance.sh" and not (
         _scope_lines(lines, "run_analysis")
         and sum(
@@ -183,22 +190,86 @@ def production_evidence_dependencies(sources: dict[str, str]) -> frozenset[str]:
 
 def _invocation_inventory(lines: list[str]) -> dict[str, int]:
     counts: Counter[str] = Counter()
-    function_scope: str | None = None
-    for line in lines:
-        function_name = _shell_function_name(line)
-        if function_name is not None:
-            function_scope = function_name
-            continue
-        if line == "}" and function_scope is not None:
-            function_scope = None
-            continue
+    scopes = _function_scopes(lines)
+    for line, function_scope in zip(lines, scopes, strict=True):
         if (
-            function_scope != "analyze_current_capture"
+            _shell_function_name(line) is None
+            and function_scope != "analyze_current_capture"
             and not line.lstrip().startswith("#")
             and FUNCTION_INVOCATION.match(line) is not None
         ):
             counts[function_scope or TOP_LEVEL] += 1
     return dict(counts)
+
+
+def _dry_run_controlled_analysis_calls(
+    runner_name: str, lines: list[str]
+) -> list[str]:
+    """Reject canonical analysis execution nested in a dry-run conditional chain."""
+    frames: list[dict[str, object]] = []
+    recorded_calls: list[tuple[int, str | None, tuple[dict[str, object], ...]]] = []
+    scopes = _function_scopes(lines)
+    previous_scope: str | None = None
+    dry_run_token = re.compile(r"\$(?:dry_run\b|\{dry_run\})")
+    analyzer_call = re.compile(r"\banalyze_current_capture(?:\s|$)")
+    transport_execution = re.compile(r"\bexecute_analysis(?:\s|$)")
+
+    for line_number, (line, function_scope) in enumerate(
+        zip(lines, scopes, strict=True), 1
+    ):
+        if function_scope != previous_scope:
+            frames = []
+            previous_scope = function_scope
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if re.match(r"^fi(?:\s*;|\s*$)", stripped):
+            if frames:
+                frames.pop()
+            continue
+
+        if re.match(r"^elif\b", stripped) and (
+            "then" in stripped or stripped.endswith("\\")
+        ):
+            if frames:
+                frames[-1]["in_condition"] = "then" not in stripped
+                if dry_run_token.search(stripped):
+                    frames[-1]["dry_run"] = True
+        elif re.match(r"^else(?:\s*;|\s*$)", stripped):
+            pass
+        elif re.match(r"^if\b", stripped) and (
+            "then" in stripped or stripped.endswith("\\")
+        ):
+            frames.append(
+                {
+                    "dry_run": dry_run_token.search(stripped) is not None,
+                    "in_condition": "then" not in stripped,
+                }
+            )
+        elif frames and bool(frames[-1]["in_condition"]):
+            if dry_run_token.search(stripped):
+                frames[-1]["dry_run"] = True
+            if "then" in stripped:
+                frames[-1]["in_condition"] = False
+
+        is_analysis_call = analyzer_call.search(stripped) is not None
+        if runner_name == "check_ddgi_transport_acceptance.sh":
+            is_analysis_call = is_analysis_call or (
+                transport_execution.search(stripped) is not None
+            )
+        if (
+            _shell_function_name(line) is None
+            and function_scope != "analyze_current_capture"
+            and is_analysis_call
+        ):
+            recorded_calls.append((line_number, function_scope, tuple(frames)))
+
+    violations: list[str] = []
+    for line_number, scope, active_frames in recorded_calls:
+        if any(bool(frame["dry_run"]) for frame in active_frames):
+            violations.append(f"{scope or TOP_LEVEL}:{line_number}")
+    return violations
 
 
 def _shell_function_name(line: str) -> str | None:
@@ -208,19 +279,39 @@ def _shell_function_name(line: str) -> str | None:
     return function.group(1) or function.group(2)
 
 
-def _scope_lines(lines: list[str], scope: str) -> list[str]:
-    inside = False
-    body: list[str] = []
+def _function_scopes(lines: list[str]) -> list[str | None]:
+    scopes: list[str | None] = []
+    function_scope: str | None = None
+    group_depth = 0
     for line in lines:
         function_name = _shell_function_name(line)
         if function_name is not None:
-            inside = function_name == scope
+            function_scope = function_name
+            group_depth = 0
+            scopes.append(None)
             continue
-        if inside and re.fullmatch(r"\s*}\s*", line):
-            return body
-        if inside:
-            body.append(line)
-    return []
+        stripped = line.strip()
+        if function_scope is not None and re.search(r"(?:\|\||&&)\s*\{$", stripped):
+            group_depth += 1
+        elif function_scope is not None and stripped == "}":
+            if group_depth:
+                group_depth -= 1
+            else:
+                function_scope = None
+                scopes.append(None)
+                continue
+        scopes.append(function_scope)
+    return scopes
+
+
+def _scope_lines(lines: list[str], scope: str) -> list[str]:
+    return [
+        line
+        for line, function_scope in zip(
+            lines, _function_scopes(lines), strict=True
+        )
+        if function_scope == scope
+    ]
 
 
 def _canonical_function_is_sealed(lines: list[str], definition: int) -> bool:
