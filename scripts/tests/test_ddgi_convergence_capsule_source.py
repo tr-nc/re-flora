@@ -177,8 +177,9 @@ def find_sequence(tokens: list[RustToken], values: tuple[str, ...], start=0, end
 
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
-    runtime = production_tokens(sources[RUNTIME])
-    tracer = production_tokens(sources[TRACER])
+    token_sets = {path: production_tokens(source) for path, source in sources.items()}
+    runtime = token_sets[RUNTIME]
+    tracer = token_sets[TRACER]
 
     module = find_sequence(runtime, ("mod", MODULE, "{"))
     if any(token.value == "pub" for token in runtime[max(0, module - 5) : module]):
@@ -189,7 +190,7 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     def struct_position(type_name: str, start: int, end: int) -> int:
         return find_sequence(runtime, ("struct", type_name), start, end)
 
-    def rejects_debug(type_name: str, start: int, end: int) -> None:
+    def rejects_debug_derive(type_name: str, start: int, end: int) -> None:
         position = struct_position(type_name, start, end)
         declaration_start = max(
             (
@@ -204,25 +205,54 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
             for token in runtime[declaration_start:position]
         ):
             raise AssertionError(f"{type_name} must not derive Debug")
-        for index in range(start + 1, end):
-            if runtime[index].value != type_name or runtime[index - 1].value != "for":
+    rejects_debug_derive("DdgiBatchCompletion", 0, module)
+    for type_name in ("Pending", "Evidence"):
+        rejects_debug_derive(type_name, module_open, module_close)
+
+    sensitive_types = {"DdgiBatchCompletion", "Pending", "Evidence"}
+    for path, tokens in token_sets.items():
+        for index, token in enumerate(tokens):
+            if token.value != "impl":
                 continue
-            impl = max(
+            header_close = next(
                 (
                     position
-                    for position in range(start, index)
-                    if runtime[position].value == "impl"
+                    for position in range(index + 1, len(tokens))
+                    if tokens[position].value == "{"
                 ),
-                default=start,
+                None,
             )
-            if any(token.value == "Debug" for token in runtime[impl:index]):
-                raise AssertionError(f"{type_name} must not expose Debug")
-
-    rejects_debug("DdgiBatchCompletion", 0, module)
-    for type_name in ("Pending", "Evidence"):
-        rejects_debug(type_name, module_open, module_close)
-    if any(token.value in ("Debug", "Display") for token in runtime[module_open:module_close]):
-        raise AssertionError("private evidence representation must not expose formatting traits")
+            if header_close is None:
+                raise AssertionError(f"unterminated impl header in {path}")
+            header = tokens[index + 1 : header_close]
+            for_positions = [
+                position for position, item in enumerate(header) if item.value == "for"
+            ]
+            if not for_positions:
+                continue
+            split = for_positions[-1]
+            target_end = next(
+                (
+                    position
+                    for position in range(split + 1, len(header))
+                    if header[position].value == "where"
+                ),
+                len(header),
+            )
+            trait = next(
+                (item.value for item in reversed(header[:split]) if item.kind == "IDENT"),
+                "",
+            )
+            target = next(
+                (
+                    item.value
+                    for item in reversed(header[split + 1 : target_end])
+                    if item.kind == "IDENT"
+                ),
+                "",
+            )
+            if trait in ("Debug", "Display") and target in sensitive_types:
+                raise AssertionError(f"{path} exposes {target} through {trait}")
 
     evidence_field = find_sequence(
         runtime,
@@ -293,31 +323,107 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
         index for index in range(emit, pending_impl_close) if runtime[index].value == "{"
     )
     emit_close = matching(runtime, emit_open, "{", "}")
-    sinks = [
-        index
-        for index in range(module_open, module_close - 4)
-        if tuple(token.value for token in runtime[index : index + 5])
-        == ("log", ":", ":", "debug", "!")
+    emit_body = [token.value for token in runtime[emit_open + 1 : emit_close]]
+    expected_emit_body = [
+        "if",
+        "log",
+        ":",
+        ":",
+        "log_enabled",
+        "!",
+        "(",
+        "target",
+        ":",
+        "TARGET",
+        ",",
+        "log",
+        ":",
+        ":",
+        "Level",
+        ":",
+        ":",
+        "Debug",
+        ")",
+        "{",
+        "for",
+        "line",
+        "in",
+        "self",
+        ".",
+        "0",
+        ".",
+        "lines",
+        "(",
+        ")",
+        "{",
+        "log",
+        ":",
+        ":",
+        "debug",
+        "!",
+        "(",
+        "target",
+        ":",
+        "TARGET",
+        ",",
+        "{line}",
+        ")",
+        ";",
+        "}",
+        "}",
     ]
-    if len(sinks) != 1 or not emit_open < sinks[0] < emit_close:
-        raise AssertionError("private emitter must own the child module's unique log sink")
-    find_sequence(
-        runtime,
-        ("for", "line", "in", "self", ".", "0", ".", "lines", "(", ")", "{"),
-        emit_open,
-        emit_close,
-    )
-    find_sequence(
-        runtime,
-        ("log", ":", ":", "debug", "!", "(", "target", ":", "TARGET"),
-        emit_open,
-        emit_close,
-    )
-    if not any(
-        token.kind == "STRING" and token.value == "{line}"
-        for token in runtime[sinks[0] : emit_close]
-    ):
-        raise AssertionError("private log sink must emit each exact evidence line")
+    if emit_body != expected_emit_body:
+        raise AssertionError("private emitter must match the canonical debug-gated sink body")
+
+    target_literal = "re_flora::ddgi_convergence_evidence"
+    target_literals = [
+        (path, index)
+        for path, tokens in token_sets.items()
+        for index, token in enumerate(tokens)
+        if token.kind == "STRING" and token.value == target_literal
+    ]
+    if len(target_literals) != 1 or target_literals[0][0] != RUNTIME:
+        raise AssertionError("private child module must uniquely own the convergence log target")
+    if not module_open < target_literals[0][1] < module_close:
+        raise AssertionError("convergence log target escaped the private child module")
+
+    marker_literals = [
+        (path, index)
+        for path, tokens in token_sets.items()
+        for index, token in enumerate(tokens)
+        if token.kind == "STRING" and "[DDGI_CONVERGENCE_EVIDENCE]" in token.value
+    ]
+    if len(marker_literals) != 2 or any(path != RUNTIME for path, _ in marker_literals):
+        raise AssertionError("private child module must uniquely own both evidence markers")
+    if any(not module_open < index < module_close for _, index in marker_literals):
+        raise AssertionError("convergence evidence marker escaped the private child module")
+
+    targeted_sinks = []
+    for path, tokens in token_sets.items():
+        for index in range(len(tokens) - 5):
+            if (
+                tokens[index].value == "log"
+                and tokens[index + 1].value == ":"
+                and tokens[index + 2].value == ":"
+                and tokens[index + 3].value in ("trace", "debug", "info", "warn", "error")
+                and tokens[index + 4].value == "!"
+                and tokens[index + 5].value == "("
+            ):
+                close = matching(tokens, index + 5, "(", ")")
+                arguments = tokens[index + 6 : close]
+                has_target = any(
+                    arguments[position].value == "target"
+                    and arguments[position + 1].value == ":"
+                    and arguments[position + 2].value == "TARGET"
+                    for position in range(len(arguments) - 2)
+                ) or any(
+                    item.kind == "STRING" and item.value == target_literal
+                    for item in arguments
+                )
+                if has_target:
+                    targeted_sinks.append((path, index, tokens[index + 3].value))
+    if targeted_sinks != [(RUNTIME, find_sequence(runtime, ("log", ":", ":", "debug", "!"), emit_open, emit_close), "debug")]:
+        raise AssertionError("convergence target must have one canonical private debug sink")
 
     complete = find_sequence(runtime, ("fn", "complete_pending_batch", "("))
     complete_open = next(
@@ -327,6 +433,21 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     forbidden = {COMMIT, "emit"}
     if any(token.value in forbidden for token in runtime[complete_open:complete_close]):
         raise AssertionError("completion may prepare evidence but cannot commit or emit it")
+
+    commit_calls = []
+    for path, tokens in token_sets.items():
+        for index in range(2, len(tokens) - 1):
+            if tokens[index].value != COMMIT or tokens[index + 1].value != "(":
+                continue
+            if tokens[index - 1].value == ".":
+                commit_calls.append((path, index, "member", tokens[index - 2].value))
+            elif tokens[index - 1].value == ":" and tokens[index - 2].value == ":":
+                close = matching(tokens, index + 1, "(", ")")
+                arguments = tuple(item.value for item in tokens[index + 2 : close])
+                target = tokens[index - 3].value if index >= 3 else ""
+                commit_calls.append((path, index, "ufcs", (target, arguments)))
+    if len(commit_calls) != 1 or commit_calls[0][0] != TRACER:
+        raise AssertionError("commit capability must have one global Tracer call")
 
     pending = find_sequence(
         tracer,
@@ -363,32 +484,18 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
         raise AssertionError("batch block must bind exactly one runtime completion")
     binding, assignment_end = candidates[0]
 
-    dot_calls = [
-        (index, matching(tracer, index + 1, "(", ")"))
-        for index in range(batch_open + 2, batch_close - 1)
-        if tracer[index].value == COMMIT
-        and tracer[index - 1].value == "."
-        and tracer[index - 2].value == binding
-        and tracer[index + 1].value == "("
-    ]
-    ufcs_calls = []
-    for index in range(batch_open, batch_close - 9):
-        if tuple(token.value for token in tracer[index : index + 6]) == (
-            "DdgiBatchCompletion",
-            ":",
-            ":",
-            COMMIT,
-            "(",
-            "&",
-        ):
-            call_close = matching(tracer, index + 4, "(", ")")
-            arguments = tuple(token.value for token in tracer[index + 5 : call_close])
-            if arguments == ("&", "mut", binding):
-                ufcs_calls.append((index + 3, call_close))
-    calls = dot_calls + ufcs_calls
-    if len(calls) != 1:
-        raise AssertionError("Tracer must commit its bound completion exactly once")
-    commit, call_close = calls[0]
+    _, commit, call_kind, receiver = commit_calls[0]
+    if call_kind == "member":
+        if receiver != binding:
+            raise AssertionError("Tracer committed a different completion receiver")
+        call_close = matching(tracer, commit + 1, "(", ")")
+    else:
+        target, arguments = receiver
+        if target != "DdgiBatchCompletion" or arguments != ("&", "mut", binding):
+            raise AssertionError("Tracer UFCS commit must consume its bound completion")
+        call_close = matching(tracer, commit + 1, "(", ")")
+    if not batch_open < commit < batch_close:
+        raise AssertionError("canonical commit must remain in the batch block")
 
     local_light = find_sequence(
         tracer,
@@ -498,9 +605,77 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 "                pending.emit();", "                decoy.emit();", 1
             ),
             "missing-emit": sources[RUNTIME].replace("                pending.emit();", "", 1),
+            "parent-helper-early-member-commit": sources[RUNTIME]
+            + "\nfn parent_commit(mut alias: DdgiBatchCompletion) {\n"
+            "    alias.commit_convergence_evidence();\n"
+            "}\n",
+            "parent-helper-early-ufcs-commit": sources[RUNTIME]
+            + "\nfn parent_commit(mut alias: DdgiBatchCompletion) {\n"
+            "    DdgiBatchCompletion::commit_convergence_evidence(&mut alias);\n"
+            "}\n",
+            "manual-debug-completion": sources[RUNTIME]
+            + "\nimpl std::fmt::Debug for DdgiBatchCompletion {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\n",
+            "manual-debug-pending": sources[RUNTIME]
+            + "\nimpl std::fmt::Debug for convergence_evidence::Pending {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\n",
+            "manual-debug-evidence": sources[RUNTIME]
+            + "\nimpl std::fmt::Debug for convergence_evidence::Evidence {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\n",
+            "manual-display-pending": sources[RUNTIME]
+            + "\nimpl std::fmt::Display for convergence_evidence::Pending {\n"
+            "    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { todo!() }\n"
+            "}\n",
+            "extra-target-outside-child": sources[RUNTIME]
+            + '\nconst EXTRA_TARGET: &str = "re_flora::ddgi_convergence_evidence";\n',
+            "extra-marker-outside-child": sources[RUNTIME]
+            + '\nconst EXTRA_MARKER: &str = "[DDGI_CONVERGENCE_EVIDENCE] decoy";\n',
         }
         for name, runtime in boundary_mutations.items():
             with self.subTest(name=name):
+                mutated = dict(sources)
+                mutated[RUNTIME] = runtime
+                with self.assertRaises(AssertionError):
+                    audit_convergence_evidence(mutated)
+
+        emitter_mutations = {
+            "disabled-gate": sources[RUNTIME].replace(
+                "if log::log_enabled!(target: TARGET, log::Level::Debug) {", "if false {", 1
+            ),
+            "outer-loop": sources[RUNTIME].replace(
+                "            if log::log_enabled!(target: TARGET, log::Level::Debug) {",
+                "            for _ in 0..2 {\n"
+                "                if log::log_enabled!(target: TARGET, log::Level::Debug) {",
+                1,
+            ).replace(
+                "                }\n            }\n        }\n    }\n\n    impl Evidence",
+                "                }\n                }\n            }\n        }\n    }\n\n    impl Evidence",
+                1,
+            ),
+            "zero-sink": sources[RUNTIME].replace(
+                '                    log::debug!(target: TARGET, "{line}");',
+                "                    let _ = line;",
+                1,
+            ),
+            "double-sink": sources[RUNTIME].replace(
+                '                    log::debug!(target: TARGET, "{line}");',
+                '                    log::debug!(target: TARGET, "{line}");\n'
+                '                    log::debug!(target: TARGET, "{line}");',
+                1,
+            ),
+            "second-target-sink": sources[RUNTIME].replace(
+                '                    log::debug!(target: TARGET, "{line}");',
+                '                    log::debug!(target: TARGET, "{line}");\n'
+                '                    log::info!(target: TARGET, "{line}");',
+                1,
+            ),
+        }
+        for name, runtime in emitter_mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(runtime, sources[RUNTIME])
                 mutated = dict(sources)
                 mutated[RUNTIME] = runtime
                 with self.assertRaises(AssertionError):

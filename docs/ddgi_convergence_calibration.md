@@ -64,6 +64,8 @@ Tracer cannot reconstruct its count or terminal identity. Child-module Rust test
 one-line Published and ordered two-line Converged results. The Python source tripwire reads only
 `src/ddgi/runtime.rs` and `src/tracer/mod.rs`; it is deliberately limited to the private capability,
 single child log sink, same-receiver consuming commit, and canonical commit-last position.
+The private emitter checks that its dedicated target is enabled at Debug level before constructing
+the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 
 The convergence summarizer independently parses both the capture console and its preserved,
 process-bound `.run.log`, then requires byte-semantic equality of the policy, ordered validation
