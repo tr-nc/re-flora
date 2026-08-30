@@ -68,6 +68,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
+use crate::environment_lighting::ResolvedLightingFrameInputs;
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
@@ -1998,15 +1999,10 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
-        frame_serial_idx: u32,
+        lighting_frame: &ResolvedLightingFrameInputs,
         local_lights: &LocalLightSnapshot,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
-        dither_strength_lsb: f32,
-        raster_flora_ddgi_lighting: bool,
-        path_tracing_reference: bool,
-        path_tracing_max_bounces: u32,
-        path_tracing_ambient_light: Vec3,
         terrain_ray_origin_offset_world: f32,
         ddgi_receiver_visibility_bias_world: f32,
         ddgi_history_retention: f32,
@@ -2096,6 +2092,12 @@ impl Tracer {
         terrain_edit_preview_color: Vec3,
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
+        let frame_serial_idx = lighting_frame.sampling_serial();
+        let dither_strength_lsb = lighting_frame.dither_strength_lsb();
+        let raster_flora_ddgi_lighting = lighting_frame.raster_flora_ddgi_lighting();
+        let path_tracing_reference = lighting_frame.path_tracing_reference();
+        let path_tracing_max_bounces = lighting_frame.path_tracing_max_bounces();
+        let path_tracing_ambient_light = lighting_frame.path_tracing_ambient_light();
         self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,

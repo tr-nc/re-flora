@@ -1,3 +1,4 @@
+use crate::environment_lighting::ResolvedLightingFrameInputs;
 use crate::tracer::{LightingModeProductionLayers, LightingModeProductionReadback, Tracer};
 use crate::LightingModeAcceptanceOptions;
 use anyhow::{Context, Result};
@@ -33,13 +34,13 @@ pub(super) struct EffectiveLightingControls {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum PlannedFrameValue<T> {
+enum PlannedFrameValue<T> {
     Live,
     Fixed(T),
 }
 
 impl<T: Copy> PlannedFrameValue<T> {
-    pub(super) const fn resolve(self, live: T) -> T {
+    const fn resolve(self, live: T) -> T {
         match self {
             Self::Live => live,
             Self::Fixed(value) => value,
@@ -47,43 +48,138 @@ impl<T: Copy> PlannedFrameValue<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(super) struct LightingModeAcceptanceFramePlan {
-    pub visual_time_seconds: PlannedFrameValue<f32>,
-    pub frame_delta_seconds: PlannedFrameValue<f32>,
-    pub time_of_day: PlannedFrameValue<f32>,
-    pub sampling_serial: PlannedFrameValue<u32>,
-    pub dither_strength_lsb: PlannedFrameValue<f32>,
-    pub path_tracing_max_bounces: PlannedFrameValue<u32>,
-    pub path_tracing_ambient_light: PlannedFrameValue<[f32; 3]>,
-    pub lighting_controls: PlannedFrameValue<EffectiveLightingControls>,
+    timing: PlannedFrameTiming,
+    lighting: PlannedLightingFrameInputs,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PlannedFrameTiming {
+    visual_time_seconds: PlannedFrameValue<f32>,
+    frame_delta_seconds: PlannedFrameValue<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PlannedLightingFrameInputs {
+    time_of_day: PlannedFrameValue<f32>,
+    sampling_serial: PlannedFrameValue<u32>,
+    dither_strength_lsb: PlannedFrameValue<f32>,
+    path_tracing_max_bounces: PlannedFrameValue<u32>,
+    path_tracing_ambient_light: PlannedFrameValue<[f32; 3]>,
+    lighting_controls: PlannedFrameValue<EffectiveLightingControls>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LiveFrameTiming {
+    pub visual_time_seconds: f32,
+    pub frame_delta_seconds: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ResolvedFrameTiming {
+    pub visual_time_seconds: f32,
+    pub frame_delta_seconds: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LiveLightingFrameInputs {
+    pub time_of_day: f32,
+    pub sampling_serial: u32,
+    pub dither_strength_lsb: f32,
+    pub path_tracing_max_bounces: u32,
+    pub path_tracing_ambient_light: [f32; 3],
+    pub lighting_controls: EffectiveLightingControls,
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) struct LightingModeAcceptanceRenderPlan {
+    lighting: PlannedLightingFrameInputs,
 }
 
 impl LightingModeAcceptanceFramePlan {
     fn live() -> Self {
         Self {
-            visual_time_seconds: PlannedFrameValue::Live,
-            frame_delta_seconds: PlannedFrameValue::Live,
-            time_of_day: PlannedFrameValue::Live,
-            sampling_serial: PlannedFrameValue::Live,
-            dither_strength_lsb: PlannedFrameValue::Live,
-            path_tracing_max_bounces: PlannedFrameValue::Live,
-            path_tracing_ambient_light: PlannedFrameValue::Live,
-            lighting_controls: PlannedFrameValue::Live,
+            timing: PlannedFrameTiming {
+                visual_time_seconds: PlannedFrameValue::Live,
+                frame_delta_seconds: PlannedFrameValue::Live,
+            },
+            lighting: PlannedLightingFrameInputs {
+                time_of_day: PlannedFrameValue::Live,
+                sampling_serial: PlannedFrameValue::Live,
+                dither_strength_lsb: PlannedFrameValue::Live,
+                path_tracing_max_bounces: PlannedFrameValue::Live,
+                path_tracing_ambient_light: PlannedFrameValue::Live,
+                lighting_controls: PlannedFrameValue::Live,
+            },
         }
     }
 
     fn fixed(controls: EffectiveLightingControls) -> Self {
         Self {
-            visual_time_seconds: PlannedFrameValue::Fixed(FIXED_VISUAL_TIME_SECONDS),
-            frame_delta_seconds: PlannedFrameValue::Fixed(0.0),
-            time_of_day: PlannedFrameValue::Fixed(FIXED_TIME_OF_DAY),
-            sampling_serial: PlannedFrameValue::Fixed(FIXED_SAMPLING_SERIAL),
-            dither_strength_lsb: PlannedFrameValue::Fixed(0.0),
-            path_tracing_max_bounces: PlannedFrameValue::Fixed(2),
-            path_tracing_ambient_light: PlannedFrameValue::Fixed([0.0; 3]),
-            lighting_controls: PlannedFrameValue::Fixed(controls),
+            timing: PlannedFrameTiming {
+                visual_time_seconds: PlannedFrameValue::Fixed(FIXED_VISUAL_TIME_SECONDS),
+                frame_delta_seconds: PlannedFrameValue::Fixed(0.0),
+            },
+            lighting: PlannedLightingFrameInputs {
+                time_of_day: PlannedFrameValue::Fixed(FIXED_TIME_OF_DAY),
+                sampling_serial: PlannedFrameValue::Fixed(FIXED_SAMPLING_SERIAL),
+                dither_strength_lsb: PlannedFrameValue::Fixed(0.0),
+                path_tracing_max_bounces: PlannedFrameValue::Fixed(2),
+                path_tracing_ambient_light: PlannedFrameValue::Fixed([0.0; 3]),
+                lighting_controls: PlannedFrameValue::Fixed(controls),
+            },
         }
+    }
+
+    pub(super) fn resolve_timing(
+        self,
+        live: LiveFrameTiming,
+    ) -> (ResolvedFrameTiming, LightingModeAcceptanceRenderPlan) {
+        (
+            ResolvedFrameTiming {
+                visual_time_seconds: self
+                    .timing
+                    .visual_time_seconds
+                    .resolve(live.visual_time_seconds),
+                frame_delta_seconds: self
+                    .timing
+                    .frame_delta_seconds
+                    .resolve(live.frame_delta_seconds),
+            },
+            LightingModeAcceptanceRenderPlan {
+                lighting: self.lighting,
+            },
+        )
+    }
+}
+
+impl LightingModeAcceptanceRenderPlan {
+    pub(super) fn resolve_lighting(
+        self,
+        live: LiveLightingFrameInputs,
+    ) -> ResolvedLightingFrameInputs {
+        let controls = self
+            .lighting
+            .lighting_controls
+            .resolve(live.lighting_controls);
+        ResolvedLightingFrameInputs::from_acceptance_resolution(
+            self.lighting.time_of_day.resolve(live.time_of_day),
+            self.lighting.sampling_serial.resolve(live.sampling_serial),
+            self.lighting
+                .dither_strength_lsb
+                .resolve(live.dither_strength_lsb),
+            controls.raster_flora_ddgi_lighting(),
+            controls.path_tracing_reference(),
+            self.lighting
+                .path_tracing_max_bounces
+                .resolve(live.path_tracing_max_bounces),
+            glam::Vec3::from_array(
+                self.lighting
+                    .path_tracing_ambient_light
+                    .resolve(live.path_tracing_ambient_light),
+            ),
+        )
     }
 }
 
@@ -575,19 +671,30 @@ mod tests {
     }
 
     fn resolve(plan: LightingModeAcceptanceFramePlan, live: FrameInputs) -> FrameInputs {
+        let (timing, render_plan) = plan.resolve_timing(LiveFrameTiming {
+            visual_time_seconds: live.visual_time_seconds,
+            frame_delta_seconds: live.frame_delta_seconds,
+        });
+        let lighting = render_plan.resolve_lighting(LiveLightingFrameInputs {
+            time_of_day: live.time_of_day,
+            sampling_serial: live.sampling_serial,
+            dither_strength_lsb: live.dither_strength_lsb,
+            path_tracing_max_bounces: live.path_tracing_max_bounces,
+            path_tracing_ambient_light: live.path_tracing_ambient_light,
+            lighting_controls: live.lighting_controls,
+        });
         FrameInputs {
-            visual_time_seconds: plan.visual_time_seconds.resolve(live.visual_time_seconds),
-            frame_delta_seconds: plan.frame_delta_seconds.resolve(live.frame_delta_seconds),
-            time_of_day: plan.time_of_day.resolve(live.time_of_day),
-            sampling_serial: plan.sampling_serial.resolve(live.sampling_serial),
-            dither_strength_lsb: plan.dither_strength_lsb.resolve(live.dither_strength_lsb),
-            path_tracing_max_bounces: plan
-                .path_tracing_max_bounces
-                .resolve(live.path_tracing_max_bounces),
-            path_tracing_ambient_light: plan
-                .path_tracing_ambient_light
-                .resolve(live.path_tracing_ambient_light),
-            lighting_controls: plan.lighting_controls.resolve(live.lighting_controls),
+            visual_time_seconds: timing.visual_time_seconds,
+            frame_delta_seconds: timing.frame_delta_seconds,
+            time_of_day: lighting.time_of_day(),
+            sampling_serial: lighting.sampling_serial(),
+            dither_strength_lsb: lighting.dither_strength_lsb(),
+            path_tracing_max_bounces: lighting.path_tracing_max_bounces(),
+            path_tracing_ambient_light: lighting.path_tracing_ambient_light().to_array(),
+            lighting_controls: EffectiveLightingControls::from_gui(
+                lighting.path_tracing_reference(),
+                lighting.raster_flora_ddgi_lighting(),
+            ),
         }
     }
 
@@ -706,8 +813,30 @@ mod tests {
     #[test]
     fn production_app_constructs_one_plan_and_has_no_primitive_runtime_bypass() {
         let core = include_str!("mod.rs");
+        let tracer = include_str!("../../tracer/mod.rs");
 
         assert_eq!(core.matches(".frame_plan(").count(), 1);
+        assert_eq!(core.matches(".resolve_timing(").count(), 1);
+        assert_eq!(core.matches(".resolve_lighting(").count(), 1);
+        assert!(!core.contains("from_acceptance_resolution("));
+        let update_signature = tracer
+            .split("pub fn update_buffers(")
+            .nth(1)
+            .unwrap()
+            .split(") -> Result<()>")
+            .next()
+            .unwrap();
+        assert!(update_signature.contains("lighting_frame: &ResolvedLightingFrameInputs"));
+        for bypassed_capability in [
+            "frame_serial_idx: u32",
+            "dither_strength_lsb: f32",
+            "raster_flora_ddgi_lighting: bool",
+            "path_tracing_reference: bool",
+            "path_tracing_max_bounces: u32",
+            "path_tracing_ambient_light: Vec3",
+        ] {
+            assert!(!update_signature.contains(bypassed_capability));
+        }
         for removed_primitive in [
             "effective_controls(",
             "fixed_visual_time_seconds(",
