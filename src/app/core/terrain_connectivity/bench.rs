@@ -581,19 +581,31 @@ struct VisualSpawnResult {
 }
 
 impl ScenarioOwner {
+    fn dispatch_connectivity<R>(
+        &mut self,
+        operation: impl for<'owner> FnOnce(Option<&'owner mut TerrainConnectivityBench>) -> R,
+    ) -> R {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                operation(Some(bench))
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => operation(None),
+        }
+    }
+
     fn plan_connectivity_action(
         &mut self,
         facts: ConnectivityFacts,
     ) -> anyhow::Result<ConnectivityAction> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.next_action(facts)
-            }
-            Self::World(_) | Self::Water(_) | Self::TestScene(_) => Ok(ConnectivityAction::None),
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => Ok(ConnectivityAction::None),
-        }
+        self.dispatch_connectivity(|bench| match bench {
+            Some(bench) => bench.next_action(facts),
+            None => Ok(ConnectivityAction::None),
+        })
     }
 
     fn apply_connectivity_execution(
@@ -604,8 +616,8 @@ impl ScenarioOwner {
         let manual_release_handled = matches!(&result, ConnectivityResult::ManualReleaseHandled(_));
         let observation_requested =
             matches!(&result, ConnectivityResult::CompletedFrameObserved { .. });
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+        self.dispatch_connectivity(|bench| match bench {
+            Some(bench) => {
                 bench.apply_result(result)?;
                 Ok(ConnectivityEffect {
                     manual_release_handled,
@@ -614,17 +626,11 @@ impl ScenarioOwner {
                         && bench.options.mode != TerrainConnectivityBenchMode::Manual,
                 })
             }
-            Self::World(_) | Self::Water(_) | Self::TestScene(_) => {
+            None => {
                 ensure_inactive_connectivity_result(result)?;
                 Ok(ConnectivityEffect::default())
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            ) => {
-                ensure_inactive_connectivity_result(result)?;
-                Ok(ConnectivityEffect::default())
-            }
-        }
+        })
     }
 
     pub(in crate::app::core) fn record_connectivity_gpu_submission(
@@ -632,17 +638,11 @@ impl ScenarioOwner {
         frame_slot: usize,
         frame: u64,
     ) {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+        self.dispatch_connectivity(|bench| {
+            if let Some(bench) = bench {
                 bench.record_gpu_submission(frame_slot, frame);
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => {}
-        }
+        });
     }
 
     pub(in crate::app::core) fn observe_connectivity_gpu_completion(
@@ -650,69 +650,39 @@ impl ScenarioOwner {
         frame_slot: usize,
         results: &GpuProfilerFrameResults,
     ) {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+        self.dispatch_connectivity(|bench| {
+            if let Some(bench) = bench {
                 bench.observe_gpu_completion(frame_slot, results);
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => {}
-        }
+        });
     }
 
-    pub(in crate::app::core) fn allows_ambient_particle_emitters(&self) -> bool {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                bench.state == BenchState::Complete
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => true,
-        }
+    pub(in crate::app::core) fn allows_ambient_particle_emitters(&mut self) -> bool {
+        self.dispatch_connectivity(|bench| {
+            bench.is_none_or(|bench| bench.state == BenchState::Complete)
+        })
     }
 
     fn plan_manual_connectivity_release(
         &mut self,
         facts: ManualReleaseFacts,
     ) -> anyhow::Result<ConnectivityAction> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench))
-                if bench.options.mode == TerrainConnectivityBenchMode::Manual =>
-            {
+        self.dispatch_connectivity(|bench| match bench {
+            Some(bench) if bench.options.mode == TerrainConnectivityBenchMode::Manual => {
                 Ok(bench.plan_manual_release(facts))
             }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_)
-                | DiagnosticScenarioOwner::TerrainConnectivity(_)
-                | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => Ok(ConnectivityAction::None),
-        }
+            Some(_) | None => Ok(ConnectivityAction::None),
+        })
     }
 
     fn plan_completed_connectivity_frame(
         &mut self,
         record: CpuFrameRecord,
     ) -> anyhow::Result<ConnectivityAction> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                Ok(bench.plan_completed_frame(record))
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => Ok(ConnectivityAction::None),
-        }
+        self.dispatch_connectivity(|bench| match bench {
+            Some(bench) => Ok(bench.plan_completed_frame(record)),
+            None => Ok(ConnectivityAction::None),
+        })
     }
 }
 
@@ -2201,7 +2171,7 @@ mod tests {
                     voxel_budget: 8,
                 }),
             ));
-        let garden =
+        let mut garden =
             ScenarioOwner::World(super::super::super::launch_owners::WorldScenarioOwner::Garden);
 
         assert!(!connectivity.allows_ambient_particle_emitters());
