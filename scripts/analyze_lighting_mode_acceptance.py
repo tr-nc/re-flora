@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import struct
 import sys
 import tomllib
@@ -29,6 +30,9 @@ LAYERS = {
 }
 MIN_CHANGED_PIXELS = 16
 MIN_CHANGED_RATIO = 1.0e-6
+FIXTURE = "foliage-shadow-r13-e2-v1"
+FROZEN_VISUAL_TIME_BITS = 0
+FROZEN_SAMPLING_SERIAL = 0x52461302
 IDENTITY_FIELDS = (
     "binary_identity",
     "fixture",
@@ -66,14 +70,83 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def _require_render_extent(value: object) -> tuple[int, int]:
+def _require_u32(value: object, field: str) -> int:
+    _require(type(value) is int and 0 <= value <= 0xFFFFFFFF, f"{field} must be a u32")
+    return value
+
+
+def _require_u64(value: object, field: str) -> int:
+    _require(
+        type(value) is int and 0 <= value <= 0xFFFFFFFFFFFFFFFF,
+        f"{field} must be a u64",
+    )
+    return value
+
+
+def _require_extent(value: object, field: str) -> tuple[int, int]:
     _require(
         isinstance(value, list)
         and len(value) == 2
-        and all(type(dimension) is int and dimension > 0 for dimension in value),
-        "phase render_extent must contain exactly two positive integers",
+        and all(type(dimension) is int and 0 < dimension <= 0xFFFFFFFF for dimension in value),
+        f"phase {field} must contain exactly two positive u32 integers",
     )
     return value[0], value[1]
+
+
+def _require_identity(phase: dict[str, Any], label: str) -> None:
+    _require(phase["fixture"] == FIXTURE, f"phase {label} fixture is not production fixture")
+    _require(
+        isinstance(phase["binary_identity"], str)
+        and re.fullmatch(r"fnv1a64:[0-9a-f]{16}", phase["binary_identity"]) is not None,
+        f"phase {label} binary_identity is malformed",
+    )
+    camera = phase["camera_pose_bits"]
+    _require(
+        isinstance(camera, list)
+        and len(camera) == 6
+        and all(type(component) is int and 0 <= component <= 0xFFFFFFFF for component in camera),
+        f"phase {label} camera_pose_bits must contain exactly six u32 integers",
+    )
+    _require_extent(phase["render_extent"], "render_extent")
+    _require_extent(phase["screen_extent"], "screen_extent")
+    for field in (
+        "extent_generation",
+        "ddgi_field_serial",
+        "ddgi_source_field_serial",
+        "authored_lighting_revision",
+        "local_lighting_revision",
+    ):
+        _require_u64(phase[field], field)
+    for field in (
+        "visible_terrain_revision",
+        "ddgi_geometry_revision",
+        "ddgi_radiance_revision",
+        "ddgi_spacing_voxels",
+        "ddgi_update_epoch",
+        "ddgi_source_geometry_revision",
+        "ddgi_source_radiance_revision",
+        "ddgi_source_update_epoch",
+        "visual_time_bits",
+        "sampling_serial",
+    ):
+        _require_u32(phase[field], field)
+    _require(phase["visual_time_bits"] == FROZEN_VISUAL_TIME_BITS, f"phase {label} visual_time_bits is not frozen")
+    _require(phase["sampling_serial"] == FROZEN_SAMPLING_SERIAL, f"phase {label} sampling_serial is not frozen")
+    _require(
+        phase["visible_terrain_revision"] > 0
+        and phase["ddgi_field_serial"] > 0
+        and phase["ddgi_radiance_revision"] > 0
+        and phase["ddgi_spacing_voxels"] > 0
+        and phase["ddgi_update_epoch"] > 0
+        and phase["ddgi_source_field_serial"] > 0
+        and phase["ddgi_source_radiance_revision"] > 0
+        and phase["visible_terrain_revision"] == phase["ddgi_geometry_revision"]
+        and phase["ddgi_source_geometry_revision"] == phase["ddgi_geometry_revision"]
+        and phase["ddgi_source_radiance_revision"] == phase["ddgi_radiance_revision"]
+        and phase["ddgi_source_field_serial"] != phase["ddgi_field_serial"]
+        and phase["ddgi_source_update_epoch"] + 1 == phase["ddgi_update_epoch"],
+        f"phase {label} DDGI identity has an illegal field/source relationship",
+    )
 
 
 def _load(path: Path) -> tuple[dict[str, Any], bytes]:
@@ -103,7 +176,7 @@ def _phase_layers(
     _require(len(kinds) == len(set(kinds)), "phase has a duplicate raw production layer kind")
     by_kind = {descriptor.get("kind"): descriptor for descriptor in descriptors}
     _require(set(by_kind) == set(LAYERS), "phase raw production layer set is incomplete")
-    render_width, render_height = _require_render_extent(phase.get("render_extent"))
+    render_width, render_height = _require_extent(phase.get("render_extent"), "render_extent")
     result: dict[str, memoryview] = {}
     for kind, (expected_format, bytes_per_pixel) in LAYERS.items():
         descriptor = by_kind[kind]
@@ -136,6 +209,9 @@ def _phase_layers(
 
 
 def _changed_count(first: memoryview, second: memoryview, stride: int, mask: list[bool]) -> int:
+    _require(stride > 0, "changed-count stride must be positive")
+    _require(len(first) == len(second), "changed-count layer lengths differ")
+    _require(len(first) == len(mask) * stride, "changed-count layer and mask lengths differ")
     return sum(
         first[index * stride : (index + 1) * stride]
         != second[index * stride : (index + 1) * stride]
@@ -171,6 +247,7 @@ def analyze(path: Path) -> dict[str, Any]:
         for field in IDENTITY_FIELDS:
             _require(field in phase, f"phase {label} identity is missing {field}")
             _require(phase[field] == baseline[field], f"phase {label} identity drifted at {field}")
+        _require_identity(phase, label)
         decoded_layers.append(_phase_layers(phase, payload, occupied))
 
     ordered_ranges = sorted(occupied)
@@ -198,11 +275,6 @@ def analyze(path: Path) -> dict[str, Any]:
         alpha = [phase["raster_rgba"][index] for index in range(3, len(phase["raster_rgba"]), 4)]
         _require(alpha == [a["raster_rgba"][index] for index in range(3, len(a["raster_rgba"]), 4)], "raster alpha mask changed across phases")
 
-    _require(bytes(a["terrain_rgbe"]) == bytes(d["terrain_rgbe"]), "terrain A/D orthogonality failed")
-    _require(bytes(b["terrain_rgbe"]) == bytes(c["terrain_rgbe"]), "terrain B/C orthogonality failed")
-    _require(bytes(a["raster_rgba"]) == bytes(b["raster_rgba"]), "raster A/B orthogonality failed")
-    _require(bytes(c["raster_rgba"]) == bytes(d["raster_rgba"]), "raster C/D orthogonality failed")
-
     terrain_ab = _changed_count(a["terrain_rgbe"], b["terrain_rgbe"], 4, terrain_mask)
     terrain_dc = _changed_count(d["terrain_rgbe"], c["terrain_rgbe"], 4, terrain_mask)
     raster_ad = _changed_count(a["raster_rgba"], d["raster_rgba"], 4, alpha_mask)
@@ -211,6 +283,11 @@ def analyze(path: Path) -> dict[str, Any]:
     _require_effect("terrain D/C", terrain_dc, sum(terrain_mask))
     _require_effect("raster A/D", raster_ad, sum(alpha_mask))
     _require_effect("raster B/C", raster_bc, sum(alpha_mask))
+
+    _require(bytes(a["terrain_rgbe"]) == bytes(d["terrain_rgbe"]), "terrain A/D orthogonality failed")
+    _require(bytes(b["terrain_rgbe"]) == bytes(c["terrain_rgbe"]), "terrain B/C orthogonality failed")
+    _require(bytes(a["raster_rgba"]) == bytes(b["raster_rgba"]), "raster A/B orthogonality failed")
+    _require(bytes(c["raster_rgba"]) == bytes(d["raster_rgba"]), "raster C/D orthogonality failed")
 
     return {
         "verdict": "GREEN",
