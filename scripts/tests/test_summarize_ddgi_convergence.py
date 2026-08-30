@@ -43,6 +43,15 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 f"convergence_minimum_update_epochs={minimum_update_epochs} "
                 f"convergence_maximum_update_epochs={maximum_update_epochs}"
             )
+            lines.append(
+                "[12:34:56.789 INFO re_flora::tracer] "
+                "[DDGI] relocation stats probes=4913 valid=4913 failed=0 "
+                "fast_target=4913 local_target=0 outer_target=0 "
+                "outer_best_effort=0 full_escape=0 moved=0 "
+                "clearance_below_half_target=0 clearance_half_to_target=0 "
+                "clearance_target=4913 clearance_sum=4913 "
+                "distance_squared_twice_sum=0"
+            )
         samples = tuple((epoch, 0.5, 1.0, 0) for epoch in range(6)) + (
             (6, 0.002, 0.01, 1),
             (7, 0.001, 0.005, 2),
@@ -129,7 +138,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(report["qualified"])
-        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(report["schema_version"], 3)
         self.assertEqual(report["matrix"]["curve_count"], 1)
         curve = report["curves"][0]
         self.assertEqual(curve["final_update_epoch"], 7)
@@ -137,6 +146,159 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(len(curve["epochs"]), 8)
         self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
         self.assertEqual(report["policy"]["relative_floor"], 0.05)
+        self.assertEqual(
+            curve["probe_population"],
+            {"total_count": 4913, "valid_count": 4913, "invalid_count": 0},
+        )
+        self.assertEqual(
+            curve["atlas_texel_layout"],
+            {
+                "interior_texels_per_valid_probe": 64,
+                "stored_texels_per_valid_probe": 100,
+            },
+        )
+        self.assertEqual(
+            curve["validated_atlas_coverage"],
+            {"interior_texel_count": 314432, "stored_texel_count": 491300},
+        )
+
+    def test_accepts_complete_coverage_of_the_relocated_valid_population(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace("valid=4913 failed=0", "valid=3835 failed=1078")
+                    .replace("valid_texels=314432", "valid_texels=245440")
+                    .replace("scanned_stored_texels=491300", "scanned_stored_texels=383500")
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_partial_coverage_of_the_relocated_valid_population(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace("valid=4913 failed=0", "valid=3835 failed=1078")
+                    .replace("valid_texels=314432", "valid_texels=245376")
+                    .replace("scanned_stored_texels=491300", "scanned_stored_texels=383400")
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("incomplete coverage", result.stderr)
+
+    def test_rejects_relocation_population_type_partition_and_identity_drift(self) -> None:
+        mutations = {
+            "u32-overflow": (
+                "probes=4913 valid=4913 failed=0 fast_target",
+                "probes=4913 valid=4294967296 failed=0 fast_target",
+                "Rust wire type",
+            ),
+            "partition": (
+                "probes=4913 valid=4913 failed=0 fast_target",
+                "probes=4913 valid=4912 failed=0 fast_target",
+                "complete partition",
+            ),
+            "initialization-identity": (
+                "[DDGI] relocation stats probes=4913 valid=4913",
+                "[DDGI] relocation stats probes=4912 valid=4912",
+                "differs from initialization probe count",
+            ),
+        }
+        for name, (before, after, error) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn(error, result.stderr)
+
+    def test_rejects_missing_duplicate_or_late_relocation_population(self) -> None:
+        def relocation_line(text: str) -> str:
+            return next(line for line in text.splitlines() if "relocation stats" in line)
+
+        def move_population_after_first_validation(text: str) -> str:
+            population = relocation_line(text)
+            without_population = text.replace(population + "\n", "")
+            first_validation = next(
+                line
+                for line in without_population.splitlines()
+                if "full-atlas validated" in line
+            )
+            return without_population.replace(
+                first_validation + "\n",
+                first_validation + "\n" + population + "\n",
+                1,
+            )
+
+        mutations = {
+            "missing": lambda text: text.replace(relocation_line(text) + "\n", ""),
+            "duplicate": lambda text: text + relocation_line(text) + "\n",
+            "mid-curve": move_population_after_first_validation,
+            "late": lambda text: (
+                text.replace(relocation_line(text) + "\n", "")
+                + relocation_line(text)
+                + "\n"
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(mutate(path.read_text()))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn(
+                    "must precede full-atlas validation"
+                    if name in ("mid-curve", "late")
+                    else "exactly one authoritative DDGI relocation population",
+                    result.stderr,
+                )
+
+    def test_rejects_atlas_layout_coverage_that_exceeds_the_validation_wire(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            contract = run_dir / "contract.toml"
+            self.write_curve(run_dir)
+            contract.write_text(
+                (SCRIPTS.parent / "config" / "ddgi_convergence_acceptance.toml")
+                .read_text()
+                .replace("interior_texels_per_valid_probe = 64", "interior_texels_per_valid_probe = 4294967295")
+                .replace("stored_texels_per_valid_probe = 100", "stored_texels_per_valid_probe = 4294967295")
+            )
+
+            result = self.run_summarizer(run_dir, output, contract=contract)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("coverage exceeds Rust u32", result.stderr)
 
     def test_rejects_terminal_epoch_drift_inside_the_independent_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -337,7 +499,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
-        self.assertIn("global validation order", result.stderr)
+        self.assertIn("must precede full-atlas validation", result.stderr)
 
     def test_rejects_runtime_illegal_field_identity_in_each_process_stream(self) -> None:
         def mutate_old_identity(text: str, mutation: str) -> str:
@@ -1613,7 +1775,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
-                self.assertIn("global validation order", result.stderr)
+                self.assertIn("must precede full-atlas validation", result.stderr)
 
     def test_unrelated_non_marker_process_logs_remain_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

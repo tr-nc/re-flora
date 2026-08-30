@@ -65,6 +65,13 @@ POLICY_PATTERN = re.compile(
     r"convergence_maximum_update_epochs=(?P<maximum>\d+)$",
     re.MULTILINE,
 )
+RELOCATION_POPULATION_PATTERN = re.compile(
+    rf"^\[(?P<log_time>{LOG_TIME_PATTERN}) "
+    r"INFO re_flora::tracer\] \[DDGI\] relocation stats "
+    r"probes=(?P<total>\d+) valid=(?P<valid>\d+) failed=(?P<invalid>\d+) "
+    r".*$",
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -85,6 +92,146 @@ class InitializationEvent:
     probe_count: int
     stage: str
     policy: Policy
+
+
+@dataclass(frozen=True)
+class ProbePopulation:
+    total_count: int
+    valid_count: int
+    invalid_count: int
+
+    @classmethod
+    def from_match(cls, match: re.Match[str], source: Path) -> ProbePopulation:
+        population = cls(
+            total_count=int(match.group("total")),
+            valid_count=int(match.group("valid")),
+            invalid_count=int(match.group("invalid")),
+        )
+        for field, count in (
+            ("total_probe_count", population.total_count),
+            ("valid_probe_count", population.valid_count),
+            ("invalid_probe_count", population.invalid_count),
+        ):
+            require_rust_unsigned(count, "u32", field, source)
+        if population.total_count == 0 or population.valid_count == 0:
+            raise ValueError(
+                f"DDGI relocation population in {source} must contain total and valid probes"
+            )
+        if population.total_count != population.valid_count + population.invalid_count:
+            raise ValueError(
+                f"DDGI relocation population in {source} is not a complete partition: "
+                f"total={population.total_count} valid={population.valid_count} "
+                f"invalid={population.invalid_count}"
+            )
+        return population
+
+
+@dataclass(frozen=True)
+class AtlasTexelLayout:
+    interior_texels_per_valid_probe: int
+    stored_texels_per_valid_probe: int
+
+    @classmethod
+    def load(cls, path: Path) -> AtlasTexelLayout:
+        contract = tomllib.loads(path.read_text())
+        layout = contract.get("atlas_texel_layout")
+        expected_fields = {
+            "interior_texels_per_valid_probe",
+            "stored_texels_per_valid_probe",
+        }
+        if not isinstance(layout, dict) or set(layout) != expected_fields:
+            raise ValueError("invalid DDGI convergence atlas texel layout contract")
+        interior = layout["interior_texels_per_valid_probe"]
+        stored = layout["stored_texels_per_valid_probe"]
+        if (
+            type(interior) is not int
+            or type(stored) is not int
+            or not 0 < interior <= stored <= (1 << 32) - 1
+        ):
+            raise ValueError("invalid DDGI convergence atlas texel layout dimensions")
+        return cls(interior, stored)
+
+    def complete_coverage(
+        self, population: ProbePopulation, source: Path
+    ) -> ValidatedAtlasCoverage:
+        coverage = ValidatedAtlasCoverage(
+            interior_texel_count=(
+                population.valid_count * self.interior_texels_per_valid_probe
+            ),
+            stored_texel_count=(
+                population.valid_count * self.stored_texels_per_valid_probe
+            ),
+        )
+        u32_max = (1 << 32) - 1
+        if (
+            coverage.interior_texel_count > u32_max
+            or coverage.stored_texel_count > u32_max
+        ):
+            raise ValueError(
+                f"DDGI valid-probe atlas coverage exceeds Rust u32 in {source}: "
+                f"valid_probes={population.valid_count} "
+                f"interior_texels={coverage.interior_texel_count} "
+                f"stored_texels={coverage.stored_texel_count}"
+            )
+        return coverage
+
+
+@dataclass(frozen=True)
+class ValidatedAtlasCoverage:
+    interior_texel_count: int
+    stored_texel_count: int
+
+    @classmethod
+    def from_record(cls, record: dict[str, object]) -> ValidatedAtlasCoverage:
+        return cls(
+            interior_texel_count=int(record["valid_texel_count"]),
+            stored_texel_count=int(record["scanned_stored_texel_count"]),
+        )
+
+    def require_complete(
+        self,
+        population: ProbePopulation,
+        layout: AtlasTexelLayout,
+        source: Path,
+    ) -> None:
+        expected = layout.complete_coverage(population, source)
+        if self != expected:
+            raise ValueError(
+                f"validated atlas record in {source} has incomplete coverage of the "
+                f"valid-probe atlas: "
+                f"population=total:{population.total_count},valid:{population.valid_count},"
+                f"invalid:{population.invalid_count} "
+                f"interior={self.interior_texel_count}/{expected.interior_texel_count} "
+                f"stored={self.stored_texel_count}/{expected.stored_texel_count}"
+            )
+
+
+@dataclass(frozen=True)
+class ConvergenceProvenance:
+    initialization: InitializationEvent
+    probe_population: ProbePopulation
+    atlas_layout: AtlasTexelLayout
+
+    def report(self, coverage: ValidatedAtlasCoverage) -> dict[str, dict[str, int]]:
+        return {
+            "probe_population": {
+                "total_count": self.probe_population.total_count,
+                "valid_count": self.probe_population.valid_count,
+                "invalid_count": self.probe_population.invalid_count,
+            },
+            "atlas_texel_layout": {
+                "interior_texels_per_valid_probe": (
+                    self.atlas_layout.interior_texels_per_valid_probe
+                ),
+                "stored_texels_per_valid_probe": (
+                    self.atlas_layout.stored_texels_per_valid_probe
+                ),
+            },
+            "validated_atlas_coverage": {
+                "interior_texel_count": coverage.interior_texel_count,
+                "stored_texel_count": coverage.stored_texel_count,
+            },
+        }
 
 
 @dataclass(frozen=True)
@@ -398,7 +545,7 @@ def require_global_validation_legality(
     evidence_path: Path,
     wire: ValidationWireContract,
     policy: Policy,
-    probe_count: int,
+    provenance: ConvergenceProvenance,
 ) -> list[list[dict[str, object]]]:
     for record in records:
         numeric_fields = set(record) - {"state", "log_time"}
@@ -448,15 +595,11 @@ def require_global_validation_legality(
                 )
         if record["nonfinite_count"] != 0 or record["negative_rgb_texel_count"] != 0:
             raise ValueError(f"validated atlas record in {evidence_path} has invalid texels")
-        valid = int(record["valid_texel_count"])
-        scanned = int(record["scanned_stored_texel_count"])
-        expected_valid = probe_count * 64
-        expected_scanned = probe_count * 100
-        if valid != expected_valid or scanned != expected_scanned:
-            raise ValueError(
-                f"validated atlas record in {evidence_path} has incomplete coverage: "
-                f"valid={valid}/{expected_valid} scanned={scanned}/{expected_scanned}"
-            )
+        ValidatedAtlasCoverage.from_record(record).require_complete(
+            provenance.probe_population,
+            provenance.atlas_layout,
+            evidence_path,
+        )
         if record["required_consecutive_epochs"] != policy.consecutive_epochs:
             raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
 
@@ -605,7 +748,7 @@ def parse_curve(
 ) -> tuple[
     list[list[dict[str, object]]],
     TerminalIdentity,
-    InitializationEvent,
+    ConvergenceProvenance,
     ValidationWireContract,
 ]:
     records: list[dict[str, object]] = []
@@ -654,6 +797,34 @@ def parse_curve(
         probe_count=probe_count,
         stage=policy_values["stage"],
         policy=policy,
+    )
+    population_matches = list(RELOCATION_POPULATION_PATTERN.finditer(text))
+    if len(population_matches) != 1:
+        raise ValueError(
+            f"expected exactly one authoritative DDGI relocation population in "
+            f"{console_path}, found {len(population_matches)}"
+        )
+    population_match = population_matches[0]
+    first_validation_offset = text.find(VALIDATION_MARKER)
+    if not (
+        policy_matches[0].end()
+        < population_match.start()
+        < first_validation_offset
+    ):
+        raise ValueError(
+            f"DDGI relocation population in {console_path} must follow initialization "
+            f"and must precede full-atlas validation"
+        )
+    population = ProbePopulation.from_match(population_match, console_path)
+    if population.total_count != initialization.probe_count:
+        raise ValueError(
+            f"DDGI relocation population total {population.total_count} in {console_path} "
+            f"differs from initialization probe count {initialization.probe_count}"
+        )
+    provenance = ConvergenceProvenance(
+        initialization=initialization,
+        probe_population=population,
+        atlas_layout=AtlasTexelLayout.load(contract_path),
     )
     require_policy_wire_legality(policy, maximum_update_epochs, console_path)
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
@@ -767,7 +938,7 @@ def parse_curve(
     if not records:
         raise ValueError(f"no full-atlas validation records in {console_path}")
     generations = require_global_validation_legality(
-        records, console_path, wire, policy, initialization.probe_count
+        records, console_path, wire, policy, provenance
     )
     if len(terminals) != 1:
         raise ValueError(
@@ -785,7 +956,7 @@ def parse_curve(
     ):
         if getattr(terminal, field) != final[field]:
             raise ValueError(f"terminal {field} does not match final validation record")
-    return generations, terminal, initialization, wire
+    return generations, terminal, provenance, wire
 
 
 def validate_curve(
@@ -794,9 +965,10 @@ def validate_curve(
     generations: list[list[dict[str, object]]],
     terminal: TerminalIdentity,
     analysis: dict[str, object],
-    initialization: InitializationEvent,
+    provenance: ConvergenceProvenance,
     wire: ValidationWireContract,
 ) -> dict[str, object]:
+    initialization = provenance.initialization
     policy = initialization.policy
     capture = analysis.get("capture")
     if not isinstance(capture, dict):
@@ -939,6 +1111,7 @@ def validate_curve(
             "probe_count": initialization.probe_count,
             "stage": initialization.stage,
         },
+        **provenance.report(ValidatedAtlasCoverage.from_record(final)),
         "epochs": records,
     }
 
@@ -970,7 +1143,8 @@ def main() -> int:
                         f"{case_name} spacing {spacing}: console and preserved run-log "
                         "convergence evidence differ"
                     )
-                generations, terminal, initialization, wire = console_evidence
+                generations, terminal, provenance, wire = console_evidence
+                initialization = provenance.initialization
                 runtime_policy = initialization.policy
                 if policy is None:
                     policy = runtime_policy
@@ -984,7 +1158,7 @@ def main() -> int:
                     generations,
                     terminal,
                     json.loads(analysis_path.read_text()),
-                    initialization,
+                    provenance,
                     wire,
                 )
                 curve["capture_analysis"] = analysis_path.name
@@ -998,7 +1172,7 @@ def main() -> int:
         return 1
 
     result = {
-        "schema_version": 2,
+        "schema_version": 3,
         "qualified": True,
         "matrix": {
             "cases": args.cases,

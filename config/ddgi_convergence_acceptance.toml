@@ -10,6 +10,10 @@ terminal_update_epoch = 127
 [initialization_grid]
 world_extent_voxels = 512
 
+[atlas_texel_layout]
+interior_texels_per_valid_probe = 64
+stored_texels_per_valid_probe = 100
+
 [validation_wire]
 decimal_places = 8
 
