@@ -58,7 +58,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
-            "filter-history-action=PROVEN",
+            "filter-history-action=REQUIRED",
             "--expect-version 8",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
@@ -72,6 +72,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "check_ddgi_sky_normalization_evidence.py",
         ):
             self.assertIn(contract, output)
+        self.assertNotIn("filter-history-action=PROVEN", output)
 
     def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,
@@ -88,6 +89,14 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
         self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
         self.assertEqual(result.stdout.count("--expect-lifecycle-state converged"), 8)
+
+    def test_failed_invocation_never_claims_filter_history_proof(self) -> None:
+        result = self.run_runner("--invalid")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn(
+            "filter-history-action=PROVEN", result.stdout + result.stderr
+        )
 
 
 if __name__ == "__main__":

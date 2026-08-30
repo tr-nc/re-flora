@@ -35,11 +35,12 @@ dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 failures=0
+filter_history_action_proven=true
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
-echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture"
+echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=dogleg-e0-e1-production-capture"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -182,14 +183,16 @@ for spacing in "${spacings[@]}"; do
         --compare "$donor_e0" || true
 
     dogleg_e0="$(capture_path dogleg "$spacing" e0 forward)"
-    run_stage dogleg "$spacing" e0 forward \
+    if ! run_stage dogleg "$spacing" e0 forward \
         --expect-lifecycle-state converging \
         --expect-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${dogleg_receiver_roi[@]}" \
         --max-roi-luminance-mean "$dogleg_max_e0_luminance_mean" \
-        --max-exact-direct-sun-visibility 0 || true
-    run_stage dogleg "$spacing" e1 forward \
+        --max-exact-direct-sun-visibility 0; then
+        filter_history_action_proven=false
+    fi
+    if ! run_stage dogleg "$spacing" e1 forward \
         --expect-lifecycle-state converging \
         --expect-update-epoch 1 \
         --expect-source-state converging \
@@ -198,7 +201,9 @@ for spacing in "${spacings[@]}"; do
         --world-roi "${dogleg_receiver_roi[@]}" \
         --baseline "$dogleg_e0" \
         --min-roi-luminance-gain "$dogleg_min_e1_luminance_gain" \
-        --max-exact-direct-sun-visibility 0 || true
+        --max-exact-direct-sun-visibility 0; then
+        filter_history_action_proven=false
+    fi
 
     for convergence_case in portal donor dogleg; do
         run_stage "$convergence_case" "$spacing" converged forward \
@@ -214,6 +219,10 @@ for spacing in "${spacings[@]}"; do
         echo "[DDGI_TRANSPORT] evidence donor_reverse=$donor_reverse"
     fi
 done
+
+if ! $dry_run && $filter_history_action_proven; then
+    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture"
+fi
 
 convergence_summary="$run_dir/convergence-calibration.json"
 convergence_summary_command=(
