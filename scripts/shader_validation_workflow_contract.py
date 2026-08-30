@@ -31,6 +31,7 @@ REQUIRED_OWNER_PATHS = (
     "scripts/tests/test_ddgi_evidence_cli.py",
     "scripts/tests/test_ddgi_evidence_plan.py",
     "scripts/tests/test_ddgi_evidence_validation.py",
+    "scripts/tests/test_analyze_environment_irradiance_capture.py",
     "scripts/tests/test_shader_validation_workflow.py",
     "src/app/core/ddgi_spatial_weight_readback.rs",
     "src/app/core/environment_irradiance_capture.rs",

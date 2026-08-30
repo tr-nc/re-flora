@@ -280,6 +280,8 @@ jobs:
           scripts.tests.test_ddgi_evidence_validation
           scripts.tests.test_validate_ddgi_density_lifecycle
           scripts.tests.test_validate_ddgi_radiance_lifecycle
+          scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_production_cli_accepts_only_current_without_a_version_surface
+          scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_cli_defaults_to_current_and_requires_explicit_compatibility
           scripts.tests.test_summarize_ddgi_convergence
           scripts.tests.test_ddgi_indirect_transport_spec
           scripts.tests.test_runtime_log_diagnostics

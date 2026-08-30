@@ -31,6 +31,7 @@ OWNER_PATHS = (
     "scripts/tests/test_ddgi_indirect_transport_spec.py",
     "scripts/tests/test_summarize_ddgi_convergence.py",
     "scripts/tests/test_shader_validation_workflow.py",
+    "scripts/tests/test_analyze_environment_irradiance_capture.py",
     "scripts/tests/test_ddgi_evidence_plan.py",
     "scripts/tests/test_ddgi_evidence_validation.py",
     "src/ddgi/mod.rs",
@@ -178,6 +179,12 @@ class ConvergenceShaderValidationWorkflowTests(unittest.TestCase):
             "scripts.tests.test_ddgi_evidence_validation",
             "scripts.tests.test_validate_ddgi_density_lifecycle",
             "scripts.tests.test_validate_ddgi_radiance_lifecycle",
+            "scripts.tests.test_analyze_environment_irradiance_capture."
+            "AnalyzeEnvironmentIrradianceCaptureTests."
+            "test_production_cli_accepts_only_current_without_a_version_surface",
+            "scripts.tests.test_analyze_environment_irradiance_capture."
+            "AnalyzeEnvironmentIrradianceCaptureTests."
+            "test_cli_defaults_to_current_and_requires_explicit_compatibility",
             "scripts.tests.test_summarize_ddgi_convergence",
             "scripts.tests.test_ddgi_indirect_transport_spec",
             "scripts.tests.test_runtime_log_diagnostics",
