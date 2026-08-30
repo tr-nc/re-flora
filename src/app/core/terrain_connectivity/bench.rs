@@ -416,6 +416,20 @@ impl ScenarioOwner {
             bench.observe_gpu_completion(frame_slot, results);
         }
     }
+
+    pub(in crate::app::core) fn allows_ambient_particle_emitters(&self) -> bool {
+        match self {
+            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
+                !bench.active()
+            }
+            Self::Diagnostic(
+                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
+            )
+            | Self::World(_)
+            | Self::Water(_)
+            | Self::TestScene(_) => true,
+        }
+    }
 }
 
 fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
@@ -1890,6 +1904,33 @@ mod tests {
                 .source_frame,
             47
         );
+    }
+
+    #[test]
+    fn only_an_active_connectivity_diagnostic_reserves_ambient_particle_capacity() {
+        let mut connectivity =
+            ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+                TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                    mode: TerrainConnectivityBenchMode::Bounded,
+                    available_particles: 8,
+                    warmup_frames: 1,
+                    observe_frames: 1,
+                    voxel_budget: 8,
+                }),
+            ));
+        let garden =
+            ScenarioOwner::World(super::super::super::launch_owners::WorldScenarioOwner::Garden);
+
+        assert!(!connectivity.allows_ambient_particle_emitters());
+        assert!(garden.allows_ambient_particle_emitters());
+
+        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
+            &mut connectivity
+        else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        bench.state = BenchState::Complete;
+        assert!(connectivity.allows_ambient_particle_emitters());
     }
 
     #[test]

@@ -238,20 +238,6 @@ pub(super) enum AudioTrajectorySample {
     Active(CanopyAudioDiagnosticPose, f32, bool),
 }
 
-pub(super) enum ConnectivityEvent<'a> {
-    None,
-    Active(&'a mut TerrainConnectivityBench),
-}
-
-impl ConnectivityEvent<'_> {
-    pub(super) fn isolates_particle_capacity(&self) -> bool {
-        match self {
-            Self::None => false,
-            Self::Active(bench) => bench.active(),
-        }
-    }
-}
-
 impl AudioEvent<'_> {
     pub(super) fn is_canopy_diagnostic(&self) -> bool {
         match self {
@@ -449,20 +435,6 @@ impl ScenarioOwner {
             | Self::World(_)
             | Self::Water(_)
             | Self::TestScene(_) => AudioEvent::None,
-        }
-    }
-
-    pub(super) fn connectivity_event(&mut self) -> ConnectivityEvent<'_> {
-        match self {
-            Self::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) => {
-                ConnectivityEvent::Active(bench)
-            }
-            Self::Diagnostic(
-                DiagnosticScenarioOwner::CanopyAudio(_) | DiagnosticScenarioOwner::FoliageShadow(_),
-            )
-            | Self::World(_)
-            | Self::Water(_)
-            | Self::TestScene(_) => ConnectivityEvent::None,
         }
     }
 }
