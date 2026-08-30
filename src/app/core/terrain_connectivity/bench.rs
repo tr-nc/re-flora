@@ -576,13 +576,13 @@ impl App {
             } => ConnectivityResult::FixtureInstalled((|| {
                 let started = Instant::now();
                 if manual {
-                    install_manual_fixture(self)?;
-                    configure_manual_camera(self)?;
+                    self.install_manual_connectivity_fixture()?;
+                    self.configure_manual_connectivity_camera()?;
                 } else {
-                    install_fixture(self)?;
+                    self.install_connectivity_fixture()?;
                 }
                 let reserve_started = Instant::now();
-                set_available_particle_capacity(self, available_particles)?;
+                self.reserve_connectivity_particle_capacity(available_particles)?;
                 Ok(FixtureInstallResult {
                     setup_us: started.elapsed().as_secs_f64() * 1_000_000.0,
                     reserve_us: reserve_started.elapsed().as_secs_f64() * 1_000_000.0,
@@ -604,7 +604,7 @@ impl App {
                 })())
             }
             ConnectivityAction::RunReleaseEvent { mode } => {
-                ConnectivityResult::ReleaseEventRun(run_release_event(self, mode))
+                ConnectivityResult::ReleaseEventRun(self.run_connectivity_release_event(mode))
             }
             ConnectivityAction::ValidateAtomicity {
                 bound,
@@ -624,8 +624,7 @@ impl App {
                 })
             })()),
             ConnectivityAction::CommitBounded(payload) => {
-                ConnectivityResult::BoundedCommitted(run_bounded_commit(
-                    self,
+                ConnectivityResult::BoundedCommitted(self.commit_bounded_connectivity(
                     payload.job,
                     payload.release_frame,
                     payload.revision_before,
@@ -1218,189 +1217,197 @@ impl TerrainConnectivityBench {
     }
 }
 
-fn run_release_event(
-    app: &mut App,
-    mode: TerrainConnectivityBenchMode,
-) -> anyhow::Result<EventStages> {
-    let total_started = Instant::now();
-    let revision_before = app.visible_terrain_revision;
-    app.terrain_connectivity = TerrainConnectivityRuntime::default();
-    app.terrain_connectivity
-        .observe_player_publication(fixture_edit_bound(), true);
+impl App {
+    fn run_connectivity_release_event(
+        &mut self,
+        mode: TerrainConnectivityBenchMode,
+    ) -> anyhow::Result<EventStages> {
+        let app = self;
+        let total_started = Instant::now();
+        let revision_before = app.visible_terrain_revision;
+        app.terrain_connectivity = TerrainConnectivityRuntime::default();
+        app.terrain_connectivity
+            .observe_player_publication(fixture_edit_bound(), true);
 
-    if mode == TerrainConnectivityBenchMode::Existing {
-        let current_started = Instant::now();
-        app.finish_player_terrain_connectivity_hold()?;
-        return Ok(EventStages {
+        if mode == TerrainConnectivityBenchMode::Existing {
+            let current_started = Instant::now();
+            app.finish_player_terrain_connectivity_hold()?;
+            return Ok(EventStages {
+                total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
+                current_path_us: current_started.elapsed().as_secs_f64() * 1_000_000.0,
+                revision_before,
+                revision_after: app.visible_terrain_revision,
+                ..EventStages::default()
+            });
+        }
+
+        let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        let TerrainConnectivityRequest::PlayerEdit { edited, block } = app
+            .terrain_connectivity
+            .take_player_release(world_dim)
+            .context("bench edit region disappeared")?
+        else {
+            anyhow::bail!("bench expected a player-edit connectivity request");
+        };
+        let primary_started = Instant::now();
+        let atlas_voxels = app
+            .plain_builder
+            .read_chunk_atlas_region(block.min(), block.dimensions())?;
+        let primary_readback_us = primary_started.elapsed().as_secs_f64() * 1_000_000.0;
+        let candidate_region = UAabb3::new(
+            edited.min().saturating_sub(UVec3::ONE),
+            edited.max().saturating_add(UVec3::ONE).min(world_dim),
+        );
+
+        let classification_started = Instant::now();
+        let (mut components, trace_readback_us, trace_readback_tiles) = {
+            let mut reader =
+                AtlasVoxelReader::new(&mut app.plain_builder, world_dim, block, &atlas_voxels);
+            let components = detached_components_in_edit_region(
+                &atlas_voxels,
+                block,
+                candidate_region,
+                world_dim,
+                VOXEL_TYPE_MASK as u8,
+                usize::MAX,
+                |world_voxel| reader.voxel_at(world_voxel),
+            )?;
+            (components, reader.tile_readback_us, reader.tiles.len())
+        };
+        let classification_us = classification_started.elapsed().as_secs_f64() * 1_000_000.0;
+        anyhow::ensure!(
+            components.len() == 1,
+            "expected one detached fixture component"
+        );
+        let component = components.pop().expect("one component was checked");
+        anyhow::ensure!(
+            component.voxels.len() == FIXTURE_VOXELS,
+            "fixture classification returned {} voxels, expected {}",
+            component.voxels.len(),
+            FIXTURE_VOXELS,
+        );
+
+        let sampling_started = Instant::now();
+        let visual_voxels = deterministic_visual_sample(
+            &component.voxels,
+            app.particle_system.available_capacity(),
+        );
+        let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let invalidation_started = Instant::now();
+        for (origin, dim, data) in
+            prepare_detached_voxel_clear(&mut app.plain_builder, world_dim, &component.voxels)?
+        {
+            app.plain_builder
+                .write_chunk_atlas_region(origin, dim, &data)?;
+        }
+        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let publication_started = Instant::now();
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                fixture_bound(),
+            )])?
+            .context("fixture invalidation has no visible terrain chunks")?;
+        app.publish_visible_terrain(change)?;
+        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let particle_started = Instant::now();
+        let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
+        let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
+        anyhow::ensure!(
+            spawned_particles == visual_voxels.len(),
+            "bench sampled {} visual voxels but spawned {} particles",
+            visual_voxels.len(),
+            spawned_particles,
+        );
+
+        Ok(EventStages {
             total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
-            current_path_us: current_started.elapsed().as_secs_f64() * 1_000_000.0,
+            primary_readback_us,
+            trace_readback_us,
+            classification_us,
+            sampling_us,
+            invalidation_us,
+            publication_us,
+            particle_spawn_us,
+            classified_voxels: component.voxels.len(),
+            trace_readback_tiles,
+            invalidated_voxels: component.voxels.len(),
+            sampled_voxels: visual_voxels.len(),
+            spawned_particles,
             revision_before,
             revision_after: app.visible_terrain_revision,
             ..EventStages::default()
-        });
+        })
     }
 
-    let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-    let TerrainConnectivityRequest::PlayerEdit { edited, block } = app
-        .terrain_connectivity
-        .take_player_release(world_dim)
-        .context("bench edit region disappeared")?
-    else {
-        anyhow::bail!("bench expected a player-edit connectivity request");
-    };
-    let primary_started = Instant::now();
-    let atlas_voxels = app
-        .plain_builder
-        .read_chunk_atlas_region(block.min(), block.dimensions())?;
-    let primary_readback_us = primary_started.elapsed().as_secs_f64() * 1_000_000.0;
-    let candidate_region = UAabb3::new(
-        edited.min().saturating_sub(UVec3::ONE),
-        edited.max().saturating_add(UVec3::ONE).min(world_dim),
-    );
-
-    let classification_started = Instant::now();
-    let (mut components, trace_readback_us, trace_readback_tiles) = {
-        let mut reader =
-            AtlasVoxelReader::new(&mut app.plain_builder, world_dim, block, &atlas_voxels);
-        let components = detached_components_in_edit_region(
-            &atlas_voxels,
-            block,
-            candidate_region,
-            world_dim,
-            VOXEL_TYPE_MASK as u8,
-            usize::MAX,
-            |world_voxel| reader.voxel_at(world_voxel),
-        )?;
-        (components, reader.tile_readback_us, reader.tiles.len())
-    };
-    let classification_us = classification_started.elapsed().as_secs_f64() * 1_000_000.0;
-    anyhow::ensure!(
-        components.len() == 1,
-        "expected one detached fixture component"
-    );
-    let component = components.pop().expect("one component was checked");
-    anyhow::ensure!(
-        component.voxels.len() == FIXTURE_VOXELS,
-        "fixture classification returned {} voxels, expected {}",
-        component.voxels.len(),
-        FIXTURE_VOXELS,
-    );
-
-    let sampling_started = Instant::now();
-    let visual_voxels =
-        deterministic_visual_sample(&component.voxels, app.particle_system.available_capacity());
-    let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-    let invalidation_started = Instant::now();
-    for (origin, dim, data) in
-        prepare_detached_voxel_clear(&mut app.plain_builder, world_dim, &component.voxels)?
-    {
-        app.plain_builder
-            .write_chunk_atlas_region(origin, dim, &data)?;
-    }
-    let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-    let publication_started = Instant::now();
-    let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-        fixture_bound(),
-    )])?
-    .context("fixture invalidation has no visible terrain chunks")?;
-    app.publish_visible_terrain(change)?;
-    let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-    let particle_started = Instant::now();
-    let spawned_particles = app.spawn_detached_terrain_voxel_particles(&visual_voxels);
-    let particle_spawn_us = particle_started.elapsed().as_secs_f64() * 1_000_000.0;
-    anyhow::ensure!(
-        spawned_particles == visual_voxels.len(),
-        "bench sampled {} visual voxels but spawned {} particles",
-        visual_voxels.len(),
-        spawned_particles,
-    );
-
-    Ok(EventStages {
-        total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
-        primary_readback_us,
-        trace_readback_us,
-        classification_us,
-        sampling_us,
-        invalidation_us,
-        publication_us,
-        particle_spawn_us,
-        classified_voxels: component.voxels.len(),
-        trace_readback_tiles,
-        invalidated_voxels: component.voxels.len(),
-        sampled_voxels: visual_voxels.len(),
-        spawned_particles,
-        revision_before,
-        revision_after: app.visible_terrain_revision,
-        ..EventStages::default()
-    })
-}
-
-fn run_bounded_commit(
-    app: &mut App,
-    job: BoundedTopologyJob,
-    release_frame: u64,
-    revision_before: u32,
-    snapshot_readback_us: f64,
-    classification_us: f64,
-    atomic_validation_us: f64,
-    sampling_us: f64,
-    staging_clear_us: f64,
-    sampled_voxels: usize,
-    manual: bool,
-) -> anyhow::Result<EventStages> {
-    let total_started = Instant::now();
-    anyhow::ensure!(
-        app.visible_terrain_revision == revision_before,
-        "bounded topology commit revision changed from {} to {}",
-        revision_before,
-        app.visible_terrain_revision,
-    );
-    anyhow::ensure!(job.terminal == Some(BoundedDisposition::Detached));
-    if !manual {
+    fn commit_bounded_connectivity(
+        &mut self,
+        job: BoundedTopologyJob,
+        release_frame: u64,
+        revision_before: u32,
+        snapshot_readback_us: f64,
+        classification_us: f64,
+        atomic_validation_us: f64,
+        sampling_us: f64,
+        staging_clear_us: f64,
+        sampled_voxels: usize,
+        manual: bool,
+    ) -> anyhow::Result<EventStages> {
+        let app = self;
+        let total_started = Instant::now();
         anyhow::ensure!(
-            job.component.len() == FIXTURE_VOXELS,
-            "bounded topology commit is not one complete detached fixture"
+            app.visible_terrain_revision == revision_before,
+            "bounded topology commit revision changed from {} to {}",
+            revision_before,
+            app.visible_terrain_revision,
         );
+        anyhow::ensure!(job.terminal == Some(BoundedDisposition::Detached));
+        if !manual {
+            anyhow::ensure!(
+                job.component.len() == FIXTURE_VOXELS,
+                "bounded topology commit is not one complete detached fixture"
+            );
+        }
+        let invalidation_started = Instant::now();
+        app.plain_builder.write_chunk_atlas_region(
+            job.bound.min(),
+            job.bound.dimensions(),
+            &job.snapshot,
+        )?;
+        let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        let publication_started = Instant::now();
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                fixture_bound(),
+            )])?
+            .context("bounded fixture invalidation has no visible terrain chunks")?;
+        app.publish_visible_terrain(change)?;
+        let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
+
+        Ok(EventStages {
+            total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
+            primary_readback_us: snapshot_readback_us,
+            classification_us,
+            sampling_us,
+            staging_clear_us,
+            invalidation_us,
+            publication_us,
+            classified_voxels: job.component.len(),
+            invalidated_voxels: job.component.len(),
+            sampled_voxels,
+            revision_before,
+            revision_after: app.visible_terrain_revision,
+            release_to_commit_frames: app
+                .time_info
+                .total_frame_count()
+                .saturating_sub(release_frame),
+            atomic_validation_us,
+            ..EventStages::default()
+        })
     }
-    let invalidation_started = Instant::now();
-    app.plain_builder.write_chunk_atlas_region(
-        job.bound.min(),
-        job.bound.dimensions(),
-        &job.snapshot,
-    )?;
-    let invalidation_us = invalidation_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-    let publication_started = Instant::now();
-    let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-        fixture_bound(),
-    )])?
-    .context("bounded fixture invalidation has no visible terrain chunks")?;
-    app.publish_visible_terrain(change)?;
-    let publication_us = publication_started.elapsed().as_secs_f64() * 1_000_000.0;
-
-    Ok(EventStages {
-        total_us: total_started.elapsed().as_secs_f64() * 1_000_000.0,
-        primary_readback_us: snapshot_readback_us,
-        classification_us,
-        sampling_us,
-        staging_clear_us,
-        invalidation_us,
-        publication_us,
-        classified_voxels: job.component.len(),
-        invalidated_voxels: job.component.len(),
-        sampled_voxels,
-        revision_before,
-        revision_after: app.visible_terrain_revision,
-        release_to_commit_frames: app
-            .time_info
-            .total_frame_count()
-            .saturating_sub(release_frame),
-        atomic_validation_us,
-        ..EventStages::default()
-    })
 }
 
 fn prepare_bounded_commit(
@@ -1426,55 +1433,63 @@ fn prepare_bounded_commit(
     (visual_voxels, sampling_us, staging_clear_us)
 }
 
-fn install_fixture(app: &mut App) -> anyhow::Result<()> {
-    let isolation = isolation_bound();
-    let isolation_data = vec![0; voxel_count(isolation) as usize];
-    app.plain_builder.write_chunk_atlas_region(
-        isolation.min(),
-        isolation.dimensions(),
-        &isolation_data,
-    )?;
-    let fixture = generate_hollow_canopy();
-    app.plain_builder.write_chunk_atlas_region(
-        fixture_bound().min(),
-        fixture_bound().dimensions(),
-        &fixture,
-    )?;
-    app.plain_builder.mark_all_solid_workgroups_dirty();
-    let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-        isolation,
-    )])?
-    .context("fixture installation has no visible terrain chunks")?;
-    app.publish_visible_terrain(change)?;
-    anyhow::ensure!(count_fixture_solids(&mut app.plain_builder)? == FIXTURE_VOXELS);
-    Ok(())
-}
+impl App {
+    fn install_connectivity_fixture(&mut self) -> anyhow::Result<()> {
+        let app = self;
+        let isolation = isolation_bound();
+        let isolation_data = vec![0; voxel_count(isolation) as usize];
+        app.plain_builder.write_chunk_atlas_region(
+            isolation.min(),
+            isolation.dimensions(),
+            &isolation_data,
+        )?;
+        let fixture = generate_hollow_canopy();
+        app.plain_builder.write_chunk_atlas_region(
+            fixture_bound().min(),
+            fixture_bound().dimensions(),
+            &fixture,
+        )?;
+        app.plain_builder.mark_all_solid_workgroups_dirty();
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                isolation,
+            )])?
+            .context("fixture installation has no visible terrain chunks")?;
+        app.publish_visible_terrain(change)?;
+        anyhow::ensure!(count_fixture_solids(&mut app.plain_builder)? == FIXTURE_VOXELS);
+        Ok(())
+    }
 
-fn install_manual_fixture(app: &mut App) -> anyhow::Result<()> {
-    install_fixture(app)?;
-    let bound = manual_support_bound();
-    let support = generate_manual_support();
-    app.plain_builder
-        .write_chunk_atlas_region(bound.min(), bound.dimensions(), &support)?;
-    app.plain_builder.mark_all_solid_workgroups_dirty();
-    let change =
-        VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(bound)])?
+    fn install_manual_connectivity_fixture(&mut self) -> anyhow::Result<()> {
+        self.install_connectivity_fixture()?;
+        let app = self;
+        let bound = manual_support_bound();
+        let support = generate_manual_support();
+        app.plain_builder
+            .write_chunk_atlas_region(bound.min(), bound.dimensions(), &support)?;
+        app.plain_builder.mark_all_solid_workgroups_dirty();
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                bound,
+            )])?
             .context("manual support installation has no visible terrain chunks")?;
-    app.publish_visible_terrain(change)?;
-    Ok(())
-}
+        app.publish_visible_terrain(change)?;
+        Ok(())
+    }
 
-fn configure_manual_camera(app: &mut App) -> anyhow::Result<()> {
-    let center = manual_support_center().as_vec3() / VOXELS_PER_WORLD_UNIT;
-    let target = center + Vec3::Y * 0.035;
-    let position = target + Vec3::new(-0.24, 0.04, -0.28);
-    app.camera_control.apply_snapshot_mode(true);
-    app.camera_control.set_orbit_focus(target);
-    anyhow::ensure!(
-        app.tracer.set_camera_pose_looking_at(position, target),
-        "failed to configure terrain connectivity manual camera"
-    );
-    Ok(())
+    fn configure_manual_connectivity_camera(&mut self) -> anyhow::Result<()> {
+        let app = self;
+        let center = manual_support_center().as_vec3() / VOXELS_PER_WORLD_UNIT;
+        let target = center + Vec3::Y * 0.035;
+        let position = target + Vec3::new(-0.24, 0.04, -0.28);
+        app.camera_control.apply_snapshot_mode(true);
+        app.camera_control.set_orbit_focus(target);
+        anyhow::ensure!(
+            app.tracer.set_camera_pose_looking_at(position, target),
+            "failed to configure terrain connectivity manual camera"
+        );
+        Ok(())
+    }
 }
 
 fn manual_support_center() -> UVec3 {
@@ -1542,38 +1557,41 @@ fn deterministic_visual_sample(voxels: &[(UVec3, u8)], capacity: usize) -> Vec<(
         .collect()
 }
 
-fn set_available_particle_capacity(app: &mut App, available: usize) -> anyhow::Result<()> {
-    anyhow::ensure!(available <= PARTICLE_CAPACITY);
-    app.particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
-    app.particle_snapshots.clear();
-    app.terrain_harvest_particle_handles.clear();
-    let reserved = PARTICLE_CAPACITY - available;
-    for index in 0..reserved {
-        let handle = app.particle_system.spawn(ParticleSpawn {
-            position: Vec3::splat(-10.0),
-            velocity: Vec3::ZERO,
-            color: Vec4::ZERO,
-            size: 0.0,
-            lifetime: f32::MAX,
-            wind_factor: 0.0,
-            gravity_factor: 0.0,
-            drift_direction: Vec3::ZERO,
-            drift_strength: 0.0,
-            drift_frequency: 0.0,
-            speed_noise_offset: index as f32,
-            motion_mode: MotionMode::Free,
-            sink_on_lifetime: false,
-            sink_speed: 0.0,
-            texture_variant: 0,
-            render_kind: ParticleRenderKind::TerrainVoxel,
-            despawn_on_lifetime: false,
-            despawn_below_ground: false,
-            update: ParticleUpdateConfig::new(60.0, 1),
-        });
-        anyhow::ensure!(handle.is_some(), "failed to reserve particle slot {index}");
+impl App {
+    fn reserve_connectivity_particle_capacity(&mut self, available: usize) -> anyhow::Result<()> {
+        let app = self;
+        anyhow::ensure!(available <= PARTICLE_CAPACITY);
+        app.particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
+        app.particle_snapshots.clear();
+        app.terrain_harvest_particle_handles.clear();
+        let reserved = PARTICLE_CAPACITY - available;
+        for index in 0..reserved {
+            let handle = app.particle_system.spawn(ParticleSpawn {
+                position: Vec3::splat(-10.0),
+                velocity: Vec3::ZERO,
+                color: Vec4::ZERO,
+                size: 0.0,
+                lifetime: f32::MAX,
+                wind_factor: 0.0,
+                gravity_factor: 0.0,
+                drift_direction: Vec3::ZERO,
+                drift_strength: 0.0,
+                drift_frequency: 0.0,
+                speed_noise_offset: index as f32,
+                motion_mode: MotionMode::Free,
+                sink_on_lifetime: false,
+                sink_speed: 0.0,
+                texture_variant: 0,
+                render_kind: ParticleRenderKind::TerrainVoxel,
+                despawn_on_lifetime: false,
+                despawn_below_ground: false,
+                update: ParticleUpdateConfig::new(60.0, 1),
+            });
+            anyhow::ensure!(handle.is_some(), "failed to reserve particle slot {index}");
+        }
+        anyhow::ensure!(app.particle_system.available_capacity() == available);
+        Ok(())
     }
-    anyhow::ensure!(app.particle_system.available_capacity() == available);
-    Ok(())
 }
 
 fn count_fixture_solids(plain_builder: &mut PlainBuilder) -> anyhow::Result<usize> {
