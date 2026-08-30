@@ -9,7 +9,7 @@ pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MIN_WS: Vec3 = Vec3::new
 pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new(1.52, 0.72, 1.52);
 
 #[derive(Clone, Debug, Default)]
-pub(in crate::app::core) struct WaterRuntimeOverrides {
+pub(super) struct WaterRuntimeOverrides {
     profile: Option<PondWaterConfig>,
     particle_count: Option<usize>,
     particle_edge_len: Option<f32>,
@@ -40,7 +40,7 @@ impl WaterRuntimeOverrides {
         }
     }
 
-    pub(in crate::app::core) fn apply(&self, config: &mut PondWaterConfig) {
+    pub(super) fn apply(&self, config: &mut PondWaterConfig) {
         if let Some(profile) = &self.profile {
             *config = profile.clone();
         }
@@ -92,13 +92,13 @@ pub(in crate::app::core) struct WaterLaunchRequest {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::app::core) struct ResolvedWaterLaunch {
-    pub(in crate::app::core) effective: PondWaterConfig,
-    pub(in crate::app::core) runtime_overrides: WaterRuntimeOverrides,
-    pub(in crate::app::core) profile: Option<crate::WaterProfilePreference>,
-    pub(in crate::app::core) experience: bool,
-    pub(in crate::app::core) gui_config_applied: bool,
-    pub(in crate::app::core) cells_per_unit: f32,
+pub(super) struct ResolvedWaterLaunch {
+    pub(super) effective: PondWaterConfig,
+    pub(super) runtime_overrides: WaterRuntimeOverrides,
+    pub(super) profile: Option<crate::WaterProfilePreference>,
+    pub(super) experience: bool,
+    pub(super) gui_config_applied: bool,
+    pub(super) cells_per_unit: f32,
 }
 
 impl WaterLaunchRequest {
@@ -146,7 +146,7 @@ impl WaterLaunchRequest {
         }
     }
 
-    pub(in crate::app::core) fn resolve(mut self) -> ResolvedWaterLaunch {
+    pub(super) fn resolve(mut self) -> ResolvedWaterLaunch {
         let mut effective = self.base;
 
         if matches!(

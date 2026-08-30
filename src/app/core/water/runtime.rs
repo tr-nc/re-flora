@@ -1,4 +1,4 @@
-use super::{apply_water_gui_adjustables_to_config, WaterRuntimeOverrides};
+use super::settings::{apply_water_gui_adjustables_to_config, WaterRuntimeOverrides};
 use crate::app::GuiAdjustables;
 use glam::{IVec3, Vec3};
 use re_flora_water::{
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) const WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS: usize = 4;
+pub(super) const WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS: usize = 4;
 const WATER_SIM_COMMAND_CHANNEL_CAPACITY: usize = 256;
 const WATER_SIM_THREAD_MAX_COMMANDS_PER_TICK: usize = 1024;
 const WATER_SIM_THREAD_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(16);
@@ -182,13 +182,13 @@ enum WaterSimCommand {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct WaterSimParticleSnapshot {
-    pub(crate) position_ws: Vec3,
-    pub(crate) velocity: Vec3,
+pub(in crate::app::core) struct WaterSimParticleSnapshot {
+    pub(in crate::app::core) position_ws: Vec3,
+    pub(in crate::app::core) velocity: Vec3,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct WaterParticleFrame {
+pub(in crate::app::core) struct WaterParticleFrame {
     revision: u64,
     particles: Vec<WaterSimParticleSnapshot>,
     sim_time_seconds: f32,
@@ -206,15 +206,15 @@ impl WaterParticleFrame {
         })
     }
 
-    pub(crate) fn revision(&self) -> u64 {
+    pub(in crate::app::core) fn revision(&self) -> u64 {
         self.revision
     }
 
-    pub(crate) fn sim_time_seconds(&self) -> f32 {
+    pub(in crate::app::core) fn sim_time_seconds(&self) -> f32 {
         self.sim_time_seconds
     }
 
-    pub(crate) fn particles(&self) -> &[WaterSimParticleSnapshot] {
+    pub(in crate::app::core) fn particles(&self) -> &[WaterSimParticleSnapshot] {
         &self.particles
     }
 }
@@ -224,9 +224,9 @@ struct WaterSimThreadShared {
     latest_frame: Option<WaterParticleFrame>,
 }
 
-pub(crate) struct AsyncWaterSim {
-    pub(crate) config: PondWaterConfig,
-    pub(crate) dx: f32,
+pub(super) struct AsyncWaterSim {
+    pub(super) config: PondWaterConfig,
+    pub(super) dx: f32,
     terrain: Option<WaterTerrainColliderSet>,
     command_tx: mpsc::SyncSender<WaterSimCommand>,
     shared: Arc<Mutex<WaterSimThreadShared>>,
@@ -238,7 +238,7 @@ pub(crate) struct AsyncWaterSim {
 }
 
 impl AsyncWaterSim {
-    pub(crate) fn new(config: PondWaterConfig) -> Self {
+    pub(super) fn new(config: PondWaterConfig) -> Self {
         let dx = water_config_dx(&config);
         let (command_tx, command_rx) = mpsc::sync_channel(WATER_SIM_COMMAND_CHANNEL_CAPACITY);
         let shared = Arc::new(Mutex::new(WaterSimThreadShared::default()));
@@ -262,7 +262,7 @@ impl AsyncWaterSim {
         }
     }
 
-    pub(crate) fn apply_gui_adjustables(
+    pub(super) fn apply_gui_adjustables(
         &mut self,
         gui_adjustables: &GuiAdjustables,
         runtime_overrides: &WaterRuntimeOverrides,
@@ -278,7 +278,7 @@ impl AsyncWaterSim {
         }
     }
 
-    pub(crate) fn set_runtime_options(
+    pub(super) fn set_runtime_options(
         &mut self,
         enabled: bool,
         perf_logging: bool,
@@ -300,7 +300,7 @@ impl AsyncWaterSim {
     }
 
     /// Establishes a worker-observed quiescence boundary before terrain replacement.
-    pub(crate) fn pause_and_wait(&mut self) -> anyhow::Result<()> {
+    pub(super) fn pause_and_wait(&mut self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.worker.is_some(),
             "water simulation worker is not available"
@@ -316,7 +316,7 @@ impl AsyncWaterSim {
         Ok(())
     }
 
-    pub(crate) fn poll_latest_particle_frame_after_frame(
+    pub(super) fn poll_latest_particle_frame_after_frame(
         &mut self,
         frame_delta_time: f32,
         water_tick_seconds: f32,
@@ -344,11 +344,11 @@ impl AsyncWaterSim {
         }
     }
 
-    pub(crate) fn latest_particle_frame(&self) -> Option<&WaterParticleFrame> {
+    pub(super) fn latest_particle_frame(&self) -> Option<&WaterParticleFrame> {
         self.latest_frame.as_ref()
     }
 
-    pub(crate) fn status_text(&self, handoff_main_thread_ms: Option<f32>) -> String {
+    pub(super) fn status_text(&self, handoff_main_thread_ms: Option<f32>) -> String {
         let Some(frame) = self.latest_frame.as_ref() else {
             return "Water sim thread: --".to_owned();
         };
@@ -373,11 +373,11 @@ impl AsyncWaterSim {
         }
     }
 
-    pub(crate) fn terrain_collider_set(&self) -> Option<&WaterTerrainColliderSet> {
+    pub(super) fn terrain_collider_set(&self) -> Option<&WaterTerrainColliderSet> {
         self.terrain.as_ref()
     }
 
-    pub(crate) fn terrain_grid_cache_build_request_for_chunk(
+    pub(super) fn terrain_grid_cache_build_request_for_chunk(
         &self,
         chunk_id: IVec3,
     ) -> Option<WaterTerrainCacheBuildRequest> {
@@ -388,7 +388,7 @@ impl AsyncWaterSim {
         )
     }
 
-    pub(crate) fn upsert_terrain_collider_chunk_deferred(
+    pub(super) fn upsert_terrain_collider_chunk_deferred(
         &mut self,
         chunk: WaterTerrainColliderChunk,
     ) {
@@ -398,7 +398,7 @@ impl AsyncWaterSim {
         self.send_critical_command(WaterSimCommand::UpsertTerrainColliderChunkDeferred(chunk));
     }
 
-    pub(crate) fn remove_terrain_collider_chunk_deferred(&mut self, chunk_id: IVec3) -> bool {
+    pub(super) fn remove_terrain_collider_chunk_deferred(&mut self, chunk_id: IVec3) -> bool {
         let Some(terrain) = self.terrain.as_mut() else {
             return false;
         };
@@ -414,23 +414,23 @@ impl AsyncWaterSim {
         true
     }
 
-    pub(crate) fn finish_terrain_collider_chunk_batch(&mut self, stabilize_particles: bool) {
+    pub(super) fn finish_terrain_collider_chunk_batch(&mut self, stabilize_particles: bool) {
         self.send_critical_command(WaterSimCommand::FinishTerrainColliderChunkBatch {
             stabilize_particles,
         });
     }
 
-    pub(crate) fn invalidate_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
+    pub(super) fn invalidate_terrain_grid_cache_for_chunk(&mut self, chunk_id: IVec3) {
         self.send_critical_command(WaterSimCommand::InvalidateTerrainGridCacheForChunk(
             chunk_id,
         ));
     }
 
-    pub(crate) fn submit_terrain_grid_cache_patch(&mut self, patch: WaterTerrainCachePatch) {
+    pub(super) fn submit_terrain_grid_cache_patch(&mut self, patch: WaterTerrainCachePatch) {
         self.send_critical_command(WaterSimCommand::ApplyTerrainGridCachePatch(patch));
     }
 
-    pub(crate) fn stabilize_after_terrain_chunk_change(&mut self, chunk_id: IVec3) {
+    pub(super) fn stabilize_after_terrain_chunk_change(&mut self, chunk_id: IVec3) {
         self.send_critical_command(WaterSimCommand::StabilizeAfterTerrainChunkChange(chunk_id));
     }
 
@@ -438,7 +438,7 @@ impl AsyncWaterSim {
     /// boundary.  Calling this more than once is harmless; `Drop` uses the
     /// same path as a fallback for construction sites that do not run the
     /// normal event-loop termination handler.
-    pub(crate) fn shutdown(&mut self) {
+    pub(super) fn shutdown(&mut self) {
         if self.worker.is_none() {
             return;
         }
@@ -457,7 +457,7 @@ impl AsyncWaterSim {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn request_debug_particle_spawn(
+    pub(super) fn request_debug_particle_spawn(
         &mut self,
         surface_point_ws: Vec3,
         count: usize,
@@ -497,6 +497,11 @@ impl AsyncWaterSim {
                 log::warn!("[WATER][THREAD] command queue disconnected");
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn worker_stopped_for_test(&self) -> bool {
+        self.worker.is_none()
     }
 }
 

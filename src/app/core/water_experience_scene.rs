@@ -104,7 +104,7 @@ impl App {
             CAMERA_POSITION_WS,
             CAMERA_TARGET_WS,
             EXPERIENCE_TIME_OF_DAY,
-            self.water_sim.config.particle_count,
+            self.water.config().particle_count,
             INITIAL_FLUID_MIN_WS,
             INITIAL_FLUID_MAX_WS,
         );
@@ -120,10 +120,10 @@ impl App {
         else {
             return;
         };
-        if !self.water_terrain_status().is_ready() {
+        if !self.water.terrain_status().is_ready() {
             return;
         }
-        let Some(frame) = self.water_sim.latest_particle_frame() else {
+        let Some(frame) = self.water.latest_particle_frame() else {
             return;
         };
         if !complete_frame_is_ready(

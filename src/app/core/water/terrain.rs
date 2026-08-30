@@ -1,4 +1,4 @@
-use super::super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::super::{CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use super::runtime::AsyncWaterSim;
 use crate::builder::{
     ChunkSolidSampleJob, ContreeBuilder, ContreeCpuVoxelSourceDependency, PlainBuilder,
@@ -87,7 +87,7 @@ struct TerrainSdfSourceRefreshRequest {
     ready_at: Instant,
 }
 
-pub(in crate::app::core) struct WaterTerrainRuntime {
+pub(super) struct WaterTerrainRuntime {
     initialized: bool,
     collider_cache_rebuild_pending: bool,
     source_refreshes: LatestChunkQueue<TerrainSdfSourceRefreshRequest>,
@@ -113,7 +113,7 @@ pub(in crate::app::core) struct WaterTerrainAdvanceTimings {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WaterTerrainAdvanceMode {
+pub(super) enum WaterTerrainAdvanceMode {
     Loading,
     Running,
 }
@@ -156,7 +156,7 @@ impl WaterTerrainStatus {
 }
 
 impl WaterTerrainRuntime {
-    pub(in crate::app::core) fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (collider_job_tx, collider_result_rx, collider_worker) =
             Self::spawn_terrain_sdf_collider_worker();
         let (cache_job_tx, cache_result_rx, cache_worker) =
@@ -181,7 +181,7 @@ impl WaterTerrainRuntime {
         }
     }
 
-    fn status(&self) -> WaterTerrainStatus {
+    pub(super) fn status(&self) -> WaterTerrainStatus {
         let work_active = !self.source_refreshes.is_idle()
             || !self.collider_rebuilds.is_idle()
             || !self.cache_rebuilds.is_idle();
@@ -201,7 +201,7 @@ impl WaterTerrainRuntime {
         }
     }
 
-    fn advance(
+    pub(super) fn advance(
         &mut self,
         plain_builder: &mut PlainBuilder,
         contree_builder: &mut ContreeBuilder,
@@ -259,7 +259,7 @@ impl WaterTerrainRuntime {
         }
     }
 
-    fn shutdown(&mut self, plain_builder: &mut PlainBuilder) -> Result<()> {
+    pub(super) fn shutdown(&mut self, plain_builder: &mut PlainBuilder) -> Result<()> {
         let discard_result = self.discard_terrain_sdf_source_refresh_for_shutdown(plain_builder);
         self.stop_worker_threads();
         discard_result
@@ -272,52 +272,8 @@ fn elapsed_ms(start: Option<Instant>) -> f32 {
         .unwrap_or(0.0)
 }
 
-impl App {
-    pub(in crate::app::core) fn enqueue_startup_water_terrain_collider_rebuilds(&mut self) {
-        let bounds = self.water_sim.config.collider;
-        self.water_terrain
-            .observe_full_terrain(CHUNK_DIM, bounds.min_ws, bounds.max_ws);
-    }
-
-    pub(in crate::app::core) fn advance_water_terrain(
-        &mut self,
-        measure_timings: bool,
-    ) -> WaterTerrainAdvanceTimings {
-        self.water_terrain.advance(
-            &mut self.plain_builder,
-            &mut self.contree_builder,
-            &mut self.water_sim,
-            self.tracer.camera_position(),
-            measure_timings,
-            WaterTerrainAdvanceMode::Running,
-        )
-    }
-
-    pub(in crate::app::core) fn advance_loading_water_terrain(
-        &mut self,
-        measure_timings: bool,
-    ) -> WaterTerrainAdvanceTimings {
-        self.water_terrain.advance(
-            &mut self.plain_builder,
-            &mut self.contree_builder,
-            &mut self.water_sim,
-            self.tracer.camera_position(),
-            measure_timings,
-            WaterTerrainAdvanceMode::Loading,
-        )
-    }
-
-    pub(in crate::app::core) fn water_terrain_status(&self) -> WaterTerrainStatus {
-        self.water_terrain.status()
-    }
-
-    pub(in crate::app::core) fn shutdown_water_terrain(&mut self) -> Result<()> {
-        self.water_terrain.shutdown(&mut self.plain_builder)
-    }
-}
-
 impl WaterTerrainRuntime {
-    fn observe_full_terrain(&mut self, chunk_dim: UVec3, min_ws: Vec3, max_ws: Vec3) {
+    pub(super) fn observe_full_terrain(&mut self, chunk_dim: UVec3, min_ws: Vec3, max_ws: Vec3) {
         let mut enqueued = 0usize;
         let mut skipped = 0usize;
         for x in 0..chunk_dim.x {
@@ -872,6 +828,27 @@ impl WaterTerrainRuntime {
                 log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn complete_all_work_for_test(&mut self) {
+        self.initialized = true;
+        self.source_refreshes = LatestChunkQueue::default();
+        self.collider_rebuilds = LatestChunkQueue::default();
+        self.cache_rebuilds = LatestChunkQueue::default();
+        self.source_refresh_inflight = None;
+        self.collider_build_inflight = false;
+        self.cache_rebuild_inflight = false;
+    }
+
+    #[cfg(test)]
+    pub(super) fn stop_worker_threads_for_test(&mut self) {
+        self.stop_worker_threads();
+    }
+
+    #[cfg(test)]
+    pub(super) fn workers_stopped_for_test(&self) -> bool {
+        self.collider_worker.is_none() && self.cache_worker.is_none()
     }
 }
 
