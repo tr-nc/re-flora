@@ -443,6 +443,36 @@ mod app_executor {
         pub(super) fn into_result(self) -> ConnectivityResult {
             self.0
         }
+
+        #[cfg(test)]
+        pub(super) fn reject_manual_release(
+            action: ConnectivityAction,
+            error: anyhow::Error,
+        ) -> Self {
+            let ConnectivityAction::HandleManualRelease(request) = action else {
+                panic!("manual failure receipt requires a manual release action")
+            };
+            Self(ConnectivityResult::ManualReleaseHandled(Err(
+                FailedConnectivityAction { request, error },
+            )))
+        }
+
+        #[cfg(test)]
+        pub(super) fn accept_manual_release(
+            action: ConnectivityAction,
+            prepared: ManualReleasePrepared,
+        ) -> Self {
+            let ConnectivityAction::HandleManualRelease(_request) = action else {
+                panic!("manual success receipt requires a manual release action")
+            };
+            Self(ConnectivityResult::ManualReleaseHandled(Ok(Some(prepared))))
+        }
+
+        #[cfg(test)]
+        pub(super) fn complete_no_action(action: ConnectivityAction) -> Self {
+            assert!(matches!(action, ConnectivityAction::None));
+            Self(ConnectivityResult::None)
+        }
     }
 
     pub(super) fn execute(app: &mut App, action: ConnectivityAction) -> ConnectivityExecution {
@@ -2624,7 +2654,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_release_is_planned_as_an_owned_app_execution() {
+    fn failed_manual_release_retries_through_the_next_main_tick_around_completed_frames() {
         let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
             TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Manual,
@@ -2662,16 +2692,11 @@ mod tests {
             _ => panic!("manual release did not plan an owned preparation"),
         };
         let request_address = request.payload() as *const ManualReleasePlan;
-        let ScenarioOwner::Connectivity(bench) = &mut owner else {
-            panic!("test constructed the wrong scenario owner");
-        };
-        let error = bench
-            .apply_result(ConnectivityResult::ManualReleaseHandled(Err(
-                FailedConnectivityAction {
-                    request,
-                    error: anyhow::anyhow!("injected manual snapshot failure"),
-                },
-            )))
+        let error = owner
+            .apply_connectivity_execution(ConnectivityExecution::reject_manual_release(
+                ConnectivityAction::HandleManualRelease(request),
+                anyhow::anyhow!("injected manual snapshot failure"),
+            ))
             .unwrap_err();
         assert!(error
             .to_string()
@@ -2683,14 +2708,43 @@ mod tests {
                 ..
             }) if matches!(resume.as_ref(), BenchState::AwaitingManualEdit)
         ));
-        let retried = owner
-            .plan_manual_connectivity_release(ManualReleaseFacts {
-                frame: 99,
-                visible_revision: 77,
-            })
+        let completed_record = CpuFrameRecord {
+            frame: 73,
+            total_us: 1.0,
+            gpu_present_us: 2.0,
+            tracked_us: 3.0,
+            untracked_us: 4.0,
+            terrain_collider_pending: 5,
+            contree_cache_pending: 6,
+            water_source_pending: 7,
+            water_collider_pending: 8,
+            water_cache_pending: 9,
+            ddgi_ready: false,
+            visible_revision: 66,
+        };
+        let completed_action = owner
+            .plan_completed_connectivity_frame(completed_record)
             .unwrap();
+        assert!(matches!(completed_action, ConnectivityAction::None));
+        let completed_effect = owner
+            .apply_connectivity_execution(ConnectivityExecution::complete_no_action(
+                completed_action,
+            ))
+            .unwrap();
+        assert!(!completed_effect.observation_complete);
+
+        let changed_facts = ConnectivityFacts {
+            frame: 99,
+            visible_revision: 77,
+            contree_idle: false,
+            terrain_collider_pending: 12,
+            water_ready: false,
+            ddgi_ready: false,
+            available_particles: 3,
+        };
+        let retried = owner.plan_connectivity_action(changed_facts).unwrap();
         let ConnectivityAction::HandleManualRelease(retried) = retried else {
-            panic!("failed manual release was not replanned")
+            panic!("failed manual release was not replanned by the main tick")
         };
         assert_eq!(
             retried.payload() as *const ManualReleasePlan,
@@ -2703,6 +2757,30 @@ mod tests {
                 revision_before: 12,
                 ..
             }
+        ));
+
+        let retry_execution = ConnectivityExecution::accept_manual_release(
+            ConnectivityAction::HandleManualRelease(retried),
+            ManualReleasePrepared {
+                frame: 41,
+                revision_before: 12,
+                snapshot: SnapshotReadResult {
+                    job: fixture_job(),
+                    snapshot_readback_us: 8.0,
+                },
+            },
+        );
+        owner.apply_connectivity_execution(retry_execution).unwrap();
+        assert!(matches!(
+            owner,
+            ScenarioOwner::Connectivity(TerrainConnectivityBench {
+                state: BenchState::Tracing {
+                    release_frame: 41,
+                    revision_before: 12,
+                    ..
+                },
+                ..
+            })
         ));
     }
 
