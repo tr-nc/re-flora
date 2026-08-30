@@ -35,29 +35,33 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertIn("/tmp/local-petal-cargo run --release --", result.stdout)
         self.assertIn("--hidden --mute --lighting-mode-acceptance", result.stdout)
         self.assertIn("analyzer-command=", result.stdout)
+        self.assertFalse(artifact.exists())
+        self.assertFalse(Path(f"{artifact}.app.log").exists())
 
-    def test_reports_analyzer_red_instead_of_overwriting_it_as_missing_log(self) -> None:
+    def test_uses_process_bound_marker_instead_of_concurrent_latest_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean bound log\n")
+            foreign_log = root / "foreign.run.log"
+            foreign_log.write_text(
+                "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=foreign-process\n"
+            )
             log_pointer = root / "latest-run-log.txt"
-            cargo = root / "cargo"
-            cargo.write_text(
+            log_pointer.write_text(f"{foreign_log}\n")
+            cargo = executable(
+                root / "cargo",
                 "#!/usr/bin/env bash\n"
                 "artifact=\"${@: -1}\"\n"
                 "printf artifact > \"$artifact\"\n"
-                "run_log=\"$artifact.run.log\"\n"
-                "printf clean-run-log > \"$run_log\"\n"
-                "printf '%s\\n' \"$run_log\" > \"$REFLORA_LOG_POINTER\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
-            cargo.chmod(0o755)
-            analyzer = root / "analyzer"
-            analyzer.write_text(
+            analyzer = executable(
+                root / "analyzer",
                 "#!/usr/bin/env bash\n"
-                "printf '%s\\n' '[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=raw-alpha-drift' >&2\n"
-                "exit 1\n"
+                "printf '%s\\n' '{\"verdict\": \"GREEN\"}'\n",
             )
-            analyzer.chmod(0o755)
 
             result = subprocess.run(
                 [str(RUNNER), str(artifact)],
@@ -67,6 +71,45 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                     "REFLORA_CARGO": str(cargo),
                     "REFLORA_ANALYZER": str(analyzer),
                     "REFLORA_LOG_POINTER": str(log_pointer),
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"log={bound_log}", result.stdout)
+        self.assertNotIn("foreign-process", result.stderr)
+
+    def test_reports_analyzer_red_instead_of_overwriting_it_as_missing_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean bound log\n")
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "artifact=\"${@: -1}\"\n"
+                "printf artifact > \"$artifact\"\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            analyzer = executable(
+                root / "analyzer",
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' '[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=raw-alpha-drift' >&2\n"
+                "exit 1\n",
+            )
+
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_ANALYZER": str(analyzer),
+                    "BOUND_RUN_LOG": str(bound_log),
                 },
                 capture_output=True,
                 text=True,
@@ -81,14 +124,14 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             artifact = root / "capture.rflma"
-            log_pointer = root / "latest-run-log.txt"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text(
+                "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=identity-drift-at-ddgi-field\n"
+            )
             cargo = executable(
                 root / "cargo",
                 "#!/usr/bin/env bash\n"
-                "artifact=\"${@: -1}\"\n"
-                "run_log=\"$artifact.run.log\"\n"
-                "printf '%s\\n' '[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=identity-drift-at-ddgi-field' > \"$run_log\"\n"
-                "printf '%s\\n' \"$run_log\" > \"$REFLORA_LOG_POINTER\"\n",
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
             )
 
             result = subprocess.run(
@@ -97,7 +140,7 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_LOG_POINTER": str(log_pointer),
+                    "BOUND_RUN_LOG": str(bound_log),
                 },
                 capture_output=True,
                 text=True,
@@ -109,21 +152,63 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=identity-drift-at-ddgi-field",
             result.stderr,
         )
-        self.assertNotIn("missing-artifact-or-run-log", result.stderr)
+        self.assertNotIn("missing-artifact", result.stderr)
 
-    def test_stale_latest_pointer_fails_closed_even_when_artifact_exists(self) -> None:
+    def test_missing_duplicate_or_nonexistent_run_log_marker_fails_closed(self) -> None:
+        cases = ("missing", "duplicate", "nonexistent")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                artifact = root / "capture.rflma"
+                first_log = root / "first.run.log"
+                first_log.write_text("clean\n")
+                second_log = root / "second.run.log"
+                second_log.write_text("clean\n")
+                marker_lines = {
+                    "missing": "",
+                    "duplicate": (
+                        f"printf '[RUN_LOG] path=%s\\n' '{first_log}'\n"
+                        f"printf '[RUN_LOG] path=%s\\n' '{second_log}'\n"
+                    ),
+                    "nonexistent": (
+                        f"printf '[RUN_LOG] path=%s\\n' '{root / 'absent.run.log'}'\n"
+                    ),
+                }[case]
+                cargo = executable(
+                    root / "cargo",
+                    "#!/usr/bin/env bash\n"
+                    "artifact=\"${@: -1}\"\n"
+                    "printf artifact > \"$artifact\"\n"
+                    f"{marker_lines}",
+                )
+
+                result = subprocess.run(
+                    [str(RUNNER), str(artifact)],
+                    cwd=REPO_ROOT,
+                    env={**os.environ, "REFLORA_CARGO": str(cargo)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("run-log-marker", result.stderr)
+
+    def test_nonzero_app_status_preserves_early_bound_runtime_red(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             artifact = root / "capture.rflma"
-            stale_log = root / "stale.run.log"
-            stale_log.write_text("stale")
-            log_pointer = root / "latest-run-log.txt"
-            log_pointer.write_text(f"{stale_log}\n")
+            bound_log = root / "bound.run.log"
+            bound_log.write_text(
+                "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=early-bound-red\n"
+                + "".join(f"bound noise {index}\n" for index in range(120))
+            )
             cargo = executable(
                 root / "cargo",
                 "#!/usr/bin/env bash\n"
-                "artifact=\"${@: -1}\"\n"
-                "printf artifact > \"$artifact\"\n",
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n"
+                "for index in $(seq 1 120); do printf 'app noise %s\\n' \"$index\" >&2; done\n"
+                "exit 7\n",
             )
 
             result = subprocess.run(
@@ -132,7 +217,7 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_LOG_POINTER": str(log_pointer),
+                    "BOUND_RUN_LOG": str(bound_log),
                 },
                 capture_output=True,
                 text=True,
@@ -140,18 +225,25 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("missing-artifact-or-run-log", result.stderr)
+        self.assertIn(
+            "[LIGHTING_MODE_ACCEPTANCE] verdict=RED reason=early-bound-red",
+            result.stderr,
+        )
+        self.assertIn("verdict=APP_REJECTED", result.stderr)
+        self.assertNotIn("missing-artifact", result.stderr)
 
-    def test_missing_latest_pointer_fails_closed_even_when_artifact_exists(self) -> None:
+    def test_nonzero_app_status_without_runtime_red_keeps_tail_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             artifact = root / "capture.rflma"
-            log_pointer = root / "missing-latest-run-log.txt"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean bound log\n")
             cargo = executable(
                 root / "cargo",
                 "#!/usr/bin/env bash\n"
-                "artifact=\"${@: -1}\"\n"
-                "printf artifact > \"$artifact\"\n",
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n"
+                "printf 'nonzero-tail-diagnostic\\n' >&2\n"
+                "exit 9\n",
             )
 
             result = subprocess.run(
@@ -160,7 +252,7 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "REFLORA_CARGO": str(cargo),
-                    "REFLORA_LOG_POINTER": str(log_pointer),
+                    "BOUND_RUN_LOG": str(bound_log),
                 },
                 capture_output=True,
                 text=True,
@@ -168,7 +260,8 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("missing-artifact-or-run-log", result.stderr)
+        self.assertIn("app-status=9", result.stderr)
+        self.assertIn("nonzero-tail-diagnostic", result.stderr)
 
 
 if __name__ == "__main__":
