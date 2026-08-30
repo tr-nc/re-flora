@@ -6,7 +6,7 @@ use winit::event_loop::ActiveEventLoop;
 impl App {
     pub(super) fn create_window_state(
         event_loop: &ActiveEventLoop,
-        options: &crate::AppOptions,
+        options: &crate::DisplayPlan,
     ) -> WindowState {
         const WINDOW_TITLE_DEBUG: &str = "Re: Flora - debug build";
         const WINDOW_TITLE_RELEASE: &str = "Re: Flora - release build";

@@ -1,5 +1,5 @@
 use crate::app::GuiAdjustables;
-use crate::AppOptions;
+use crate::WaterPlan;
 use re_flora_water::PondWaterConfig;
 
 #[derive(Clone, Debug)]
@@ -18,22 +18,22 @@ pub(in crate::app::core) struct WaterRuntimeOverrides {
 }
 
 impl WaterRuntimeOverrides {
-    pub(in crate::app::core) fn from_options(
-        options: &AppOptions,
+    pub(in crate::app::core) fn from_plan(
+        options: &WaterPlan,
         profile: Option<PondWaterConfig>,
     ) -> Self {
         Self {
             profile,
-            particle_count: options.water_particles,
-            particle_edge_len: options.water_particle_edge_len,
-            grid_dim: options.water_grid,
-            substep_hz: options.water_substep_hz,
-            terrain_margin_cells: options.water_terrain_margin_cells,
-            damping_per_sec: options.water_damping,
-            terrain_tangent_damping_per_sec: options.water_terrain_tangent_damping,
-            stiffness: options.water_stiffness,
-            gamma: options.water_gamma,
-            j_min: options.water_j_min,
+            particle_count: options.particles,
+            particle_edge_len: options.particle_edge_len,
+            grid_dim: options.grid,
+            substep_hz: options.substep_hz,
+            terrain_margin_cells: options.terrain_margin_cells,
+            damping_per_sec: options.damping,
+            terrain_tangent_damping_per_sec: options.terrain_tangent_damping,
+            stiffness: options.stiffness,
+            gamma: options.gamma,
+            j_min: options.j_min,
         }
     }
 

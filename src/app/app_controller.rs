@@ -1,19 +1,19 @@
 use super::core::App;
-use crate::AppOptions;
+use crate::RunPlan;
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
     window::WindowId,
 };
 
 pub struct AppController {
-    options: AppOptions,
+    plan: RunPlan,
     initialized: Option<App>,
 }
 
 impl AppController {
-    pub fn new(options: AppOptions) -> Self {
+    pub fn new(plan: RunPlan) -> Self {
         Self {
-            options,
+            plan,
             initialized: None,
         }
     }
@@ -21,7 +21,7 @@ impl AppController {
 
 impl ApplicationHandler for AppController {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.initialized = Some(App::new(event_loop, &self.options).unwrap());
+        self.initialized = Some(App::new(event_loop, &self.plan).unwrap());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {

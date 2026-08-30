@@ -102,10 +102,9 @@ use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::{WindResponseCurve, WindSource};
-use crate::RenderFlags;
 use crate::{
-    egui_renderer::EguiRenderer, window::WindowState, DenoiserBenchScene,
-    EnvironmentLightingTestCase, WaterProfilePreference,
+    egui_renderer::EguiRenderer, window::WindowState, CameraAutomation,
+    EnvironmentLightingTestCase, RenderFlags, RunPlan, Scenario, WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -1072,24 +1071,40 @@ impl App {
         }
     }
 
-    pub fn new(_event_loop: &ActiveEventLoop, options: &crate::AppOptions) -> Result<Self> {
+    pub fn new(_event_loop: &ActiveEventLoop, plan: &RunPlan) -> Result<Self> {
+        let display = &plan.display;
+        let audio = &plan.audio;
+        let render = &plan.render;
+        let terrain = &plan.terrain;
+        let camera = &plan.camera;
+        let lifecycle = &plan.lifecycle;
+        let water = &plan.water;
+        let lighting = &plan.lighting;
+        let benchmarks = &plan.benchmarks;
+        let scenario = plan.scenario;
+        let environment_lighting_test = scenario.environment_lighting();
+        let canopy_audio_diagnostic = scenario.canopy_audio_diagnostic();
+        let water_experience = matches!(scenario, Scenario::WaterExperience);
+        let water_edit_soak = matches!(scenario, Scenario::WaterEditSoak);
+        let hybrid_transparency = matches!(scenario, Scenario::HybridTransparency);
+        let house_scene = matches!(scenario, Scenario::House);
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
-        let window_state = Self::create_window_state(_event_loop, options);
+        let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
         let device = vulkan_ctx.device();
 
         let allocator = Allocator::new_for_context(&vulkan_ctx);
 
-        let mut terrain_persistence = TerrainPersistenceRuntime::from_options(options)?;
+        let mut terrain_persistence = TerrainPersistenceRuntime::from_plan(terrain)?;
         let terrain_snapshot_reader = terrain_persistence.take_startup_reader();
 
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
             window_state.window_extent(),
             SwapchainDesc {
-                present_mode: options.present_mode.map(|mode| mode.as_present_mode()),
-                image_count_override: options.swapchain_images,
+                present_mode: display.present_mode.map(|mode| mode.as_present_mode()),
+                image_count_override: display.swapchain_images,
                 ..Default::default()
             },
         );
@@ -1102,8 +1117,8 @@ impl App {
         );
         let frame_extent_generation = swapchain.frame_extent_generation();
         let frame_retirement_sink = frame_manager.retirement_sink();
-        let gpu_profiler = options
-            .perf
+        let gpu_profiler = render
+            .perf_logging
             .then(|| {
                 GpuProfiler::maybe_new(
                     &vulkan_ctx,
@@ -1121,8 +1136,8 @@ impl App {
             swapchain.get_render_pass(),
             frame_retirement_sink.clone(),
         );
-        let egui_texture_lifecycle_test = options
-            .egui_texture_lifecycle_test
+        let egui_texture_lifecycle_test = lifecycle
+            .egui_texture_test
             .then(|| EguiTextureLifecycleTest::new(renderer.context()));
 
         let plain_builder = PlainBuilder::new(
@@ -1139,7 +1154,7 @@ impl App {
             VOXEL_DIM_PER_CHUNK,
             chunk_bound,
         );
-        if options.perf {
+        if render.perf_logging {
             surface_builder.enable_gpu_job_profiling(32);
         }
 
@@ -1182,8 +1197,8 @@ impl App {
         let spatial_sound_manager = SpatialSoundManager::new(
             1024,
             contree_builder.acoustic_scene_snapshot(),
-            options.audio_output_device.clone(),
-            if options.canopy_audio_budget_diagnostic {
+            audio.output_device.clone(),
+            if canopy_audio_diagnostic == Some(true) {
                 EnvironmentalAcousticsBudget {
                     max_processed_extents: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
                     max_direct_rays: CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
@@ -1206,17 +1221,14 @@ impl App {
                 scaling_factor: 0.5,
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
-                environment_probe_spacing_voxels: options.environment_probe_spacing_voxels,
-                environment_probe_visualization_enabled: options.environment_probe_visualization,
-                environment_irradiance_capture_enabled: options
-                    .environment_irradiance_capture_path
-                    .is_some(),
-                environment_irradiance_capture_target: options
-                    .environment_irradiance_capture_target,
-                ddgi_batch_order: options.ddgi_batch_order,
-                ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
+                environment_probe_spacing_voxels: lighting.probe_spacing_voxels,
+                environment_probe_visualization_enabled: lighting.visualize_probes,
+                environment_irradiance_capture_enabled: lighting.irradiance_capture_path.is_some(),
+                environment_irradiance_capture_target: lighting.capture_target,
+                ddgi_batch_order: lighting.batch_order,
+                ddgi_terrain_hard_origin: lighting.terrain_hard_origin,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
-                    options.environment_lighting_test_scene,
+                    environment_lighting_test,
                     Some(
                         EnvironmentLightingTestCase::PointLightChanges
                             | EnvironmentLightingTestCase::VoxelEmissiveChanges
@@ -1254,7 +1266,7 @@ impl App {
                 library
             }
             Err(err) => {
-                if options.camera_snapshot.is_some() {
+                if camera.snapshot_name().is_some() {
                     return Err(err).context(
                         "camera snapshot was requested, but the snapshot file could not be loaded",
                     );
@@ -1269,22 +1281,18 @@ impl App {
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
-        let debug_tree_pos = if options.environment_lighting_test_scene.is_some() {
+        let debug_tree_pos = if environment_lighting_test.is_some() {
             environment_lighting_test_scene::STARTUP_TREE_POSITION
-        } else if options.hybrid_transparency_test_scene {
+        } else if hybrid_transparency {
             hybrid_transparency_test_scene::STARTUP_TREE_POSITION
         } else {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
-        if options
-            .denoiser_bench
-            .as_ref()
-            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-        {
+        if matches!(camera, CameraAutomation::FoliageShadowBenchmark(_)) {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
-        if options.canopy_audio_diagnostic {
+        if canopy_audio_diagnostic.is_some() {
             let mut fixed_tree_desc = TreeDesc::default();
             fixed_tree_desc.branching.seed = CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED;
             debug_settings.tree.desc = fixed_tree_desc;
@@ -1308,7 +1316,7 @@ impl App {
             .desc
             .at_age(debug_settings.adjustables.tree_age.value);
         tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
-        let mut render_flags = RenderFlags::from(options);
+        let mut render_flags = render.flags.clone();
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
@@ -1341,7 +1349,7 @@ impl App {
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
         tree_audio_manager.set_canopy_telemetry_enabled(
-            options.canopy_audio_telemetry || options.canopy_audio_diagnostic,
+            audio.canopy_telemetry || canopy_audio_diagnostic.is_some(),
         );
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let butterfly_emitters = Vec::new();
@@ -1358,7 +1366,7 @@ impl App {
             (world_extent.y * cells_per_unit).ceil() as u32,
             (world_extent.z * cells_per_unit).ceil() as u32,
         );
-        let mut water_config = match options.water_profile {
+        let mut water_config = match water.profile {
             Some(WaterProfilePreference::Default) | None => PondWaterConfig::default()
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
@@ -1369,26 +1377,26 @@ impl App {
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
         };
-        let water_gui_config_applied = options.water_profile.is_none() && !options.water_experience;
+        let water_gui_config_applied = water.profile.is_none() && !water_experience;
         if water_gui_config_applied {
             water::apply_water_gui_adjustables_to_config(
                 &mut water_config,
                 &debug_settings.adjustables,
             );
         }
-        if options.water_experience {
+        if water_experience {
             water_experience_scene::WaterExperienceScene::configure_water(&mut water_config);
         }
-        let water_profile_config = (options.water_profile.is_some() || options.water_experience)
-            .then(|| water_config.clone());
+        let water_profile_config =
+            (water.profile.is_some() || water_experience).then(|| water_config.clone());
         let water_runtime_overrides =
-            water::WaterRuntimeOverrides::from_options(options, water_profile_config);
+            water::WaterRuntimeOverrides::from_plan(water, water_profile_config);
         water_runtime_overrides.apply(&mut water_config);
 
         log::info!(
             "[WATER] config profile={:?} experience={} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid={:?} cells_per_unit={}",
-            options.water_profile,
-            options.water_experience,
+            water.profile,
+            water_experience,
             water_gui_config_applied,
             water_config.particle_count,
             water_config.grid_dim,
@@ -1414,7 +1422,7 @@ impl App {
             water_config.initial_fluid_bounds,
             cells_per_unit,
         );
-        let water_experience_scene = options.water_experience.then(|| {
+        let water_experience_scene = water_experience.then(|| {
             water_experience_scene::WaterExperienceScene::new(water_config.particle_count)
         });
         let water_sim = water::AsyncWaterSim::new(water_config);
@@ -1432,7 +1440,7 @@ impl App {
         // Keep the point-light diagnostic isolated to its authored identities; production and
         // all other scenes consume emissive voxels from the immutable Contree CPU snapshot.
         let emissive_voxel_lighting = (!matches!(
-            options.environment_lighting_test_scene,
+            environment_lighting_test,
             Some(EnvironmentLightingTestCase::PointLightChanges)
         ))
         .then(|| {
@@ -1460,8 +1468,8 @@ impl App {
             cursor_position_physical: None,
             camera_control: CameraControlRuntime::default(),
             modifiers: ModifiersState::default(),
-            perf_logging: options.perf,
-            mute_audio_output: options.mute,
+            perf_logging: render.perf_logging,
+            mute_audio_output: audio.muted,
 
             swapchain,
             frame_manager,
@@ -1480,7 +1488,7 @@ impl App {
             terrain_physics,
 
             pending_frame_extent: None,
-            resize_lifecycle_test: options.resize_lifecycle_test.then(|| ResizeLifecycleTest {
+            resize_lifecycle_test: lifecycle.resize_test.then(|| ResizeLifecycleTest {
                 requested: 0,
                 next_request_frame: 2,
                 observed: Vec::new(),
@@ -1499,14 +1507,13 @@ impl App {
             regenerate_trees_requested: false,
             trees,
             config_panel_visible: false,
-            environment_probe_spacing_draft: options.environment_probe_spacing_voxels,
-            environment_probe_rebuild_spacing_voxels: options
-                .environment_probe_rebuild_spacing_voxels,
+            environment_probe_spacing_draft: lighting.probe_spacing_voxels,
+            environment_probe_rebuild_spacing_voxels: lighting.rebuild_probe_spacing_voxels,
             camera_snapshots,
             camera_snapshot_draft_name,
             camera_snapshot_draft_description: String::new(),
             camera_snapshot_status: None,
-            frame_timing_panel_visible: options.perf,
+            frame_timing_panel_visible: render.perf_logging,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             card_display_visible: false,
             item_panel_shovel_icon: None,
@@ -1526,8 +1533,8 @@ impl App {
             terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
-            terrain_connectivity_bench: options
-                .terrain_connectivity_bench
+            terrain_connectivity_bench: scenario
+                .terrain_connectivity_benchmark()
                 .map(TerrainConnectivityBench::new),
 
             particle_system,
@@ -1546,37 +1553,31 @@ impl App {
 
             render_start_time: None,
             terrain_persistence,
-            screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
+            screenshot_capture: ScreenshotRuntime::new(camera.screenshot().cloned()),
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
-                options.environment_irradiance_capture_path.clone(),
-                options.ddgi_debug_view,
+                lighting.irradiance_capture_path.clone(),
+                lighting.debug_view,
             ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
-                options.ddgi_spatial_weight_readback_path.clone(),
+                lighting.spatial_weight_readback_path.clone(),
             ),
-            denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
-            auto_exit_delay: options.auto_exit_delay,
-            canopy_audio_telemetry_next_log_seconds: (options.canopy_audio_telemetry
-                || options.canopy_audio_diagnostic)
-                .then_some(0.0),
-            canopy_audio_diagnostic: options
-                .canopy_audio_diagnostic
-                .then(|| CanopyAudioDiagnosticRuntime::new(options.canopy_audio_budget_diagnostic)),
-            tree_bench: options
-                .tree_bench
-                .then(|| TreeBench::new(options.tree_bench_samples)),
-            authored_flora_bench: options
-                .authored_flora_bench
-                .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
-            water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
+            denoiser_bench: camera.denoiser_benchmark().cloned().map(DenoiserBench::new),
+            auto_exit_delay: lifecycle.auto_exit_delay,
+            canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
+                || canopy_audio_diagnostic.is_some())
+            .then_some(0.0),
+            canopy_audio_diagnostic: canopy_audio_diagnostic.map(CanopyAudioDiagnosticRuntime::new),
+            tree_bench: benchmarks.tree_samples.map(TreeBench::new),
+            authored_flora_bench: benchmarks
+                .authored_flora_samples
+                .map(AuthoredFloraBench::new),
+            water_edit_soak: water_edit_soak.then(water::WaterEditSoak::default),
             water_experience_scene,
-            environment_lighting_test_scene: options
-                .environment_lighting_test_scene
+            environment_lighting_test_scene: environment_lighting_test
                 .map(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
-            hybrid_transparency_test_scene: options
-                .hybrid_transparency_test_scene
+            hybrid_transparency_test_scene: hybrid_transparency
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
-            house_scene_requested: options.house_scene,
+            house_scene_requested: house_scene,
             visible_terrain_revision: 0,
             shutdown_started: false,
 
@@ -1592,10 +1593,10 @@ impl App {
         }
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
-        if options.environment_lighting_test_scene.is_some() {
+        if environment_lighting_test.is_some() {
             app.configure_environment_lighting_test_scene_camera();
         }
-        if options.water_experience {
+        if water_experience {
             app.configure_water_experience_camera()?;
         }
         app.sync_cursor_with_panels();
@@ -1603,17 +1604,13 @@ impl App {
         app.configure_gui_font()?;
         app.load_item_panel_icons()?;
         app.rebuild_tree_placement_preview()?;
-        if options.hybrid_transparency_test_scene {
+        if hybrid_transparency {
             app.configure_hybrid_transparency_test_scene()?;
         }
         // Test scenes provide a useful default pose, but an explicit snapshot
         // is the caller's final camera choice for screenshots and repro runs.
-        app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
-        if options
-            .denoiser_bench
-            .as_ref()
-            .is_some_and(|bench| bench.scene == DenoiserBenchScene::FoliageShadow)
-        {
+        app.apply_startup_camera_snapshot(camera.snapshot_name())?;
+        if matches!(camera, CameraAutomation::FoliageShadowBenchmark(_)) {
             app.configure_foliage_shadow_bench_camera()?;
         }
         app.sync_cursor_with_panels();
