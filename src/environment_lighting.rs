@@ -3,67 +3,6 @@ use std::time::Duration;
 
 use crate::lighting::{LocalLightGpuPayload, LocalLightInfluenceBound};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ResolvedLightingFrameInputs {
-    time_of_day: f32,
-    sampling_serial: u32,
-    dither_strength_lsb: f32,
-    raster_flora_ddgi_lighting: bool,
-    path_tracing_reference: bool,
-    path_tracing_max_bounces: u32,
-    path_tracing_ambient_light: Vec3,
-}
-
-impl ResolvedLightingFrameInputs {
-    pub(crate) const fn from_acceptance_resolution(
-        time_of_day: f32,
-        sampling_serial: u32,
-        dither_strength_lsb: f32,
-        raster_flora_ddgi_lighting: bool,
-        path_tracing_reference: bool,
-        path_tracing_max_bounces: u32,
-        path_tracing_ambient_light: Vec3,
-    ) -> Self {
-        Self {
-            time_of_day,
-            sampling_serial,
-            dither_strength_lsb,
-            raster_flora_ddgi_lighting,
-            path_tracing_reference,
-            path_tracing_max_bounces,
-            path_tracing_ambient_light,
-        }
-    }
-
-    pub(crate) const fn time_of_day(self) -> f32 {
-        self.time_of_day
-    }
-
-    pub(crate) const fn sampling_serial(self) -> u32 {
-        self.sampling_serial
-    }
-
-    pub(crate) const fn dither_strength_lsb(self) -> f32 {
-        self.dither_strength_lsb
-    }
-
-    pub(crate) const fn raster_flora_ddgi_lighting(self) -> bool {
-        self.raster_flora_ddgi_lighting
-    }
-
-    pub(crate) const fn path_tracing_reference(self) -> bool {
-        self.path_tracing_reference
-    }
-
-    pub(crate) const fn path_tracing_max_bounces(self) -> u32 {
-        self.path_tracing_max_bounces
-    }
-
-    pub(crate) const fn path_tracing_ambient_light(self) -> Vec3 {
-        self.path_tracing_ambient_light
-    }
-}
-
 // Authored sky lighting is compiled into these shaders rather than supplied through a runtime
 // uniform. Hash the authoritative sources so a capture or cached field can still name the exact
 // sky model that produced it. Adding runtime sky controls later should replace this compilation-

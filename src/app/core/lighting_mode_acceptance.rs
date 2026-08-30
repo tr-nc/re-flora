@@ -1,4 +1,3 @@
-use crate::environment_lighting::ResolvedLightingFrameInputs;
 use crate::tracer::{LightingModeProductionLayers, LightingModeProductionReadback, Tracer};
 use crate::LightingModeAcceptanceOptions;
 use anyhow::{Context, Result};
@@ -22,7 +21,7 @@ pub(super) enum TerrainLightingMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RasterLightingMode {
+pub(crate) enum RasterLightingMode {
     Ddgi,
     Legacy,
 }
@@ -78,8 +77,8 @@ pub(super) struct LiveFrameTiming {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ResolvedFrameTiming {
-    pub visual_time_seconds: f32,
-    pub frame_delta_seconds: f32,
+    visual_time_seconds: f32,
+    frame_delta_seconds: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,6 +89,17 @@ pub(super) struct LiveLightingFrameInputs {
     pub path_tracing_max_bounces: u32,
     pub path_tracing_ambient_light: [f32; 3],
     pub lighting_controls: EffectiveLightingControls,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ResolvedLightingFrameInputs {
+    time_of_day: f32,
+    sampling_serial: u32,
+    dither_strength_lsb: f32,
+    raster_lighting_mode: RasterLightingMode,
+    path_tracing_reference: bool,
+    path_tracing_max_bounces: u32,
+    path_tracing_ambient_light: glam::Vec3,
 }
 
 #[derive(Debug, PartialEq)]
@@ -163,23 +173,71 @@ impl LightingModeAcceptanceRenderPlan {
             .lighting
             .lighting_controls
             .resolve(live.lighting_controls);
-        ResolvedLightingFrameInputs::from_acceptance_resolution(
-            self.lighting.time_of_day.resolve(live.time_of_day),
-            self.lighting.sampling_serial.resolve(live.sampling_serial),
-            self.lighting
+        ResolvedLightingFrameInputs {
+            time_of_day: self.lighting.time_of_day.resolve(live.time_of_day),
+            sampling_serial: self.lighting.sampling_serial.resolve(live.sampling_serial),
+            dither_strength_lsb: self
+                .lighting
                 .dither_strength_lsb
                 .resolve(live.dither_strength_lsb),
-            controls.raster_flora_ddgi_lighting(),
-            controls.path_tracing_reference(),
-            self.lighting
+            raster_lighting_mode: controls.raster,
+            path_tracing_reference: controls.path_tracing_reference(),
+            path_tracing_max_bounces: self
+                .lighting
                 .path_tracing_max_bounces
                 .resolve(live.path_tracing_max_bounces),
-            glam::Vec3::from_array(
+            path_tracing_ambient_light: glam::Vec3::from_array(
                 self.lighting
                     .path_tracing_ambient_light
                     .resolve(live.path_tracing_ambient_light),
             ),
-        )
+        }
+    }
+}
+
+impl ResolvedFrameTiming {
+    pub(super) const fn visual_time_seconds(self) -> f32 {
+        self.visual_time_seconds
+    }
+
+    pub(super) const fn frame_delta_seconds(self) -> f32 {
+        self.frame_delta_seconds
+    }
+}
+
+impl ResolvedLightingFrameInputs {
+    pub(crate) const fn time_of_day(self) -> f32 {
+        self.time_of_day
+    }
+
+    pub(crate) const fn sampling_serial(self) -> u32 {
+        self.sampling_serial
+    }
+
+    pub(crate) const fn dither_strength_lsb(self) -> f32 {
+        self.dither_strength_lsb
+    }
+
+    pub(crate) const fn raster_lighting_mode(self) -> RasterLightingMode {
+        self.raster_lighting_mode
+    }
+
+    pub(crate) const fn path_tracing_reference(self) -> bool {
+        self.path_tracing_reference
+    }
+
+    pub(crate) const fn path_tracing_max_bounces(self) -> u32 {
+        self.path_tracing_max_bounces
+    }
+
+    pub(crate) const fn path_tracing_ambient_light(self) -> glam::Vec3 {
+        self.path_tracing_ambient_light
+    }
+}
+
+impl RasterLightingMode {
+    pub(crate) const fn is_ddgi(self) -> bool {
+        matches!(self, Self::Ddgi)
     }
 }
 
@@ -208,10 +266,6 @@ impl EffectiveLightingControls {
 
     pub(super) const fn path_tracing_reference(self) -> bool {
         matches!(self.terrain, TerrainLightingMode::PathTracingReference)
-    }
-
-    pub(super) const fn raster_flora_ddgi_lighting(self) -> bool {
-        matches!(self.raster, RasterLightingMode::Ddgi)
     }
 }
 
@@ -693,7 +747,7 @@ mod tests {
             path_tracing_ambient_light: lighting.path_tracing_ambient_light().to_array(),
             lighting_controls: EffectiveLightingControls::from_gui(
                 lighting.path_tracing_reference(),
-                lighting.raster_flora_ddgi_lighting(),
+                lighting.raster_lighting_mode().is_ddgi(),
             ),
         }
     }
@@ -814,11 +868,34 @@ mod tests {
     fn production_app_constructs_one_plan_and_has_no_primitive_runtime_bypass() {
         let core = include_str!("mod.rs");
         let tracer = include_str!("../../tracer/mod.rs");
+        let buffer_updater = include_str!("../../tracer/buffer_updater.rs");
+        let environment_lighting = include_str!("../../environment_lighting.rs");
 
         assert_eq!(core.matches(".frame_plan(").count(), 1);
         assert_eq!(core.matches(".resolve_timing(").count(), 1);
         assert_eq!(core.matches(".resolve_lighting(").count(), 1);
         assert!(!core.contains("from_acceptance_resolution("));
+        assert!(!core.contains("let ResolvedFrameTiming {"));
+        assert!(!core.contains("ResolvedLightingFrameInputs {"));
+        assert!(!tracer.contains("ResolvedLightingFrameInputs {"));
+        assert!(!buffer_updater.contains("ResolvedLightingFrameInputs {"));
+        assert!(!environment_lighting.contains("ResolvedLightingFrameInputs"));
+        let resolved_definition = include_str!("lighting_mode_acceptance.rs")
+            .split("pub(crate) struct ResolvedLightingFrameInputs {")
+            .nth(1)
+            .unwrap()
+            .split('}')
+            .next()
+            .unwrap();
+        assert!(!resolved_definition.contains("pub "));
+        let timing_definition = include_str!("lighting_mode_acceptance.rs")
+            .split("pub(super) struct ResolvedFrameTiming {")
+            .nth(1)
+            .unwrap()
+            .split('}')
+            .next()
+            .unwrap();
+        assert!(!timing_definition.contains("pub "));
         let update_signature = tracer
             .split("pub fn update_buffers(")
             .nth(1)
@@ -837,6 +914,15 @@ mod tests {
         ] {
             assert!(!update_signature.contains(bypassed_capability));
         }
+        let buffer_signature = buffer_updater
+            .split("pub fn update_gui_input(")
+            .nth(1)
+            .unwrap()
+            .split(") -> Result<()>")
+            .next()
+            .unwrap();
+        assert!(buffer_signature.contains("raster_lighting_mode: RasterLightingMode"));
+        assert!(!buffer_signature.contains("raster_flora_ddgi_lighting: bool"));
         for removed_primitive in [
             "effective_controls(",
             "fixed_visual_time_seconds(",

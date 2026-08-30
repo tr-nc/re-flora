@@ -68,7 +68,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
-use crate::environment_lighting::ResolvedLightingFrameInputs;
+use crate::app::{RasterLightingMode, ResolvedLightingFrameInputs};
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
@@ -677,11 +677,11 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 }
 
 fn flora_lighting_cache_dispatch_enabled(
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_mode: RasterLightingMode,
     local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    (raster_flora_ddgi_lighting || local_lights_active) && required_entries > 0
+    (raster_lighting_mode.is_ddgi() || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
@@ -710,10 +710,26 @@ mod flora_lighting_cache_location_tests {
 
     #[test]
     fn cache_dispatch_requires_environment_or_local_lighting_and_visible_flora() {
-        assert!(flora_lighting_cache_dispatch_enabled(true, false, 1));
-        assert!(flora_lighting_cache_dispatch_enabled(false, true, 1));
-        assert!(!flora_lighting_cache_dispatch_enabled(true, true, 0));
-        assert!(!flora_lighting_cache_dispatch_enabled(false, false, 1));
+        assert!(flora_lighting_cache_dispatch_enabled(
+            RasterLightingMode::Ddgi,
+            false,
+            1
+        ));
+        assert!(flora_lighting_cache_dispatch_enabled(
+            RasterLightingMode::Legacy,
+            true,
+            1
+        ));
+        assert!(!flora_lighting_cache_dispatch_enabled(
+            RasterLightingMode::Ddgi,
+            true,
+            0
+        ));
+        assert!(!flora_lighting_cache_dispatch_enabled(
+            RasterLightingMode::Legacy,
+            false,
+            1
+        ));
     }
 
     #[test]
@@ -949,7 +965,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_mode: RasterLightingMode,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
@@ -1200,7 +1216,7 @@ impl Tracer {
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-            raster_flora_ddgi_lighting: true,
+            raster_lighting_mode: RasterLightingMode::Ddgi,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
@@ -2094,7 +2110,7 @@ impl Tracer {
     ) -> Result<()> {
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
-        let raster_flora_ddgi_lighting = lighting_frame.raster_flora_ddgi_lighting();
+        let raster_lighting_mode = lighting_frame.raster_lighting_mode();
         let path_tracing_reference = lighting_frame.path_tracing_reference();
         let path_tracing_max_bounces = lighting_frame.path_tracing_max_bounces();
         let path_tracing_ambient_light = lighting_frame.path_tracing_ambient_light();
@@ -2248,7 +2264,7 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
+        self.raster_lighting_mode = raster_lighting_mode;
         self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
@@ -2256,7 +2272,7 @@ impl Tracer {
             &self.resources,
             flora_growth_override_enabled,
             flora_growth_override,
-            raster_flora_ddgi_lighting,
+            raster_lighting_mode,
             path_tracing_reference,
             path_tracing_max_bounces,
             path_tracing_ambient_light,
@@ -3720,7 +3736,7 @@ impl Tracer {
             .expect("visible raster flora lighting cache entry count overflow");
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
-            self.raster_flora_ddgi_lighting,
+            self.raster_lighting_mode,
             self.local_light_live_publication.observation().count > 0,
             required_lighting_cache_entries,
         ) {
@@ -4120,7 +4136,7 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
-            if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
+            if self.raster_lighting_mode.is_ddgi() && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())

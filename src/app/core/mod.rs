@@ -17,6 +17,7 @@ mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
 mod lighting_mode_acceptance;
+pub(crate) use lighting_mode_acceptance::{RasterLightingMode, ResolvedLightingFrameInputs};
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -85,7 +86,6 @@ use crate::builder::{
     VOXEL_MOISTURE_MAX,
 };
 use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
-use crate::environment_lighting::ResolvedLightingFrameInputs;
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
@@ -661,7 +661,7 @@ impl App {
                     camera.fov_deg.to_bits(),
                 ],
                 visible_terrain_revision: self.visible_terrain_revision,
-                visual_time_bits: timing.visual_time_seconds.to_bits(),
+                visual_time_bits: timing.visual_time_seconds().to_bits(),
                 sampling_serial: lighting.sampling_serial(),
             },
             render: LightingModeAcceptanceRenderObservation {
@@ -2481,10 +2481,8 @@ impl App {
                         visual_time_seconds: visual_time_since_start,
                         frame_delta_seconds: frame_delta_time,
                     });
-                let ResolvedFrameTiming {
-                    visual_time_seconds: visual_time_since_start,
-                    frame_delta_seconds: frame_delta_time,
-                } = resolved_timing;
+                let visual_time_since_start = resolved_timing.visual_time_seconds();
+                let frame_delta_time = resolved_timing.frame_delta_seconds();
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
