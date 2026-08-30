@@ -228,6 +228,11 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
             "Validation failure",
             "DEVICE LOST while reading back",
             "Stale ReadBack observed",
+            "VkResult=VK_ERROR_DEVICE_LOST",
+            "result=ERROR_DEVICE_LOST",
+            "VkResult=VK_ERROR_VALIDATION_FAILED_EXT",
+            "VkResult=VK_ERROR_OUT_OF_DEVICE_MEMORY",
+            "result=ERROR_FORMAT_NOT_SUPPORTED",
         )
         for marker in markers:
             with self.subTest(marker=marker), tempfile.TemporaryDirectory() as directory:
