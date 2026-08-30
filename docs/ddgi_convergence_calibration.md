@@ -70,8 +70,9 @@ item adjacent to its owned struct, so an ordinary non-test build enforces the se
 trait parser was rejected because imports and aliases require Rust name resolution and generic
 wrappers create false positives; representation marker fields would enlarge the production
 interface, while language negative impls remain unstable. The source tripwire therefore checks
-only the exact direct-item assertion placement and payload; it does not duplicate Rust trait
-semantics.
+only the exact direct-item assertion placement and payload, including absolute paths to the macro
+crate and `core::fmt` traits. Owner-local traits or modules therefore cannot shadow the rustc-owned
+proof, and the tripwire does not duplicate Rust trait semantics.
 The private emitter checks that its dedicated target is enabled at Debug level before constructing
 the evidence-line vector, so ordinary production logging does not pay that allocation cost.
 

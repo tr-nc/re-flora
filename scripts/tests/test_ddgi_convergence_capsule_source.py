@@ -200,18 +200,18 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     expected_opaque_payloads = [
         (
             "DdgiBatchCompletion", ":",
-            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
-            "std", ":", ":", "fmt", ":", ":", "Display",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
         ),
         (
             "Pending", ":",
-            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
-            "std", ":", ":", "fmt", ":", ":", "Display",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
         ),
         (
             "Evidence", ":",
-            "std", ":", ":", "fmt", ":", ":", "Debug", ",",
-            "std", ":", ":", "fmt", ":", ":", "Display",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Debug", ",",
+            ":", ":", "core", ":", ":", "fmt", ":", ":", "Display",
         ),
     ]
     if [payload for _, payload in opaque_assertions] != expected_opaque_payloads:
@@ -245,9 +245,9 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
         declaration_end("Evidence", module_open, module_close) + 1,
     ]
     for assertion, expected in zip(assertion_positions, expected_positions, strict=True):
-        prefix = tuple(token.value for token in runtime[expected : expected + 4])
-        if assertion != expected + 3 or prefix != (
-            "static_assertions", ":", ":", "assert_not_impl_any"
+        prefix = tuple(token.value for token in runtime[expected : expected + 6])
+        if assertion != expected + 5 or prefix != (
+            ":", ":", "static_assertions", ":", ":", "assert_not_impl_any"
         ):
             raise AssertionError(
                 "each negative assertion must be an unconfigured direct item adjacent to its struct"
@@ -523,53 +523,67 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
     def test_rustc_negative_trait_assertions_are_exact_owner_contracts(self) -> None:
         sources = production_sources()
         assertions = {
-            "completion": "DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display",
-            "pending": "Pending: std::fmt::Debug, std::fmt::Display",
-            "evidence": "Evidence: std::fmt::Debug, std::fmt::Display",
+            "completion": "DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display",
+            "pending": "Pending: ::core::fmt::Debug, ::core::fmt::Display",
+            "evidence": "Evidence: ::core::fmt::Debug, ::core::fmt::Display",
         }
         mutations = {
             "missing-completion": sources[RUNTIME].replace(assertions["completion"], "", 1),
             "wrong-pending-target": sources[RUNTIME].replace(
                 assertions["pending"],
-                "Prepared: std::fmt::Debug, std::fmt::Display",
+                "Prepared: ::core::fmt::Debug, ::core::fmt::Display",
                 1,
             ),
             "missing-evidence-display": sources[RUNTIME].replace(
                 assertions["evidence"],
-                "Evidence: std::fmt::Debug",
+                "Evidence: ::core::fmt::Debug",
                 1,
             ),
             "wrong-completion-trait": sources[RUNTIME].replace(
                 assertions["completion"],
-                "DdgiBatchCompletion: std::fmt::Debug, Clone",
+                "DdgiBatchCompletion: ::core::fmt::Debug, Clone",
+                1,
+            ),
+            "relative-macro-crate": sources[RUNTIME].replace(
+                "::static_assertions::assert_not_impl_any!(",
+                "static_assertions::assert_not_impl_any!(",
+                1,
+            ),
+            "relative-trait-path": sources[RUNTIME].replace(
+                "::core::fmt::Debug, ::core::fmt::Display",
+                "Debug, Display",
                 1,
             ),
             "cfg-test-completion": sources[RUNTIME].replace(
-                "static_assertions::assert_not_impl_any!(\n"
-                "    DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display\n"
+                "::static_assertions::assert_not_impl_any!(\n"
+                "    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display\n"
                 ");",
                 "#[cfg(test)]\n"
-                "static_assertions::assert_not_impl_any!(\n"
-                "    DdgiBatchCompletion: std::fmt::Debug, std::fmt::Display\n"
+                "::static_assertions::assert_not_impl_any!(\n"
+                "    DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display\n"
                 ");",
                 1,
             ),
             "nested-cfg-any-pending": sources[RUNTIME].replace(
-                "static_assertions::assert_not_impl_any!(Pending: std::fmt::Debug, std::fmt::Display);",
+                "::static_assertions::assert_not_impl_any!(\n"
+                "        Pending: ::core::fmt::Debug, ::core::fmt::Display\n"
+                "    );",
                 "#[cfg(any())]\n"
                 "    mod disabled_seal {\n"
-                "        static_assertions::assert_not_impl_any!(\n"
-                "            super::Pending: std::fmt::Debug, std::fmt::Display\n"
+                "        ::static_assertions::assert_not_impl_any!(\n"
+                "            super::Pending: ::core::fmt::Debug, ::core::fmt::Display\n"
                 "        );\n"
                 "    }",
                 1,
             ),
             "nested-test-module-evidence": sources[RUNTIME].replace(
-                "static_assertions::assert_not_impl_any!(Evidence: std::fmt::Debug, std::fmt::Display);",
+                "::static_assertions::assert_not_impl_any!(\n"
+                "        Evidence: ::core::fmt::Debug, ::core::fmt::Display\n"
+                "    );",
                 "#[cfg(test)]\n"
                 "    mod seal_tests {\n"
-                "        static_assertions::assert_not_impl_any!(\n"
-                "            super::Evidence: std::fmt::Debug, std::fmt::Display\n"
+                "        ::static_assertions::assert_not_impl_any!(\n"
+                "            super::Evidence: ::core::fmt::Debug, ::core::fmt::Display\n"
                 "        );\n"
                 "    }",
                 1,
