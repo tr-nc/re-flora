@@ -46,6 +46,9 @@ canonical. Removal publishes the inverse physical effects in the same ownership 
 the canonical record last. Every fallible input is checked before the first action. If an execution
 action still fails, the production host restores the previous canonical publication (or removes a
 partially placed new tree); compensation failure is reported together with the original error.
+Canopy Voice realization is strict within that transaction: one failed generation spawn removes
+every Voice created by the same synchronization, and checkpoint restoration propagates physical
+realization failures instead of accepting a lifecycle-only restoration.
 
 The world-edit transaction that publishes trunk voxels remains an upstream prerequisite. It has a
 separate terrain publication contract and is not hidden inside the tree-observer publication seam.
