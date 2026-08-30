@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import unittest
 from pathlib import Path
 
@@ -41,6 +42,16 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
                 value = content[len(item_indent) + 2 :]
                 values.append(ast.literal_eval(value) if value.startswith('"') else value)
         return values
+
+    @staticmethod
+    def path_is_included(patterns: list[str], path: str) -> bool:
+        included = False
+        for pattern in patterns:
+            excluded = pattern.startswith("!")
+            candidate = pattern[1:] if excluded else pattern
+            if fnmatch.fnmatchcase(path, candidate):
+                included = not excluded
+        return included
 
     def test_policy_inputs_and_targeted_rust_gates_are_continuous(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -104,9 +115,10 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         migration = "docs/ddgi_migration_plan.md"
         for event in ("pull_request", "push"):
-            self.assertEqual(
-                self.yaml_sequence(workflow, ("on", event, "paths")).count(migration),
-                1,
+            patterns = self.yaml_sequence(workflow, ("on", event, "paths"))
+            self.assertTrue(
+                self.path_is_included(patterns, migration),
+                f"{event} paths do not finally include {migration}",
             )
 
         real_route = '      - "docs/ddgi_migration_plan.md"'
@@ -118,6 +130,19 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             self.assertNotIn(
                 migration,
                 self.yaml_sequence(mutated, ("on", event, "paths")),
+            )
+
+            route_end = route + len(real_route)
+            excluded = (
+                workflow[:route_end]
+                + '\n      - "!docs/ddgi_migration_plan.md"'
+                + workflow[route_end:]
+            )
+            self.assertFalse(
+                self.path_is_included(
+                    self.yaml_sequence(excluded, ("on", event, "paths")),
+                    migration,
+                )
             )
 
 

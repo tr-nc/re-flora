@@ -1,3 +1,9 @@
+"""Localized Rust-token tripwire for the DDGI evidence transaction ownership shape.
+
+This intentionally proves canonical owners and sequencing; it does not infer arbitrary field-name
+aliases as semantic evidence.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -177,15 +183,35 @@ def matching(tokens: list[RustToken], opening: int, left: str, right: str) -> in
 
 def audit_convergence_evidence(sources: dict[str, str]) -> None:
     token_sets = {path: production_tokens(source) for path, source in sources.items()}
-    for marker in (VALIDATION_MARKER, TERMINAL_MARKER):
-        owners = [
-            path
+    runtime = token_sets[RUNTIME]
+
+    def display_body(type_name: str) -> tuple[int, int]:
+        owner = next(
+            index
+            for index, token in enumerate(runtime)
+            if token.value == type_name and runtime[index - 1].value == "for"
+        )
+        opening = next(
+            index for index in range(owner, len(runtime)) if runtime[index].value == "{"
+        )
+        return opening, matching(runtime, opening, "{", "}")
+
+    marker_owners = {
+        VALIDATION_MARKER: display_body("DdgiConvergenceValidationEvidence"),
+        TERMINAL_MARKER: display_body("DdgiConvergenceTerminalEvidence"),
+    }
+    for marker, (owner_open, owner_close) in marker_owners.items():
+        occurrences = [
+            (path, index)
             for path, tokens in token_sets.items()
-            for token in tokens
+            for index, token in enumerate(tokens)
             if token.kind == "STRING" and token.value.startswith(marker)
         ]
-        if owners != [RUNTIME]:
+        if len(occurrences) != 1 or occurrences[0][0] != RUNTIME:
             raise AssertionError("runtime formatter must uniquely own evidence marker literals")
+        marker_index = occurrences[0][1]
+        if not owner_open < marker_index < owner_close:
+            raise AssertionError("evidence marker literal escaped its canonical formatter")
 
     occurrences = [
         (path, index)
@@ -200,7 +226,6 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     if len(runtime_occurrences) != 1 or len(tracer_occurrences) != 1:
         raise AssertionError("commit capability ownership is split across the wrong modules")
 
-    runtime = token_sets[RUNTIME]
     definition = runtime_occurrences[0]
     if runtime[definition - 1].value != "fn":
         raise AssertionError("runtime must own the commit capability definition")
@@ -247,12 +272,57 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     )
     commit_close = matching(runtime, commit_open, "{", "}")
     commit_values = [token.value for token in runtime[commit_open:commit_close]]
-    if not any(
-        commit_values[index : index + 6]
-        == ["self", ".", "validated_publication", ".", "take", "("]
-        for index in range(len(commit_values) - 5)
-    ):
-        raise AssertionError("commit capability must consume its private evidence once")
+    body = commit_values[1:]
+    binding = body[4] if len(body) > 4 else ""
+    expected_body = [
+        "if",
+        "let",
+        "Some",
+        "(",
+        binding,
+        ")",
+        "=",
+        "self",
+        ".",
+        "validated_publication",
+        ".",
+        "take",
+        "(",
+        ")",
+        "{",
+        binding,
+        ".",
+        "emit_convergence_evidence",
+        "(",
+        ")",
+        ";",
+        "}",
+    ]
+    if not binding or body != expected_body:
+        raise AssertionError(
+            "commit capability must take and emit the same private publication exactly once"
+        )
+
+    emit_occurrences = [
+        (path, index)
+        for path, tokens in token_sets.items()
+        for index, token in enumerate(tokens)
+        if token.kind == "IDENT" and token.value == "emit_convergence_evidence"
+    ]
+    if len(emit_occurrences) != 2 or any(path != RUNTIME for path, _ in emit_occurrences):
+        raise AssertionError("runtime must own one evidence emitter definition and one call")
+    emit_definition = next(
+        index
+        for path, index in emit_occurrences
+        if runtime[index - 1].value == "fn"
+    )
+    emit_call = next(
+        index
+        for path, index in emit_occurrences
+        if runtime[index - 1].value == "."
+    )
+    if not commit_open < emit_call < commit_close or emit_definition == emit_call:
+        raise AssertionError("commit capability must own the unique evidence emission")
 
     complete_pending = next(
         index
@@ -298,8 +368,11 @@ def audit_convergence_evidence(sources: dict[str, str]) -> None:
     batch_close = matching(tracer, batch_open, "{", "}")
     if not batch_open < commit < batch_close:
         raise AssertionError("commit must remain in the batch completion block")
-    if any(token.value == "?" for token in tracer[commit_close + 1 : batch_close]):
-        raise AssertionError("batch evidence work must not fail after commit")
+    if (
+        tracer[commit_close + 1].value != ";"
+        or commit_close + 2 != batch_close
+    ):
+        raise AssertionError("commit must be the batch block's final executable statement")
 
 
 def production_sources() -> dict[str, str]:
@@ -336,6 +409,16 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
                 f"{call}\n                self.observe_ddgi_local_light_gpu_evidence(",
                 1,
             ),
+            "late-bail": sources[TRACER].replace(
+                call,
+                f'{call}\n            bail!("late evidence failure");',
+                1,
+            ),
+            "late-return-err": sources[TRACER].replace(
+                call,
+                f'{call}\n            return Err(anyhow!("late evidence failure"));',
+                1,
+            ),
         }
         for name, tracer in mutations.items():
             with self.subTest(name=name):
@@ -351,6 +434,43 @@ class DdgiConvergenceCapsuleSourceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "marker literals"):
             audit_convergence_evidence(marker_comment)
+
+        marker_decoy = dict(sources)
+        marker_decoy[RUNTIME] = (
+            sources[RUNTIME].replace(VALIDATION_MARKER, "not-evidence", 1)
+            + f'\nconst UNUSED_VALIDATION_MARKER: &str = "{VALIDATION_MARKER}";\n'
+        )
+        with self.assertRaises(AssertionError):
+            audit_convergence_evidence(marker_decoy)
+
+        emission = "publication.emit_convergence_evidence();"
+        emission_mutations = {
+            "deleted-emission": sources[RUNTIME].replace(emission, "", 1),
+            "commented-emission": sources[RUNTIME].replace(
+                emission, f"// {emission}", 1
+            ),
+            "decoy-receiver": sources[RUNTIME].replace(
+                emission, "decoy.emit_convergence_evidence();", 1
+            ),
+            "discarded-extra-take": sources[RUNTIME].replace(
+                "if let Some(publication) = self.validated_publication.take() {",
+                "let _discarded = self.validated_publication.take();\n"
+                "        if let Some(publication) = self.validated_publication.take() {",
+                1,
+            ),
+            "direct-runtime-completion-emission": sources[RUNTIME].replace(
+                "let after = self.volumes().builder().status();",
+                "publication.emit_convergence_evidence();\n"
+                "        let after = self.volumes().builder().status();",
+                1,
+            ),
+        }
+        for name, runtime in emission_mutations.items():
+            with self.subTest(name=name):
+                mutated = dict(sources)
+                mutated[RUNTIME] = runtime
+                with self.assertRaises(AssertionError):
+                    audit_convergence_evidence(mutated)
 
         noisy = dict(sources)
         noisy[TRACER] += (
