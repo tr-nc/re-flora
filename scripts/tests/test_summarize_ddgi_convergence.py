@@ -180,6 +180,78 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_rejects_partial_coverage_of_the_relocated_valid_population(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace("valid=4913 failed=0", "valid=3835 failed=1078")
+                    .replace("valid_texels=314432", "valid_texels=245376")
+                    .replace("scanned_stored_texels=491300", "scanned_stored_texels=383400")
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("incomplete coverage", result.stderr)
+
+    def test_rejects_relocation_population_type_partition_and_identity_drift(self) -> None:
+        mutations = {
+            "u32-overflow": (
+                "probes=4913 valid=4913 failed=0 fast_target",
+                "probes=4913 valid=4294967296 failed=0 fast_target",
+                "Rust wire type",
+            ),
+            "partition": (
+                "probes=4913 valid=4913 failed=0 fast_target",
+                "probes=4913 valid=4912 failed=0 fast_target",
+                "complete partition",
+            ),
+            "initialization-identity": (
+                "[DDGI] relocation stats probes=4913 valid=4913",
+                "[DDGI] relocation stats probes=4912 valid=4912",
+                "differs from initialization probe count",
+            ),
+        }
+        for name, (before, after, error) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn(error, result.stderr)
+
+    def test_rejects_atlas_layout_coverage_that_exceeds_the_validation_wire(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            contract = run_dir / "contract.toml"
+            self.write_curve(run_dir)
+            contract.write_text(
+                (SCRIPTS.parent / "config" / "ddgi_convergence_acceptance.toml")
+                .read_text()
+                .replace("interior_texels_per_valid_probe = 64", "interior_texels_per_valid_probe = 4294967295")
+                .replace("stored_texels_per_valid_probe = 100", "stored_texels_per_valid_probe = 4294967295")
+            )
+
+            result = self.run_summarizer(run_dir, output, contract=contract)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("coverage exceeds Rust u32", result.stderr)
+
     def test_rejects_terminal_epoch_drift_inside_the_independent_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
