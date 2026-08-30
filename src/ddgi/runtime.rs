@@ -7,7 +7,8 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 
 use super::resources::{
-    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumePromotion, DdgiVolumeStatus,
+    DdgiVolumes,
 };
 use super::scheduler::DdgiSchedulerCompletionPermit;
 #[cfg(test)]
@@ -603,41 +604,6 @@ pub(crate) enum DdgiVolumePublishOutcome {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PublicationDisposition<T> {
-    Idle,
-    Discard(T),
-    Publish(T),
-}
-
-#[derive(Debug)]
-enum PublicationTransactionOutcome<T, R> {
-    Idle,
-    Discarded(T),
-    Published { candidate: T, committed: R },
-}
-
-fn execute_publication_transaction<S, T: Copy, P, R>(
-    state: &mut S,
-    disposition: PublicationDisposition<T>,
-    publish: impl FnOnce(&S, T) -> Result<P>,
-    commit: impl FnOnce(&mut S, T, P) -> R,
-) -> Result<PublicationTransactionOutcome<T, R>> {
-    match disposition {
-        PublicationDisposition::Idle => Ok(PublicationTransactionOutcome::Idle),
-        PublicationDisposition::Discard(candidate) => {
-            Ok(PublicationTransactionOutcome::Discarded(candidate))
-        }
-        PublicationDisposition::Publish(candidate) => {
-            let published = publish(state, candidate)?;
-            Ok(PublicationTransactionOutcome::Published {
-                candidate,
-                committed: commit(state, candidate, published),
-            })
-        }
-    }
-}
-
 /// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
 /// harnesses. Physical atlas status remains separately available through `DdgiRuntimeStatus`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -795,54 +761,34 @@ impl DdgiRuntime {
         publish_consumers: impl FnOnce(DdgiConsumerResources<'_>) -> Result<()>,
     ) -> Result<DdgiVolumePublishOutcome> {
         let status = self.volumes().status();
-        let disposition = if !status.staging_is_ready() {
-            PublicationDisposition::Idle
-        } else {
-            let token = status
-                .staging()
-                .and_then(|staging| staging.build_token)
-                .expect("every complete DDGI staging Volume must carry its build token");
-            if self.terrain_refresh.token_can_promote(token) {
-                PublicationDisposition::Publish(token)
-            } else {
-                PublicationDisposition::Discard(token)
-            }
-        };
-        let transaction = execute_publication_transaction(
-            self,
-            disposition,
-            |runtime, token| {
-                let permit = runtime.volumes().preflight_staging_promotion(token)?;
-                let publication = permit.publication();
-                runtime.preflight_staging_publication(permit.token(), publication)?;
-                let resources = runtime.volumes().staging_consumer_resources(&permit);
-                publish_consumers(resources)?;
-                Ok(permit)
-            },
-            |runtime, token, permit| {
-                let publication = permit.publication();
-                let retired_active = runtime.volumes_mut().promote_staging(permit);
-                runtime.commit_promoted(token, publication);
-                retired_active
-            },
-        )?;
-        match transaction {
-            PublicationTransactionOutcome::Idle => Ok(DdgiVolumePublishOutcome::Idle),
-            PublicationTransactionOutcome::Discarded(token) => {
-                anyhow::ensure!(
-                    self.finish_obsolete_volume_build(token),
-                    "completed obsolete DDGI staging token must release the single update slot"
-                );
-                Ok(DdgiVolumePublishOutcome::DiscardedObsolete(token))
-            }
-            PublicationTransactionOutcome::Published {
-                candidate: token,
-                committed: retired_active,
-            } => Ok(DdgiVolumePublishOutcome::Published {
-                token,
-                retired_active,
-            }),
+        if !status.staging_is_ready() {
+            return Ok(DdgiVolumePublishOutcome::Idle);
         }
+
+        let token = status
+            .staging()
+            .and_then(|staging| staging.build_token)
+            .expect("every complete DDGI staging Volume must carry its build token");
+        if !self.terrain_refresh.token_can_promote(token) {
+            anyhow::ensure!(
+                self.finish_obsolete_volume_build(token),
+                "completed obsolete DDGI staging token must release the single update slot"
+            );
+            return Ok(DdgiVolumePublishOutcome::DiscardedObsolete(token));
+        }
+
+        let permit = self.volumes().preflight_staging_promotion(token)?;
+        self.preflight_staging_publication(permit.token(), permit.publication())?;
+        let resources = self.volumes().staging_consumer_resources(&permit);
+        publish_consumers(resources)?;
+
+        let promotion = self.volumes_mut().promote_staging(permit);
+        let token = promotion.token();
+        let retired_active = self.commit_physical_promotion(promotion);
+        Ok(DdgiVolumePublishOutcome::Published {
+            token,
+            retired_active,
+        })
     }
 
     fn preflight_staging_publication(
@@ -1337,7 +1283,17 @@ impl DdgiRuntime {
         true
     }
 
-    fn commit_promoted(&mut self, token: DdgiBuildToken, publication: super::DdgiFieldPublication) {
+    /// Consumes proof that physical ownership already swapped before committing logical ownership.
+    fn commit_physical_promotion(&mut self, promotion: DdgiVolumePromotion) -> DdgiVolume {
+        self.commit_promoted_publication(promotion.token(), promotion.publication());
+        promotion.into_retired_active()
+    }
+
+    fn commit_promoted_publication(
+        &mut self,
+        token: DdgiBuildToken,
+        publication: super::DdgiFieldPublication,
+    ) {
         assert!(
             self.terrain_refresh.token_can_promote(token),
             "preflighted DDGI token lost coordinator authority"
@@ -2117,122 +2073,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
-    struct FakePublicationState {
-        active: &'static str,
-        staging: &'static str,
-        logical: &'static str,
-        commit_calls: usize,
-    }
-
-    fn fake_publication_state() -> FakePublicationState {
-        FakePublicationState {
-            active: "old-active",
-            staging: "ready-staging",
-            logical: "old-logical",
-            commit_calls: 0,
-        }
-    }
-
-    #[test]
-    fn publication_transaction_idle_and_discard_call_neither_phase() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        for disposition in [
-            PublicationDisposition::Idle,
-            PublicationDisposition::Discard(token),
-        ] {
-            let mut state = fake_publication_state();
-            let publish_calls = std::cell::Cell::new(0);
-            execute_publication_transaction(
-                &mut state,
-                disposition,
-                |_, _| {
-                    publish_calls.set(publish_calls.get() + 1);
-                    Ok(())
-                },
-                |state, _, ()| state.commit_calls += 1,
-            )
-            .unwrap();
-            assert_eq!(publish_calls.get(), 0);
-            assert_eq!(state.commit_calls, 0);
-        }
-    }
-
-    #[test]
-    fn publication_transaction_error_preserves_state_and_skips_commit() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        let mut state = fake_publication_state();
-        let before = state.clone();
-        let publish_calls = std::cell::Cell::new(0);
-        let error = execute_publication_transaction(
-            &mut state,
-            PublicationDisposition::Publish(token),
-            |state, _| -> Result<()> {
-                assert_eq!(state.active, "old-active");
-                publish_calls.set(publish_calls.get() + 1);
-                anyhow::bail!("injected consumer preflight failure")
-            },
-            |state, _, ()| state.commit_calls += 1,
-        )
-        .unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("injected consumer preflight failure"));
-        assert_eq!(state, before);
-        assert_eq!(state.commit_calls, 0);
-        assert_eq!(publish_calls.get(), 1);
-    }
-
-    #[test]
-    fn publication_transaction_publishes_once_before_commit_and_returns_old_active() {
-        let token = DdgiBuildToken::for_test(7, 3, 16, DdgiBuildKind::Terrain);
-        let mut state = fake_publication_state();
-        let publish_calls = std::cell::Cell::new(0);
-        let generation = std::cell::Cell::new(41_u64);
-        let events = std::cell::RefCell::new(Vec::new());
-        let outcome = execute_publication_transaction(
-            &mut state,
-            PublicationDisposition::Publish(token),
-            |state, _| {
-                assert_eq!(state.active, "old-active");
-                assert_eq!(state.logical, "old-logical");
-                publish_calls.set(publish_calls.get() + 1);
-                events.borrow_mut().push("publish-consumers");
-                let published_generation = generation.get();
-                generation.set(published_generation + 1);
-                Ok(published_generation)
-            },
-            |state, _, generation| {
-                assert_eq!(generation, 41);
-                state.commit_calls += 1;
-                let retired = std::mem::replace(&mut state.active, state.staging);
-                events.borrow_mut().push("physical-swap");
-                state.logical = "promoted-logical";
-                events.borrow_mut().push("logical-promotion");
-                retired
-            },
-        )
-        .unwrap();
-
-        assert!(matches!(
-            outcome,
-            PublicationTransactionOutcome::Published {
-                committed: "old-active",
-                ..
-            }
-        ));
-        assert_eq!(publish_calls.get(), 1);
-        assert_eq!(state.commit_calls, 1);
-        assert_eq!(state.active, "ready-staging");
-        assert_eq!(state.logical, "promoted-logical");
-        assert_eq!(generation.get(), 42);
-        assert_eq!(
-            *events.borrow(),
-            ["publish-consumers", "physical-swap", "logical-promotion"]
-        );
-    }
-
     fn lighting_snapshot(sun_luminance: f32) -> DdgiRadianceSnapshot {
         DdgiRadianceSnapshot {
             sun_direction: Vec3::Y,
@@ -2382,7 +2222,7 @@ mod tests {
             DdgiCapturePublication::Published,
         ));
         let staged = runtime.completed_staging_publication.unwrap();
-        runtime.commit_promoted(replacement.token(), staged.field);
+        runtime.commit_promoted_publication(replacement.token(), staged.field);
 
         let promoted = runtime.active_publication.published().unwrap();
         assert_eq!(promoted.generation, replacement);

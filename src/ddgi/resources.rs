@@ -241,6 +241,7 @@ impl DdgiVolumePromotionPermit {
         self.publication
     }
 }
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotionPermit: Clone, Copy);
 
 impl DdgiFieldPublication {
     fn begin(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Result<Self> {
@@ -1561,6 +1562,32 @@ pub struct DdgiVolume {
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
+/// Proof that the physical Active/Staging ownership swap has already consumed its linear permit.
+///
+/// Only [`DdgiVolumes`] can mint this receipt. The runtime consumes it to commit the matching
+/// logical Volume Publication, making permit -> physical swap -> logical commit the only order
+/// expressible by the production interface.
+pub(crate) struct DdgiVolumePromotion {
+    token: DdgiBuildToken,
+    publication: DdgiFieldPublication,
+    retired_active: DdgiVolume,
+}
+
+impl DdgiVolumePromotion {
+    pub(crate) fn token(&self) -> DdgiBuildToken {
+        self.token
+    }
+
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.publication
+    }
+
+    pub(crate) fn into_retired_active(self) -> DdgiVolume {
+        self.retired_active
+    }
+}
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotion: Clone, Copy);
+
 /// Immutable semantic resource view for one candidate consumer-visible DDGI field.
 pub(crate) struct DdgiConsumerResources<'a> {
     publication: DdgiFieldPublication,
@@ -1701,7 +1728,10 @@ impl DdgiVolumes {
     }
 
     /// Consumes a preflighted authorization and performs the infallible ownership swap.
-    pub(crate) fn promote_staging(&mut self, permit: DdgiVolumePromotionPermit) -> DdgiVolume {
+    pub(crate) fn promote_staging(
+        &mut self,
+        permit: DdgiVolumePromotionPermit,
+    ) -> DdgiVolumePromotion {
         let mut staging = self.staging.take().expect("staging presence checked above");
         assert_eq!(staging.build_token, Some(permit.token));
         assert_eq!(
@@ -1709,7 +1739,12 @@ impl DdgiVolumes {
             Some(permit.publication)
         );
         staging.finish_local_recovery();
-        std::mem::replace(&mut self.active, staging)
+        let retired_active = std::mem::replace(&mut self.active, staging);
+        DdgiVolumePromotion {
+            token: permit.token,
+            publication: permit.publication,
+            retired_active,
+        }
     }
 }
 
@@ -3150,7 +3185,6 @@ mod tests {
     #[test]
     fn publication_level_radiance_epoch_zero_starts_a_new_owner_root() {
         static_assertions::assert_not_impl_any!(DdgiAtlasPublicationPermit: Clone, Copy);
-        static_assertions::assert_not_impl_any!(DdgiVolumePromotionPermit: Clone, Copy);
         static_assertions::assert_not_impl_any!(DdgiConsumerResources<'static>: Clone, Copy);
 
         let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
