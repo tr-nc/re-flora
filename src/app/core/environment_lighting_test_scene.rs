@@ -746,62 +746,33 @@ impl EnvironmentPhaseAttempt {
     }
 
     fn begin_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        match self.request().family() {
-            EnvironmentPhaseFamily::Static => self.begin_static_execution(),
-            EnvironmentPhaseFamily::Terrain => self.begin_terrain_execution(),
-            EnvironmentPhaseFamily::Radiance => self.begin_radiance_execution(),
-            EnvironmentPhaseFamily::PointLight => self.begin_point_light_execution(),
-            EnvironmentPhaseFamily::VoxelEmissive => self.begin_voxel_emissive_execution(),
-            EnvironmentPhaseFamily::RasterEmitter => self.begin_raster_emitter_execution(),
-            EnvironmentPhaseFamily::MultiSource => self.begin_multi_source_execution(),
-            EnvironmentPhaseFamily::LocalLightScaling => self.begin_local_light_scaling_execution(),
-        }
-    }
-
-    fn begin_static_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::Static)
-    }
-
-    fn begin_terrain_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::Terrain)
-    }
-
-    fn begin_radiance_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::Radiance)
-    }
-
-    fn begin_point_light_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::PointLight)
-    }
-
-    fn begin_voxel_emissive_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::VoxelEmissive)
-    }
-
-    fn begin_raster_emitter_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::RasterEmitter)
-    }
-
-    fn begin_multi_source_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::MultiSource)
-    }
-
-    fn begin_local_light_scaling_execution(
-        self,
-    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        self.reject_injected_failure(EnvironmentPhaseFamily::LocalLightScaling)
+        let family = self.request().family();
+        self.reject_injected_failure(family)
     }
 
     fn reject_injected_failure(
-        mut self,
+        self,
         expected_family: EnvironmentPhaseFamily,
     ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
         debug_assert_eq!(self.request().family(), expected_family);
         #[cfg(test)]
-        if self.payload.injected_failure.take() == Some(expected_family) {
-            return Err(self.fail(anyhow::anyhow!("injected {expected_family:?} leaf failure")));
+        {
+            return self.reject_test_failure(expected_family);
         }
+        #[cfg(not(test))]
         Ok(self)
+    }
+
+    #[cfg(test)]
+    fn reject_test_failure(
+        mut self,
+        expected_family: EnvironmentPhaseFamily,
+    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        if self.payload.injected_failure.take() == Some(expected_family) {
+            Err(self.fail(anyhow::anyhow!("injected {expected_family:?} leaf failure")))
+        } else {
+            Ok(self)
+        }
     }
 }
 
@@ -809,6 +780,18 @@ impl EnvironmentPhaseAttempt {
 struct EnvironmentPhaseReceipt {
     permit: EnvironmentPhasePermit,
     payload: EnvironmentPhasePayload,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EnvironmentPhaseProgress {
+    Advanced,
+    Deferred,
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseSuccess {
+    receipt: EnvironmentPhaseReceipt,
+    progress: EnvironmentPhaseProgress,
 }
 
 #[derive(Debug)]
@@ -982,6 +965,24 @@ impl LaunchOwners {
                         "{family:?} environment failure no longer matches its launch owner: {error:#}"
                     ),
                 }
+            }
+        }
+    }
+
+    fn complete_environment_phase_execution(
+        &mut self,
+        result: std::result::Result<EnvironmentPhaseSuccess, EnvironmentPhaseFailure>,
+    ) -> Result<EnvironmentPhaseProgress> {
+        match result {
+            Ok(success) => {
+                self.apply_environment_phase_result(Ok(success.receipt))?;
+                Ok(success.progress)
+            }
+            Err(failure) => {
+                let error = self
+                    .apply_environment_phase_result(Err(failure))
+                    .expect_err("environment phase failure must retain its original leaf error");
+                Err(error)
             }
         }
     }
@@ -2987,14 +2988,14 @@ impl App {
             .unwrap_or_else(|err| {
                 panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
             });
-        let mut attempt = match self.launch_owners.begin_environment_phase_execution() {
+        let attempt = match self.launch_owners.begin_environment_phase_execution() {
             Ok(Some(attempt)) => attempt,
             Ok(None) => return,
             Err(failure) => {
                 let family = failure.family();
                 let error = self
                     .launch_owners
-                    .apply_environment_phase_result(Err(failure))
+                    .complete_environment_phase_execution(Err(failure))
                     .expect_err("rejected environment frame must return its leaf failure");
                 log::error!(
                     "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable leaf failure: {error:#}"
@@ -3002,13 +3003,136 @@ impl App {
                 return;
             }
         };
-        self.advance_environment_phase(attempt.request_mut());
-        self.launch_owners
-            .apply_environment_phase_result(Ok(attempt.complete()))
-            .expect("environment frame must retain its launch owner");
+        let family = attempt.request().family();
+        match self.execute_environment_phase_attempt(attempt) {
+            Ok(success) => {
+                self.launch_owners
+                    .complete_environment_phase_execution(Ok(success))
+                    .expect("environment frame must retain its launch owner");
+            }
+            Err(failure) => {
+                let error = self
+                    .launch_owners
+                    .complete_environment_phase_execution(Err(failure))
+                    .expect_err("failed environment frame must restore its phase attempt");
+                log::error!(
+                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable leaf failure: {error:#}"
+                );
+            }
+        }
     }
 
-    fn advance_environment_phase(&mut self, environment: &mut EnvironmentPhasePayload) {
+    fn execute_environment_phase_attempt(
+        &mut self,
+        mut attempt: EnvironmentPhaseAttempt,
+    ) -> std::result::Result<EnvironmentPhaseSuccess, EnvironmentPhaseFailure> {
+        match self.advance_environment_phase(attempt.request_mut()) {
+            Ok(progress) => Ok(EnvironmentPhaseSuccess {
+                receipt: attempt.complete(),
+                progress,
+            }),
+            Err(error) => Err(attempt.fail(error)),
+        }
+    }
+
+    fn advance_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        match environment.family() {
+            EnvironmentPhaseFamily::Static => self.execute_static_environment_phase(environment),
+            EnvironmentPhaseFamily::Terrain => self.execute_terrain_environment_phase(environment),
+            EnvironmentPhaseFamily::Radiance => {
+                self.execute_radiance_environment_phase(environment)
+            }
+            EnvironmentPhaseFamily::PointLight => {
+                self.execute_point_light_environment_phase(environment)
+            }
+            EnvironmentPhaseFamily::VoxelEmissive => {
+                self.execute_voxel_emissive_environment_phase(environment)
+            }
+            EnvironmentPhaseFamily::RasterEmitter => {
+                self.execute_raster_emitter_environment_phase(environment)
+            }
+            EnvironmentPhaseFamily::MultiSource => {
+                self.execute_multi_source_environment_phase(environment)
+            }
+            EnvironmentPhaseFamily::LocalLightScaling => {
+                self.execute_local_light_scaling_environment_phase(environment)
+            }
+        }
+    }
+
+    fn execute_static_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_terrain_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_radiance_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_point_light_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_voxel_emissive_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_raster_emitter_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_multi_source_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_local_light_scaling_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        self.execute_environment_phase_machine(environment)
+    }
+
+    fn execute_environment_phase_machine(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<EnvironmentPhaseProgress> {
+        let previous_phase = environment.phase;
+        self.advance_environment_phase_machine(environment);
+        Ok(if environment.phase == previous_phase {
+            EnvironmentPhaseProgress::Deferred
+        } else {
+            EnvironmentPhaseProgress::Advanced
+        })
+    }
+
+    fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
         let case = environment.case;
         let phase = environment.phase;
         let fixed_gpu_request_serial = environment.point_light_fixed_gpu_request_serial;
