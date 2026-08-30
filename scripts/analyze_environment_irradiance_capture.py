@@ -1140,6 +1140,22 @@ def required_capture_planes_finite(capture: Capture) -> bool:
     )
 
 
+def has_reference_identity_planes(capture: Capture) -> bool:
+    expected_plane_size = capture.sample_count * PIXEL.size
+    return (
+        capture.version == 8
+        and capture.plane_count == 5
+        and all(
+            len(payload) == expected_plane_size
+            for payload in (
+                capture.payload,
+                capture.world_payload,
+                capture.direct_light_payload,
+                capture.terrain_shadow_receiver_payload,
+                capture.direct_sun_shadow_payload,
+            )
+        )
+    )
 def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, object]:
     base_compatible = (
         current.version,
@@ -1201,6 +1217,9 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         approximate, exact
     )
+    identity_planes_available = has_reference_identity_planes(
+        approximate
+    ) and has_reference_identity_planes(exact)
     approximate_finite = required_capture_planes_finite(approximate)
     reference_finite = required_capture_planes_finite(exact)
     world_xyz_matches = world_xyz_payload(
@@ -1209,7 +1228,7 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     hit_mask_matches = float4_alpha_payload(
         approximate.payload
     ) == float4_alpha_payload(exact.payload)
-    compatible = base_compatible and not mismatches
+    compatible = base_compatible and not mismatches and identity_planes_available
     comparison_ready = (
         compatible
         and approximate_finite
@@ -1222,6 +1241,7 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
             "compatible": compatible,
             "metadata_mismatches": mismatches,
             "process_local_identity_mismatches": process_local_identity_mismatches,
+            "identity_planes_available": identity_planes_available,
             "approximate_finite": approximate_finite,
             "reference_finite": reference_finite,
             "world_xyz_matches": world_xyz_matches,
@@ -1263,6 +1283,7 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         "compatible": True,
         "metadata_mismatches": [],
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "identity_planes_available": True,
         "approximate_finite": True,
         "reference_finite": True,
         "world_xyz_matches": True,
@@ -1824,6 +1845,11 @@ def main() -> int:
         report["reference_comparison"] = reference
         if not reference["compatible"]:
             failures.append("reference comparison is incompatible")
+            exit_code = 1
+        if not reference.get("identity_planes_available", False):
+            failures.append(
+                "reference comparison requires capture-v8 identity planes"
+            )
             exit_code = 1
         if not reference.get("approximate_finite", False):
             failures.append("capture contains non-finite required-plane values")

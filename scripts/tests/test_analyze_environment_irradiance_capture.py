@@ -536,11 +536,34 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             json.loads(rejected.stdout)["validation_failures"],
         )
 
+    def test_legacy_capture_pair_cannot_satisfy_reference_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v2.rfirr"
+            reference_path = Path(directory) / "reference-v2.rfirr"
+            pixels = [(0.1, 0.2, 0.3, 1.0)]
+            self.write_capture(first_path, pixels)
+            self.write_capture(reference_path, pixels)
+
+            rejected = self.run_analyzer(
+                first_path, "--reference", str(reference_path)
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        report = json.loads(rejected.stdout)
+        self.assertIn(
+            "reference comparison requires capture-v8 identity planes",
+            report["validation_failures"],
+        )
+        self.assertFalse(
+            report["reference_comparison"]["identity_planes_available"]
+        )
+
     def test_reference_requires_finite_planes_and_exact_world_coordinates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first_path = Path(directory) / "first.rfirr"
             nonfinite_path = Path(directory) / "nonfinite-reference.rfirr"
             moved_path = Path(directory) / "moved-reference.rfirr"
+            different_hit_path = Path(directory) / "different-hit-reference.rfirr"
             voxel = 1.0 / 256.0
             irradiance = [(0.2, 0.2, 0.2, 1.0)]
             world = [(1.0, 2.0, 3.0, 0.0)]
@@ -566,11 +589,22 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 receiver,
                 shadows,
             )
+            self.write_capture_v8(
+                different_hit_path,
+                [(0.2, 0.2, 0.2, 0.0)],
+                world,
+                direct,
+                receiver,
+                shadows,
+            )
 
             nonfinite = self.run_analyzer(
                 first_path, "--reference", str(nonfinite_path)
             )
             moved = self.run_analyzer(first_path, "--reference", str(moved_path))
+            different_hit = self.run_analyzer(
+                first_path, "--reference", str(different_hit_path)
+            )
 
         self.assertEqual(nonfinite.returncode, 1, nonfinite.stderr)
         self.assertIn(
@@ -582,6 +616,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             "reference world XYZ payload does not match capture",
             json.loads(moved.stdout)["validation_failures"],
         )
+        self.assertEqual(different_hit.returncode, 1, different_hit.stderr)
+        self.assertIn(
+            "reference terrain hit mask does not match capture",
+            json.loads(different_hit.stdout)["validation_failures"],
+        )
 
     def test_reference_max_gate_rejects_a_small_tail_outlier(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -590,8 +629,22 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             pixels = [(0.0, 0.0, 0.0, 1.0)] * 100
             reference_pixels = list(pixels)
             reference_pixels[-1] = (1.0, 1.0, 1.0, 1.0)
-            self.write_capture(first_path, pixels)
-            self.write_capture(reference_path, reference_pixels)
+            voxel = 1.0 / 256.0
+            world = [(1.0, 2.0, 3.0, 0.0)] * 100
+            direct = [(0.0, 0.0, 0.0, 1.0)] * 100
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)] * 100
+            shadows = [(1.0, 1.0, 1.0, 1.0)] * 100
+            self.write_capture_v8(
+                first_path, pixels, world, direct, receiver, shadows
+            )
+            self.write_capture_v8(
+                reference_path,
+                reference_pixels,
+                world,
+                direct,
+                receiver,
+                shadows,
+            )
 
             rejected = self.run_analyzer(
                 first_path,
@@ -727,7 +780,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             comparison["process_local_identity_mismatches"],
             ["build_token_serial", "field_serial", "source_field_serial"],
         )
-        self.assertTrue(reference["compatible"])
+        self.assertFalse(reference["compatible"])
+        self.assertFalse(reference["identity_planes_available"])
         self.assertFalse(different_epoch["compatible"])
         self.assertIn("update_epoch", different_epoch["metadata_mismatches"])
 
