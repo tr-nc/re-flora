@@ -43,6 +43,15 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 f"convergence_minimum_update_epochs={minimum_update_epochs} "
                 f"convergence_maximum_update_epochs={maximum_update_epochs}"
             )
+            lines.append(
+                "[12:34:56.789 INFO re_flora::tracer] "
+                "[DDGI] relocation stats probes=4913 valid=4913 failed=0 "
+                "fast_target=4913 local_target=0 outer_target=0 "
+                "outer_best_effort=0 full_escape=0 moved=0 "
+                "clearance_below_half_target=0 clearance_half_to_target=0 "
+                "clearance_target=4913 clearance_sum=4913 "
+                "distance_squared_twice_sum=0"
+            )
         samples = tuple((epoch, 0.5, 1.0, 0) for epoch in range(6)) + (
             (6, 0.002, 0.01, 1),
             (7, 0.001, 0.005, 2),
@@ -137,6 +146,24 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         self.assertEqual(len(curve["epochs"]), 8)
         self.assertEqual(report["policy"]["maximum_update_epoch"], 127)
         self.assertEqual(report["policy"]["relative_floor"], 0.05)
+
+    def test_accepts_complete_coverage_of_the_relocated_valid_population(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text()
+                    .replace("valid=4913 failed=0", "valid=3835 failed=1078")
+                    .replace("valid_texels=314432", "valid_texels=245440")
+                    .replace("scanned_stored_texels=491300", "scanned_stored_texels=383500")
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rejects_terminal_epoch_drift_inside_the_independent_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
