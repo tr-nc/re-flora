@@ -162,6 +162,7 @@ class ShaderValidationWorkflowTests(unittest.TestCase):
             "ddgi_convergence_evidence_tests::",
             "runtime_convergence_budget_matches_the_acceptance_contract",
             "private_evidence_lines_preserve_exact_count_content_and_order",
+            "validation_wire_labels_bind_to_their_distinct_runtime_facts",
         ):
             self.assertIn(f"timeout 10m cargo test --locked {gate}", workflow)
         for gate in (

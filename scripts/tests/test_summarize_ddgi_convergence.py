@@ -30,6 +30,7 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
         lines = []
         if include_policy:
             lines.append(
+                "[12:34:56.789 INFO re_flora::tracer] "
                 "[DDGI] initialization requested terrain_revision=2 spacing_voxels=32 "
                 "probes=4913 stage=RelocationPending "
                 f"convergence_max_absolute_rgb_delta={absolute_threshold} "
@@ -419,6 +420,11 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                     .replace("max_rel_rgb_delta=0.00000000", f"max_rel_rgb_delta={f32_max}")
                 )
                 text = text.replace(old_identity, max_identity, 1)
+                text = text.replace(
+                    "field_serial=2 source_field_serial=1 ",
+                    "field_serial=2 source_field_serial=none ",
+                    1,
+                )
                 text = text.replace("field_serial=9 ", f"field_serial={u64_max} ")
                 path.write_text(text)
             analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
@@ -696,6 +702,76 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                 self.assertFalse(output.exists())
                 self.assertIn("noncanonical", result.stderr)
 
+    def test_rejects_policy_detached_from_the_canonical_initialization_line(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                text = path.read_text()
+                initialization = text.splitlines()[0]
+                policy_offset = initialization.index(
+                    "convergence_max_absolute_rgb_delta="
+                )
+                detached = (
+                    initialization[:policy_offset].rstrip()
+                    + "\n[FAKE] initialization requested "
+                    + initialization[policy_offset:]
+                )
+                path.write_text(text.replace(initialization, detached, 1))
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+        self.assertIn("authoritative runtime convergence policy", result.stderr)
+
+    def test_accepts_the_canonical_production_logger_policy_line(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                path.write_text(
+                    path.read_text().replace(
+                        "[12:34:56.789 INFO re_flora::tracer]",
+                        "[23:59:59.999 INFO re_flora::tracer]",
+                        1,
+                    )
+                )
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_noncanonical_policy_line_prefix_or_suffix(self) -> None:
+        mutations = {
+            "prefix": (
+                "[DDGI] initialization requested ",
+                "[FAKE] [DDGI] initialization requested ",
+            ),
+            "suffix": (
+                "convergence_maximum_update_epochs=128",
+                "convergence_maximum_update_epochs=128 trailing-junk",
+            ),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("authoritative runtime convergence policy", result.stderr)
+
     def test_rejects_capture_metric_drift_inside_the_old_tolerance(self) -> None:
         mutations = {
             "absolute": ("max_abs_delta", 0.00100004),
@@ -970,40 +1046,19 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             self.write_curve(run_dir)
             for suffix in ("console.log", "run.log"):
                 path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
-                lines = path.read_text().splitlines()
-                current_index = next(
-                    index
-                    for index, line in enumerate(lines)
-                    if "field_serial=2 source_field_serial=1" in line
+                path.write_text(
+                    path.read_text()
+                    .replace(
+                        "field_serial=1 source_field_serial=none geometry_revision=1",
+                        "field_serial=1 source_field_serial=none geometry_revision=2",
+                        1,
+                    )
+                    .replace(
+                        "field_serial=2 source_field_serial=1 geometry_revision=2",
+                        "field_serial=2 source_field_serial=none geometry_revision=2",
+                        1,
+                    )
                 )
-                density = lines[current_index].replace(
-                    "field_serial=2 source_field_serial=1",
-                    "field_serial=2 source_field_serial=none",
-                    1,
-                )
-                for index, line in enumerate(lines):
-                    if "full-atlas validated" in line and "geometry_revision=2" in line:
-                        match = re.search(
-                            r"field_serial=(\d+) source_field_serial=(\d+)", line
-                        )
-                        assert match is not None
-                        destination = int(match.group(1))
-                        source = int(match.group(2))
-                        lines[index] = (
-                            line.replace(
-                                f"field_serial={destination} source_field_serial={source}",
-                                f"field_serial={destination + 1} source_field_serial={source + 1}",
-                                1,
-                            )
-                        )
-                    elif " terminal " in line:
-                        lines[index] = line.replace("field_serial=9", "field_serial=10", 1)
-                lines.insert(current_index, density)
-                path.write_text("\n".join(lines) + "\n")
-            analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
-            payload = json.loads(analysis.read_text())
-            payload["capture"]["field_serial"] = 10
-            analysis.write_text(json.dumps(payload))
 
             result = self.run_summarizer(run_dir, output)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -1011,10 +1066,10 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
 
         self.assertEqual(
             [epoch["field_serial"] for epoch in report["curves"][0]["epochs"]],
-            list(range(3, 11)),
+            list(range(2, 10)),
         )
         self.assertNotIn(
-            2,
+            1,
             [epoch["field_serial"] for epoch in report["curves"][0]["epochs"]],
         )
 
@@ -1051,6 +1106,84 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             result = self.run_summarizer(run_dir, output)
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_accepts_new_revision_sourced_across_an_obsolete_staging_field(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            output = run_dir / "summary.json"
+            self.write_curve(run_dir)
+            for suffix in ("console.log", "run.log"):
+                path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                lines = path.read_text().splitlines()
+                geometry_index = next(
+                    index
+                    for index, line in enumerate(lines)
+                    if "field_serial=2 source_field_serial=1" in line
+                )
+                obsolete_density = lines[geometry_index].replace(
+                    "field_serial=2 source_field_serial=1 geometry_revision=2 "
+                    "radiance_revision=1 spacing_voxels=32",
+                    "field_serial=2 source_field_serial=none geometry_revision=1 "
+                    "radiance_revision=1 spacing_voxels=16",
+                    1,
+                )
+                for index, line in enumerate(lines):
+                    if "full-atlas validated" in line and "geometry_revision=2" in line:
+                        match = re.search(
+                            r"field_serial=(\d+) source_field_serial=(\d+)", line
+                        )
+                        assert match is not None
+                        destination = int(match.group(1))
+                        source = int(match.group(2))
+                        authoritative_source = source if source == 1 else source + 1
+                        lines[index] = line.replace(
+                            match.group(0),
+                            f"field_serial={destination + 1} "
+                            f"source_field_serial={authoritative_source}",
+                            1,
+                        )
+                    elif " terminal " in line:
+                        lines[index] = line.replace("field_serial=9", "field_serial=10", 1)
+                lines.insert(geometry_index, obsolete_density)
+                path.write_text("\n".join(lines) + "\n")
+            analysis = run_dir / "sealed-spacing32-converged-forward.analysis.json"
+            payload = json.loads(analysis.read_text())
+            payload["capture"]["field_serial"] = 10
+            analysis.write_text(json.dumps(payload))
+
+            result = self.run_summarizer(run_dir, output)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_source_pairs_that_rust_field_identity_cannot_construct(self) -> None:
+        mutations = {
+            "spacing-mismatch": (
+                "source_field_serial=none geometry_revision=1 radiance_revision=1 "
+                "spacing_voxels=32",
+                "source_field_serial=none geometry_revision=1 radiance_revision=1 "
+                "spacing_voxels=16",
+            ),
+            "same-revision-epoch-zero": (
+                "source_field_serial=none geometry_revision=1 radiance_revision=1 "
+                "spacing_voxels=32",
+                "source_field_serial=none geometry_revision=2 radiance_revision=1 "
+                "spacing_voxels=32",
+            ),
+        }
+        for name, (before, after) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                run_dir = Path(directory)
+                output = run_dir / "summary.json"
+                self.write_curve(run_dir)
+                for suffix in ("console.log", "run.log"):
+                    path = run_dir / f"sealed-spacing32-converged-forward.{suffix}"
+                    path.write_text(path.read_text().replace(before, after, 1))
+
+                result = self.run_summarizer(run_dir, output)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+                self.assertIn("source field serial", result.stderr)
 
     def test_rejects_overlapping_validation_wire_field_sets(self) -> None:
         source = Path("config/ddgi_convergence_acceptance.toml")

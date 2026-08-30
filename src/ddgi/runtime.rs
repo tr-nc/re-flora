@@ -211,24 +211,23 @@ mod convergence_evidence {
                 .unwrap_or_else(|| "none".to_owned());
             let stats = self.publication.atlas_validation;
             let validation = format!(
-                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={} source_field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} max_abs_rgb_delta={:.precision$} max_rel_rgb_delta={:.precision$} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.precision$} rel_threshold={:.precision$} consecutive_below={}/{}",
-                field.serial(),
-                source_field_serial,
-                field.geometry_revision(),
-                field.radiance_revision(),
-                field.spacing_voxels(),
-                field.state(),
-                field.update_epoch(),
-                stats.max_absolute_rgb_delta,
-                stats.max_relative_rgb_delta,
-                stats.non_finite_count,
-                stats.negative_rgb_texel_count,
-                stats.valid_texel_count,
-                stats.scanned_stored_texel_count,
-                DDGI_CONVERGENCE_POLICY.absolute_threshold,
-                DDGI_CONVERGENCE_POLICY.relative_threshold,
-                self.consecutive_below_threshold,
-                DDGI_CONVERGENCE_POLICY.consecutive_epochs,
+                "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated field_serial={field_serial} source_field_serial={source_field_serial} geometry_revision={geometry_revision} radiance_revision={radiance_revision} spacing_voxels={spacing_voxels} state={state:?} update_epoch={update_epoch} max_abs_rgb_delta={max_absolute_rgb_delta:.precision$} max_rel_rgb_delta={max_relative_rgb_delta:.precision$} non_finite={non_finite_count} negative_rgb_texels={negative_rgb_texel_count} valid_texels={valid_texel_count} scanned_stored_texels={scanned_stored_texel_count} abs_threshold={absolute_threshold:.precision$} rel_threshold={relative_threshold:.precision$} consecutive_below={consecutive_below_threshold}/{required_consecutive_epochs}",
+                field_serial = field.serial(),
+                geometry_revision = field.geometry_revision(),
+                radiance_revision = field.radiance_revision(),
+                spacing_voxels = field.spacing_voxels(),
+                state = field.state(),
+                update_epoch = field.update_epoch(),
+                max_absolute_rgb_delta = stats.max_absolute_rgb_delta,
+                max_relative_rgb_delta = stats.max_relative_rgb_delta,
+                non_finite_count = stats.non_finite_count,
+                negative_rgb_texel_count = stats.negative_rgb_texel_count,
+                valid_texel_count = stats.valid_texel_count,
+                scanned_stored_texel_count = stats.scanned_stored_texel_count,
+                absolute_threshold = DDGI_CONVERGENCE_POLICY.absolute_threshold,
+                relative_threshold = DDGI_CONVERGENCE_POLICY.relative_threshold,
+                consecutive_below_threshold = self.consecutive_below_threshold,
+                required_consecutive_epochs = DDGI_CONVERGENCE_POLICY.consecutive_epochs,
                 precision = DECIMAL_PLACES,
             );
             match self.terminal_reason {
@@ -236,13 +235,12 @@ mod convergence_evidence {
                 Some(reason) => vec![
                     validation,
                     format!(
-                        "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} update_epoch={} reason={:?}",
-                        field.serial(),
-                        field.geometry_revision(),
-                        field.radiance_revision(),
-                        field.spacing_voxels(),
-                        field.update_epoch(),
-                        reason,
+                        "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial={field_serial} geometry_revision={geometry_revision} radiance_revision={radiance_revision} spacing_voxels={spacing_voxels} update_epoch={update_epoch} reason={reason:?}",
+                        field_serial = field.serial(),
+                        geometry_revision = field.geometry_revision(),
+                        radiance_revision = field.radiance_revision(),
+                        spacing_voxels = field.spacing_voxels(),
+                        update_epoch = field.update_epoch(),
                     ),
                 ],
             }
@@ -423,6 +421,24 @@ mod convergence_evidence {
                     "[DDGI_CONVERGENCE_EVIDENCE] terminal field_serial=9 geometry_revision=7 radiance_revision=3 spacing_voxels=16 update_epoch=7 reason=Threshold",
                 ]
             );
+        }
+
+        #[test]
+        fn validation_wire_labels_bind_to_their_distinct_runtime_facts() {
+            let (work, field, mut stats) = facts();
+            stats.non_finite_count = 7;
+            stats.negative_rgb_texel_count = 11;
+            let prepared = prepare(
+                DdgiValidatedIterationOutcome::Published {
+                    work,
+                    field,
+                    consecutive_below_threshold: 0,
+                },
+                stats,
+            );
+
+            assert!(prepared.pending.0.lines()[0]
+                .contains("non_finite=7 negative_rgb_texels=11 valid_texels=64"));
         }
 
         #[test]

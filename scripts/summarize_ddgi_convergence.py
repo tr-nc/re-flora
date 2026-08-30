@@ -45,7 +45,11 @@ TERMINAL_PATTERN = re.compile(
     r"update_epoch=(?P<epoch>\d+) reason=(?P<reason>Threshold|SampleBudget)$"
 )
 POLICY_PATTERN = re.compile(
-    r"initialization requested .*?"
+    r"^\[(?P<log_time>(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}) "
+    r"INFO re_flora::tracer\] \[DDGI\] initialization requested "
+    r"terrain_revision=(?P<terrain>\d+) "
+    r"spacing_voxels=(?P<policy_spacing>\d+) "
+    r"probes=(?P<probes>\d+) stage=(?P<stage>RelocationPending) "
     r"convergence_max_absolute_rgb_delta=(?P<absolute>[0-9.eE+-]+) "
     r"convergence_max_relative_rgb_delta=(?P<relative>[0-9.eE+-]+) "
     r"convergence_relative_floor=(?P<relative_floor>[0-9.eE+-]+) "
@@ -183,6 +187,18 @@ def canonical_policy_suffix(contract_path: Path) -> str:
         f"convergence_consecutive_epochs={token('consecutive_epochs')} "
         f"convergence_minimum_update_epochs={token('minimum_update_epochs')} "
         f"convergence_maximum_update_epochs={token('maximum_update_epochs')}"
+    )
+
+
+def canonical_policy_line(match: re.Match[str], contract_path: Path) -> str:
+    return (
+        f"[{match.group('log_time')} INFO re_flora::tracer] "
+        "[DDGI] initialization requested "
+        f"terrain_revision={int(match.group('terrain'))} "
+        f"spacing_voxels={int(match.group('policy_spacing'))} "
+        f"probes={int(match.group('probes'))} "
+        f"stage={match.group('stage')} "
+        f"{canonical_policy_suffix(contract_path)}"
     )
 
 
@@ -346,7 +362,6 @@ def require_global_validation_legality(
     wire: ValidationWireContract,
     policy: Policy,
 ) -> list[list[dict[str, object]]]:
-    seen_field_serials: set[int] = set()
     for record in records:
         numeric_fields = set(record) - {"state"}
         contracted_fields = (
@@ -393,18 +408,6 @@ def require_global_validation_legality(
                     f"source-free field in {evidence_path} must be Converging epoch zero "
                     f"with streak zero"
                 )
-        else:
-            source_serial = int(source_field_serial)
-            if source_serial == 0 or source_serial >= serial:
-                raise ValueError(
-                    f"source field serial in {evidence_path} must be nonzero and precede "
-                    f"destination serial {serial}"
-                )
-            if source_serial not in seen_field_serials:
-                raise ValueError(
-                    f"source field serial {source_serial} in {evidence_path} does not "
-                    "reference an earlier process-bound validation"
-                )
         if record["nonfinite_count"] != 0 or record["negative_rgb_texel_count"] != 0:
             raise ValueError(f"validated atlas record in {evidence_path} has invalid texels")
         valid = int(record["valid_texel_count"])
@@ -415,7 +418,6 @@ def require_global_validation_legality(
             )
         if record["required_consecutive_epochs"] != policy.consecutive_epochs:
             raise ValueError(f"validation record in {evidence_path} has consecutive policy drift")
-        seen_field_serials.add(serial)
 
     field_serials = [int(record["field_serial"]) for record in records]
     if len(set(field_serials)) != len(field_serials) or any(
@@ -425,6 +427,41 @@ def require_global_validation_legality(
             f"global validation order in {evidence_path} has duplicate or unordered "
             f"field serials: {field_serials}"
         )
+
+    prior_records_by_serial: dict[int, dict[str, object]] = {}
+    for record in records:
+        serial = int(record["field_serial"])
+        source_field_serial = record["source_field_serial"]
+        if source_field_serial is not None:
+            source_serial = int(source_field_serial)
+            source = prior_records_by_serial.get(source_serial)
+            if source_serial == 0 or source is None:
+                raise ValueError(
+                    f"global lineage source field serial {source_serial} in {evidence_path} does not "
+                    "reference an earlier process-bound validation"
+                )
+            if int(source["spacing_voxels"]) != int(record["spacing_voxels"]):
+                raise ValueError(
+                    f"global lineage source field serial {source_serial} in {evidence_path} has spacing "
+                    f"{source['spacing_voxels']}, destination {serial} has spacing "
+                    f"{record['spacing_voxels']}"
+                )
+            same_transport_revision = (
+                source["geometry_revision"] == record["geometry_revision"]
+                and source["radiance_revision"] == record["radiance_revision"]
+            )
+            expected_epoch = (
+                min(int(source["update_epoch"]) + 1, (1 << 32) - 1)
+                if same_transport_revision
+                else 0
+            )
+            if int(record["update_epoch"]) != expected_epoch:
+                raise ValueError(
+                    f"global lineage source field serial {source_serial} in {evidence_path} requires "
+                    f"destination {serial} epoch {expected_epoch}, found "
+                    f"{record['update_epoch']}"
+                )
+        prior_records_by_serial[serial] = record
 
     generation_identity: tuple[int, int, int] | None = None
     generations: list[list[dict[str, object]]] = []
@@ -439,15 +476,6 @@ def require_global_validation_legality(
         )
         epoch = int(record["update_epoch"])
         if epoch == 0:
-            if record["source_field_serial"] is not None:
-                if previous_record is None or record["source_field_serial"] != int(
-                    previous_record["field_serial"]
-                ):
-                    raise ValueError(
-                        f"global lineage in {evidence_path} starts source-backed generation "
-                        f"from {record['source_field_serial']}, expected previous field "
-                        f"{None if previous_record is None else previous_record['field_serial']}"
-                    )
             generation_identity = identity
             generations.append([])
             previous_consecutive = 0
@@ -546,10 +574,7 @@ def parse_curve(
             f"{console_path}, found {len(policy_matches)}"
         )
     policy_values = policy_matches[0].groupdict()
-    policy_suffix = policy_matches[0].group(0)
-    policy_suffix = policy_suffix[
-        policy_suffix.index("convergence_max_absolute_rgb_delta=") :
-    ]
+    policy_line = policy_matches[0].group(0)
     maximum_update_epochs = int(policy_values["maximum"])
     if maximum_update_epochs == 0:
         raise ValueError("runtime convergence maximum_update_epochs must be positive")
@@ -563,7 +588,7 @@ def parse_curve(
     )
     require_policy_wire_legality(policy, maximum_update_epochs, console_path)
     require_policy_matches_contract(policy, load_acceptance_contract(contract_path))
-    if policy_suffix != canonical_policy_suffix(contract_path):
+    if policy_line != canonical_policy_line(policy_matches[0], contract_path):
         raise ValueError(
             f"noncanonical authoritative runtime convergence policy in {console_path}"
         )
