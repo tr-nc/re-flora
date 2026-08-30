@@ -46,10 +46,18 @@ Placement and replacement checkpoint and publish trunk voxels first, then publis
 lifecycle, attached fruit, shadow invalidation, and canopy audio in that order. They make the
 prepared record and leaf clusters canonical only after the whole physical transaction commits.
 Removal publishes the inverse physical effects through the same owner and removes the canonical
-record last. Every fallible input is checked before the first action. If an execution action still
-fails, the production host restores the previous trunk, observer, fruit-body, and audio publication
-(or removes a partially placed new tree); compensation failure is reported together with the
-original error.
+record last. Inputs that can be preflighted are checked before the first action. The concrete trunk
+executor treats both atlas mutation and visible-terrain publication as fallible: a failure at any
+point runs the inverse checkpoint publication, aborts unfinished physical terrain work, and reports
+the original and restore errors together if both fail. Later observer failure restores the same
+trunk checkpoint plus observer, fruit-body, and audio publication (or removes a partially placed
+new tree).
+
+Cherry-wood voxels do not encode a tree identity. `GardenTrees` therefore keeps a chunk-local index
+of canonical trunk owners. A transaction queries only chunks touched by its old and new bounds,
+clears the target plus intersecting retained neighbors, then deterministically redraws the desired
+target and neighbor union. Restore uses the inverse union. This covers remove, shrink, batch, and a
+replacement whose new footprint alone overlaps another canonical tree without scanning every tree.
 
 Age rebuild uses one `replace_batch` transaction. It clears all old trunks before stamping any new
 trunk so overlapping trees cannot erase one another, delays every canonical commit until all
@@ -57,3 +65,8 @@ observers succeed, and restores the entire physical batch if any tree fails. Can
 realization is strict within the same transaction: one failed generation spawn removes every Voice
 created by that synchronization, and checkpoint restoration propagates physical realization
 failures instead of accepting a lifecycle-only restoration.
+
+When tree description and global age change in the same GUI frame, the tuned description is a
+one-shot staged input rather than a canonical mutation. The age rebuild consumes it and commits it
+with the successful prepared record. Failure leaves the old physical and canonical description in
+place, and a later rebuild cannot accidentally reuse the discarded unpublished description.
