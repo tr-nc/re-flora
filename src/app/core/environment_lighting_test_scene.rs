@@ -6288,6 +6288,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::VOXEL_DIM_PER_CHUNK;
     use crate::app::core::launch_owners;
     use crate::cli::{AutomationPlan, Scenario};
     use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
@@ -6298,6 +6299,19 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no Visible Terrain Publication"));
+    }
+
+    #[test]
+    fn initial_test_scene_preflight_is_complete_before_world_mutation() {
+        let plan = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::Sealed,
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.affected_voxels(VOXEL_DIM_PER_CHUNK).unwrap(),
+            Some(test_rebuild_bound(EnvironmentLightingTestCase::Sealed))
+        );
     }
 
     #[test]
