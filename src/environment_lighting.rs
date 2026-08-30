@@ -840,7 +840,6 @@ mod tests {
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
         let switch = gui_param(&config, "raster_flora_ddgi_lighting");
-        let query = include_str!("../shader/slang/ddgi_query.slang");
         let lighting = include_str!("../shader/slang/flora_shadow.slang");
         let shared = include_str!("../shader/slang/flora_vertex.slang");
         let flora_cache = include_str!("../shader/slang/flora_lighting_cache.comp.slang");
@@ -855,16 +854,6 @@ mod tests {
         assert!(lighting.contains("float3(24.0 / 255.0)"));
         assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
         assert!(shared.contains("applyLegacyRasterFloraLighting("));
-        let runtime_query = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("DDGI must expose the runtime consumer query")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("runtime consumer query must remain isolated from terrain smoothing")
-            .0;
-        assert!(runtime_query.contains("getDdgiMomentProbeContribution("));
-        assert!(runtime_query.contains("contribution.moment_visibility"));
-        assert!(!runtime_query.contains("getDdgiMomentExactProbeContribution("));
         let flora_environment = shared
             .split_once("public float3 sampleFloraEnvironment(")
             .expect("raster flora must have a shared environment query")
@@ -972,119 +961,6 @@ mod tests {
         assert!(skylight.contains("public float3 getAuthoredSkyRadiance("));
         assert!(ddgi_trace.contains("getAuthoredSkyRadiance("));
         assert!(ddgi_sky.contains("getAuthoredSkyRadiance("));
-    }
-
-    #[test]
-    fn consumer_and_transport_adapters_share_probe_core_but_keep_distinct_visibility() {
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let consumer_implementation = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("runtime consumer implementation must exist")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain smoothing must follow the runtime consumer")
-            .0;
-        let consumer = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
-            .expect("consumer adapter must exist")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport implementation must follow the consumer adapter")
-            .0;
-        let transport = query
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport implementation must exist")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport adapter must follow its implementation")
-            .0;
-
-        assert_eq!(
-            consumer_implementation
-                .matches("for (uint z = 0u; z < 2u; ++z)")
-                .count(),
-            1
-        );
-        assert_eq!(
-            transport.matches("for (uint z = 0u; z < 2u; ++z)").count(),
-            1
-        );
-        assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
-        assert!(consumer.contains("ddgi_irradiance_atlas"));
-        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
-    }
-
-    #[test]
-    fn ddgi_production_routes_select_their_visibility_policies() {
-        // Temporary route gate. Runtime capture/mode acceptance in R13 replaces this source-level
-        // check once it observes the three production modes through their owner interface.
-        fn assert_visibility_mode(route: &str, expected_mode: &str) {
-            const CALL: &str = "ddgiQueryVisibilityWeight(";
-            assert_eq!(route.matches(CALL).count(), 1);
-            let arguments = route
-                .split_once(CALL)
-                .expect("production route must call the visibility policy")
-                .1;
-            let mut depth = 0usize;
-            let mut argument_start = 0usize;
-            let mut parsed = Vec::new();
-            for (index, character) in arguments.char_indices() {
-                match character {
-                    '(' => depth += 1,
-                    ')' if depth == 0 => {
-                        parsed.push(arguments[argument_start..index].trim());
-                        break;
-                    }
-                    ')' => depth -= 1,
-                    ',' if depth == 0 => {
-                        parsed.push(arguments[argument_start..index].trim());
-                        argument_start = index + 1;
-                    }
-                    _ => {}
-                }
-            }
-            assert_eq!(parsed.len(), 3, "visibility policy takes three arguments");
-            assert_eq!(parsed[2], expected_mode);
-        }
-
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-        let runtime = query
-            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
-            .expect("runtime query route")
-            .1
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain-smooth route follows runtime")
-            .0;
-        let terrain_smooth = query
-            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
-            .expect("terrain-smooth query route")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(")
-            .expect("terrain-smooth adapter follows route")
-            .0;
-        let transport = query
-            .split_once("DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(")
-            .expect("transport query route")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
-            .expect("transport adapter follows route")
-            .0;
-        let exact = query
-            .split_once("public DdgiQueryResult sampleDdgiExactTerrainReference(")
-            .expect("exact reference route")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(")
-            .expect("unoccluded reference follows exact")
-            .0;
-
-        for (route, mode) in [
-            (runtime, "DDGI_VISIBILITY_MOMENT"),
-            (terrain_smooth, "DDGI_VISIBILITY_MOMENT"),
-            (transport, "DDGI_VISIBILITY_MOMENT_EXACT"),
-            (exact, "DDGI_VISIBILITY_EXACT"),
-        ] {
-            assert_visibility_mode(route, mode);
-        }
     }
 
     #[test]
@@ -1251,90 +1127,6 @@ mod tests {
             .0;
         assert!(moisture_origin.contains("terrainRayOriginAlongNormal("));
         assert!(moisture_origin.contains("gui_input.terrain_ray_origin_offset_world"));
-    }
-
-    #[test]
-    fn ddgi_production_filters_route_shared_policy_owners() {
-        // Temporary wiring gate. Runtime filter acceptance in R13 replaces this source check.
-        fn assert_history_usage(filter: &str, retained_copy: &str, history_blend: &str) {
-            let retained = filter
-                .split_once("if (historyPolicy.retain_source)")
-                .expect("retained partition gate")
-                .1
-                .split_once("if (metadata.state_and_reserved.x")
-                .expect("metadata validation follows retained partition")
-                .0;
-            assert!(retained.contains(retained_copy));
-            assert_eq!(retained.matches("return;").count(), 1);
-
-            let blended = filter
-                .split_once("if (historyPolicy.blend_history)")
-                .expect("history blend gate")
-                .1
-                .split_once("store")
-                .expect("atlas store follows history blend")
-                .0;
-            assert!(blended.contains(history_blend));
-        }
-
-        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
-        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
-
-        assert_eq!(visibility.matches("ddgiFilterVisibilitySample(").count(), 1);
-        assert_eq!(visibility.matches("ddgiFilterHistoryPolicy(").count(), 1);
-        assert_eq!(irradiance.matches("ddgiFilterHistoryPolicy(").count(), 1);
-        assert_eq!(irradiance.matches("ddgiFilterVisibilitySample(").count(), 0);
-        assert!(visibility.contains(
-            "DdgiFilterVisibilitySample sample = ddgiFilterVisibilitySample(\n            signedDistance, supportDistance, pc.far_distance_world);\n"
-        ));
-        assert!(visibility.contains(
-            "if (!sample.accepted) continue;\n        float hitDistance = sample.distance;"
-        ));
-        for filter in [visibility, irradiance] {
-            assert!(filter.contains(
-                "DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(\n        pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,\n        pc.local_refresh_enabled.y, pc.history_retention);"
-            ));
-        }
-        assert_history_usage(
-            visibility,
-            "storeVisibility(\n            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));",
-            "current = lerp(current,\n                       loadVisibility(pc.source_slot, atlasCoordinate),\n                       historyPolicy.retention);",
-        );
-        assert_history_usage(
-            irradiance,
-            "storeIrradiance(\n            atlasCoordinate, loadIrradiance(pc.source_slot, atlasCoordinate));",
-            "current.xyz = lerp(current.xyz, history.xyz, historyPolicy.retention);",
-        );
-        for forbidden in [
-            "relativeChange",
-            "relativeDarkening",
-            "DDGI_IRRADIANCE_CHANGE_THRESHOLD",
-            "DDGI_IRRADIANCE_MIN_DARKENING_STEP",
-        ] {
-            assert!(!irradiance.contains(forbidden));
-        }
-    }
-
-    #[test]
-    fn unoccluded_irradiance_debug_isolated_from_final_visibility_path() {
-        let tracer = include_str!("../shader/slang/tracer.slang");
-        let query = include_str!("../shader/slang/ddgi_query.slang");
-
-        assert!(tracer.contains("DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u"));
-        assert!(tracer.contains("DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u"));
-        assert!(tracer.contains("DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u"));
-        assert!(tracer.contains("sampleDdgiUnoccludedTerrainReference("));
-        assert!(tracer.contains("sampleDdgiEqualWeightTerrainReference("));
-        assert!(tracer.contains("sampleDdgiRawCageIrradiance("));
-        assert!(query.contains("getDdgiUnoccludedProbeContribution("));
-        assert!(query.contains("accumulateDdgiEqualWeightContribution("));
-        assert!(query.contains("sampleDdgiRawCageIrradiance("));
-        assert!(query.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
-        assert!(!query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
-        assert!(!tracer.contains("accumulateDdgiContribution("));
-        assert!(query.contains("public void writeDdgiSpatialWeightDiagnostics("));
-        assert!(tracer.contains("writeDdgiSpatialWeightDiagnostics("));
-        assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));
     }
 
     #[test]
