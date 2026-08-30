@@ -19,51 +19,37 @@ pub(super) struct AutomationOwners {
     pub(super) benchmarks: crate::cli::BenchmarkPlan,
 }
 
-pub(super) enum CaptureOwner {
-    None {
-        screenshot: ScreenshotRuntime,
-    },
+pub(super) struct CaptureOwner {
+    pub(super) screenshot: ScreenshotRuntime,
+    pub(super) mode: CameraCapture,
+}
+
+pub(super) enum CameraCapture {
+    None,
     Snapshot {
-        snapshot: String,
-        screenshot: ScreenshotRuntime,
-    },
-    Screenshot {
-        snapshot: String,
-        screenshot: ScreenshotRuntime,
+        name: String,
     },
     DenoiserBenchmark {
         snapshot: String,
-        screenshot: ScreenshotRuntime,
         runtime: DenoiserBench,
     },
 }
 
 impl CaptureOwner {
     pub(super) fn snapshot_name(&self) -> Option<&str> {
-        match self {
-            Self::None { .. } => None,
-            Self::Snapshot { snapshot, .. }
-            | Self::Screenshot { snapshot, .. }
-            | Self::DenoiserBenchmark { snapshot, .. } => Some(snapshot),
+        match &self.mode {
+            CameraCapture::None => None,
+            CameraCapture::Snapshot { name } => Some(name),
+            CameraCapture::DenoiserBenchmark { snapshot, .. } => Some(snapshot),
         }
     }
 
     pub(super) fn screenshot(&self) -> &ScreenshotRuntime {
-        match self {
-            Self::None { screenshot }
-            | Self::Snapshot { screenshot, .. }
-            | Self::Screenshot { screenshot, .. }
-            | Self::DenoiserBenchmark { screenshot, .. } => screenshot,
-        }
+        &self.screenshot
     }
 
     pub(super) fn screenshot_mut(&mut self) -> &mut ScreenshotRuntime {
-        match self {
-            Self::None { screenshot }
-            | Self::Snapshot { screenshot, .. }
-            | Self::Screenshot { screenshot, .. }
-            | Self::DenoiserBenchmark { screenshot, .. } => screenshot,
-        }
+        &mut self.screenshot
     }
 }
 
@@ -493,21 +479,59 @@ impl ScenarioOwner {
     }
 }
 
-pub(in crate::app) struct StartupOwners {
-    automation: AutomationOwners,
-    scenario: ScenarioOwner,
+pub(in crate::app) struct LaunchOwners {
+    mode: LaunchMode,
 }
 
-impl StartupOwners {
+enum LaunchMode {
+    Standard {
+        capture: CaptureOwner,
+        benchmarks: crate::cli::BenchmarkPlan,
+        scenario: ScenarioOwner,
+    },
+    FoliageShadow {
+        screenshot: ScreenshotRuntime,
+        benchmarks: crate::cli::BenchmarkPlan,
+        runtime: DenoiserBench,
+    },
+}
+
+impl LaunchOwners {
     pub(super) fn into_parts(self) -> (AutomationOwners, ScenarioOwner) {
-        (self.automation, self.scenario)
+        match self.mode {
+            LaunchMode::Standard {
+                capture,
+                benchmarks,
+                scenario,
+            } => (
+                AutomationOwners {
+                    capture,
+                    benchmarks,
+                },
+                scenario,
+            ),
+            LaunchMode::FoliageShadow {
+                screenshot,
+                benchmarks,
+                runtime,
+            } => (
+                AutomationOwners {
+                    capture: CaptureOwner {
+                        screenshot,
+                        mode: CameraCapture::None,
+                    },
+                    benchmarks,
+                },
+                ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(runtime)),
+            ),
+        }
     }
 }
 
 pub(in crate::app) fn prepare_startup_owners(
     automation: AutomationPlan,
     scenario: Scenario,
-) -> Result<StartupOwners, String> {
+) -> Result<LaunchOwners, String> {
     let AutomationPlan { camera, benchmarks } = automation;
     let scenario_owner = match scenario {
         Scenario::Garden => ScenarioOwner::World(WorldScenarioOwner::Garden),
@@ -538,46 +562,42 @@ pub(in crate::app) fn prepare_startup_owners(
                     "foliage-shadow scenario cannot carry a second camera automation".to_owned(),
                 );
             };
-            return Ok(StartupOwners {
-                automation: AutomationOwners {
-                    capture: CaptureOwner::None {
-                        screenshot: ScreenshotRuntime::new(None),
-                    },
+            return Ok(LaunchOwners {
+                mode: LaunchMode::FoliageShadow {
+                    screenshot: ScreenshotRuntime::new(None),
                     benchmarks,
+                    runtime: DenoiserBench::new_foliage(options),
                 },
-                scenario: ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::FoliageShadow(
-                    DenoiserBench::new_foliage(options),
-                )),
             });
         }
     };
-    let capture = match camera {
-        CameraAutomation::None => CaptureOwner::None {
-            screenshot: ScreenshotRuntime::new(None),
-        },
-        CameraAutomation::Snapshot(snapshot) => CaptureOwner::Snapshot {
-            snapshot,
-            screenshot: ScreenshotRuntime::new(None),
-        },
-        CameraAutomation::Screenshot { snapshot, capture } => CaptureOwner::Screenshot {
-            snapshot,
-            screenshot: ScreenshotRuntime::new(Some(capture)),
-        },
+    let (mode, screenshot) = match camera {
+        CameraAutomation::None => (CameraCapture::None, ScreenshotRuntime::new(None)),
+        CameraAutomation::Snapshot(name) => (
+            CameraCapture::Snapshot { name },
+            ScreenshotRuntime::new(None),
+        ),
+        CameraAutomation::Screenshot { snapshot, capture } => (
+            CameraCapture::Snapshot { name: snapshot },
+            ScreenshotRuntime::new(Some(capture)),
+        ),
         CameraAutomation::DenoiserBenchmark {
             snapshot,
             benchmark,
-        } => CaptureOwner::DenoiserBenchmark {
-            snapshot,
-            screenshot: ScreenshotRuntime::new(None),
-            runtime: DenoiserBench::new_camera(benchmark),
-        },
+        } => (
+            CameraCapture::DenoiserBenchmark {
+                snapshot,
+                runtime: DenoiserBench::new_camera(benchmark),
+            },
+            ScreenshotRuntime::new(None),
+        ),
     };
-    Ok(StartupOwners {
-        automation: AutomationOwners {
-            capture,
+    Ok(LaunchOwners {
+        mode: LaunchMode::Standard {
+            capture: CaptureOwner { screenshot, mode },
             benchmarks,
+            scenario: scenario_owner,
         },
-        scenario: scenario_owner,
     })
 }
 
@@ -586,7 +606,7 @@ mod tests {
     use super::*;
     use crate::cli::{
         BenchmarkPlan, CameraDenoiserOptions, CameraMotion, DenoiserCaptureOptions,
-        FoliageDenoiserOptions,
+        FoliageDenoiserOptions, ScreenshotOptions,
     };
 
     fn capture_options() -> DenoiserCaptureOptions {
@@ -635,7 +655,107 @@ mod tests {
     fn owner_for(scenario: Scenario) -> ScenarioOwner {
         prepare_startup_owners(AutomationPlan::default(), scenario)
             .unwrap()
-            .scenario
+            .into_parts()
+            .1
+    }
+
+    fn capture_for(camera: CameraAutomation) -> CaptureOwner {
+        match prepare_startup_owners(
+            AutomationPlan {
+                camera,
+                benchmarks: BenchmarkPlan::default(),
+            },
+            Scenario::Garden,
+        )
+        .unwrap()
+        .mode
+        {
+            LaunchMode::Standard { capture, .. } => capture,
+            LaunchMode::FoliageShadow { .. } => {
+                panic!("garden must use standard launch ownership")
+            }
+        }
+    }
+
+    #[test]
+    fn capture_modes_share_exactly_one_screenshot_runtime_owner() {
+        let cases = [
+            (CameraAutomation::None, None, false, false),
+            (
+                CameraAutomation::Snapshot("tree".to_owned()),
+                Some("tree"),
+                false,
+                false,
+            ),
+            (
+                CameraAutomation::Screenshot {
+                    snapshot: "tree".to_owned(),
+                    capture: ScreenshotOptions {
+                        path: "frame.png".to_owned(),
+                        delay: 0.5,
+                    },
+                },
+                Some("tree"),
+                true,
+                false,
+            ),
+            (
+                CameraAutomation::DenoiserBenchmark {
+                    snapshot: "tree".to_owned(),
+                    benchmark: CameraDenoiserOptions {
+                        capture: capture_options(),
+                        camera_motion: CameraMotion::Fixed,
+                    },
+                },
+                Some("tree"),
+                false,
+                true,
+            ),
+        ];
+
+        for (camera, expected_snapshot, expected_scheduled, expected_denoiser) in cases {
+            let CaptureOwner { screenshot, mode } = capture_for(camera);
+            assert_eq!(screenshot.is_scheduled(), expected_scheduled);
+            match mode {
+                CameraCapture::None => {
+                    assert_eq!(expected_snapshot, None);
+                    assert!(!expected_denoiser);
+                }
+                CameraCapture::Snapshot { name } => {
+                    assert_eq!(Some(name.as_str()), expected_snapshot);
+                    assert!(!expected_denoiser);
+                }
+                CameraCapture::DenoiserBenchmark { snapshot, .. } => {
+                    assert_eq!(Some(snapshot.as_str()), expected_snapshot);
+                    assert!(expected_denoiser);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn foliage_shadow_is_a_structurally_exclusive_launch_owner() {
+        let launch = prepare_startup_owners(
+            AutomationPlan::default(),
+            Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
+                capture: capture_options(),
+            }),
+        )
+        .unwrap();
+
+        match launch.mode {
+            LaunchMode::Standard { .. } => {
+                panic!("foliage benchmark must not be a standard scenario/camera pair")
+            }
+            LaunchMode::FoliageShadow {
+                screenshot,
+                runtime,
+                benchmarks: _,
+            } => {
+                assert!(!screenshot.is_scheduled());
+                assert!(runtime.is_foliage_shadow());
+            }
+        }
     }
 
     #[test]

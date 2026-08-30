@@ -49,7 +49,7 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::launch_owners::{
-    CaptureOwner, ScenarioOwner, StartupOwners, TestSceneEvent, TestSceneEventMut,
+    CameraCapture, CaptureOwner, LaunchOwners, ScenarioOwner, TestSceneEvent, TestSceneEventMut,
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
@@ -674,11 +674,9 @@ enum DenoiserEventMut<'a> {
 
 impl App {
     fn denoiser_event(&self) -> DenoiserEvent<'_> {
-        match &self.capture_owner {
-            CaptureOwner::DenoiserBenchmark { runtime, .. } => DenoiserEvent::Active(runtime),
-            CaptureOwner::None { .. }
-            | CaptureOwner::Snapshot { .. }
-            | CaptureOwner::Screenshot { .. } => {
+        match &self.capture_owner.mode {
+            CameraCapture::DenoiserBenchmark { runtime, .. } => DenoiserEvent::Active(runtime),
+            CameraCapture::None | CameraCapture::Snapshot { .. } => {
                 match self.scenario_owner.foliage_capture_event() {
                     launch_owners::FoliageCaptureEvent::None => DenoiserEvent::Inactive,
                     launch_owners::FoliageCaptureEvent::Active(bench) => {
@@ -690,11 +688,9 @@ impl App {
     }
 
     fn denoiser_event_mut(&mut self) -> DenoiserEventMut<'_> {
-        match &mut self.capture_owner {
-            CaptureOwner::DenoiserBenchmark { runtime, .. } => DenoiserEventMut::Active(runtime),
-            CaptureOwner::None { .. }
-            | CaptureOwner::Snapshot { .. }
-            | CaptureOwner::Screenshot { .. } => {
+        match &mut self.capture_owner.mode {
+            CameraCapture::DenoiserBenchmark { runtime, .. } => DenoiserEventMut::Active(runtime),
+            CameraCapture::None | CameraCapture::Snapshot { .. } => {
                 match self.scenario_owner.foliage_capture_event_mut() {
                     launch_owners::FoliageCaptureEventMut::None => DenoiserEventMut::Inactive,
                     launch_owners::FoliageCaptureEventMut::Active(bench) => {
@@ -1163,7 +1159,7 @@ impl App {
         platform: PlatformPlan,
         world: WorldPlan,
         audio: AudioPlan,
-        owners: StartupOwners,
+        owners: LaunchOwners,
     ) -> Result<Self> {
         let (automation, mut scenario_owner) = owners.into_parts();
         let PlatformPlan {
