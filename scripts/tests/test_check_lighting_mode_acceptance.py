@@ -364,6 +364,44 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertIn("rg-status=2", result.stderr)
         self.assertIn("simulated runtime RED scan I/O failure", result.stderr)
 
+    def test_run_log_marker_rg_partial_output_then_io_failure_is_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            bound_log = root / "bound.run.log"
+            bound_log.write_text("clean\n")
+            cargo = executable(
+                root / "cargo",
+                "#!/usr/bin/env bash\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n",
+            )
+            failing_rg = executable(
+                root / "rg",
+                "#!/usr/bin/env bash\n"
+                "printf '[RUN_LOG] path=%s\\n' \"$BOUND_RUN_LOG\"\n"
+                "printf 'simulated marker scan I/O failure\\n' >&2\n"
+                "exit 2\n",
+            )
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_RG": str(failing_rg),
+                    "BOUND_RUN_LOG": str(bound_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reason=run-log-marker-scan-failed", result.stderr)
+        self.assertIn("rg-status=2", result.stderr)
+        self.assertIn("simulated marker scan I/O failure", result.stderr)
+        self.assertNotIn("reason=run-log-marker-count", result.stderr)
+
     def test_nonfatal_neighbours_do_not_trip_the_canonical_log_scan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

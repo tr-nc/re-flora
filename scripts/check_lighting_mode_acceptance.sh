@@ -88,9 +88,22 @@ RUST_LOG="warn,re_flora::run_log_binding=info,re_flora::app::core::lighting_mode
 app_status=$?
 set -e
 
-mapfile -t run_log_markers < <(
-    "$rg_bin" --no-filename -o '\[RUN_LOG\] path=.*' "$app_output" 2>/dev/null || true
-)
+set +e
+run_log_marker_matches="$(
+    "$rg_bin" --no-filename -o '\[RUN_LOG\] path=.*' "$app_output" 2>&1
+)"
+run_log_marker_status=$?
+set -e
+if [[ $run_log_marker_status -gt 1 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=run-log-marker-scan-failed rg-status=%s app-status=%s log=%s\n' \
+        "$run_log_marker_status" "$app_status" "$app_output" >&2
+    printf '%s\n' "$run_log_marker_matches" >&2
+    exit 3
+fi
+run_log_markers=()
+if [[ $run_log_marker_status -eq 0 ]]; then
+    mapfile -t run_log_markers <<<"$run_log_marker_matches"
+fi
 if [[ ${#run_log_markers[@]} -ne 1 ]]; then
     if [[ $app_status -eq 124 ]]; then
         printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=timeout app-status=%s seconds=%s run-log-marker-count=%s log=%s\n' \
