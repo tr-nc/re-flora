@@ -384,6 +384,31 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_cli_names_moment_support_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "moment-support.rfirr"
+            voxel = 1.0 / 256.0
+            self.write_capture_v8(
+                capture_path,
+                [(0.5, 0.25, 0.2, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+                debug_view=22,
+            )
+            result = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "moment-support",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout)["capture"]["debug_view"],
+            "moment-support",
+        )
+
     def test_cli_requires_visibility_routes_to_have_observable_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             moment_path = Path(directory) / "moment.rfirr"

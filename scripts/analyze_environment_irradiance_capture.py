@@ -43,6 +43,7 @@ DEBUG_VIEW_LABELS = {
     12: "unoccluded-irradiance",
     13: "equal-weight-irradiance",
     14: "raw-cage-irradiance",
+    22: "moment-support",
 }
 TRANSPORT_STAGE_LABELS = {
     1: "seed-sky",

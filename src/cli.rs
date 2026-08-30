@@ -483,11 +483,11 @@ impl AppOptions {
             };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
-            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, moment-support, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
             Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
                 format!(
-                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, moment-support, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
                 )
             })?,
             None => DdgiDebugView::Final,
@@ -1082,7 +1082,7 @@ Options:
   --environment-irradiance-capture-target <target>
                               Capture e0, e1, a specified eN, converged, or published (default: e0)
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
-  --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
+  --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight/support, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
@@ -1507,6 +1507,9 @@ mod tests {
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::RawCageIrradiance);
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "moment-support"]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::MomentSupport);
 
         for (value, expected) in [
             (

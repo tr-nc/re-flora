@@ -144,6 +144,7 @@ pub enum DdgiDebugView {
     SpatialWeightReadback = 19,
     SpatialWeightCurrentNoSurface = 20,
     SpatialWeightNominalNoSurface = 21,
+    MomentSupport = 22,
 }
 
 impl DdgiDebugView {
@@ -171,6 +172,7 @@ impl DdgiDebugView {
             "spatial-weight-readback" => Some(Self::SpatialWeightReadback),
             "spatial-weight-current-no-surface" => Some(Self::SpatialWeightCurrentNoSurface),
             "spatial-weight-nominal-no-surface" => Some(Self::SpatialWeightNominalNoSurface),
+            "moment-support" => Some(Self::MomentSupport),
             _ => None,
         }
     }
@@ -203,6 +205,7 @@ impl DdgiDebugView {
             Self::SpatialWeightReadback => "spatial-weight-readback",
             Self::SpatialWeightCurrentNoSurface => "spatial-weight-current-no-surface",
             Self::SpatialWeightNominalNoSurface => "spatial-weight-nominal-no-surface",
+            Self::MomentSupport => "moment-support",
         }
     }
 }
