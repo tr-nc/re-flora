@@ -24,6 +24,7 @@ from .model import (
     RelocateArtifact,
     RunReport,
     Setup,
+    Suite,
     SummarizeConvergence,
     ValidateProcessEvidence,
     ValidateRadianceLifecycle,
@@ -60,6 +61,7 @@ class RecordingHost:
         return ActionResult(True)
 
     def capture(self, action: Capture, repo_root: Path) -> ActionResult:
+        self._announce_capture(action)
         self._record("capture", action.argv(repo_root))
         return ActionResult(True)
 
@@ -116,6 +118,37 @@ class RecordingHost:
         if argv and kind != "analysis":
             print(shlex.join(argv), file=self.stdout)
 
+    def _announce_capture(self, action: Capture) -> None:
+        match action.suite:
+            case Suite.CORRECTNESS:
+                self.emit(
+                    f"[DDGI_CORRECTNESS] case={action.scenario} "
+                    f"spacing={action.spacing_voxels} backend=ddgi view={action.debug_view}"
+                )
+            case Suite.LIFECYCLE:
+                group = (
+                    f"RADIANCE-{action.spacing_voxels}"
+                    if action.scenario == "radiance-changes"
+                    else "DENSITY"
+                )
+                self.emit(
+                    f"[DDGI_LIFECYCLE] group={group} scene={action.scenario} "
+                    f"target={action.capture_target} running"
+                )
+            case Suite.RUNTIME_TERRAIN_EDITS:
+                self.emit(
+                    f"[DDGI_RUNTIME_EDIT] state={action.case_label} "
+                    f"spacing={action.spacing_voxels} view={action.debug_view}"
+                )
+            case Suite.TRANSPORT:
+                self.emit(
+                    f"[DDGI_TRANSPORT] capture case={action.scenario} "
+                    f"spacing={action.spacing_voxels} target={action.capture_target} "
+                    f"order={action.batch_order}"
+                )
+            case _:
+                return
+
 
 class SubprocessHost(RecordingHost):
     """Production adapter. Every process launch uses argv with ``shell=False``."""
@@ -133,6 +166,7 @@ class SubprocessHost(RecordingHost):
         return self._run(action.argv(repo_root), cwd=repo_root)
 
     def capture(self, action: Capture, repo_root: Path) -> ActionResult:
+        self._announce_capture(action)
         argv = action.argv(repo_root)
         environment = dict(os.environ)
         environment["RUST_LOG"] = action.rust_log

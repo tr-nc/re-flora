@@ -119,7 +119,7 @@ def _correctness(request: RunRequest) -> ExecutionPlan:
                 suffix: run_dir / f"{case_name}-spacing{spacing}-{suffix}.rfirr"
                 for _, suffix in views
             }
-            capture_actions = []
+            capture_stage_ids = []
             for view, suffix in views:
                 capture = paths[suffix]
                 action = Capture(
@@ -138,15 +138,22 @@ def _correctness(request: RunRequest) -> ExecutionPlan:
                         else ()
                     ),
                 )
-                capture_actions.extend((action, _process(action)))
-            key = FailureKey(Suite.CORRECTNESS, case_name, spacing)
-            stages.append(
-                Evidence(
-                    f"correctness.{case_name}.{spacing}.captures",
-                    key,
-                    tuple(capture_actions),
+                capture_stage_id = (
+                    f"correctness.{case_name}.{spacing}.capture.{suffix}"
                 )
-            )
+                capture_stage_ids.append(capture_stage_id)
+                stages.append(
+                    Evidence(
+                        capture_stage_id,
+                        FailureKey(
+                            Suite.CORRECTNESS,
+                            f"{case_name}-{suffix}",
+                            spacing,
+                        ),
+                        (action, _process(action)),
+                    )
+                )
+            key = FailureKey(Suite.CORRECTNESS, case_name, spacing)
             final_args: list[str] = [
                 "--correctness",
                 "--require-nonnegative-rgb",
@@ -210,7 +217,7 @@ def _correctness(request: RunRequest) -> ExecutionPlan:
                     f"correctness.{case_name}.{spacing}.analysis",
                     tuple(analyses),
                     key,
-                    (f"correctness.{case_name}.{spacing}.captures",),
+                    tuple(capture_stage_ids),
                 )
             )
     return ExecutionPlan(request, run_dir, tuple(stages))
@@ -462,6 +469,7 @@ def _runtime_capture(
         capture_target=target,
         debug_view=view,
         flora_enabled=flora_enabled,
+        case_label=state,
     )
 
 
@@ -636,6 +644,7 @@ def _cycle(request: RunRequest) -> ExecutionPlan:
                 spacing,
                 options.auto_exit,
                 capture_target="converged" if mode == "closed" else None,
+                case_label=mode,
             )
             threshold = ("--max-luminance", "0.00005") if mode == "closed" else ("--min-luminance-p99", "0.10")
             stages.append(

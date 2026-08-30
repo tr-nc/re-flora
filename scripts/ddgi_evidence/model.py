@@ -145,6 +145,7 @@ class Capture:
     )
     extra_arguments: tuple[str, ...] = ()
     require_test_scene_startup: bool = True
+    case_label: str = ""
 
     def argv(self, repo_root: Path) -> tuple[str, ...]:
         arguments = [
