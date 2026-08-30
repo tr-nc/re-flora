@@ -1504,13 +1504,192 @@ struct PreparedTreeCompensation {
     replacement: Option<TreeRecord>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct TreeTrunkLayerKey {
+    tree_id: u32,
+    generation: u64,
+}
+
+#[derive(Clone)]
+struct TreeTrunkLayer {
+    key: TreeTrunkLayerKey,
+    geometry: TreeTrunkGeometry,
+    bound: UAabb3,
+}
+
+impl TreeTrunkLayer {
+    fn from_record(tree_id: u32, record: &TreeRecord) -> Self {
+        Self {
+            key: TreeTrunkLayerKey {
+                tree_id,
+                generation: record.canopy_acoustic_descriptor.generation(),
+            },
+            geometry: record.trunk_geometry.clone(),
+            bound: record.bound,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TreeTrunkPhysicalDirection {
+    Forward,
+    Restore,
+}
+
+#[derive(Clone)]
+struct TreeTrunkPhysicalChange {
+    direction: TreeTrunkPhysicalDirection,
+    clear: Vec<TreeTrunkLayer>,
+    stamp: Vec<TreeTrunkLayer>,
+}
+
+impl TreeTrunkPhysicalChange {
+    fn validate(&self) -> Result<()> {
+        let mut clear_keys = HashSet::new();
+        let mut stamp_keys = HashSet::new();
+        anyhow::ensure!(
+            self.clear.iter().all(|layer| clear_keys.insert(layer.key)),
+            "tree trunk change contains a duplicate clear layer"
+        );
+        anyhow::ensure!(
+            self.stamp.iter().all(|layer| stamp_keys.insert(layer.key)),
+            "tree trunk change contains a duplicate stamp layer"
+        );
+        Ok(())
+    }
+
+    fn voxel_edits(&self) -> Vec<VoxelEdit> {
+        self.clear
+            .iter()
+            .map(|layer| AppTreePublicationHost::trunk_edit(&layer.geometry, true))
+            .chain(
+                self.stamp
+                    .iter()
+                    .map(|layer| AppTreePublicationHost::trunk_edit(&layer.geometry, false)),
+            )
+            .collect()
+    }
+
+    fn regions(&self) -> Vec<UAabb3> {
+        self.clear
+            .iter()
+            .chain(&self.stamp)
+            .map(|layer| layer.bound)
+            .collect()
+    }
+}
+
+trait TreeTrunkPhysicalPrimitiveHost {
+    fn execute_tree_trunk_change(
+        &mut self,
+        change: &TreeTrunkPhysicalChange,
+    ) -> Result<TreeTrunkPublicationOutcome>;
+}
+
+struct TreeTrunkPhysicalTransaction {
+    forward: TreeTrunkPhysicalChange,
+    restore: TreeTrunkPhysicalChange,
+    restore_required: bool,
+}
+
+impl TreeTrunkPhysicalTransaction {
+    fn new(before: Vec<TreeTrunkLayer>, after: Vec<TreeTrunkLayer>) -> Self {
+        Self {
+            forward: TreeTrunkPhysicalChange {
+                direction: TreeTrunkPhysicalDirection::Forward,
+                clear: before.clone(),
+                stamp: after.clone(),
+            },
+            restore: TreeTrunkPhysicalChange {
+                direction: TreeTrunkPhysicalDirection::Restore,
+                clear: after,
+                stamp: before,
+            },
+            restore_required: false,
+        }
+    }
+
+    fn from_prepared(prepared: &[PreparedTreeCompensation]) -> Self {
+        let before = prepared
+            .iter()
+            .filter_map(|state| {
+                state
+                    .previous
+                    .as_ref()
+                    .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
+            })
+            .collect();
+        let after = prepared
+            .iter()
+            .filter_map(|state| {
+                state
+                    .replacement
+                    .as_ref()
+                    .map(|record| TreeTrunkLayer::from_record(state.tree_id, record))
+            })
+            .collect();
+        Self::new(before, after)
+    }
+
+    fn publish(
+        &mut self,
+        host: &mut impl TreeTrunkPhysicalPrimitiveHost,
+    ) -> Result<TreeTrunkPublicationOutcome> {
+        self.restore_required = true;
+        match host.execute_tree_trunk_change(&self.forward) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => match self.restore(host) {
+                Ok(()) => Err(error).context("publishing transactional tree trunks"),
+                Err(restore_error) => Err(anyhow::anyhow!(
+                    "publishing transactional tree trunks failed: {error:#}; restoring the trunk checkpoint failed: {restore_error:#}"
+                )),
+            },
+        }
+    }
+
+    fn restore(&mut self, host: &mut impl TreeTrunkPhysicalPrimitiveHost) -> Result<()> {
+        if !self.restore_required {
+            return Ok(());
+        }
+        host.execute_tree_trunk_change(&self.restore)?;
+        self.restore_required = false;
+        Ok(())
+    }
+}
+
+struct AppTreeTrunkPhysicalHost<'a> {
+    app: &'a mut App,
+}
+
+impl TreeTrunkPhysicalPrimitiveHost for AppTreeTrunkPhysicalHost<'_> {
+    fn execute_tree_trunk_change(
+        &mut self,
+        change: &TreeTrunkPhysicalChange,
+    ) -> Result<TreeTrunkPublicationOutcome> {
+        change.validate()?;
+        let started_at = Instant::now();
+        let outcome = self
+            .app
+            .execute_world_edit(WorldEditTransaction::tree_changes(
+                change.voxel_edits(),
+                change.regions(),
+            ))
+            .with_context(|| format!("executing {:?} tree trunk change", change.direction))?
+            .context("tree trunk publication must produce a visible world edit")?;
+        Ok(TreeTrunkPublicationOutcome {
+            mutation_elapsed: outcome.mutation_elapsed,
+            publication_elapsed: started_at.elapsed(),
+        })
+    }
+}
+
 struct AppTreePublicationHost<'a> {
     app: &'a mut App,
     time_seconds: f32,
     audio_checkpoint: Option<crate::audio::TreeAudioPublicationCheckpoint>,
     fruit_checkpoints: HashMap<u32, super::physics::TreeFruitPublicationCheckpoint>,
     prepared: Vec<PreparedTreeCompensation>,
-    trunks_published: bool,
+    trunk_transaction: Option<TreeTrunkPhysicalTransaction>,
 }
 
 impl AppTreePublicationHost<'_> {
@@ -1521,7 +1700,7 @@ impl AppTreePublicationHost<'_> {
             audio_checkpoint: None,
             fruit_checkpoints: HashMap::new(),
             prepared: Vec::new(),
-            trunks_published: false,
+            trunk_transaction: None,
         }
     }
 
@@ -1608,51 +1787,6 @@ impl AppTreePublicationHost<'_> {
             }
         }
     }
-
-    fn publish_prepared_trunks(&mut self, restore: bool) -> Result<TreeTrunkPublicationOutcome> {
-        let started_at = Instant::now();
-        let mut edits = Vec::with_capacity(self.prepared.len() * 2);
-        let mut regions = Vec::with_capacity(self.prepared.len() * 2);
-        if restore {
-            for state in &self.prepared {
-                if let Some(replacement) = &state.replacement {
-                    edits.push(Self::trunk_edit(&replacement.trunk_geometry, true));
-                    regions.push(replacement.bound);
-                }
-            }
-            for state in &self.prepared {
-                if let Some(previous) = &state.previous {
-                    edits.push(Self::trunk_edit(&previous.trunk_geometry, false));
-                    regions.push(previous.bound);
-                }
-            }
-        } else {
-            for state in &self.prepared {
-                if let Some(previous) = &state.previous {
-                    edits.push(Self::trunk_edit(&previous.trunk_geometry, true));
-                    regions.push(previous.bound);
-                }
-            }
-            for state in &self.prepared {
-                if let Some(replacement) = &state.replacement {
-                    edits.push(Self::trunk_edit(&replacement.trunk_geometry, false));
-                    regions.push(replacement.bound);
-                }
-            }
-        }
-        anyhow::ensure!(
-            !edits.is_empty(),
-            "tree trunk publication has no voxel edits"
-        );
-        let outcome = self
-            .app
-            .execute_world_edit(WorldEditTransaction::tree_changes(edits, regions))?
-            .context("tree trunk publication must produce a visible world edit")?;
-        Ok(TreeTrunkPublicationOutcome {
-            mutation_elapsed: outcome.mutation_elapsed,
-            publication_elapsed: started_at.elapsed(),
-        })
-    }
 }
 
 impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
@@ -1692,9 +1826,10 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
     }
 
     fn publish_trunks(&mut self) -> Result<TreeTrunkPublicationOutcome> {
-        let outcome = self.publish_prepared_trunks(false)?;
-        self.trunks_published = true;
-        Ok(outcome)
+        let mut transaction = TreeTrunkPhysicalTransaction::from_prepared(&self.prepared);
+        let result = transaction.publish(&mut AppTreeTrunkPhysicalHost { app: self.app });
+        self.trunk_transaction = Some(transaction);
+        result
     }
 
     fn publish_leaves(
@@ -1783,8 +1918,8 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
                 .commit_tree_fruit_publication(checkpoint);
         }
         self.audio_checkpoint = None;
+        self.trunk_transaction = None;
         self.prepared.clear();
-        self.trunks_published = false;
         Ok(())
     }
 
@@ -1836,16 +1971,16 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
             }
             None => failures.push("audio: publication checkpoint is missing".to_string()),
         }
-        if self.trunks_published {
-            if let Err(error) = self
-                .publish_prepared_trunks(true)
+        if let Some(mut transaction) = self.trunk_transaction.take() {
+            if let Err(error) = transaction
+                .restore(&mut AppTreeTrunkPhysicalHost { app: self.app })
                 .context("restoring tree trunks during compensation")
             {
                 failures.push(format!("trunks: {error:#}"));
+                self.trunk_transaction = Some(transaction);
             }
         }
         self.prepared.clear();
-        self.trunks_published = false;
         if failures.is_empty() {
             Ok(())
         } else {
@@ -3249,6 +3384,83 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingTreeTrunkPhysicalHost {
+        coverage: HashMap<TreeTrunkLayerKey, HashSet<u8>>,
+        voxels: HashSet<u8>,
+        fail_forward_operation: Option<usize>,
+        fail_restore_operation: Option<usize>,
+        fail_forward_visible_publication: bool,
+    }
+
+    impl TreeTrunkPhysicalPrimitiveHost for RecordingTreeTrunkPhysicalHost {
+        fn execute_tree_trunk_change(
+            &mut self,
+            change: &TreeTrunkPhysicalChange,
+        ) -> Result<TreeTrunkPublicationOutcome> {
+            for (index, (layer, clear)) in change
+                .clear
+                .iter()
+                .map(|layer| (layer, true))
+                .chain(change.stamp.iter().map(|layer| (layer, false)))
+                .enumerate()
+            {
+                let injected_failure = match change.direction {
+                    TreeTrunkPhysicalDirection::Forward => {
+                        self.fail_forward_operation == Some(index)
+                    }
+                    TreeTrunkPhysicalDirection::Restore => {
+                        self.fail_restore_operation == Some(index)
+                    }
+                };
+                if injected_failure {
+                    anyhow::bail!(match change.direction {
+                        TreeTrunkPhysicalDirection::Forward => "injected forward trunk failure",
+                        TreeTrunkPhysicalDirection::Restore => "injected restore trunk failure",
+                    });
+                }
+                let coverage = self
+                    .coverage
+                    .get(&layer.key)
+                    .context("recording trunk layer coverage is missing")?;
+                if clear {
+                    for voxel in coverage {
+                        self.voxels.remove(voxel);
+                    }
+                } else {
+                    self.voxels.extend(coverage);
+                }
+            }
+            if change.direction == TreeTrunkPhysicalDirection::Forward
+                && self.fail_forward_visible_publication
+            {
+                anyhow::bail!("injected forward visible publication failure");
+            }
+            Ok(TreeTrunkPublicationOutcome::default())
+        }
+    }
+
+    fn recording_trunk_transaction() -> (
+        TreeTrunkPhysicalTransaction,
+        RecordingTreeTrunkPhysicalHost,
+        HashSet<u8>,
+    ) {
+        let old = TreeTrunkLayer::from_record(1, &prepared_tree(1, 101, 1001).record);
+        let new = TreeTrunkLayer::from_record(1, &prepared_tree(1, 102, 1002).record);
+        let old_voxels = HashSet::from([1, 2, 3]);
+        let new_voxels = HashSet::from([3, 4, 5]);
+        let host = RecordingTreeTrunkPhysicalHost {
+            coverage: HashMap::from([(old.key, old_voxels.clone()), (new.key, new_voxels)]),
+            voxels: old_voxels.clone(),
+            ..RecordingTreeTrunkPhysicalHost::default()
+        };
+        (
+            TreeTrunkPhysicalTransaction::new(vec![old], vec![new]),
+            host,
+            old_voxels,
+        )
+    }
+
     fn prepared_tree(tree_id: u32, generation: u64, seed: u64) -> PreparedTreePublication {
         let mut mature_desc = TreeDesc::default();
         mature_desc.branching.seed = seed;
@@ -3368,6 +3580,51 @@ mod tests {
         );
         assert_eq!(TreePublicationAction::PublishTrunks.metric(), None);
         assert_eq!(TreePublicationAction::CommitPublication.metric(), None);
+    }
+
+    #[test]
+    fn production_trunk_transaction_restores_after_clear_succeeds_and_stamp_fails() {
+        let (mut transaction, mut host, old_voxels) = recording_trunk_transaction();
+        host.fail_forward_operation = Some(1);
+
+        transaction
+            .publish(&mut host)
+            .expect_err("failed new-trunk stamp must restore the old atlas");
+
+        assert_eq!(host.voxels, old_voxels);
+    }
+
+    #[test]
+    fn production_trunk_transaction_restores_after_visible_publication_fails() {
+        let (mut transaction, mut host, old_voxels) = recording_trunk_transaction();
+        host.fail_forward_visible_publication = true;
+
+        transaction
+            .publish(&mut host)
+            .expect_err("visible publication failure must restore the old atlas");
+
+        assert_eq!(host.voxels, old_voxels);
+    }
+
+    #[test]
+    fn production_trunk_transaction_reports_original_and_restore_failures() {
+        let (mut transaction, mut host, _) = recording_trunk_transaction();
+        host.fail_forward_operation = Some(1);
+        host.fail_restore_operation = Some(0);
+
+        let error = transaction
+            .publish(&mut host)
+            .expect_err("original and restore failures must both escape");
+
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("injected forward trunk failure"),
+            "{message}"
+        );
+        assert!(
+            message.contains("injected restore trunk failure"),
+            "{message}"
+        );
     }
 
     #[test]
