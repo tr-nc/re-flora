@@ -9,19 +9,23 @@ missing subordinate checker is a failure.
 
 Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `.rfirr` capture v9 contains pre-albedo environment irradiance, world position plus exact sun
+- `.rfirr` capture v10 contains pre-albedo environment irradiance, world position plus exact sun
   visibility, the raster terrain's independent direct-light RGB, and marcher receiver-center XYZ
   plus terrain VSM transmittance, followed by terrain/leaf/cloud/combined direct-shadow
   transmittance. Its filter extension records exact owner-version masks, action partitions, and
-  Blend retention `sum+max` witnesses from one complete GPU-produced epoch;
+  Blend retention `sum+max` witnesses from one complete GPU-produced epoch. Its independent host
+  identity records the authoritative probe-grid dimensions and configured history-retention Q16;
 - `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
 - `.console.log` records scheduling, source/destination slots, per-epoch retention, full-atlas
   validation, atomic publication, and terminal sleep reason;
 - `convergence-calibration.json` contains every validated convergence curve.
 
-Old capture versions remain readable for committed historical evidence, but all current-runtime
-acceptance requires v9 `Converging` / `Converged` metadata, `update_epoch`, and owner-generated
-filter evidence. Source-shape tests remain wiring guards only; they are not runtime proof.
+RFIRR v8 reference captures and the published 252-byte/11Q v9 evidence layout remain readable for
+committed historical evidence. All current-runtime acceptance requires the fixed v10 layout,
+`Converging` / `Converged` metadata, `update_epoch`, authoritative grid/config identity, and
+owner-generated filter evidence. Version selects the layout; byte length never selects a second
+layout for the same version. Source-shape tests remain wiring guards only; they are not runtime
+proof.
 
 ## Transport matrix
 
@@ -108,8 +112,14 @@ publication. Exact direct sun remains a separate capture plane and is not accept
 indirect continuity worked.
 
 For the real `sequential-reopened` local-recovery captures, the analyzer derives the required Q16
-retention independently from the captured update epoch using `epoch / (epoch + 1)`. The runner does
-not carry an `e1` or `e8` retention constant: e1 derives to `32768`, while e8 derives to `58254`.
+retention independently from the configured Q16 identity and captured update epoch using
+`min(configured, epoch / (epoch + 1))`. The runner does not carry an `e1` or `e8` retention
+constant: with the default configured retention, e1 derives to `32768`, while e8 derives to
+`58254`; a lower configured value caps the witness.
+
+For v10, the grid product must equal the complete epoch probe count. Visibility samples must form
+whole 64-ray probes, cover every Blend probe, and cannot exceed the Blend+Replace fresh-probe
+partition. These relations are checked independently by the Rust producer and Python analyzer.
 
 ## Response latency and static sleep
 

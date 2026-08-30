@@ -142,10 +142,12 @@ Active/Staging promotion occur only for one complete field.
 
 The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` capture analysis:
 
-- capture v9 records lifecycle state, epoch, source identity, revisions, publication, batch order,
-  full-atlas deltas, source-separated terrain/leaf/cloud direct-shadow transmittance, and exact
-  owner-generated filter evidence. History evidence retains action partitions plus Q16 retention
-  sum/max witnesses; owner masks must contain only the expected owner-version bit;
+- capture v10 records lifecycle state, epoch, source identity, revisions, publication, batch order,
+  full-atlas deltas, source-separated terrain/leaf/cloud direct-shadow transmittance, authoritative
+  probe-grid dimensions, configured history-retention Q16 identity, and exact owner-generated
+  filter evidence. History evidence retains action partitions plus Q16 retention sum/max witnesses;
+  owner masks must contain only the expected owner-version bit. The configured identity comes from
+  the App/Tracer input, while action/count/retention witnesses come independently from GPU owners;
 - sealed, portal, donor, and dogleg scenes exercise no-created-energy, leak, color-transfer, and
   multi-epoch propagation behavior at spacing 32 and 16;
 - forward/reverse epoch-zero captures verify batch-order independence;
@@ -157,7 +159,9 @@ The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` c
   muted release run with log inspection.
 
 Source-shape audits only guard production wiring into the owner terminal store/accumulate seam.
-They do not constitute runtime action proof; that claim requires a complete RFIRR v9 GPU epoch.
+They do not constitute runtime action proof; that claim requires a complete RFIRR v10 GPU epoch.
+The analyzer keeps the fixed RFIRR v8 reference layout and the published 252-byte/11Q v9 layout
+readable, but production acceptance never infers a same-version layout from file length.
 
 Three matched RTX 3060 Ti release samples measured six terrain edit-to-epoch-zero promotions at
 `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline observations were

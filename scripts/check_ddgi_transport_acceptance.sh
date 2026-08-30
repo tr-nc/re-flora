@@ -39,7 +39,7 @@ failures=0
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
-echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v9"
+echo "[DDGI_TRANSPORT] filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v10"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -281,5 +281,5 @@ if (( failures != 0 )); then
     exit 1
 fi
 if $correctness_evidence_passed && $runtime_recovery_evidence_passed; then
-    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v9"
+    echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v10"
 fi

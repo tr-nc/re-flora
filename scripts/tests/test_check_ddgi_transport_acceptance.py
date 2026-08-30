@@ -58,7 +58,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
             "--expect-debug-view final",
-            "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v9",
+            "filter-history-action=REQUIRED seam=owner-generated-filter-epoch-v10",
             "--expect-version 10",
             "--require-filter-history-retain-blend",
             "--require-filter-local-recovery-policy",
