@@ -1,6 +1,16 @@
 mod resources;
 pub use resources::*;
 
+mod capture_frame;
+#[cfg(test)]
+pub(crate) use capture_frame::record_capture_frame_for_test;
+use capture_frame::CaptureReadbackPermit;
+use capture_frame::{CaptureBuffersReady, CaptureReadbackTarget};
+pub(crate) use capture_frame::{
+    CaptureCoordinator, CaptureFramePlan, CaptureReadbackCandidate, CaptureReadinessObservation,
+    RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame,
+};
+
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
@@ -91,9 +101,9 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCaptureTarget,
-    DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
-    DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus,
+    DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
+    DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -128,6 +138,12 @@ use re_flora_vkn::{
     Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::{fmt, time::Instant};
+
+impl CaptureReadbackTarget for Buffer {
+    fn capture_readback_byte_count(&self) -> u64 {
+        self.get_size_bytes()
+    }
+}
 
 struct DdgiConvergencePolicyEvidence;
 
@@ -810,7 +826,6 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
-    pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
 }
@@ -1515,10 +1530,6 @@ impl Tracer {
         }
     }
 
-    pub fn ddgi_debug_view(&self) -> DdgiDebugView {
-        self.desc.ddgi_debug_view
-    }
-
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
         self.ddgi_runtime
             .latest_transport_lighting()
@@ -1715,15 +1726,27 @@ impl Tracer {
     pub fn record_environment_irradiance_capture_readback(
         &self,
         cmdbuf: &CommandBuffer,
-        readback: &Buffer,
+        permit: CaptureReadbackPermit<Buffer>,
     ) {
+        let (readback, identity) = permit.into_parts();
         let source = &self
             .resources
             .extent_dependent_resources
             .environment_irradiance_capture;
-        assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
-        source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
-        cmdbuf.use_buffer(readback, BufferUse::HostRead);
+        assert_eq!(identity.target_byte_count, readback.get_size_bytes());
+        assert_eq!(source.get_size_bytes(), identity.target_byte_count);
+        log::trace!(
+            target: "re_flora::tracer::capture_frame",
+            "capture readback authorized frame={} field_serial={} radiance={:?} inflight_revision={:?} target_serial={} bytes={}",
+            identity.physical_frame_serial,
+            identity.checkpoint.field.field().serial(),
+            identity.radiance_request,
+            identity.inflight_target_revision,
+            identity.target_serial,
+            identity.target_byte_count,
+        );
+        source.record_copy_to_buffer(cmdbuf, &readback, source.get_size_bytes(), 0, 0);
+        cmdbuf.use_buffer(&readback, BufferUse::HostRead);
     }
 
     pub fn record_ddgi_spatial_weight_readback(&self, cmdbuf: &CommandBuffer, readback: &Buffer) {
@@ -1959,6 +1982,7 @@ impl Tracer {
         &mut self,
         time_info: &TimeInfo,
         local_lights: &LocalLightSnapshot,
+        capture_frame_plan: CaptureFramePlan,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         dither_strength_lsb: f32,
@@ -2054,7 +2078,7 @@ impl Tracer {
         terrain_edit_preview_shape: TerrainEditPreviewShape,
         terrain_edit_preview_color: Vec3,
         terrain_edit_preview_alpha: f32,
-    ) -> Result<()> {
+    ) -> Result<CaptureBuffersReady> {
         self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
@@ -2369,21 +2393,23 @@ impl Tracer {
         // coordinator retains the conservative pending bound for scheduling and diagnostics, but
         // consumers intentionally use the resident field until its replacement promotes.
         let ddgi_consumer_invalidation_voxel_bound = None;
-        BufferUpdater::update_shading_info(
-            &self.resources,
-            ddgi_lighting.transport,
-            ddgi_status.grid,
-            self.desc.voxel_dim_per_chunk,
-            self.ddgi_ready(),
-            ddgi_geometry_revision,
-            self.desc.environment_irradiance_capture_enabled,
-            ddgi_physical_status.irradiance_layout.tile_grid().x,
-            ddgi_physical_status.visibility_layout.tile_grid().x,
-            self.desc.ddgi_debug_view.as_u32(),
-            self.desc.ddgi_terrain_hard_origin.as_u32(),
-            ddgi_receiver_visibility_bias_world,
-            ddgi_consumer_invalidation_voxel_bound,
-        )?;
+        let capture_buffers_ready = capture_frame_plan.publish_buffers(time_info, |view| {
+            BufferUpdater::update_shading_info(
+                &self.resources,
+                ddgi_lighting.transport,
+                ddgi_status.grid,
+                self.desc.voxel_dim_per_chunk,
+                self.ddgi_ready(),
+                ddgi_geometry_revision,
+                self.desc.environment_irradiance_capture_enabled,
+                ddgi_physical_status.irradiance_layout.tile_grid().x,
+                ddgi_physical_status.visibility_layout.tile_grid().x,
+                view.as_u32(),
+                self.desc.ddgi_terrain_hard_origin.as_u32(),
+                ddgi_receiver_visibility_bias_world,
+                ddgi_consumer_invalidation_voxel_bound,
+            )
+        })?;
         BufferUpdater::update_starlight_info(
             &self.resources,
             starlight_iterations,
@@ -2404,7 +2430,7 @@ impl Tracer {
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
-        Ok(())
+        Ok(capture_buffers_ready)
     }
 
     fn with_gpu_scope<T>(
@@ -3126,6 +3152,39 @@ impl Tracer {
 
     #[allow(clippy::too_many_arguments)]
     pub fn record_trace_after_shadow_prepass(
+        &mut self,
+        capture_buffers_ready: CaptureBuffersReady,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+        lod_distance: f32,
+        flora_draw_distance: f32,
+        grass_render_mode: u32,
+        time: f32,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
+        render_flags: &crate::RenderFlags,
+        gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) -> Result<RenderedCaptureFrame> {
+        capture_buffers_ready.record_trace(|| {
+            self.record_trace_commands_after_shadow_prepass(
+                cmdbuf,
+                surface_resources,
+                lod_distance,
+                flora_draw_distance,
+                grass_render_mode,
+                time,
+                flora_color_tables,
+                leaf_color_tables,
+                render_flags,
+                gpu_profiler,
+                gpu_profiler_frame_slot,
+            )
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_trace_commands_after_shadow_prepass(
         &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,

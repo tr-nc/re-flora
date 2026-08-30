@@ -13,6 +13,7 @@ use crate::lighting::{
     AUTHORED_LOCAL_LIGHT_PROVIDER_ID, EMISSIVE_VOXEL_PROVIDER_ID, LOCAL_LIGHT_GPU_CAPACITY,
     RASTER_ENTITY_LIGHT_PROVIDER_ID,
 };
+use crate::tracer::{RadianceCaptureCheckpoint, RadianceCaptureRequest};
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
 use egui::Color32;
@@ -407,31 +408,6 @@ enum TestScenePhase {
     },
     Ready,
     Failed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RadianceCaptureCheckpoint {
-    Baseline,
-    R2NextFrame,
-    R4NextFrame,
-    Final,
-}
-
-impl RadianceCaptureCheckpoint {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::Baseline => "baseline",
-            Self::R2NextFrame => "r2-next-frame",
-            Self::R4NextFrame => "r4-next-frame",
-            Self::Final => "final",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct RadianceCaptureRequest {
-    pub checkpoint: RadianceCaptureCheckpoint,
-    pub mutation_frame: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

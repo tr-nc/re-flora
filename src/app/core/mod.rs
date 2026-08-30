@@ -1212,7 +1212,6 @@ impl App {
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
-                ddgi_debug_view: options.ddgi_debug_view,
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
                     options.environment_lighting_test_scene,
@@ -1548,6 +1547,7 @@ impl App {
             screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 options.environment_irradiance_capture_path.clone(),
+                options.ddgi_debug_view,
             ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
@@ -3521,10 +3521,18 @@ impl App {
                     shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
-                self.tracer
+                let environment_irradiance_capture_plan =
+                    self.environment_irradiance_capture.begin_frame(
+                        &self.time_info,
+                        &self.tracer,
+                        self.environment_lighting_test_scene.as_ref(),
+                    );
+                let capture_buffers_ready = self
+                    .tracer
                     .update_buffers(
                         &self.time_info,
                         &self.local_lights.snapshot(),
+                        environment_irradiance_capture_plan,
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -4197,9 +4205,10 @@ impl App {
                     )
                 });
                 let mut gpu_profiler_for_trace = self.gpu_profiler.take();
-                cpu_timings
+                let rendered_environment_irradiance_capture_frame = cpu_timings
                     .time_if(frame_perf_enabled, FrameCpuScope::RenderTraceRecord, || {
                         self.tracer.record_trace_after_shadow_prepass(
+                            capture_buffers_ready,
                             cmdbuf,
                             self.surface_builder.get_resources(),
                             self.debug_settings.adjustables.lod_distance.value,
@@ -4223,11 +4232,12 @@ impl App {
 
                 let mut environment_irradiance_readback =
                     match self.environment_irradiance_capture.record_if_ready(
+                        rendered_environment_irradiance_capture_frame,
+                        &self.time_info,
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,
                         self.environment_lighting_test_scene.as_ref(),
-                        self.time_info.total_frame_count(),
                     ) {
                         Ok(readback) => readback,
                         Err(err) => {
