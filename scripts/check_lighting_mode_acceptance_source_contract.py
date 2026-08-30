@@ -187,6 +187,23 @@ def _struct_body(tokens: list[str], name: str) -> list[str] | None:
     return None if root_struct is None else root_struct[1]
 
 
+def _module_root_module(tokens: list[str], name: str) -> tuple[int, list[str]] | None:
+    matches: list[tuple[int, list[str]]] = []
+    brace_depth = 0
+    for index, token in enumerate(tokens[:-1]):
+        if brace_depth == 0 and tokens[index : index + 2] == ["mod", name]:
+            opening = index + 2
+            if opening < len(tokens) and tokens[opening] == "{":
+                closing = _closing(tokens, opening, "{", "}")
+                if closing is not None:
+                    matches.append((index, tokens[opening + 1 : closing]))
+        if token == "{":
+            brace_depth += 1
+        elif token == "}" and brace_depth:
+            brace_depth -= 1
+    return matches[0] if len(matches) == 1 else None
+
+
 def _module_root_function(
     tokens: list[str], name: str
 ) -> tuple[int, Function] | None:
@@ -326,66 +343,6 @@ def _inherent_impl_functions(tokens: list[str], type_name: str) -> list[Function
                         item = function.body_end
             item += 1
     return functions
-
-
-def _top_level_token(tokens: list[str], expected: str) -> int | None:
-    depths = {"(": 0, "[": 0, "{": 0, "<": 0}
-    pairs = {")": "(", "]": "[", "}": "{", ">": "<"}
-    for index, token in enumerate(tokens):
-        if token == expected and not any(depths.values()):
-            return index
-        if token in depths:
-            depths[token] += 1
-        elif token in pairs and depths[pairs[token]]:
-            depths[pairs[token]] -= 1
-    return None
-
-
-def _terminal_path_identifier(tokens: list[str]) -> str | None:
-    for token in reversed(tokens):
-        if token == "_" or token[:1].isalpha():
-            return token
-    return None
-
-
-def _trait_impl_terminals(tokens: list[str]) -> list[tuple[str | None, str | None]]:
-    terminals: list[tuple[str | None, str | None]] = []
-    for impl_index, token in enumerate(tokens):
-        if token != "impl":
-            continue
-        cursor = impl_index + 1
-        if cursor < len(tokens) and tokens[cursor] == "<":
-            closing = _closing(tokens, cursor, "<", ">")
-            if closing is None:
-                continue
-            cursor = closing + 1
-        header_start = cursor
-        angle_depth = 0
-        while cursor < len(tokens):
-            if tokens[cursor] == "<":
-                angle_depth += 1
-            elif tokens[cursor] == ">" and angle_depth:
-                angle_depth -= 1
-            elif tokens[cursor] == "{" and not angle_depth:
-                break
-            cursor += 1
-        if cursor >= len(tokens):
-            continue
-        header = tokens[header_start:cursor]
-        for_index = _top_level_token(header, "for")
-        if for_index is None:
-            continue
-        target = header[for_index + 1 :]
-        where_index = _top_level_token(target, "where")
-        if where_index is not None:
-            target = target[:where_index]
-        terminals.append(
-            (
-                _terminal_path_identifier(header[:for_index]),
-                _terminal_path_identifier(target),
-            )
-        )
-    return terminals
 
 
 def _direct_named_parameters(
@@ -530,22 +487,45 @@ def audit(sources: dict[str, str]) -> list[str]:
             if _struct_expression_count(tokens, type_name):
                 errors.append(f"external construction/destructure of {type_name}: {path}")
 
-    state_struct = _module_root_struct(owner, "ResolvedRasterLightingState")
-    if state_struct is not None:
-        state_declaration = state_struct[0]
-        item_start = state_declaration
-        while item_start > 0 and owner[item_start - 1] not in (";", "}"):
-            item_start -= 1
-        declaration_prefix = owner[item_start:state_declaration]
-        if "Copy" in declaration_prefix or "Clone" in declaration_prefix:
-            errors.append("ResolvedRasterLightingState must not be Copy or Clone")
-    for tokens in tokenized.values():
-        if any(
-            trait_name in ("Copy", "Clone")
-            and target_name == "ResolvedRasterLightingState"
-            for trait_name, target_name in _trait_impl_terminals(tokens)
-        ):
-            errors.append("ResolvedRasterLightingState must not implement Copy or Clone")
+    tests_module = _module_root_module(owner, "tests")
+    non_copy_assertion = (
+        "static_assertions",
+        ":",
+        ":",
+        "assert_not_impl_any",
+        "!",
+        "(",
+        "ResolvedRasterLightingState",
+        ":",
+        "Copy",
+        ",",
+        "Clone",
+        ")",
+        ";",
+    )
+    if tests_module is None:
+        errors.append("owner missing one module-root tests module")
+    else:
+        tests_index, tests_body = tests_module
+        if owner[max(0, tests_index - 7) : tests_index] != [
+            "#",
+            "[",
+            "cfg",
+            "(",
+            "test",
+            ")",
+            "]",
+        ]:
+            errors.append("owner tests module must remain cfg(test)")
+        assertion_count = sum(
+            tuple(tests_body[index : index + len(non_copy_assertion)])
+            == non_copy_assertion
+            for index in range(len(tests_body) - len(non_copy_assertion) + 1)
+        )
+        if assertion_count != 1:
+            errors.append(
+                "owner tests must contain one rustc non-Copy/Clone assertion for resolved state"
+            )
 
     initial_state = _module_root_function(owner, "initial_raster_lighting_state")
     if initial_state is None:

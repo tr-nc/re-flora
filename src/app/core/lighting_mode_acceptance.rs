@@ -735,6 +735,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::process::Command;
 
+    static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
+
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct FrameInputs {
         visual_time_seconds: f32,

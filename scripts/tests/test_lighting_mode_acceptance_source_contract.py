@@ -41,6 +41,11 @@ impl ResolvedLightingFrameInputs {
 impl ResolvedRasterLightingState {
     pub(crate) fn is_ddgi(&self) -> bool { self.raster_lighting_mode.is_ddgi() }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);
+}
 """,
         "src/app/core/mod.rs": """
 impl App {
@@ -252,10 +257,6 @@ impl Tracer {
 
     def test_opaque_state_is_not_copy_or_clone_and_observation_borrows(self) -> None:
         mutations = (
-            (
-                "pub(crate) struct ResolvedRasterLightingState",
-                "#[derive(Clone, Copy)]\npub(crate) struct ResolvedRasterLightingState",
-            ),
             ("pub(crate) fn is_ddgi(&self)", "pub(crate) fn is_ddgi(self)"),
             (
                 "pub(crate) fn raster_lighting_state(&self)",
@@ -270,16 +271,34 @@ impl Tracer {
                 ].replace(before, after)
                 self.assertNotEqual(checker.audit(sources), [])
 
-        for trait_impl in (
-            "impl Copy for ResolvedRasterLightingState {}",
-            "impl Clone for ResolvedRasterLightingState { fn clone(&self) -> Self { unreachable!() } }",
-            "impl ::core::marker::Copy for ResolvedRasterLightingState where ResolvedRasterLightingState: Sized {}",
-            "impl std::clone::Clone for ResolvedRasterLightingState where Self: Sized { fn clone(&self) -> Self { unreachable!() } }",
-        ):
-            with self.subTest(trait_impl=trait_impl):
-                sources = baseline_sources()
-                sources["src/app/sibling.rs"] = trait_impl
-                self.assertNotEqual(checker.audit(sources), [])
+    def test_rustc_non_copy_assertion_is_the_guarded_owner_artifact(self) -> None:
+        sources = baseline_sources()
+        sources["src/app/core/lighting_mode_acceptance.rs"] = sources[
+            "src/app/core/lighting_mode_acceptance.rs"
+        ].replace(
+            "static_assertions::assert_not_impl_any!(ResolvedRasterLightingState: Copy, Clone);",
+            "",
+        )
+        self.assertNotEqual(checker.audit(sources), [])
+
+    def test_source_checker_does_not_guess_trait_alias_or_generic_semantics(self) -> None:
+        sources = baseline_sources()
+        sources["src/app/sibling.rs"] = """
+use core::clone::Clone as Duplicate;
+impl Duplicate for ResolvedRasterLightingState {
+    fn clone(&self) -> Self { unreachable!() }
+}
+"""
+        self.assertEqual(checker.audit(sources), [])
+
+        sources = baseline_sources()
+        sources["src/app/sibling.rs"] = """
+struct Wrapper<T>(T);
+impl Clone for Wrapper<ResolvedRasterLightingState> {
+    fn clone(&self) -> Self { unreachable!() }
+}
+"""
+        self.assertEqual(checker.audit(sources), [])
 
     def test_second_raster_state_write_anywhere_in_tracer_is_rejected(self) -> None:
         sources = baseline_sources()
@@ -400,18 +419,6 @@ mod decoy {
             1,
         )
         sources["src/app/core/lighting_mode_acceptance.rs"] = owner
-        self.assertNotEqual(checker.audit(sources), [])
-
-        sources = baseline_sources()
-        owner = sources["src/app/core/lighting_mode_acceptance.rs"]
-        sources["src/app/core/lighting_mode_acceptance.rs"] = (
-            "mod decoy { struct ResolvedRasterLightingState { private: bool } }\n"
-            + owner.replace(
-                "pub(crate) struct ResolvedRasterLightingState",
-                "#[derive(Clone)]\npub(crate) struct ResolvedRasterLightingState",
-                1,
-            )
-        )
         self.assertNotEqual(checker.audit(sources), [])
 
     def test_resolved_types_in_parameters_and_returns_are_not_construction(self) -> None:

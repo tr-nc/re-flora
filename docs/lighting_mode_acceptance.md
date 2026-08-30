@@ -27,6 +27,14 @@ only from a borrowed `ResolvedLightingFrameInputs`. The opaque state is neither 
 and its only observation borrows it. This preserves startup DDGI without giving Tracer a mode
 constructor or an absence fallback.
 
+Three seams were compared for proving that the opaque state stays non-`Copy` and non-`Clone`.
+Extending the Python source checker with alias-aware trait resolution was rejected because it is a
+shallow, incomplete Rust parser. Encoding the property indirectly in a field type cannot honestly
+prevent manual trait implementations, while Rust negative impls are unstable. The selected seam is
+`static_assertions::assert_not_impl_any!` in the owner's tests: rustc owns alias resolution,
+qualified paths, derives, manual implementations, and generic target identity. The source checker
+only guards the presence of that exact compile-time assertion; it does not interpret trait impls.
+
 Rust privacy is the primary seal. Three raster-state seams were compared. Denying selected alias
 tokens was rejected as too shallow; counting source occurrences globally was rejected as brittle;
 the selected seam is the owner-constructed opaque raster state described above. Separately, three
@@ -41,7 +49,8 @@ Rust type checking and the capsule's private construction are the ownership guar
 structure-drift tripwire: it checks private resolved fields, external construction attempts, direct
 capsule signatures, the App-to-Tracer initial move, the non-optional opaque Tracer field and its
 single current capsule-factory assignment, inline GPU getter shape, and that current production
-source contains no second `gui_input` write.
+source contains no second `gui_input` write. It also ensures the owner retains the rustc-backed
+non-`Copy`/non-`Clone` assertion without attempting to reproduce Rust trait semantics.
 It deliberately does not infer control flow, require a plan-call spelling, or claim to detect
 arbitrary shadowing and aliasing; it is not a proof of whole-program dataflow. Pure Rust logic tests
 cover live and fixed plan resolution. The

@@ -49,6 +49,9 @@ toml = "1.1.2"
 re-flora-shader-build = { path = "crates/re-flora-shader-build" }
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
 
+[dev-dependencies]
+static_assertions = "1.1"
+
 [features]
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
