@@ -562,8 +562,8 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn observe_initial_terrain_for_ddgi(&mut self) -> Result<u32> {
-        if self.environment_lighting_test_scene.is_none()
-            && self.hybrid_transparency_test_scene.is_none()
+        if self.scenario_owner.environment_lighting().is_none()
+            && self.scenario_owner.hybrid_transparency().is_none()
         {
             self.observe_initial_published_terrain_for_ddgi()
         } else {

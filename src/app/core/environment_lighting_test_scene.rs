@@ -550,6 +550,10 @@ impl EnvironmentLightingTestScene {
         }
     }
 
+    pub(super) fn case(&self) -> EnvironmentLightingTestCase {
+        self.case
+    }
+
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
     }
@@ -1355,8 +1359,8 @@ impl App {
         &mut self,
     ) -> Result<()> {
         let Some(case) = self
-            .environment_lighting_test_scene
-            .as_ref()
+            .scenario_owner
+            .environment_lighting()
             .and_then(|scene| (scene.phase == TestScenePhase::Pending).then_some(scene.case))
         else {
             return Ok(());
@@ -1365,8 +1369,8 @@ impl App {
             .publish_initial_environment_lighting_test_scene(case)
             .context("publish initial environment-lighting test scene")?;
         let scene = self
-            .environment_lighting_test_scene
-            .as_mut()
+            .scenario_owner
+            .environment_lighting_mut()
             .expect("selected environment-lighting test scene must remain installed");
         scene.initial_publication = Some(InitialTestScenePublication::new(terrain_revision));
         scene.phase = TestScenePhase::Settling {
@@ -1378,8 +1382,8 @@ impl App {
 
     fn verify_environment_lighting_test_scene_first_ddgi_build(&mut self) -> Result<()> {
         let Some(_) = self
-            .environment_lighting_test_scene
-            .as_ref()
+            .scenario_owner
+            .environment_lighting()
             .and_then(|scene| scene.initial_publication)
             .filter(|publication| !publication.first_build_verified)
         else {
@@ -1389,8 +1393,8 @@ impl App {
             return Ok(());
         };
         let scene = self
-            .environment_lighting_test_scene
-            .as_mut()
+            .scenario_owner
+            .environment_lighting_mut()
             .expect("initial publication must retain its test scene");
         let publication = scene
             .initial_publication
@@ -1408,8 +1412,8 @@ impl App {
 
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
         let case = self
-            .environment_lighting_test_scene
-            .as_ref()
+            .scenario_owner
+            .environment_lighting()
             .expect("test scene camera requires test scene")
             .case;
         let (camera_position, camera_target) = camera_pose(case);
@@ -1520,8 +1524,8 @@ impl App {
 
     pub(super) fn process_radiance_test_mutation_after_render(&mut self) {
         let Some(phase) = self
-            .environment_lighting_test_scene
-            .as_ref()
+            .scenario_owner
+            .environment_lighting()
             .map(|scene| scene.phase)
         else {
             return;
@@ -1591,8 +1595,8 @@ impl App {
             }
             _ => return,
         };
-        self.environment_lighting_test_scene
-            .as_mut()
+        self.scenario_owner
+            .environment_lighting_mut()
             .expect("radiance mutation lost test scene")
             .phase = next_phase;
     }
@@ -1713,8 +1717,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source authored diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAuthoredDiagnostic;
@@ -1740,8 +1744,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source voxel diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitVoxelDiagnostic;
@@ -1767,8 +1771,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source raster diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitRasterDiagnostic;
@@ -1793,8 +1797,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source aggregate diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAggregateDiagnostic;
@@ -1927,8 +1931,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("swapped aggregate diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitSwappedAggregateDiagnostic;
@@ -1956,8 +1960,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("swapped authored diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitSwappedAuthoredDiagnostic;
@@ -2003,8 +2007,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("post-removal aggregate diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAfterRemoveAggregateDiagnostic;
@@ -2029,8 +2033,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("removed authored diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitRemovedAuthoredDiagnostic;
@@ -2126,8 +2130,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("stale multi-source identity request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitMovedVoxelStaleDiagnostic;
@@ -2171,8 +2175,8 @@ impl App {
                         .unwrap(),
                     )),
                 );
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .multi_source_overflow_authored_ids = overflow_ids;
                 let snapshot = self.local_lights.snapshot();
@@ -2236,8 +2240,8 @@ impl App {
 
                 let authored_ids = std::mem::take(
                     &mut self
-                        .environment_lighting_test_scene
-                        .as_mut()
+                        .scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .multi_source_overflow_authored_ids,
                 );
@@ -2315,8 +2319,8 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("final stale raster diagnostic request must succeed");
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitFinalStaleDiagnostic;
@@ -2402,7 +2406,7 @@ impl App {
                 panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
             });
         let Some((case, phase, fixed_gpu_request_serial, fixed_gpu_visible_luma_q8)) =
-            self.environment_lighting_test_scene.as_ref().map(|scene| {
+            self.scenario_owner.environment_lighting().map(|scene| {
                 (
                     scene.case,
                     scene.phase,
@@ -2674,8 +2678,8 @@ impl App {
                         .last()
                         .expect("diagnostic overflow source must exist");
                     let scene = self
-                        .environment_lighting_test_scene
-                        .as_mut()
+                        .scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist");
                     scene.point_light_diagnostic_selected_decoy_id = Some(selected_decoy_id);
                     scene.point_light_diagnostic_overflow_id = Some(overflow_id);
@@ -2738,8 +2742,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("visible fixed-receiver diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
@@ -2780,8 +2784,8 @@ impl App {
                     assert_eq!(evidence.occluded, 0);
                     assert!(evidence.irradiance_luma_q8 > 0);
                     assert!(evidence.irradiance.min_element() > 0.0);
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_visible_luma_q8 = evidence.irradiance_luma_q8;
                     let terrain_revision = self
@@ -2817,8 +2821,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("blocked fixed-receiver diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
@@ -2891,8 +2895,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("restored fixed-receiver diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
@@ -2945,8 +2949,8 @@ impl App {
                         evidence.irradiance_luma_q8,
                     );
                     let overflow_id = self
-                        .environment_lighting_test_scene
-                        .as_ref()
+                        .scenario_owner
+                        .environment_lighting()
                         .and_then(|scene| scene.point_light_diagnostic_overflow_id)
                         .expect("point-light overflow diagnostic id must exist");
                     let request_serial = self
@@ -2960,8 +2964,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("overflow identity diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
@@ -2985,8 +2989,8 @@ impl App {
                     }
                     let (selected_decoy_id, overflow_id, supplemental_ids) = {
                         let scene = self
-                            .environment_lighting_test_scene
-                            .as_mut()
+                            .scenario_owner
+                            .environment_lighting_mut()
                             .expect("point-light test scene must exist");
                         (
                             scene
@@ -3014,8 +3018,8 @@ impl App {
                     }
                     let snapshot = self.local_lights.snapshot();
                     let source_revision = snapshot.source_revision();
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_expected_registry_revision = snapshot.registry_revision();
                     log::info!(
@@ -3046,8 +3050,8 @@ impl App {
                     }
                     assert!(self.time_info.total_frame_count() > mutation_frame);
                     let selected_decoy_id = self
-                        .environment_lighting_test_scene
-                        .as_ref()
+                        .scenario_owner
+                        .environment_lighting()
                         .and_then(|scene| scene.point_light_diagnostic_selected_decoy_id)
                         .expect("removed selected diagnostic decoy id must be retained");
                     let request_serial = self
@@ -3061,8 +3065,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed identity diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("point-light test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
@@ -3085,8 +3089,8 @@ impl App {
                         return;
                     }
                     let selected_decoy_id = self
-                        .environment_lighting_test_scene
-                        .as_ref()
+                        .scenario_owner
+                        .environment_lighting()
                         .and_then(|scene| scene.point_light_diagnostic_selected_decoy_id)
                         .expect("removed selected diagnostic decoy id must be retained");
                     assert_eq!(evidence.request.target.light_id(), Some(selected_decoy_id));
@@ -3099,8 +3103,8 @@ impl App {
                     assert_eq!(evidence.irradiance_luma_q8, 0);
                     assert_eq!(evidence.irradiance, Vec3::ZERO);
                     let expected_registry_revision = self
-                        .environment_lighting_test_scene
-                        .as_ref()
+                        .scenario_owner
+                        .environment_lighting()
                         .expect("point-light test scene must exist")
                         .point_light_expected_registry_revision;
                     let observation = self.tracer.local_light_live_observation();
@@ -3633,8 +3637,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("voxel emitter visibility diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("voxel-emissive test scene must exist")
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitVisibleDiagnostic;
@@ -3690,8 +3694,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("blocked voxel-emitter diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitBlockedDiagnostic;
@@ -3736,8 +3740,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("restored voxel-emitter diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitRestoredDiagnostic;
@@ -3844,8 +3848,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("updated aggregate diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitAggregateDiagnostic;
@@ -4086,8 +4090,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed voxel-emitter diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitRemovedDiagnostic;
@@ -4292,8 +4296,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("raster-emitter fixed GPU diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = RasterEmitterTestStage::AwaitVisibleDiagnostic;
@@ -4645,8 +4649,8 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed raster-emitter diagnostic request must succeed");
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .unwrap()
                         .point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = RasterEmitterTestStage::AwaitRemovedDiagnostic;
@@ -5365,8 +5369,8 @@ impl App {
                             TestScenePhase::Failed
                         }
                     };
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("test scene state disappeared")
                         .phase = phase;
                     return;
@@ -5401,8 +5405,8 @@ impl App {
                         staging.grid.probe_count(),
                         runtime.coordinator(),
                     );
-                    self.environment_lighting_test_scene
-                        .as_mut()
+                    self.scenario_owner
+                        .environment_lighting_mut()
                         .expect("test scene state disappeared")
                         .phase = TestScenePhase::CapturingInflightStaleActive { target_revision };
                     return;
@@ -5483,8 +5487,8 @@ impl App {
             | TestScenePhase::Failed => return,
         };
 
-        self.environment_lighting_test_scene
-            .as_mut()
+        self.scenario_owner
+            .environment_lighting_mut()
             .expect("test scene state disappeared")
             .phase = next_phase;
     }

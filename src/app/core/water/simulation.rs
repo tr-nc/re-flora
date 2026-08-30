@@ -67,7 +67,11 @@ impl App {
         let Some(render_start) = self.render_start_time else {
             return;
         };
-        let Some(current_step) = self.water_edit_soak.as_ref().map(|soak| soak.next_step) else {
+        let Some(current_step) = self
+            .scenario_owner
+            .water_edit_soak()
+            .map(|soak| soak.next_step)
+        else {
             return;
         };
         let Some(step) = water_edit_soak_step(current_step) else {
@@ -90,7 +94,7 @@ impl App {
                 err,
             );
         }
-        if let Some(soak) = &mut self.water_edit_soak {
+        if let Some(soak) = self.scenario_owner.water_edit_soak_mut() {
             soak.next_step = next_step;
             if water_edit_soak_step(soak.next_step).is_none() {
                 log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");

@@ -149,8 +149,8 @@ impl App {
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
         let Some(phase) = self
-            .hybrid_transparency_test_scene
-            .as_ref()
+            .scenario_owner
+            .hybrid_transparency()
             .map(|scene| scene.phase)
         else {
             return;
@@ -224,8 +224,8 @@ impl App {
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
 
-        self.hybrid_transparency_test_scene
-            .as_mut()
+        self.scenario_owner
+            .hybrid_transparency_mut()
             .expect("test scene state disappeared")
             .phase = next_phase;
     }

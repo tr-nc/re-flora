@@ -15,6 +15,7 @@ mod frame_timing;
 mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
+pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod loading;
 mod local_player_footsteps;
@@ -47,12 +48,13 @@ use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
+use self::launch_owners::{CaptureOwner, ScenarioOwner, StartupOwners};
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
-use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
+use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
 use self::terrain_connectivity::bench::TerrainConnectivityBench;
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
@@ -103,8 +105,10 @@ use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::{WindResponseCurve, WindSource};
 use crate::{
-    egui_renderer::EguiRenderer, window::WindowState, EnvironmentLightingTestCase, RenderFlags,
-    RunPlan, Scenario, WaterProfilePreference,
+    cli::{AudioPlan, PlatformPlan, WorldPlan},
+    egui_renderer::EguiRenderer,
+    window::WindowState,
+    EnvironmentLightingTestCase, RenderFlags, WaterProfilePreference,
 };
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
@@ -546,7 +550,6 @@ pub struct App {
     terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
     terrain_connectivity: TerrainConnectivityRuntime,
-    terrain_connectivity_bench: Option<TerrainConnectivityBench>,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
@@ -571,22 +574,14 @@ pub struct App {
 
     render_start_time: Option<Instant>,
     terrain_persistence: TerrainPersistenceRuntime,
-    screenshot_capture: ScreenshotRuntime,
+    capture_owner: CaptureOwner,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
-    denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
-    canopy_audio_diagnostic: Option<CanopyAudioDiagnosticRuntime>,
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
-    water_edit_soak: Option<water::WaterEditSoak>,
-    water_experience_scene: Option<water_experience_scene::WaterExperienceScene>,
-    environment_lighting_test_scene:
-        Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
-    hybrid_transparency_test_scene:
-        Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
-    house_scene_requested: bool,
+    scenario_owner: ScenarioOwner,
     visible_terrain_revision: u32,
     shutdown_started: bool,
 
@@ -615,8 +610,23 @@ impl Drop for App {
 }
 
 impl App {
+    fn denoiser_bench(&self) -> Option<&DenoiserBench> {
+        self.capture_owner
+            .denoiser()
+            .or_else(|| self.scenario_owner.foliage_shadow_benchmark())
+    }
+
+    fn denoiser_bench_mut(&mut self) -> Option<&mut DenoiserBench> {
+        match &mut self.capture_owner {
+            CaptureOwner::DenoiserBenchmark { runtime, .. } => Some(runtime),
+            CaptureOwner::None { .. }
+            | CaptureOwner::Snapshot { .. }
+            | CaptureOwner::Screenshot { .. } => self.scenario_owner.foliage_shadow_benchmark_mut(),
+        }
+    }
+
     fn apply_canopy_audio_diagnostic_trajectory(&mut self, time_seconds: f32) {
-        let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
+        let Some(diagnostic) = self.scenario_owner.canopy_audio_mut() else {
             return;
         };
         let sample = diagnostic.sample(self.debug_tree_pos, time_seconds);
@@ -643,7 +653,7 @@ impl App {
     }
 
     fn start_canopy_audio_diagnostic_when_ready(&mut self, time_seconds: f32) {
-        let Some(diagnostic) = self.canopy_audio_diagnostic.as_mut() else {
+        let Some(diagnostic) = self.scenario_owner.canopy_audio_mut() else {
             return;
         };
         if diagnostic.started() {
@@ -673,7 +683,7 @@ impl App {
         if time_seconds < next_log_seconds {
             return;
         }
-        let trajectory_marker = match self.canopy_audio_diagnostic.as_ref() {
+        let trajectory_marker = match self.scenario_owner.canopy_audio() {
             Some(diagnostic) => {
                 let Some(marker) = diagnostic.telemetry_marker(self.debug_tree_pos, time_seconds)
                 else {
@@ -693,8 +703,8 @@ impl App {
         };
         self.canopy_audio_telemetry_next_log_seconds = Some(time_seconds + 0.1);
         let counters = self
-            .canopy_audio_diagnostic
-            .as_ref()
+            .scenario_owner
+            .canopy_audio()
             .and_then(|diagnostic| diagnostic.counters(&snapshot))
             .unwrap_or_else(|| CanopyAudioDiagnosticCounters::from_snapshot(&snapshot));
         let emitter_count = snapshot
@@ -812,8 +822,8 @@ impl App {
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
         let source_frame = self
-            .terrain_connectivity_bench
-            .as_ref()
+            .scenario_owner
+            .terrain_connectivity()
             .and_then(|bench| bench.gpu_source_frame(frame_slot));
         let Some(profiler) = &self.gpu_profiler else {
             return;
@@ -834,7 +844,7 @@ impl App {
                         scope.duration_us(),
                     );
                 }
-                if let Some(bench) = self.terrain_connectivity_bench.as_mut() {
+                if let Some(bench) = self.scenario_owner.terrain_connectivity_mut() {
                     bench.observe_gpu_results(source_frame, &results);
                 }
                 self.gpu_profiler_latest_results = Some(results);
@@ -1071,24 +1081,43 @@ impl App {
         }
     }
 
-    pub fn new(_event_loop: &ActiveEventLoop, plan: &RunPlan) -> Result<Self> {
-        let display = &plan.display;
-        let audio = &plan.audio;
-        let render = &plan.render;
-        let terrain = &plan.terrain;
-        let camera = &plan.camera;
-        let lifecycle = &plan.lifecycle;
-        let water = &plan.water;
-        let lighting = &plan.lighting;
-        let benchmarks = &plan.benchmarks;
-        let scenario = &plan.scenario;
-        let environment_lighting_test = scenario.environment_lighting();
-        let canopy_audio_diagnostic = scenario.canopy_audio_diagnostic();
-        let water_experience = matches!(scenario, Scenario::WaterExperience);
-        let water_edit_soak = matches!(scenario, Scenario::WaterEditSoak);
-        let hybrid_transparency = matches!(scenario, Scenario::HybridTransparency);
-        let house_scene = matches!(scenario, Scenario::House);
-        let foliage_shadow_bench = scenario.foliage_shadow_benchmark();
+    pub(in crate::app) fn new(
+        _event_loop: &ActiveEventLoop,
+        platform: PlatformPlan,
+        world: WorldPlan,
+        audio: AudioPlan,
+        owners: StartupOwners,
+    ) -> Result<Self> {
+        let (automation, mut scenario_owner) = owners.into_parts();
+        let PlatformPlan {
+            display,
+            render,
+            lifecycle,
+        } = platform;
+        let WorldPlan {
+            terrain,
+            water,
+            lighting,
+        } = world;
+        let display = &display;
+        let render = &render;
+        let lifecycle = &lifecycle;
+        let terrain = &terrain;
+        let water = &water;
+        let lighting = &lighting;
+        let audio = &audio;
+        let camera = &automation.capture;
+        let benchmarks = &automation.benchmarks;
+        let startup_camera_snapshot = camera.snapshot_name().map(str::to_owned);
+        let environment_lighting_test = scenario_owner
+            .environment_lighting()
+            .map(environment_lighting_test_scene::EnvironmentLightingTestScene::case);
+        let canopy_audio_diagnostic = scenario_owner
+            .canopy_audio()
+            .map(CanopyAudioDiagnosticRuntime::budget_stress);
+        let water_experience = scenario_owner.is_water_experience();
+        let hybrid_transparency = scenario_owner.hybrid_transparency().is_some();
+        let foliage_shadow_bench = scenario_owner.foliage_shadow_benchmark().is_some();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
@@ -1267,7 +1296,7 @@ impl App {
                 library
             }
             Err(err) => {
-                if camera.snapshot_name().is_some() {
+                if startup_camera_snapshot.is_some() {
                     return Err(err).context(
                         "camera snapshot was requested, but the snapshot file could not be loaded",
                     );
@@ -1290,7 +1319,7 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
-        if foliage_shadow_bench.is_some() {
+        if foliage_shadow_bench {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }
         if canopy_audio_diagnostic.is_some() {
@@ -1423,9 +1452,9 @@ impl App {
             water_config.initial_fluid_bounds,
             cells_per_unit,
         );
-        let water_experience_scene = water_experience.then(|| {
-            water_experience_scene::WaterExperienceScene::new(water_config.particle_count)
-        });
+        if water_experience {
+            scenario_owner.activate_water_experience(water_config.particle_count);
+        }
         let water_sim = water::AsyncWaterSim::new(water_config);
         let water_terrain = water::WaterTerrainRuntime::new();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
@@ -1534,9 +1563,6 @@ impl App {
             terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
-            terrain_connectivity_bench: scenario
-                .terrain_connectivity_benchmark()
-                .map(TerrainConnectivityBench::new),
 
             particle_system,
             butterfly_emitters,
@@ -1554,7 +1580,7 @@ impl App {
 
             render_start_time: None,
             terrain_persistence,
-            screenshot_capture: ScreenshotRuntime::new(camera.screenshot().cloned()),
+            capture_owner: automation.capture,
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 lighting.irradiance_capture_path.clone(),
                 lighting.debug_view,
@@ -1562,27 +1588,15 @@ impl App {
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 lighting.spatial_weight_readback_path.clone(),
             ),
-            denoiser_bench: camera
-                .denoiser_benchmark()
-                .or(foliage_shadow_bench)
-                .cloned()
-                .map(DenoiserBench::new),
             auto_exit_delay: lifecycle.auto_exit_delay,
             canopy_audio_telemetry_next_log_seconds: (audio.canopy_telemetry
                 || canopy_audio_diagnostic.is_some())
             .then_some(0.0),
-            canopy_audio_diagnostic: canopy_audio_diagnostic.map(CanopyAudioDiagnosticRuntime::new),
             tree_bench: benchmarks.tree_samples.map(TreeBench::new),
             authored_flora_bench: benchmarks
                 .authored_flora_samples
                 .map(AuthoredFloraBench::new),
-            water_edit_soak: water_edit_soak.then(water::WaterEditSoak::default),
-            water_experience_scene,
-            environment_lighting_test_scene: environment_lighting_test
-                .map(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
-            hybrid_transparency_test_scene: hybrid_transparency
-                .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
-            house_scene_requested: house_scene,
+            scenario_owner,
             visible_terrain_revision: 0,
             shutdown_started: false,
 
@@ -1614,8 +1628,8 @@ impl App {
         }
         // Test scenes provide a useful default pose, but an explicit snapshot
         // is the caller's final camera choice for screenshots and repro runs.
-        app.apply_startup_camera_snapshot(camera.snapshot_name())?;
-        if foliage_shadow_bench.is_some() {
+        app.apply_startup_camera_snapshot(startup_camera_snapshot.as_deref())?;
+        if foliage_shadow_bench {
             app.configure_foliage_shadow_bench_camera()?;
         }
         app.sync_cursor_with_panels();
@@ -1986,8 +2000,7 @@ impl App {
 
     fn apply_denoiser_benchmark_camera_motion(&mut self) {
         let Some((capture_frame, is_last_frame)) = self
-            .denoiser_bench
-            .as_ref()
+            .denoiser_bench()
             .and_then(DenoiserBench::camera_motion_frame)
         else {
             return;
@@ -2173,7 +2186,7 @@ impl App {
                 && !event.repeat
                 && event.physical_key == KeyCode::KeyP
             {
-                self.screenshot_capture.request_clipboard();
+                self.capture_owner.screenshot_mut().request_clipboard();
                 return;
             }
 
@@ -2380,8 +2393,7 @@ impl App {
                     }
                 }
                 let frame_delta_time = self
-                    .denoiser_bench
-                    .as_ref()
+                    .denoiser_bench()
                     .and_then(DenoiserBench::fixed_frame_delta_seconds)
                     .unwrap_or_else(|| self.time_info.delta_time());
                 if self.terrain_persistence.allows_world_updates() {
@@ -2399,8 +2411,7 @@ impl App {
                 }
                 let time_since_start = self.time_info.time_since_start();
                 let visual_time_since_start = self
-                    .denoiser_bench
-                    .as_ref()
+                    .denoiser_bench()
                     .and_then(DenoiserBench::visual_time_seconds)
                     .unwrap_or(time_since_start);
                 self.apply_canopy_audio_diagnostic_trajectory(time_since_start);
@@ -2418,7 +2429,7 @@ impl App {
                 }
                 let configured_wind_sources =
                     GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources = if self.canopy_audio_diagnostic.is_some() {
+                let active_wind_sources = if self.scenario_owner.canopy_audio().is_some() {
                     &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
                 } else {
                     &configured_wind_sources
@@ -2590,9 +2601,7 @@ impl App {
                     egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
                 });
                 let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
-                let hide_terrain_edit_preview = self
-                    .environment_lighting_test_scene
-                    .as_ref()
+                let hide_terrain_edit_preview = self.scenario_owner.environment_lighting()
                     .is_some_and(
                         environment_lighting_test_scene::EnvironmentLightingTestScene::hides_terrain_edit_preview,
                     );
@@ -2606,15 +2615,13 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture = (self
-                    .environment_lighting_test_scene
-                    .is_some()
-                    || self.hybrid_transparency_test_scene.is_some())
-                    && (self.screenshot_capture.is_scheduled() || self.denoiser_bench.is_some());
-                let hide_ui_for_frame_stability_bench = self
-                    .denoiser_bench
-                    .as_ref()
-                    .is_some_and(DenoiserBench::hides_ui);
+                let hide_ui_for_environment_test_capture =
+                    (self.scenario_owner.environment_lighting().is_some()
+                        || self.scenario_owner.hybrid_transparency().is_some())
+                        && (self.capture_owner.screenshot().is_scheduled()
+                            || self.denoiser_bench().is_some());
+                let hide_ui_for_frame_stability_bench =
+                    self.denoiser_bench().is_some_and(DenoiserBench::hides_ui);
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -3404,7 +3411,7 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                if let Some(bench) = self.terrain_connectivity_bench.as_mut() {
+                if let Some(bench) = self.scenario_owner.terrain_connectivity_mut() {
                     bench.note_gpu_frame_started(frame_slot, self.time_info.total_frame_count());
                 }
                 let cmdbuf = frame.command_buffer();
@@ -3530,7 +3537,7 @@ impl App {
                     self.environment_irradiance_capture.begin_frame(
                         &self.time_info,
                         &self.tracer,
-                        self.environment_lighting_test_scene.as_ref(),
+                        self.scenario_owner.environment_lighting(),
                     );
                 let capture_buffers_ready = self
                     .tracer
@@ -4242,7 +4249,7 @@ impl App {
                         &self.tracer,
                         &self.vulkan_ctx,
                         cmdbuf,
-                        self.environment_lighting_test_scene.as_ref(),
+                        self.scenario_owner.environment_lighting(),
                     ) {
                         Ok(readback) => readback,
                         Err(err) => {
@@ -4304,14 +4311,14 @@ impl App {
                 let screenshot_readiness = ScreenshotFrameReadiness::new(
                     self.render_start_time
                         .map(|started| started.elapsed().as_secs_f32()),
-                    self.environment_lighting_test_scene.as_ref().is_none_or(
+                    self.scenario_owner.environment_lighting().is_none_or(
                         environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
-                    ) && self.hybrid_transparency_test_scene.as_ref().is_none_or(
+                    ) && self.scenario_owner.hybrid_transparency().is_none_or(
                         hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
                     ),
                     self.tracer.ddgi_ready(),
                 );
-                let mut screenshot_readback = self.screenshot_capture.record_if_ready(
+                let mut screenshot_readback = self.capture_owner.screenshot_mut().record_if_ready(
                     &self.tracer,
                     &self.vulkan_ctx,
                     &self.swapchain,
@@ -4320,8 +4327,7 @@ impl App {
                 );
                 let mut denoiser_frame_readback = if screenshot_readback.is_none()
                     && self
-                        .denoiser_bench
-                        .as_ref()
+                        .denoiser_bench()
                         .is_some_and(DenoiserBench::should_capture)
                 {
                     Some(
@@ -4393,7 +4399,7 @@ impl App {
                             if let Some(readback) = environment_irradiance_readback.take() {
                                 match self.environment_irradiance_capture.complete(
                                     readback,
-                                    self.environment_lighting_test_scene.as_mut(),
+                                    self.scenario_owner.environment_lighting_mut(),
                                 ) {
                                     Ok(sequence_complete) => {
                                         environment_irradiance_capture_complete = sequence_complete;
@@ -4416,13 +4422,12 @@ impl App {
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
-                                self.screenshot_capture.complete(readback);
+                                self.capture_owner.screenshot_mut().complete(readback);
                             }
                             if let Some(readback) = denoiser_frame_readback.take() {
                                 denoiser_bench_complete = readback
                                     .complete(
-                                        self.denoiser_bench
-                                            .as_mut()
+                                        self.denoiser_bench_mut()
                                             .expect("benchmark readback requires benchmark state"),
                                     )
                                     .unwrap_or_else(|err| {
@@ -4436,7 +4441,7 @@ impl App {
                     }
                 }
                 self.process_radiance_test_mutation_after_render();
-                if let Some(benchmark) = self.denoiser_bench.as_mut() {
+                if let Some(benchmark) = self.denoiser_bench_mut() {
                     benchmark.mark_frame_presented();
                 }
 
@@ -4516,13 +4521,13 @@ impl App {
                         );
                     }
                 }
-                if let Some(mut bench) = self.terrain_connectivity_bench.take() {
+                if let Some(mut bench) = self.scenario_owner.take_terrain_connectivity() {
                     let complete = bench
                         .observe_completed_frame(self, frame_timing_snapshot)
                         .unwrap_or_else(|err| {
                             panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
                         });
-                    self.terrain_connectivity_bench = Some(bench);
+                    self.scenario_owner.restore_terrain_connectivity(bench);
                     if complete {
                         self.on_terminate(event_loop);
                         return;
@@ -4551,8 +4556,8 @@ impl App {
                                 }
                             }
                             if let Some(scene) = self
-                                .environment_lighting_test_scene
-                                .as_ref()
+                                .scenario_owner
+                                .environment_lighting()
                                 .filter(|scene| scene.edit_cycle_target_revision().is_some())
                             {
                                 let status = self.tracer.ddgi_runtime_status().active();

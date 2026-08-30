@@ -491,8 +491,8 @@ impl App {
         let total_start = Instant::now();
         let setup_start = Instant::now();
         let diagnostic_capacity_isolation = self
-            .terrain_connectivity_bench
-            .as_ref()
+            .scenario_owner
+            .terrain_connectivity()
             .is_some_and(TerrainConnectivityBench::active);
         if !diagnostic_capacity_isolation {
             self.butterfly_emitter_desc =

@@ -1,3 +1,4 @@
+use super::core::launch_owners::prepare_startup_owners;
 use super::core::App;
 use crate::RunPlan;
 use winit::{
@@ -6,14 +7,14 @@ use winit::{
 };
 
 pub struct AppController {
-    plan: RunPlan,
+    plan: Option<RunPlan>,
     initialized: Option<App>,
 }
 
 impl AppController {
     pub fn new(plan: RunPlan) -> Self {
         Self {
-            plan,
+            plan: Some(plan),
             initialized: None,
         }
     }
@@ -21,7 +22,16 @@ impl AppController {
 
 impl ApplicationHandler for AppController {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.initialized = Some(App::new(event_loop, &self.plan).unwrap());
+        let RunPlan {
+            platform,
+            audio,
+            world,
+            automation,
+            scenario,
+        } = self.plan.take().expect("launch plan is consumed once");
+        let owners = prepare_startup_owners(automation, scenario)
+            .unwrap_or_else(|error| panic!("invalid launch ownership: {error}"));
+        self.initialized = Some(App::new(event_loop, platform, world, audio, owners).unwrap());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {

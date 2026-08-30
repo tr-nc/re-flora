@@ -124,8 +124,8 @@ impl App {
 
     pub(super) fn process_water_experience_scene(&mut self) {
         let Some(expected_particle_count) = self
-            .water_experience_scene
-            .as_ref()
+            .scenario_owner
+            .water_experience()
             .filter(|scene| scene.is_waiting())
             .map(|scene| scene.expected_particle_count)
         else {
@@ -147,8 +147,8 @@ impl App {
 
         let revision = frame.revision();
         let sim_time_seconds = frame.sim_time_seconds();
-        self.water_experience_scene
-            .as_mut()
+        self.scenario_owner
+            .water_experience_mut()
             .expect("water experience disappeared while becoming ready")
             .phase = WaterExperiencePhase::Ready;
         log::info!(

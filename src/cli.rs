@@ -232,16 +232,31 @@ pub struct LogInspection {
 
 #[derive(Clone, Debug)]
 pub struct RunPlan {
-    pub display: DisplayPlan,
+    pub platform: PlatformPlan,
     pub audio: AudioPlan,
+    pub world: WorldPlan,
+    pub automation: AutomationPlan,
+    pub scenario: Scenario,
+}
+
+#[derive(Clone, Debug)]
+pub struct PlatformPlan {
+    pub display: DisplayPlan,
     pub render: RenderPlan,
-    pub terrain: TerrainPersistencePlan,
-    pub camera: CameraAutomation,
     pub lifecycle: LifecyclePlan,
+}
+
+#[derive(Clone, Debug)]
+pub struct WorldPlan {
+    pub terrain: TerrainPersistencePlan,
     pub water: WaterPlan,
     pub lighting: EnvironmentLightingPlan,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AutomationPlan {
+    pub camera: CameraAutomation,
     pub benchmarks: BenchmarkPlan,
-    pub scenario: Scenario,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -883,12 +898,34 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
     let no_shadows = args.iter().any(|a| a == "--no-shadows");
     let no_flora = args.iter().any(|a| a == "--no-flora");
     Ok(RunPlan {
-        display: DisplayPlan {
-            windowed: args.iter().any(|a| a == "--windowed"),
-            hidden: args.iter().any(|a| a == "--hidden"),
-            present_mode,
-            monitor_score,
-            swapchain_images: parse_optional_u32_after(&args, "--swapchain-images")?,
+        platform: PlatformPlan {
+            display: DisplayPlan {
+                windowed: args.iter().any(|a| a == "--windowed"),
+                hidden: args.iter().any(|a| a == "--hidden"),
+                present_mode,
+                monitor_score,
+                swapchain_images: parse_optional_u32_after(&args, "--swapchain-images")?,
+            },
+            render: RenderPlan {
+                flags: RenderFlags {
+                    enable_shadows: !no_shadows,
+                    enable_leaf_shadows: !no_shadows
+                        && !args.iter().any(|a| a == "--no-leaf-shadows"),
+                    enable_god_rays: !args.iter().any(|a| a == "--no-god-rays"),
+                    enable_lens_flare: !args.iter().any(|a| a == "--no-lens-flare"),
+                    enable_tracer: !args.iter().any(|a| a == "--no-tracer"),
+                    enable_flora: !no_flora,
+                    enable_leaves: !no_flora,
+                    enable_particles: !args.iter().any(|a| a == "--no-particles"),
+                    enable_clouds: false,
+                },
+                perf_logging: args.iter().any(|a| a == "--perf"),
+            },
+            lifecycle: LifecyclePlan {
+                auto_exit_delay: parse_optional_f32_after(&args, "--auto-exit")?,
+                egui_texture_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
+                resize_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
+            },
         },
         audio: AudioPlan {
             muted: args.iter().any(|a| a == "--mute"),
@@ -898,71 +935,60 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                 "an output device name substring",
             )?,
         },
-        render: RenderPlan {
-            flags: RenderFlags {
-                enable_shadows: !no_shadows,
-                enable_leaf_shadows: !no_shadows && !args.iter().any(|a| a == "--no-leaf-shadows"),
-                enable_god_rays: !args.iter().any(|a| a == "--no-god-rays"),
-                enable_lens_flare: !args.iter().any(|a| a == "--no-lens-flare"),
-                enable_tracer: !args.iter().any(|a| a == "--no-tracer"),
-                enable_flora: !no_flora,
-                enable_leaves: !no_flora,
-                enable_particles: !args.iter().any(|a| a == "--no-particles"),
-                enable_clouds: false,
+        world: WorldPlan {
+            terrain: TerrainPersistencePlan {
+                load_path: terrain_load_path,
+                save_path: terrain_save_path,
             },
-            perf_logging: args.iter().any(|a| a == "--perf"),
-        },
-        terrain: TerrainPersistencePlan {
-            load_path: terrain_load_path,
-            save_path: terrain_save_path,
-        },
-        camera,
-        lifecycle: LifecyclePlan {
-            auto_exit_delay: parse_optional_f32_after(&args, "--auto-exit")?,
-            egui_texture_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
-            resize_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
-        },
-        water: WaterPlan {
-            profile: water_profile,
-            particles: parse_optional_u32_after(&args, "--water-particles")?
-                .map(|value| value as usize),
-            particle_edge_len: parse_optional_f32_after(&args, "--water-particle-edge-len")?
-                .map(|value| value.max(1.0e-6)),
-            grid: parse_optional_u32_after(&args, "--water-grid")?.map(|value| value.max(4)),
-            substep_hz: parse_optional_f32_after(&args, "--water-substep-hz")?
-                .map(|value| value.max(1.0)),
-            terrain_margin_cells: parse_optional_f32_after(&args, "--water-terrain-margin-cells")?
+            water: WaterPlan {
+                profile: water_profile,
+                particles: parse_optional_u32_after(&args, "--water-particles")?
+                    .map(|value| value as usize),
+                particle_edge_len: parse_optional_f32_after(&args, "--water-particle-edge-len")?
+                    .map(|value| value.max(1.0e-6)),
+                grid: parse_optional_u32_after(&args, "--water-grid")?.map(|value| value.max(4)),
+                substep_hz: parse_optional_f32_after(&args, "--water-substep-hz")?
+                    .map(|value| value.max(1.0)),
+                terrain_margin_cells: parse_optional_f32_after(
+                    &args,
+                    "--water-terrain-margin-cells",
+                )?
                 .map(|value| value.max(0.0)),
-            damping: parse_optional_f32_after(&args, "--water-damping")?
+                damping: parse_optional_f32_after(&args, "--water-damping")?
+                    .map(|value| value.max(0.0)),
+                terrain_tangent_damping: parse_optional_f32_after(
+                    &args,
+                    "--water-terrain-tangent-damping",
+                )?
                 .map(|value| value.max(0.0)),
-            terrain_tangent_damping: parse_optional_f32_after(
-                &args,
-                "--water-terrain-tangent-damping",
-            )?
-            .map(|value| value.max(0.0)),
-            stiffness: parse_optional_f32_after(&args, "--water-stiffness")?
-                .map(|value| value.max(0.0)),
-            gamma: parse_optional_f32_after(&args, "--water-gamma")?.map(|value| value.max(1.0e-4)),
-            j_min: parse_optional_f32_after(&args, "--water-j-min")?
-                .map(|value| value.clamp(1.0e-4, 1.0)),
+                stiffness: parse_optional_f32_after(&args, "--water-stiffness")?
+                    .map(|value| value.max(0.0)),
+                gamma: parse_optional_f32_after(&args, "--water-gamma")?
+                    .map(|value| value.max(1.0e-4)),
+                j_min: parse_optional_f32_after(&args, "--water-j-min")?
+                    .map(|value| value.clamp(1.0e-4, 1.0)),
+            },
+            lighting: EnvironmentLightingPlan {
+                irradiance_capture_path: environment_irradiance_capture_path,
+                spatial_weight_readback_path: ddgi_spatial_weight_readback_path,
+                capture_target: environment_irradiance_capture_target,
+                batch_order: ddgi_batch_order,
+                debug_view: ddgi_debug_view,
+                terrain_hard_origin: ddgi_terrain_hard_origin,
+                probe_spacing_voxels: environment_probe_spacing_voxels,
+                rebuild_probe_spacing_voxels: environment_probe_rebuild_spacing_voxels,
+                visualize_probes: args
+                    .iter()
+                    .any(|a| a == "--environment-probe-visualization"),
+            },
         },
-        lighting: EnvironmentLightingPlan {
-            irradiance_capture_path: environment_irradiance_capture_path,
-            spatial_weight_readback_path: ddgi_spatial_weight_readback_path,
-            capture_target: environment_irradiance_capture_target,
-            batch_order: ddgi_batch_order,
-            debug_view: ddgi_debug_view,
-            terrain_hard_origin: ddgi_terrain_hard_origin,
-            probe_spacing_voxels: environment_probe_spacing_voxels,
-            rebuild_probe_spacing_voxels: environment_probe_rebuild_spacing_voxels,
-            visualize_probes: args
-                .iter()
-                .any(|a| a == "--environment-probe-visualization"),
-        },
-        benchmarks: BenchmarkPlan {
-            tree_samples: tree_bench.then_some(tree_bench_samples.unwrap_or(10)),
-            authored_flora_samples: authored_flora_bench
-                .then_some(authored_flora_bench_samples.unwrap_or(25)),
+        automation: AutomationPlan {
+            camera,
+            benchmarks: BenchmarkPlan {
+                tree_samples: tree_bench.then_some(tree_bench_samples.unwrap_or(10)),
+                authored_flora_samples: authored_flora_bench
+                    .then_some(authored_flora_bench_samples.unwrap_or(25)),
+            },
         },
         scenario,
     })
@@ -1422,40 +1448,60 @@ mod tests {
     fn defaults_match_runtime_expectations() {
         let options = parse(&["re-flora"]);
 
-        assert!(!options.display.windowed);
-        assert!(!options.display.hidden);
+        assert!(!options.platform.display.windowed);
+        assert!(!options.platform.display.hidden);
         assert!(!options.audio.muted);
         assert!(!options.audio.canopy_telemetry);
         assert_eq!(options.scenario, Scenario::Garden);
         assert!(options.audio.output_device.is_none());
-        assert!(options.render.flags.enable_leaf_shadows);
-        assert!(!options.render.perf_logging);
-        assert!(options.display.present_mode.is_none());
+        assert!(options.platform.render.flags.enable_leaf_shadows);
+        assert!(!options.platform.render.perf_logging);
+        assert!(options.platform.display.present_mode.is_none());
         assert!(matches!(
-            options.display.monitor_score,
+            options.platform.display.monitor_score,
             MonitorScorePreference::Highest
         ));
-        assert_eq!(options.camera, CameraAutomation::None);
-        assert!(options.terrain.load_path.is_none());
-        assert!(options.terrain.save_path.is_none());
-        assert!(!options.lifecycle.egui_texture_test);
-        assert!(!options.lifecycle.resize_test);
-        assert!(options.lighting.irradiance_capture_path.is_none());
-        assert!(options.lighting.spatial_weight_readback_path.is_none());
-        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(0));
-        assert_eq!(options.lighting.batch_order, DdgiBatchOrder::Forward);
-        assert_eq!(options.lighting.debug_view, DdgiDebugView::Final);
+        assert_eq!(options.automation.camera, CameraAutomation::None);
+        assert!(options.world.terrain.load_path.is_none());
+        assert!(options.world.terrain.save_path.is_none());
+        assert!(!options.platform.lifecycle.egui_texture_test);
+        assert!(!options.platform.lifecycle.resize_test);
+        assert!(options.world.lighting.irradiance_capture_path.is_none());
+        assert!(options
+            .world
+            .lighting
+            .spatial_weight_readback_path
+            .is_none());
         assert_eq!(
-            options.lighting.terrain_hard_origin,
+            options.world.lighting.capture_target,
+            DdgiCaptureTarget::Epoch(0)
+        );
+        assert_eq!(options.world.lighting.batch_order, DdgiBatchOrder::Forward);
+        assert_eq!(options.world.lighting.debug_view, DdgiDebugView::Final);
+        assert_eq!(
+            options.world.lighting.terrain_hard_origin,
             DdgiTerrainHardOrigin::SurfaceFixedWorld
         );
         assert_eq!(
-            options.lighting.probe_spacing_voxels,
+            options.world.lighting.probe_spacing_voxels,
             DEFAULT_DDGI_SPACING_VOXELS
         );
-        assert!(options.lighting.rebuild_probe_spacing_voxels.is_none());
-        assert!(!options.lighting.visualize_probes);
-        assert_eq!(options.benchmarks, BenchmarkPlan::default());
+        assert!(options
+            .world
+            .lighting
+            .rebuild_probe_spacing_voxels
+            .is_none());
+        assert!(!options.world.lighting.visualize_probes);
+        assert_eq!(options.automation.benchmarks, BenchmarkPlan::default());
+    }
+
+    #[test]
+    fn run_plan_has_one_primary_owner_for_each_launch_domain() {
+        let plan = parse(&["re-flora"]);
+
+        assert!(!plan.platform.display.hidden);
+        assert!(plan.world.terrain.load_path.is_none());
+        assert_eq!(plan.automation.camera, CameraAutomation::None);
     }
 
     #[test]
@@ -1515,7 +1561,10 @@ mod tests {
             "7",
         ]);
 
-        assert_eq!(options.benchmarks.authored_flora_samples, Some(7));
+        assert_eq!(
+            options.automation.benchmarks.authored_flora_samples,
+            Some(7)
+        );
     }
 
     #[test]
@@ -1526,8 +1575,8 @@ mod tests {
             "--resize-lifecycle-test",
         ]);
 
-        assert!(options.lifecycle.egui_texture_test);
-        assert!(options.lifecycle.resize_test);
+        assert!(options.platform.lifecycle.egui_texture_test);
+        assert!(options.platform.lifecycle.resize_test);
     }
 
     #[test]
@@ -1657,10 +1706,13 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.lighting.irradiance_capture_path.as_deref(),
+            options.world.lighting.irradiance_capture_path.as_deref(),
             Some("target/sealed.rfirr")
         );
-        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(0));
+        assert_eq!(
+            options.world.lighting.capture_target,
+            DdgiCaptureTarget::Epoch(0)
+        );
     }
 
     #[test]
@@ -1673,13 +1725,16 @@ mod tests {
             "e4",
         ]);
 
-        assert_eq!(options.lighting.capture_target, DdgiCaptureTarget::Epoch(4));
+        assert_eq!(
+            options.world.lighting.capture_target,
+            DdgiCaptureTarget::Epoch(4)
+        );
     }
 
     #[test]
     fn parses_ddgi_batch_order() {
         let options = parse(&["re-flora", "--ddgi-batch-order", "reverse"]);
-        assert_eq!(options.lighting.batch_order, DdgiBatchOrder::Reverse);
+        assert_eq!(options.world.lighting.batch_order, DdgiBatchOrder::Reverse);
 
         let result = try_parse_owned(
             ["re-flora", "--ddgi-batch-order", "inside-out"]
@@ -1709,28 +1764,34 @@ mod tests {
     #[test]
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
-        assert_eq!(options.lighting.debug_view, DdgiDebugView::ExactVisibility);
+        assert_eq!(
+            options.world.lighting.debug_view,
+            DdgiDebugView::ExactVisibility
+        );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "unoccluded-irradiance"]);
         assert_eq!(
-            options.lighting.debug_view,
+            options.world.lighting.debug_view,
             DdgiDebugView::UnoccludedIrradiance
         );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "equal-weight-irradiance"]);
         assert_eq!(
-            options.lighting.debug_view,
+            options.world.lighting.debug_view,
             DdgiDebugView::EqualWeightIrradiance
         );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
         assert_eq!(
-            options.lighting.debug_view,
+            options.world.lighting.debug_view,
             DdgiDebugView::RawCageIrradiance
         );
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "moment-support"]);
-        assert_eq!(options.lighting.debug_view, DdgiDebugView::MomentSupport);
+        assert_eq!(
+            options.world.lighting.debug_view,
+            DdgiDebugView::MomentSupport
+        );
 
         for (value, expected) in [
             (
@@ -1770,7 +1831,7 @@ mod tests {
             } else {
                 parse(&["re-flora", "--ddgi-debug-view", value])
             };
-            assert_eq!(options.lighting.debug_view, expected);
+            assert_eq!(options.world.lighting.debug_view, expected);
         }
     }
 
@@ -1785,7 +1846,7 @@ mod tests {
             ("surface-fixed", DdgiTerrainHardOrigin::SurfaceFixedWorld),
         ] {
             let options = parse(&["re-flora", "--ddgi-terrain-hard-origin", value]);
-            assert_eq!(options.lighting.terrain_hard_origin, expected);
+            assert_eq!(options.world.lighting.terrain_hard_origin, expected);
         }
     }
 
@@ -1793,7 +1854,7 @@ mod tests {
     fn defaults_ddgi_terrain_hard_origin_to_surface_fixed() {
         let options = parse(&["re-flora"]);
         assert_eq!(
-            options.lighting.terrain_hard_origin,
+            options.world.lighting.terrain_hard_origin,
             DdgiTerrainHardOrigin::SurfaceFixedWorld
         );
         assert_eq!(DdgiTerrainHardOrigin::default().label(), "surface-fixed");
@@ -1851,11 +1912,11 @@ mod tests {
         ]);
 
         assert_eq!(
-            options.terrain.load_path.as_deref(),
+            options.world.terrain.load_path.as_deref(),
             Some("target/input.rflterrain")
         );
         assert_eq!(
-            options.terrain.save_path.as_deref(),
+            options.world.terrain.save_path.as_deref(),
             Some("target/output.rflterrain")
         );
     }
@@ -1897,9 +1958,12 @@ mod tests {
             "--environment-probe-visualization",
         ]);
 
-        assert_eq!(options.lighting.probe_spacing_voxels, 16);
-        assert_eq!(options.lighting.rebuild_probe_spacing_voxels, Some(32));
-        assert!(options.lighting.visualize_probes);
+        assert_eq!(options.world.lighting.probe_spacing_voxels, 16);
+        assert_eq!(
+            options.world.lighting.rebuild_probe_spacing_voxels,
+            Some(32)
+        );
+        assert!(options.world.lighting.visualize_probes);
     }
 
     #[test]
@@ -1971,26 +2035,26 @@ mod tests {
             "--water-edit-soak",
         ]);
 
-        assert!(options.display.hidden);
+        assert!(options.platform.display.hidden);
         assert!(options.audio.muted);
         assert!(options.audio.canopy_telemetry);
         assert_eq!(options.audio.output_device.as_deref(), Some("KA3"));
-        assert!(options.render.perf_logging);
-        assert_eq!(options.lifecycle.auto_exit_delay, Some(4.0));
+        assert!(options.platform.render.perf_logging);
+        assert_eq!(options.platform.lifecycle.auto_exit_delay, Some(4.0));
         assert!(matches!(
-            options.water.profile,
+            options.world.water.profile,
             Some(WaterProfilePreference::Performance)
         ));
-        assert_eq!(options.water.particles, Some(35000));
-        assert_eq!(options.water.particle_edge_len, Some(0.05));
-        assert_eq!(options.water.grid, Some(128));
-        assert_eq!(options.water.substep_hz, Some(60.0));
-        assert_eq!(options.water.terrain_margin_cells, Some(0.0));
-        assert_eq!(options.water.damping, Some(1.5));
-        assert_eq!(options.water.terrain_tangent_damping, Some(2.0));
-        assert_eq!(options.water.stiffness, Some(12.0));
-        assert_eq!(options.water.gamma, Some(4.0));
-        assert_eq!(options.water.j_min, Some(0.25));
+        assert_eq!(options.world.water.particles, Some(35000));
+        assert_eq!(options.world.water.particle_edge_len, Some(0.05));
+        assert_eq!(options.world.water.grid, Some(128));
+        assert_eq!(options.world.water.substep_hz, Some(60.0));
+        assert_eq!(options.world.water.terrain_margin_cells, Some(0.0));
+        assert_eq!(options.world.water.damping, Some(1.5));
+        assert_eq!(options.world.water.terrain_tangent_damping, Some(2.0));
+        assert_eq!(options.world.water.stiffness, Some(12.0));
+        assert_eq!(options.world.water.gamma, Some(4.0));
+        assert_eq!(options.world.water.j_min, Some(0.25));
         assert_eq!(options.scenario, Scenario::WaterEditSoak);
     }
 
@@ -2006,9 +2070,9 @@ mod tests {
         ]);
 
         assert_eq!(options.scenario, Scenario::WaterExperience);
-        assert!(options.display.hidden);
+        assert!(options.platform.display.hidden);
         assert!(options.audio.muted);
-        assert_eq!(options.lifecycle.auto_exit_delay, Some(8.0));
+        assert_eq!(options.platform.lifecycle.auto_exit_delay, Some(8.0));
     }
 
     #[test]
@@ -2068,14 +2132,14 @@ mod tests {
             "5",
         ]);
 
-        assert_eq!(options.water.particle_edge_len, Some(1.0e-6));
-        assert_eq!(options.water.grid, Some(4));
-        assert_eq!(options.water.substep_hz, Some(1.0));
-        assert_eq!(options.water.terrain_margin_cells, Some(0.0));
-        assert_eq!(options.water.damping, Some(0.0));
-        assert_eq!(options.water.terrain_tangent_damping, Some(0.0));
-        assert_eq!(options.water.gamma, Some(1.0e-4));
-        assert_eq!(options.water.j_min, Some(1.0));
+        assert_eq!(options.world.water.particle_edge_len, Some(1.0e-6));
+        assert_eq!(options.world.water.grid, Some(4));
+        assert_eq!(options.world.water.substep_hz, Some(1.0));
+        assert_eq!(options.world.water.terrain_margin_cells, Some(0.0));
+        assert_eq!(options.world.water.damping, Some(0.0));
+        assert_eq!(options.world.water.terrain_tangent_damping, Some(0.0));
+        assert_eq!(options.world.water.gamma, Some(1.0e-4));
+        assert_eq!(options.world.water.j_min, Some(1.0));
     }
 
     #[test]
@@ -2100,8 +2164,11 @@ mod tests {
     fn parses_camera_snapshot_options() {
         let options = parse(&["re-flora", "--camera-snapshot", "tree-closeup"]);
 
-        assert_eq!(options.camera.snapshot_name(), Some("tree-closeup"));
-        assert!(options.camera.screenshot().is_none());
+        assert_eq!(
+            options.automation.camera.snapshot_name(),
+            Some("tree-closeup")
+        );
+        assert!(options.automation.camera.screenshot().is_none());
     }
 
     #[test]
@@ -2116,10 +2183,13 @@ mod tests {
             "2.5",
         ]);
 
-        assert!(options.display.hidden);
-        assert_eq!(options.camera.snapshot_name(), Some("tree-closeup"));
+        assert!(options.platform.display.hidden);
         assert_eq!(
-            options.camera.screenshot(),
+            options.automation.camera.snapshot_name(),
+            Some("tree-closeup")
+        );
+        assert_eq!(
+            options.automation.camera.screenshot(),
             Some(&ScreenshotOptions {
                 path: "out.png".to_owned(),
                 delay: 2.5,
@@ -2142,8 +2212,11 @@ mod tests {
             "--denoiser-bench-camera-motion",
         ]);
 
-        assert_eq!(options.camera.snapshot_name(), Some("player-default"));
-        let benchmark = options.camera.denoiser_benchmark().unwrap();
+        assert_eq!(
+            options.automation.camera.snapshot_name(),
+            Some("player-default")
+        );
+        let benchmark = options.automation.camera.denoiser_benchmark().unwrap();
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
@@ -2166,7 +2239,7 @@ mod tests {
             "8",
         ]);
 
-        assert!(options.camera.snapshot_name().is_none());
+        assert!(options.automation.camera.snapshot_name().is_none());
         let benchmark = options.scenario.foliage_shadow_benchmark().unwrap();
         assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
         assert_eq!(benchmark.warmup_frames, 12);
@@ -2177,7 +2250,7 @@ mod tests {
     #[test]
     fn leaf_shadow_control_preserves_other_shadow_passes() {
         let options = parse(&["re-flora", "--no-leaf-shadows"]);
-        let flags = &options.render.flags;
+        let flags = &options.platform.render.flags;
         assert!(flags.enable_shadows);
         assert!(!flags.enable_leaf_shadows);
         assert!(flags.enable_leaves);
@@ -2331,7 +2404,7 @@ mod tests {
         };
         assert!(matches!(plan.scenario, Scenario::House));
         assert!(matches!(
-            plan.camera,
+            plan.automation.camera,
             CameraAutomation::Snapshot(ref name) if name == "house-overlook"
         ));
 

@@ -140,8 +140,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
     if requested_count == 0 {
         let ids = std::mem::take(
             &mut app
-                .environment_lighting_test_scene
-                .as_mut()
+                .scenario_owner
+                .environment_lighting_mut()
                 .unwrap()
                 .local_light_scaling_ids,
         );
@@ -152,8 +152,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
         }
     } else {
         let first_new = app
-            .environment_lighting_test_scene
-            .as_ref()
+            .scenario_owner
+            .environment_lighting()
             .unwrap()
             .local_light_scaling_ids
             .len();
@@ -161,8 +161,8 @@ fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
         let new_ids = (first_new..requested_count)
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
-        app.environment_lighting_test_scene
-            .as_mut()
+        app.scenario_owner
+            .environment_lighting_mut()
             .unwrap()
             .local_light_scaling_ids
             .extend(new_ids);
@@ -255,8 +255,8 @@ impl App {
                 if !builder_matches(self, state) {
                     return None;
                 }
-                self.environment_lighting_test_scene
-                    .as_mut()
+                self.scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .local_light_scaling_samples
                     .clear();
@@ -280,8 +280,8 @@ impl App {
                 }
                 let sample = sample_from_app(self)?;
                 let samples = &mut self
-                    .environment_lighting_test_scene
-                    .as_mut()
+                    .scenario_owner
+                    .environment_lighting_mut()
                     .unwrap()
                     .local_light_scaling_samples;
                 samples.push(sample);
@@ -340,8 +340,8 @@ impl App {
                 } else {
                     let ids = std::mem::take(
                         &mut self
-                            .environment_lighting_test_scene
-                            .as_mut()
+                            .scenario_owner
+                            .environment_lighting_mut()
                             .unwrap()
                             .local_light_scaling_ids,
                     );

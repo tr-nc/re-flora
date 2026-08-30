@@ -1095,12 +1095,12 @@ impl App {
     pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
-        if self.canopy_audio_diagnostic.is_some() {
+        if self.scenario_owner.canopy_audio().is_some() {
             self.log_canopy_audio_layout_comparison();
         }
         if self
-            .canopy_audio_diagnostic
-            .as_ref()
+            .scenario_owner
+            .canopy_audio()
             .is_some_and(CanopyAudioDiagnosticRuntime::budget_stress)
         {
             self.plant_canopy_audio_budget_diagnostic_trees()?;

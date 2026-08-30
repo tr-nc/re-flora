@@ -282,16 +282,16 @@ impl TerrainConnectivityBench {
     }
 
     pub(in crate::app::core) fn try_begin_manual_release(app: &mut App) -> anyhow::Result<bool> {
-        let Some(mut bench) = app.terrain_connectivity_bench.take() else {
+        let Some(mut bench) = app.scenario_owner.take_terrain_connectivity() else {
             return Ok(false);
         };
         if bench.options.mode != TerrainConnectivityBenchMode::Manual {
-            app.terrain_connectivity_bench = Some(bench);
+            app.scenario_owner.restore_terrain_connectivity(bench);
             return Ok(false);
         }
 
         let result = bench.begin_manual_release(app);
-        app.terrain_connectivity_bench = Some(bench);
+        app.scenario_owner.restore_terrain_connectivity(bench);
         result.map(|_| true)
     }
 
@@ -341,11 +341,11 @@ impl TerrainConnectivityBench {
     }
 
     pub(in crate::app::core) fn advance(app: &mut App) -> anyhow::Result<()> {
-        let Some(mut bench) = app.terrain_connectivity_bench.take() else {
+        let Some(mut bench) = app.scenario_owner.take_terrain_connectivity() else {
             return Ok(());
         };
         let result = bench.advance_inner(app);
-        app.terrain_connectivity_bench = Some(bench);
+        app.scenario_owner.restore_terrain_connectivity(bench);
         result
     }
 

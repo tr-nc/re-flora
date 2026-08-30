@@ -54,8 +54,8 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
-        let water_experience_requested = self.water_experience_scene.is_some();
-        let house_scene_requested = self.house_scene_requested;
+        let water_experience_requested = self.scenario_owner.water_experience().is_some();
+        let house_scene_requested = self.scenario_owner.is_house();
         let phase = match self.loading_state.as_ref() {
             Some(loading) if !loading.is_done() => loading.phase,
             _ => return,
@@ -384,11 +384,11 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        if self.water_experience_scene.is_some() {
+        if self.scenario_owner.water_experience().is_some() {
             log::info!(
                 "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
             );
-        } else if self.house_scene_requested {
+        } else if self.scenario_owner.is_house() {
             log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
         } else if !self.terrain_persistence.startup_load_requested() {
             if let Err(err) = self.plant_startup_tuned_tree() {
@@ -401,8 +401,7 @@ impl App {
         }
 
         if self
-            .denoiser_bench
-            .as_ref()
+            .denoiser_bench()
             .is_some_and(DenoiserBench::is_foliage_shadow)
         {
             self.configure_foliage_shadow_bench_receiver()

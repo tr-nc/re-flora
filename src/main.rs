@@ -31,10 +31,10 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    CameraAutomation, CameraMotion, DenoiserBenchMode, DenoiserBenchOptions, DisplayPlan,
-    EnvironmentLightingTestCase, LaunchCommand, LogInspection, MonitorScorePreference,
-    PresentModePreference, RenderFlags, RunPlan, Scenario, ScreenshotOptions,
-    TerrainPersistencePlan, WaterPlan, WaterProfilePreference,
+    AutomationPlan, CameraAutomation, CameraMotion, DenoiserBenchMode, DenoiserBenchOptions,
+    DisplayPlan, EnvironmentLightingTestCase, LaunchCommand, LogInspection, MonitorScorePreference,
+    PlatformPlan, PresentModePreference, RenderFlags, RunPlan, Scenario, ScreenshotOptions,
+    TerrainPersistencePlan, WaterPlan, WaterProfilePreference, WorldPlan,
 };
 use env_logger::{Env, Target};
 use std::{
@@ -239,7 +239,7 @@ pub fn main() {
         }
         LaunchCommand::Run(plan) => plan,
     };
-    if let Err(err) = validate_requested_camera_snapshot(&plan.camera) {
+    if let Err(err) = validate_requested_camera_snapshot(&plan.automation.camera) {
         eprintln!("{err}");
         std::process::exit(1);
     }
