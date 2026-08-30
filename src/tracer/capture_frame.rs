@@ -143,14 +143,6 @@ impl CaptureShadingView {
     }
 }
 
-pub(super) trait CaptureBufferPublicationHost {
-    fn publish_capture_shading_view(&mut self, view: CaptureShadingView) -> Result<()>;
-}
-
-pub(super) trait CaptureTraceRecordingHost {
-    fn record_capture_trace_commands(&mut self) -> Result<()>;
-}
-
 impl CaptureCoordinator {
     pub(crate) fn new(enabled: bool, requested_view: DdgiDebugView) -> Self {
         Self {
@@ -292,8 +284,15 @@ impl CaptureCoordinator {
     pub(crate) fn authorize_readback<T: CaptureReadbackTarget>(
         &mut self,
         candidate: CaptureReadbackCandidate,
+        time_info: &TimeInfo,
         target: T,
-    ) -> CaptureReadbackPermit<T> {
+    ) -> Result<CaptureReadbackPermit<T>> {
+        ensure!(
+            candidate.rendered_frame.physical_frame_serial == time_info.total_frame_count(),
+            "capture readback authorization crossed physical frames: rendered={} current={}",
+            candidate.rendered_frame.physical_frame_serial,
+            time_info.total_frame_count(),
+        );
         assert_eq!(
             self.phase,
             CaptureViewPhase::Armed(candidate.armed_checkpoint),
@@ -302,13 +301,13 @@ impl CaptureCoordinator {
         let target_serial = self.next_readback_target_serial;
         self.next_readback_target_serial = self.next_readback_target_serial.wrapping_add(1).max(1);
         self.phase = CaptureViewPhase::Recording;
-        CaptureReadbackPermit {
+        Ok(CaptureReadbackPermit {
             physical_frame_serial: candidate.rendered_frame.physical_frame_serial,
             checkpoint: candidate.armed_checkpoint.checkpoint,
             target_serial,
             target_byte_count: target.capture_readback_byte_count(),
             target,
-        }
+        })
     }
 
     pub(crate) fn complete_recording(&mut self, sequence_complete: bool) -> bool {
@@ -326,7 +325,7 @@ impl CaptureFramePlan {
     pub(super) fn publish_buffers(
         self,
         time_info: &TimeInfo,
-        host: &mut impl CaptureBufferPublicationHost,
+        publish: impl FnOnce(CaptureShadingView) -> Result<()>,
     ) -> Result<CaptureBuffersReady> {
         ensure!(
             self.physical_frame_serial == time_info.total_frame_count(),
@@ -334,7 +333,7 @@ impl CaptureFramePlan {
             self.physical_frame_serial,
             time_info.total_frame_count(),
         );
-        host.publish_capture_shading_view(CaptureShadingView(self.effective_view))?;
+        publish(CaptureShadingView(self.effective_view))?;
         Ok(CaptureBuffersReady {
             identity: self.identity,
             physical_frame_serial: self.physical_frame_serial,
@@ -345,9 +344,9 @@ impl CaptureFramePlan {
 impl CaptureBuffersReady {
     pub(super) fn record_trace(
         self,
-        host: &mut impl CaptureTraceRecordingHost,
+        record: impl FnOnce() -> Result<()>,
     ) -> Result<RenderedCaptureFrame> {
-        host.record_capture_trace_commands()?;
+        record()?;
         Ok(RenderedCaptureFrame {
             identity: self.identity,
             physical_frame_serial: self.physical_frame_serial,
@@ -394,46 +393,14 @@ impl<T> CaptureReadbackPermit<T> {
 }
 
 #[cfg(test)]
-#[derive(Default)]
-pub(crate) struct RecordingCaptureFrameHost {
-    published_views: Vec<DdgiDebugView>,
-    trace_records: usize,
-}
-
-#[cfg(test)]
-impl CaptureBufferPublicationHost for RecordingCaptureFrameHost {
-    fn publish_capture_shading_view(&mut self, view: CaptureShadingView) -> Result<()> {
-        self.published_views.push(view.0);
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-impl CaptureTraceRecordingHost for RecordingCaptureFrameHost {
-    fn record_capture_trace_commands(&mut self) -> Result<()> {
-        self.trace_records += 1;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-impl RecordingCaptureFrameHost {
-    pub(crate) fn record(
-        &mut self,
-        plan: CaptureFramePlan,
-        time_info: &TimeInfo,
-    ) -> Result<RenderedCaptureFrame> {
-        let buffers_ready = plan.publish_buffers(time_info, self)?;
-        buffers_ready.record_trace(self)
-    }
-
-    pub(crate) fn published_views(&self) -> &[DdgiDebugView] {
-        &self.published_views
-    }
-
-    pub(crate) fn trace_records(&self) -> usize {
-        self.trace_records
-    }
+pub(crate) fn record_capture_frame_for_test(
+    plan: CaptureFramePlan,
+    time_info: &TimeInfo,
+    publish: impl FnOnce(DdgiDebugView) -> Result<()>,
+    record: impl FnOnce() -> Result<()>,
+) -> Result<RenderedCaptureFrame> {
+    let buffers_ready = plan.publish_buffers(time_info, |view| publish(view.0))?;
+    buffers_ready.record_trace(record)
 }
 
 ::static_assertions::assert_not_impl_any!(CaptureCoordinator: Clone, Copy);
@@ -451,38 +418,7 @@ mod tests {
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
         DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey, DdgiFieldState,
     };
-
-    #[derive(Default)]
-    struct RecordingBufferHost {
-        views: Vec<u32>,
-        fail: bool,
-    }
-
-    impl CaptureBufferPublicationHost for RecordingBufferHost {
-        fn publish_capture_shading_view(&mut self, view: CaptureShadingView) -> Result<()> {
-            if self.fail {
-                anyhow::bail!("buffer publication failed");
-            }
-            self.views.push(view.as_u32());
-            Ok(())
-        }
-    }
-
-    #[derive(Default)]
-    struct RecordingTraceHost {
-        records: usize,
-        fail: bool,
-    }
-
-    impl CaptureTraceRecordingHost for RecordingTraceHost {
-        fn record_capture_trace_commands(&mut self) -> Result<()> {
-            if self.fail {
-                anyhow::bail!("trace recording failed");
-            }
-            self.records += 1;
-            Ok(())
-        }
-    }
+    use std::cell::{Cell, RefCell};
 
     #[derive(Debug, PartialEq, Eq)]
     struct RecordingTarget {
@@ -528,9 +464,25 @@ mod tests {
         observation: CaptureReadinessObservation,
     ) -> (DdgiDebugView, RenderedCaptureFrame) {
         let plan = coordinator.begin_frame(time_info, observation);
-        let mut host = RecordingCaptureFrameHost::default();
-        let rendered = host.record(plan, time_info).unwrap();
-        let [view] = host.published_views() else {
+        let published_views = RefCell::new(Vec::new());
+        let trace_records = Cell::new(0);
+        let rendered = record_capture_frame_for_test(
+            plan,
+            time_info,
+            |view| {
+                published_views.borrow_mut().push(view);
+                Ok(())
+            },
+            || {
+                assert_eq!(published_views.borrow().len(), 1);
+                trace_records.set(trace_records.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(trace_records.get(), 1);
+        let published_views = published_views.into_inner();
+        let [view] = published_views.as_slice() else {
             panic!("one capture view must be published");
         };
         (*view, rendered)
@@ -555,10 +507,15 @@ mod tests {
         let mut coordinator = CaptureCoordinator::new(false, DdgiDebugView::Final);
         let plan = coordinator.begin_frame(&time_info, ready(89));
         time_info.update(false);
-        let mut buffers = RecordingBufferHost::default();
+        let published = Cell::new(false);
 
-        assert!(plan.publish_buffers(&time_info, &mut buffers).is_err());
-        assert!(buffers.views.is_empty());
+        assert!(plan
+            .publish_buffers(&time_info, |_| {
+                published.set(true);
+                Ok(())
+            })
+            .is_err());
+        assert!(!published.get());
     }
 
     #[test]
@@ -582,7 +539,9 @@ mod tests {
             .finish_frame(rendered, &time_info, ready(89))
             .unwrap();
 
-        let permit = coordinator.authorize_readback(candidate, RecordingTarget { byte_count: 512 });
+        let permit = coordinator
+            .authorize_readback(candidate, &time_info, RecordingTarget { byte_count: 512 })
+            .unwrap();
         let (target, identity) = permit.into_parts();
 
         assert_eq!(target, RecordingTarget { byte_count: 512 });
@@ -596,26 +555,47 @@ mod tests {
     }
 
     #[test]
+    fn candidate_delayed_before_permit_is_rejected_and_the_next_frame_can_retry() {
+        let mut time_info = TimeInfo::default();
+        let mut coordinator = CaptureCoordinator::new(true, DdgiDebugView::ExactVisibility);
+        let (_, rendered_frame) = rendered(&mut coordinator, &time_info, ready(89));
+        let candidate = coordinator
+            .finish_frame(rendered_frame, &time_info, ready(89))
+            .unwrap();
+        time_info.update(false);
+
+        assert!(coordinator
+            .authorize_readback(candidate, &time_info, RecordingTarget { byte_count: 512 },)
+            .is_err());
+        assert!(matches!(coordinator.phase, CaptureViewPhase::Armed(_)));
+
+        let (_, retry_rendered) = rendered(&mut coordinator, &time_info, ready(89));
+        let retry_candidate = coordinator
+            .finish_frame(retry_rendered, &time_info, ready(89))
+            .unwrap();
+        assert!(coordinator
+            .authorize_readback(
+                retry_candidate,
+                &time_info,
+                RecordingTarget { byte_count: 512 },
+            )
+            .is_ok());
+    }
+
+    #[test]
     fn failed_buffer_publication_or_trace_recording_cannot_produce_the_next_token() {
         let time_info = TimeInfo::default();
         let mut coordinator = CaptureCoordinator::new(false, DdgiDebugView::Final);
         let failed_plan = coordinator.begin_frame(&time_info, ready(89));
-        let mut failed_buffers = RecordingBufferHost {
-            fail: true,
-            ..RecordingBufferHost::default()
-        };
         assert!(failed_plan
-            .publish_buffers(&time_info, &mut failed_buffers)
+            .publish_buffers(&time_info, |_| anyhow::bail!("buffer publication failed"))
             .is_err());
 
         coordinator.planned_frame = None;
         let plan = coordinator.begin_frame(&time_info, ready(89));
-        let mut buffers = RecordingBufferHost::default();
-        let buffers_ready = plan.publish_buffers(&time_info, &mut buffers).unwrap();
-        let mut failed_trace = RecordingTraceHost {
-            fail: true,
-            ..RecordingTraceHost::default()
-        };
-        assert!(buffers_ready.record_trace(&mut failed_trace).is_err());
+        let buffers_ready = plan.publish_buffers(&time_info, |_| Ok(())).unwrap();
+        assert!(buffers_ready
+            .record_trace(|| anyhow::bail!("trace recording failed"))
+            .is_err());
     }
 }

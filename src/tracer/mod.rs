@@ -3,13 +3,13 @@ pub use resources::*;
 
 mod capture_frame;
 #[cfg(test)]
-pub(crate) use capture_frame::RecordingCaptureFrameHost;
+pub(crate) use capture_frame::record_capture_frame_for_test;
+use capture_frame::CaptureReadbackPermit;
 use capture_frame::{CaptureBuffersReady, CaptureReadbackTarget};
 pub(crate) use capture_frame::{
     CaptureCoordinator, CaptureFramePlan, CaptureReadbackCandidate, CaptureReadinessObservation,
     RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame,
 };
-use capture_frame::{CaptureReadbackPermit, CaptureTraceRecordingHost};
 
 mod butterfly_palette;
 pub use butterfly_palette::*;
@@ -976,39 +976,6 @@ pub struct Tracer {
     wind_source_buffer_capacity: usize,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
-}
-
-struct CaptureTraceRecording<'a> {
-    tracer: &'a mut Tracer,
-    cmdbuf: &'a CommandBuffer,
-    surface_resources: &'a SurfaceResources,
-    lod_distance: f32,
-    flora_draw_distance: f32,
-    grass_render_mode: u32,
-    time: f32,
-    flora_color_tables: &'a [FloraHeightColorTables],
-    leaf_color_tables: FloraHeightColorTables,
-    render_flags: &'a crate::RenderFlags,
-    gpu_profiler: Option<&'a mut GpuProfiler>,
-    gpu_profiler_frame_slot: usize,
-}
-
-impl CaptureTraceRecordingHost for CaptureTraceRecording<'_> {
-    fn record_capture_trace_commands(&mut self) -> Result<()> {
-        self.tracer.record_trace_commands_after_shadow_prepass(
-            self.cmdbuf,
-            self.surface_resources,
-            self.lod_distance,
-            self.flora_draw_distance,
-            self.grass_render_mode,
-            self.time,
-            self.flora_color_tables,
-            self.leaf_color_tables,
-            self.render_flags,
-            self.gpu_profiler.as_deref_mut(),
-            self.gpu_profiler_frame_slot,
-        )
-    }
 }
 
 impl Drop for Tracer {
@@ -2426,25 +2393,23 @@ impl Tracer {
         // coordinator retains the conservative pending bound for scheduling and diagnostics, but
         // consumers intentionally use the resident field until its replacement promotes.
         let ddgi_consumer_invalidation_voxel_bound = None;
-        let capture_buffers_ready = capture_frame_plan.publish_buffers(
-            time_info,
-            &mut buffer_updater::CaptureShadingInfoPublication {
-                resources: &self.resources,
-                environment: ddgi_lighting.transport,
-                environment_probe_grid: ddgi_status.grid,
-                voxels_per_world_unit: self.desc.voxel_dim_per_chunk,
-                ddgi_ready: self.ddgi_ready(),
+        let capture_buffers_ready = capture_frame_plan.publish_buffers(time_info, |view| {
+            BufferUpdater::update_shading_info(
+                &self.resources,
+                ddgi_lighting.transport,
+                ddgi_status.grid,
+                self.desc.voxel_dim_per_chunk,
+                self.ddgi_ready(),
                 ddgi_geometry_revision,
-                environment_irradiance_capture_enabled: self
-                    .desc
-                    .environment_irradiance_capture_enabled,
-                ddgi_irradiance_tile_columns: ddgi_physical_status.irradiance_layout.tile_grid().x,
-                ddgi_visibility_tile_columns: ddgi_physical_status.visibility_layout.tile_grid().x,
-                ddgi_terrain_hard_origin: self.desc.ddgi_terrain_hard_origin.as_u32(),
+                self.desc.environment_irradiance_capture_enabled,
+                ddgi_physical_status.irradiance_layout.tile_grid().x,
+                ddgi_physical_status.visibility_layout.tile_grid().x,
+                view.as_u32(),
+                self.desc.ddgi_terrain_hard_origin.as_u32(),
                 ddgi_receiver_visibility_bias_world,
-                ddgi_invalidation_voxel_bound: ddgi_consumer_invalidation_voxel_bound,
-            },
-        )?;
+                ddgi_consumer_invalidation_voxel_bound,
+            )
+        })?;
         BufferUpdater::update_starlight_info(
             &self.resources,
             starlight_iterations,
@@ -3201,19 +3166,20 @@ impl Tracer {
         gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<RenderedCaptureFrame> {
-        capture_buffers_ready.record_trace(&mut CaptureTraceRecording {
-            tracer: self,
-            cmdbuf,
-            surface_resources,
-            lod_distance,
-            flora_draw_distance,
-            grass_render_mode,
-            time,
-            flora_color_tables,
-            leaf_color_tables,
-            render_flags,
-            gpu_profiler,
-            gpu_profiler_frame_slot,
+        capture_buffers_ready.record_trace(|| {
+            self.record_trace_commands_after_shadow_prepass(
+                cmdbuf,
+                surface_resources,
+                lod_distance,
+                flora_draw_distance,
+                grass_render_mode,
+                time,
+                flora_color_tables,
+                leaf_color_tables,
+                render_flags,
+                gpu_profiler,
+                gpu_profiler_frame_slot,
+            )
         })
     }
 

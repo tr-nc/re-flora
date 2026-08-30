@@ -393,9 +393,9 @@ impl EnvironmentIrradianceCaptureRuntime {
         }
 
         let readback = Self::prepare_readback(base_path, &candidate, tracer, vulkan_ctx)?;
-        let permit = self
-            .coordinator
-            .authorize_readback(candidate, readback.buffer.clone());
+        let permit =
+            self.coordinator
+                .authorize_readback(candidate, time_info, readback.buffer.clone())?;
         tracer.record_environment_irradiance_capture_readback(cmdbuf, permit);
         log::info!(
             "[ENV_IRRADIANCE_CAPTURE] recording backend=ddgi path={}",
@@ -653,7 +653,8 @@ mod tests {
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
         DdgiFieldState,
     };
-    use crate::tracer::RecordingCaptureFrameHost;
+    use crate::tracer::record_capture_frame_for_test;
+    use std::cell::{Cell, RefCell};
 
     fn checkpoint(serial: u64, state: DdgiFieldState, epoch: u32) -> DdgiCaptureCheckpoint {
         let geometry_revision = 41;
@@ -733,10 +734,25 @@ mod tests {
         plan: CaptureFramePlan,
         time_info: &TimeInfo,
     ) -> (DdgiDebugView, RenderedCaptureFrame) {
-        let mut host = RecordingCaptureFrameHost::default();
-        let rendered = host.record(plan, time_info).unwrap();
-        assert_eq!(host.trace_records(), 1);
-        let [effective_view] = host.published_views() else {
+        let published_views = RefCell::new(Vec::new());
+        let trace_records = Cell::new(0);
+        let rendered = record_capture_frame_for_test(
+            plan,
+            time_info,
+            |view| {
+                published_views.borrow_mut().push(view);
+                Ok(())
+            },
+            || {
+                assert_eq!(published_views.borrow().len(), 1);
+                trace_records.set(trace_records.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(trace_records.get(), 1);
+        let published_views = published_views.into_inner();
+        let [effective_view] = published_views.as_slice() else {
             panic!("capture frame plan must publish exactly one shading view");
         };
         (*effective_view, rendered)
