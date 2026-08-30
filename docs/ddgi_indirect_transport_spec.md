@@ -178,11 +178,13 @@ whole chain (including `else`) as dry-run-owned, inventories every raw analyzer 
 locks transport to `cat` in dry-run, `/usr/bin/env tee "$json"` in production, and one two-stage
 analyzer-to-sink pipeline. Behavioral dry-run tests require an unchanged whole repository tree.
 After argument parsing, each runner makes `dry_run` readonly; its root path is a single readonly
-canonical assignment. Its shell-active lexical pass discards comments, single-quoted and escaped
-literals, and ordinary double-quoted text while retaining real parameter expansions. Braced
+canonical assignment. Its controlled stateful lexical pass distinguishes comments and quote state
+across lines, including command substitutions inside double quotes; comment or double-quoted
+apostrophes cannot mask later structure. It discards single-quoted and escaped literals and
+ordinary double-quoted text while retaining real parameter expansions. Braced
 expansions are parsed for an exact base identifier, including length, indirection, operator, and
-array forms; only base `dry_run` owns a dry-run chain. Actual policy/root assignment, unset,
-readonly, and expansion facts are inventoried, keeping the wrapper's analyzer path immutable
+array forms; only base `dry_run` owns a dry-run chain. Actual policy/root simple, compound, or
+parameter assignment, unset, readonly, and expansion facts are inventoried, keeping the wrapper's analyzer path immutable
 without rejecting prose. `/usr/bin/env` owns external tool resolution for Cargo, decision-related
 `tee` sinks, and transport normalization Python: it bypasses shell functions while retaining PATH
 lookup. Direct shebang analyzers already use the same owner. PATH plus repository and external

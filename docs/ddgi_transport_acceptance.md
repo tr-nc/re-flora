@@ -58,11 +58,13 @@ command counts and representative branch arguments. Transport additionally seals
 pipeline, with an executable function-shadow test for the production sink. A whole-tree manifest
 proves no filesystem side effects. Each runner owns exactly one readonly canonical `repo_root` and
 makes `dry_run` readonly immediately after its only false/true argument-policy assignments. The
-controlled lexical pass discards comments and inactive quoted/escaped literals, retains actual
+controlled stateful lexical pass tracks comments and quotes across lines, including nested command
+syntax in a double-quoted command substitution, so apostrophes in comments or ordinary strings do
+not change structural masking. It discards inactive quoted/escaped literals, retains actual
 parameter expansions, and parses each braced expansion's exact base identifier (including length,
-indirection, operator, and array forms). It inventories only actual parameter expansion,
-assignment, unset, and readonly facts, rejecting all later policy/root mutation while allowing
-prose that names them. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
+indirection, operator, and array forms). It inventories actual simple, compound, and parameter
+assignment, unset, readonly, and expansion facts, rejecting later policy/root mutation while
+allowing comparisons and prose that name them. `/usr/bin/env` is the external-tool resolution owner for canonical Cargo
 build/run, decision-related `tee`, and normalization Python. Bare/shadowable forms and direct app
 launches are rejected; fail-fast PATH, repository absolute-path, and external absolute-path
 sentinels dynamically cover those known entrypoints. This does not prove arbitrary

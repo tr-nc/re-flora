@@ -348,6 +348,7 @@ def _immutable_authority_failures(
 ) -> tuple[list[str], list[str]]:
     authority_failures: list[str] = []
     unknown_dry_run: list[str] = []
+    _, active_lines, _ = _shell_lex_lines(lines)
 
     root_definitions = [
         index
@@ -374,8 +375,10 @@ def _immutable_authority_failures(
         "dry_run=true",
         "readonly dry_run",
     }
-    for line_number, line in enumerate(lines, 1):
-        for authority in _authority_operations(line):
+    for line_number, (line, active) in enumerate(
+        zip(lines, active_lines, strict=True), 1
+    ):
+        for authority in _authority_operations(active):
             if authority == "dry_run" and line.strip() not in canonical_dry_lines:
                 authority_failures.append(f"dry_run:{line_number}")
                 unknown_dry_run.append(str(line_number))
@@ -385,20 +388,41 @@ def _immutable_authority_failures(
     return authority_failures, unknown_dry_run
 
 
-def _authority_operations(line: str) -> tuple[str, ...]:
-    active = _shell_active_text(line)
-    operation = re.compile(
-        r"(?:^|[;&|]\s*|\b(?:then|do|else)\s+)"
-        r"(?:"
-        r"(?:(?:readonly|declare|typeset|export|local)(?:\s+-[A-Za-z]+)*\s+)?"
-        r"(?P<assignment>dry_run|repo_root)\s*="
-        r"|readonly(?:\s+-[A-Za-z]+)*\s+(?P<readonly>dry_run|repo_root)\b"
-        r"|unset(?:\s+-[A-Za-z]+)*\s+(?P<unset>dry_run|repo_root)\b)"
+def _authority_operations(active: str) -> tuple[str, ...]:
+    operations: list[str] = []
+    assignment = re.compile(
+        r"(?<![$A-Za-z0-9_])(?P<base>dry_run|repo_root)"
+        r"(?:\[[^]\n]*\])?(?:\+=|=)"
     )
-    return tuple(
-        next(group for group in match.groups() if group is not None)
-        for match in operation.finditer(active)
+    operations.extend(match.group("base") for match in assignment.finditer(active))
+    command_mutation = re.compile(
+        r"\b(?:readonly|unset)(?:\s+-[A-Za-z]+)*\s+"
+        r"(?P<base>dry_run|repo_root)\b"
     )
+    operations.extend(
+        match.group("base") for match in command_mutation.finditer(active)
+    )
+    for start, end, base in _active_parameter_expansions(active):
+        if _parameter_expansion_assigns(active[start:end], base):
+            operations.append(base)
+    return tuple(operations)
+
+
+def _parameter_expansion_assigns(expansion: str, base: str) -> bool:
+    if not expansion.startswith("${"):
+        return False
+    content = expansion[2:-1]
+    if content.startswith(("#", "!")):
+        content = content[1:]
+    if not content.startswith(base):
+        return False
+    suffix = content[len(base) :]
+    if suffix.startswith("["):
+        closing = suffix.find("]")
+        if closing < 0:
+            return False
+        suffix = suffix[closing + 1 :]
+    return suffix.startswith(("=", ":="))
 
 
 def _references_parameter(line: str, expected_base: str) -> bool:
@@ -432,9 +456,7 @@ def _active_parameter_expansions(
             quote = "'"
             index += 1
             continue
-        if quote is None and character == "#" and (
-            index == 0 or line[index - 1].isspace()
-        ):
+        if quote is None and character == "#" and _starts_shell_comment(line, index):
             break
         if character != "$":
             index += 1
@@ -490,47 +512,7 @@ def _braced_parameter_end(line: str, opening_brace: int) -> int | None:
 
 
 def _shell_active_text(line: str) -> str:
-    active = list(line)
-    quote: str | None = None
-    index = 0
-    while index < len(line):
-        character = line[index]
-        if character == "\\" and quote != "'":
-            active[index] = " "
-            if index + 1 < len(line):
-                active[index + 1] = " "
-            index += 2
-            continue
-        if quote == "'":
-            active[index] = " "
-            if character == "'":
-                quote = None
-            index += 1
-            continue
-        if character == '"':
-            active[index] = " "
-            quote = None if quote == '"' else '"'
-            index += 1
-            continue
-        if quote is None and character == "'":
-            active[index] = " "
-            quote = "'"
-            index += 1
-            continue
-        if quote is None and character == "#" and (
-            index == 0 or line[index - 1].isspace()
-        ):
-            for offset in range(index, len(active)):
-                active[offset] = " "
-            break
-        if quote == '"':
-            parsed = _parameter_expansion_at(line, index) if character == "$" else None
-            if parsed is not None:
-                index = parsed[0]
-                continue
-            active[index] = " "
-        index += 1
-    return "".join(active)
+    return _shell_lex_lines([line])[1][0]
 
 
 def _transport_sink_policy_is_sealed(lines: list[str]) -> bool:
@@ -616,10 +598,11 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
     failures: list[str] = []
     cargo_builds = 0
     cargo_runs = 0
-    for line_number, line in enumerate(lines, 1):
-        active = _shell_active_text(line)
-        code = _shell_code(line)
-        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(code))
+    code_lines, active_lines, _ = _shell_lex_lines(lines)
+    for line_number, (line, code, active) in enumerate(
+        zip(lines, code_lines, active_lines, strict=True), 1
+    ):
+        cargo_occurrences = tuple(CARGO_IDENTIFIER.finditer(active))
         if cargo_occurrences:
             if len(cargo_occurrences) != 1:
                 failures.append(f"cargo:{line_number}")
@@ -652,8 +635,17 @@ def _process_launch_failures(lines: list[str]) -> list[str]:
             and re.search(r"/usr/bin/env\s+python3\b", active) is not None
         ):
             failures.append(f"python3:{line_number}")
-        if APP_IDENTIFIER.search(code) is not None:
+        if APP_IDENTIFIER.search(active) is not None:
             failures.append(f"re-flora:{line_number}")
+        command_words = (
+            _shell_command_words(code)
+            if active.strip() or code.lstrip().startswith(("'", '"'))
+            else ()
+        )
+        for executable in command_words:
+            basename = executable.rsplit("/", 1)[-1]
+            if basename in {"cargo", "re-flora"}:
+                failures.append(f"command:{line_number}")
     if cargo_builds != 1:
         failures.append(f"cargo-build-count:{cargo_builds}")
     if cargo_runs != 1:
@@ -782,49 +774,191 @@ def _has_then_token(statement: str) -> bool:
 
 
 def _shell_code(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    for index, character in enumerate(line):
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\" and quote != "'":
-            escaped = True
-            continue
-        if quote is not None:
-            if character == quote:
-                quote = None
-            continue
-        if character in "'\"":
-            quote = character
-        elif character == "#" and (index == 0 or line[index - 1].isspace()):
-            return line[:index]
-    return line
+    return _shell_lex_lines([line])[0][0]
 
 
 def _shell_code_lines(lines: list[str]) -> list[str]:
-    """Mask bodies of the repository's multiline single-quoted awk programs."""
+    """Return structural code with multiline quoted program bodies masked."""
+    return _shell_lex_lines(lines)[2]
+
+
+def _shell_lex_lines(
+    lines: list[str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Lex the controlled runner grammar into code, active, and structural text."""
     code_lines: list[str] = []
-    in_multiline_single_quote = False
+    active_lines: list[str] = []
+    structural_lines: list[str] = []
+    quote: str | None = None
+    command_substitutions: list[dict[str, object]] = []
     for line in lines:
-        quote_offsets = [
-            index
-            for index, character in enumerate(line)
-            if character == "'" and (index == 0 or line[index - 1] != "\\")
-        ]
-        if in_multiline_single_quote:
-            if len(quote_offsets) % 2 == 1:
-                in_multiline_single_quote = False
-                code_lines.append(_shell_code(line[quote_offsets[-1] + 1 :]))
-            else:
-                code_lines.append("")
+        code = [" "] * len(line)
+        active = [" "] * len(line)
+        structural = [" "] * len(line)
+        index = 0
+        while index < len(line):
+            character = line[index]
+            if quote == "'":
+                code[index] = character
+                if character == "'":
+                    quote = None
+                index += 1
+                continue
+            if quote == '"':
+                code[index] = character
+                structural[index] = character
+                if character == "\\" and index + 1 < len(line):
+                    code[index + 1] = line[index + 1]
+                    structural[index + 1] = line[index + 1]
+                    index += 2
+                    continue
+                if character == '"':
+                    quote = None
+                    index += 1
+                    continue
+                if line.startswith("$(", index):
+                    code[index : index + 2] = line[index : index + 2]
+                    structural[index : index + 2] = line[index : index + 2]
+                    active[index : index + 2] = line[index : index + 2]
+                    command_substitutions.append(
+                        {"resume_quote": '"', "depth": 1}
+                    )
+                    quote = None
+                    index += 2
+                    continue
+                if character == "$":
+                    parsed = _parameter_expansion_at(line, index)
+                    if parsed is not None:
+                        end, _ = parsed
+                        active[index:end] = line[index:end]
+                        code[index:end] = line[index:end]
+                        structural[index:end] = line[index:end]
+                        index = end
+                        continue
+                index += 1
+                continue
+            if character == "#" and _starts_shell_comment(line, index):
+                break
+            code[index] = character
+            active[index] = character
+            structural[index] = character
+            if line.startswith("$(", index):
+                code[index : index + 2] = line[index : index + 2]
+                active[index : index + 2] = line[index : index + 2]
+                structural[index : index + 2] = line[index : index + 2]
+                command_substitutions.append(
+                    {"resume_quote": None, "depth": 1}
+                )
+                index += 2
+                continue
+            if command_substitutions and character == "(":
+                command_substitutions[-1]["depth"] = (
+                    int(command_substitutions[-1]["depth"]) + 1
+                )
+            elif command_substitutions and character == ")":
+                command_substitutions[-1]["depth"] = (
+                    int(command_substitutions[-1]["depth"]) - 1
+                )
+                if command_substitutions[-1]["depth"] == 0:
+                    resume_quote = command_substitutions.pop()["resume_quote"]
+                    quote = resume_quote if isinstance(resume_quote, str) else None
+            if character == "\\" and index + 1 < len(line):
+                code[index + 1] = line[index + 1]
+                structural[index + 1] = line[index + 1]
+                active[index] = " "
+                active[index + 1] = " "
+                index += 2
+                continue
+            if character == "'":
+                quote = "'"
+                active[index] = " "
+                structural[index] = " "
+            elif character == '"':
+                quote = '"'
+                active[index] = " "
+            index += 1
+        code_lines.append("".join(code))
+        active_lines.append("".join(active))
+        structural_lines.append("".join(structural))
+    return code_lines, active_lines, structural_lines
+
+
+def _starts_shell_comment(line: str, index: int) -> bool:
+    return index == 0 or line[index - 1].isspace() or line[index - 1] in ";|&()"
+
+
+def _shell_command_words(code: str) -> tuple[str, ...]:
+    tokens = _shell_tokens(code)
+    commands: list[str] = []
+    expect_command = True
+    for token in tokens:
+        if token in {";", "|", "||", "&", "&&"}:
+            expect_command = True
             continue
-        if len(quote_offsets) % 2 == 1:
-            in_multiline_single_quote = True
-            code_lines.append(_shell_code(line[: quote_offsets[0]]))
-        else:
-            code_lines.append(_shell_code(line))
-    return code_lines
+        if token in {"if", "elif", "then", "else", "do", "!", "("}:
+            expect_command = True
+            continue
+        if token in {")", "fi", "done", "{", "}"}:
+            continue
+        if expect_command:
+            if re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?(?:\+=|=).+",
+                token,
+            ):
+                continue
+            commands.append(token)
+            expect_command = False
+    return tuple(commands)
+
+
+def _shell_tokens(code: str) -> tuple[str, ...]:
+    tokens: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    index = 0
+
+    def finish_word() -> None:
+        if current:
+            tokens.append("".join(current))
+            current.clear()
+
+    while index < len(code):
+        character = code[index]
+        if quote is not None:
+            if character == quote:
+                quote = None
+            elif character == "\\" and quote == '"' and index + 1 < len(code):
+                current.append(code[index + 1])
+                index += 1
+            else:
+                current.append(character)
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            index += 1
+            continue
+        if character == "\\" and index + 1 < len(code):
+            current.append(code[index + 1])
+            index += 2
+            continue
+        if character.isspace():
+            finish_word()
+            index += 1
+            continue
+        if character in ";|&()":
+            finish_word()
+            if character in "|&" and index + 1 < len(code) and code[index + 1] == character:
+                tokens.append(character * 2)
+                index += 2
+            else:
+                tokens.append(character)
+                index += 1
+            continue
+        current.append(character)
+        index += 1
+    finish_word()
+    return tuple(tokens)
 
 
 def _shell_function_name(line: str) -> str | None:

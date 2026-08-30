@@ -159,6 +159,38 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
             failures,
         )
 
+    def test_comment_quotes_cannot_mask_a_dry_run_controlled_analysis_call(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        anchor = '        if ! analyze_current_capture "${final_analysis[@]}"; then'
+        for apostrophe_line in (
+            "        # reviewer single quote: '",
+            '        printf \'%s\\n\' "reviewer\'s quoted prose"',
+        ):
+            with self.subTest(apostrophe_line=apostrophe_line):
+                mutated = source.replace(
+                    anchor,
+                    f"{apostrophe_line}\n"
+                    "        if $dry_run; then\n"
+                    '            analyze_current_capture "${final_analysis[@]}"\n'
+                    "        elif false; then\n"
+                    f"{apostrophe_line}\n"
+                    "        fi",
+                    1,
+                )
+
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+
+                self.assertTrue(
+                    any(
+                        "controlled by dry_run" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
     def test_comments_assignments_and_unused_functions_are_not_invocations(self) -> None:
         runner_name = "check_ddgi_correctness.sh"
         source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
@@ -411,6 +443,65 @@ class RfirrCurrentVersionContractTests(unittest.TestCase):
         self.assertEqual(
             production_runner_invocation_failures(runner_name, mutated), []
         )
+
+    def test_process_names_in_shell_literals_are_not_launches(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for literal in (
+            ":;# cargo and re-flora are not commands",
+            "printf '%s' 'cargo and re-flora are not commands'",
+            'printf \'%s\' "cargo and re-flora are not commands"',
+            "printf '%s\\n' '\ncargo and re-flora are still data\n'",
+        ):
+            with self.subTest(literal=literal):
+                self.assertEqual(
+                    production_runner_invocation_failures(
+                        runner_name, source + "\n" + literal + "\n"
+                    ),
+                    [],
+                )
+
+    def test_control_statement_assignments_cannot_mutate_runner_authority(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for assignment in (
+            "if dry_run=false; then :; fi",
+            "if repo_root=/tmp/reviewer; then :; fi",
+            "if dry_run+=false; then :; fi",
+            ": \"${dry_run:=false}\"",
+            ": \"${repo_root:=/tmp/reviewer}\"",
+        ):
+            with self.subTest(assignment=assignment):
+                mutated = source.replace(
+                    "    dry_run=true",
+                    "    dry_run=true\n    " + assignment,
+                    1,
+                )
+                failures = production_runner_invocation_failures(
+                    runner_name, mutated
+                )
+                self.assertTrue(
+                    any(
+                        "immutable runner authority" in failure
+                        for failure in failures
+                    ),
+                    failures,
+                )
+
+    def test_comparisons_and_nonassigning_expansions_do_not_mutate_authority(self) -> None:
+        runner_name = "check_ddgi_correctness.sh"
+        source = (SCRIPTS / runner_name).read_text(encoding="utf-8")
+        for comparison in (
+            "if [[ dry_run = false ]]; then :; fi",
+            "if [[ $dry_run == false ]]; then :; fi",
+            ': "${dry_run:-false}" "${repo_root}/target"',
+        ):
+            with self.subTest(comparison=comparison):
+                mutated = source + "\n" + comparison + "\n"
+                self.assertEqual(
+                    production_runner_invocation_failures(runner_name, mutated),
+                    [],
+                )
 
     def test_transport_normalization_python_is_env_owned(self) -> None:
         runner_name = "check_ddgi_transport_acceptance.sh"
