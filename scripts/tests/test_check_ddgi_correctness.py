@@ -10,7 +10,7 @@ RUNNER = SCRIPTS / "check_ddgi_correctness.sh"
 
 
 class CheckDdgiCorrectnessTests(unittest.TestCase):
-    def test_dry_run_captures_only_terminal_temporal_fields(self) -> None:
+    def test_dry_run_captures_and_validates_each_observable_debug_route(self) -> None:
         result = subprocess.run(
             [str(RUNNER), "--dry-run"],
             check=False,
@@ -19,18 +19,32 @@ class CheckDdgiCorrectnessTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            result.stdout.count("--environment-irradiance-capture-target converged"),
-            30,
+        output = result.stdout
+        expected_views = (
+            "final",
+            "moment-visibility",
+            "exact-visibility",
+            "exact-irradiance",
+            "unoccluded-irradiance",
+            "equal-weight-irradiance",
+            "raw-cage-irradiance",
         )
-        self.assertIn("dry-run matrix cases=3 spacings=2 views=5", result.stdout)
+        for case_name in ("sealed", "portal", "walls"):
+            for spacing in (32, 16):
+                for view in expected_views:
+                    self.assertIn(
+                        f"case={case_name} spacing={spacing} backend=ddgi view={view}",
+                        output,
+                    )
 
-    def test_moment_only_walls_keep_calibrated_exact_reference_ceilings(self) -> None:
-        source = RUNNER.read_text()
+        for view in expected_views:
+            self.assertIn(f"--expect-debug-view {view}", output)
 
-        self.assertIn("--max-reference-error-p99 0.40", source)
-        self.assertIn("--max-reference-error-p99 0.375", source)
-        self.assertIn("Runtime consumers intentionally use Moment visibility only", source)
+        self.assertIn("--min-reference-error-p99", output)
+        self.assertIn("--max-reference-error-p99 0.00001", output)
+        self.assertIn("--debug-baseline", output)
+        self.assertIn("--min-debug-roi-luminance-gain", output)
+        self.assertIn("views=8", output)
 
 
 if __name__ == "__main__":

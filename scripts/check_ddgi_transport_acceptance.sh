@@ -39,6 +39,7 @@ failures=0
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
+echo "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=dogleg-e0-e1-production-capture"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -108,6 +109,7 @@ run_analysis() {
         "$analyzer" "$capture"
         --correctness
         --expect-version 8
+        --expect-debug-view final
         --require-nonnegative-rgb
         "$@"
     )

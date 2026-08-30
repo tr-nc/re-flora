@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-24}"
+auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-60}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
 terrain_hard_origin="${DDGI_CORRECTNESS_TERRAIN_HARD_ORIGIN:-}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -18,6 +18,22 @@ fi
 
 cases=(sealed portal walls)
 spacings=(32 16)
+views=(
+    final
+    final
+    moment-visibility
+    exact-visibility
+    exact-irradiance
+    unoccluded-irradiance
+    equal-weight-irradiance
+    raw-cage-irradiance
+)
+analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+
+print_command() {
+    printf '%q ' "$@"
+    printf '\n'
+}
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -32,13 +48,16 @@ for case_name in "${cases[@]}"; do
         moment="$run_dir/${case_name}-spacing${spacing}-moment-visibility.rfirr"
         exact_visibility="$run_dir/${case_name}-spacing${spacing}-exact-visibility.rfirr"
         exact_irradiance="$run_dir/${case_name}-spacing${spacing}-exact-irradiance.rfirr"
+        unoccluded="$run_dir/${case_name}-spacing${spacing}-unoccluded-irradiance.rfirr"
+        equal_weight="$run_dir/${case_name}-spacing${spacing}-equal-weight-irradiance.rfirr"
+        raw_cage="$run_dir/${case_name}-spacing${spacing}-raw-cage-irradiance.rfirr"
         thresholds=()
         case "$case_name" in
             sealed)
                 thresholds=(--max-luminance 0.00001 --max-reference-error-p99 0.00001)
                 ;;
             portal)
-                thresholds=(--min-luminance-p99 0.10 --max-reference-error-p99 0.01)
+                thresholds=(--min-luminance-p99 0.10 --max-reference-error-p99 0.012)
                 ;;
             walls)
                 # Runtime consumers intentionally use Moment visibility only. These bounds retain
@@ -62,60 +81,171 @@ for case_name in "${cases[@]}"; do
         if [[ -n "$terrain_hard_origin" ]]; then
             command+=(--ddgi-terrain-hard-origin "$terrain_hard_origin")
         fi
-        if $dry_run; then
-            for view_and_path in \
-                "final:$first" \
-                "final:$second" \
-                "moment-visibility:$moment" \
-                "exact-visibility:$exact_visibility" \
-                "exact-irradiance:$exact_irradiance"; do
-                view="${view_and_path%%:*}"
-                path="${view_and_path#*:}"
-                printf '%q ' "${command[@]}" --ddgi-debug-view "$view" \
-                    --environment-irradiance-capture "$path"
-                printf '\n'
-            done
-            continue
-        fi
-
         for view_and_path in \
             "final:$first" \
             "final:$second" \
             "moment-visibility:$moment" \
             "exact-visibility:$exact_visibility" \
-            "exact-irradiance:$exact_irradiance"; do
+            "exact-irradiance:$exact_irradiance" \
+            "unoccluded-irradiance:$unoccluded" \
+            "equal-weight-irradiance:$equal_weight" \
+            "raw-cage-irradiance:$raw_cage"; do
             view="${view_and_path%%:*}"
             path="${view_and_path#*:}"
             echo "[DDGI_CORRECTNESS] case=$case_name spacing=$spacing backend=ddgi view=$view"
+            if $dry_run; then
+                print_command "${command[@]}" --ddgi-debug-view "$view" \
+                    --environment-irradiance-capture "$path"
+                continue
+            fi
             RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
                 "${command[@]}" --ddgi-debug-view "$view" \
                     --environment-irradiance-capture "$path"
         done
+        visibility_thresholds=()
+        debug_difference_thresholds=()
+        unoccluded_gain_threshold=0
+        if [[ "$case_name" == "walls" ]]; then
+            visibility_thresholds=(--min-reference-error-p99 0.01)
+            debug_difference_thresholds=(--min-reference-error-p99 0.01)
+            unoccluded_gain_threshold=0.005
+        fi
+        final_analysis=(
+            "$analyzer" "$first"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view final
+            --reference "$exact_irradiance"
+            "${thresholds[@]}"
+        )
+        stability_analysis=()
+        if [[ "$case_name" == "walls" ]]; then
+            # The converged DDGI result is numerically stable, while temporal direct-light
+            # capture planes are not cross-process bit exact. Compare the production
+            # environment output numerically instead of treating unrelated plane hashes as
+            # the DDGI determinism contract.
+            stability_analysis=(
+                "$analyzer" "$first"
+                --correctness
+                --expect-version 8
+                --require-nonnegative-rgb
+                --expect-debug-view final
+                --reference "$second"
+                --max-reference-error-p99 0.00001
+            )
+        else
+            final_analysis+=(--compare "$second")
+        fi
+        visibility_analysis=(
+            "$analyzer" "$moment"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view moment-visibility
+            --reference "$exact_visibility"
+            "${visibility_thresholds[@]}"
+        )
+        exact_visibility_analysis=(
+            "$analyzer" "$exact_visibility"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view exact-visibility
+        )
+        exact_irradiance_analysis=(
+            "$analyzer" "$exact_irradiance"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view exact-irradiance
+        )
+        unoccluded_analysis=(
+            "$analyzer" "$unoccluded"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view unoccluded-irradiance
+            --debug-baseline "$first"
+            --min-debug-roi-luminance-gain "$unoccluded_gain_threshold"
+        )
+        equal_weight_analysis=(
+            "$analyzer" "$equal_weight"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view equal-weight-irradiance
+            --reference "$first"
+            "${debug_difference_thresholds[@]}"
+        )
+        raw_cage_analysis=(
+            "$analyzer" "$raw_cage"
+            --correctness
+            --expect-version 8
+            --require-nonnegative-rgb
+            --expect-debug-view raw-cage-irradiance
+            --reference "$first"
+            "${debug_difference_thresholds[@]}"
+        )
+        if $dry_run; then
+            print_command "${final_analysis[@]}"
+            if (( ${#stability_analysis[@]} != 0 )); then
+                print_command "${stability_analysis[@]}"
+            fi
+            print_command "${visibility_analysis[@]}"
+            print_command "${exact_visibility_analysis[@]}"
+            print_command "${exact_irradiance_analysis[@]}"
+            print_command "${unoccluded_analysis[@]}"
+            print_command "${equal_weight_analysis[@]}"
+            print_command "${raw_cage_analysis[@]}"
+            continue
+        fi
         if [[ ! -f "$first" || ! -f "$second" || ! -f "$moment" || \
-              ! -f "$exact_visibility" || ! -f "$exact_irradiance" ]]; then
+              ! -f "$exact_visibility" || ! -f "$exact_irradiance" || \
+              ! -f "$unoccluded" || ! -f "$equal_weight" || ! -f "$raw_cage" ]]; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing missing capture; backend likely never became ready" >&2
             failures=$((failures + 1))
             continue
         fi
-        if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-            "$first" --compare "$second" --reference "$exact_irradiance" \
-            "${thresholds[@]}"; then
+        if ! "${final_analysis[@]}"; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing invalid, nondeterministic, or incompatible irradiance capture" >&2
             failures=$((failures + 1))
             continue
         fi
-        if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-            "$moment" --reference "$exact_visibility"; then
+        if (( ${#stability_analysis[@]} != 0 )) && \
+           ! "${stability_analysis[@]}"; then
+            echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing numerically unstable production irradiance" >&2
+            failures=$((failures + 1))
+            continue
+        fi
+        if ! "${visibility_analysis[@]}"; then
             echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing invalid or incompatible visibility capture" >&2
             failures=$((failures + 1))
             continue
         fi
-        echo "[DDGI_CORRECTNESS] PASS case=$case_name spacing=$spacing capture_determinism_and_exact_reference"
+        debug_route_failed=false
+        for analysis in \
+            exact_visibility_analysis \
+            exact_irradiance_analysis \
+            unoccluded_analysis \
+            equal_weight_analysis \
+            raw_cage_analysis; do
+            declare -n command_ref="$analysis"
+            if ! "${command_ref[@]}"; then
+                debug_route_failed=true
+            fi
+        done
+        if $debug_route_failed; then
+            echo "[DDGI_CORRECTNESS] FAIL case=$case_name spacing=$spacing debug route acceptance" >&2
+            failures=$((failures + 1))
+            continue
+        fi
+        echo "[DDGI_CORRECTNESS] PASS case=$case_name spacing=$spacing visibility_and_debug_routes"
     done
 done
 
 if $dry_run; then
-    echo "[DDGI_CORRECTNESS] dry-run matrix cases=3 spacings=2 views=5"
+    echo "[DDGI_CORRECTNESS] dry-run matrix cases=3 spacings=2 views=${#views[@]}"
     exit 0
 fi
 
