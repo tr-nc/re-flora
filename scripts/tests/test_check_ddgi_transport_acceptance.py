@@ -181,6 +181,7 @@ done
 
         for contract in (
             "--require-zero-rgb",
+            "--max-luminance 0.00001",
             "--expect-lifecycle-state converging",
             "--expect-update-epoch 0",
             "--expect-lifecycle-state converged",

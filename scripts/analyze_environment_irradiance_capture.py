@@ -2026,8 +2026,16 @@ def main() -> int:
         args.max_luminance is not None
         and capture_summary["luminance_max"] > args.max_luminance
     ):
+        failures.append(
+            "luminance_max: expected at most "
+            f"{args.max_luminance:g}, got {capture_summary['luminance_max']}"
+        )
         exit_code = 1
     if args.require_zero_rgb and capture_summary["rgb_nonzero_count"] != 0:
+        failures.append(
+            "terrain-hit RGB: expected exact zero, got "
+            f"{capture_summary['rgb_nonzero_count']} nonzero samples"
+        )
         exit_code = 1
     if args.require_nonnegative_rgb and any(
         count != 0 for count in capture_summary["rgb_channel_negative_count"]
@@ -2038,6 +2046,10 @@ def main() -> int:
         args.min_luminance_p99 is not None
         and capture_summary["luminance_p99"] < args.min_luminance_p99
     ):
+        failures.append(
+            "luminance_p99: expected at least "
+            f"{args.min_luminance_p99:g}, got {capture_summary['luminance_p99']}"
+        )
         exit_code = 1
     print(json.dumps(report, indent=2, sort_keys=True))
     return exit_code

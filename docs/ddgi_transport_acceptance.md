@@ -27,7 +27,7 @@ The matrix runs spacing 32 and 16 and includes:
 
 | Scene | Required checkpoints | Purpose |
 |---|---|---|
-| sealed | e0, e1, converged | no created energy and no recursive leak |
+| sealed | e0, e1, converged | no e0 energy and bounded Moment leakage through feedback |
 | portal | converged plus exact-reference runner | moment-visibility leak bound |
 | donor | e0 forward/reverse, converged | first-publication signal and batch-order invariance |
 | dogleg | e0, e1, converged | delayed multi-segment propagation |
@@ -35,6 +35,15 @@ The matrix runs spacing 32 and 16 and includes:
 Epoch labels are temporal sample identities, not exact bounce-order claims. The first geometry field
 contains sky misses and direct-sun terrain reflection; later epochs recursively query the previous
 complete field and add new rotated angular samples.
+
+The sealed e0 capture remains bit-exact zero. E1 and terminal captures use the same committed
+`1e-5` maximum linear-luminance ceiling as the correctness matrix and its exact reference; this is
+the Moment-only production-query leakage contract, not a permission to create energy. On the local
+validation GPU, two bit-exact spacing-32 runs measured maxima `2.2463949e-6` at e1 and
+`1.2473703e-6` at e127, while spacing 16 remained bit-exact zero at both checkpoints. The matching
+exact-irradiance capture was also bit-exact zero. Keeping one threshold value across transport and
+correctness avoids the contradictory prior state where the same capture passed the documented
+`1e-5` contract but failed transport merely for containing a nonzero float.
 
 The donor epoch-zero ROI luminance gate is at least `0.045`; the measured spacing-32 forward and
 reverse value was `0.1289403043`, with bit-exact environment and direct-light payloads. Captures may

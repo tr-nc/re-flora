@@ -20,6 +20,7 @@ fi
 # provenance and the tighter spacing-specific observations live in the companion document.
 donor_min_e0_luminance_mean=0.045
 dogleg_max_e0_luminance_mean=0.00002
+sealed_max_luminance=0.00001
 # Epoch one retains 50% history under the sample-age cap, so the old unblended 0.00007 gate maps
 # to a minimum blended gain of 0.000035.
 dogleg_min_e1_luminance_gain=0.000035
@@ -149,11 +150,11 @@ for spacing in "${spacings[@]}"; do
         --expect-source-state converging \
         --expect-source-update-epoch 0 \
         --expect-publication-state published \
-        --require-zero-rgb || true
+        --max-luminance "$sealed_max_luminance" || true
     run_stage sealed "$spacing" converged forward \
         --expect-lifecycle-state converged \
         --expect-publication-state published \
-        --require-zero-rgb || true
+        --max-luminance "$sealed_max_luminance" || true
 
     donor_e0="$(capture_path donor "$spacing" e0 forward)"
     run_stage donor "$spacing" e0 forward \

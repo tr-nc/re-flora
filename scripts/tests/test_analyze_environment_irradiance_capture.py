@@ -1883,6 +1883,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["capture"]["rgb_channel_nonzero_count"], [0, 0, 1])
+        self.assertIn(
+            "terrain-hit RGB: expected exact zero, got 1 nonzero samples",
+            report["validation_failures"],
+        )
 
     def test_v3_nonnegative_gate_rejects_negative_terrain_hit_channel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1955,6 +1959,37 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         report = json.loads(exact_zero.stdout)
         self.assertGreater(report["capture"]["rgb_abs_max"], 0.0)
         self.assertEqual(report["capture"]["rgb_nonzero_count"], 1)
+        self.assertIn(
+            "terrain-hit RGB: expected exact zero, got 1 nonzero samples",
+            report["validation_failures"],
+        )
+
+    def test_luminance_gates_report_the_failed_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "luminance-gates.rfirr"
+            self.write_capture(capture_path, [(0.1, 0.2, 0.3, 1.0)])
+
+            maximum = self.run_analyzer(
+                capture_path, "--max-luminance", "0.01"
+            )
+            minimum = self.run_analyzer(
+                capture_path, "--min-luminance-p99", "1.0"
+            )
+
+        self.assertEqual(maximum.returncode, 1, maximum.stderr)
+        self.assertEqual(minimum.returncode, 1, minimum.stderr)
+        self.assertTrue(
+            any(
+                failure.startswith("luminance_max: expected at most 0.01")
+                for failure in json.loads(maximum.stdout)["validation_failures"]
+            )
+        )
+        self.assertTrue(
+            any(
+                failure.startswith("luminance_p99: expected at least 1")
+                for failure in json.loads(minimum.stdout)["validation_failures"]
+            )
+        )
 
 
 if __name__ == "__main__":
