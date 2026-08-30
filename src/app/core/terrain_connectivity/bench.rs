@@ -2118,6 +2118,34 @@ mod tests {
     }
 
     #[test]
+    fn install_and_bounded_commit_are_prepared_before_their_atomic_mutation() {
+        let _: fn(
+            &mut App,
+            FixtureInstallRequest,
+        ) -> Result<
+            PreparedFixtureInstallation,
+            FailedConnectivityAction<FixtureInstallRequest>,
+        > = App::prepare_connectivity_fixture_installation;
+        let _: fn(PreparedFixtureInstallation, &mut App) -> FixtureInstallResult =
+            PreparedFixtureInstallation::commit;
+        let _: fn(
+            &mut App,
+            BoundedCommitPayload,
+        ) -> Result<
+            PreparedBoundedConnectivity,
+            FailedConnectivityAction<BoundedCommitPayload>,
+        > = App::prepare_bounded_connectivity;
+        let _: fn(PreparedBoundedConnectivity, &mut App) -> EventStages =
+            PreparedBoundedConnectivity::commit;
+
+        let source = include_str!("bench.rs");
+        assert!(!source.contains(concat!("bounded_", "job: Option")));
+        assert!(!source.contains(concat!("pending_", "visual_voxels: Option")));
+        assert!(!source.contains(concat!("SpawnVisual", "Voxels")));
+        assert!(!source.contains(concat!("AwaitingVisual", "SpawnResult")));
+    }
+
+    #[test]
     fn failed_physical_result_does_not_commit_connectivity_owner_state() {
         let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
             mode: TerrainConnectivityBenchMode::Bounded,
