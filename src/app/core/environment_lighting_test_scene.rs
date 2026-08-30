@@ -622,6 +622,8 @@ struct EnvironmentPhasePayload {
     point_light_diagnostic_overflow_id: Option<LightId>,
     point_light_expected_registry_revision: u64,
     scratch: EnvironmentFamilyScratch,
+    #[cfg(test)]
+    injected_failure: Option<EnvironmentPhaseFamily>,
 }
 
 impl EnvironmentPhasePayload {
@@ -741,6 +743,65 @@ impl EnvironmentPhaseAttempt {
 
     fn fail(self, error: anyhow::Error) -> EnvironmentPhaseFailure {
         EnvironmentPhaseFailure::new(self, error)
+    }
+
+    fn begin_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        match self.request().family() {
+            EnvironmentPhaseFamily::Static => self.begin_static_execution(),
+            EnvironmentPhaseFamily::Terrain => self.begin_terrain_execution(),
+            EnvironmentPhaseFamily::Radiance => self.begin_radiance_execution(),
+            EnvironmentPhaseFamily::PointLight => self.begin_point_light_execution(),
+            EnvironmentPhaseFamily::VoxelEmissive => self.begin_voxel_emissive_execution(),
+            EnvironmentPhaseFamily::RasterEmitter => self.begin_raster_emitter_execution(),
+            EnvironmentPhaseFamily::MultiSource => self.begin_multi_source_execution(),
+            EnvironmentPhaseFamily::LocalLightScaling => self.begin_local_light_scaling_execution(),
+        }
+    }
+
+    fn begin_static_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::Static)
+    }
+
+    fn begin_terrain_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::Terrain)
+    }
+
+    fn begin_radiance_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::Radiance)
+    }
+
+    fn begin_point_light_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::PointLight)
+    }
+
+    fn begin_voxel_emissive_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::VoxelEmissive)
+    }
+
+    fn begin_raster_emitter_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::RasterEmitter)
+    }
+
+    fn begin_multi_source_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::MultiSource)
+    }
+
+    fn begin_local_light_scaling_execution(
+        self,
+    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        self.reject_injected_failure(EnvironmentPhaseFamily::LocalLightScaling)
+    }
+
+    fn reject_injected_failure(
+        mut self,
+        expected_family: EnvironmentPhaseFamily,
+    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
+        debug_assert_eq!(self.request().family(), expected_family);
+        #[cfg(test)]
+        if self.payload.injected_failure.take() == Some(expected_family) {
+            return Err(self.fail(anyhow::anyhow!("injected {expected_family:?} leaf failure")));
+        }
+        Ok(self)
     }
 }
 
@@ -864,6 +925,26 @@ impl LaunchOwners {
             | LaunchMode::CanopyAudio { .. }
             | LaunchMode::FoliageShadow { .. } => Ok(None),
         }
+    }
+
+    fn begin_environment_phase_execution(
+        &mut self,
+    ) -> std::result::Result<Option<EnvironmentPhaseAttempt>, EnvironmentPhaseFailure> {
+        let Some(attempt) = self
+            .begin_environment_phase()
+            .expect("environment frame cannot overlap another phase attempt")
+        else {
+            return Ok(None);
+        };
+        attempt.begin_execution().map(Some)
+    }
+
+    #[cfg(test)]
+    fn inject_environment_phase_fault_for_test(&mut self, family: EnvironmentPhaseFamily) {
+        let LaunchMode::Environment { owner, .. } = &mut self.mode else {
+            panic!("environment phase fault requires an environment launch owner")
+        };
+        owner.inject_phase_fault_for_test(family);
     }
 
     fn apply_environment_phase_result(
@@ -1002,6 +1083,8 @@ impl EnvironmentLightingTestScene {
                 point_light_diagnostic_overflow_id: None,
                 point_light_expected_registry_revision: 0,
                 scratch: EnvironmentFamilyScratch::for_family(family),
+                #[cfg(test)]
+                injected_failure: None,
             }),
             transaction_revision: 0,
         }
@@ -1028,6 +1111,15 @@ impl EnvironmentLightingTestScene {
             permit,
             payload: request,
         })
+    }
+
+    #[cfg(test)]
+    fn inject_phase_fault_for_test(&mut self, family: EnvironmentPhaseFamily) {
+        let EnvironmentPhaseSlot::Ready(payload) = &mut self.state else {
+            panic!("cannot inject an environment phase fault while an attempt is in flight")
+        };
+        assert_eq!(payload.family(), family);
+        assert!(payload.injected_failure.replace(family).is_none());
     }
 
     fn commit_phase(
@@ -2895,12 +2987,20 @@ impl App {
             .unwrap_or_else(|err| {
                 panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
             });
-        let Some(mut attempt) = self
-            .launch_owners
-            .begin_environment_phase()
-            .expect("environment frame cannot overlap another phase attempt")
-        else {
-            return;
+        let mut attempt = match self.launch_owners.begin_environment_phase_execution() {
+            Ok(Some(attempt)) => attempt,
+            Ok(None) => return,
+            Err(failure) => {
+                let family = failure.family();
+                let error = self
+                    .launch_owners
+                    .apply_environment_phase_result(Err(failure))
+                    .expect_err("rejected environment frame must return its leaf failure");
+                log::error!(
+                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable leaf failure: {error:#}"
+                );
+                return;
+            }
         };
         self.advance_environment_phase(attempt.request_mut());
         self.launch_owners
