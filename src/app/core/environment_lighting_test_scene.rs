@@ -6154,8 +6154,8 @@ mod tests {
                 Scenario::EnvironmentLighting(case),
             )
             .unwrap();
-            let mut attempt = owners.begin_environment_phase().unwrap().unwrap();
-            match &mut attempt.request_mut().scratch {
+            let mut setup = owners.begin_environment_phase().unwrap().unwrap();
+            match &mut setup.request_mut().scratch {
                 EnvironmentFamilyScratch::None => {}
                 EnvironmentFamilyScratch::PointLight { supplemental_ids } => {
                     supplemental_ids.reserve_exact(3);
@@ -6170,27 +6170,31 @@ mod tests {
                     samples.reserve_exact(11);
                 }
             }
-            assert_eq!(attempt.request().family(), expected_family);
-            let expected_payload = environment_payload_fingerprint(attempt.request());
+            assert_eq!(setup.request().family(), expected_family);
+            let expected_payload = environment_payload_fingerprint(setup.request());
+            owners.restore_environment_phase(setup).unwrap();
+
+            owners.inject_environment_phase_fault_for_test(expected_family);
+            let failure = owners
+                .begin_environment_phase_execution()
+                .expect_err("the owner-issued family fault must reject this frame");
+            assert_eq!(failure.attempt.request().family(), expected_family);
+            assert_eq!(
+                environment_payload_fingerprint(failure.attempt.request()),
+                expected_payload
+            );
+            assert!(failure.error.to_string().contains("leaf failure"));
+            assert_eq!(failure.family(), expected_family);
 
             let busy = owners.begin_environment_phase().unwrap_err();
             assert_eq!(busy.family(), expected_family);
 
-            let failure = attempt.fail(anyhow::anyhow!(
-                "injected {expected_family:?} production apply failure"
-            ));
-            assert_eq!(failure.attempt.request().family(), expected_family);
-            assert!(failure
-                .error
-                .to_string()
-                .contains("production apply failure"));
-            assert_eq!(failure.family(), expected_family);
             let result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> =
                 Err(failure);
             let error = owners
                 .apply_environment_phase_result(result)
                 .expect_err("typed family failure must restore before returning its error");
-            assert!(error.to_string().contains("production apply failure"));
+            assert!(error.to_string().contains("leaf failure"));
 
             let retry = owners.begin_environment_phase().unwrap().unwrap();
             assert_eq!(
