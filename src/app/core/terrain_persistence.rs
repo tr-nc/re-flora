@@ -10,7 +10,7 @@ enum TerrainPersistenceStatus {
     Ready,
     Saving,
     Loading,
-    WaitingForWater,
+    PublishedAwaitingDependents,
     Error(String),
 }
 
@@ -97,7 +97,7 @@ impl TerrainPersistenceRuntime {
             },
             TerrainPersistenceStatus::Saving => "Saving".to_owned(),
             TerrainPersistenceStatus::Loading => "Loading".to_owned(),
-            TerrainPersistenceStatus::WaitingForWater => {
+            TerrainPersistenceStatus::PublishedAwaitingDependents => {
                 "Ready (waiting for water terrain)".to_owned()
             }
             TerrainPersistenceStatus::Error(error) => format!("Error: {error}"),
@@ -138,7 +138,7 @@ impl TerrainPersistenceRuntime {
     fn finish_load(&mut self, failure: Option<(bool, String)>) {
         match failure {
             None => {
-                self.status = TerrainPersistenceStatus::WaitingForWater;
+                self.status = TerrainPersistenceStatus::PublishedAwaitingDependents;
                 self.simulation_gate = TerrainSimulationGate::Running;
             }
             Some((mutated, error)) => {
@@ -152,12 +152,28 @@ impl TerrainPersistenceRuntime {
         }
     }
 
-    fn observe_water_resumed(&mut self) -> bool {
-        if self.status == TerrainPersistenceStatus::WaitingForWater {
-            self.status = TerrainPersistenceStatus::Ready;
-            return true;
+    pub(in crate::app::core) fn complete_published_load(
+        &mut self,
+        _event: water::WaterPublicationResumed,
+    ) {
+        assert_eq!(
+            self.status,
+            TerrainPersistenceStatus::PublishedAwaitingDependents,
+            "water resumed without a published terrain load awaiting dependents"
+        );
+        self.status = TerrainPersistenceStatus::Ready;
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::core) fn published_awaiting_dependents_for_test() -> Self {
+        Self {
+            startup_reader: None,
+            startup_load_requested: false,
+            startup_save_path: None,
+            snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
+            status: TerrainPersistenceStatus::PublishedAwaitingDependents,
+            simulation_gate: TerrainSimulationGate::Running,
         }
-        false
     }
 }
 
@@ -235,13 +251,6 @@ impl App {
                 self.terrain_persistence
                     .finish_load(Some((failure.mutated, error)));
             }
-        }
-    }
-
-    pub(super) fn maybe_resume_terrain_persistence_water(&mut self) {
-        if self.water.resume_after_publication() && self.terrain_persistence.observe_water_resumed()
-        {
-            log::info!("[TERRAIN_PERSISTENCE] water terrain cache Ready; water simulation resumed");
         }
     }
 
@@ -413,8 +422,10 @@ mod tests {
 
         assert!(runtime.allows_world_updates());
         assert!(!runtime.can_start_operation());
-        assert!(runtime.observe_water_resumed());
-        assert!(runtime.can_start_operation());
+        assert_eq!(
+            runtime.status,
+            TerrainPersistenceStatus::PublishedAwaitingDependents
+        );
     }
 
     #[test]

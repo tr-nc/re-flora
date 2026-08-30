@@ -43,6 +43,34 @@ pub(in crate::app::core) struct WaterFrameOutcome {
     pub(in crate::app::core) water_tick_seconds: f32,
 }
 
+/// Linear proof that this owner observed its publication dependencies ready and resumed.
+/// Its constructor is private so persistence and App adapters cannot forge completion.
+pub(in crate::app::core) struct WaterPublicationResumed {
+    _private: (),
+}
+
+struct WaterRuntimeAdvance {
+    timings: WaterTerrainAdvanceTimings,
+    resumed: Option<WaterPublicationResumed>,
+}
+
+trait WaterTerrainAdvanceHost {
+    fn advance_water_owner(&mut self, measure_timings: bool) -> WaterRuntimeAdvance;
+}
+
+fn advance_water_publication_transition(
+    host: &mut impl WaterTerrainAdvanceHost,
+    persistence: &mut super::super::TerrainPersistenceRuntime,
+    measure_timings: bool,
+) -> WaterTerrainAdvanceTimings {
+    let WaterRuntimeAdvance { timings, resumed } = host.advance_water_owner(measure_timings);
+    if let Some(event) = resumed {
+        persistence.complete_published_load(event);
+        log::info!("[TERRAIN_PERSISTENCE] water terrain cache Ready; water simulation resumed");
+    }
+    timings
+}
+
 /// Owns water configuration, simulation, terrain observation, and lifecycle as one module.
 ///
 /// World/GPU builders remain concrete caller-provided adapters because the runtime neither owns nor
@@ -146,15 +174,18 @@ impl WaterRuntime {
         )
     }
 
-    pub(in crate::app::core) fn advance_running(
+    fn advance_running(
         &mut self,
         plain_builder: &mut PlainBuilder,
         contree_builder: &mut ContreeBuilder,
         camera_position: Vec3,
         measure_timings: bool,
-    ) -> WaterTerrainAdvanceTimings {
+    ) -> WaterRuntimeAdvance {
         if self.phase == WaterPhase::Shutdown {
-            return WaterTerrainAdvanceTimings::default();
+            return WaterRuntimeAdvance {
+                timings: WaterTerrainAdvanceTimings::default(),
+                resumed: None,
+            };
         }
         let timings = self.terrain.advance(
             plain_builder,
@@ -165,7 +196,10 @@ impl WaterRuntime {
             WaterTerrainAdvanceMode::Running,
         );
         self.observe_terrain_progress();
-        timings
+        WaterRuntimeAdvance {
+            timings,
+            resumed: self.finish_publication_after_terrain_advance(),
+        }
     }
 
     fn observe_terrain_progress(&mut self) {
@@ -252,16 +286,16 @@ impl WaterRuntime {
         true
     }
 
-    pub(in crate::app::core) fn resume_after_publication(&mut self) -> bool {
+    fn finish_publication_after_terrain_advance(&mut self) -> Option<WaterPublicationResumed> {
         if self.phase != WaterPhase::Quiesced
             || self.quiescence != Some(WaterQuiescence::PublicationPending)
             || !self.terrain.status().is_ready()
         {
-            return false;
+            return None;
         }
         self.quiescence = None;
         self.phase = WaterPhase::Running;
-        true
+        Some(WaterPublicationResumed { _private: () })
     }
 
     pub(in crate::app::core) fn retain_quiescence_after_publication_failure(&mut self) {
@@ -336,10 +370,15 @@ impl App {
         &mut self,
         measure_timings: bool,
     ) -> WaterTerrainAdvanceTimings {
-        self.water.advance_running(
-            &mut self.plain_builder,
-            &mut self.contree_builder,
-            self.tracer.camera_position(),
+        let mut host = AppWaterTerrainAdvance {
+            water: &mut self.water,
+            plain_builder: &mut self.plain_builder,
+            contree_builder: &mut self.contree_builder,
+            camera_position: self.tracer.camera_position(),
+        };
+        advance_water_publication_transition(
+            &mut host,
+            &mut self.terrain_persistence,
             measure_timings,
         )
     }
@@ -352,6 +391,24 @@ impl App {
             &mut self.plain_builder,
             &mut self.contree_builder,
             self.tracer.camera_position(),
+            measure_timings,
+        )
+    }
+}
+
+struct AppWaterTerrainAdvance<'a> {
+    water: &'a mut WaterRuntime,
+    plain_builder: &'a mut PlainBuilder,
+    contree_builder: &'a mut ContreeBuilder,
+    camera_position: Vec3,
+}
+
+impl WaterTerrainAdvanceHost for AppWaterTerrainAdvance<'_> {
+    fn advance_water_owner(&mut self, measure_timings: bool) -> WaterRuntimeAdvance {
+        self.water.advance_running(
+            self.plain_builder,
+            self.contree_builder,
+            self.camera_position,
             measure_timings,
         )
     }
@@ -411,12 +468,16 @@ mod tests {
         runtime.snapshot_mutation_started().unwrap();
         runtime.observe_visible_terrain(UVec3::ONE);
 
-        assert!(!runtime.resume_after_publication());
+        assert!(runtime.finish_publication_after_terrain_advance().is_none());
         assert_eq!(runtime.phase(), WaterPhase::Quiesced);
 
         runtime.complete_publication_for_test();
-        assert!(runtime.resume_after_publication());
+        let resumed = runtime
+            .finish_publication_after_terrain_advance()
+            .expect("ready owner must emit one linear resume event");
         assert_eq!(runtime.phase(), WaterPhase::Running);
+        assert!(runtime.finish_publication_after_terrain_advance().is_none());
+        drop(resumed);
         runtime.shutdown_workers_for_test();
     }
 
@@ -428,8 +489,55 @@ mod tests {
 
         runtime.retain_quiescence_after_publication_failure();
 
-        assert!(!runtime.resume_after_publication());
+        assert!(runtime.finish_publication_after_terrain_advance().is_none());
         assert_eq!(runtime.phase(), WaterPhase::Quiesced);
+        runtime.shutdown_workers_for_test();
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum RecordedPublicationAction {
+        AdvanceTerrain,
+    }
+
+    struct RecordingPublicationHost {
+        outcome: Option<WaterRuntimeAdvance>,
+        actions: Vec<RecordedPublicationAction>,
+    }
+
+    impl WaterTerrainAdvanceHost for RecordingPublicationHost {
+        fn advance_water_owner(&mut self, _measure_timings: bool) -> WaterRuntimeAdvance {
+            self.actions.push(RecordedPublicationAction::AdvanceTerrain);
+            self.outcome
+                .take()
+                .expect("recording outcome consumed twice")
+        }
+    }
+
+    #[test]
+    fn production_transition_advances_owner_then_consumes_its_linear_resume_event() {
+        let mut runtime = running_runtime();
+        runtime.quiesce_for_snapshot().unwrap();
+        runtime.snapshot_mutation_started().unwrap();
+        runtime.complete_publication_for_test();
+        let outcome = WaterRuntimeAdvance {
+            timings: WaterTerrainAdvanceTimings::default(),
+            resumed: runtime.finish_publication_after_terrain_advance(),
+        };
+        let mut host = RecordingPublicationHost {
+            outcome: Some(outcome),
+            actions: Vec::new(),
+        };
+        let mut persistence =
+            super::super::super::TerrainPersistenceRuntime::published_awaiting_dependents_for_test(
+            );
+
+        advance_water_publication_transition(&mut host, &mut persistence, false);
+
+        assert_eq!(
+            host.actions,
+            vec![RecordedPublicationAction::AdvanceTerrain]
+        );
+        assert!(persistence.can_start_operation());
         runtime.shutdown_workers_for_test();
     }
 

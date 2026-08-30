@@ -3257,7 +3257,6 @@ impl App {
                 cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
                 cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
                 cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
-                self.maybe_resume_terrain_persistence_water();
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });

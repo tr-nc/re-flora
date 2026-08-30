@@ -4,7 +4,7 @@ mod settings;
 mod simulation;
 mod terrain;
 
-pub(super) use coordinator::{WaterPhase, WaterRuntime};
+pub(super) use coordinator::{WaterPhase, WaterPublicationResumed, WaterRuntime};
 #[cfg(test)]
 pub(super) use settings::EXPERIENCE_PARTICLE_COUNT;
 pub(super) use settings::{
