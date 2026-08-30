@@ -2013,6 +2013,64 @@ mod tests {
     }
 
     #[test]
+    fn completed_frame_validation_is_an_owned_app_execution() {
+        let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
+            TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            }),
+        ));
+        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) =
+            &mut owner
+        else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        bench.state = BenchState::Observing { event_frame: 40 };
+        bench.stages = Some(EventStages::default());
+        let record = CpuFrameRecord {
+            frame: 41,
+            total_us: 1.0,
+            gpu_present_us: 2.0,
+            tracked_us: 3.0,
+            untracked_us: 4.0,
+            terrain_collider_pending: 5,
+            contree_cache_pending: 6,
+            water_source_pending: 7,
+            water_collider_pending: 8,
+            water_cache_pending: 9,
+            ddgi_ready: true,
+            visible_revision: 10,
+        };
+
+        let action = owner.plan_completed_connectivity_frame(record).unwrap();
+
+        assert!(matches!(
+            action,
+            ConnectivityAction::ObserveCompletedFrame {
+                expected_fixture_solids: Some(0),
+                ..
+            }
+        ));
+        let error = owner
+            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(anyhow::anyhow!(
+                "injected fixture validation failure"
+            )))
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("injected fixture validation failure"));
+        let ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(bench)) = owner
+        else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        assert_eq!(bench.state, BenchState::Observing { event_frame: 40 });
+        assert_eq!(bench.high_water.terrain_collider, 0);
+    }
+
+    #[test]
     fn gpu_completion_observes_the_source_frame_from_the_exact_submission_slot() {
         let mut owner = ScenarioOwner::Diagnostic(DiagnosticScenarioOwner::TerrainConnectivity(
             TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
