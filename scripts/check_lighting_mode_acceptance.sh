@@ -80,6 +80,11 @@ mapfile -t run_log_markers < <(
     "$rg_bin" --no-filename -o '\[RUN_LOG\] path=.*' "$app_output" 2>/dev/null || true
 )
 if [[ ${#run_log_markers[@]} -ne 1 ]]; then
+    if [[ $app_status -eq 124 ]]; then
+        printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=timeout app-status=%s seconds=%s run-log-marker-count=%s log=%s\n' \
+            "$app_status" "$timeout_seconds" "${#run_log_markers[@]}" "$app_output" >&2
+        exit 3
+    fi
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=run-log-marker-count count=%s app-status=%s log=%s\n' \
         "${#run_log_markers[@]}" "$app_status" "$app_output" >&2
     if [[ $app_status -ne 0 ]]; then
@@ -89,6 +94,11 @@ if [[ ${#run_log_markers[@]} -ne 1 ]]; then
 fi
 run_log="${run_log_markers[0]#'[RUN_LOG] path='}"
 if [[ "$run_log" != /* || ! -f "$run_log" ]]; then
+    if [[ $app_status -eq 124 ]]; then
+        printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=timeout app-status=%s seconds=%s run-log-marker-path=%s log=%s\n' \
+            "$app_status" "$timeout_seconds" "$run_log" "$app_output" >&2
+        exit 3
+    fi
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=run-log-marker-path app-status=%s path=%s log=%s\n' \
         "$app_status" "$run_log" "$app_output" >&2
     if [[ $app_status -ne 0 ]]; then

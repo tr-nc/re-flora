@@ -160,6 +160,29 @@ class LightingModeAcceptanceRunnerTests(unittest.TestCase):
         self.assertIn(runtime_red, result.stderr)
         self.assertIn("verdict=APP_FAILED reason=timeout", result.stderr)
 
+    def test_timeout_before_run_log_marker_is_classified_as_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "capture.rflma"
+            cargo = executable(root / "cargo", "#!/usr/bin/env bash\nsleep 5\n")
+            result = subprocess.run(
+                [str(RUNNER), str(artifact)],
+                cwd=REPO_ROOT,
+                env={
+                    **os.environ,
+                    "REFLORA_CARGO": str(cargo),
+                    "REFLORA_LIGHTING_MODE_ACCEPTANCE_TIMEOUT_SECONDS": "1",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verdict=APP_FAILED reason=timeout", result.stderr)
+        self.assertIn("run-log-marker-count=0", result.stderr)
+
     def test_uses_process_bound_marker_instead_of_concurrent_latest_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
