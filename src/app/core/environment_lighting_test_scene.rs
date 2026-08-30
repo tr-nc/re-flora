@@ -416,7 +416,6 @@ enum TestScenePhase {
         target_revision: u32,
     },
     Ready,
-    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -928,6 +927,14 @@ impl LaunchOwners {
             panic!("environment phase fault requires an environment launch owner")
         };
         owner.inject_phase_fault_for_test(family);
+    }
+
+    #[cfg(test)]
+    fn environment_phase_revision_for_test(&self) -> u64 {
+        let LaunchMode::Environment { owner, .. } = &self.mode else {
+            panic!("environment phase revision requires an environment launch owner")
+        };
+        owner.transaction_revision
     }
 
     fn apply_environment_phase_result(
@@ -1542,7 +1549,6 @@ impl EnvironmentLightingTestScene {
                 "capturing-inflight-stale-active"
             }
             TestScenePhase::Ready => "ready",
-            TestScenePhase::Failed => "failed",
         }
     }
 }
@@ -3251,10 +3257,9 @@ impl App {
                         Ok(target_revision) => {
                             TestScenePhase::PattSeamTerrainPublished { target_revision }
                         }
-                        Err(err) => {
-                            log::error!("[DDGI_SEAM_REPRO] shovel replay failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[DDGI_SEAM_REPRO] shovel replay failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     }
                 } else if is_terrain_edit_case(case) {
                     log::info!(
@@ -3269,10 +3274,9 @@ impl App {
                             edit: TerrainEdit::CloseSkylight,
                             target_revision,
                         },
-                        Err(err) => {
-                            log::error!("[ENV_LIGHT_EDIT_CYCLE] close edit failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[ENV_LIGHT_EDIT_CYCLE] close edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     }
                 } else {
                     log::info!(
@@ -5633,10 +5637,9 @@ impl App {
                             target_revision,
                         }
                     }
-                    Err(err) => {
-                        log::error!("[DDGI_ACCEPT][DENSITY] terrain edit failed: {err:#}");
-                        TestScenePhase::Failed
-                    }
+                    Err(err) => panic!(
+                        "[DDGI_ACCEPT][DENSITY] terrain edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                    ),
                 }
             }
             TestScenePhase::WaitingForDensityGeometryReplacement {
@@ -6025,10 +6028,9 @@ impl App {
                             edit: TerrainEdit::ReopenSkylight,
                             target_revision: reopen_revision,
                         },
-                        Err(err) => {
-                            log::error!("[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     };
                     environment.phase = phase;
                     return;
@@ -6091,12 +6093,9 @@ impl App {
                                     edit: TerrainEdit::ReopenSkylight,
                                     target_revision: reopen_revision,
                                 },
-                                Err(err) => {
-                                    log::error!(
-                                        "[ENV_LIGHT_EDIT_CYCLE] reopen edit failed: {err:#}"
-                                    );
-                                    TestScenePhase::Failed
-                                }
+                                Err(err) => panic!(
+                                    "[ENV_LIGHT_EDIT_CYCLE] reopen edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                                ),
                             }
                         }
                     }
@@ -6138,9 +6137,7 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::CapturingInflightStaleActive { .. }
-            | TestScenePhase::Ready
-            | TestScenePhase::Failed => return,
+            TestScenePhase::CapturingInflightStaleActive { .. } | TestScenePhase::Ready => return,
         };
 
         environment.phase = next_phase;
