@@ -287,7 +287,9 @@ pub(in crate::app) fn prepare_startup_owners(
                     },
                     benchmarks,
                 },
-                scenario: ScenarioOwner::FoliageShadowBenchmark(DenoiserBench::new(options)),
+                scenario: ScenarioOwner::FoliageShadowBenchmark(DenoiserBench::new_foliage(
+                    options,
+                )),
             });
         }
     };
@@ -309,7 +311,7 @@ pub(in crate::app) fn prepare_startup_owners(
         } => CaptureOwner::DenoiserBenchmark {
             snapshot,
             screenshot: ScreenshotRuntime::new(None),
-            runtime: DenoiserBench::new(benchmark),
+            runtime: DenoiserBench::new_camera(benchmark),
         },
     };
     Ok(StartupOwners {
@@ -324,14 +326,16 @@ pub(in crate::app) fn prepare_startup_owners(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{BenchmarkPlan, CameraMotion, DenoiserBenchMode, DenoiserBenchOptions};
+    use crate::cli::{
+        BenchmarkPlan, CameraDenoiserOptions, CameraMotion, DenoiserCaptureOptions,
+        FoliageDenoiserOptions,
+    };
 
-    fn benchmark(mode: DenoiserBenchMode) -> DenoiserBenchOptions {
-        DenoiserBenchOptions {
+    fn capture_options() -> DenoiserCaptureOptions {
+        DenoiserCaptureOptions {
             report_path: "report.toml".to_owned(),
             warmup_frames: 12,
             capture_frames: 8,
-            mode,
         }
     }
 
@@ -362,14 +366,19 @@ mod tests {
         let automation = AutomationPlan {
             camera: CameraAutomation::DenoiserBenchmark {
                 snapshot: "tree".to_owned(),
-                benchmark: benchmark(DenoiserBenchMode::CameraSnapshot(CameraMotion::Fixed)),
+                benchmark: CameraDenoiserOptions {
+                    capture: capture_options(),
+                    camera_motion: CameraMotion::Fixed,
+                },
             },
             benchmarks: BenchmarkPlan::default(),
         };
 
         let error = prepare_startup_owners(
             automation,
-            Scenario::FoliageShadowBenchmark(benchmark(DenoiserBenchMode::FoliageShadow)),
+            Scenario::FoliageShadowBenchmark(FoliageDenoiserOptions {
+                capture: capture_options(),
+            }),
         )
         .err()
         .expect("contradictory owners must be rejected");

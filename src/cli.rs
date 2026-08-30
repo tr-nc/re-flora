@@ -24,29 +24,6 @@ pub enum CameraMotion {
     Scripted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DenoiserBenchMode {
-    CameraSnapshot(CameraMotion),
-    FoliageShadow,
-}
-
-impl DenoiserBenchMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::CameraSnapshot(_) => "camera-snapshot",
-            Self::FoliageShadow => "foliage-shadow",
-        }
-    }
-
-    pub fn is_foliage_shadow(self) -> bool {
-        matches!(self, Self::FoliageShadow)
-    }
-
-    pub fn has_scripted_camera_motion(self) -> bool {
-        matches!(self, Self::CameraSnapshot(CameraMotion::Scripted))
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
     Mailbox,
@@ -298,7 +275,7 @@ pub enum CameraAutomation {
     },
     DenoiserBenchmark {
         snapshot: String,
-        benchmark: DenoiserBenchOptions,
+        benchmark: CameraDenoiserOptions,
     },
 }
 
@@ -319,7 +296,7 @@ impl CameraAutomation {
         }
     }
 
-    pub fn denoiser_benchmark(&self) -> Option<&DenoiserBenchOptions> {
+    pub fn denoiser_benchmark(&self) -> Option<&CameraDenoiserOptions> {
         match self {
             Self::DenoiserBenchmark { benchmark, .. } => Some(benchmark),
             _ => None,
@@ -381,7 +358,7 @@ pub enum Scenario {
     HybridTransparency,
     House,
     TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions),
-    FoliageShadowBenchmark(DenoiserBenchOptions),
+    FoliageShadowBenchmark(FoliageDenoiserOptions),
 }
 
 impl Scenario {
@@ -406,7 +383,7 @@ impl Scenario {
         }
     }
 
-    pub fn foliage_shadow_benchmark(&self) -> Option<&DenoiserBenchOptions> {
+    pub fn foliage_shadow_benchmark(&self) -> Option<&FoliageDenoiserOptions> {
         match self {
             Self::FoliageShadowBenchmark(options) => Some(options),
             _ => None,
@@ -415,11 +392,21 @@ impl Scenario {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DenoiserBenchOptions {
+pub struct DenoiserCaptureOptions {
     pub report_path: String,
     pub warmup_frames: u32,
     pub capture_frames: u32,
-    pub mode: DenoiserBenchMode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CameraDenoiserOptions {
+    pub capture: DenoiserCaptureOptions,
+    pub camera_motion: CameraMotion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoliageDenoiserOptions {
+    pub capture: DenoiserCaptureOptions,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -996,7 +983,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
 
 fn parse_denoiser_bench_request(
     args: &[String],
-) -> Result<Option<(String, DenoiserBenchOptions)>, String> {
+) -> Result<Option<(String, CameraDenoiserOptions)>, String> {
     let Some(index) = args.iter().position(|arg| arg == "--denoiser-bench") else {
         if args.iter().any(|arg| {
             arg == "--denoiser-bench-warmup-frames"
@@ -1022,27 +1009,27 @@ fn parse_denoiser_bench_request(
 
     Ok(Some((
         preset_name,
-        DenoiserBenchOptions {
-            report_path,
-            warmup_frames,
-            capture_frames,
-            mode: DenoiserBenchMode::CameraSnapshot(
-                if args
-                    .iter()
-                    .any(|arg| arg == "--denoiser-bench-camera-motion")
-                {
-                    CameraMotion::Scripted
-                } else {
-                    CameraMotion::Fixed
-                },
-            ),
+        CameraDenoiserOptions {
+            capture: DenoiserCaptureOptions {
+                report_path,
+                warmup_frames,
+                capture_frames,
+            },
+            camera_motion: if args
+                .iter()
+                .any(|arg| arg == "--denoiser-bench-camera-motion")
+            {
+                CameraMotion::Scripted
+            } else {
+                CameraMotion::Fixed
+            },
         },
     )))
 }
 
 fn parse_foliage_shadow_bench_request(
     args: &[String],
-) -> Result<Option<DenoiserBenchOptions>, String> {
+) -> Result<Option<FoliageDenoiserOptions>, String> {
     let Some(index) = args.iter().position(|arg| arg == "--foliage-shadow-bench") else {
         if args.iter().any(|arg| {
             arg == "--foliage-shadow-bench-warmup-frames" || arg == "--foliage-shadow-bench-frames"
@@ -1063,11 +1050,12 @@ fn parse_foliage_shadow_bench_request(
         return Err("--foliage-shadow-bench-frames must be at least 2".to_owned());
     }
 
-    Ok(Some(DenoiserBenchOptions {
-        report_path,
-        warmup_frames,
-        capture_frames,
-        mode: DenoiserBenchMode::FoliageShadow,
+    Ok(Some(FoliageDenoiserOptions {
+        capture: DenoiserCaptureOptions {
+            report_path,
+            warmup_frames,
+            capture_frames,
+        },
     }))
 }
 
@@ -2217,13 +2205,10 @@ mod tests {
             Some("player-default")
         );
         let benchmark = options.automation.camera.denoiser_benchmark().unwrap();
-        assert_eq!(benchmark.report_path, "target/report.toml");
-        assert_eq!(benchmark.warmup_frames, 12);
-        assert_eq!(benchmark.capture_frames, 8);
-        assert_eq!(
-            benchmark.mode,
-            DenoiserBenchMode::CameraSnapshot(CameraMotion::Scripted)
-        );
+        assert_eq!(benchmark.capture.report_path, "target/report.toml");
+        assert_eq!(benchmark.capture.warmup_frames, 12);
+        assert_eq!(benchmark.capture.capture_frames, 8);
+        assert_eq!(benchmark.camera_motion, CameraMotion::Scripted);
     }
 
     #[test]
@@ -2241,10 +2226,9 @@ mod tests {
 
         assert!(options.automation.camera.snapshot_name().is_none());
         let benchmark = options.scenario.foliage_shadow_benchmark().unwrap();
-        assert_eq!(benchmark.report_path, "target/foliage-shadow.toml");
-        assert_eq!(benchmark.warmup_frames, 12);
-        assert_eq!(benchmark.capture_frames, 8);
-        assert_eq!(benchmark.mode, DenoiserBenchMode::FoliageShadow);
+        assert_eq!(benchmark.capture.report_path, "target/foliage-shadow.toml");
+        assert_eq!(benchmark.capture.warmup_frames, 12);
+        assert_eq!(benchmark.capture.capture_frames, 8);
     }
 
     #[test]

@@ -31,10 +31,10 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    AutomationPlan, CameraAutomation, CameraMotion, DenoiserBenchMode, DenoiserBenchOptions,
-    DisplayPlan, EnvironmentLightingTestCase, LaunchCommand, LogInspection, MonitorScorePreference,
-    PlatformPlan, PresentModePreference, RenderFlags, RunPlan, Scenario, ScreenshotOptions,
-    TerrainPersistencePlan, WaterPlan, WaterProfilePreference, WorldPlan,
+    AutomationPlan, CameraAutomation, CameraDenoiserOptions, CameraMotion, DenoiserCaptureOptions,
+    DisplayPlan, EnvironmentLightingTestCase, FoliageDenoiserOptions, LaunchCommand, LogInspection,
+    MonitorScorePreference, PlatformPlan, PresentModePreference, RenderFlags, RunPlan, Scenario,
+    ScreenshotOptions, TerrainPersistencePlan, WaterPlan, WaterProfilePreference, WorldPlan,
 };
 use env_logger::{Env, Target};
 use std::{
