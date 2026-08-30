@@ -1,6 +1,8 @@
 #[cfg(test)]
 use super::denoiser_bench::{
-    CameraFrameMotion, DenoiserCaptureStep, DenoiserFrame, FixedVisualFrame,
+    CameraDenoiserCommand, CameraDenoiserPresentation, CameraFrameMotion, DenoiserCaptureStep,
+    DenoiserFrame, DenoiserFrameCommand, DenoiserFrameRun, DenoiserReadbackOutcome,
+    FixedVisualFrame, FoliageDenoiserCommand, FoliageDenoiserPresentation,
 };
 use super::{
     authored_flora_bench::AuthoredFloraBench,
@@ -1068,6 +1070,62 @@ mod tests {
                 },
                 ..
             } if frame_delta_seconds > 0.0
+        ));
+    }
+
+    #[test]
+    fn denoiser_leaf_commands_mint_one_affine_run_through_readback_and_commit() {
+        static_assertions::assert_not_impl_any!(CameraDenoiserCommand: Clone, Copy);
+        static_assertions::assert_not_impl_any!(FoliageDenoiserCommand: Clone, Copy);
+        static_assertions::assert_not_impl_any!(DenoiserFrameRun: Clone, Copy);
+
+        let mut camera = camera_denoiser_owners();
+        let DenoiserFrameCommand::Camera(command) = camera.begin_denoiser_frame() else {
+            panic!("camera launch must mint a camera-owned command")
+        };
+        assert!(matches!(
+            command.presentation(),
+            CameraDenoiserPresentation::Scripted {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                capture_frame: 0,
+                is_last: false,
+            }
+        ));
+        let completion =
+            command
+                .into_run()
+                .complete(DenoiserReadbackOutcome::Failed(anyhow::anyhow!(
+                    "injected readback failure"
+                )));
+        camera
+            .finish_denoiser_frame(completion)
+            .expect_err("failed readback must not commit presentation");
+
+        let DenoiserFrameCommand::Camera(command) = camera.begin_denoiser_frame() else {
+            unreachable!()
+        };
+        assert!(matches!(
+            command.presentation(),
+            CameraDenoiserPresentation::Scripted {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                capture_frame: 0,
+                ..
+            }
+        ));
+
+        let foliage = foliage_denoiser_owners();
+        let DenoiserFrameCommand::Foliage(command) = foliage.begin_denoiser_frame() else {
+            panic!("foliage launch must mint a foliage-owned command")
+        };
+        assert!(matches!(
+            command.presentation(),
+            FoliageDenoiserPresentation {
+                capture: DenoiserCaptureStep::Record { frame: 0 },
+                timeline: FixedVisualFrame {
+                    visual_time_seconds: 0.0,
+                    ..
+                },
+            }
         ));
     }
 
