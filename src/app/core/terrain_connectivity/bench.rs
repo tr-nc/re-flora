@@ -1977,15 +1977,13 @@ mod tests {
 
     #[test]
     fn failed_physical_result_does_not_commit_connectivity_owner_state() {
-        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
-            TerrainConnectivityBenchOptions {
-                mode: TerrainConnectivityBenchMode::Bounded,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Bounded,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
         let facts = ConnectivityFacts {
             frame: 23,
             visible_revision: 7,
@@ -1995,28 +1993,34 @@ mod tests {
             ddgi_ready: true,
             available_particles: 8,
         };
-        assert!(matches!(
-            owner.plan_connectivity_action(facts).unwrap(),
-            ConnectivityAction::InstallFixture { .. }
-        ));
-
-        let error = owner
-            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(anyhow::anyhow!(
-                "injected fixture failure"
-            )))
+        let request = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::InstallFixture {
+                manual,
+                available_particles,
+            } => FixtureInstallRequest {
+                manual,
+                available_particles,
+            },
+            _ => panic!("initial connectivity action did not install the fixture"),
+        };
+        let error = bench
+            .apply_result(ConnectivityResult::FixtureInstalled {
+                frame: 23,
+                outcome: Err(FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected fixture failure"),
+                }),
+            })
             .unwrap_err();
 
         assert!(error.to_string().contains("injected fixture failure"));
+        assert_eq!(bench.state, BenchState::InstallFixture);
         assert!(matches!(
-            owner,
-            ScenarioOwner::Connectivity(TerrainConnectivityBench {
-                state: BenchState::InstallFixture,
-                ..
-            })
-        ));
-        assert!(matches!(
-            owner.plan_connectivity_action(facts).unwrap(),
-            ConnectivityAction::InstallFixture { .. }
+            bench.next_action(facts).unwrap(),
+            ConnectivityAction::InstallFixture {
+                manual: false,
+                available_particles: 8,
+            }
         ));
     }
 
@@ -2072,6 +2076,216 @@ mod tests {
     }
 
     #[test]
+    fn failed_release_event_restores_the_ready_phase_for_retry() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Correct,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        bench.state = BenchState::Warmup {
+            ready_after_frame: 0,
+        };
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let request = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::RunReleaseEvent { mode } => ReleaseEventRequest { mode },
+            _ => panic!("ready correct-mode bench did not plan a release event"),
+        };
+
+        let error = bench
+            .apply_result(ConnectivityResult::ReleaseEventRun(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected release preflight failure"),
+                },
+            )))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("injected release preflight failure"));
+        assert_eq!(
+            bench.state,
+            BenchState::Warmup {
+                ready_after_frame: 0
+            }
+        );
+        assert!(matches!(
+            bench.next_action(facts).unwrap(),
+            ConnectivityAction::RunReleaseEvent {
+                mode: TerrainConnectivityBenchMode::Correct
+            }
+        ));
+    }
+
+    #[test]
+    fn failed_atomicity_validation_replans_the_same_component() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Bounded,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        let job = fixture_job();
+        let expected_component = job.component.clone();
+        bench.bounded_job = Some(job);
+        bench.state = BenchState::ValidateAtomicity {
+            release_frame: 19,
+            revision_before: 7,
+            snapshot_readback_us: 2.0,
+            classification_us: 3.0,
+        };
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let request = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::ValidateAtomicity {
+                bound,
+                component,
+                expected_available_particles,
+            } => AtomicityValidationRequest {
+                bound,
+                component,
+                expected_available_particles,
+            },
+            _ => panic!("validated topology did not plan an atomicity check"),
+        };
+
+        let error = bench
+            .apply_result(ConnectivityResult::AtomicityValidated(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected atomicity readback failure"),
+                },
+            )))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("injected atomicity readback failure"));
+        assert!(matches!(
+            bench.next_action(facts).unwrap(),
+            ConnectivityAction::ValidateAtomicity { component, .. }
+                if component == expected_component
+        ));
+    }
+
+    #[test]
+    fn failed_bounded_commit_returns_the_same_large_payload() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Bounded,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        bench.bounded_job = Some(fixture_job());
+        bench.state = BenchState::Commit {
+            release_frame: 19,
+            revision_before: 7,
+            snapshot_readback_us: 2.0,
+            classification_us: 3.0,
+            atomic_validation_us: 4.0,
+            sampling_us: 5.0,
+            staging_clear_us: 6.0,
+            sampled_voxels: 8,
+        };
+        let facts = ConnectivityFacts {
+            frame: 23,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let payload = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("commit phase did not move its payload into the action"),
+        };
+        let snapshot_address = payload.job.snapshot.as_ptr();
+
+        let error = bench
+            .apply_result(ConnectivityResult::BoundedCommitted(Err(
+                FailedConnectivityAction {
+                    request: payload,
+                    error: anyhow::anyhow!("injected bounded commit preflight failure"),
+                },
+            )))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("injected bounded commit preflight failure"));
+        let retried = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::CommitBounded(payload) => payload,
+            _ => panic!("failed bounded commit was not replanned"),
+        };
+        assert_eq!(retried.job.snapshot.as_ptr(), snapshot_address);
+    }
+
+    #[test]
+    fn failed_visual_spawn_returns_the_same_voxel_allocation() {
+        let mut bench = TerrainConnectivityBench::new(TerrainConnectivityBenchOptions {
+            mode: TerrainConnectivityBenchMode::Bounded,
+            available_particles: 8,
+            warmup_frames: 1,
+            observe_frames: 1,
+            voxel_budget: 8,
+        });
+        bench.state = BenchState::Observing { event_frame: 23 };
+        bench.pending_visual_voxels = Some(vec![(UVec3::new(1, 2, 3), 7)]);
+        let facts = ConnectivityFacts {
+            frame: 24,
+            visible_revision: 7,
+            contree_idle: true,
+            terrain_collider_pending: 0,
+            water_ready: true,
+            ddgi_ready: true,
+            available_particles: 8,
+        };
+        let request = match bench.next_action(facts).unwrap() {
+            ConnectivityAction::SpawnVisualVoxels { voxels } => VisualSpawnRequest { voxels },
+            _ => panic!("pending visual voxels were not moved into the action"),
+        };
+        let voxels_address = request.voxels.as_ptr();
+
+        let error = bench
+            .apply_result(ConnectivityResult::VisualVoxelsSpawned(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected visual capacity failure"),
+                },
+            )))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("injected visual capacity failure"));
+        assert!(matches!(
+            bench.next_action(facts).unwrap(),
+            ConnectivityAction::SpawnVisualVoxels { voxels }
+                if voxels.as_ptr() == voxels_address
+        ));
+    }
+
+    #[test]
     fn manual_release_is_planned_as_an_owned_app_execution() {
         let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
             TerrainConnectivityBenchOptions {
@@ -2094,17 +2308,25 @@ mod tests {
             })
             .unwrap();
 
-        assert!(matches!(
-            action,
-            ConnectivityAction::HandleManualRelease(ManualReleasePlan::Prepare {
-                frame: 41,
-                revision_before: 12,
-                ..
-            })
-        ));
-        let error = owner
-            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(anyhow::anyhow!(
-                "injected manual snapshot failure"
+        let request = match action {
+            ConnectivityAction::HandleManualRelease(
+                plan @ ManualReleasePlan::Prepare {
+                    frame: 41,
+                    revision_before: 12,
+                    ..
+                },
+            ) => plan,
+            _ => panic!("manual release did not plan an owned preparation"),
+        };
+        let ScenarioOwner::Connectivity(bench) = &mut owner else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        let error = bench
+            .apply_result(ConnectivityResult::ManualReleaseHandled(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected manual snapshot failure"),
+                },
             )))
             .unwrap_err();
         assert!(error
@@ -2150,18 +2372,25 @@ mod tests {
             visible_revision: 10,
         };
 
-        let action = owner.plan_completed_connectivity_frame(record).unwrap();
-
-        assert!(matches!(
-            action,
+        let request = match owner.plan_completed_connectivity_frame(record).unwrap() {
             ConnectivityAction::ObserveCompletedFrame {
-                expected_fixture_solids: Some(0),
-                ..
-            }
-        ));
-        let error = owner
-            .apply_connectivity_execution(ConnectivityExecution::failed_for_test(anyhow::anyhow!(
-                "injected fixture validation failure"
+                record,
+                expected_fixture_solids: Some(expected_fixture_solids),
+            } => CompletedFrameRequest {
+                record,
+                expected_fixture_solids: Some(expected_fixture_solids),
+            },
+            _ => panic!("completed frame did not plan fixture validation"),
+        };
+        let ScenarioOwner::Connectivity(bench) = &mut owner else {
+            panic!("test constructed the wrong scenario owner");
+        };
+        let error = bench
+            .apply_result(ConnectivityResult::CompletedFrameObserved(Err(
+                FailedConnectivityAction {
+                    request,
+                    error: anyhow::anyhow!("injected fixture validation failure"),
+                },
             )))
             .unwrap_err();
         assert!(error
