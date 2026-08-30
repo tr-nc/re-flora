@@ -1201,7 +1201,7 @@ mod tests {
                     DenoiserReadbackOutcome::Frame(DenoiserFrame::new(1, 1, vec![0; 4])),
                 ))
                 .expect_err("writing a report over an existing directory must fail");
-        assert!(error.to_string().contains("write denoiser report"));
+        assert!(error.to_string().contains("publish denoiser report"));
         let DenoiserFrameCommand::Camera(command) = owners.begin_denoiser_frame() else {
             panic!("camera benchmark owner became inactive")
         };

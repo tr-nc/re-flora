@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -74,9 +75,7 @@ struct DenoiserBenchReport<'a> {
     transitions: &'a [TransitionMetrics],
 }
 
-#[derive(Clone)]
 struct CapturedKeyframe {
-    frame: u32,
     label: &'static str,
     width: u32,
     height: u32,
@@ -91,7 +90,6 @@ struct AnalysisRegion {
     height: u32,
 }
 
-#[derive(Clone)]
 pub(super) struct DenoiserBench {
     capture: DenoiserCaptureOptions,
     mode: DenoiserMode,
@@ -111,6 +109,69 @@ pub(super) struct DenoiserBench {
     luma_sequence_path: String,
     structure_luma_sequence_path: String,
     capture_started: Option<Instant>,
+}
+
+struct PreparedDenoiserFrame {
+    delta: DenoiserFrameDelta,
+    report_publication: Option<ReportPublication>,
+    complete: bool,
+}
+
+impl PreparedDenoiserFrame {
+    #[cfg(test)]
+    fn report_publication_mut(&mut self) -> Option<&mut ReportPublication> {
+        self.report_publication.as_mut()
+    }
+}
+
+struct DenoiserFrameDelta {
+    source_width: u32,
+    source_height: u32,
+    analysis_region: AnalysisRegion,
+    structure_analysis_region: Option<AnalysisRegion>,
+    current_luma: Vec<u8>,
+    structure_luma: Vec<u8>,
+    transition: Option<TransitionMetrics>,
+    keyframe: Option<CapturedKeyframe>,
+    capture_started: Option<Instant>,
+}
+
+struct ReportPublication {
+    staging_directory: Option<tempfile::TempDir>,
+    staged_artifacts: Vec<StagedDenoiserArtifact>,
+    final_artifact_directory: PathBuf,
+    staged_report: Option<tempfile::NamedTempFile>,
+    staged_report_fingerprint: FileFingerprint,
+    report_path: PathBuf,
+    published_paths: PublishedDenoiserPaths,
+}
+
+impl ReportPublication {
+    #[cfg(test)]
+    fn first_staged_artifact_path(&self) -> &Path {
+        &self
+            .staged_artifacts
+            .first()
+            .expect("foliage report must stage at least one artifact")
+            .staged_path
+    }
+}
+
+struct StagedDenoiserArtifact {
+    staged_path: PathBuf,
+    fingerprint: FileFingerprint,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileFingerprint {
+    byte_len: u64,
+    hash: u64,
+}
+
+struct PublishedDenoiserPaths {
+    luma_sequence_path: String,
+    structure_luma_sequence_path: String,
+    keyframe_paths: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -492,13 +553,11 @@ impl DenoiserBench {
     }
 
     pub(super) fn record_frame(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<bool> {
-        let mut staged = self.clone();
-        let complete = staged.record_frame_in_place(width, height, rgba)?;
-        *self = staged;
-        Ok(complete)
+        let prepared = self.prepare_frame(width, height, rgba)?;
+        self.publish_and_commit(prepared)
     }
 
-    fn record_frame_in_place(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<bool> {
+    fn prepare_frame(&self, width: u32, height: u32, rgba: &[u8]) -> Result<PreparedDenoiserFrame> {
         let expected_len = width as usize * height as usize * 4;
         anyhow::ensure!(
             rgba.len() == expected_len,
@@ -510,25 +569,7 @@ impl DenoiserBench {
         );
         let analysis_region = analysis_region(self.mode, width, height);
         let structure_analysis_region = foliage_structure_analysis_region(self.mode, width, height);
-        if self.captured_frames == 0 {
-            self.source_width = width;
-            self.source_height = height;
-            self.analysis_region = Some(analysis_region);
-            self.structure_analysis_region = structure_analysis_region;
-            self.capture_started = Some(Instant::now());
-            log::info!(
-                "[DENOISER_BENCH] warmup complete scene={} after {} presented frames; capturing {} frames at {}x{} analysis={}x{}+{},{}",
-                self.mode.label(),
-                self.presented_frames,
-                self.capture.capture_frames,
-                width,
-                height,
-                analysis_region.width,
-                analysis_region.height,
-                analysis_region.x,
-                analysis_region.y,
-            );
-        } else {
+        if self.captured_frames != 0 {
             anyhow::ensure!(
                 (width, height) == (self.source_width, self.source_height),
                 "benchmark extent changed from {}x{} to {}x{}",
@@ -547,83 +588,261 @@ impl DenoiserBench {
             );
         }
 
-        if self.mode.has_scripted_camera_motion() || self.mode.is_foliage_shadow() {
-            if let Some(label) = keyframe_label(self.captured_frames, self.capture.capture_frames) {
-                self.keyframes.push(CapturedKeyframe {
-                    frame: self.captured_frames,
+        let keyframe = if self.mode.has_scripted_camera_motion() || self.mode.is_foliage_shadow() {
+            keyframe_label(self.captured_frames, self.capture.capture_frames).map(|label| {
+                CapturedKeyframe {
                     label,
                     width,
                     height,
                     rgba: rgba.to_vec(),
-                });
-            }
-        }
+                }
+            })
+        } else {
+            None
+        };
 
         let current_luma = rgba_region_to_luma(rgba, width, analysis_region);
-        if self.mode.is_foliage_shadow() {
-            self.captured_luma.extend_from_slice(&current_luma);
+        let structure_luma = if self.mode.is_foliage_shadow() {
             let structure_region = structure_analysis_region
                 .context("foliage shadow benchmark requires a structure analysis region")?;
             let structure_luma = rgba_region_to_luma(rgba, width, structure_region);
-            self.captured_structure_luma.extend(box_downsample_luma(
+            box_downsample_luma(
                 &structure_luma,
                 structure_region.width,
                 structure_region.height,
                 FOLIAGE_STRUCTURE_SAMPLE_SCALE,
-            ));
-        }
-        if self.luma_sum.is_empty() {
-            self.luma_sum.resize(current_luma.len(), 0);
-        }
-        for (sum, &luma) in self.luma_sum.iter_mut().zip(&current_luma) {
-            *sum += u32::from(luma);
-        }
-        if let Some(previous_luma) = &self.previous_luma {
-            self.transitions.push(analyze_transition(
+            )
+        } else {
+            Vec::new()
+        };
+        let transition = self.previous_luma.as_ref().map(|previous_luma| {
+            analyze_transition(
                 previous_luma,
                 &current_luma,
                 self.captured_frames - 1,
                 self.captured_frames,
-            ));
-        }
-        self.previous_luma = Some(current_luma);
-        self.captured_frames += 1;
-
-        if self.captured_frames == self.capture.capture_frames {
-            self.write_report()?;
-            return Ok(true);
-        }
-        Ok(false)
+            )
+        });
+        let delta = DenoiserFrameDelta {
+            source_width: width,
+            source_height: height,
+            analysis_region,
+            structure_analysis_region,
+            current_luma,
+            structure_luma,
+            transition,
+            keyframe,
+            capture_started: (self.captured_frames == 0).then(Instant::now),
+        };
+        let complete = self.captured_frames + 1 == self.capture.capture_frames;
+        let report_publication = complete
+            .then(|| self.stage_report_publication(&delta))
+            .transpose()?;
+        Ok(PreparedDenoiserFrame {
+            delta,
+            report_publication,
+            complete,
+        })
     }
 
     pub(super) fn record_completed_frame(&mut self, frame: DenoiserFrame) -> Result<bool> {
         self.record_frame(frame.width, frame.height, &frame.rgba)
     }
 
-    fn write_report(&mut self) -> Result<()> {
-        self.luma_sequence_path = self.write_luma_sequence()?;
-        self.structure_luma_sequence_path = self.write_structure_luma_sequence()?;
-        self.keyframe_paths = self
-            .keyframes
-            .iter()
-            .map(|keyframe| {
-                let path = self.write_keyframe(keyframe)?;
-                Ok(path.display().to_string())
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let analysis_region = self
-            .analysis_region
-            .context("benchmark completed without an analysis region")?;
+    fn publish_and_commit(&mut self, mut prepared: PreparedDenoiserFrame) -> Result<bool> {
+        let published_paths = prepared
+            .report_publication
+            .take()
+            .map(ReportPublication::publish)
+            .transpose()?;
+        let complete = prepared.complete;
+        self.commit_prepared_frame(prepared.delta, published_paths);
+        Ok(complete)
+    }
+
+    fn commit_prepared_frame(
+        &mut self,
+        delta: DenoiserFrameDelta,
+        published_paths: Option<PublishedDenoiserPaths>,
+    ) {
+        if self.captured_frames == 0 {
+            self.source_width = delta.source_width;
+            self.source_height = delta.source_height;
+            self.analysis_region = Some(delta.analysis_region);
+            self.structure_analysis_region = delta.structure_analysis_region;
+            self.capture_started = delta.capture_started;
+            log::info!(
+                "[DENOISER_BENCH] warmup complete scene={} after {} presented frames; capturing {} frames at {}x{} analysis={}x{}+{},{}",
+                self.mode.label(),
+                self.presented_frames,
+                self.capture.capture_frames,
+                delta.source_width,
+                delta.source_height,
+                delta.analysis_region.width,
+                delta.analysis_region.height,
+                delta.analysis_region.x,
+                delta.analysis_region.y,
+            );
+        }
+        if self.mode.is_foliage_shadow() {
+            self.captured_luma.extend_from_slice(&delta.current_luma);
+            self.captured_structure_luma
+                .extend_from_slice(&delta.structure_luma);
+        }
+        if self.luma_sum.is_empty() {
+            self.luma_sum.resize(delta.current_luma.len(), 0);
+        }
+        for (sum, &luma) in self.luma_sum.iter_mut().zip(&delta.current_luma) {
+            *sum += u32::from(luma);
+        }
+        if let Some(transition) = delta.transition {
+            self.transitions.push(transition);
+        }
+        if let Some(keyframe) = delta.keyframe {
+            self.keyframes.push(keyframe);
+        }
+        self.previous_luma = Some(delta.current_luma);
+        self.captured_frames += 1;
+
+        if let Some(paths) = published_paths {
+            self.luma_sequence_path = paths.luma_sequence_path;
+            self.structure_luma_sequence_path = paths.structure_luma_sequence_path;
+            self.keyframe_paths = paths.keyframe_paths;
+            let analysis_region = self
+                .analysis_region
+                .expect("published denoiser frame must retain its analysis region");
+            let aggregate = aggregate_metrics(
+                &self.transitions,
+                mean_frame_spatial_gradient(
+                    &self.luma_sum,
+                    analysis_region.width,
+                    analysis_region.height,
+                    self.captured_frames,
+                ),
+            );
+            log::info!(
+                "[DENOISER_BENCH] complete mode=raw scene={} camera_motion={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} keyframes={} report={}",
+                self.mode.label(),
+                self.mode.has_scripted_camera_motion(),
+                self.transitions.len(),
+                aggregate.mean_abs_luma_delta_8bit,
+                aggregate.mean_p95_abs_luma_delta_8bit,
+                aggregate.mean_p99_abs_luma_delta_8bit,
+                aggregate.mean_noticeable_pixel_ratio,
+                self.keyframe_paths.len(),
+                self.capture.report_path,
+            );
+        }
+    }
+
+    fn stage_report_publication(&self, delta: &DenoiserFrameDelta) -> Result<ReportPublication> {
+        let report_path = PathBuf::from(&self.capture.report_path);
+        let report_parent = report_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(report_parent).with_context(|| {
+            format!(
+                "create benchmark report directory {}",
+                report_parent.display()
+            )
+        })?;
+        let staging_directory = tempfile::Builder::new()
+            .prefix(".denoiser-stage-")
+            .tempdir_in(report_parent)
+            .context("create denoiser report staging directory")?;
+        let generation = staging_directory
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("generation")
+            .trim_start_matches(".denoiser-stage-");
+        let report_stem = report_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("denoiser-bench");
+        let final_artifact_directory =
+            report_path.with_file_name(format!("{report_stem}.artifacts-{generation}"));
+        anyhow::ensure!(
+            !final_artifact_directory.exists(),
+            "denoiser artifact generation already exists: {}",
+            final_artifact_directory.display()
+        );
+
+        let mut staged_artifacts = Vec::new();
+        let mut luma_sequence_path = String::new();
+        let mut structure_luma_sequence_path = String::new();
+        if self.mode.is_foliage_shadow() {
+            let staged_path = staging_directory.path().join("receiver-luma-u8.bin");
+            write_chunks(
+                &staged_path,
+                [&self.captured_luma[..], &delta.current_luma[..]],
+            )?;
+            luma_sequence_path = final_artifact_directory
+                .join("receiver-luma-u8.bin")
+                .display()
+                .to_string();
+            staged_artifacts.push(StagedDenoiserArtifact::capture(staged_path)?);
+
+            let staged_path = staging_directory.path().join("structure-luma-u8.bin");
+            write_chunks(
+                &staged_path,
+                [&self.captured_structure_luma[..], &delta.structure_luma[..]],
+            )?;
+            structure_luma_sequence_path = final_artifact_directory
+                .join("structure-luma-u8.bin")
+                .display()
+                .to_string();
+            staged_artifacts.push(StagedDenoiserArtifact::capture(staged_path)?);
+        }
+
+        let mut keyframe_paths = Vec::new();
+        for keyframe in self.keyframes.iter().chain(delta.keyframe.iter()) {
+            let file_name = format!("frame-{}.png", keyframe.label);
+            let staged_path = staging_directory.path().join(&file_name);
+            image::save_buffer(
+                &staged_path,
+                &keyframe.rgba,
+                keyframe.width,
+                keyframe.height,
+                image::ColorType::Rgba8,
+            )
+            .with_context(|| format!("stage benchmark keyframe {}", staged_path.display()))?;
+            fs::File::open(&staged_path)
+                .and_then(|file| file.sync_all())
+                .with_context(|| format!("sync benchmark keyframe {}", staged_path.display()))?;
+            keyframe_paths.push(
+                final_artifact_directory
+                    .join(file_name)
+                    .display()
+                    .to_string(),
+            );
+            staged_artifacts.push(StagedDenoiserArtifact::capture(staged_path)?);
+        }
+
+        let captured_frames = self.captured_frames + 1;
+        let mut prospective_luma_sum = if self.luma_sum.is_empty() {
+            vec![0; delta.current_luma.len()]
+        } else {
+            self.luma_sum.clone()
+        };
+        for (sum, &luma) in prospective_luma_sum.iter_mut().zip(&delta.current_luma) {
+            *sum += u32::from(luma);
+        }
+        let mut prospective_transitions = self.transitions.clone();
+        if let Some(transition) = &delta.transition {
+            prospective_transitions.push(transition.clone());
+        }
         let aggregate = aggregate_metrics(
-            &self.transitions,
+            &prospective_transitions,
             mean_frame_spatial_gradient(
-                &self.luma_sum,
-                analysis_region.width,
-                analysis_region.height,
-                self.captured_frames,
+                &prospective_luma_sum,
+                delta.analysis_region.width,
+                delta.analysis_region.height,
+                captured_frames,
             ),
         );
-        let structure_region = self.structure_analysis_region.unwrap_or(AnalysisRegion {
+        let structure_region = delta.structure_analysis_region.unwrap_or(AnalysisRegion {
             x: 0,
             y: 0,
             width: 0,
@@ -634,15 +853,15 @@ impl DenoiserBench {
         let report = DenoiserBenchReport {
             version: REPORT_VERSION,
             scene: self.mode.label(),
-            source_width: self.source_width,
-            source_height: self.source_height,
-            analysis_x: analysis_region.x,
-            analysis_y: analysis_region.y,
-            width: analysis_region.width,
-            height: analysis_region.height,
+            source_width: delta.source_width,
+            source_height: delta.source_height,
+            analysis_x: delta.analysis_region.x,
+            analysis_y: delta.analysis_region.y,
+            width: delta.analysis_region.width,
+            height: delta.analysis_region.height,
             warmup_frames: self.capture.warmup_frames,
-            captured_frames: self.captured_frames,
-            transition_count: self.transitions.len(),
+            captured_frames,
+            transition_count: prospective_transitions.len(),
             noticeable_delta_threshold_8bit: NOTICEABLE_DELTA_8BIT,
             fresh_samples: false,
             camera_motion: self.mode.has_scripted_camera_motion(),
@@ -664,11 +883,13 @@ impl DenoiserBench {
             fixed_animation_step_seconds: self.fixed_frame_delta_seconds().unwrap_or(0.0),
             capture_seconds: self
                 .capture_started
+                .or(delta.capture_started)
                 .map(|started| started.elapsed().as_secs_f64())
                 .unwrap_or_default(),
             aggregate,
-            luma_sequence_path: &self.luma_sequence_path,
-            luma_frame_bytes: analysis_region.width as usize * analysis_region.height as usize,
+            luma_sequence_path: &luma_sequence_path,
+            luma_frame_bytes: delta.analysis_region.width as usize
+                * delta.analysis_region.height as usize,
             structure_analysis_x: structure_region.x,
             structure_analysis_y: structure_region.y,
             structure_analysis_width: structure_region.width,
@@ -680,132 +901,143 @@ impl DenoiserBench {
             },
             structure_sample_width,
             structure_sample_height,
-            structure_luma_sequence_path: &self.structure_luma_sequence_path,
+            structure_luma_sequence_path: &structure_luma_sequence_path,
             structure_luma_frame_bytes: structure_sample_width as usize
                 * structure_sample_height as usize,
-            keyframe_paths: &self.keyframe_paths,
-            transitions: &self.transitions,
+            keyframe_paths: &keyframe_paths,
+            transitions: &prospective_transitions,
         };
         let serialized = toml::to_string_pretty(&report).context("serialize denoiser report")?;
-        let path = Path::new(&self.capture.report_path);
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("create benchmark report directory {}", parent.display())
-            })?;
+        let mut staged_report = tempfile::Builder::new()
+            .prefix(".denoiser-report-")
+            .tempfile_in(report_parent)
+            .context("create staged denoiser report")?;
+        staged_report
+            .write_all(serialized.as_bytes())
+            .context("write staged denoiser report")?;
+        staged_report
+            .as_file_mut()
+            .sync_all()
+            .context("sync staged denoiser report")?;
+        let staged_report_fingerprint = file_fingerprint(staged_report.path())?;
+
+        Ok(ReportPublication {
+            staging_directory: Some(staging_directory),
+            staged_artifacts,
+            final_artifact_directory,
+            staged_report: Some(staged_report),
+            staged_report_fingerprint,
+            report_path,
+            published_paths: PublishedDenoiserPaths {
+                luma_sequence_path,
+                structure_luma_sequence_path,
+                keyframe_paths,
+            },
+        })
+    }
+}
+
+impl StagedDenoiserArtifact {
+    fn capture(staged_path: PathBuf) -> Result<Self> {
+        Ok(Self {
+            fingerprint: file_fingerprint(&staged_path)?,
+            staged_path,
+        })
+    }
+}
+
+impl ReportPublication {
+    fn validate(&self) -> Result<()> {
+        for artifact in &self.staged_artifacts {
+            anyhow::ensure!(
+                file_fingerprint(&artifact.staged_path)? == artifact.fingerprint,
+                "staged denoiser artifact changed before publication: {}",
+                artifact.staged_path.display()
+            );
         }
-        fs::write(path, serialized)
-            .with_context(|| format!("write denoiser report {}", path.display()))?;
-        log::info!(
-            "[DENOISER_BENCH] complete mode=raw scene={} camera_motion={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} keyframes={} report={}",
-            self.mode.label(),
-            self.mode.has_scripted_camera_motion(),
-            self.transitions.len(),
-            report.aggregate.mean_abs_luma_delta_8bit,
-            report.aggregate.mean_p95_abs_luma_delta_8bit,
-            report.aggregate.mean_p99_abs_luma_delta_8bit,
-            report.aggregate.mean_noticeable_pixel_ratio,
-            self.keyframe_paths.len(),
-            path.display()
+        let staged_report = self
+            .staged_report
+            .as_ref()
+            .context("staged denoiser report was already consumed")?;
+        anyhow::ensure!(
+            file_fingerprint(staged_report.path())? == self.staged_report_fingerprint,
+            "staged denoiser report changed before publication: {}",
+            staged_report.path().display()
         );
         Ok(())
     }
 
-    fn write_luma_sequence(&self) -> Result<String> {
-        if !self.mode.is_foliage_shadow() {
-            return Ok(String::new());
-        }
-        let report_path = Path::new(&self.capture.report_path);
-        let report_stem = report_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("denoiser-bench");
-        let path = report_path.with_file_name(format!("{report_stem}.receiver-luma-u8.bin"));
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
+    fn publish(mut self) -> Result<PublishedDenoiserPaths> {
+        self.validate()?;
+        let staging_directory = self
+            .staging_directory
+            .take()
+            .context("denoiser artifact staging directory was already consumed")?;
+        fs::rename(staging_directory.path(), &self.final_artifact_directory).with_context(
+            || {
                 format!(
-                    "create benchmark luma sequence directory {}",
-                    parent.display()
+                    "publish denoiser artifacts {}",
+                    self.final_artifact_directory.display()
+                )
+            },
+        )?;
+        drop(staging_directory);
+
+        let staged_report = self
+            .staged_report
+            .take()
+            .context("staged denoiser report was already consumed")?;
+        if let Err(error) = staged_report.persist(&self.report_path) {
+            let publish_error = error.error;
+            drop(error.file);
+            fs::remove_dir_all(&self.final_artifact_directory).with_context(|| {
+                format!(
+                    "remove unpublished denoiser artifacts {} after report failure {publish_error}",
+                    self.final_artifact_directory.display()
                 )
             })?;
+            return Err(anyhow::anyhow!(
+                "publish denoiser report {}: {publish_error}",
+                self.report_path.display()
+            ));
         }
-        fs::write(&path, &self.captured_luma)
-            .with_context(|| format!("write benchmark luma sequence {}", path.display()))?;
-        log::info!(
-            "[DENOISER_BENCH] retained receiver luma sequence bytes={} path={}",
-            self.captured_luma.len(),
-            path.display(),
-        );
-        Ok(path.display().to_string())
+        Ok(self.published_paths)
     }
+}
 
-    fn write_structure_luma_sequence(&self) -> Result<String> {
-        if !self.mode.is_foliage_shadow() {
-            return Ok(String::new());
-        }
-        let report_path = Path::new(&self.capture.report_path);
-        let report_stem = report_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("denoiser-bench");
-        let path = report_path.with_file_name(format!("{report_stem}.structure-luma-u8.bin"));
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!(
-                    "create benchmark structure luma directory {}",
-                    parent.display()
-                )
-            })?;
-        }
-        fs::write(&path, &self.captured_structure_luma).with_context(|| {
-            format!("write benchmark structure luma sequence {}", path.display())
-        })?;
-        log::info!(
-            "[DENOISER_BENCH] retained structure luma sequence bytes={} path={}",
-            self.captured_structure_luma.len(),
-            path.display(),
-        );
-        Ok(path.display().to_string())
+fn write_chunks<'a>(path: &Path, chunks: impl IntoIterator<Item = &'a [u8]>) -> Result<()> {
+    let mut file = fs::File::create(path)
+        .with_context(|| format!("create staged denoiser artifact {}", path.display()))?;
+    for chunk in chunks {
+        file.write_all(chunk)
+            .with_context(|| format!("write staged denoiser artifact {}", path.display()))?;
     }
+    file.sync_all()
+        .with_context(|| format!("sync staged denoiser artifact {}", path.display()))
+}
 
-    fn write_keyframe(&self, keyframe: &CapturedKeyframe) -> Result<PathBuf> {
-        let report_path = Path::new(&self.capture.report_path);
-        let report_stem = report_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("denoiser-bench");
-        let path =
-            report_path.with_file_name(format!("{report_stem}.frame-{}.png", keyframe.label));
-        if let Some(parent) = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("create benchmark keyframe directory {}", parent.display())
-            })?;
+fn file_fingerprint(path: &Path) -> Result<FileFingerprint> {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("open staged denoiser file {}", path.display()))?;
+    let mut buffer = [0u8; 64 * 1024];
+    let mut byte_len = 0u64;
+    let mut hash = FNV_OFFSET;
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("hash staged denoiser file {}", path.display()))?;
+        if read == 0 {
+            break;
         }
-        let image =
-            image::RgbaImage::from_raw(keyframe.width, keyframe.height, keyframe.rgba.clone())
-                .context("construct benchmark keyframe image")?;
-        image
-            .save(&path)
-            .with_context(|| format!("write benchmark keyframe {}", path.display()))?;
-        log::info!(
-            "[DENOISER_BENCH] retained keyframe frame={} label={} path={}",
-            keyframe.frame,
-            keyframe.label,
-            path.display()
-        );
-        Ok(path)
+        byte_len += read as u64;
+        for byte in &buffer[..read] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
     }
+    Ok(FileFingerprint { byte_len, hash })
 }
 
 fn keyframe_label(frame: u32, frame_count: u32) -> Option<&'static str> {
@@ -1081,6 +1313,31 @@ mod tests {
         assert!(bench.previous_luma.is_none());
         assert!(bench.keyframes.is_empty());
         assert!(directory_entries(output.path()).is_empty());
+    }
+
+    #[test]
+    fn successful_report_manifest_publishes_one_complete_artifact_generation() {
+        let output = tempfile::tempdir().unwrap();
+        let report_path = output.path().join("report.toml");
+        let mut bench = foliage_bench(&report_path);
+
+        assert!(bench.record_frame(64, 64, &vec![112; 64 * 64 * 4]).unwrap());
+
+        assert_eq!(bench.captured_frames, 1);
+        assert_eq!(bench.keyframes.len(), 1);
+        let serialized = std::fs::read_to_string(&report_path).unwrap();
+        let report: toml::Value = toml::from_str(&serialized).unwrap();
+        for key in ["luma_sequence_path", "structure_luma_sequence_path"] {
+            let path = std::path::Path::new(report[key].as_str().unwrap());
+            assert!(path.is_file(), "published report path is missing: {path:?}");
+        }
+        for path in report["keyframe_paths"].as_array().unwrap() {
+            assert!(std::path::Path::new(path.as_str().unwrap()).is_file());
+        }
+        let entries = directory_entries(output.path());
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1], "report.toml");
+        assert!(entries[0].starts_with("report.artifacts-"));
     }
 
     fn foliage_bench(report_path: &std::path::Path) -> DenoiserBench {
