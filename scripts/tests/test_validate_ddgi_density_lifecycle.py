@@ -5,10 +5,8 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.ddgi_evidence.validation import (
-    DensityLifecycleError,
-    validate_density_lifecycle,
-)
+from scripts.ddgi_evidence.model import ScenarioValidation, ValidateScenarioLog
+from scripts.ddgi_evidence.validation import DensityLifecycleError, validate_scenario_log
 
 
 @dataclass(frozen=True)
@@ -187,7 +185,13 @@ class ValidateDdgiDensityLifecycleTests(unittest.TestCase):
                 )
                 + "\n"
             )
-            return validate_density_lifecycle(console)
+            return validate_scenario_log(
+                ValidateScenarioLog(
+                    ScenarioValidation.DENSITY_STREAM,
+                    console,
+                    32,
+                )
+            )
 
     def test_accepts_one_strict_owner_lineage(self) -> None:
         result = self.validate(valid_events())
