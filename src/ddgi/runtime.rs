@@ -1835,7 +1835,7 @@ impl DdgiRuntime {
         let work = DdgiFrameWork {
             serial: self.next_frame_work_serial,
             plan,
-            builder: builder.frame_identity(),
+            builder: self.volumes().builder_frame_identity(),
         };
         self.next_frame_work_serial = self.next_frame_work_serial.saturating_add(1);
         self.pending_frame_work_serial = Some(work.serial);
@@ -1855,7 +1855,7 @@ impl DdgiRuntime {
             "stale or out-of-order DDGI frame work completion"
         );
         anyhow::ensure!(
-            self.volumes().builder().frame_identity() == work.builder,
+            self.volumes().builder_frame_identity() == work.builder,
             "DDGI encoded frame no longer owns its exact builder"
         );
         self.pending_frame_work_serial = None;

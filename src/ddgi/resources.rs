@@ -44,6 +44,7 @@ fn next_ddgi_volume_allocation_id() -> u64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct DdgiVolumeFrameIdentity {
     allocation_id: u64,
+    is_staging: bool,
     build_token: Option<DdgiBuildToken>,
     scheduled_work: Option<DdgiScheduledWork>,
     complete_field: Option<DdgiFieldIdentity>,
@@ -1769,6 +1770,10 @@ impl DdgiVolumes {
         self.staging.is_none()
     }
 
+    pub(super) fn builder_frame_identity(&self) -> DdgiVolumeFrameIdentity {
+        self.builder().frame_identity(self.staging.is_some())
+    }
+
     /// Installs a new builder target while returning the previous staging volume, if any.
     /// The caller must rebind builder descriptors before dropping the returned volume.
     pub(super) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
@@ -2303,10 +2308,11 @@ impl DdgiVolume {
         }
     }
 
-    pub(super) fn frame_identity(&self) -> DdgiVolumeFrameIdentity {
+    fn frame_identity(&self, is_staging: bool) -> DdgiVolumeFrameIdentity {
         let status = self.status();
         DdgiVolumeFrameIdentity {
             allocation_id: self.allocation_id,
+            is_staging,
             build_token: status.build_token,
             scheduled_work: status.scheduled_work,
             complete_field: status.complete_field,
