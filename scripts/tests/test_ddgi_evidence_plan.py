@@ -17,6 +17,7 @@ from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
     BuildRelease,
     Capture,
+    Claim,
     FailureKey,
     ProductionAnalyzerOptions,
     ReleaseBuildIdentity,
@@ -178,74 +179,56 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             sum(command.kind == "analysis" for command in host.commands), 0
         )
 
-    def test_transport_claims_are_emitted_only_after_their_required_stages(self) -> None:
-        class SelectiveFailureHost(RecordingHost):
-            def __init__(self, failed_suite: Suite, failed_scenario: str = "") -> None:
-                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
-                self.failed_suite = failed_suite
-                self.failed_scenario = failed_scenario
-
-            def capture(self, action, repo_root):
-                recorded = super().capture(action, repo_root)
-                if action.suite is self.failed_suite and (
-                    not self.failed_scenario
-                    or action.scenario == self.failed_scenario
-                ):
-                    return ActionResult(False, "selected fixture failure")
-                return recorded
-
+    def test_transport_claims_require_prior_typed_evidence_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             execution_plan = plan(
                 self.request(Suite.TRANSPORT, Path(temporary))
             )
-            dogleg = execute(
-                execution_plan,
-                SelectiveFailureHost(Suite.TRANSPORT, "dogleg"),
-            )
-            runtime = execute(
-                execution_plan,
-                SelectiveFailureHost(Suite.RUNTIME_TERRAIN_EDITS),
-            )
+        claims = {
+            stage.id: stage
+            for stage in execution_plan.stages
+            if isinstance(stage, Claim)
+        }
+        self.assertEqual(
+            claims["transport.filter-history-outcome"].requires,
+            (
+                "transport.dogleg.32.e0.forward",
+                "transport.dogleg.32.e1.forward",
+                "transport.dogleg.16.e0.forward",
+                "transport.dogleg.16.e1.forward",
+            ),
+        )
+        self.assertEqual(
+            claims["transport.direct-sun"].requires,
+            ("transport.include.runtime",),
+        )
+        self.assertEqual(
+            claims["transport.filter-history-action"].requires[-5:],
+            (
+                "transport.convergence",
+                "transport.include.correctness",
+                "transport.include.runtime",
+                "transport.sky-normalization",
+                "transport.include.lifecycle",
+            ),
+        )
 
-        self.assertFalse(
-            any("filter-history-outcome=ACCEPTED" in claim for claim in dogleg.claims)
-        )
-        self.assertFalse(
-            any("=PROVEN" in claim for claim in dogleg.claims),
-            dogleg.claims,
-        )
-        self.assertTrue(
-            any("filter-history-outcome=ACCEPTED" in claim for claim in runtime.claims)
-        )
-        self.assertFalse(
-            any("direct-sun-framebuffer=PROVEN" in claim for claim in runtime.claims)
-        )
-        self.assertFalse(
-            any("filter-history-action=PROVEN" in claim for claim in runtime.claims)
-        )
+        prior_stage_ids: set[str] = set()
+        for stage in execution_plan.stages:
+            if isinstance(stage, Claim):
+                self.assertLessEqual(set(stage.requires), prior_stage_ids)
+            prior_stage_ids.add(stage.id)
 
     def test_direct_sun_proof_keeps_its_pre_normalization_order(self) -> None:
-        class OrderedHost(RecordingHost):
-            def __init__(self) -> None:
-                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
-                self.events: list[str] = []
-
-            def check_sky(self, action, repo_root):
-                self.events.append("sky-normalization")
-                return super().check_sky(action, repo_root)
-
-            def emit(self, message, *, error=False):
-                if "direct-sun-framebuffer=PROVEN" in message:
-                    self.events.append("direct-sun-proof")
-                return super().emit(message, error=error)
-
         with tempfile.TemporaryDirectory() as temporary:
-            host = OrderedHost()
-            execute(plan(self.request(Suite.TRANSPORT, Path(temporary))), host)
+            execution_plan = plan(
+                self.request(Suite.TRANSPORT, Path(temporary))
+            )
+        stage_ids = tuple(stage.id for stage in execution_plan.stages)
 
         self.assertLess(
-            host.events.index("direct-sun-proof"),
-            host.events.index("sky-normalization"),
+            stage_ids.index("transport.direct-sun"),
+            stage_ids.index("transport.sky-normalization"),
         )
 
     def test_transport_folds_a_failed_include_and_retains_nested_details(self) -> None:

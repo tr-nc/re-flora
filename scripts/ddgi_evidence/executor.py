@@ -58,6 +58,8 @@ class _ExecutionContext:
 class RecordingHost:
     """Zero-side-effect adapter that records the production plan's exact argv."""
 
+    issues_production_evidence = False
+
     def __init__(self, *, stdout=None, stderr=None) -> None:
         self.commands: list[CommandRecord] = []
         self.stdout = stdout or sys.stdout
@@ -81,16 +83,17 @@ class RecordingHost:
 
     def validate_scenario(self, action: ValidateScenarioLog) -> ActionResult:
         self._record("scenario-validation", ())
+        fact_names = (
+            "field_serial",
+            "source_field_serial",
+            "geometry_revision",
+            "build_token_serial",
+            "obsolete_density_token_serial",
+            "active_revision",
+        )
         return ActionResult(
             True,
-            facts={
-                "field_serial": "1",
-                "source_field_serial": "1",
-                "geometry_revision": "1",
-                "build_token_serial": "1",
-                "obsolete_density_token_serial": "1",
-                "active_revision": "1",
-            },
+            facts={name: f"{{dry-run:{name}}}" for name in fact_names},
         )
 
     def analyze(
@@ -162,6 +165,8 @@ class RecordingHost:
 
 class SubprocessHost(RecordingHost):
     """Production adapter. Every process launch uses argv with ``shell=False``."""
+
+    issues_production_evidence = True
 
     def prepare(self, run_dir: Path) -> ActionResult:
         try:
@@ -391,8 +396,13 @@ def _execute(
             stage_status[stage.id] = nested.succeeded
             continue
         if isinstance(stage, Claim):
-            accepted = not failures and all(
-                stage_status.get(required, False) for required in stage.requires
+            accepted = (
+                host.issues_production_evidence
+                and not execution_plan.request.dry_run
+                and not failures
+                and all(
+                    stage_status.get(required, False) for required in stage.requires
+                )
             )
             stage_status[stage.id] = accepted
             if accepted:
