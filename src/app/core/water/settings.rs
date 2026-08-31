@@ -10,21 +10,21 @@ pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct WaterRuntimeOverrides {
-    profile: Option<PondWaterConfig>,
+    baseline: Option<PondWaterConfig>,
     plan: WaterPlan,
 }
 
 impl WaterRuntimeOverrides {
-    pub(in crate::app::core) fn from_plan(
-        plan: WaterPlan,
-        profile: Option<PondWaterConfig>,
-    ) -> Self {
-        Self { profile, plan }
+    fn from_plan(plan: WaterPlan) -> Self {
+        Self {
+            baseline: None,
+            plan,
+        }
     }
 
     pub(super) fn apply(&self, config: &mut PondWaterConfig) {
-        if let Some(profile) = &self.profile {
-            *config = profile.clone();
+        if let Some(baseline) = &self.baseline {
+            *config = baseline.clone();
         }
         if let Some(particle_count) = self.plan.particles {
             *config = config.clone().with_particle_count(particle_count);
@@ -92,24 +92,7 @@ impl WaterLaunchRequest {
         cells_per_unit: f32,
     ) -> Self {
         let profile = plan.profile;
-        Self::from_launch_facts(
-            profile,
-            experience,
-            persisted_gui,
-            world_extent,
-            cells_per_unit,
-            WaterRuntimeOverrides::from_plan(plan, None),
-        )
-    }
-
-    fn from_launch_facts(
-        profile: Option<crate::WaterProfilePreference>,
-        experience: bool,
-        persisted_gui: &GuiAdjustables,
-        world_extent: Vec3,
-        cells_per_unit: f32,
-        overrides: WaterRuntimeOverrides,
-    ) -> Self {
+        let overrides = WaterRuntimeOverrides::from_plan(plan);
         let world_grid_dim = UVec3::new(
             (world_extent.x * cells_per_unit).ceil() as u32,
             (world_extent.y * cells_per_unit).ceil() as u32,
@@ -151,9 +134,9 @@ impl WaterLaunchRequest {
             apply_water_experience_config(&mut effective);
         }
 
-        // A selected profile is also the live baseline: later GUI changes cannot silently replace
-        // an explicit launch mode. Explicit overrides are replayed after every GUI observation.
-        self.overrides.profile =
+        // A resolved profile or experience is the live baseline: later GUI changes cannot silently
+        // replace an explicit launch mode. Explicit overrides replay after every GUI observation.
+        self.overrides.baseline =
             (self.profile.is_some() || self.experience).then(|| effective.clone());
         self.overrides.apply(&mut effective);
 
@@ -285,23 +268,17 @@ mod tests {
     use re_flora_water::collider::WaterBoxCollider;
 
     fn request(
-        profile: Option<crate::WaterProfilePreference>,
+        plan: WaterPlan,
         experience: bool,
         gui: GuiAdjustables,
-        overrides: WaterRuntimeOverrides,
     ) -> WaterLaunchRequest {
-        WaterLaunchRequest::from_launch_facts(
-            profile,
+        WaterLaunchRequest::from_plan(
+            plan,
             experience,
             &gui,
             Vec3::splat(2.0),
             32.0,
-            overrides,
         )
-    }
-
-    fn no_overrides() -> WaterRuntimeOverrides {
-        WaterRuntimeOverrides::default()
     }
 
     #[test]
@@ -309,7 +286,7 @@ mod tests {
         let mut gui = GuiAdjustables::default();
         gui.water_damping.value = 0.25;
 
-        let resolved = request(None, false, gui, no_overrides()).resolve();
+        let resolved = request(WaterPlan::default(), false, gui).resolve();
 
         assert!(resolved.gui_config_applied);
         assert_eq!(resolved.effective.linear_damping_per_sec, 0.25);
@@ -323,10 +300,12 @@ mod tests {
         gui.water_damping.value = 0.25;
 
         let resolved = request(
-            Some(crate::WaterProfilePreference::Performance),
+            WaterPlan {
+                profile: Some(crate::WaterProfilePreference::Performance),
+                ..WaterPlan::default()
+            },
             false,
             gui,
-            no_overrides(),
         )
         .resolve();
 
@@ -342,10 +321,12 @@ mod tests {
         gui.water_damping.value = 0.25;
 
         let resolved = request(
-            Some(crate::WaterProfilePreference::Default),
+            WaterPlan {
+                profile: Some(crate::WaterProfilePreference::Default),
+                ..WaterPlan::default()
+            },
             false,
             gui,
-            no_overrides(),
         )
         .resolve();
 
@@ -361,7 +342,7 @@ mod tests {
         let mut gui = GuiAdjustables::default();
         gui.water_damping.value = 0.25;
 
-        let resolved = request(None, true, gui, no_overrides()).resolve();
+        let resolved = request(WaterPlan::default(), true, gui).resolve();
 
         assert!(!resolved.gui_config_applied);
         assert_eq!(resolved.effective.particle_count, 10_000);
@@ -380,20 +361,15 @@ mod tests {
 
     #[test]
     fn explicit_override_wins_over_profile_and_experience() {
-        let overrides = WaterRuntimeOverrides {
-            profile: None,
-            plan: WaterPlan {
+        let resolved = request(
+            WaterPlan {
+                profile: Some(crate::WaterProfilePreference::Performance),
                 particles: Some(1234),
                 damping: Some(0.75),
                 ..WaterPlan::default()
             },
-        };
-
-        let resolved = request(
-            Some(crate::WaterProfilePreference::Performance),
             true,
             GuiAdjustables::default(),
-            overrides,
         )
         .resolve();
 
@@ -405,13 +381,10 @@ mod tests {
     fn runtime_overrides_do_not_mutate_persisted_desired_water_values() {
         let desired_damping = 0.25;
         let mut effective = PondWaterConfig::default().with_linear_damping_per_sec(desired_damping);
-        let overrides = WaterRuntimeOverrides {
-            profile: None,
-            plan: WaterPlan {
-                damping: Some(1.5),
-                ..WaterPlan::default()
-            },
-        };
+        let overrides = WaterRuntimeOverrides::from_plan(WaterPlan {
+            damping: Some(1.5),
+            ..WaterPlan::default()
+        });
 
         overrides.apply(&mut effective);
 
@@ -425,8 +398,32 @@ mod tests {
             damping: Some(1.5),
             ..WaterPlan::default()
         };
-        let overrides = WaterRuntimeOverrides::from_plan(plan, None);
+        let overrides = WaterRuntimeOverrides::from_plan(plan);
 
         assert_eq!(overrides.plan.damping, Some(1.5));
+    }
+
+    #[test]
+    fn resolved_profile_baseline_is_replayed_before_explicit_overrides() {
+        let resolved = request(
+            WaterPlan {
+                profile: Some(crate::WaterProfilePreference::Performance),
+                damping: Some(0.75),
+                ..WaterPlan::default()
+            },
+            false,
+            GuiAdjustables::default(),
+        )
+        .resolve();
+        let mut later_gui = PondWaterConfig::default()
+            .with_substep_hz(30.0)
+            .with_terrain_collision_margin_cells(4.0)
+            .with_linear_damping_per_sec(0.25);
+
+        resolved.runtime_overrides.apply(&mut later_gui);
+
+        assert_eq!(later_gui.substep_dt, 60.0_f32.recip());
+        assert_eq!(later_gui.terrain_collision_margin_cells, 0.0);
+        assert_eq!(later_gui.linear_damping_per_sec, 0.75);
     }
 }
