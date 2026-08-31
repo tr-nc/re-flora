@@ -184,6 +184,29 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
                     contract.workflow_contract_failures(mutated),
                 )
 
+    def test_route_syntax_failure_seals_every_parsed_capability(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        route = '      - "src/**"\n'
+        mutations = {
+            "unclosed-double-quote": '      - "src/**\n',
+            "mismatched-quotes": '      - "src/**\'\n',
+            "unclosed-single-quote": "      - 'src/**\n",
+            "unsupported-pattern": '      - "src/[ddgi]/**"\n',
+        }
+        for mutation, replacement in mutations.items():
+            with self.subTest(mutation=mutation):
+                mutated = source.replace(route, replacement, 1)
+                self.assertNotEqual(mutated, source)
+
+                parsed = contract.parse_workflow_contract(mutated)
+
+                self.assertTrue(parsed.failures)
+                self.assertEqual(parsed.routes_by_event, ())
+                self.assertEqual(parsed.fedora_commands, ())
+                self.assertFalse(
+                    parsed.routes("pull_request", "src/app/future_owner.rs")
+                )
+
     def test_later_exclusions_override_positive_owner_routes(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
         representative_scene_module = (
