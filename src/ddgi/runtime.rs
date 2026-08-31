@@ -2763,15 +2763,30 @@ mod tests {
     }
 
     #[test]
-    fn batch_completion_has_only_stale_progress_or_published_states() {
-        fn exhaust(completion: DdgiBatchCompletion) {
-            match completion {
-                DdgiBatchCompletion::Stale(_) => {}
-                DdgiBatchCompletion::Progress(_) => {}
-                DdgiBatchCompletion::Published(_) => {}
-            }
-        }
-        let _ = exhaust;
+    fn published_progress_requires_the_exact_runtime_generation() {
+        let (runtime, active_token, _) = initialized_runtime();
+        let field_publication = runtime.active_publication.published().unwrap().field;
+        let observation = DdgiBatchObservation {
+            stats: DdgiTraceStats::default(),
+            radiance_snapshot: lighting_snapshot(1.0),
+            probe_count: 32,
+            filtered_probe_count: 32,
+        };
+        let wrong_token = DdgiBuildToken::for_test(
+            active_token.serial() + 1,
+            active_token.terrain_revision(),
+            active_token.spacing_voxels(),
+            active_token.kind(),
+        );
+
+        let error =
+            DdgiPublishedProgress::new(observation, wrong_token, field_publication).unwrap_err();
+        assert!(error.to_string().contains("generation does not match"));
+
+        let progress =
+            DdgiPublishedProgress::new(observation, active_token, field_publication).unwrap();
+        assert_eq!(progress.build_token(), active_token);
+        assert_eq!(progress.field_publication(), field_publication);
     }
 
     #[test]
