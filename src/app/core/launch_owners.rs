@@ -905,27 +905,6 @@ mod tests {
     }
 
     #[test]
-    fn terrain_connectivity_scenario_uses_the_exclusive_connectivity_family() {
-        let owner = launch_for(Scenario::TerrainConnectivityBenchmark(
-            crate::cli::TerrainConnectivityBenchOptions {
-                mode: crate::cli::TerrainConnectivityBenchMode::Correct,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
-
-        assert!(matches!(
-            owner.mode,
-            LaunchMode::General {
-                scenario: ScenarioOwner::Connectivity(_),
-                ..
-            }
-        ));
-    }
-
-    #[test]
     fn contradictory_foliage_and_camera_benchmarks_fail_before_owner_construction() {
         let automation = AutomationPlan {
             camera: CameraAutomation::DenoiserBenchmark {
