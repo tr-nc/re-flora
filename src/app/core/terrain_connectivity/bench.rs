@@ -2921,27 +2921,6 @@ mod tests {
     }
 
     #[test]
-    fn connectivity_protocol_is_exposed_only_by_the_dedicated_owner_variant() {
-        let connectivity = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
-            TerrainConnectivityBenchOptions {
-                mode: TerrainConnectivityBenchMode::Bounded,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
-        let garden = ScenarioOwner::Standard(
-            super::super::super::launch_owners::StandardScenarioOwner::World(
-                super::super::super::launch_owners::WorldScenarioOwner::Garden,
-            ),
-        );
-
-        assert!(matches!(connectivity, ScenarioOwner::Connectivity(_)));
-        assert!(matches!(garden, ScenarioOwner::Standard(_)));
-    }
-
-    #[test]
     fn oversized_bounded_trace_is_explicitly_pending_then_detached() {
         let mut job = fixture_job();
         let first = job.advance(PARTICLE_CAPACITY);

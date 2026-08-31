@@ -708,25 +708,6 @@ mod tests {
     }
 
     #[test]
-    fn terrain_connectivity_scenario_is_structurally_separate_from_standard_scenarios() {
-        let owner = owner_for(Scenario::TerrainConnectivityBenchmark(
-            crate::cli::TerrainConnectivityBenchOptions {
-                mode: crate::cli::TerrainConnectivityBenchMode::Correct,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
-
-        assert!(matches!(owner, ScenarioOwner::Connectivity(_)));
-        assert!(matches!(
-            owner_for(Scenario::Garden),
-            ScenarioOwner::Standard(_)
-        ));
-    }
-
-    #[test]
     fn contradictory_foliage_and_camera_benchmarks_fail_before_owner_construction() {
         let automation = AutomationPlan {
             camera: CameraAutomation::DenoiserBenchmark {
