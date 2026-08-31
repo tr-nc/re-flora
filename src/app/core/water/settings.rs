@@ -263,18 +263,8 @@ mod tests {
     use glam::Vec3;
     use re_flora_water::collider::WaterBoxCollider;
 
-    fn request(
-        plan: WaterPlan,
-        experience: bool,
-        gui: GuiAdjustables,
-    ) -> WaterLaunchRequest {
-        WaterLaunchRequest::from_plan(
-            plan,
-            experience,
-            &gui,
-            Vec3::splat(2.0),
-            32.0,
-        )
+    fn request(plan: WaterPlan, experience: bool, gui: GuiAdjustables) -> WaterLaunchRequest {
+        WaterLaunchRequest::from_plan(plan, experience, &gui, Vec3::splat(2.0), 32.0)
     }
 
     #[test]

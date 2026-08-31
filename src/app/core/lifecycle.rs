@@ -1,5 +1,5 @@
-use super::{App, ContreeBuilder, PlainBuilder, VulkanContext, emissive_voxel_lighting, water};
-use anyhow::{Context, Result, anyhow};
+use super::{emissive_voxel_lighting, water, App, ContreeBuilder, PlainBuilder, VulkanContext};
+use anyhow::{anyhow, Context, Result};
 use winit::event_loop::ActiveEventLoop;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -239,7 +239,7 @@ impl App {
 #[cfg(test)]
 mod shutdown_tests {
     use super::{AppShutdownLifecycle, ShutdownActions, ShutdownState};
-    use anyhow::{Result, anyhow};
+    use anyhow::{anyhow, Result};
 
     #[derive(Default)]
     struct FakeShutdownActions {
