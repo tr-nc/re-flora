@@ -186,6 +186,10 @@ pub(crate) struct DdgiFrameWork {
     serial: u64,
     plan: DdgiFramePlan,
 }
+#[cfg(test)]
+::static_assertions::assert_not_impl_any!(
+    DdgiFrameWork: ::core::marker::Copy, ::core::clone::Clone
+);
 
 impl DdgiFrameWork {
     pub(crate) fn plan(self) -> DdgiFramePlan {
