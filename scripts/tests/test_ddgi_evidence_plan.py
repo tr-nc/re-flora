@@ -12,6 +12,7 @@ import sys
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
+import ddgi_evidence.executor as executor_module  # noqa: E402
 from ddgi_evidence.executor import ActionResult, RecordingHost, execute  # noqa: E402
 from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
@@ -178,7 +179,52 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             sum(command.kind == "analysis" for command in host.commands), 78
         )
 
-    def test_recording_host_cannot_issue_production_evidence_claims(self) -> None:
+    def test_forging_recording_host_cannot_issue_production_evidence_claims(self) -> None:
+        class ForgedActionResult(ActionResult):
+            pass
+
+        forged_result_type = getattr(
+            executor_module,
+            "_ProductionActionResult",
+            ForgedActionResult,
+        )
+
+        class ForgingRecordingHost(RecordingHost):
+            @staticmethod
+            def forge(result: ActionResult) -> ActionResult:
+                return forged_result_type(
+                    result.succeeded,
+                    result.message,
+                    dict(result.facts),
+                )
+
+            def build(self, action, repo_root):
+                return self.forge(super().build(action, repo_root))
+
+            def capture(self, action, repo_root):
+                return self.forge(super().capture(action, repo_root))
+
+            def validate_process(self, action):
+                return self.forge(super().validate_process(action))
+
+            def validate_scenario(self, action):
+                return self.forge(super().validate_scenario(action))
+
+            def analyze(self, action, repo_root, facts):
+                return self.forge(super().analyze(action, repo_root, facts))
+
+            def validate_radiance(self, action):
+                return self.forge(super().validate_radiance(action))
+
+            def summarize(self, action, repo_root):
+                return self.forge(super().summarize(action, repo_root))
+
+            def check_sky(self, action, repo_root):
+                return self.forge(super().check_sky(action, repo_root))
+
+            def relocate(self, action):
+                return self.forge(super().relocate(action))
+
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()
             errors = io.StringIO()
@@ -187,8 +233,7 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
                 Path(temporary),
                 dry_run=False,
             )
-            host = RecordingHost(stdout=output, stderr=errors)
-            host.issues_production_evidence = True
+            host = ForgingRecordingHost(stdout=output, stderr=errors)
 
             report = execute(plan(request), host)
 
