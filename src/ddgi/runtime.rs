@@ -312,22 +312,49 @@ impl DdgiFrameView<'_> {
     }
 }
 
-/// Typed result of reconciling one deferred physical batch completion.
-pub(crate) struct DdgiBatchCompletion {
-    pub stats: Option<DdgiTraceStats>,
-    pub radiance_snapshot: Option<crate::environment_lighting::DdgiRadianceSnapshot>,
-    pub probe_count: u32,
-    pub build_token: Option<DdgiBuildToken>,
-    pub status: DdgiRuntimeVolumeStatus,
-    validated_publication: Option<DdgiValidatedPublication>,
-    pending_convergence_evidence: Option<convergence_evidence::Pending>,
-    pub consumer_descriptor_generation: Option<u64>,
-    pub capture_observed: bool,
+/// Closed result of reconciling one deferred physical batch completion.
+///
+/// Each variant contains only observations valid for that state. In particular, stale readbacks
+/// cannot masquerade as zero-stat progress, and a publication always carries its validated field
+/// and convergence evidence together.
+pub(crate) enum DdgiBatchCompletion {
+    Stale(DdgiStaleBatchObservation),
+    Progress(DdgiBatchProgress),
+    Published(DdgiPublishedBatch),
 }
 ::static_assertions::assert_not_impl_any!(
     DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,
     ::core::clone::Clone, ::core::default::Default
 );
+
+pub(crate) struct DdgiStaleBatchObservation {
+    pub(crate) build_token: Option<DdgiBuildToken>,
+    pub(crate) stage: DdgiVolumeStage,
+    pub(crate) complete_field: Option<DdgiFieldIdentity>,
+    pub(crate) building_field: Option<DdgiFieldIdentity>,
+    pub(crate) radiance_revision: Option<u32>,
+}
+
+pub(crate) struct DdgiBatchProgress {
+    pub(crate) stats: DdgiTraceStats,
+    pub(crate) radiance_snapshot: crate::environment_lighting::DdgiRadianceSnapshot,
+    pub(crate) probe_count: u32,
+    pub(crate) filtered_probe_count: u32,
+    pub(crate) build_token: Option<DdgiBuildToken>,
+}
+
+pub(crate) struct DdgiConsumerPublicationObservation {
+    pub(crate) descriptor_generation: u64,
+    pub(crate) irradiance_slot: &'static str,
+}
+
+pub(crate) struct DdgiPublishedBatch {
+    pub(crate) progress: DdgiBatchProgress,
+    pub(crate) publication: DdgiValidatedPublication,
+    pub(crate) capture_publication: Option<super::DdgiFieldPublication>,
+    pub(crate) consumer: Option<DdgiConsumerPublicationObservation>,
+    pending_convergence_evidence: convergence_evidence::Pending,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiValidatedPublication {
@@ -347,16 +374,6 @@ impl DdgiValidatedPublication {
 
     pub(crate) fn atlas_validation(self) -> DdgiAtlasValidationStats {
         self.atlas_validation
-    }
-}
-
-impl DdgiBatchCompletion {
-    pub(crate) fn is_stale(&self) -> bool {
-        self.stats.is_none()
-    }
-
-    pub(crate) fn validated_publication(&self) -> Option<DdgiValidatedPublication> {
-        self.validated_publication
     }
 }
 
@@ -478,11 +495,9 @@ mod convergence_evidence {
         }
     }
 
-    impl super::DdgiBatchCompletion {
-        pub(crate) fn commit_convergence_evidence(&mut self) {
-            if let Some(pending) = self.pending_convergence_evidence.take() {
-                pending.emit();
-            }
+    impl super::DdgiPublishedBatch {
+        pub(crate) fn commit_convergence_evidence(self) {
+            self.pending_convergence_evidence.emit();
         }
     }
 
@@ -1634,17 +1649,13 @@ impl DdgiRuntime {
     ) -> Result<DdgiBatchCompletion> {
         let before = self.volumes().builder().status();
         if !self.volumes().builder().pending_trace_stats_batch_is(batch) {
-            return Ok(DdgiBatchCompletion {
-                stats: None,
-                radiance_snapshot: None,
-                probe_count: before.grid.probe_count(),
+            return Ok(DdgiBatchCompletion::Stale(DdgiStaleBatchObservation {
                 build_token: before.build_token,
-                status: before.into(),
-                validated_publication: None,
-                pending_convergence_evidence: None,
-                consumer_descriptor_generation: None,
-                capture_observed: false,
-            });
+                stage: before.stage,
+                complete_field: before.complete_field,
+                building_field: before.building_field,
+                radiance_revision: before.radiance_revision,
+            }));
         }
 
         let stats = self
@@ -1702,120 +1713,114 @@ impl DdgiRuntime {
         } else {
             None
         };
-        let mut validated_publication = None;
-        let mut pending_convergence_evidence = None;
-        let mut consumer_descriptor_generation = None;
-        let mut capture_observed = false;
-        if let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome {
-            let stats = self
-                .volumes()
-                .builder()
-                .update_atlas_validation_from_readback()?;
-            let volume_permit = self.volumes().builder().preflight_atlas_publication(
-                identity,
+        let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome else {
+            let after = self.volumes().builder().status();
+            return Ok(DdgiBatchCompletion::Progress(DdgiBatchProgress {
                 stats,
-                DDGI_CONVERGENCE_POLICY,
-            )?;
-            let field_publication = volume_permit.publication();
-            let classified = field_publication.field();
-            let work = volume_permit.work();
-            let status_work = self
+                radiance_snapshot,
+                probe_count: after.grid.probe_count(),
+                filtered_probe_count: after.filtered_probe_count,
+                build_token: after.build_token,
+            }));
+        };
+
+        let atlas_stats = self
+            .volumes()
+            .builder()
+            .update_atlas_validation_from_readback()?;
+        let volume_permit = self.volumes().builder().preflight_atlas_publication(
+            identity,
+            atlas_stats,
+            DDGI_CONVERGENCE_POLICY,
+        )?;
+        let field_publication = volume_permit.publication();
+        let classified = field_publication.field();
+        let work = volume_permit.work();
+        let status_work = self
+            .volumes()
+            .builder()
+            .status()
+            .scheduled_work
+            .context("validated DDGI epoch must retain scheduled work")?;
+        anyhow::ensure!(
+            status_work == work,
+            "DDGI physical publication permit lost its scheduled work"
+        );
+        let scheduler_permit = self
+            .transport_scheduler
+            .preflight_completion(work, classified)
+            .map_err(|error| {
+                anyhow::anyhow!("DDGI scheduler rejected completion before publication: {error:?}")
+            })?;
+        let build_token = before
+            .build_token
+            .context("validated DDGI field has no volume build token")?;
+        let builder_is_active = self.volumes().builder_is_active();
+        let descriptor_generation = if builder_is_active {
+            assert_eq!(
+                field_publication.generation().build_token(),
+                build_token,
+                "DDGI publication permit must retain the active candidate token"
+            );
+            let resources = self
                 .volumes()
                 .builder()
-                .status()
-                .scheduled_work
-                .context("validated DDGI epoch must retain scheduled work")?;
-            anyhow::ensure!(
-                status_work == work,
-                "DDGI physical publication permit lost its scheduled work"
-            );
-            let scheduler_permit = self
-                .transport_scheduler
-                .preflight_completion(work, classified)
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "DDGI scheduler rejected completion before publication: {error:?}"
-                    )
-                })?;
-            let build_token = before
-                .build_token
-                .context("validated DDGI field has no volume build token")?;
-            let observed_capture = if self.volumes().builder_is_active() {
-                assert_eq!(
-                    field_publication.generation().build_token(),
-                    build_token,
-                    "DDGI publication permit must retain the active candidate token"
-                );
-                let resources = self
-                    .volumes()
-                    .builder()
-                    .candidate_consumer_resources(&volume_permit);
-                let generation = publish_consumers(resources)?;
-                let validated = self
-                    .volumes_mut()
-                    .builder_mut()
-                    .commit_atlas_publication(volume_permit);
-                let prepared = convergence_evidence::prepare(validated, stats);
-                let publication = prepared.publication;
-                let field = publication.field();
-                assert_eq!(field, classified);
-                assert_eq!(publication.work(), work);
-                self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
-                let capture_observed = self.observe_capture_checkpoint(
-                    build_token,
-                    field,
-                    stats,
-                    filter_epoch_proof,
-                    DdgiCapturePublication::Published,
-                );
-                consumer_descriptor_generation = Some(generation);
-                validated_publication = Some(prepared.publication);
-                pending_convergence_evidence = Some(prepared.pending);
-                capture_observed
-            } else {
-                let validated = self
-                    .volumes_mut()
-                    .builder_mut()
-                    .commit_atlas_publication(volume_permit);
-                let prepared = convergence_evidence::prepare(validated, stats);
-                let publication = prepared.publication;
-                let validated_work = publication.work();
-                let field = publication.field();
-                assert_eq!(
-                    field, classified,
-                    "private DDGI atlas classification changed during publication"
-                );
-                assert_eq!(
-                    validated_work, work,
-                    "private DDGI validated work changed during publication"
-                );
-                self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
-                let capture_observed = self.observe_capture_checkpoint(
-                    build_token,
-                    field,
-                    stats,
-                    filter_epoch_proof,
-                    DdgiCapturePublication::Published,
-                );
-                validated_publication = Some(publication);
-                pending_convergence_evidence = Some(prepared.pending);
-                capture_observed
-            };
-            capture_observed = observed_capture;
-        }
-
+                .candidate_consumer_resources(&volume_permit);
+            Some(publish_consumers(resources)?)
+        } else {
+            None
+        };
+        let validated = self
+            .volumes_mut()
+            .builder_mut()
+            .commit_atlas_publication(volume_permit);
+        let prepared = convergence_evidence::prepare(validated, atlas_stats);
+        let publication = prepared.publication;
+        let field = publication.field();
+        assert_eq!(
+            field, classified,
+            "DDGI atlas classification changed during publication"
+        );
+        assert_eq!(
+            publication.work(),
+            work,
+            "DDGI validated work changed during publication"
+        );
+        self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
+        let capture_publication = self
+            .observe_capture_checkpoint(
+                build_token,
+                field,
+                atlas_stats,
+                filter_epoch_proof,
+                DdgiCapturePublication::Published,
+            )
+            .then_some(field_publication);
+        let consumer = descriptor_generation.map(|descriptor_generation| {
+            let irradiance_slot = self
+                .volumes()
+                .builder()
+                .published_irradiance_label()
+                .expect("consumer-published DDGI field must retain its resident atlas slot");
+            DdgiConsumerPublicationObservation {
+                descriptor_generation,
+                irradiance_slot,
+            }
+        });
         let after = self.volumes().builder().status();
-        Ok(DdgiBatchCompletion {
-            stats: Some(stats),
-            radiance_snapshot: Some(radiance_snapshot),
-            probe_count: after.grid.probe_count(),
-            build_token: after.build_token,
-            status: after.into(),
-            validated_publication,
-            pending_convergence_evidence,
-            consumer_descriptor_generation,
-            capture_observed,
-        })
+        Ok(DdgiBatchCompletion::Published(DdgiPublishedBatch {
+            progress: DdgiBatchProgress {
+                stats,
+                radiance_snapshot,
+                probe_count: after.grid.probe_count(),
+                filtered_probe_count: after.filtered_probe_count,
+                build_token: after.build_token,
+            },
+            publication,
+            capture_publication,
+            consumer,
+            pending_convergence_evidence: prepared.pending,
+        }))
     }
 }
 

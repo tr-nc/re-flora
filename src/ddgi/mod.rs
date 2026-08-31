@@ -72,8 +72,8 @@ pub use resources::{
     DDGI_FILTER_POLICY_OWNER_MASK, DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
-    DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView, DdgiLightingDiagnostics, DdgiRuntime,
-    DdgiRuntimeVolumeBuild, DdgiVolumePublishOutcome,
+    DdgiBatchCompletion, DdgiBatchProgress, DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView,
+    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
