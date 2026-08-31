@@ -16,6 +16,9 @@ from install_slang import SLANG_VERSION
 ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = ROOT / "shader" / "tests"
 MODULE_ROOT = ROOT / "shader" / "slang"
+SLANG_VERSION_TIMEOUT_SECONDS = 30
+SLANG_COMPILE_TIMEOUT_SECONDS = 120
+SLANG_TEST_TIMEOUT_SECONDS = 30
 
 
 def find_slangc() -> Path:
@@ -31,7 +34,11 @@ def find_slangc() -> Path:
         )
 
     result = subprocess.run(
-        [candidate, "-version"], check=True, capture_output=True, text=True
+        [candidate, "-version"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=SLANG_VERSION_TIMEOUT_SECONDS,
     )
     version = (result.stdout + result.stderr).strip()
     if SLANG_VERSION not in version:
@@ -68,9 +75,12 @@ def main() -> int:
                 ],
                 cwd=ROOT,
                 check=True,
+                timeout=SLANG_COMPILE_TIMEOUT_SECONDS,
             )
             print(f"running {source.relative_to(ROOT).as_posix()}", flush=True)
-            subprocess.run([executable], cwd=ROOT, check=True)
+            subprocess.run(
+                [executable], cwd=ROOT, check=True, timeout=SLANG_TEST_TIMEOUT_SECONDS
+            )
 
     print(f"all {len(tests)} Slang CPU tests passed")
     return 0

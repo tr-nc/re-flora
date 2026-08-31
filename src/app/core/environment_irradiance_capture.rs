@@ -1,22 +1,25 @@
-use super::environment_lighting_test_scene::{
-    EnvironmentLightingTestScene, RadianceCaptureCheckpoint, RadianceCaptureRequest,
-};
+use super::environment_lighting_test_scene::EnvironmentCapturePort;
 use crate::ddgi::{
-    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState,
-    DdgiVolumeStage,
+    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiFilterEpochProof,
+    DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
-use crate::tracer::{Tracer, ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT};
+use crate::tracer::{
+    CaptureCoordinator, CaptureFramePlan, CaptureReadbackCandidate, CaptureReadinessObservation,
+    RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame, Tracer,
+    ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT,
+};
+use crate::util::TimeInfo;
 use anyhow::{ensure, Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation, VulkanContext};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 8;
+const CAPTURE_VERSION: u32 = 10;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
-const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
+const CAPTURE_HEADER_BYTE_COUNT: usize = 284;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STATE_CONVERGING: u32 = 1;
 const CAPTURE_STATE_CONVERGED: u32 = 2;
@@ -44,6 +47,7 @@ struct CaptureMetadata {
     max_rel_delta: f32,
     nonfinite_count: u32,
     valid_count: u32,
+    filter_proof: DdgiFilterEpochProof,
 }
 
 impl CaptureMetadata {
@@ -58,6 +62,86 @@ impl CaptureMetadata {
             "DDGI build token does not own the captured field: checkpoint={checkpoint:?}"
         );
         let source = checkpoint.field.source();
+        let filter_proof = checkpoint
+            .filter_proof
+            .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
+        let filter_evidence = filter_proof.evidence;
+        ensure!(
+            filter_proof.configuration.probe_count()? == filter_evidence.probe_count
+                && filter_proof.configuration.configured_history_retention_q16 <= 65_536,
+            "DDGI filter configuration identity does not match the captured epoch"
+        );
+        ensure!(
+            filter_evidence.field == checkpoint.field,
+            "DDGI filter evidence does not own the captured field"
+        );
+        ensure!(
+            filter_evidence.probe_count != 0
+                && filter_evidence.irradiance.probes == u64::from(filter_evidence.probe_count),
+            "DDGI filter evidence has an invalid probe partition"
+        );
+        let irradiance_actions = filter_evidence.irradiance.actions;
+        ensure!(
+            filter_evidence.irradiance.owner_version_mask == DDGI_FILTER_POLICY_OWNER_MASK
+                && irradiance_actions.replace
+                    + irradiance_actions.retain
+                    + irradiance_actions.blend
+                    == u64::from(filter_evidence.probe_count),
+            "DDGI irradiance history evidence is inconsistent"
+        );
+        validate_local_recovery_history(
+            filter_evidence.irradiance,
+            filter_proof.configuration.configured_history_retention_q16,
+            field.update_epoch(),
+            "irradiance",
+        )?;
+        if filter_evidence.visibility_written {
+            let visibility_actions = filter_evidence.visibility_history.actions;
+            ensure!(
+                filter_evidence.visibility_history.owner_version_mask
+                    == DDGI_FILTER_POLICY_OWNER_MASK
+                    && filter_evidence.visibility_samples.owner_version_mask
+                        == DDGI_FILTER_POLICY_OWNER_MASK
+                    && filter_evidence.visibility_history.probes
+                        == u64::from(filter_evidence.probe_count)
+                    && visibility_actions.replace
+                        + visibility_actions.retain
+                        + visibility_actions.blend
+                        == u64::from(filter_evidence.probe_count)
+                    && filter_evidence.visibility_samples.samples
+                        == filter_evidence.visibility_samples.accept
+                            + filter_evidence.visibility_samples.reject,
+                "DDGI visibility filter evidence is inconsistent"
+            );
+            let rays_per_probe = u64::from(DDGI_RAYS_PER_PROBE);
+            ensure!(
+                filter_evidence.visibility_samples.samples % rays_per_probe == 0
+                    && filter_evidence.visibility_samples.samples
+                        >= visibility_actions
+                            .blend
+                            .checked_mul(rays_per_probe)
+                            .context("DDGI visibility sample lower bound overflow")?
+                    && filter_evidence.visibility_samples.samples
+                        <= visibility_actions
+                            .blend
+                            .checked_add(visibility_actions.replace)
+                            .and_then(|probes| probes.checked_mul(rays_per_probe))
+                            .context("DDGI visibility sample upper bound overflow")?,
+                "DDGI visibility sample evidence is incomplete"
+            );
+            validate_local_recovery_history(
+                filter_evidence.visibility_history,
+                filter_proof.configuration.configured_history_retention_q16,
+                field.update_epoch(),
+                "visibility",
+            )?;
+        } else {
+            ensure!(
+                filter_evidence.visibility_history == Default::default()
+                    && filter_evidence.visibility_samples == Default::default(),
+                "unwritten DDGI visibility has filter evidence"
+            );
+        }
         Ok(Self {
             geometry_revision: field.geometry_revision(),
             radiance_revision: field.radiance_revision(),
@@ -84,6 +168,7 @@ impl CaptureMetadata {
             max_rel_delta: checkpoint.validation.max_relative_rgb_delta,
             nonfinite_count: checkpoint.validation.non_finite_count,
             valid_count: checkpoint.validation.valid_texel_count,
+            filter_proof,
         })
     }
 
@@ -113,8 +198,73 @@ impl CaptureMetadata {
         writer.write_all(&self.max_rel_delta.to_le_bytes())?;
         writer.write_all(&self.nonfinite_count.to_le_bytes())?;
         writer.write_all(&self.valid_count.to_le_bytes())?;
+        let proof = self.filter_proof;
+        let evidence = proof.evidence;
+        for value in [
+            1,
+            evidence.irradiance.owner_version_mask,
+            evidence.visibility_history.owner_version_mask,
+            evidence.visibility_samples.owner_version_mask,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
+        writer.write_all(&evidence.field.field().serial().to_le_bytes())?;
+        for value in [
+            evidence.field.field().update_epoch(),
+            evidence.probe_count,
+            u32::from(evidence.visibility_written),
+            0,
+            proof.configuration.grid_dimensions[0],
+            proof.configuration.grid_dimensions[1],
+            proof.configuration.grid_dimensions[2],
+            proof.configuration.configured_history_retention_q16,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
+        for value in [
+            evidence.irradiance.actions.replace,
+            evidence.irradiance.actions.retain,
+            evidence.irradiance.actions.blend,
+            evidence.irradiance.blend_retention_q16_sum,
+            u64::from(evidence.irradiance.blend_retention_q16_max),
+            evidence.visibility_history.actions.replace,
+            evidence.visibility_history.actions.retain,
+            evidence.visibility_history.actions.blend,
+            evidence.visibility_history.blend_retention_q16_sum,
+            u64::from(evidence.visibility_history.blend_retention_q16_max),
+            evidence.visibility_samples.samples,
+            evidence.visibility_samples.accept,
+            evidence.visibility_samples.reject,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
         Ok(())
     }
+}
+
+fn local_recovery_retention_q16(configured_history_retention_q16: u32, update_epoch: u32) -> u32 {
+    let denominator = u64::from(update_epoch) + 1;
+    let numerator = u64::from(update_epoch) * 65_536;
+    configured_history_retention_q16.min(((numerator + denominator / 2) / denominator) as u32)
+}
+
+fn validate_local_recovery_history(
+    history: crate::ddgi::DdgiFilterHistoryEvidence,
+    configured_history_retention_q16: u32,
+    update_epoch: u32,
+    label: &str,
+) -> Result<()> {
+    if history.actions.retain == 0 || history.actions.blend == 0 {
+        return Ok(());
+    }
+    let expected = local_recovery_retention_q16(configured_history_retention_q16, update_epoch);
+    ensure!(
+        history.blend_retention_q16_max == expected
+            && history.actions.blend.checked_mul(u64::from(expected))
+                == Some(history.blend_retention_q16_sum),
+        "DDGI {label} local-recovery retention does not match update epoch {update_epoch}"
+    );
+    Ok(())
 }
 
 fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
@@ -124,17 +274,81 @@ fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum CaptureState {
-    #[default]
-    Waiting,
-    Recording,
-    Complete,
+fn encode_capture_header(
+    width: u32,
+    height: u32,
+    spacing_voxels: u32,
+    debug_view: u32,
+    metadata: CaptureMetadata,
+) -> Result<Vec<u8>> {
+    let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
+    header.write_all(CAPTURE_MAGIC)?;
+    for value in [
+        CAPTURE_VERSION,
+        width,
+        height,
+        CAPTURE_CHANNEL_COUNT,
+        DDGI_BACKEND_ID,
+        spacing_voxels,
+        debug_view,
+        CAPTURE_PLANE_COUNT,
+    ] {
+        header.write_all(&value.to_le_bytes())?;
+    }
+    metadata.write_to(&mut header)?;
+    ensure!(
+        header.len() == CAPTURE_HEADER_BYTE_COUNT,
+        "capture header byte count mismatch: got {}, expected {}",
+        header.len(),
+        CAPTURE_HEADER_BYTE_COUNT,
+    );
+    Ok(header)
 }
-
 pub(super) struct EnvironmentIrradianceCaptureRuntime {
     base_path: Option<String>,
-    state: CaptureState,
+    coordinator: CaptureCoordinator,
+}
+
+trait CaptureCheckpointSource {
+    fn capture_readiness(&self) -> CaptureReadinessObservation;
+}
+
+struct ProductionCaptureCheckpointSource<'a> {
+    tracer: &'a Tracer,
+    environment: EnvironmentCapturePort,
+}
+
+impl CaptureCheckpointSource for ProductionCaptureCheckpointSource<'_> {
+    fn capture_readiness(&self) -> CaptureReadinessObservation {
+        let scene_ready = self.environment.scene_ready();
+        let inflight_target_revision = self.environment.inflight_target_revision();
+        let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
+            let runtime = self.tracer.ddgi_runtime_status();
+            matches!(
+                runtime.coordinator(),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate,
+                    latest_terrain_revision,
+                } if candidate.terrain_revision() == target_revision
+                    && latest_terrain_revision == target_revision
+            ) && runtime.target_terrain_revision() == Some(target_revision)
+                && runtime
+                    .active()
+                    .relocated_terrain_revision
+                    .is_some_and(|active_revision| active_revision != target_revision)
+                && runtime.staging().is_some_and(|staging| {
+                    staging.build_token.is_some() && staging.stage != DdgiVolumeStage::Ready
+                })
+                && runtime.active_consumers_are_available()
+        });
+        CaptureReadinessObservation::new(
+            scene_ready,
+            self.tracer.ddgi_capture_checkpoint(),
+            self.environment.radiance_request(),
+            inflight_target_revision,
+            inflight_checkpoint_ready,
+        )
+    }
 }
 
 pub(super) struct PendingEnvironmentIrradianceCapture {
@@ -269,63 +483,77 @@ impl RadianceCaptureEvidence {
 }
 
 impl EnvironmentIrradianceCaptureRuntime {
-    pub(super) fn new(base_path: Option<String>) -> Self {
+    pub(super) fn new(base_path: Option<String>, requested_view: DdgiDebugView) -> Self {
+        let coordinator = CaptureCoordinator::new(base_path.is_some(), requested_view);
         Self {
             base_path,
-            state: CaptureState::Waiting,
+            coordinator,
         }
     }
 
     pub(super) fn is_enabled(&self) -> bool {
-        self.base_path.is_some()
+        self.coordinator.is_enabled()
+    }
+
+    fn begin_frame_from_source(
+        &mut self,
+        time_info: &TimeInfo,
+        source: &impl CaptureCheckpointSource,
+    ) -> CaptureFramePlan {
+        self.coordinator
+            .begin_frame(time_info, source.capture_readiness())
+    }
+
+    fn finish_frame_from_source(
+        &mut self,
+        frame: RenderedCaptureFrame,
+        time_info: &TimeInfo,
+        source: &impl CaptureCheckpointSource,
+    ) -> Option<CaptureReadbackCandidate> {
+        self.coordinator
+            .finish_frame(frame, time_info, source.capture_readiness())
+    }
+
+    pub(super) fn begin_frame(
+        &mut self,
+        time_info: &TimeInfo,
+        tracer: &Tracer,
+        environment: EnvironmentCapturePort,
+    ) -> CaptureFramePlan {
+        self.begin_frame_from_source(
+            time_info,
+            &ProductionCaptureCheckpointSource {
+                tracer,
+                environment,
+            },
+        )
     }
 
     pub(super) fn record_if_ready(
         &mut self,
+        frame: RenderedCaptureFrame,
+        time_info: &TimeInfo,
         tracer: &Tracer,
         vulkan_ctx: &VulkanContext,
         cmdbuf: &CommandBuffer,
-        test_scene: Option<&EnvironmentLightingTestScene>,
-        capture_frame: u64,
+        environment: EnvironmentCapturePort,
     ) -> Result<Option<PendingEnvironmentIrradianceCapture>> {
-        let Some(base_path) = self.base_path.clone() else {
+        let Some(candidate) = self.finish_frame_from_source(
+            frame,
+            time_info,
+            &ProductionCaptureCheckpointSource {
+                tracer,
+                environment,
+            },
+        ) else {
             return Ok(None);
         };
-        if self.state != CaptureState::Waiting {
-            return Ok(None);
-        }
+        let base_path = self
+            .base_path
+            .clone()
+            .expect("armed capture must retain an output path");
 
-        let target_scene_ready =
-            test_scene.is_none_or(EnvironmentLightingTestScene::is_capture_ready);
-        let inflight_target_revision =
-            test_scene.and_then(EnvironmentLightingTestScene::inflight_capture_target_revision);
-        let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
-            let runtime = tracer.ddgi_runtime_status();
-            matches!(
-                runtime.coordinator(),
-                DdgiRefreshState::BuildingTerrain {
-                    candidate,
-                    latest_terrain_revision,
-                } if candidate.terrain_revision() == target_revision
-                    && latest_terrain_revision == target_revision
-            ) && runtime.target_terrain_revision() == Some(target_revision)
-                && runtime
-                    .active()
-                    .relocated_terrain_revision
-                    .is_some_and(|active_revision| active_revision != target_revision)
-                && runtime.staging().is_some_and(|staging| {
-                    staging.build_token.is_some() && staging.stage != DdgiVolumeStage::Ready
-                })
-                && runtime.active_consumers_are_available()
-        });
-        if !target_scene_ready
-            || !inflight_checkpoint_ready
-            || tracer.ddgi_capture_checkpoint().is_none()
-        {
-            return Ok(None);
-        }
-
-        if let Some(target_revision) = inflight_target_revision {
+        if let Some(target_revision) = candidate.inflight_target_revision() {
             let runtime = tracer.ddgi_runtime_status();
             let staging = runtime
                 .staging()
@@ -342,10 +570,11 @@ impl EnvironmentIrradianceCaptureRuntime {
             );
         }
 
-        let readback =
-            Self::prepare_readback(base_path, tracer, vulkan_ctx, test_scene, capture_frame)?;
-        tracer.record_environment_irradiance_capture_readback(cmdbuf, &readback.buffer);
-        self.state = CaptureState::Recording;
+        let readback = Self::prepare_readback(base_path, &candidate, tracer, vulkan_ctx)?;
+        let permit =
+            self.coordinator
+                .authorize_readback(candidate, time_info, readback.buffer.clone())?;
+        tracer.record_environment_irradiance_capture_readback(cmdbuf, permit);
         log::info!(
             "[ENV_IRRADIANCE_CAPTURE] recording backend=ddgi path={}",
             readback.path(),
@@ -355,13 +584,12 @@ impl EnvironmentIrradianceCaptureRuntime {
 
     fn prepare_readback(
         base_path: String,
+        candidate: &CaptureReadbackCandidate,
         tracer: &Tracer,
         vulkan_ctx: &VulkanContext,
-        test_scene: Option<&EnvironmentLightingTestScene>,
-        capture_frame: u64,
     ) -> Result<PendingEnvironmentIrradianceCapture> {
-        let radiance_request =
-            test_scene.and_then(EnvironmentLightingTestScene::radiance_capture_request);
+        let capture_frame = candidate.physical_frame_serial();
+        let radiance_request = candidate.radiance_request();
         let path = radiance_request.map_or_else(
             || PathBuf::from(&base_path),
             |request| radiance_capture_path(&base_path, request.checkpoint),
@@ -379,9 +607,7 @@ impl EnvironmentIrradianceCaptureRuntime {
             * u64::from(extent.height)
             * std::mem::size_of::<[f32; 4]>() as u64
             * u64::from(CAPTURE_PLANE_COUNT);
-        let checkpoint = tracer
-            .ddgi_capture_checkpoint()
-            .context("cannot capture DDGI before the requested field checkpoint is resident")?;
+        let checkpoint = candidate.ddgi_checkpoint();
         let metadata =
             CaptureMetadata::from_checkpoint(checkpoint, DDGI_AUTHORED_SKY_MODEL_IDENTITY)?;
         let radiance_evidence = radiance_request
@@ -398,7 +624,7 @@ impl EnvironmentIrradianceCaptureRuntime {
                 let status = tracer.ddgi_runtime_status();
                 let active = status.active();
                 let active_field = active
-                    .published_field
+                    .published_field()
                     .context("radiance evidence requires a published active field")?;
                 ensure!(
                     checkpoint.field == active_field,
@@ -498,39 +724,24 @@ impl EnvironmentIrradianceCaptureRuntime {
             path,
             extent,
             spacing_voxels: checkpoint.field.field().spacing_voxels(),
-            debug_view: tracer.ddgi_debug_view(),
+            debug_view: candidate.requested_view(),
             metadata,
             radiance_evidence,
             buffer,
         })
     }
 
-    fn transition_after_capture(&mut self, sequence_complete: bool) -> bool {
-        self.state = if sequence_complete {
-            CaptureState::Complete
-        } else {
-            CaptureState::Waiting
-        };
-        sequence_complete
-    }
-
-    pub(super) fn complete(
+    pub(super) fn write_completed_readback(
         &mut self,
         readback: PendingEnvironmentIrradianceCapture,
-        test_scene: Option<&mut EnvironmentLightingTestScene>,
-    ) -> Result<bool> {
-        debug_assert_eq!(self.state, CaptureState::Recording);
+    ) -> Result<Option<RadianceCaptureCheckpoint>> {
         let radiance_checkpoint = readback.radiance_checkpoint();
-        self.state = CaptureState::Complete;
         Self::write_readback(readback)?;
-        let sequence_complete = if let Some(checkpoint) = radiance_checkpoint {
-            test_scene
-                .context("radiance capture completion lost its test scene")?
-                .complete_radiance_capture(checkpoint)
-        } else {
-            true
-        };
-        Ok(self.transition_after_capture(sequence_complete))
+        Ok(radiance_checkpoint)
+    }
+
+    pub(super) fn commit_completion(&mut self, sequence_complete: bool) -> bool {
+        self.coordinator.complete_recording(sequence_complete)
     }
 
     fn write_readback(readback: PendingEnvironmentIrradianceCapture) -> Result<()> {
@@ -549,28 +760,13 @@ impl EnvironmentIrradianceCaptureRuntime {
 
         let mut file = std::fs::File::create(&readback.path)
             .with_context(|| format!("create {}", readback.path))?;
-        let mut header = Vec::with_capacity(CAPTURE_HEADER_BYTE_COUNT);
-        header.write_all(CAPTURE_MAGIC)?;
-        for value in [
-            CAPTURE_VERSION,
+        let header = encode_capture_header(
             readback.extent.width,
             readback.extent.height,
-            CAPTURE_CHANNEL_COUNT,
-            DDGI_BACKEND_ID,
             readback.spacing_voxels,
             readback.debug_view.as_u32(),
-            CAPTURE_PLANE_COUNT,
-        ] {
-            header.write_all(&value.to_le_bytes())?;
-        }
-        readback.metadata.write_to(&mut header)?;
-        if header.len() != CAPTURE_HEADER_BYTE_COUNT {
-            anyhow::bail!(
-                "capture header byte count mismatch: got {}, expected {}",
-                header.len(),
-                CAPTURE_HEADER_BYTE_COUNT,
-            );
-        }
+            readback.metadata,
+        )?;
         file.write_all(&header)?;
         file.write_all(&raw)?;
         file.flush()?;
@@ -614,32 +810,400 @@ mod tests {
     use crate::ddgi::{
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
-        DdgiFieldState,
+        DdgiFieldState, DdgiFilterActionCounts, DdgiFilterConfigurationIdentity,
+        DdgiFilterEpochEvidence, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     };
+    use crate::tracer::record_capture_frame_for_test;
+    use std::cell::{Cell, RefCell};
+
+    fn checkpoint(serial: u64, state: DdgiFieldState, epoch: u32) -> DdgiCaptureCheckpoint {
+        let geometry_revision = 41;
+        let radiance_revision = 17;
+        let spacing_voxels = 16;
+        let source = (epoch > 0).then(|| {
+            DdgiFieldKey::new(
+                serial - 1,
+                geometry_revision,
+                radiance_revision,
+                spacing_voxels,
+                DdgiFieldState::Converging,
+                epoch - 1,
+            )
+            .unwrap()
+        });
+        DdgiCaptureCheckpoint {
+            build_token: DdgiBuildToken::for_test(
+                serial + 1_000,
+                geometry_revision,
+                spacing_voxels,
+                DdgiBuildKind::Terrain,
+            ),
+            field: DdgiFieldIdentity::new(
+                DdgiFieldKey::new(
+                    serial,
+                    geometry_revision,
+                    radiance_revision,
+                    spacing_voxels,
+                    state,
+                    epoch,
+                )
+                .unwrap(),
+                source,
+            )
+            .unwrap(),
+            validation: DdgiAtlasValidationStats {
+                max_absolute_rgb_delta: 0.01,
+                max_relative_rgb_delta: 0.02,
+                max_rgb_value: 1.0,
+                non_finite_count: 0,
+                negative_rgb_texel_count: 0,
+                valid_texel_count: 42,
+                scanned_stored_texel_count: 64,
+            },
+            filter_proof: None,
+            publication: DdgiCapturePublication::Published,
+            batch_order: DdgiBatchOrder::Forward,
+        }
+    }
+
+    struct TestCaptureCheckpointSource(CaptureReadinessObservation);
+
+    impl CaptureCheckpointSource for TestCaptureCheckpointSource {
+        fn capture_readiness(&self) -> CaptureReadinessObservation {
+            self.0
+        }
+    }
+
+    fn source(
+        checkpoint: Option<DdgiCaptureCheckpoint>,
+        radiance_checkpoint: Option<RadianceCaptureCheckpoint>,
+        inflight_target_revision: Option<u32>,
+    ) -> TestCaptureCheckpointSource {
+        TestCaptureCheckpointSource(CaptureReadinessObservation::new(
+            true,
+            checkpoint,
+            radiance_checkpoint.map(|checkpoint| RadianceCaptureRequest {
+                checkpoint,
+                mutation_frame: None,
+            }),
+            inflight_target_revision,
+            true,
+        ))
+    }
+
+    fn render(
+        plan: CaptureFramePlan,
+        time_info: &TimeInfo,
+    ) -> (DdgiDebugView, RenderedCaptureFrame) {
+        let published_views = RefCell::new(Vec::new());
+        let trace_records = Cell::new(0);
+        let rendered = record_capture_frame_for_test(
+            plan,
+            time_info,
+            |view| {
+                published_views.borrow_mut().push(view);
+                Ok(())
+            },
+            || {
+                assert_eq!(published_views.borrow().len(), 1);
+                trace_records.set(trace_records.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(trace_records.get(), 1);
+        let published_views = published_views.into_inner();
+        let [effective_view] = published_views.as_slice() else {
+            panic!("capture frame plan must publish exactly one shading view");
+        };
+        (*effective_view, rendered)
+    }
+
+    fn begin(
+        runtime: &mut EnvironmentIrradianceCaptureRuntime,
+        time_info: &TimeInfo,
+        source: &impl CaptureCheckpointSource,
+    ) -> (DdgiDebugView, RenderedCaptureFrame) {
+        render(
+            runtime.begin_frame_from_source(time_info, source),
+            time_info,
+        )
+    }
+
+    fn finish(
+        runtime: &mut EnvironmentIrradianceCaptureRuntime,
+        time_info: &TimeInfo,
+        frame: RenderedCaptureFrame,
+        source: &impl CaptureCheckpointSource,
+    ) -> Option<CaptureReadbackCandidate> {
+        runtime.finish_frame_from_source(frame, time_info, source)
+    }
+
+    #[test]
+    fn capture_pending_before_checkpoint_shades_with_final_view() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
+        let time_info = TimeInfo::default();
+
+        let (effective_view, _rendered) =
+            begin(&mut runtime, &time_info, &source(None, None, None));
+
+        assert_eq!(effective_view, DdgiDebugView::Final);
+    }
+
+    #[test]
+    fn frame_plan_delivers_the_effective_view_only_through_buffer_and_trace_owners() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
+        let time_info = TimeInfo::default();
+        let (rendered_view, _rendered) = begin(&mut runtime, &time_info, &source(None, None, None));
+
+        assert_eq!(rendered_view, DdgiDebugView::Final);
+    }
+
+    #[test]
+    fn disabled_capture_uses_the_same_render_seam_and_preserves_the_requested_view() {
+        let mut runtime =
+            EnvironmentIrradianceCaptureRuntime::new(None, DdgiDebugView::ExactVisibility);
+        let time_info = TimeInfo::default();
+        let (effective_view, rendered) = begin(&mut runtime, &time_info, &source(None, None, None));
+
+        assert_eq!(effective_view, DdgiDebugView::ExactVisibility);
+        assert!(finish(
+            &mut runtime,
+            &time_info,
+            rendered,
+            &source(None, None, None)
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn first_checkpoint_arms_without_capturing_then_next_full_frame_captures_requested_view() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
+        let mut time_info = TimeInfo::default();
+        let ready_checkpoint = checkpoint(89, DdgiFieldState::Converged, 6);
+        let (_, waiting_frame) = begin(&mut runtime, &time_info, &source(None, None, None));
+
+        assert!(finish(
+            &mut runtime,
+            &time_info,
+            waiting_frame,
+            &source(Some(ready_checkpoint), None, None),
+        )
+        .is_none());
+
+        time_info.update(false);
+        let (effective_view, capture_frame) = begin(
+            &mut runtime,
+            &time_info,
+            &source(Some(ready_checkpoint), None, None),
+        );
+        assert_eq!(effective_view, DdgiDebugView::ExactVisibility);
+        let candidate = finish(
+            &mut runtime,
+            &time_info,
+            capture_frame,
+            &source(Some(ready_checkpoint), None, None),
+        )
+        .expect("next complete physical frame must become a readback candidate");
+        assert_eq!(candidate.ddgi_checkpoint(), ready_checkpoint);
+        assert_eq!(candidate.requested_view(), DdgiDebugView::ExactVisibility);
+    }
+
+    #[test]
+    fn checkpoint_change_during_an_armed_frame_rearms_without_mislabeling_old_pixels() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactIrradiance,
+        );
+        let mut time_info = TimeInfo::default();
+        let e0 = checkpoint(89, DdgiFieldState::Converging, 0);
+        let e1 = checkpoint(90, DdgiFieldState::Converging, 1);
+        let (_, e0_frame) = begin(&mut runtime, &time_info, &source(Some(e0), None, None));
+
+        assert!(
+            finish(
+                &mut runtime,
+                &time_info,
+                e0_frame,
+                &source(Some(e1), None, None),
+            )
+            .is_none(),
+            "pixels rendered against e0 must not be labeled e1"
+        );
+
+        time_info.update(false);
+        let (effective_view, e1_frame) =
+            begin(&mut runtime, &time_info, &source(Some(e1), None, None));
+        assert_eq!(effective_view, DdgiDebugView::ExactIrradiance);
+        let candidate = finish(
+            &mut runtime,
+            &time_info,
+            e1_frame,
+            &source(Some(e1), None, None),
+        )
+        .expect("stable e1 physical frame must capture");
+        assert_eq!(candidate.ddgi_checkpoint(), e1);
+        assert_eq!(candidate.requested_view(), DdgiDebugView::ExactIrradiance);
+    }
+
+    #[test]
+    fn checkpoint_invalidation_returns_to_final_and_cannot_capture_the_old_frame() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
+        let time_info = TimeInfo::default();
+        let converged = checkpoint(89, DdgiFieldState::Converged, 6);
+        let (_, armed_frame) = begin(
+            &mut runtime,
+            &time_info,
+            &source(Some(converged), None, None),
+        );
+
+        assert!(finish(
+            &mut runtime,
+            &time_info,
+            armed_frame,
+            &source(None, None, None)
+        )
+        .is_none());
+        assert_eq!(
+            begin(&mut runtime, &time_info, &source(None, None, None)).0,
+            DdgiDebugView::Final,
+        );
+    }
+
+    #[test]
+    fn radiance_only_identity_change_rearms_through_the_checkpoint_source_seam() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactIrradiance,
+        );
+        let mut time_info = TimeInfo::default();
+        let ddgi = checkpoint(89, DdgiFieldState::Converged, 6);
+        let baseline = source(Some(ddgi), Some(RadianceCaptureCheckpoint::Baseline), None);
+        let r2 = source(
+            Some(ddgi),
+            Some(RadianceCaptureCheckpoint::R2NextFrame),
+            None,
+        );
+        let (_, baseline_frame) = begin(&mut runtime, &time_info, &baseline);
+
+        assert!(
+            finish(&mut runtime, &time_info, baseline_frame, &r2).is_none(),
+            "radiance identity changes must invalidate an armed frame"
+        );
+        time_info.update(false);
+        let (_, r2_frame) = begin(&mut runtime, &time_info, &r2);
+        let captured = finish(&mut runtime, &time_info, r2_frame, &r2)
+            .expect("a full frame with one radiance identity must capture");
+        assert_eq!(
+            captured.radiance_request(),
+            Some(RadianceCaptureRequest {
+                checkpoint: RadianceCaptureCheckpoint::R2NextFrame,
+                mutation_frame: None,
+            }),
+        );
+        assert_eq!(captured.inflight_target_revision(), None);
+    }
+
+    #[test]
+    fn inflight_only_identity_change_rearms_through_the_checkpoint_source_seam() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
+        let mut time_info = TimeInfo::default();
+        let ddgi = checkpoint(89, DdgiFieldState::Converged, 6);
+        let terrain_41 = source(Some(ddgi), None, Some(41));
+        let terrain_42 = source(Some(ddgi), None, Some(42));
+        let (_, terrain_41_frame) = begin(&mut runtime, &time_info, &terrain_41);
+
+        assert!(
+            finish(&mut runtime, &time_info, terrain_41_frame, &terrain_42).is_none(),
+            "inflight target changes must invalidate an armed frame"
+        );
+        time_info.update(false);
+        let (_, terrain_42_frame) = begin(&mut runtime, &time_info, &terrain_42);
+        let captured = finish(&mut runtime, &time_info, terrain_42_frame, &terrain_42)
+            .expect("a full frame with one inflight target must capture");
+        assert_eq!(captured.radiance_request(), None);
+        assert_eq!(captured.inflight_target_revision(), Some(42));
+    }
+
+    #[test]
+    fn final_requested_view_still_obeys_the_full_frame_arming_contract() {
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::Final,
+        );
+        let mut time_info = TimeInfo::default();
+        let converged = checkpoint(89, DdgiFieldState::Converged, 6);
+        let (effective_view, waiting_frame) =
+            begin(&mut runtime, &time_info, &source(None, None, None));
+
+        assert_eq!(effective_view, DdgiDebugView::Final);
+        assert!(finish(
+            &mut runtime,
+            &time_info,
+            waiting_frame,
+            &source(Some(converged), None, None)
+        )
+        .is_none());
+
+        time_info.update(false);
+        let (effective_view, capture_frame) = begin(
+            &mut runtime,
+            &time_info,
+            &source(Some(converged), None, None),
+        );
+        assert_eq!(effective_view, DdgiDebugView::Final);
+        assert!(finish(
+            &mut runtime,
+            &time_info,
+            capture_frame,
+            &source(Some(converged), None, None)
+        )
+        .is_some());
+    }
 
     #[test]
     fn capture_runtime_rearms_only_for_an_incomplete_sequence() {
-        let disabled = EnvironmentIrradianceCaptureRuntime::new(None);
+        let disabled =
+            EnvironmentIrradianceCaptureRuntime::new(None, DdgiDebugView::ExactVisibility);
         assert!(!disabled.is_enabled());
 
-        let mut runtime =
-            EnvironmentIrradianceCaptureRuntime::new(Some("capture.rfirr".to_owned()));
+        let runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("capture.rfirr".to_owned()),
+            DdgiDebugView::ExactVisibility,
+        );
         assert!(runtime.is_enabled());
-        runtime.state = CaptureState::Recording;
-        assert!(!runtime.transition_after_capture(false));
-        assert_eq!(runtime.state, CaptureState::Waiting);
-        runtime.state = CaptureState::Recording;
-        assert!(runtime.transition_after_capture(true));
-        assert_eq!(runtime.state, CaptureState::Complete);
     }
 
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 8);
+        assert_eq!(CAPTURE_VERSION, 10);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
-        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
+        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 284);
+    }
+
+    #[test]
+    fn local_recovery_retention_q16_is_derived_from_the_authoritative_epoch() {
+        assert_eq!(local_recovery_retention_q16(64_881, 0), 0);
+        assert_eq!(local_recovery_retention_q16(64_881, 1), 32_768);
+        assert_eq!(local_recovery_retention_q16(64_881, 8), 58_254);
+        assert_eq!(local_recovery_retention_q16(16_384, 8), 16_384);
     }
 
     #[test]
@@ -664,6 +1228,45 @@ mod tests {
             build_token: token,
             field: published,
             validation,
+            filter_proof: Some(DdgiFilterEpochProof {
+                configuration: DdgiFilterConfigurationIdentity {
+                    grid_dimensions: [1, 2, 2],
+                    configured_history_retention_q16: 64_881,
+                },
+                evidence: DdgiFilterEpochEvidence {
+                    field: published,
+                    probe_count: 4,
+                    irradiance: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
+                    },
+                    visibility_history: DdgiFilterHistoryEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        probes: 4,
+                        actions: DdgiFilterActionCounts {
+                            replace: 0,
+                            retain: 2,
+                            blend: 2,
+                        },
+                        blend_retention_q16_sum: 112_348,
+                        blend_retention_q16_max: 56_174,
+                    },
+                    visibility_samples: DdgiFilterVisibilitySampleEvidence {
+                        owner_version_mask: DDGI_FILTER_POLICY_OWNER_MASK,
+                        samples: 128,
+                        accept: 80,
+                        reject: 48,
+                    },
+                    visibility_written: true,
+                },
+            }),
             publication: DdgiCapturePublication::Published,
             batch_order: DdgiBatchOrder::Reverse,
         };
@@ -693,6 +1296,73 @@ mod tests {
         assert_eq!(metadata.max_rel_delta, 0.025);
         assert_eq!(metadata.nonfinite_count, 0);
         assert_eq!(metadata.valid_count, 314_432);
+        assert_eq!(metadata.filter_proof.evidence.field, published);
+        assert_eq!(
+            metadata.filter_proof.configuration.grid_dimensions,
+            [1, 2, 2]
+        );
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.retain, 2);
+        assert_eq!(metadata.filter_proof.evidence.irradiance.actions.blend, 2);
+        let mut encoded_metadata = Vec::new();
+        metadata.write_to(&mut encoded_metadata).unwrap();
+        assert_eq!(
+            encoded_metadata.len(),
+            CAPTURE_HEADER_BYTE_COUNT - CAPTURE_MAGIC.len() - 8 * std::mem::size_of::<u32>()
+        );
+
+        let mut golden_capture = encode_capture_header(1, 1, 16, 22, metadata).unwrap();
+        for pixel in [
+            [0.25_f32, 0.5, 0.75, 1.0],
+            [1.0_f32, 2.0, 3.0, 0.0],
+            [0.0_f32, 0.0, 0.0, 1.0],
+            [1.0_f32 / 512.0, 1.0 / 512.0, 1.0 / 512.0, 1.0],
+            [1.0_f32, 1.0, 1.0, 1.0],
+        ] {
+            for value in pixel {
+                golden_capture.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let fixture_hex =
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v10.hex");
+        let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
+        let fixture: Vec<u8> = compact
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(golden_capture, fixture);
+
+        let mut low_retention_proof = checkpoint.filter_proof.unwrap();
+        low_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        for history in [
+            &mut low_retention_proof.evidence.irradiance,
+            &mut low_retention_proof.evidence.visibility_history,
+        ] {
+            history.blend_retention_q16_sum = 32_768;
+            history.blend_retention_q16_max = 16_384;
+        }
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(low_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_ok());
+        let mut mismatched_retention_proof = checkpoint.filter_proof.unwrap();
+        mismatched_retention_proof
+            .configuration
+            .configured_history_retention_q16 = 16_384;
+        assert!(CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                filter_proof: Some(mismatched_retention_proof),
+                ..checkpoint
+            },
+            crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        )
+        .is_err());
 
         let mismatched_token = DdgiBuildToken::for_test(9002, 42, 16, DdgiBuildKind::Terrain);
         let mismatch = CaptureMetadata::from_checkpoint(

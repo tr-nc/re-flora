@@ -34,10 +34,10 @@ pub(super) struct TerrainPersistenceRuntime {
 }
 
 impl TerrainPersistenceRuntime {
-    pub(super) fn from_options(options: &crate::AppOptions) -> Result<Self> {
+    pub(super) fn from_plan(options: &crate::TerrainPersistencePlan) -> Result<Self> {
         let metadata = terrain_snapshot_metadata();
         let startup_reader = options
-            .terrain_load_path
+            .load_path
             .as_deref()
             .map(|path| -> Result<TerrainSnapshotReader> {
                 TerrainSnapshotReader::validate(path, metadata)
@@ -56,12 +56,12 @@ impl TerrainPersistenceRuntime {
 
         Ok(Self {
             startup_reader,
-            startup_load_requested: options.terrain_load_path.is_some(),
-            startup_save_path: options.terrain_save_path.clone(),
+            startup_load_requested: options.load_path.is_some(),
+            startup_save_path: options.save_path.clone(),
             snapshot_path: options
-                .terrain_load_path
+                .load_path
                 .clone()
-                .or_else(|| options.terrain_save_path.clone())
+                .or_else(|| options.save_path.clone())
                 .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,

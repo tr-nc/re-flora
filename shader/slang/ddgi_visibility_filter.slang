@@ -1,4 +1,5 @@
 import ddgi_config;
+import ddgi_visibility_filter_owner;
 import ddgi_filter_policy;
 import ddgi_octahedral;
 import ddgi_sampling;
@@ -16,12 +17,6 @@ readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
 readonly GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
     ddgi_transient_ray_data;
 
-[[vk::binding(28, 0)]]
-RWTexture2D<float2> ddgi_visibility_atlas;
-
-[[vk::binding(39, 0)]]
-RWTexture2D<float2> ddgi_transport_source_visibility_atlas;
-
 struct DdgiVisibilityFilterPushConstants
 {
     uint first_probe_index;
@@ -38,25 +33,11 @@ struct DdgiVisibilityFilterPushConstants
     uint4 local_refresh_enabled;
     float4 local_refresh_world_min;
     float4 local_refresh_world_max;
+    uint4 filter_evidence;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiVisibilityFilterPushConstants> pc;
-
-float2 loadVisibility(uint slot, uint2 coordinate)
-{
-    return slot == 0u
-        ? ddgi_visibility_atlas[coordinate]
-        : ddgi_transport_source_visibility_atlas[coordinate];
-}
-
-void storeVisibility(uint2 coordinate, float2 value)
-{
-    if (pc.destination_slot == 0u)
-        ddgi_visibility_atlas[coordinate] = value;
-    else
-        ddgi_transport_source_visibility_atlas[coordinate] = value;
-}
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -76,19 +57,21 @@ void main(uint3 groupId : SV_GroupID,
         metadata.nominal_position_and_min_clearance.xyz,
         pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
         pc.local_refresh_world_max.xyz);
-    DdgiFilterHistoryPolicy historyPolicy = ddgiFilterHistoryPolicy(
+    DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
         pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
         pc.local_refresh_enabled.y, pc.history_retention);
-    if (historyPolicy.retain_source)
+    bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
+    bool freshAvailable =
+        metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
+        metadata.state_and_reserved.y == pc.terrain_revision;
+    float2 history = float2(0.0);
+    if (pc.has_history != 0u)
+        history = ddgiOwnerLoadVisibility(pc.source_slot, atlasCoordinate);
+    if (ddgiOwnerTryStoreTerminalVisibility(
+            pc.filter_evidence.x, electedEvidenceLane,
+            pc.destination_slot, atlasCoordinate,
+            historyDecision, freshAvailable, history))
     {
-        storeVisibility(
-            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));
-        return;
-    }
-    if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
-        metadata.state_and_reserved.y != pc.terrain_revision)
-    {
-        storeVisibility(atlasCoordinate, float2(0.0));
         return;
     }
 
@@ -102,9 +85,8 @@ void main(uint3 groupId : SV_GroupID,
         metadata.actual_position_and_clearance.xyz,
         metadata.nominal_position_and_min_clearance.xyz);
     float supportDistance = length(pc.spacing_world) + relocationDistance;
-    float weightedDistance = 0.0;
-    float weightedSquaredDistance = 0.0;
-    float accumulatedWeight = 0.0;
+    DdgiOwnedVisibilityAccumulator visibilityAccumulator =
+        ddgiOwnerBeginVisibility();
 
     [loop]
     for (uint rayIndex = 0u; rayIndex < DDGI_RAYS_PER_PROBE; ++rayIndex)
@@ -117,37 +99,22 @@ void main(uint3 groupId : SV_GroupID,
             ddgi_transient_ray_data
                 .data[localProbeIndex * DDGI_RAYS_PER_PROBE + rayIndex]
                 .w;
-        DdgiFilterVisibilitySample sample = ddgiFilterVisibilitySample(
+        DdgiFilterVisibilityDecision visibilityDecision =
+            ddgiFilterVisibilityDecision(
             signedDistance, supportDistance, pc.far_distance_world);
         // Rohacek's cage-support correction: a distant directional sample
         // cannot claim support beyond this probe's relocated nominal cage.
         // Preserve sky misses as unoccluded support; reject only distant
         // geometry hits that would pull a local depth lobe outward.
-        if (!sample.accepted) continue;
-        float hitDistance = sample.distance;
-        weightedDistance += hitDistance * cosineWeight;
-        weightedSquaredDistance +=
-            hitDistance * hitDistance * cosineWeight;
-        accumulatedWeight += cosineWeight;
+        ddgiOwnerAccumulateVisibilitySample(
+            pc.filter_evidence.x, electedEvidenceLane,
+            visibilityDecision, cosineWeight, visibilityAccumulator);
     }
 
-    float2 current;
-    if (accumulatedWeight <= 1.0e-8)
-    {
-        current = float2(supportDistance,
-                         supportDistance * supportDistance);
-    }
-    else
-    {
-        float inverseWeight = rcp(accumulatedWeight);
-        current = float2(weightedDistance, weightedSquaredDistance) *
-                  inverseWeight;
-    }
-    if (historyPolicy.blend_history)
-    {
-        current = lerp(current,
-                       loadVisibility(pc.source_slot, atlasCoordinate),
-                       historyPolicy.retention);
-    }
-    storeVisibility(atlasCoordinate, current);
+    float2 fresh = ddgiOwnerFinishVisibility(
+        visibilityAccumulator, supportDistance);
+    ddgiOwnerStoreFreshVisibility(
+        pc.filter_evidence.x, electedEvidenceLane,
+        pc.destination_slot, atlasCoordinate,
+        historyDecision, fresh, history);
 }

@@ -9,6 +9,60 @@ pub(in crate::app::core) struct WaterEditSoak {
     next_step: usize,
 }
 
+pub(in crate::app::core) enum WaterEditFrameTxn {
+    Inactive,
+    Step { step: usize },
+    Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app::core) enum WaterEditFrameResult {
+    Applied,
+    Failed,
+}
+
+impl WaterEditSoak {
+    pub(in crate::app::core) fn begin_frame(&self) -> WaterEditFrameTxn {
+        if water_edit_soak_step(self.next_step).is_some() {
+            WaterEditFrameTxn::Step {
+                step: self.next_step,
+            }
+        } else {
+            WaterEditFrameTxn::Complete
+        }
+    }
+
+    pub(in crate::app::core) fn finish_frame(
+        &mut self,
+        transaction: WaterEditFrameTxn,
+        result: WaterEditFrameResult,
+    ) -> anyhow::Result<bool> {
+        let step = match transaction {
+            WaterEditFrameTxn::Step { step } => step,
+            WaterEditFrameTxn::Inactive => {
+                anyhow::ensure!(
+                    result == WaterEditFrameResult::Failed,
+                    "inactive water-edit frame received an applied result"
+                );
+                return Ok(false);
+            }
+            WaterEditFrameTxn::Complete => {
+                anyhow::ensure!(
+                    result == WaterEditFrameResult::Failed,
+                    "complete water-edit frame received an applied result"
+                );
+                return Ok(true);
+            }
+        };
+        anyhow::ensure!(step == self.next_step, "stale water-edit frame transaction");
+        if result == WaterEditFrameResult::Failed {
+            return Ok(false);
+        }
+        self.next_step += 1;
+        Ok(water_edit_soak_step(self.next_step).is_none())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum WaterEditSoakOp {
     Remove,
@@ -49,10 +103,13 @@ impl App {
         let Some(render_start) = self.render_start_time else {
             return;
         };
-        let Some(current_step) = self.water_edit_soak.as_ref().map(|soak| soak.next_step) else {
+        let transaction = self.launch_owners.begin_water_edit_frame();
+        let super::super::launch_owners::WaterEditFrameTxn::Step { step: current_step } =
+            &transaction
+        else {
             return;
         };
-        let Some(step) = water_edit_soak_step(current_step) else {
+        let Some(step) = water_edit_soak_step(*current_step) else {
             return;
         };
 
@@ -63,20 +120,24 @@ impl App {
             return;
         }
 
-        let next_step = current_step + 1;
-        if let Err(err) = self.apply_water_edit_soak_step(step) {
-            log::error!(
-                "[WATER][EDIT_SOAK] step {} ({}) failed: {}",
-                current_step,
-                step.label,
-                err,
-            );
-        }
-        if let Some(soak) = &mut self.water_edit_soak {
-            soak.next_step = next_step;
-            if water_edit_soak_step(soak.next_step).is_none() {
-                log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
+        let result = match self.apply_water_edit_soak_step(step) {
+            Ok(()) => super::super::launch_owners::WaterEditFrameResult::Applied,
+            Err(err) => {
+                log::error!(
+                    "[WATER][EDIT_SOAK] step {} ({}) failed: {}",
+                    current_step,
+                    step.label,
+                    err,
+                );
+                super::super::launch_owners::WaterEditFrameResult::Failed
             }
+        };
+        if self
+            .launch_owners
+            .finish_water_edit_frame(transaction, result)
+            .unwrap_or_else(|error| panic!("[WATER][EDIT_SOAK] stale owner transaction: {error:#}"))
+        {
+            log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
         }
     }
 

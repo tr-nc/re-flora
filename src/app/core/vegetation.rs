@@ -1,10 +1,11 @@
+use super::launch_owners;
 use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::visible_terrain::VisibleTerrainChange;
 use super::{
-    App, CanopyAudioDiagnosticRuntime, CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS,
-    CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS, CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
+    App, CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS, CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS,
+    CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
 };
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
@@ -2285,18 +2286,17 @@ impl App {
         Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y)
     }
 
-    pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
+    pub(super) fn plant_startup_tuned_tree(
+        &mut self,
+        canopy_audio_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
+    ) -> Result<()> {
         self.debug_tree_pos = self.current_tuned_tree_terrain_position();
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)?;
-        if self.canopy_audio_diagnostic.is_some() {
+        if let Some(startup) = canopy_audio_startup {
             self.log_canopy_audio_layout_comparison();
-        }
-        if self
-            .canopy_audio_diagnostic
-            .as_ref()
-            .is_some_and(CanopyAudioDiagnosticRuntime::budget_stress)
-        {
-            self.plant_canopy_audio_budget_diagnostic_trees()?;
+            if startup.plants_budget_stress_trees() {
+                self.plant_canopy_audio_budget_diagnostic_trees()?;
+            }
         }
         log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
         Ok(())

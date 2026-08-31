@@ -20,26 +20,112 @@ const EXPERIENCE_TIME_OF_DAY: f32 = 0.42;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WaterExperiencePhase {
-    WaitingForCompleteFrame,
+    PendingActivation,
+    WaitingForCompleteFrame { expected_particle_count: usize },
     Ready,
+}
+
+pub(super) enum WaterExperienceFrameTxn {
+    Inactive,
+    PendingActivation,
+    Waiting { expected_particle_count: usize },
+    Ready,
+}
+
+pub(super) enum WaterExperienceFrameResult {
+    NotReady,
+    Ready {
+        particle_count: usize,
+        sim_time_seconds: f32,
+        revision: u64,
+    },
+}
+
+pub(super) struct WaterExperienceReadyReceipt {
+    pub(super) particle_count: usize,
+    pub(super) sim_time_seconds: f32,
+    pub(super) revision: u64,
 }
 
 #[derive(Debug)]
 pub(super) struct WaterExperienceScene {
-    expected_particle_count: usize,
     phase: WaterExperiencePhase,
 }
 
 impl WaterExperienceScene {
-    pub(super) fn new(expected_particle_count: usize) -> Self {
+    pub(super) fn pending() -> Self {
         Self {
-            expected_particle_count,
-            phase: WaterExperiencePhase::WaitingForCompleteFrame,
+            phase: WaterExperiencePhase::PendingActivation,
         }
     }
 
-    fn is_waiting(&self) -> bool {
-        self.phase == WaterExperiencePhase::WaitingForCompleteFrame
+    pub(super) fn activate(&mut self, expected_particle_count: usize) {
+        match self.phase {
+            WaterExperiencePhase::PendingActivation => {
+                self.phase = WaterExperiencePhase::WaitingForCompleteFrame {
+                    expected_particle_count,
+                };
+            }
+            WaterExperiencePhase::WaitingForCompleteFrame { .. } | WaterExperiencePhase::Ready => {
+                panic!("water experience was activated more than once")
+            }
+        }
+    }
+
+    pub(super) fn begin_frame(&self) -> WaterExperienceFrameTxn {
+        match self.phase {
+            WaterExperiencePhase::PendingActivation => WaterExperienceFrameTxn::PendingActivation,
+            WaterExperiencePhase::WaitingForCompleteFrame {
+                expected_particle_count,
+            } => WaterExperienceFrameTxn::Waiting {
+                expected_particle_count,
+            },
+            WaterExperiencePhase::Ready => WaterExperienceFrameTxn::Ready,
+        }
+    }
+
+    pub(super) fn finish_frame(
+        &mut self,
+        transaction: WaterExperienceFrameTxn,
+        result: WaterExperienceFrameResult,
+    ) -> anyhow::Result<Option<WaterExperienceReadyReceipt>> {
+        let WaterExperienceFrameTxn::Waiting {
+            expected_particle_count,
+        } = transaction
+        else {
+            anyhow::ensure!(
+                matches!(result, WaterExperienceFrameResult::NotReady),
+                "inactive water-experience frame received a ready result"
+            );
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            matches!(
+                self.phase,
+                WaterExperiencePhase::WaitingForCompleteFrame {
+                    expected_particle_count: current
+                } if current == expected_particle_count
+            ),
+            "stale water-experience frame transaction"
+        );
+        let WaterExperienceFrameResult::Ready {
+            particle_count,
+            sim_time_seconds,
+            revision,
+        } = result
+        else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            complete_frame_is_ready(particle_count, expected_particle_count, sim_time_seconds),
+            "water-experience ready receipt does not describe a complete frame"
+        );
+        self.phase = WaterExperiencePhase::Ready;
+        Ok(Some(WaterExperienceReadyReceipt {
+            particle_count,
+            sim_time_seconds,
+            revision,
+        }))
     }
 }
 
@@ -112,39 +198,64 @@ impl App {
     }
 
     pub(super) fn process_water_experience_scene(&mut self) {
-        let Some(expected_particle_count) = self
-            .water_experience_scene
-            .as_ref()
-            .filter(|scene| scene.is_waiting())
-            .map(|scene| scene.expected_particle_count)
+        let transaction = self.launch_owners.begin_water_experience_frame();
+        let super::launch_owners::WaterExperienceFrameTxn::Waiting {
+            expected_particle_count,
+        } = &transaction
         else {
             return;
         };
         if !self.water.terrain_status().is_ready() {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         }
         let Some(frame) = self.water.latest_particle_frame() else {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         };
         if !complete_frame_is_ready(
             frame.particles().len(),
-            expected_particle_count,
+            *expected_particle_count,
             frame.sim_time_seconds(),
         ) {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         }
 
-        let revision = frame.revision();
-        let sim_time_seconds = frame.sim_time_seconds();
-        self.water_experience_scene
-            .as_mut()
-            .expect("water experience disappeared while becoming ready")
-            .phase = WaterExperiencePhase::Ready;
+        let receipt = self
+            .launch_owners
+            .finish_water_experience_frame(
+                transaction,
+                super::launch_owners::WaterExperienceFrameResult::Ready {
+                    particle_count: frame.particles().len(),
+                    sim_time_seconds: frame.sim_time_seconds(),
+                    revision: frame.revision(),
+                },
+            )
+            .unwrap_or_else(|error| {
+                panic!("[WATER_EXPERIENCE] failed to commit ready frame: {error:#}")
+            })
+            .expect("ready water-experience frame must produce a receipt");
         log::info!(
             "[WATER_EXPERIENCE] ready complete_frame_revision={} sim_time_seconds={:.6} particles={} terrain_cache=ready",
-            revision,
-            sim_time_seconds,
-            expected_particle_count,
+            receipt.revision,
+            receipt.sim_time_seconds,
+            receipt.particle_count,
         );
     }
 }

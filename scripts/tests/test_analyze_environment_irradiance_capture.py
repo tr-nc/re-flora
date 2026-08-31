@@ -20,9 +20,50 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
+    def test_published_v9_golden_keeps_the_252_byte_layout(self) -> None:
+        fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v9.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "published-v9.rfirr"
+            capture_path.write_bytes(bytes.fromhex(fixture_hex))
+            capture = analyzer.load_capture(capture_path)
+
+        self.assertEqual(capture.version, 9)
+        self.assertEqual(analyzer.HEADER_V9.size, 252)
+        self.assertEqual(capture.filter_evidence["irradiance_history"]["owner_version"], 1)
+
+    def test_rust_producer_v10_golden_decodes_with_exact_filter_witness(self) -> None:
+        fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "rust-producer-v10.rfirr"
+            capture_path.write_bytes(bytes.fromhex(fixture_hex))
+            capture = analyzer.load_capture(capture_path)
+
+        self.assertEqual(capture.version, 10)
+        self.assertEqual(capture.update_epoch, 6)
+        self.assertEqual(capture.grid_dimensions, (1, 2, 2))
+        self.assertEqual(capture.configured_history_retention_q16, 64_881)
+        evidence = capture.filter_evidence
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["irradiance_history"]["owner_version_mask"], 2)
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_sum"],
+            112_348,
+        )
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_max"],
+            56_174,
+        )
+
     def write_capture(
         self, path: Path, pixels: list[tuple[float, float, float, float]]
     ) -> None:
@@ -39,6 +80,28 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             [
                 sys.executable,
                 str(SCRIPTS / "analyze_environment_irradiance_capture.py"),
+                str(capture),
+                *arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def run_compatibility_analyzer(
+        self, version: int, capture: Path, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_analyzer(
+            capture, "--expect-version", str(version), *arguments
+        )
+
+    def run_current_analyzer(
+        self, capture: Path, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "analyze_current_environment_irradiance_capture.py"),
                 str(capture),
                 *arguments,
             ],
@@ -353,6 +416,205 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         path.write_bytes(header + payload)
 
+    def write_capture_v10(
+        self,
+        path: Path,
+        *,
+        debug_view: int = 0,
+        grid_dimensions: tuple[int, int, int] = (1, 2, 2),
+        configured_retention_q16: int = 64_881,
+        visibility_samples: int = 128,
+        visibility_accept: int = 80,
+        visibility_reject: int = 48,
+        irradiance_retention_sum_q16: int = 65_536,
+        irradiance_retention_max_q16: int = 32_768,
+        visibility_retention_sum_q16: int = 65_536,
+        visibility_retention_max_q16: int = 32_768,
+        update_epoch: int = 1,
+    ) -> None:
+        voxel = 1.0 / 256.0
+        header = HEADER_V10.pack(
+            analyzer.MAGIC,
+            10,
+            1,
+            1,
+            4,
+            1,
+            16,
+            debug_view,
+            5,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            1,
+            update_epoch,
+            1,
+            0,
+            88,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            1,
+            1,
+            2,
+            2,
+            2,
+            89,
+            update_epoch,
+            4,
+            1,
+            0,
+            *grid_dimensions,
+            configured_retention_q16,
+            0,
+            2,
+            2,
+            irradiance_retention_sum_q16,
+            irradiance_retention_max_q16,
+            0,
+            2,
+            2,
+            visibility_retention_sum_q16,
+            visibility_retention_max_q16,
+            visibility_samples,
+            visibility_accept,
+            visibility_reject,
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in (
+                (0.25, 0.5, 0.75, 1.0),
+                (1.0, 2.0, 3.0, 0.0),
+                (0.0, 0.0, 0.0, 1.0),
+                (0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0),
+                (1.0, 1.0, 1.0, 1.0),
+            )
+        )
+        path.write_bytes(header + payload)
+
+    def test_v10_filter_evidence_is_typed_and_debug_view_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "filter-evidence.rfirr"
+            self.write_capture_v10(capture_path, debug_view=22)
+            result = self.run_analyzer(
+                capture_path,
+                "--expect-debug-view",
+                "moment-support",
+                "--require-filter-history-retain-blend",
+                "--expect-filter-blend-retention-q16",
+                "32768",
+                "--min-filter-visibility-reject-count",
+                "1",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        capture = json.loads(result.stdout)["capture"]
+        self.assertEqual(capture["debug_view"], "moment-support")
+        self.assertEqual(capture["filter_evidence"]["field_serial"], 89)
+        self.assertEqual(capture["filter_evidence"]["update_epoch"], 1)
+        self.assertEqual(
+            capture["filter_evidence"]["irradiance_history"]["blend"], 2
+        )
+        self.assertEqual(
+            capture["filter_evidence"]["irradiance_history"][
+                "blend_retention_q16_max"
+            ],
+            32_768,
+        )
+        self.assertEqual(
+            capture["filter_evidence"]["visibility_samples"]["reject"], 48
+        )
+
+    def test_v10_filter_evidence_rejects_an_invalid_sample_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "invalid-filter-evidence.rfirr"
+            self.write_capture_v10(
+                capture_path,
+                visibility_samples=128,
+                visibility_accept=80,
+                visibility_reject=49,
+            )
+            with self.assertRaisesRegex(ValueError, "visibility sample partition"):
+                analyzer.load_capture(capture_path)
+
+    def test_v10_filter_evidence_requires_the_authoritative_grid_product(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "grid-mismatch.rfirr"
+            self.write_capture_v10(capture_path, grid_dimensions=(1, 1, 3))
+            with self.assertRaisesRegex(ValueError, "grid product"):
+                analyzer.load_capture(capture_path)
+
+    def test_v10_visibility_samples_reject_under_over_and_partial_probe_counts(self) -> None:
+        mutations = (
+            (64, 40, 24, "undercounts Blend probes"),
+            (192, 120, 72, "exceeds fresh history probes"),
+            (127, 80, 47, "whole 64-ray probes"),
+        )
+        for samples, accept, reject, message in mutations:
+            with self.subTest(samples=samples), tempfile.TemporaryDirectory() as directory:
+                capture_path = Path(directory) / "sample-completeness.rfirr"
+                self.write_capture_v10(
+                    capture_path,
+                    visibility_samples=samples,
+                    visibility_accept=accept,
+                    visibility_reject=reject,
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    analyzer.load_capture(capture_path)
+
+    def test_v10_filter_evidence_rejects_an_average_only_retention_witness(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "mixed-retention-filter-evidence.rfirr"
+            self.write_capture_v10(
+                capture_path,
+                irradiance_retention_sum_q16=65_536,
+                irradiance_retention_max_q16=65_536,
+            )
+            with self.assertRaisesRegex(ValueError, "exact Blend retention"):
+                analyzer.load_capture(capture_path)
+
+    def test_v10_local_recovery_retention_is_derived_from_the_capture_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "local-recovery-e8.rfirr"
+            self.write_capture_v10(
+                capture_path,
+                update_epoch=8,
+                irradiance_retention_sum_q16=116_508,
+                irradiance_retention_max_q16=58_254,
+                visibility_retention_sum_q16=116_508,
+                visibility_retention_max_q16=58_254,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--require-filter-local-recovery-policy",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_v10_local_recovery_retention_is_capped_by_configured_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "local-recovery-low-h.rfirr"
+            self.write_capture_v10(
+                capture_path,
+                update_epoch=8,
+                configured_retention_q16=16_384,
+                irradiance_retention_sum_q16=32_768,
+                irradiance_retention_max_q16=16_384,
+                visibility_retention_sum_q16=32_768,
+                visibility_retention_max_q16=16_384,
+            )
+            accepted = self.run_analyzer(
+                capture_path,
+                "--require-filter-local-recovery-policy",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
     def test_cli_names_and_checks_extended_ddgi_debug_views(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "unoccluded.rfirr"
@@ -366,12 +628,14 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 1.0, 1.0, 1.0)],
                 debug_view=12,
             )
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                8,
                 capture_path,
                 "--expect-debug-view",
                 "unoccluded-irradiance",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                8,
                 capture_path,
                 "--expect-debug-view",
                 "equal-weight-irradiance",
@@ -397,7 +661,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 1.0, 1.0, 1.0)],
                 debug_view=22,
             )
-            result = self.run_analyzer(
+            result = self.run_compatibility_analyzer(
+                8,
                 capture_path,
                 "--expect-debug-view",
                 "moment-support",
@@ -432,14 +697,16 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 *common_planes,
                 debug_view=2,
             )
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                8,
                 moment_path,
                 "--reference",
                 str(exact_path),
                 "--min-reference-error-p99",
                 "0.59",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                8,
                 moment_path,
                 "--reference",
                 str(exact_path),
@@ -449,6 +716,43 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_reference_difference_gate_accepts_signed_luminance_reversal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            darker_path = Path(directory) / "darker.rfirr"
+            brighter_path = Path(directory) / "brighter.rfirr"
+            voxel = 1.0 / 256.0
+            common_planes = (
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                darker_path,
+                [(0.1, 0.1, 0.1, 1.0)],
+                *common_planes,
+                debug_view=12,
+            )
+            self.write_capture_v8(
+                brighter_path,
+                [(0.5, 0.5, 0.5, 1.0)],
+                *common_planes,
+                debug_view=0,
+            )
+
+            accepted = self.run_compatibility_analyzer(
+                8,
+                darker_path,
+                "--reference",
+                str(brighter_path),
+                "--min-reference-error-p99",
+                "0.39",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        comparison = json.loads(accepted.stdout)["reference_comparison"]
+        self.assertAlmostEqual(comparison["luminance_error_p99"], 0.4)
 
     def test_cli_reports_failed_reference_ceiling_gates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -471,7 +775,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(0.2, 0.2, 0.2, 1.0)],
                 *common_planes,
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                8,
                 first_path,
                 "--reference",
                 str(reference_path),
@@ -504,7 +809,9 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "--max-reference-error-max",
             ):
                 with self.subTest(option=option):
-                    rejected = self.run_analyzer(capture_path, option, "0.1")
+                    rejected = self.run_compatibility_analyzer(
+                        2, capture_path, option, "0.1"
+                    )
                     self.assertEqual(rejected.returncode, 1, rejected.stderr)
                     self.assertIn(
                         f"{option} requires --reference",
@@ -521,7 +828,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(0.1, 0.2, 0.3, 1.0), (0.1, 0.2, 0.3, 1.0)],
             )
 
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                2,
                 first_path,
                 "--reference",
                 str(reference_path),
@@ -536,11 +844,34 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             json.loads(rejected.stdout)["validation_failures"],
         )
 
+    def test_legacy_capture_pair_cannot_satisfy_reference_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v2.rfirr"
+            reference_path = Path(directory) / "reference-v2.rfirr"
+            pixels = [(0.1, 0.2, 0.3, 1.0)]
+            self.write_capture(first_path, pixels)
+            self.write_capture(reference_path, pixels)
+
+            rejected = self.run_compatibility_analyzer(
+                2, first_path, "--reference", str(reference_path)
+            )
+
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        report = json.loads(rejected.stdout)
+        self.assertIn(
+            "reference comparison requires RFIRR v8-v10 five-plane identity evidence",
+            report["validation_failures"],
+        )
+        self.assertFalse(
+            report["reference_comparison"]["identity_planes_available"]
+        )
+
     def test_reference_requires_finite_planes_and_exact_world_coordinates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first_path = Path(directory) / "first.rfirr"
             nonfinite_path = Path(directory) / "nonfinite-reference.rfirr"
             moved_path = Path(directory) / "moved-reference.rfirr"
+            different_hit_path = Path(directory) / "different-hit-reference.rfirr"
             voxel = 1.0 / 256.0
             irradiance = [(0.2, 0.2, 0.2, 1.0)]
             world = [(1.0, 2.0, 3.0, 0.0)]
@@ -566,11 +897,25 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 receiver,
                 shadows,
             )
+            self.write_capture_v8(
+                different_hit_path,
+                [(0.2, 0.2, 0.2, 0.0)],
+                world,
+                direct,
+                receiver,
+                shadows,
+            )
 
-            nonfinite = self.run_analyzer(
+            nonfinite = self.run_compatibility_analyzer(
+                8,
                 first_path, "--reference", str(nonfinite_path)
             )
-            moved = self.run_analyzer(first_path, "--reference", str(moved_path))
+            moved = self.run_compatibility_analyzer(
+                8, first_path, "--reference", str(moved_path)
+            )
+            different_hit = self.run_compatibility_analyzer(
+                8, first_path, "--reference", str(different_hit_path)
+            )
 
         self.assertEqual(nonfinite.returncode, 1, nonfinite.stderr)
         self.assertIn(
@@ -582,6 +927,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             "reference world XYZ payload does not match capture",
             json.loads(moved.stdout)["validation_failures"],
         )
+        self.assertEqual(different_hit.returncode, 1, different_hit.stderr)
+        self.assertIn(
+            "reference terrain hit mask does not match capture",
+            json.loads(different_hit.stdout)["validation_failures"],
+        )
 
     def test_reference_max_gate_rejects_a_small_tail_outlier(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -590,10 +940,25 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             pixels = [(0.0, 0.0, 0.0, 1.0)] * 100
             reference_pixels = list(pixels)
             reference_pixels[-1] = (1.0, 1.0, 1.0, 1.0)
-            self.write_capture(first_path, pixels)
-            self.write_capture(reference_path, reference_pixels)
+            voxel = 1.0 / 256.0
+            world = [(1.0, 2.0, 3.0, 0.0)] * 100
+            direct = [(0.0, 0.0, 0.0, 1.0)] * 100
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)] * 100
+            shadows = [(1.0, 1.0, 1.0, 1.0)] * 100
+            self.write_capture_v8(
+                first_path, pixels, world, direct, receiver, shadows
+            )
+            self.write_capture_v8(
+                reference_path,
+                reference_pixels,
+                world,
+                direct,
+                receiver,
+                shadows,
+            )
 
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                2,
                 first_path,
                 "--reference",
                 str(reference_path),
@@ -644,8 +1009,12 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "4",
                 "--min-debug-roi-luminance-gain",
             )
-            accepted = self.run_analyzer(unoccluded_path, *common, "0.39")
-            rejected = self.run_analyzer(unoccluded_path, *common, "0.41")
+            accepted = self.run_compatibility_analyzer(
+                8, unoccluded_path, *common, "0.39"
+            )
+            rejected = self.run_compatibility_analyzer(
+                8, unoccluded_path, *common, "0.41"
+            )
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         report = json.loads(accepted.stdout)["debug_baseline_comparison"]
@@ -727,7 +1096,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             comparison["process_local_identity_mismatches"],
             ["build_token_serial", "field_serial", "source_field_serial"],
         )
-        self.assertTrue(reference["compatible"])
+        self.assertFalse(reference["compatible"])
+        self.assertFalse(reference["identity_planes_available"])
         self.assertFalse(different_epoch["compatible"])
         self.assertIn("update_epoch", different_epoch["metadata_mismatches"])
 
@@ -800,8 +1170,12 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "5",
                 "--min-direct-light-sunlit-luminance-mean",
             )
-            accepted = self.run_analyzer(capture_path, *common, "0.58")
-            rejected = self.run_analyzer(capture_path, *common, "0.59")
+            accepted = self.run_compatibility_analyzer(
+                5, capture_path, *common, "0.58"
+            )
+            rejected = self.run_compatibility_analyzer(
+                5, capture_path, *common, "0.59"
+            )
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         summary = json.loads(accepted.stdout)["capture"]
@@ -843,10 +1217,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 analyzer.load_capture(first_path),
                 analyzer.load_capture(second_path),
             )
-            environment_only = self.run_analyzer(
-                first_path, "--compare", str(second_path)
+            environment_only = self.run_compatibility_analyzer(
+                5, first_path, "--compare", str(second_path)
             )
-            including_direct = self.run_analyzer(
+            including_direct = self.run_compatibility_analyzer(
+                5,
                 first_path,
                 "--compare",
                 str(second_path),
@@ -863,6 +1238,145 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(environment_only.returncode, 0, environment_only.stderr)
         self.assertEqual(including_direct.returncode, 1, including_direct.stderr)
+        self.assertIn(
+            "comparison direct-light plane is not bit-exact",
+            json.loads(including_direct.stdout)["validation_failures"],
+        )
+
+    def test_comparison_reports_environment_bit_exact_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.rfirr"
+            second_path = Path(directory) / "second.rfirr"
+            self.write_capture(first_path, [(0.1, 0.2, 0.3, 1.0)])
+            self.write_capture(second_path, [(0.1, 0.2, 0.4, 1.0)])
+
+            result = self.run_analyzer(
+                first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "comparison environment irradiance and terrain hit-mask plane "
+            "is not bit-exact",
+            json.loads(result.stdout)["validation_failures"],
+        )
+
+    def test_comparison_reports_metadata_without_blaming_equal_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v6.rfirr"
+            second_path = Path(directory) / "second-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            self.write_capture_v6(first_path, irradiance, world, direct)
+            self.write_capture_v6(
+                second_path,
+                irradiance,
+                world,
+                direct,
+                update_epoch=32,
+            )
+
+            result = self.run_compatibility_analyzer(
+                6,
+                first_path,
+                "--compare",
+                str(second_path),
+                "--compare-direct-light",
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["comparison"]["metadata_mismatches"],
+            ["update_epoch", "source_update_epoch"],
+        )
+        self.assertTrue(report["comparison"]["direct_light_payload_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            [
+                "comparison capture identity is incompatible: base_mismatches=[] "
+                "metadata_mismatches=['update_epoch', 'source_update_epoch']"
+            ],
+        )
+
+    def test_comparison_reports_shadow_plane_without_blaming_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v8.rfirr"
+            second_path = Path(directory) / "second-v8.rfirr"
+            voxel = 1.0 / 256.0
+            planes = (
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                [(0.4, 0.5, 0.6, 1.0)],
+            )
+            self.write_capture_v8(
+                first_path,
+                *planes,
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+            self.write_capture_v8(
+                second_path,
+                *planes,
+                [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 0.75)],
+                [(1.0, 1.0, 1.0, 1.0)],
+            )
+
+            result = self.run_compatibility_analyzer(
+                8, first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertTrue(report["comparison"]["environment_irradiance_bit_exact"])
+        self.assertTrue(report["comparison"]["world_payload_bit_exact"])
+        self.assertFalse(report["comparison"]["terrain_shadow_receiver_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            ["comparison terrain-shadow receiver plane is not bit-exact"],
+        )
+
+    def test_comparison_names_world_alpha_as_exact_sun_visibility(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v8.rfirr"
+            second_path = Path(directory) / "second-v8.rfirr"
+            voxel = 1.0 / 256.0
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            receiver = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)]
+            shadows = [(1.0, 1.0, 1.0, 1.0)]
+            self.write_capture_v8(
+                first_path,
+                irradiance,
+                [(1.0, 2.0, 3.0, 0.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+            self.write_capture_v8(
+                second_path,
+                irradiance,
+                [(1.0, 2.0, 3.0, 1.0)],
+                direct,
+                receiver,
+                shadows,
+            )
+
+            result = self.run_compatibility_analyzer(
+                8, first_path, "--compare", str(second_path)
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["comparison"]["world_payload_bit_exact"])
+        self.assertEqual(
+            report["validation_failures"],
+            [
+                "comparison world XYZ and exact-sun-visibility plane "
+                "is not bit-exact"
+            ],
+        )
 
     def test_cli_gates_direct_light_roi_delta_from_environment_identical_baseline(
         self,
@@ -899,8 +1413,12 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "4",
                 "--min-direct-light-sunlit-roi-luminance-absolute-delta",
             )
-            accepted = self.run_analyzer(changed_path, *common, "0.29")
-            rejected = self.run_analyzer(changed_path, *common, "0.31")
+            accepted = self.run_compatibility_analyzer(
+                5, changed_path, *common, "0.29"
+            )
+            rejected = self.run_compatibility_analyzer(
+                5, changed_path, *common, "0.31"
+            )
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         report = json.loads(accepted.stdout)
@@ -1043,11 +1561,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 batch_order=1,
             )
 
-            accepted = self.run_analyzer(
-                capture_path, "--expect-batch-order", "reverse"
+            accepted = self.run_compatibility_analyzer(
+                4, capture_path, "--expect-batch-order", "reverse"
             )
-            rejected = self.run_analyzer(
-                capture_path, "--expect-batch-order", "forward"
+            rejected = self.run_compatibility_analyzer(
+                4, capture_path, "--expect-batch-order", "forward"
             )
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
@@ -1086,6 +1604,81 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         failures = json.loads(rejected.stdout)["validation_failures"]
         self.assertIn("version: expected 3, got 4", failures)
         self.assertIn("spacing_voxels: expected 32, got 16", failures)
+
+    def test_cli_defaults_to_current_and_requires_explicit_compatibility(self) -> None:
+        v10_fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
+        ).read_text()
+        v9_fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v9.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "current-v10.rfirr"
+            capture_path.write_bytes(bytes.fromhex(v10_fixture_hex))
+            stale_path = Path(directory) / "published-v9.rfirr"
+            stale_path.write_bytes(bytes.fromhex(v9_fixture_hex))
+
+            current_default = self.run_analyzer(capture_path)
+            stale_default = self.run_analyzer(stale_path)
+            explicit_compatibility = self.run_analyzer(
+                stale_path, "--expect-version", "9"
+            )
+            explicit_current = self.run_analyzer(
+                capture_path, "--expect-version", "current"
+            )
+
+        self.assertEqual(current_default.returncode, 0, current_default.stderr)
+        self.assertEqual(
+            json.loads(current_default.stdout)["capture"]["version"],
+            analyzer.CURRENT_RFIRR_VERSION,
+        )
+        self.assertEqual(stale_default.returncode, 1, stale_default.stderr)
+        self.assertIn(
+            "version: expected 10, got 9",
+            json.loads(stale_default.stdout)["validation_failures"],
+        )
+        self.assertEqual(
+            explicit_compatibility.returncode, 0, explicit_compatibility.stderr
+        )
+        self.assertEqual(explicit_current.returncode, 0, explicit_current.stderr)
+
+    def test_production_cli_accepts_only_current_without_a_version_surface(self) -> None:
+        fixtures = Path(__file__).with_name("fixtures")
+        with tempfile.TemporaryDirectory() as directory:
+            current_path = Path(directory) / "current-v10.rfirr"
+            current_path.write_bytes(
+                bytes.fromhex(
+                    (fixtures / "ddgi_filter_evidence_v10.hex").read_text()
+                )
+            )
+            historical_path = Path(directory) / "historical-v9.rfirr"
+            historical_path.write_bytes(
+                bytes.fromhex(
+                    (fixtures / "ddgi_filter_evidence_v9.hex").read_text()
+                )
+            )
+
+            current = self.run_current_analyzer(current_path)
+            historical = self.run_current_analyzer(historical_path)
+            version_overrides = tuple(
+                self.run_current_analyzer(historical_path, *arguments)
+                for arguments in (
+                    ("--expect-version", "9"),
+                    ("--expect-version=9",),
+                    ("--expect-version", "current"),
+                )
+            )
+
+        self.assertEqual(current.returncode, 0, current.stderr)
+        self.assertEqual(json.loads(current.stdout)["capture"]["version"], 10)
+        self.assertEqual(historical.returncode, 1, historical.stderr)
+        self.assertIn(
+            "version: expected 10, got 9",
+            json.loads(historical.stdout)["validation_failures"],
+        )
+        for result in version_overrides:
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unrecognized arguments", result.stderr)
 
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1171,7 +1764,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 analyzer.load_capture(capture_path),
                 world_roi=(0.0, 0.0, 0.0, 5.0, 5.0, 5.0),
             )
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                5,
                 capture_path,
                 "--world-roi",
                 "0",
@@ -1185,7 +1779,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "--max-world-roi-combined-zero-count",
                 "1",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                5,
                 capture_path,
                 "--world-roi",
                 "0",
@@ -1235,14 +1830,16 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
 
             summary = analyzer.summarize(analyzer.load_capture(capture_path))
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                5,
                 capture_path,
                 "--max-world-roi-mixed-environment-zero-voxel-face-count",
                 "1",
                 "--max-world-roi-mixed-combined-zero-voxel-face-count",
                 "1",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                5,
                 capture_path,
                 "--max-world-roi-mixed-environment-zero-voxel-face-count",
                 "0",
@@ -1287,7 +1884,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             summary = analyzer.summarize(
                 analyzer.load_capture(capture_path), camera_position=camera
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                5,
                 capture_path,
                 "--camera-position",
                 *(str(value) for value in camera),
@@ -1326,12 +1924,14 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
 
             summary = analyzer.summarize(analyzer.load_capture(capture_path))
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                7,
                 capture_path,
                 "--max-terrain-shadow-receiver-voxel-transmittance-range",
                 "0.5",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                7,
                 capture_path,
                 "--max-terrain-shadow-receiver-voxel-transmittance-range",
                 "0.499",
@@ -1369,12 +1969,14 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
             capture = analyzer.load_capture(capture_path)
             summary = analyzer.summarize(capture)
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                8,
                 capture_path,
                 "--max-leaf-shadow-receiver-voxel-transmittance-range",
                 "0.601",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                8,
                 capture_path,
                 "--max-leaf-shadow-receiver-voxel-transmittance-range",
                 "0.599",
@@ -1438,7 +2040,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 ],
             )
 
-            accepted = self.run_analyzer(
+            accepted = self.run_compatibility_analyzer(
+                3,
                 capture_path,
                 "--world-roi",
                 "0",
@@ -1456,7 +2059,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "--max-exact-direct-sun-visibility",
                 "0",
             )
-            rejected = self.run_analyzer(
+            rejected = self.run_compatibility_analyzer(
+                3,
                 capture_path,
                 "--world-roi",
                 "0",
@@ -1516,8 +2120,12 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "5",
                 "--min-roi-luminance-gain",
             )
-            accepted = self.run_analyzer(current_path, *common, "0.09")
-            rejected = self.run_analyzer(current_path, *common, "0.11")
+            accepted = self.run_compatibility_analyzer(
+                3, current_path, *common, "0.09"
+            )
+            rejected = self.run_compatibility_analyzer(
+                3, current_path, *common, "0.11"
+            )
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         gain = json.loads(accepted.stdout)["baseline_comparison"]
@@ -1550,7 +2158,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 analyzer.load_capture(baseline_path),
                 (0.0, 0.0, 0.0, 2.0, 3.0, 4.0),
             )
-            cli_result = self.run_analyzer(
+            cli_result = self.run_compatibility_analyzer(
+                6,
                 current_path,
                 "--baseline",
                 str(baseline_path),
@@ -1601,10 +2210,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "--roi-channel",
                 "red",
             )
-            seed_accepted = self.run_analyzer(
-                baseline_path, *roi, "--max-roi-channel-share", "0.03"
+            seed_accepted = self.run_compatibility_analyzer(
+                3, baseline_path, *roi, "--max-roi-channel-share", "0.03"
             )
-            gain_accepted = self.run_analyzer(
+            gain_accepted = self.run_compatibility_analyzer(
+                3,
                 current_path,
                 "--baseline",
                 str(baseline_path),
@@ -1612,7 +2222,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 "--min-roi-channel-share-gain",
                 "0.09",
             )
-            gain_rejected = self.run_analyzer(
+            gain_rejected = self.run_compatibility_analyzer(
+                3,
                 current_path,
                 "--baseline",
                 str(baseline_path),
@@ -1661,7 +2272,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 2.0, 3.0, 1.0)],
             )
 
-            result = self.run_analyzer(
+            result = self.run_compatibility_analyzer(
+                3,
                 capture_path,
                 "--expect-geometry-revision",
                 "40",
@@ -1687,7 +2299,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 valid_count=12,
             )
 
-            result = self.run_analyzer(capture_path)
+            result = self.run_compatibility_analyzer(3, capture_path)
 
         self.assertEqual(result.returncode, 1, result.stderr)
         report = json.loads(result.stdout)
@@ -1703,7 +2315,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 2.0, 3.0, 1.0), (float("nan"), 0.0, 0.0, 0.0)],
             )
 
-            result = self.run_analyzer(capture_path)
+            result = self.run_compatibility_analyzer(3, capture_path)
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(
@@ -1724,7 +2336,8 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 max_rel_delta=0.005,
             )
 
-            result = self.run_analyzer(
+            result = self.run_compatibility_analyzer(
+                3,
                 capture_path,
                 "--convergence-max-abs-delta",
                 "0.01",
@@ -1749,8 +2362,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 max_rel_delta=0.2,
             )
 
-            diagnostic = self.run_analyzer(capture_path)
-            correctness = self.run_analyzer(capture_path, "--correctness")
+            diagnostic = self.run_compatibility_analyzer(3, capture_path)
+            correctness = self.run_compatibility_analyzer(
+                3, capture_path, "--correctness"
+            )
 
         self.assertEqual(diagnostic.returncode, 0, diagnostic.stderr)
         self.assertEqual(correctness.returncode, 1, correctness.stderr)
@@ -1771,7 +2386,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 max_abs_delta=float("nan"),
             )
 
-            result = self.run_analyzer(capture_path)
+            result = self.run_compatibility_analyzer(3, capture_path)
 
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(
@@ -1788,11 +2403,17 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 2.0, 3.0, 0.0)],
             )
 
-            result = self.run_analyzer(capture_path, "--require-zero-rgb")
+            result = self.run_compatibility_analyzer(
+                3, capture_path, "--require-zero-rgb"
+            )
 
         self.assertEqual(result.returncode, 1, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["capture"]["rgb_channel_nonzero_count"], [0, 0, 1])
+        self.assertIn(
+            "terrain-hit RGB: expected exact zero, got 1 nonzero samples",
+            report["validation_failures"],
+        )
 
     def test_v3_nonnegative_gate_rejects_negative_terrain_hit_channel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1803,7 +2424,9 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 [(1.0, 2.0, 3.0, 0.0)],
             )
 
-            result = self.run_analyzer(capture_path, "--require-nonnegative-rgb")
+            result = self.run_compatibility_analyzer(
+                3, capture_path, "--require-nonnegative-rgb"
+            )
 
         self.assertEqual(result.returncode, 1, result.stderr)
         report = json.loads(result.stdout)
@@ -1850,10 +2473,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             capture_path = Path(directory) / "tiny-nonzero.rfirr"
             self.write_capture(capture_path, [(0.0000001, 0.0, 0.0, 1.0)])
 
-            luminance_only = self.run_analyzer(
-                capture_path, "--max-luminance", "0.00001"
+            luminance_only = self.run_compatibility_analyzer(
+                2, capture_path, "--max-luminance", "0.00001"
             )
-            exact_zero = self.run_analyzer(
+            exact_zero = self.run_compatibility_analyzer(
+                2,
                 capture_path,
                 "--max-luminance",
                 "0.00001",
@@ -1865,6 +2489,37 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         report = json.loads(exact_zero.stdout)
         self.assertGreater(report["capture"]["rgb_abs_max"], 0.0)
         self.assertEqual(report["capture"]["rgb_nonzero_count"], 1)
+        self.assertIn(
+            "terrain-hit RGB: expected exact zero, got 1 nonzero samples",
+            report["validation_failures"],
+        )
+
+    def test_luminance_gates_report_the_failed_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "luminance-gates.rfirr"
+            self.write_capture(capture_path, [(0.1, 0.2, 0.3, 1.0)])
+
+            maximum = self.run_analyzer(
+                capture_path, "--max-luminance", "0.01"
+            )
+            minimum = self.run_analyzer(
+                capture_path, "--min-luminance-p99", "1.0"
+            )
+
+        self.assertEqual(maximum.returncode, 1, maximum.stderr)
+        self.assertEqual(minimum.returncode, 1, minimum.stderr)
+        self.assertTrue(
+            any(
+                failure.startswith("luminance_max: expected at most 0.01")
+                for failure in json.loads(maximum.stdout)["validation_failures"]
+            )
+        )
+        self.assertTrue(
+            any(
+                failure.startswith("luminance_p99: expected at least 1")
+                for failure in json.loads(minimum.stdout)["validation_failures"]
+            )
+        )
 
 
 if __name__ == "__main__":

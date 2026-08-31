@@ -46,10 +46,10 @@ pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_PIXELS: [[u32; 2];
 ];
 
 pub use atlas::{
-    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
-    DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiProbeSpacing,
+    DdgiVolumeGrid, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarget};
 pub use config::{
@@ -59,25 +59,32 @@ pub use config::{
 };
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
-pub(crate) use resources::DdgiConsumerResources;
+pub(crate) use resources::{DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources};
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
+    DdgiFieldGeneration, DdgiFieldPublication, DdgiFilterActionCounts,
+    DdgiFilterConfigurationIdentity, DdgiFilterEpochAccumulator, DdgiFilterEpochEvidence,
+    DdgiFilterEpochProof, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     DdgiLocalLightTraceTotals, DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch,
     DdgiResourceBytes, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_MASK,
+    DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
-    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeTarget,
+    DdgiBatchCompletion, DdgiBatchObservation, DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView,
+    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeBuildKind,
     DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
+#[cfg(test)]
+pub(crate) use scheduler::DdgiSchedulerError;
 #[allow(unused_imports)]
 pub use scheduler::{
     DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldState, DdgiScheduledWorkKind,
 };
-pub(crate) use scheduler::{DdgiScheduledWork, DdgiSchedulerError, DdgiTransportScheduler};
+pub(crate) use scheduler::{DdgiScheduledWork, DdgiTransportScheduler};
 pub(crate) use terrain_refresh::DdgiTerrainRefresh;
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState};
 pub use voxel_visibility::DdgiVoxelVisibility;

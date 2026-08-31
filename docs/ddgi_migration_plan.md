@@ -412,10 +412,10 @@ with all six correctness cases still accepted.
 
 These `0.15/0.133` and `0.02630/0.00402` results are historical Full-consumer evidence: terrain
 then multiplied Moment visibility by packed-voxel exact visibility. Production consumers were
-subsequently standardized on Moment Only and the Full path was deleted. The current temporal runner
-captures `Converged e63` and guards the accepted Moment-only walls ceiling at `0.400/0.375`; measured
-P99 is `0.391190/0.365590`. Exact visibility remains the oracle and probe-transport path, but is no
-longer part of normal terrain/Flora/Leaves shading.
+subsequently standardized on Moment Only and the Full path was deleted. Under the historical
+64-epoch policy, the temporal runner captured `Converged e63` and guarded the accepted Moment-only
+walls ceiling at `0.400/0.375`; measured P99 was `0.391190/0.365590`. Exact visibility remains the
+oracle and probe-transport path, but is no longer part of normal terrain/Flora/Leaves shading.
 
 ## Migration Milestones
 

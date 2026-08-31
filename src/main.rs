@@ -31,9 +31,11 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    AppOptions, DenoiserBenchOptions, DenoiserBenchScene, EnvironmentLightingTestCase,
-    ExclusiveRunMode, LightingModeAcceptanceOptions, MonitorScorePreference, PresentModePreference,
-    RenderFlags, ScreenshotOptions, WaterProfilePreference,
+    AutomationPlan, CameraAutomation, CameraDenoiserOptions, CameraMotion, DenoiserCaptureOptions,
+    DisplayPlan, EnvironmentLightingTestCase, FoliageDenoiserOptions, LaunchCommand,
+    LightingModeAcceptanceOptions, LogInspection, MonitorScorePreference, PlatformPlan,
+    PresentModePreference, RenderFlags, RunPlan, Scenario, ScreenshotOptions,
+    TerrainPersistencePlan, WaterPlan, WaterProfilePreference, WorldPlan,
 };
 use env_logger::{Env, Target};
 use std::{
@@ -123,11 +125,7 @@ mod startup_log_tests {
     }
 }
 
-fn handle_camera_snapshot_query_options(options: &AppOptions) -> bool {
-    if !options.list_camera_snapshots {
-        return false;
-    }
-
+fn handle_camera_snapshot_query() {
     match app::camera_snapshots::CameraSnapshotLibrary::load_default() {
         Ok(library) => {
             for name in library.names_for_cli() {
@@ -139,12 +137,10 @@ fn handle_camera_snapshot_query_options(options: &AppOptions) -> bool {
             std::process::exit(1);
         }
     }
-
-    true
 }
 
-fn validate_requested_camera_snapshot(options: &AppOptions) -> Result<(), String> {
-    let Some(requested_name) = options.camera_snapshot.as_deref() else {
+fn validate_requested_camera_snapshot(camera: &CameraAutomation) -> Result<(), String> {
+    let Some(requested_name) = camera.snapshot_name() else {
         return Ok(());
     };
 
@@ -167,22 +163,18 @@ fn validate_requested_camera_snapshot(options: &AppOptions) -> Result<(), String
     ))
 }
 
-fn handle_log_query_options(options: &AppOptions) -> bool {
-    if !options.print_log_dir && !options.latest_log && options.tail_latest_log.is_none() {
-        return false;
-    }
-
-    if options.print_log_dir {
+fn handle_log_query(inspection: LogInspection) {
+    if inspection.print_directory {
         println!("{}", run_log::run_log_dir().display());
     }
 
-    if options.latest_log || options.tail_latest_log.is_some() {
+    if inspection.print_latest_path || inspection.tail_latest_lines.is_some() {
         match run_log::latest_run_log_path() {
             Ok(Some(path)) => {
-                if options.latest_log {
+                if inspection.print_latest_path {
                     println!("{}", path.display());
                 }
-                if let Some(line_count) = options.tail_latest_log {
+                if let Some(line_count) = inspection.tail_latest_lines {
                     eprintln!(
                         "Tailing latest run log: {} (last {} lines)",
                         path.display(),
@@ -208,8 +200,6 @@ fn handle_log_query_options(options: &AppOptions) -> bool {
             }
         }
     }
-
-    true
 }
 
 // fn play_audio_with_cpal() -> Result<()> {
@@ -228,31 +218,36 @@ fn handle_log_query_options(options: &AppOptions) -> bool {
 pub fn main() {
     // backtrace_on();
 
-    let options = match AppOptions::try_from_args() {
-        Ok(options) => options,
+    let command = match LaunchCommand::try_from_args() {
+        Ok(command) => command,
         Err(err) => {
             eprintln!("{err}");
             std::process::exit(1);
         }
     };
-    if options.help {
-        cli::print_help();
-        return;
-    }
-    if handle_log_query_options(&options) {
-        return;
-    }
-    if handle_camera_snapshot_query_options(&options) {
-        return;
-    }
-    if let Err(err) = validate_requested_camera_snapshot(&options) {
+    let plan = match command {
+        LaunchCommand::Help => {
+            cli::print_help();
+            return;
+        }
+        LaunchCommand::InspectLogs(inspection) => {
+            handle_log_query(inspection);
+            return;
+        }
+        LaunchCommand::ListCameraSnapshots => {
+            handle_camera_snapshot_query();
+            return;
+        }
+        LaunchCommand::Run(plan) => plan,
+    };
+    if let Err(err) = validate_requested_camera_snapshot(&plan.automation.camera) {
         eprintln!("{err}");
         std::process::exit(1);
     }
 
     let run_log_path = init_env_logger();
 
-    let mut app = AppController::new(options);
+    let mut app = AppController::new(plan);
     let event_loop = EventLoop::builder().build().unwrap();
     let result = event_loop.run_app(&mut app);
     drop(app);

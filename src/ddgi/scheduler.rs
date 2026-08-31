@@ -4,6 +4,8 @@
 //! instead coalesce while one immutable update epoch finishes, so a moving sun never rewrites an
 //! in-flight snapshot or makes the last complete field disappear.
 
+use super::DdgiProbeSpacing;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiFieldState {
     Converging,
@@ -197,6 +199,12 @@ pub enum DdgiSchedulerError {
     InvalidIdentity(DdgiFieldIdentityError),
 }
 
+/// Linear proof that the scheduler accepted one exact in-flight completion.
+pub(crate) struct DdgiSchedulerCompletionPermit {
+    work: DdgiScheduledWork,
+    published: DdgiFieldIdentity,
+}
+
 impl From<DdgiFieldIdentityError> for DdgiSchedulerError {
     fn from(value: DdgiFieldIdentityError) -> Self {
         Self::InvalidIdentity(value)
@@ -206,7 +214,7 @@ impl From<DdgiFieldIdentityError> for DdgiSchedulerError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GeometryRequest {
     geometry_revision: u32,
-    spacing_voxels: u32,
+    spacing: DdgiProbeSpacing,
     transport_source: Option<DdgiFieldIdentity>,
 }
 
@@ -218,7 +226,7 @@ pub struct DdgiTransportScheduler {
     published: Option<DdgiFieldIdentity>,
     in_flight: Option<DdgiScheduledWork>,
     pending_geometry: Option<GeometryRequest>,
-    pending_density_spacing_voxels: Option<u32>,
+    pending_density_spacing: Option<DdgiProbeSpacing>,
     latest_radiance_revision: Option<u32>,
     convergence_requested: bool,
 }
@@ -230,7 +238,7 @@ impl DdgiTransportScheduler {
             published: None,
             in_flight: None,
             pending_geometry: None,
-            pending_density_spacing_voxels: None,
+            pending_density_spacing: None,
             latest_radiance_revision: None,
             convergence_requested: false,
         }
@@ -273,55 +281,53 @@ impl DdgiTransportScheduler {
     pub fn request_geometry(
         &mut self,
         geometry_revision: u32,
-        active_spacing_voxels: u32,
+        active_spacing: DdgiProbeSpacing,
     ) -> Option<DdgiScheduledWork> {
         let transport_source = self
             .published
-            .filter(|source| source.field.spacing_voxels == active_spacing_voxels);
-        self.request_geometry_from(geometry_revision, active_spacing_voxels, transport_source)
+            .filter(|source| source.field.spacing_voxels == active_spacing.voxels());
+        self.request_geometry_from(geometry_revision, active_spacing, transport_source)
     }
 
     pub fn request_geometry_from(
         &mut self,
         geometry_revision: u32,
-        active_spacing_voxels: u32,
+        active_spacing: DdgiProbeSpacing,
         transport_source: Option<DdgiFieldIdentity>,
     ) -> Option<DdgiScheduledWork> {
-        assert_ne!(active_spacing_voxels, 0);
         assert!(transport_source
-            .is_none_or(|source| { source.field.spacing_voxels == active_spacing_voxels }));
+            .is_none_or(|source| { source.field.spacing_voxels == active_spacing.voxels() }));
         let request = GeometryRequest {
             geometry_revision,
-            spacing_voxels: active_spacing_voxels,
+            spacing: active_spacing,
             transport_source,
         };
         if self.pending_geometry == Some(request)
             || self.in_flight.is_some_and(|work| {
                 work.kind == DdgiScheduledWorkKind::GeometryUpdate
                     && work.destination.field.geometry_revision == geometry_revision
-                    && work.destination.field.spacing_voxels == active_spacing_voxels
+                    && work.destination.field.spacing_voxels == active_spacing.voxels()
             })
         {
             return None;
         }
 
         self.pending_geometry = Some(request);
-        self.pending_density_spacing_voxels = None;
+        self.pending_density_spacing = None;
         self.convergence_requested = false;
         self.in_flight.take()
     }
 
     /// Density is lower priority than geometry but preempts convergence. The old published spacing
     /// remains untouched until the new volume completes epoch zero and is published.
-    pub fn request_density(&mut self, spacing_voxels: u32) -> Option<DdgiScheduledWork> {
-        assert_ne!(spacing_voxels, 0);
+    pub fn request_density(&mut self, spacing: DdgiProbeSpacing) -> Option<DdgiScheduledWork> {
         if self.in_flight.is_some_and(|work| {
             work.kind == DdgiScheduledWorkKind::DensityUpdate
-                && work.destination.field.spacing_voxels == spacing_voxels
+                && work.destination.field.spacing_voxels == spacing.voxels()
         }) {
             return None;
         }
-        self.pending_density_spacing_voxels = Some(spacing_voxels);
+        self.pending_density_spacing = Some(spacing);
         match self.in_flight {
             Some(work) if work.kind != DdgiScheduledWorkKind::GeometryUpdate => {
                 self.in_flight.take()
@@ -353,16 +359,16 @@ impl DdgiTransportScheduler {
 
         let next = if let Some(request) = self.pending_geometry.take() {
             Some(self.make_geometry_update(request, radiance_revision)?)
-        } else if let Some(spacing_voxels) = self.pending_density_spacing_voxels.take() {
+        } else if let Some(spacing) = self.pending_density_spacing.take() {
             let Some(published) = self.published else {
-                self.pending_density_spacing_voxels = Some(spacing_voxels);
+                self.pending_density_spacing = Some(spacing);
                 return Ok(None);
             };
             Some(self.make_initial_update(
                 DdgiScheduledWorkKind::DensityUpdate,
                 published.field.geometry_revision,
                 radiance_revision,
-                spacing_voxels,
+                spacing.voxels(),
             )?)
         } else {
             self.make_temporal_update(radiance_revision)?
@@ -384,16 +390,33 @@ impl DdgiTransportScheduler {
         validate_completion(work, published)
     }
 
+    pub(crate) fn preflight_completion(
+        &self,
+        work: DdgiScheduledWork,
+        published: DdgiFieldIdentity,
+    ) -> Result<DdgiSchedulerCompletionPermit, DdgiSchedulerError> {
+        self.validate_in_flight_completion(work, published)?;
+        Ok(DdgiSchedulerCompletionPermit { work, published })
+    }
+
+    pub(crate) fn commit_completion(
+        &mut self,
+        permit: DdgiSchedulerCompletionPermit,
+    ) -> DdgiFieldIdentity {
+        assert_eq!(self.in_flight, Some(permit.work));
+        self.in_flight = None;
+        self.published = Some(permit.published);
+        self.convergence_requested = permit.published.field.state == DdgiFieldState::Converging;
+        permit.published
+    }
+
     pub fn complete_in_flight(
         &mut self,
         work: DdgiScheduledWork,
         published: DdgiFieldIdentity,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
-        self.validate_in_flight_completion(work, published)?;
-        self.in_flight = None;
-        self.published = Some(published);
-        self.convergence_requested = published.field.state == DdgiFieldState::Converging;
-        Ok(published)
+        let permit = self.preflight_completion(work, published)?;
+        Ok(self.commit_completion(permit))
     }
 
     fn make_initial_update(
@@ -428,7 +451,7 @@ impl DdgiTransportScheduler {
             self.allocate_serial(),
             request.geometry_revision,
             radiance_revision,
-            request.spacing_voxels,
+            request.spacing.voxels(),
             DdgiFieldState::Converging,
             0,
         )?;
@@ -534,6 +557,10 @@ fn validate_completion(
 mod tests {
     use super::*;
 
+    fn spacing(voxels: u32) -> DdgiProbeSpacing {
+        DdgiProbeSpacing::try_from(voxels).unwrap()
+    }
+
     fn scheduler() -> DdgiTransportScheduler {
         DdgiTransportScheduler::new()
     }
@@ -607,7 +634,7 @@ mod tests {
 
         let mut scheduler = scheduler();
         scheduler.observe_radiance(1);
-        scheduler.request_geometry(0, 32);
+        scheduler.request_geometry(0, spacing(32));
         let update = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(update.kind(), DdgiScheduledWorkKind::GeometryUpdate);
         assert_eq!(update.destination().field().update_epoch(), 0);
@@ -624,12 +651,12 @@ mod tests {
         let convergence = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(convergence.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
 
-        assert_eq!(scheduler.request_density(16), Some(convergence));
+        assert_eq!(scheduler.request_density(spacing(16)), Some(convergence));
         let density = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityUpdate);
         assert_eq!(density.destination().field().spacing_voxels(), 16);
 
-        assert_eq!(scheduler.request_geometry(8, 32), Some(density));
+        assert_eq!(scheduler.request_geometry(8, spacing(32)), Some(density));
         let geometry = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryUpdate);
         let geometry = scheduler
@@ -647,7 +674,7 @@ mod tests {
     fn geometry_update_carries_the_exact_published_transport_source() {
         let mut scheduler = with_active();
         let resident = scheduler.published().unwrap();
-        scheduler.request_geometry(8, 32);
+        scheduler.request_geometry(8, spacing(32));
         let geometry = scheduler.claim_next().unwrap().unwrap();
 
         assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryUpdate);
@@ -660,9 +687,9 @@ mod tests {
     fn pending_density_requires_an_explicit_retry_after_geometry() {
         let mut scheduler = with_active();
         let convergence = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(scheduler.request_density(16), Some(convergence));
+        assert_eq!(scheduler.request_density(spacing(16)), Some(convergence));
 
-        assert_eq!(scheduler.request_geometry(8, 32), None);
+        assert_eq!(scheduler.request_geometry(8, spacing(32)), None);
         let geometry = scheduler.claim_next().unwrap().unwrap();
         scheduler
             .complete_in_flight(geometry, geometry.destination())
@@ -702,7 +729,7 @@ mod tests {
     fn geometry_update_finishes_its_snapshot_then_schedules_latest_radiance() {
         let mut scheduler = with_active();
         scheduler.observe_radiance(2);
-        scheduler.request_geometry(8, 32);
+        scheduler.request_geometry(8, spacing(32));
         let geometry = scheduler.claim_next().unwrap().unwrap();
         scheduler.observe_radiance(3);
         let geometry = scheduler
@@ -721,7 +748,7 @@ mod tests {
         let old = scheduler.published().unwrap();
         let convergence = scheduler.claim_next().unwrap().unwrap();
 
-        assert_eq!(scheduler.request_density(16), Some(convergence));
+        assert_eq!(scheduler.request_density(spacing(16)), Some(convergence));
         assert_eq!(scheduler.published(), Some(old));
         assert_eq!(
             scheduler.validate_in_flight_completion(convergence, convergence.destination()),

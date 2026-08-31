@@ -1,4 +1,3 @@
-use super::terrain_connectivity::bench::TerrainConnectivityBench;
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
@@ -494,11 +493,8 @@ impl App {
 
         let total_start = Instant::now();
         let setup_start = Instant::now();
-        let diagnostic_capacity_isolation = self
-            .terrain_connectivity_bench
-            .as_ref()
-            .is_some_and(TerrainConnectivityBench::active);
-        if !diagnostic_capacity_isolation {
+        let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
+        if allows_ambient_emitters {
             self.butterfly_emitter_desc =
                 Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
             for emitter in &mut self.butterfly_emitters {
@@ -513,7 +509,7 @@ impl App {
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
         let emit_start = Instant::now();
-        if !diagnostic_capacity_isolation {
+        if allows_ambient_emitters {
             Self::drive_emitters(
                 &mut self.butterfly_emitters,
                 &mut self.particle_system,

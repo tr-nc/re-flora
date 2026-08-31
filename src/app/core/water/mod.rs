@@ -10,4 +10,4 @@ pub(super) use settings::EXPERIENCE_PARTICLE_COUNT;
 pub(super) use settings::{
     WaterLaunchRequest, EXPERIENCE_INITIAL_FLUID_MAX_WS, EXPERIENCE_INITIAL_FLUID_MIN_WS,
 };
-pub(super) use simulation::WaterEditSoak;
+pub(super) use simulation::{WaterEditFrameResult, WaterEditFrameTxn, WaterEditSoak};

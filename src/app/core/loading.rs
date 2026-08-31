@@ -17,9 +17,16 @@ pub(super) struct LoadingState {
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
     pub(super) collider_total: usize,
+    pub(super) canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
 }
 
 impl LoadingState {
+    fn take_canopy_audio_vegetation_startup(
+        &mut self,
+    ) -> Option<launch_owners::CanopyAudioVegetationStartup> {
+        self.canopy_audio_vegetation_startup.take()
+    }
+
     fn total(&self) -> usize {
         match self.phase {
             LoadingPhase::Terrain | LoadingPhase::Building => self.chunk_indices.len(),
@@ -54,8 +61,10 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
-        let water_experience_requested = self.water_experience_scene.is_some();
-        let house_scene_requested = self.house_scene_requested;
+        let loading_directive = self.launch_owners.loading_directive();
+        let water_experience_requested =
+            loading_directive == launch_owners::LoadingDirective::WaterExperience;
+        let house_scene_requested = loading_directive == launch_owners::LoadingDirective::House;
         let phase = match self.loading_state.as_ref() {
             Some(loading) if !loading.is_done() => loading.phase,
             _ => return,
@@ -354,12 +363,16 @@ impl App {
         }
 
         if is_done {
-            let mut publication = self
+            let mut loading = self
                 .loading_state
                 .take()
-                .and_then(|mut loading| loading.visible_terrain_publication.take())
+                .expect("completed loading must retain its Loading State");
+            let mut publication = loading
+                .visible_terrain_publication
+                .take()
                 .expect("completed loading must retain its Visible Terrain Publication");
-            self.finalize_loading(&mut publication);
+            let canopy_audio_vegetation_startup = loading.take_canopy_audio_vegetation_startup();
+            self.finalize_loading(&mut publication, canopy_audio_vegetation_startup);
         }
     }
 
@@ -374,6 +387,7 @@ impl App {
     pub(super) fn finalize_loading(
         &mut self,
         publication: &mut visible_terrain::VisibleTerrainPublication,
+        canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
     ) {
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -384,28 +398,30 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        if self.water_experience_scene.is_some() {
-            log::info!(
-                "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
-            );
-        } else if self.house_scene_requested {
-            log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
-        } else if !self.terrain_persistence.startup_load_requested() {
-            if let Err(err) = self.plant_startup_tuned_tree() {
-                log::error!("Failed to plant startup tuning tree: {}", err);
+        match self.launch_owners.loading_directive() {
+            launch_owners::LoadingDirective::WaterExperience => {
+                log::info!(
+                    "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
+                );
             }
-        } else {
-            log::info!(
-                "[TERRAIN_PERSISTENCE] startup snapshot loaded; procedural tuning-tree stamp suppressed"
-            );
+            launch_owners::LoadingDirective::House => {
+                log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
+            }
+            launch_owners::LoadingDirective::Garden => {
+                if !self.terrain_persistence.startup_load_requested() {
+                    if let Err(err) = self.plant_startup_tuned_tree(canopy_audio_vegetation_startup)
+                    {
+                        log::error!("Failed to plant startup tuning tree: {}", err);
+                    }
+                } else {
+                    log::info!(
+                        "[TERRAIN_PERSISTENCE] startup snapshot loaded; procedural tuning-tree stamp suppressed"
+                    );
+                }
+            }
         }
 
-        if self
-            .denoiser_bench
-            .as_ref()
-            .is_some_and(DenoiserBench::is_foliage_shadow)
-            || self.lighting_mode_acceptance.is_active()
-        {
+        if self.launch_owners.is_foliage_shadow() || self.lighting_mode_acceptance.is_active() {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {
                     panic!("[FOLIAGE_SHADOW_BENCH] receiver setup failed: {err:#}")
@@ -420,6 +436,10 @@ impl App {
         publication.complete_startup(self).unwrap_or_else(|err| {
             panic!("startup Visible Terrain Publication completion failed: {err:#}")
         });
+        self.prepare_environment_lighting_test_scene_before_probe_initialization()
+            .unwrap_or_else(|err| {
+                panic!("environment-lighting test scene startup publication failed: {err:#}")
+            });
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }
@@ -499,5 +519,34 @@ impl App {
                 position_delta,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_owns_the_canopy_vegetation_effect_until_one_consumption() {
+        let mut loading = LoadingState {
+            chunk_indices: Vec::new(),
+            terrain_snapshot_reader: None,
+            visible_terrain_publication: None,
+            current: 0,
+            step_label: String::new(),
+            phase: LoadingPhase::Terrain,
+            collider_total: 0,
+            canopy_audio_vegetation_startup: Some(
+                launch_owners::CanopyAudioStartupPlan::diagnostic(true)
+                    .into_effects()
+                    .1,
+            ),
+        };
+
+        let startup = loading
+            .take_canopy_audio_vegetation_startup()
+            .expect("loading must retain the owned startup effect");
+        assert!(startup.plants_budget_stress_trees());
+        assert!(loading.take_canopy_audio_vegetation_startup().is_none());
     }
 }

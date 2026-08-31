@@ -181,7 +181,7 @@ pub(super) struct VisibleTerrainPublication {
 }
 
 impl VisibleTerrainPublication {
-    fn edit(change: VisibleTerrainChange) -> Result<Self> {
+    pub(super) fn edit(change: VisibleTerrainChange) -> Result<Self> {
         Self::from_change(change, VisibleTerrainPublicationKind::Edit)
     }
 
@@ -562,17 +562,27 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn observe_initial_terrain_for_ddgi(&mut self) -> Result<u32> {
-        if self.environment_lighting_test_scene.is_none()
-            && self.hybrid_transparency_test_scene.is_none()
-        {
-            self.observe_initial_published_terrain_for_ddgi()
-        } else {
-            Ok(self.visible_terrain_revision)
+        match self.launch_owners.test_scene_frame_plan().kind() {
+            launch_owners::TestSceneKind::None => self.observe_initial_published_terrain_for_ddgi(),
+            launch_owners::TestSceneKind::Environment(_) | launch_owners::TestSceneKind::Hybrid => {
+                Ok(self.visible_terrain_revision)
+            }
         }
     }
 }
 
 impl App {
+    pub(super) fn commit_prepared_visible_terrain(
+        &mut self,
+        mut publication: VisibleTerrainPublication,
+    ) -> VisibleTerrainCompletion {
+        publication.run_to_completion(self).unwrap_or_else(|err| {
+            panic!(
+                "Visible Terrain Publication failed after entering non-rollbackable state: {err:#}"
+            )
+        })
+    }
+
     pub(super) fn publish_visible_terrain(
         &mut self,
         change: VisibleTerrainChange,

@@ -1,5 +1,5 @@
 use crate::app::GuiAdjustables;
-use crate::AppOptions;
+use crate::WaterPlan;
 use glam::{UVec3, Vec3};
 use re_flora_water::PondWaterConfig;
 
@@ -11,67 +11,49 @@ pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new
 #[derive(Clone, Debug, Default)]
 pub(super) struct WaterRuntimeOverrides {
     profile: Option<PondWaterConfig>,
-    particle_count: Option<usize>,
-    particle_edge_len: Option<f32>,
-    grid_dim: Option<u32>,
-    substep_hz: Option<f32>,
-    terrain_margin_cells: Option<f32>,
-    damping_per_sec: Option<f32>,
-    terrain_tangent_damping_per_sec: Option<f32>,
-    stiffness: Option<f32>,
-    gamma: Option<f32>,
-    j_min: Option<f32>,
+    plan: WaterPlan,
 }
 
 impl WaterRuntimeOverrides {
-    fn from_options(options: &AppOptions) -> Self {
-        Self {
-            profile: None,
-            particle_count: options.water_particles,
-            particle_edge_len: options.water_particle_edge_len,
-            grid_dim: options.water_grid,
-            substep_hz: options.water_substep_hz,
-            terrain_margin_cells: options.water_terrain_margin_cells,
-            damping_per_sec: options.water_damping,
-            terrain_tangent_damping_per_sec: options.water_terrain_tangent_damping,
-            stiffness: options.water_stiffness,
-            gamma: options.water_gamma,
-            j_min: options.water_j_min,
-        }
+    pub(in crate::app::core) fn from_plan(
+        plan: WaterPlan,
+        profile: Option<PondWaterConfig>,
+    ) -> Self {
+        Self { profile, plan }
     }
 
     pub(super) fn apply(&self, config: &mut PondWaterConfig) {
         if let Some(profile) = &self.profile {
             *config = profile.clone();
         }
-        if let Some(particle_count) = self.particle_count {
+        if let Some(particle_count) = self.plan.particles {
             *config = config.clone().with_particle_count(particle_count);
         }
-        if let Some(edge_len) = self.particle_edge_len {
+        if let Some(edge_len) = self.plan.particle_edge_len {
             config.set_particle_edge_len(edge_len);
         }
-        if let Some(grid_dim) = self.grid_dim {
+        if let Some(grid_dim) = self.plan.grid {
             *config = config.clone().with_cubic_grid_dim(grid_dim);
         }
-        if let Some(substep_hz) = self.substep_hz {
+        if let Some(substep_hz) = self.plan.substep_hz {
             config.substep_dt = substep_hz.recip();
         }
-        if let Some(margin_cells) = self.terrain_margin_cells {
+        if let Some(margin_cells) = self.plan.terrain_margin_cells {
             config.terrain_collision_margin_cells = margin_cells;
         }
-        if let Some(damping_per_sec) = self.damping_per_sec {
+        if let Some(damping_per_sec) = self.plan.damping {
             config.linear_damping_per_sec = damping_per_sec;
         }
-        if let Some(damping_per_sec) = self.terrain_tangent_damping_per_sec {
+        if let Some(damping_per_sec) = self.plan.terrain_tangent_damping {
             config.terrain_tangent_damping_per_sec = damping_per_sec;
         }
-        if let Some(stiffness) = self.stiffness {
+        if let Some(stiffness) = self.plan.stiffness {
             config.stiffness = stiffness;
         }
-        if let Some(gamma) = self.gamma {
+        if let Some(gamma) = self.plan.gamma {
             config.gamma = gamma;
         }
-        if let Some(j_min) = self.j_min {
+        if let Some(j_min) = self.plan.j_min {
             config.j_min = j_min;
         }
     }
@@ -79,7 +61,7 @@ impl WaterRuntimeOverrides {
 
 /// The typed facts needed to select one effective water configuration.
 ///
-/// `AppOptions` is translated here and never crosses the `WaterRuntime` seam. The priority rule is
+/// `WaterPlan` crosses the `WaterRuntime` seam as one owned launch fact. The priority rule is
 /// deliberately executable in one place: base world config, then named profile or persisted GUI,
 /// then the deterministic experience, and finally explicit CLI overrides.
 pub(in crate::app::core) struct WaterLaunchRequest {
@@ -102,19 +84,21 @@ pub(super) struct ResolvedWaterLaunch {
 }
 
 impl WaterLaunchRequest {
-    pub(in crate::app::core) fn from_options(
-        options: &AppOptions,
+    pub(in crate::app::core) fn from_plan(
+        plan: WaterPlan,
+        experience: bool,
         persisted_gui: &GuiAdjustables,
         world_extent: Vec3,
         cells_per_unit: f32,
     ) -> Self {
+        let profile = plan.profile;
         Self::from_launch_facts(
-            options.water_profile,
-            options.water_experience,
+            profile,
+            experience,
             persisted_gui,
             world_extent,
             cells_per_unit,
-            WaterRuntimeOverrides::from_options(options),
+            WaterRuntimeOverrides::from_plan(plan, None),
         )
     }
 
@@ -397,9 +381,12 @@ mod tests {
     #[test]
     fn explicit_override_wins_over_profile_and_experience() {
         let overrides = WaterRuntimeOverrides {
-            particle_count: Some(1234),
-            damping_per_sec: Some(0.75),
-            ..no_overrides()
+            profile: None,
+            plan: WaterPlan {
+                particles: Some(1234),
+                damping: Some(0.75),
+                ..WaterPlan::default()
+            },
         };
 
         let resolved = request(
@@ -419,13 +406,27 @@ mod tests {
         let desired_damping = 0.25;
         let mut effective = PondWaterConfig::default().with_linear_damping_per_sec(desired_damping);
         let overrides = WaterRuntimeOverrides {
-            damping_per_sec: Some(1.5),
-            ..WaterRuntimeOverrides::default()
+            profile: None,
+            plan: WaterPlan {
+                damping: Some(1.5),
+                ..WaterPlan::default()
+            },
         };
 
         overrides.apply(&mut effective);
 
         assert_eq!(desired_damping, 0.25);
         assert_eq!(effective.linear_damping_per_sec, 1.5);
+    }
+
+    #[test]
+    fn runtime_owns_the_primary_water_plan_without_field_copying() {
+        let plan = WaterPlan {
+            damping: Some(1.5),
+            ..WaterPlan::default()
+        };
+        let overrides = WaterRuntimeOverrides::from_plan(plan, None);
+
+        assert_eq!(overrides.plan.damping, Some(1.5));
     }
 }

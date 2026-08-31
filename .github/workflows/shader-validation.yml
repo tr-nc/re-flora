@@ -7,6 +7,13 @@ on:
       - ".github/workflows/shader-validation.yml"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "config/camera_snapshots.toml"
+      - "config/ddgi_convergence_acceptance.toml"
+      - "docs/ddgi_convergence_calibration.md"
+      - "docs/ddgi_indirect_transport_spec.md"
+      - "docs/ddgi_migration_plan.md"
+      - "docs/ddgi_transport_acceptance.md"
+      - "docs/global_illumination_approaches_research.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "docs/lighting_mode_acceptance.md"
@@ -14,9 +21,21 @@ on:
       - "scripts/analyze_lighting_mode_acceptance.py"
       - "scripts/check_lighting_mode_acceptance.sh"
       - "scripts/check_lighting_mode_acceptance_source_contract.py"
+      - "scripts/runtime_log_diagnostics.py"
+      - "scripts/perf_suite.py"
       - "scripts/check_shader_manifest.py"
+      - "scripts/analyze_environment_irradiance_capture.py"
+      - "scripts/analyze_bd2_blue_voxel.py"
+      - "scripts/check_bd2_blue_voxel.sh"
+      - "scripts/analyze_current_environment_irradiance_capture.py"
+      - "scripts/check_ddgi*.sh"
+      - "scripts/check_ddgi_sky_normalization_evidence.py"
+      - "scripts/ddgi_evidence/**"
+      - "scripts/shader_validation_workflow_contract.py"
+      - "scripts/summarize_ddgi_convergence.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
+      - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
       - "scripts/tests/test_check_lighting_mode_acceptance.py"
@@ -31,6 +50,13 @@ on:
       - ".github/workflows/shader-validation.yml"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "config/camera_snapshots.toml"
+      - "config/ddgi_convergence_acceptance.toml"
+      - "docs/ddgi_convergence_calibration.md"
+      - "docs/ddgi_indirect_transport_spec.md"
+      - "docs/ddgi_migration_plan.md"
+      - "docs/ddgi_transport_acceptance.md"
+      - "docs/global_illumination_approaches_research.md"
       - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "docs/lighting_mode_acceptance.md"
@@ -38,9 +64,21 @@ on:
       - "scripts/analyze_lighting_mode_acceptance.py"
       - "scripts/check_lighting_mode_acceptance.sh"
       - "scripts/check_lighting_mode_acceptance_source_contract.py"
+      - "scripts/runtime_log_diagnostics.py"
+      - "scripts/perf_suite.py"
       - "scripts/check_shader_manifest.py"
+      - "scripts/analyze_environment_irradiance_capture.py"
+      - "scripts/analyze_bd2_blue_voxel.py"
+      - "scripts/check_bd2_blue_voxel.sh"
+      - "scripts/analyze_current_environment_irradiance_capture.py"
+      - "scripts/check_ddgi*.sh"
+      - "scripts/check_ddgi_sky_normalization_evidence.py"
+      - "scripts/ddgi_evidence/**"
+      - "scripts/shader_validation_workflow_contract.py"
+      - "scripts/summarize_ddgi_convergence.py"
       - "scripts/install_slang.py"
       - "scripts/run_slang_tests.py"
+      - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
       - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
       - "scripts/tests/test_check_lighting_mode_acceptance.py"
@@ -59,6 +97,7 @@ jobs:
   desktop:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -163,6 +202,7 @@ jobs:
     name: Fedora native compile
     runs-on: ubuntu-latest
     container: fedora:43
+    timeout-minutes: 45
 
     steps:
       - name: Install build and validation dependencies
@@ -200,6 +240,49 @@ jobs:
       - name: Check native Slang build
         run: cargo check --locked
 
+      - name: Run environment lighting source gates
+        run: timeout 10m cargo test --locked environment_lighting::tests::
+
+      - name: Run environment lighting acceptance scene gates
+        run: >-
+          timeout 10m cargo test --locked environment_lighting_test_scene::tests:: --
+          --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof
+
+      - name: Run process-bound log marker gate
+        run: timeout 10m cargo test --locked startup_log_tests::
+
+      - name: Run DDGI convergence evidence gates
+        run: |
+          timeout 10m cargo test --locked ddgi_convergence_evidence_tests::
+          timeout 10m cargo test --locked runtime_convergence_budget_matches_the_acceptance_contract
+          timeout 10m cargo test --locked private_evidence_lines_preserve_exact_count_content_and_order
+          timeout 10m cargo test --locked validation_wire_labels_bind_to_their_distinct_runtime_facts
+
+      - name: Run DDGI process and convergence policy gates
+        run: >-
+          timeout 5m python3 -m unittest
+          scripts.tests.test_ddgi_evidence_plan
+          scripts.tests.test_ddgi_evidence_cli
+          scripts.tests.test_ddgi_evidence_validation
+          scripts.tests.test_validate_ddgi_density_lifecycle
+          scripts.tests.test_validate_ddgi_radiance_lifecycle
+          scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_production_cli_accepts_only_current_without_a_version_surface
+          scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_cli_defaults_to_current_and_requires_explicit_compatibility
+          scripts.tests.test_summarize_ddgi_convergence
+          scripts.tests.test_ddgi_indirect_transport_spec
+          scripts.tests.test_runtime_log_diagnostics
+          scripts.tests.test_check_latest_run_log
+          scripts.tests.test_perf_suite
+
+      - name: Test Rust DDGI evidence fixture producer
+        run: cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity
+
+      - name: Test DDGI raw evidence owners
+        run: cargo test --locked ddgi::resources::tests::filter_
+
+      - name: Decode Rust DDGI evidence fixture
+        run: python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
+
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py
 
@@ -217,3 +300,20 @@ jobs:
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py
+
+  python-policy-tests:
+    name: Python shader policy tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run analyzer and acceptance runner tests
+        run: python -m unittest discover -s scripts/tests -p "test_*.py"

@@ -22,12 +22,45 @@ use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, BufferUse, Extent3D, ImageDesc, MemoryLocation, SamplerDesc,
     Texture, TextureLayout, VulkanContext,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 13;
+const DDGI_TRACE_STATS_COUNT: usize = 31;
+const DDGI_FILTER_STATS_START: usize = 13;
+pub const DDGI_FILTER_POLICY_OWNER_VERSION: u32 = 1;
+pub const DDGI_FILTER_POLICY_OWNER_MASK: u32 = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
+const DDGI_FILTER_RETENTION_Q16_ONE: u32 = 65_536;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
+static NEXT_DDGI_VOLUME_ALLOCATION_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_ddgi_volume_allocation_id() -> u64 {
+    let id = NEXT_DDGI_VOLUME_ALLOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    assert_ne!(id, 0, "DDGI Volume allocation identity overflow");
+    id
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DdgiVolumeFrameIdentity {
+    allocation_id: u64,
+    is_staging: bool,
+    build_token: Option<DdgiBuildToken>,
+    scheduled_work: Option<DdgiScheduledWork>,
+    complete_field: Option<DdgiFieldIdentity>,
+    publication: Option<DdgiFieldPublication>,
+    building_field: Option<DdgiFieldIdentity>,
+}
+
+impl DdgiVolumeFrameIdentity {
+    pub(super) fn build_token(self) -> Option<DdgiBuildToken> {
+        self.build_token
+    }
+
+    pub(super) fn scheduled_work(self) -> Option<DdgiScheduledWork> {
+        self.scheduled_work
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiProbePriorityReason {
@@ -128,6 +161,169 @@ struct DdgiResidentField {
     logical: DdgiFieldIdentity,
     atlas_slot: DdgiAtlasSlot,
     sky_slot: DdgiSkySlot,
+}
+
+/// The only owner-held representation of a consumer-visible DDGI field.
+///
+/// Logical lineage and the physical resources that contain it are deliberately inseparable.  A
+/// descriptor publisher never receives a loose field/token pair and therefore cannot bind a
+/// validated identity to a different atlas, sky image, or radiance snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DdgiResidentPublication {
+    publication: DdgiFieldPublication,
+    resident: DdgiResidentField,
+    owner_radiance_revision: u32,
+}
+
+impl DdgiResidentPublication {
+    fn new(
+        publication: DdgiFieldPublication,
+        resident: DdgiResidentField,
+        owner_radiance_revision: u32,
+    ) -> Result<Self> {
+        let field = publication.field();
+        ensure!(
+            resident.logical == field,
+            "DDGI resident resources do not contain their owner-validated publication"
+        );
+        ensure!(
+            owner_radiance_revision == field.field().radiance_revision(),
+            "DDGI resident publication radiance {} does not match its owner radiance {}",
+            field.field().radiance_revision(),
+            owner_radiance_revision,
+        );
+        Ok(Self {
+            publication,
+            resident,
+            owner_radiance_revision,
+        })
+    }
+
+    fn field(self) -> DdgiFieldIdentity {
+        self.publication.field()
+    }
+}
+
+/// Immutable root identity for one transport generation inside one physical DDGI Volume build.
+///
+/// Only the physical Volume owner can create this value. Acceptance callers can therefore retain
+/// it across a private recovery window without reconstructing lineage from field serials.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFieldGeneration {
+    build_token: DdgiBuildToken,
+    epoch_zero_field: DdgiFieldIdentity,
+}
+
+impl DdgiFieldGeneration {
+    pub fn build_token(self) -> DdgiBuildToken {
+        self.build_token
+    }
+
+    pub fn epoch_zero_field(self) -> DdgiFieldIdentity {
+        self.epoch_zero_field
+    }
+}
+
+/// One complete field publication whose full lineage was validated by the physical Volume owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFieldPublication {
+    generation: DdgiFieldGeneration,
+    field: DdgiFieldIdentity,
+}
+
+/// A linear authorization for one fully preflighted physical field publication.
+///
+/// Fields are private and this type is neither `Copy` nor `Clone`: only the physical Volume owner
+/// can mint it, descriptor preparation can only borrow it, and a successful commit consumes it.
+pub(crate) struct DdgiAtlasPublicationPermit {
+    identity: DdgiFieldIdentity,
+    stats: DdgiAtlasValidationStats,
+    resident: DdgiResidentPublication,
+    outcome: DdgiValidatedIterationOutcome,
+}
+
+impl DdgiAtlasPublicationPermit {
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.resident.publication
+    }
+
+    pub(crate) fn work(&self) -> DdgiScheduledWork {
+        match self.outcome {
+            DdgiValidatedIterationOutcome::Published { work, .. }
+            | DdgiValidatedIterationOutcome::Converged { work, .. } => work,
+        }
+    }
+}
+
+/// A linear authorization for promoting one already-published staging Volume.
+pub(crate) struct DdgiVolumePromotionPermit {
+    token: DdgiBuildToken,
+    publication: DdgiFieldPublication,
+}
+
+impl DdgiVolumePromotionPermit {
+    pub(crate) fn token(&self) -> DdgiBuildToken {
+        self.token
+    }
+
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.publication
+    }
+}
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotionPermit: Clone, Copy);
+
+impl DdgiFieldPublication {
+    fn begin(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Result<Self> {
+        let key = field.field();
+        ensure!(
+            key.update_epoch() == 0 && key.state() == DdgiFieldState::Converging,
+            "DDGI field generation must begin with a complete Converging epoch-zero field"
+        );
+        ensure!(
+            key.geometry_revision() == build_token.terrain_revision()
+                && key.spacing_voxels() == build_token.spacing_voxels(),
+            "DDGI field generation does not match its physical Volume build token"
+        );
+        Ok(Self {
+            generation: DdgiFieldGeneration {
+                build_token,
+                epoch_zero_field: field,
+            },
+            field,
+        })
+    }
+
+    fn advance(self, field: DdgiFieldIdentity) -> Result<Self> {
+        let root = self.generation.epoch_zero_field.field();
+        let next = field.field();
+        ensure!(
+            next.geometry_revision() == root.geometry_revision()
+                && next.radiance_revision() == root.radiance_revision()
+                && next.spacing_voxels() == root.spacing_voxels(),
+            "DDGI field publication crossed its transport generation"
+        );
+        ensure!(
+            field.source() == Some(self.field.field()),
+            "DDGI field publication did not consume the preceding complete field"
+        );
+        Ok(Self {
+            generation: self.generation,
+            field,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(build_token: DdgiBuildToken, field: DdgiFieldIdentity) -> Self {
+        Self::begin(build_token, field).expect("test publication must describe a valid generation")
+    }
+
+    pub fn generation(self) -> DdgiFieldGeneration {
+        self.generation
+    }
+
+    pub fn field(self) -> DdgiFieldIdentity {
+        self.field
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -330,13 +526,6 @@ impl DdgiRayBatch {
         self.resident.destination.atlas_slot.label()
     }
 
-    pub fn source_label(self) -> &'static str {
-        self.resident
-            .source
-            .map(|source| source.atlas_slot.label())
-            .unwrap_or("none")
-    }
-
     pub fn writes_visibility(self) -> bool {
         self.resident.work.kind() != DdgiScheduledWorkKind::RadianceUpdate
     }
@@ -488,6 +677,7 @@ pub struct DdgiTraceStats {
     pub emissive_surface_hits: u32,
     /// Scene-linear emitted radiance luminance accumulated as unsigned Q24.8 values.
     pub emissive_surface_radiance_luma_q8: u32,
+    filter_raw: [u32; DDGI_TRACE_STATS_COUNT - DDGI_FILTER_STATS_START],
 }
 
 impl DdgiTraceStats {
@@ -506,7 +696,465 @@ impl DdgiTraceStats {
             local_light_irradiance_luma_q8: values[10],
             emissive_surface_hits: values[11],
             emissive_surface_radiance_luma_q8: values[12],
+            filter_raw: values[DDGI_FILTER_STATS_START..]
+                .try_into()
+                .expect("fixed DDGI filter-stat lane count"),
         }
+    }
+
+    pub fn filter_batch_evidence(
+        self,
+        batch: DdgiRayBatch,
+        capture_enabled: bool,
+    ) -> Result<Option<DdgiFilterBatchEvidence>> {
+        let mut raw = [0_u32; DDGI_TRACE_STATS_COUNT];
+        raw[DDGI_FILTER_STATS_START..].copy_from_slice(&self.filter_raw);
+        DdgiFilterBatchEvidence::decode(raw, batch, capture_enabled)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiFilterActionCounts {
+    pub replace: u64,
+    pub retain: u64,
+    pub blend: u64,
+}
+
+impl DdgiFilterActionCounts {
+    fn total(self) -> u64 {
+        self.replace + self.retain + self.blend
+    }
+
+    fn accumulate(&mut self, other: Self) -> Result<()> {
+        self.replace = self
+            .replace
+            .checked_add(other.replace)
+            .context("DDGI filter Replace count overflow while aggregating a complete epoch")?;
+        self.retain = self
+            .retain
+            .checked_add(other.retain)
+            .context("DDGI filter Retain count overflow while aggregating a complete epoch")?;
+        self.blend = self
+            .blend
+            .checked_add(other.blend)
+            .context("DDGI filter Blend count overflow while aggregating a complete epoch")?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiFilterHistoryEvidence {
+    pub owner_version_mask: u32,
+    pub probes: u64,
+    pub actions: DdgiFilterActionCounts,
+    pub blend_retention_q16_sum: u64,
+    pub blend_retention_q16_max: u32,
+}
+
+impl DdgiFilterHistoryEvidence {
+    fn decode(
+        raw: &[u32],
+        blend_retention_q16_max: u32,
+        expected_probes: u32,
+        label: &str,
+    ) -> Result<Self> {
+        ensure!(
+            expected_probes <= DDGI_PROBE_BATCH_SIZE,
+            "DDGI {label} history evidence exceeds the bounded probe batch"
+        );
+        let probes = u64::from(raw[1]);
+        let actions = DdgiFilterActionCounts {
+            replace: u64::from(raw[2]),
+            retain: u64::from(raw[3]),
+            blend: u64::from(raw[4]),
+        };
+        ensure!(
+            probes == u64::from(expected_probes) && actions.total() == probes,
+            "DDGI {label} history evidence partition is inconsistent"
+        );
+        ensure_owner_mask(raw[0], label)?;
+        let blend_retention_q16_sum = u64::from(raw[5]);
+        ensure!(
+            blend_retention_q16_max <= DDGI_FILTER_RETENTION_Q16_ONE,
+            "DDGI {label} history evidence has an out-of-range retention witness"
+        );
+        let batch_retention_sum_bound = expected_probes
+            .checked_mul(DDGI_FILTER_RETENTION_Q16_ONE)
+            .context("DDGI filter retention batch bound overflow")?;
+        ensure!(
+            raw[5] <= batch_retention_sum_bound,
+            "DDGI {label} history evidence exceeds the checked retention-sum bound"
+        );
+        ensure!(
+            actions.blend != 0 || (blend_retention_q16_sum == 0 && blend_retention_q16_max == 0),
+            "DDGI {label} history evidence has retention without Blend"
+        );
+        ensure!(
+            actions.blend == 0
+                || actions
+                    .blend
+                    .checked_mul(u64::from(blend_retention_q16_max))
+                    == Some(blend_retention_q16_sum),
+            "DDGI {label} history evidence does not prove one exact Blend retention"
+        );
+        Ok(Self {
+            owner_version_mask: raw[0],
+            probes,
+            actions,
+            blend_retention_q16_sum,
+            blend_retention_q16_max,
+        })
+    }
+
+    fn accumulate(&mut self, other: Self) -> Result<()> {
+        assert!(
+            self.owner_version_mask == 0 || self.owner_version_mask == other.owner_version_mask,
+            "DDGI filter history evidence mixed owner versions"
+        );
+        self.owner_version_mask |= other.owner_version_mask;
+        self.probes = self
+            .probes
+            .checked_add(other.probes)
+            .context("DDGI filter probe count overflow while aggregating a complete epoch")?;
+        self.actions.accumulate(other.actions)?;
+        self.blend_retention_q16_sum = self
+            .blend_retention_q16_sum
+            .checked_add(other.blend_retention_q16_sum)
+            .context("DDGI filter retention sum overflow while aggregating a complete epoch")?;
+        self.blend_retention_q16_max = self
+            .blend_retention_q16_max
+            .max(other.blend_retention_q16_max);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiFilterVisibilitySampleEvidence {
+    pub owner_version_mask: u32,
+    pub samples: u64,
+    pub accept: u64,
+    pub reject: u64,
+}
+
+impl DdgiFilterVisibilitySampleEvidence {
+    fn decode(raw: &[u32], expected_probes: u32) -> Result<Self> {
+        let sample_bound = expected_probes
+            .checked_mul(DDGI_RAYS_PER_PROBE)
+            .context("DDGI visibility sample batch bound overflow")?;
+        let result = Self {
+            owner_version_mask: raw[0],
+            samples: u64::from(raw[1]),
+            accept: u64::from(raw[2]),
+            reject: u64::from(raw[3]),
+        };
+        ensure!(
+            result.samples == result.accept + result.reject,
+            "DDGI visibility sample evidence partition is inconsistent"
+        );
+        ensure!(
+            result.samples <= u64::from(sample_bound),
+            "DDGI visibility sample evidence exceeds the checked ray-batch bound"
+        );
+        ensure_owner_mask(raw[0], "visibility sample")?;
+        Ok(result)
+    }
+
+    fn accumulate(&mut self, other: Self) -> Result<()> {
+        assert!(
+            self.owner_version_mask == 0 || self.owner_version_mask == other.owner_version_mask,
+            "DDGI visibility sample evidence mixed owner versions"
+        );
+        self.owner_version_mask |= other.owner_version_mask;
+        self.samples = self
+            .samples
+            .checked_add(other.samples)
+            .context("DDGI visibility sample count overflow while aggregating a complete epoch")?;
+        self.accept = self
+            .accept
+            .checked_add(other.accept)
+            .context("DDGI visibility Accept count overflow while aggregating a complete epoch")?;
+        self.reject = self
+            .reject
+            .checked_add(other.reject)
+            .context("DDGI visibility Reject count overflow while aggregating a complete epoch")?;
+        Ok(())
+    }
+}
+
+fn ensure_owner_mask(owner_mask: u32, label: &str) -> Result<()> {
+    ensure!(
+        owner_mask == DDGI_FILTER_POLICY_OWNER_MASK,
+        "DDGI {label} evidence owner version is inconsistent"
+    );
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFilterBatchEvidence {
+    pub field: DdgiFieldIdentity,
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub irradiance: DdgiFilterHistoryEvidence,
+    pub visibility_history: DdgiFilterHistoryEvidence,
+    pub visibility_samples: DdgiFilterVisibilitySampleEvidence,
+    pub visibility_written: bool,
+}
+
+impl DdgiFilterBatchEvidence {
+    pub fn decode(
+        raw: [u32; DDGI_TRACE_STATS_COUNT],
+        batch: DdgiRayBatch,
+        capture_enabled: bool,
+    ) -> Result<Option<Self>> {
+        let lanes = &raw[DDGI_FILTER_STATS_START..];
+        if !capture_enabled {
+            ensure!(
+                lanes.iter().all(|value| *value == 0),
+                "disabled DDGI filter evidence must not write stats"
+            );
+            return Ok(None);
+        }
+        ensure!(
+            lanes.iter().any(|value| *value != 0),
+            "capture-enabled DDGI filter evidence is missing"
+        );
+        let irradiance = DdgiFilterHistoryEvidence::decode(
+            &lanes[0..6],
+            lanes[16],
+            batch.probe_count,
+            "irradiance",
+        )?;
+        let visibility_written = batch.writes_visibility();
+        let (visibility_history, visibility_samples) = if visibility_written {
+            let result = (
+                DdgiFilterHistoryEvidence::decode(
+                    &lanes[6..12],
+                    lanes[17],
+                    batch.probe_count,
+                    "visibility",
+                )?,
+                DdgiFilterVisibilitySampleEvidence::decode(&lanes[12..16], batch.probe_count)?,
+            );
+            let rays_per_probe = u64::from(DDGI_RAYS_PER_PROBE);
+            ensure!(
+                result.1.samples % rays_per_probe == 0,
+                "DDGI visibility sample evidence does not cover whole probes"
+            );
+            let minimum_samples = result
+                .0
+                .actions
+                .blend
+                .checked_mul(rays_per_probe)
+                .context("DDGI visibility Blend sample lower bound overflow")?;
+            let maximum_samples = result
+                .0
+                .actions
+                .blend
+                .checked_add(result.0.actions.replace)
+                .and_then(|probes| probes.checked_mul(rays_per_probe))
+                .context("DDGI visibility fresh sample upper bound overflow")?;
+            ensure!(
+                result.1.samples >= minimum_samples && result.1.samples <= maximum_samples,
+                "DDGI visibility sample evidence does not match fresh history actions"
+            );
+            result
+        } else {
+            ensure!(
+                lanes[6..16]
+                    .iter()
+                    .chain(&lanes[17..18])
+                    .all(|value| *value == 0),
+                "radiance-only DDGI batch wrote visibility evidence"
+            );
+            (Default::default(), Default::default())
+        };
+        Ok(Some(Self {
+            field: batch.logical(),
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            irradiance,
+            visibility_history,
+            visibility_samples,
+            visibility_written,
+        }))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFilterConfigurationIdentity {
+    pub grid_dimensions: [u32; 3],
+    pub configured_history_retention_q16: u32,
+}
+
+impl DdgiFilterConfigurationIdentity {
+    pub fn from_grid(grid: DdgiVolumeGrid, configured_history_retention: f32) -> Self {
+        assert!(
+            configured_history_retention.is_finite(),
+            "DDGI configured history retention must be finite"
+        );
+        Self {
+            grid_dimensions: grid.dimensions().to_array(),
+            configured_history_retention_q16: (configured_history_retention.clamp(0.0, 1.0)
+                * DDGI_FILTER_RETENTION_Q16_ONE as f32)
+                .round() as u32,
+        }
+    }
+
+    pub fn probe_count(self) -> Result<u32> {
+        self.grid_dimensions
+            .into_iter()
+            .try_fold(1_u32, u32::checked_mul)
+            .context("DDGI filter configuration grid product overflow")
+            .and_then(|probe_count| {
+                ensure!(probe_count != 0, "DDGI filter configuration grid is empty");
+                Ok(probe_count)
+            })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFilterEpochEvidence {
+    pub field: DdgiFieldIdentity,
+    pub probe_count: u32,
+    pub irradiance: DdgiFilterHistoryEvidence,
+    pub visibility_history: DdgiFilterHistoryEvidence,
+    pub visibility_samples: DdgiFilterVisibilitySampleEvidence,
+    pub visibility_written: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiFilterEpochProof {
+    pub configuration: DdgiFilterConfigurationIdentity,
+    pub evidence: DdgiFilterEpochEvidence,
+}
+
+#[derive(Clone, Debug)]
+pub struct DdgiFilterEpochAccumulator {
+    field: DdgiFieldIdentity,
+    configuration: DdgiFilterConfigurationIdentity,
+    seen_probes: Vec<bool>,
+    irradiance: DdgiFilterHistoryEvidence,
+    visibility_history: DdgiFilterHistoryEvidence,
+    visibility_samples: DdgiFilterVisibilitySampleEvidence,
+    visibility_written: Option<bool>,
+}
+
+impl DdgiFilterEpochAccumulator {
+    pub fn new(
+        field: DdgiFieldIdentity,
+        configuration: DdgiFilterConfigurationIdentity,
+    ) -> Result<Self> {
+        let probe_count = configuration.probe_count()?;
+        Ok(Self {
+            field,
+            configuration,
+            seen_probes: vec![false; probe_count as usize],
+            irradiance: Default::default(),
+            visibility_history: Default::default(),
+            visibility_samples: Default::default(),
+            visibility_written: None,
+        })
+    }
+
+    pub fn field(&self) -> DdgiFieldIdentity {
+        self.field
+    }
+
+    pub fn observe(
+        &mut self,
+        batch: DdgiRayBatch,
+        configuration: DdgiFilterConfigurationIdentity,
+        evidence: DdgiFilterBatchEvidence,
+    ) -> Result<()> {
+        ensure!(
+            configuration == self.configuration,
+            "DDGI filter evidence mixed host configuration identity"
+        );
+        ensure!(
+            batch.logical() == self.field && evidence.field == self.field,
+            "DDGI filter evidence mixed field or epoch identity"
+        );
+        ensure!(
+            evidence.first_probe_index == batch.first_probe_index
+                && evidence.probe_count == batch.probe_count
+                && evidence.visibility_written == batch.writes_visibility(),
+            "DDGI filter evidence does not match its ray batch"
+        );
+        if let Some(visibility_written) = self.visibility_written {
+            ensure!(
+                visibility_written == evidence.visibility_written,
+                "DDGI filter epoch mixed visibility modes"
+            );
+        } else {
+            self.visibility_written = Some(evidence.visibility_written);
+        }
+        let end = batch
+            .first_probe_index
+            .checked_add(batch.probe_count)
+            .context("DDGI filter evidence probe range overflow")?;
+        ensure!(
+            end as usize <= self.seen_probes.len(),
+            "DDGI filter evidence probe range exceeds the Volume"
+        );
+        for seen in &mut self.seen_probes[batch.first_probe_index as usize..end as usize] {
+            ensure!(!*seen, "DDGI filter evidence observed a probe twice");
+            *seen = true;
+        }
+        self.irradiance.accumulate(evidence.irradiance)?;
+        self.visibility_history
+            .accumulate(evidence.visibility_history)?;
+        self.visibility_samples
+            .accumulate(evidence.visibility_samples)?;
+        Ok(())
+    }
+
+    pub fn finish(self) -> Result<DdgiFilterEpochProof> {
+        ensure!(
+            self.seen_probes.iter().all(|seen| *seen),
+            "DDGI filter epoch evidence does not cover every probe"
+        );
+        let probe_count = self.seen_probes.len() as u32;
+        ensure!(
+            self.irradiance.probes == u64::from(probe_count),
+            "DDGI filter epoch irradiance probe count is incomplete"
+        );
+        ensure!(
+            self.irradiance.actions.blend == 0
+                || self
+                    .irradiance
+                    .actions
+                    .blend
+                    .checked_mul(u64::from(self.irradiance.blend_retention_q16_max,))
+                    == Some(self.irradiance.blend_retention_q16_sum),
+            "DDGI filter epoch irradiance retention witness is inconsistent"
+        );
+        let visibility_written = self.visibility_written.unwrap_or(false);
+        ensure!(
+            !visibility_written || self.visibility_history.probes == u64::from(probe_count),
+            "DDGI filter epoch visibility probe count is incomplete"
+        );
+        ensure!(
+            !visibility_written
+                || self.visibility_history.actions.blend == 0
+                || self
+                    .visibility_history
+                    .actions
+                    .blend
+                    .checked_mul(u64::from(self.visibility_history.blend_retention_q16_max,))
+                    == Some(self.visibility_history.blend_retention_q16_sum),
+            "DDGI filter epoch visibility retention witness is inconsistent"
+        );
+        Ok(DdgiFilterEpochProof {
+            configuration: self.configuration,
+            evidence: DdgiFilterEpochEvidence {
+                field: self.field,
+                probe_count,
+                irradiance: self.irradiance,
+                visibility_history: self.visibility_history,
+                visibility_samples: self.visibility_samples,
+                visibility_written,
+            },
+        })
     }
 }
 
@@ -806,6 +1454,7 @@ pub enum DdgiValidatedIterationOutcome {
     Converged {
         work: DdgiScheduledWork,
         field: DdgiFieldIdentity,
+        consecutive_below_threshold: u32,
         reason: DdgiConvergenceReason,
     },
 }
@@ -840,7 +1489,7 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) stage: DdgiVolumeStage,
     pub(crate) scheduled_work: Option<DdgiScheduledWork>,
     pub(crate) complete_field: Option<DdgiFieldIdentity>,
-    pub(crate) published_field: Option<DdgiFieldIdentity>,
+    pub(crate) publication: Option<DdgiFieldPublication>,
     pub(crate) building_field: Option<DdgiFieldIdentity>,
     pub(crate) consecutive_below_threshold: u32,
     pub(crate) last_atlas_validation: Option<DdgiAtlasValidationStats>,
@@ -851,13 +1500,6 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) filtered_probe_count: u32,
     pub(crate) probe_priority: Option<DdgiProbePriority>,
     pub(crate) promotion_ready: bool,
-}
-
-impl DdgiVolumeStatus {
-    #[cfg(test)]
-    pub(crate) fn is_ready(self) -> bool {
-        self.published_field.is_some()
-    }
 }
 
 /// The consumer-visible DDGI volume and an optional volume being built for a later promotion.
@@ -883,18 +1525,42 @@ impl DdgiStatus {
         self.staging
     }
 
-    #[cfg(test)]
-    pub(crate) fn builder(self) -> DdgiVolumeStatus {
-        self.staging.unwrap_or(self.active)
-    }
-
     pub(crate) fn staging_is_ready(self) -> bool {
         self.staging()
             .is_some_and(|staging| staging.promotion_ready)
     }
 }
 
-pub struct DdgiVolume {
+struct DdgiVulkanVolumeResources {
+    ddgi_probe_metadata: Resource<Buffer>,
+    ddgi_transient_ray_data: Resource<Buffer>,
+    ddgi_trace_stats: Resource<Buffer>,
+    ddgi_trace_stats_readback: Buffer,
+    ddgi_relocation_stats: Resource<Buffer>,
+    ddgi_relocation_stats_readback: Buffer,
+    ddgi_atlas_reduction: Resource<Buffer>,
+    ddgi_atlas_reduction_readback: Buffer,
+    ddgi_irradiance_atlas: Resource<Texture>,
+    ddgi_transport_source_irradiance_atlas: Resource<Texture>,
+    ddgi_visibility_atlas: Resource<Texture>,
+    ddgi_transport_source_visibility_atlas: Resource<Texture>,
+    ddgi_global_sky_irradiance: Resource<Texture>,
+    ddgi_global_sky_irradiance_alt: Resource<Texture>,
+    ddgi_radiance_sun: Resource<Buffer>,
+    ddgi_radiance_voxel_palette: Resource<Buffer>,
+    ddgi_transport_query_info: Resource<Buffer>,
+    ddgi_local_light_info: Resource<Buffer>,
+    ddgi_local_lights: Resource<Buffer>,
+}
+
+enum DdgiVolumeResources {
+    Vulkan(Box<DdgiVulkanVolumeResources>),
+    #[cfg(test)]
+    Fixture,
+}
+
+pub(super) struct DdgiVolume {
+    allocation_id: u64,
     build_token: Option<DdgiBuildToken>,
     grid: DdgiVolumeGrid,
     irradiance_layout: DdgiAtlasLayout,
@@ -904,7 +1570,7 @@ pub struct DdgiVolume {
     scheduled_work: Option<DdgiScheduledWork>,
     building_iteration: Option<DdgiResidentIteration>,
     complete_field: Option<DdgiResidentField>,
-    published_field: Option<DdgiResidentField>,
+    published: Option<DdgiResidentPublication>,
     consecutive_below_threshold: u32,
     last_atlas_validation: Option<DdgiAtlasValidationStats>,
     global_sky_revisions: [u32; 2],
@@ -920,88 +1586,206 @@ pub struct DdgiVolume {
     local_recovery_stable_epochs: u32,
     history_mode: DdgiHistoryMode,
     visibility_preserved_for_iteration: bool,
-    pub ddgi_probe_metadata: Resource<Buffer>,
-    pub ddgi_transient_ray_data: Resource<Buffer>,
-    pub ddgi_trace_stats: Resource<Buffer>,
-    ddgi_trace_stats_readback: Buffer,
-    pub ddgi_relocation_stats: Resource<Buffer>,
-    ddgi_relocation_stats_readback: Buffer,
-    pub ddgi_atlas_reduction: Resource<Buffer>,
-    ddgi_atlas_reduction_readback: Buffer,
-    pub ddgi_irradiance_atlas: Resource<Texture>,
-    pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
-    pub ddgi_visibility_atlas: Resource<Texture>,
-    pub ddgi_transport_source_visibility_atlas: Resource<Texture>,
-    pub ddgi_global_sky_irradiance: Resource<Texture>,
-    pub ddgi_global_sky_irradiance_alt: Resource<Texture>,
-    pub ddgi_radiance_sun: Resource<Buffer>,
-    pub ddgi_radiance_voxel_palette: Resource<Buffer>,
-    pub ddgi_transport_query_info: Resource<Buffer>,
-    pub ddgi_local_light_info: Resource<Buffer>,
-    pub ddgi_local_lights: Resource<Buffer>,
+    resources: DdgiVolumeResources,
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
+/// Proof that the physical Active/Staging ownership swap has already consumed its linear permit.
+///
+/// Only [`DdgiVolumes`] can mint this receipt. The runtime consumes it to commit the matching
+/// logical Volume Publication, making permit -> physical swap -> logical commit the only order
+/// expressible by the production interface.
+pub(crate) struct DdgiVolumePromotion {
+    token: DdgiBuildToken,
+    publication: DdgiFieldPublication,
+    retired_active: DdgiVolume,
+}
+
+impl DdgiVolumePromotion {
+    pub(crate) fn token(&self) -> DdgiBuildToken {
+        self.token
+    }
+
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.publication
+    }
+
+    pub(super) fn into_retired_active(self) -> DdgiVolume {
+        self.retired_active
+    }
+}
+::static_assertions::assert_not_impl_any!(DdgiVolumePromotion: Clone, Copy);
+
 /// Immutable semantic resource view for one candidate consumer-visible DDGI field.
-#[derive(Clone, Copy)]
 pub(crate) struct DdgiConsumerResources<'a> {
-    pub build_token: DdgiBuildToken,
-    pub field: DdgiFieldIdentity,
-    pub probe_metadata: &'a Resource<Buffer>,
-    pub global_sky_irradiance: &'a Resource<Texture>,
-    pub irradiance_atlas: &'a Resource<Texture>,
-    pub visibility_atlas: &'a Resource<Texture>,
+    publication: DdgiFieldPublication,
+    probe_metadata: &'a Resource<Buffer>,
+    global_sky_irradiance: &'a Resource<Texture>,
+    irradiance_atlas: &'a Resource<Texture>,
+    visibility_atlas: &'a Resource<Texture>,
+}
+
+impl DdgiConsumerResources<'_> {
+    pub(crate) fn publication(&self) -> DdgiFieldPublication {
+        self.publication
+    }
+
+    pub(crate) fn probe_metadata(&self) -> &Resource<Buffer> {
+        self.probe_metadata
+    }
+
+    pub(crate) fn global_sky_irradiance(&self) -> &Resource<Texture> {
+        self.global_sky_irradiance
+    }
+
+    pub(crate) fn irradiance_atlas(&self) -> &Resource<Texture> {
+        self.irradiance_atlas
+    }
+
+    pub(crate) fn visibility_atlas(&self) -> &Resource<Texture> {
+        self.visibility_atlas
+    }
+}
+
+/// Descriptor-only view of the exact consumer-visible Active allocation owned by the runtime.
+pub(crate) struct DdgiActiveResources<'a> {
+    volume: &'a DdgiVolume,
+}
+::static_assertions::assert_not_impl_any!(DdgiActiveResources<'_>: Clone, Copy);
+
+impl<'a> DdgiActiveResources<'a> {
+    pub(super) fn new(volume: &'a DdgiVolume) -> Self {
+        Self { volume }
+    }
+}
+
+impl ResourceContainer for DdgiActiveResources<'_> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
+        self.volume.resolve_resource(name)
+    }
+}
+
+/// Descriptor-only view of the exact builder and optional inherited Active field selected by the
+/// runtime. It rewrites semantic source/global-sky bindings here so pipeline code never chooses an
+/// Active/Staging allocation or reaches through the lifecycle owner.
+pub(crate) struct DdgiBuilderResources<'a> {
+    builder: &'a DdgiVolume,
+    inherited_source: Option<&'a DdgiVolume>,
+}
+::static_assertions::assert_not_impl_any!(DdgiBuilderResources<'_>: Clone, Copy);
+
+impl<'a> DdgiBuilderResources<'a> {
+    pub(super) fn new(builder: &'a DdgiVolume, inherited_source: Option<&'a DdgiVolume>) -> Self {
+        Self {
+            builder,
+            inherited_source,
+        }
+    }
+}
+
+impl ResourceContainer for DdgiBuilderResources<'_> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
+        match name {
+            "ddgi_transport_source_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    self.inherited_source
+                        .and_then(DdgiVolume::published_irradiance_atlas)
+                        .unwrap_or(
+                            &self
+                                .builder
+                                .resources()
+                                .ddgi_transport_source_irradiance_atlas,
+                        ),
+                ))
+            }
+            "ddgi_transport_source_visibility_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    self.inherited_source
+                        .and_then(DdgiVolume::published_visibility_atlas)
+                        .unwrap_or(
+                            &self
+                                .builder
+                                .resources()
+                                .ddgi_transport_source_visibility_atlas,
+                        ),
+                ))
+            }
+            "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
+                self.builder.building_global_sky_irradiance(),
+            )),
+            _ => self.builder.resolve_resource(name),
+        }
+    }
 }
 
 /// Owns the DDGI active/staging lifecycle.
 ///
 /// A staging volume is never returned by [`Self::active`]. Promotion is the only operation that
 /// can make it consumer-visible, and promotion rejects incomplete volumes.
-pub struct DdgiVolumes {
+pub(super) struct DdgiVolumes {
     active: DdgiVolume,
     staging: Option<DdgiVolume>,
 }
 
 impl DdgiVolumes {
-    pub fn new(active: DdgiVolume) -> Self {
+    pub(super) fn new(active: DdgiVolume) -> Self {
         Self {
             active,
             staging: None,
         }
     }
 
-    pub(crate) fn status(&self) -> DdgiStatus {
+    pub(super) fn status(&self) -> DdgiStatus {
         DdgiStatus::new(
             self.active.status(),
             self.staging.as_ref().map(DdgiVolume::status),
         )
     }
 
-    pub fn active(&self) -> &DdgiVolume {
+    pub(super) fn active(&self) -> &DdgiVolume {
         &self.active
     }
 
-    pub fn builder(&self) -> &DdgiVolume {
+    pub(super) fn builder(&self) -> &DdgiVolume {
         self.staging.as_ref().unwrap_or(&self.active)
     }
 
-    pub fn builder_mut(&mut self) -> &mut DdgiVolume {
+    pub(super) fn builder_mut(&mut self) -> &mut DdgiVolume {
         self.staging.as_mut().unwrap_or(&mut self.active)
     }
 
-    pub fn builder_is_active(&self) -> bool {
+    pub(super) fn builder_is_active(&self) -> bool {
         self.staging.is_none()
+    }
+
+    pub(super) fn builder_frame_identity(&self) -> DdgiVolumeFrameIdentity {
+        self.builder().frame_identity(self.staging.is_some())
     }
 
     /// Installs a new builder target while returning the previous staging volume, if any.
     /// The caller must rebind builder descriptors before dropping the returned volume.
-    pub fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
+    pub(super) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
         self.staging.replace(staging)
     }
 
-    /// Promotes a complete staging volume and returns the previous active volume.
-    /// The caller must rebind consumer descriptors before dropping the returned volume.
-    pub fn promote_staging(&mut self, expected_token: DdgiBuildToken) -> Result<DdgiVolume> {
+    #[cfg(test)]
+    pub(super) fn promote_builder_residency_for_test(&mut self) {
+        let builder_allocation_id = self.builder().allocation_id;
+        let builder_status = self.builder().status();
+        let staging = self
+            .staging
+            .take()
+            .expect("residency witness requires one Staging builder");
+        self.active = staging;
+        assert_eq!(self.active.allocation_id, builder_allocation_id);
+        assert_eq!(self.active.status(), builder_status);
+    }
+
+    /// Preflights the complete physical staging publication without changing ownership.
+    pub(super) fn preflight_staging_promotion(
+        &self,
+        expected_token: DdgiBuildToken,
+    ) -> Result<DdgiVolumePromotionPermit> {
         let staging = self
             .staging
             .as_ref()
@@ -1017,62 +1801,123 @@ impl DdgiVolumes {
             staging.status().build_token,
             expected_token,
         );
+        let resident = staging
+            .published
+            .context("promotable DDGI staging Volume has no resident publication")?;
+        ensure!(
+            resident.publication.generation().build_token() == expected_token,
+            "DDGI staging publication lineage does not match its promotion token"
+        );
+        ensure!(
+            staging.radiance_revision == Some(resident.owner_radiance_revision)
+                && staging.radiance_snapshot.is_some()
+                && staging.global_sky_revision(resident.resident.sky_slot)
+                    == resident.owner_radiance_revision,
+            "DDGI staging publication lost its owner radiance tuple"
+        );
+        Ok(DdgiVolumePromotionPermit {
+            token: expected_token,
+            publication: resident.publication,
+        })
+    }
+
+    /// Borrows descriptor resources only through a preflighted staging authorization.
+    pub(super) fn staging_consumer_resources(
+        &self,
+        permit: &DdgiVolumePromotionPermit,
+    ) -> DdgiConsumerResources<'_> {
+        let staging = self
+            .staging
+            .as_ref()
+            .expect("preflighted DDGI staging Volume disappeared");
+        let resident = staging
+            .published
+            .expect("preflighted DDGI staging publication disappeared");
+        assert_eq!(resident.publication, permit.publication);
+        DdgiConsumerResources {
+            publication: permit.publication,
+            probe_metadata: &staging.resources().ddgi_probe_metadata,
+            global_sky_irradiance: staging.global_sky_irradiance(resident.resident.sky_slot),
+            irradiance_atlas: staging.irradiance_atlas(resident.resident.atlas_slot),
+            visibility_atlas: staging.visibility_atlas(resident.resident.atlas_slot),
+        }
+    }
+
+    /// Consumes a preflighted authorization and performs the infallible ownership swap.
+    pub(super) fn promote_staging(
+        &mut self,
+        permit: DdgiVolumePromotionPermit,
+    ) -> DdgiVolumePromotion {
         let mut staging = self.staging.take().expect("staging presence checked above");
+        assert_eq!(staging.build_token, Some(permit.token));
+        assert_eq!(
+            staging.published.map(|resident| resident.publication),
+            Some(permit.publication)
+        );
         staging.finish_local_recovery();
-        Ok(std::mem::replace(&mut self.active, staging))
+        let retired_active = std::mem::replace(&mut self.active, staging);
+        DdgiVolumePromotion {
+            token: permit.token,
+            publication: permit.publication,
+            retired_active,
+        }
     }
 }
 
 impl ResourceContainer for DdgiVolume {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_probe_metadata" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_probe_metadata))
-            }
-            "ddgi_transient_ray_data" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transient_ray_data))
-            }
-            "ddgi_trace_stats" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_trace_stats))
-            }
-            "ddgi_relocation_stats" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_relocation_stats))
-            }
-            "ddgi_atlas_reduction" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_atlas_reduction))
-            }
-            "ddgi_radiance_sun" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_radiance_sun))
-            }
-            "ddgi_radiance_voxel_palette" => ResourceLookup::Unique(DescriptorResource::Buffer(
-                &self.ddgi_radiance_voxel_palette,
+            "ddgi_probe_metadata" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_probe_metadata,
             )),
-            "ddgi_transport_query_info" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
+            "ddgi_transient_ray_data" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_transient_ray_data,
+            )),
+            "ddgi_trace_stats" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_trace_stats,
+            )),
+            "ddgi_relocation_stats" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_relocation_stats,
+            )),
+            "ddgi_atlas_reduction" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_atlas_reduction,
+            )),
+            "ddgi_radiance_sun" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_radiance_sun,
+            )),
+            "ddgi_radiance_voxel_palette" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_radiance_voxel_palette,
+            )),
+            "ddgi_transport_query_info" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_transport_query_info,
+            )),
+            "ddgi_local_light_info" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_local_light_info,
+            )),
+            "ddgi_local_lights" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_local_lights,
+            )),
+            "ddgi_irradiance_atlas" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.resources().ddgi_irradiance_atlas,
+            )),
+            "ddgi_transport_source_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    &self.resources().ddgi_transport_source_irradiance_atlas,
+                ))
             }
-            "ddgi_local_light_info" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_light_info))
+            "ddgi_visibility_atlas" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.resources().ddgi_visibility_atlas,
+            )),
+            "ddgi_transport_source_visibility_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    &self.resources().ddgi_transport_source_visibility_atlas,
+                ))
             }
-            "ddgi_local_lights" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_lights))
-            }
-            "ddgi_irradiance_atlas" => {
-                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
-            }
-            "ddgi_transport_source_irradiance_atlas" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_transport_source_irradiance_atlas),
-            ),
-            "ddgi_visibility_atlas" => {
-                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_visibility_atlas))
-            }
-            "ddgi_transport_source_visibility_atlas" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_transport_source_visibility_atlas),
-            ),
             "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
-                &self.ddgi_global_sky_irradiance,
+                &self.resources().ddgi_global_sky_irradiance,
             )),
             "ddgi_global_sky_irradiance_alt" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_global_sky_irradiance_alt),
+                DescriptorResource::Texture(&self.resources().ddgi_global_sky_irradiance_alt),
             ),
             _ => ResourceLookup::Missing,
         }
@@ -1080,15 +1925,15 @@ impl ResourceContainer for DdgiVolume {
 }
 
 impl DdgiVolume {
-    pub fn new(
+    pub(super) fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         world_extent_voxels: UVec3,
-        spacing_voxels: u32,
+        spacing: super::DdgiProbeSpacing,
         voxels_per_world_unit: UVec3,
         batch_order: DdgiBatchOrder,
     ) -> Result<Self> {
-        let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing_voxels)?;
+        let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing)?;
         let irradiance_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE)?;
         let visibility_layout =
@@ -1232,7 +2077,7 @@ impl DdgiVolume {
         let transport_query_snapshot = DdgiTransportQueryInfo {
             grid_dimensions: grid.dimensions().to_array(),
             visibility_bias_world: 0.0,
-            world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing_voxels as f32)
+            world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing.voxels() as f32)
                 .to_array(),
             source_ready: 0,
             irradiance_tile_columns: irradiance_layout.tile_grid().x,
@@ -1299,7 +2144,7 @@ impl DdgiVolume {
 
         log::info!(
             "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} local_light_bytes={} total_mib={:.2}",
-            spacing_voxels,
+            spacing.voxels(),
             grid.dimensions().x,
             grid.dimensions().y,
             grid.dimensions().z,
@@ -1328,6 +2173,7 @@ impl DdgiVolume {
         );
 
         Ok(Self {
+            allocation_id: next_ddgi_volume_allocation_id(),
             build_token: None,
             grid,
             irradiance_layout,
@@ -1337,7 +2183,7 @@ impl DdgiVolume {
             scheduled_work: None,
             building_iteration: None,
             complete_field: None,
-            published_field: None,
+            published: None,
             consecutive_below_threshold: 0,
             last_atlas_validation: None,
             global_sky_revisions: [0; 2],
@@ -1353,31 +2199,81 @@ impl DdgiVolume {
             local_recovery_stable_epochs: 0,
             history_mode: DdgiHistoryMode::Accumulating,
             visibility_preserved_for_iteration: false,
-            ddgi_probe_metadata: Resource::new(probe_metadata),
-            ddgi_transient_ray_data: Resource::new(transient_ray_data),
-            ddgi_trace_stats: Resource::new(trace_stats),
-            ddgi_trace_stats_readback: trace_stats_readback,
-            ddgi_relocation_stats: Resource::new(relocation_stats),
-            ddgi_relocation_stats_readback: relocation_stats_readback,
-            ddgi_atlas_reduction: Resource::new(atlas_reduction),
-            ddgi_atlas_reduction_readback: atlas_reduction_readback,
-            ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
-            ddgi_transport_source_irradiance_atlas: Resource::new(
-                transport_source_irradiance_atlas,
-            ),
-            ddgi_visibility_atlas: Resource::new(visibility_atlas),
-            ddgi_transport_source_visibility_atlas: Resource::new(
-                transport_source_visibility_atlas,
-            ),
-            ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
-            ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
-            ddgi_radiance_sun: Resource::new(radiance_sun),
-            ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
-            ddgi_transport_query_info: Resource::new(transport_query_info),
-            ddgi_local_light_info: Resource::new(ddgi_local_light_info),
-            ddgi_local_lights: Resource::new(ddgi_local_lights),
+            resources: DdgiVolumeResources::Vulkan(Box::new(DdgiVulkanVolumeResources {
+                ddgi_probe_metadata: Resource::new(probe_metadata),
+                ddgi_transient_ray_data: Resource::new(transient_ray_data),
+                ddgi_trace_stats: Resource::new(trace_stats),
+                ddgi_trace_stats_readback: trace_stats_readback,
+                ddgi_relocation_stats: Resource::new(relocation_stats),
+                ddgi_relocation_stats_readback: relocation_stats_readback,
+                ddgi_atlas_reduction: Resource::new(atlas_reduction),
+                ddgi_atlas_reduction_readback: atlas_reduction_readback,
+                ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
+                ddgi_transport_source_irradiance_atlas: Resource::new(
+                    transport_source_irradiance_atlas,
+                ),
+                ddgi_visibility_atlas: Resource::new(visibility_atlas),
+                ddgi_transport_source_visibility_atlas: Resource::new(
+                    transport_source_visibility_atlas,
+                ),
+                ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
+                ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
+                ddgi_radiance_sun: Resource::new(radiance_sun),
+                ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
+                ddgi_transport_query_info: Resource::new(transport_query_info),
+                ddgi_local_light_info: Resource::new(ddgi_local_light_info),
+                ddgi_local_lights: Resource::new(ddgi_local_lights),
+            })),
             transport_query_snapshot,
         })
+    }
+
+    fn resources(&self) -> &DdgiVulkanVolumeResources {
+        match &self.resources {
+            DdgiVolumeResources::Vulkan(resources) => resources,
+            #[cfg(test)]
+            DdgiVolumeResources::Fixture => {
+                panic!("test-only DDGI Volume fixture has no Vulkan resources")
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test(grid: DdgiVolumeGrid, build_token: Option<DdgiBuildToken>) -> Self {
+        let irradiance_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
+        let visibility_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
+        Self {
+            allocation_id: next_ddgi_volume_allocation_id(),
+            build_token,
+            grid,
+            irradiance_layout,
+            visibility_layout,
+            resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
+            stage: DdgiVolumeStage::Allocated,
+            scheduled_work: None,
+            building_iteration: None,
+            complete_field: None,
+            published: None,
+            consecutive_below_threshold: 0,
+            last_atlas_validation: None,
+            global_sky_revisions: [0; 2],
+            radiance_revision: None,
+            radiance_snapshot: None,
+            requested_terrain_revision: None,
+            relocated_terrain_revision: None,
+            active_ray_batch: None,
+            batch_order: DdgiBatchOrder::default(),
+            filtered_probe_count: 0,
+            next_batch_ordinal: 0,
+            local_refresh_voxel_bound: None,
+            local_recovery_stable_epochs: 0,
+            history_mode: DdgiHistoryMode::Accumulating,
+            visibility_preserved_for_iteration: false,
+            resources: DdgiVolumeResources::Fixture,
+            transport_query_snapshot: DdgiTransportQueryInfo::zeroed(),
+        }
     }
 
     pub(crate) fn status(&self) -> DdgiVolumeStatus {
@@ -1390,13 +2286,13 @@ impl DdgiVolume {
             stage: self.stage,
             scheduled_work: self.scheduled_work,
             complete_field: self.complete_field.map(|field| field.logical),
-            published_field: self.published_field.map(|field| field.logical),
+            publication: self.published.map(|resident| resident.publication),
             building_field: self.building_iteration.map(|iteration| iteration.logical),
             consecutive_below_threshold: self.consecutive_below_threshold,
             last_atlas_validation: self.last_atlas_validation,
             global_sky_revision: self
-                .published_field
-                .map(|field| self.global_sky_revision(field.sky_slot))
+                .published
+                .map(|resident| self.global_sky_revision(resident.resident.sky_slot))
                 .or_else(|| {
                     self.building_iteration
                         .map(|iteration| self.global_sky_revision(iteration.destination.sky_slot))
@@ -1413,17 +2309,30 @@ impl DdgiVolume {
         }
     }
 
+    fn frame_identity(&self, is_staging: bool) -> DdgiVolumeFrameIdentity {
+        let status = self.status();
+        DdgiVolumeFrameIdentity {
+            allocation_id: self.allocation_id,
+            is_staging,
+            build_token: status.build_token,
+            scheduled_work: status.scheduled_work,
+            complete_field: status.complete_field,
+            publication: status.publication,
+            building_field: status.building_field,
+        }
+    }
+
     pub(crate) fn local_refresh_probe_partition(&self) -> Option<(u32, u32)> {
         self.local_refresh_voxel_bound
             .map(|bound| local_refresh_probe_partition(self.grid, bound))
     }
 
     fn promotion_is_ready(&self) -> bool {
-        let Some(published) = self.published_field else {
+        let Some(published) = self.published else {
             return false;
         };
         self.local_refresh_voxel_bound.is_none()
-            || (published.logical.field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
+            || (published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
                 && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS)
     }
 
@@ -1439,13 +2348,13 @@ impl DdgiVolume {
     }
 
     fn promotion_is_ready_after_local_clear(&self) -> bool {
-        self.published_field.is_some_and(|published| {
-            published.logical.field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
+        self.published.is_some_and(|published| {
+            published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
                 && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
         })
     }
 
-    pub fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
+    pub(super) fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
         assert!(
             self.build_token.is_none(),
             "DDGI build token may only be assigned once"
@@ -1453,14 +2362,14 @@ impl DdgiVolume {
         self.build_token = Some(build_token);
     }
 
-    pub fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
+    pub(super) fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
         self.scheduled_work.is_some_and(|work| {
             work.destination().field().radiance_revision() == latest_revision
                 && self.radiance_revision != Some(latest_revision)
         })
     }
 
-    pub fn latch_radiance_snapshot(
+    pub(super) fn latch_radiance_snapshot(
         &mut self,
         revision: u32,
         snapshot: DdgiRadianceSnapshot,
@@ -1476,13 +2385,16 @@ impl DdgiVolume {
             "DDGI local-light transport revision {} does not match radiance revision {revision}",
             snapshot.local_lights.info.transport_revision,
         );
-        self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
-            direction: snapshot.sun_direction.to_array(),
-            terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
-            color: snapshot.sun_color.to_array(),
-            luminance: snapshot.sun_luminance,
-        })?;
-        self.ddgi_radiance_voxel_palette
+        self.resources()
+            .ddgi_radiance_sun
+            .fill_uniform(&DdgiRadianceSun {
+                direction: snapshot.sun_direction.to_array(),
+                terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
+                color: snapshot.sun_color.to_array(),
+                luminance: snapshot.sun_luminance,
+            })?;
+        self.resources()
+            .ddgi_radiance_voxel_palette
             .fill_uniform(&DdgiRadianceVoxelPalette {
                 dirt_color: snapshot.voxel_palette.dirt_color.to_array(),
                 sand_color: snapshot.voxel_palette.sand_color.to_array(),
@@ -1496,11 +2408,15 @@ impl DdgiVolume {
             })?;
         self.transport_query_snapshot.visibility_bias_world =
             snapshot.ddgi_receiver_visibility_bias_world;
-        self.ddgi_transport_query_info
+        self.resources()
+            .ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)?;
-        self.ddgi_local_light_info
+        self.resources()
+            .ddgi_local_light_info
             .fill_uniform(&snapshot.local_lights.info)?;
-        self.ddgi_local_lights.fill(&snapshot.local_lights.lights)?;
+        self.resources()
+            .ddgi_local_lights
+            .fill(&snapshot.local_lights.lights)?;
         self.radiance_revision = Some(revision);
         self.radiance_snapshot = Some(snapshot);
         Ok(())
@@ -1510,7 +2426,7 @@ impl DdgiVolume {
         self.radiance_snapshot
     }
 
-    pub fn global_sky_needs_update(&self) -> bool {
+    pub(super) fn global_sky_needs_update(&self) -> bool {
         self.building_iteration.is_some_and(|iteration| {
             self.radiance_revision == Some(iteration.logical.field().radiance_revision())
                 && self.global_sky_revision(iteration.destination.sky_slot)
@@ -1518,7 +2434,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
+    pub(super) fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
         let iteration = self
             .building_iteration
             .context("cannot publish DDGI global sky without scheduled work")?;
@@ -1534,7 +2450,7 @@ impl DdgiVolume {
     }
 
     /// Installs scheduler-authoritative work and derives only its physical residency here.
-    pub fn begin_scheduled_work(
+    pub(super) fn begin_scheduled_work(
         &mut self,
         work: DdgiScheduledWork,
         local_refresh_voxel_bound: Option<UAabb3>,
@@ -1554,8 +2470,8 @@ impl DdgiVolume {
             self.grid.spacing_voxels(),
         );
 
-        let radiance_changed = self.published_field.is_some_and(|source| {
-            destination.field().radiance_revision() != source.logical.field().radiance_revision()
+        let radiance_changed = self.published.is_some_and(|source| {
+            destination.field().radiance_revision() != source.field().field().radiance_revision()
         });
         self.transport_query_snapshot.geometry_revision = destination.field().geometry_revision();
         match work.kind() {
@@ -1587,7 +2503,7 @@ impl DdgiVolume {
         }
         let resident = resident_iteration_for_work_with_policy(
             work,
-            self.published_field,
+            self.published.map(|published| published.resident),
             self.local_refresh_voxel_bound,
             self.history_mode,
             radiance_history_policy,
@@ -1620,7 +2536,7 @@ impl DdgiVolume {
         Ok(())
     }
 
-    pub fn request_initialization(&mut self, terrain_revision: u32) -> bool {
+    pub(super) fn request_initialization(&mut self, terrain_revision: u32) -> bool {
         if initialization_request_is_duplicate(
             self.stage,
             self.requested_terrain_revision,
@@ -1637,7 +2553,7 @@ impl DdgiVolume {
         self.scheduled_work = None;
         self.building_iteration = None;
         self.complete_field = None;
-        self.published_field = None;
+        self.published = None;
         self.consecutive_below_threshold = 0;
         self.last_atlas_validation = None;
         self.local_recovery_stable_epochs = 0;
@@ -1647,13 +2563,13 @@ impl DdgiVolume {
         true
     }
 
-    pub fn pending_relocation_terrain_revision(&self) -> Option<u32> {
+    pub(super) fn pending_relocation_terrain_revision(&self) -> Option<u32> {
         (self.stage == DdgiVolumeStage::RelocationPending)
             .then_some(self.requested_terrain_revision)
             .flatten()
     }
 
-    pub fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
+    pub(super) fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
         self.filtered_probe_count = 0;
@@ -1666,7 +2582,7 @@ impl DdgiVolume {
         Ok(())
     }
 
-    pub fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
+    pub(super) fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
         if !matches!(
             self.stage,
             DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding
@@ -1746,7 +2662,7 @@ impl DdgiVolume {
         )
     }
 
-    pub fn visibility_preservation_needed(&self) -> bool {
+    pub(super) fn visibility_preservation_needed(&self) -> bool {
         self.building_iteration.is_some_and(|iteration| {
             DdgiRayBatch {
                 first_probe_index: 0,
@@ -1758,7 +2674,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn record_visibility_preservation(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_visibility_preservation(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         assert!(self.visibility_preservation_needed());
         let iteration = self
             .building_iteration
@@ -1777,18 +2693,18 @@ impl DdgiVolume {
             );
     }
 
-    pub fn mark_visibility_preserved(&mut self) {
+    pub(super) fn mark_visibility_preserved(&mut self) {
         assert!(self.visibility_preservation_needed());
         self.visibility_preserved_for_iteration = true;
     }
 
-    pub fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
+    pub(super) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
         assert_eq!(self.next_ray_batch_to_trace(), Some(batch));
         self.active_ray_batch = Some(batch);
         self.stage = DdgiVolumeStage::RayBatchReady;
     }
 
-    pub fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
+    pub(super) fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
         assert_eq!(self.stage, DdgiVolumeStage::RayBatchReady);
         assert_eq!(self.active_ray_batch, Some(batch));
         self.filtered_probe_count += batch.probe_count;
@@ -1803,11 +2719,11 @@ impl DdgiVolume {
         };
     }
 
-    pub fn pending_trace_stats_batch_is(&self, batch: DdgiRayBatch) -> bool {
+    pub(super) fn pending_trace_stats_batch_is(&self, batch: DdgiRayBatch) -> bool {
         pending_trace_stats_batch_matches(self.active_ray_batch, self.stage, batch)
     }
 
-    pub fn mark_trace_stats_verified(
+    pub(super) fn mark_trace_stats_verified(
         &mut self,
         batch: DdgiRayBatch,
     ) -> Result<DdgiVerifiedBatchOutcome> {
@@ -1840,19 +2756,9 @@ impl DdgiVolume {
         ))
     }
 
-    pub fn mark_atlas_validated(
-        &mut self,
-        identity: DdgiFieldIdentity,
-        stats: DdgiAtlasValidationStats,
-        policy: DdgiConvergencePolicy,
-    ) -> Result<DdgiValidatedIterationOutcome> {
-        let classified_field = self.preview_validated_field(identity, stats, policy)?;
-        self.publish_validated_field(identity, classified_field, stats, policy)
-    }
-
     /// Classifies a completed GPU iteration without mutating residency. The runtime uses this to
     /// ask the scheduler whether the completion is still authoritative before publication.
-    pub fn preview_validated_field(
+    pub(super) fn preview_validated_field(
         &self,
         identity: DdgiFieldIdentity,
         stats: DdgiAtlasValidationStats,
@@ -1895,185 +2801,247 @@ impl DdgiVolume {
         }
     }
 
-    fn publish_validated_field(
-        &mut self,
+    /// Validates the complete logical and physical publication tuple without changing ownership.
+    /// If descriptor publication fails, dropping the returned permit leaves this candidate owned
+    /// by the Volume and eligible for the same transaction to be retried.
+    pub(crate) fn preflight_atlas_publication(
+        &self,
         identity: DdgiFieldIdentity,
-        classified_field: DdgiFieldIdentity,
         stats: DdgiAtlasValidationStats,
         policy: DdgiConvergencePolicy,
-    ) -> Result<DdgiValidatedIterationOutcome> {
+    ) -> Result<DdgiAtlasPublicationPermit> {
+        let classified_field = self.preview_validated_field(identity, stats, policy)?;
         let iteration = self
             .building_iteration
             .context("DDGI atlas validation lost resident iteration")?;
         let previous_complete = self.complete_field;
+        let build_token = self
+            .build_token
+            .context("DDGI publication candidate has no physical Volume build token")?;
+        let owner_radiance_revision = self
+            .radiance_revision
+            .context("DDGI publication candidate has no owner radiance snapshot")?;
+        ensure!(
+            self.radiance_snapshot.is_some(),
+            "DDGI publication candidate lost its immutable owner radiance snapshot"
+        );
+        ensure!(
+            owner_radiance_revision == classified_field.field().radiance_revision(),
+            "DDGI publication candidate radiance {} does not match owner radiance {}",
+            classified_field.field().radiance_revision(),
+            owner_radiance_revision,
+        );
+        ensure!(
+            self.global_sky_revision(iteration.destination.sky_slot) == owner_radiance_revision,
+            "DDGI publication candidate sky slot is not ready for owner radiance {}",
+            owner_radiance_revision,
+        );
+        ensure!(
+            classified_field.field().geometry_revision() == build_token.terrain_revision()
+                && classified_field.field().spacing_voxels() == build_token.spacing_voxels(),
+            "DDGI publication candidate does not match its physical Volume build token"
+        );
+
+        let outcome = if identity.source().is_none() {
+            ensure!(
+                iteration.source.is_none() && previous_complete.is_none(),
+                "initial DDGI epoch must not consume a current-revision field"
+            );
+            DdgiValidatedIterationOutcome::Published {
+                work: iteration.work,
+                field: identity,
+                consecutive_below_threshold: 0,
+            }
+        } else {
+            let inherited_geometry_source = iteration.work.kind()
+                == DdgiScheduledWorkKind::GeometryUpdate
+                && previous_complete.is_none()
+                && iteration.source.is_some();
+            ensure!(
+                inherited_geometry_source || iteration.source == previous_complete,
+                "DDGI temporal epoch {} did not consume the expected complete field",
+                identity.field().update_epoch()
+            );
+            match classify_temporal_epoch(
+                policy,
+                identity.field().update_epoch(),
+                self.consecutive_below_threshold,
+                stats,
+            ) {
+                DdgiConvergenceDecision::Continue {
+                    consecutive_below_threshold,
+                } => DdgiValidatedIterationOutcome::Published {
+                    work: iteration.work,
+                    field: identity,
+                    consecutive_below_threshold,
+                },
+                DdgiConvergenceDecision::Converged {
+                    consecutive_below_threshold,
+                    reason,
+                } => {
+                    ensure!(
+                        classified_field.field().state() == DdgiFieldState::Converged,
+                        "DDGI convergence preview changed before publication"
+                    );
+                    DdgiValidatedIterationOutcome::Converged {
+                        work: iteration.work,
+                        field: classified_field,
+                        consecutive_below_threshold,
+                        reason,
+                    }
+                }
+            }
+        };
+        let publication = self.next_field_publication(classified_field)?;
+        let resident = DdgiResidentPublication::new(
+            publication,
+            DdgiResidentField {
+                logical: classified_field,
+                ..iteration.destination
+            },
+            owner_radiance_revision,
+        )?;
+        Ok(DdgiAtlasPublicationPermit {
+            identity,
+            stats,
+            resident,
+            outcome,
+        })
+    }
+
+    /// Commits an owner-minted permit. All fallible validation happened before descriptor
+    /// publication; this transition is deliberately infallible and consumes the authorization.
+    pub(crate) fn commit_atlas_publication(
+        &mut self,
+        permit: DdgiAtlasPublicationPermit,
+    ) -> DdgiValidatedIterationOutcome {
+        let iteration = self
+            .building_iteration
+            .expect("preflighted DDGI publication lost its resident iteration");
+        assert_eq!(iteration.logical, permit.identity);
+        assert_eq!(
+            self.build_token,
+            Some(permit.resident.publication.generation().build_token())
+        );
+        assert_eq!(
+            self.radiance_revision,
+            Some(permit.resident.owner_radiance_revision)
+        );
+
         self.active_ray_batch = None;
-        self.complete_field = Some(iteration.destination);
-        self.last_atlas_validation = Some(stats);
+        self.complete_field = Some(permit.resident.resident);
+        self.published = Some(permit.resident);
+        self.last_atlas_validation = Some(permit.stats);
         self.filtered_probe_count = 0;
         self.next_batch_ordinal = 0;
         if self.local_refresh_voxel_bound.is_some()
-            && identity.field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
-            && stats.max_absolute_rgb_delta <= DDGI_LOCAL_RECOVERY_MAX_ABSOLUTE_DELTA
+            && permit.identity.field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
+            && permit.stats.max_absolute_rgb_delta <= DDGI_LOCAL_RECOVERY_MAX_ABSOLUTE_DELTA
         {
             self.local_recovery_stable_epochs = self.local_recovery_stable_epochs.saturating_add(1);
         } else if self.local_refresh_voxel_bound.is_some() {
             self.local_recovery_stable_epochs = 0;
         }
-
-        if identity.source().is_none() {
-            ensure!(
-                iteration.source.is_none() && previous_complete.is_none(),
-                "initial DDGI epoch must not consume a current-revision field"
-            );
-            self.published_field = Some(iteration.destination);
-            self.consecutive_below_threshold = 0;
-            self.building_iteration = None;
-            self.scheduled_work = None;
-            self.stage = DdgiVolumeStage::Ready;
-            return Ok(DdgiValidatedIterationOutcome::Published {
-                work: iteration.work,
-                field: identity,
-                consecutive_below_threshold: 0,
-            });
-        }
-
-        let inherited_geometry_source = iteration.work.kind()
-            == DdgiScheduledWorkKind::GeometryUpdate
-            && previous_complete.is_none()
-            && iteration.source.is_some();
-        ensure!(
-            inherited_geometry_source || iteration.source == previous_complete,
-            "DDGI temporal epoch {} did not consume the expected complete field",
-            identity.field().update_epoch()
-        );
-        match classify_temporal_epoch(
-            policy,
-            identity.field().update_epoch(),
-            self.consecutive_below_threshold,
-            stats,
-        ) {
-            DdgiConvergenceDecision::Continue {
+        match permit.outcome {
+            DdgiValidatedIterationOutcome::Published {
                 consecutive_below_threshold,
+                ..
+            } => self.consecutive_below_threshold = consecutive_below_threshold,
+            DdgiValidatedIterationOutcome::Converged {
+                consecutive_below_threshold,
+                ..
             } => {
                 self.consecutive_below_threshold = consecutive_below_threshold;
-                self.published_field = Some(iteration.destination);
-                self.building_iteration = None;
-                self.scheduled_work = None;
-                self.stage = DdgiVolumeStage::Ready;
-                Ok(DdgiValidatedIterationOutcome::Published {
-                    work: iteration.work,
-                    field: identity,
-                    consecutive_below_threshold,
-                })
-            }
-            DdgiConvergenceDecision::Converged {
-                consecutive_below_threshold,
-                reason,
-            } => {
-                let field = classified_field;
-                ensure!(
-                    field.field().state() == DdgiFieldState::Converged,
-                    "DDGI convergence preview changed before publication"
-                );
-                self.complete_field = Some(DdgiResidentField {
-                    logical: field,
-                    ..iteration.destination
-                });
-                self.published_field = self.complete_field;
                 self.history_mode = DdgiHistoryMode::Stable;
-                self.building_iteration = None;
-                self.scheduled_work = None;
-                self.consecutive_below_threshold = consecutive_below_threshold;
-                self.stage = DdgiVolumeStage::Ready;
-                Ok(DdgiValidatedIterationOutcome::Converged {
-                    work: iteration.work,
-                    field,
-                    reason,
-                })
             }
+        }
+        self.building_iteration = None;
+        self.scheduled_work = None;
+        self.stage = DdgiVolumeStage::Ready;
+        permit.outcome
+    }
+
+    fn next_field_publication(&self, field: DdgiFieldIdentity) -> Result<DdgiFieldPublication> {
+        if field.field().update_epoch() == 0 {
+            let build_token = self
+                .build_token
+                .context("DDGI epoch-zero publication has no physical Volume build token")?;
+            DdgiFieldPublication::begin(build_token, field)
+        } else {
+            self.published
+                .map(|published| published.publication)
+                .context("DDGI temporal publication has no owner-validated epoch-zero root")?
+                .advance(field)
         }
     }
 
     fn irradiance_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
         match slot {
-            DdgiAtlasSlot::Atlas0 => &self.ddgi_irradiance_atlas,
-            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
+            DdgiAtlasSlot::Atlas0 => &self.resources().ddgi_irradiance_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.resources().ddgi_transport_source_irradiance_atlas,
         }
     }
 
     fn visibility_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
         match slot {
-            DdgiAtlasSlot::Atlas0 => &self.ddgi_visibility_atlas,
-            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_visibility_atlas,
+            DdgiAtlasSlot::Atlas0 => &self.resources().ddgi_visibility_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.resources().ddgi_transport_source_visibility_atlas,
         }
     }
 
     pub(crate) fn candidate_consumer_resources(
         &self,
-        identity: DdgiFieldIdentity,
-        classified: DdgiFieldIdentity,
-    ) -> Result<DdgiConsumerResources<'_>> {
+        permit: &DdgiAtlasPublicationPermit,
+    ) -> DdgiConsumerResources<'_> {
         let iteration = self
             .building_iteration
-            .filter(|iteration| iteration.logical == identity)
-            .context("DDGI consumer candidate no longer matches the building iteration")?;
-        let build_token = self
-            .build_token
-            .context("DDGI consumer candidate has no build token")?;
-        Ok(DdgiConsumerResources {
-            build_token,
-            field: classified,
-            probe_metadata: &self.ddgi_probe_metadata,
+            .filter(|iteration| iteration.logical == permit.identity)
+            .expect("preflighted DDGI consumer candidate changed before publication");
+        assert_eq!(
+            iteration.destination.atlas_slot,
+            permit.resident.resident.atlas_slot
+        );
+        assert_eq!(
+            iteration.destination.sky_slot,
+            permit.resident.resident.sky_slot
+        );
+        DdgiConsumerResources {
+            publication: permit.resident.publication,
+            probe_metadata: &self.resources().ddgi_probe_metadata,
             global_sky_irradiance: self.global_sky_irradiance(iteration.destination.sky_slot),
             irradiance_atlas: self.irradiance_atlas(iteration.destination.atlas_slot),
             visibility_atlas: self.visibility_atlas(iteration.destination.atlas_slot),
-        })
+        }
     }
 
-    pub(crate) fn published_consumer_resources(&self) -> Result<DdgiConsumerResources<'_>> {
-        let resident = self
-            .published_field
-            .context("DDGI Volume has no published consumer field")?;
-        let build_token = self
-            .build_token
-            .context("published DDGI consumer field has no build token")?;
-        Ok(DdgiConsumerResources {
-            build_token,
-            field: resident.logical,
-            probe_metadata: &self.ddgi_probe_metadata,
-            global_sky_irradiance: self.global_sky_irradiance(resident.sky_slot),
-            irradiance_atlas: self.irradiance_atlas(resident.atlas_slot),
-            visibility_atlas: self.visibility_atlas(resident.atlas_slot),
-        })
+    pub(super) fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
+        self.published
+            .map(|published| self.irradiance_atlas(published.resident.atlas_slot))
     }
 
-    pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
-        self.published_field
-            .map(|field| self.irradiance_atlas(field.atlas_slot))
+    pub(super) fn published_visibility_atlas(&self) -> Option<&Resource<Texture>> {
+        self.published
+            .map(|published| self.visibility_atlas(published.resident.atlas_slot))
     }
 
-    pub fn published_visibility_atlas(&self) -> Option<&Resource<Texture>> {
-        self.published_field
-            .map(|field| self.visibility_atlas(field.atlas_slot))
+    pub(super) fn published_irradiance_label(&self) -> Option<&'static str> {
+        self.published
+            .map(|published| published.resident.atlas_slot.label())
     }
 
-    pub fn published_irradiance_label(&self) -> Option<&'static str> {
-        self.published_field.map(|field| field.atlas_slot.label())
-    }
-
-    pub fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
+    pub(super) fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
         self.global_sky_irradiance(
             self.building_iteration
                 .map(|iteration| iteration.destination.sky_slot)
-                .or_else(|| self.published_field.map(|field| field.sky_slot))
+                .or_else(|| self.published.map(|published| published.resident.sky_slot))
                 .unwrap_or(DdgiSkySlot::Sky0),
         )
     }
 
     fn global_sky_irradiance(&self, slot: DdgiSkySlot) -> &Resource<Texture> {
         match slot {
-            DdgiSkySlot::Sky0 => &self.ddgi_global_sky_irradiance,
-            DdgiSkySlot::Sky1 => &self.ddgi_global_sky_irradiance_alt,
+            DdgiSkySlot::Sky0 => &self.resources().ddgi_global_sky_irradiance,
+            DdgiSkySlot::Sky1 => &self.resources().ddgi_global_sky_irradiance_alt,
         }
     }
 
@@ -2093,47 +3061,95 @@ impl DdgiVolume {
 
     fn set_transport_source_ready(&mut self, ready: bool) -> Result<()> {
         self.transport_query_snapshot.source_ready = u32::from(ready);
-        self.ddgi_transport_query_info
-            .fill_uniform(&self.transport_query_snapshot)
+        match &self.resources {
+            DdgiVolumeResources::Vulkan(resources) => resources
+                .ddgi_transport_query_info
+                .fill_uniform(&self.transport_query_snapshot),
+            #[cfg(test)]
+            DdgiVolumeResources::Fixture => Ok(()),
+        }
     }
 
     /// Declares CPU writes before the frame's reflected DDGI descriptors consume them.
-    pub fn record_cpu_buffer_writes(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_cpu_buffer_writes(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         for buffer in [
-            &*self.ddgi_radiance_sun,
-            &*self.ddgi_radiance_voxel_palette,
-            &*self.ddgi_transport_query_info,
-            &*self.ddgi_local_light_info,
-            &*self.ddgi_local_lights,
+            &*self.resources().ddgi_radiance_sun,
+            &*self.resources().ddgi_radiance_voxel_palette,
+            &*self.resources().ddgi_transport_query_info,
+            &*self.resources().ddgi_local_light_info,
+            &*self.resources().ddgi_local_lights,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
     }
 
-    pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_trace_stats.record_copy_to_buffer(
+    pub(super) fn clear_relocation_stats(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.resources().ddgi_relocation_stats.record_fill(
             cmdbuf,
-            &self.ddgi_trace_stats_readback,
+            0,
+            self.resource_bytes.relocation_stats,
+            0,
+        );
+    }
+
+    pub(super) fn clear_trace_stats(
+        &self,
+        cmdbuf: &re_flora_vkn::CommandBuffer,
+        iteration_will_complete: bool,
+    ) {
+        self.resources().ddgi_trace_stats.record_fill(
+            cmdbuf,
+            0,
+            self.resource_bytes.trace_stats,
+            0,
+        );
+        if iteration_will_complete {
+            self.resources().ddgi_atlas_reduction.record_fill(
+                cmdbuf,
+                0,
+                self.resource_bytes.atlas_reduction,
+                0,
+            );
+        }
+    }
+
+    pub(super) fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.resources().ddgi_trace_stats.record_copy_to_buffer(
+            cmdbuf,
+            &self.resources().ddgi_trace_stats_readback,
             self.resource_bytes.trace_stats,
             0,
             0,
         );
-        cmdbuf.use_buffer(&self.ddgi_trace_stats_readback, BufferUse::HostRead);
-    }
-
-    pub fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_relocation_stats.record_copy_to_buffer(
-            cmdbuf,
-            &self.ddgi_relocation_stats_readback,
-            self.resource_bytes.relocation_stats,
-            0,
-            0,
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_trace_stats_readback,
+            BufferUse::HostRead,
         );
-        cmdbuf.use_buffer(&self.ddgi_relocation_stats_readback, BufferUse::HostRead);
     }
 
-    pub fn update_relocation_stats_from_readback(&self) -> Result<DdgiRelocationReadbackStats> {
-        let bytes = self.ddgi_relocation_stats_readback.read_back()?;
+    pub(super) fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.resources()
+            .ddgi_relocation_stats
+            .record_copy_to_buffer(
+                cmdbuf,
+                &self.resources().ddgi_relocation_stats_readback,
+                self.resource_bytes.relocation_stats,
+                0,
+                0,
+            );
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_relocation_stats_readback,
+            BufferUse::HostRead,
+        );
+    }
+
+    pub(super) fn update_relocation_stats_from_readback(
+        &self,
+    ) -> Result<DdgiRelocationReadbackStats> {
+        let bytes = self
+            .resources()
+            .ddgi_relocation_stats_readback
+            .read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.relocation_stats as usize,
             "DDGI relocation stats readback returned {} bytes, expected {}",
@@ -2147,19 +3163,22 @@ impl DdgiVolume {
         Ok(DdgiRelocationReadbackStats::from_array(values))
     }
 
-    pub fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_atlas_reduction.record_copy_to_buffer(
+    pub(super) fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.resources().ddgi_atlas_reduction.record_copy_to_buffer(
             cmdbuf,
-            &self.ddgi_atlas_reduction_readback,
+            &self.resources().ddgi_atlas_reduction_readback,
             self.resource_bytes.atlas_reduction,
             0,
             0,
         );
-        cmdbuf.use_buffer(&self.ddgi_atlas_reduction_readback, BufferUse::HostRead);
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_atlas_reduction_readback,
+            BufferUse::HostRead,
+        );
     }
 
-    pub fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {
-        let bytes = self.ddgi_atlas_reduction_readback.read_back()?;
+    pub(super) fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {
+        let bytes = self.resources().ddgi_atlas_reduction_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.atlas_reduction as usize,
             "DDGI atlas reduction readback returned {} bytes, expected {}",
@@ -2173,8 +3192,8 @@ impl DdgiVolume {
         Ok(DdgiAtlasValidationStats::from_array(values))
     }
 
-    pub fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
-        let bytes = self.ddgi_trace_stats_readback.read_back()?;
+    pub(super) fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
+        let bytes = self.resources().ddgi_trace_stats_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.trace_stats as usize,
             "DDGI trace stats readback returned {} bytes, expected {}",
@@ -2325,6 +3344,50 @@ fn ddgi_atlas_image_usage() -> vk::ImageUsageFlags {
 mod tests {
     use super::*;
 
+    fn probe_spacing(voxels: u32) -> super::super::DdgiProbeSpacing {
+        super::super::DdgiProbeSpacing::try_from(voxels).unwrap()
+    }
+
+    #[test]
+    fn runtime_convergence_budget_matches_the_acceptance_contract() {
+        let contract: toml::Value = toml::from_str(include_str!(
+            "../../config/ddgi_convergence_acceptance.toml"
+        ))
+        .unwrap();
+        let maximum_update_epochs = contract["maximum_update_epochs"].as_integer().unwrap();
+        let terminal_update_epoch = contract["terminal_update_epoch"].as_integer().unwrap();
+        let close = |contract_value: f64, runtime_value: f32| {
+            (contract_value - f64::from(runtime_value)).abs() <= 5.0e-8
+        };
+
+        assert_eq!(contract["schema_version"].as_integer(), Some(1));
+        assert!(close(
+            contract["absolute_threshold"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.absolute_threshold
+        ));
+        assert!(close(
+            contract["relative_threshold"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.relative_threshold
+        ));
+        assert!(close(
+            contract["relative_floor"].as_float().unwrap(),
+            DDGI_CONVERGENCE_POLICY.relative_floor
+        ));
+        assert_eq!(
+            contract["consecutive_epochs"].as_integer(),
+            Some(i64::from(DDGI_CONVERGENCE_POLICY.consecutive_epochs))
+        );
+        assert_eq!(
+            contract["minimum_update_epochs"].as_integer(),
+            Some(i64::from(DDGI_CONVERGENCE_POLICY.minimum_update_epochs))
+        );
+        assert_eq!(
+            u32::try_from(maximum_update_epochs).unwrap(),
+            DDGI_CONVERGENCE_POLICY.maximum_update_epochs
+        );
+        assert_eq!(terminal_update_epoch, maximum_update_epochs - 1);
+    }
+
     fn initial_work(
         geometry_revision: u32,
         radiance_revision: u32,
@@ -2332,13 +3395,70 @@ mod tests {
     ) -> DdgiScheduledWork {
         let mut scheduler = super::super::DdgiTransportScheduler::new();
         scheduler.observe_radiance(radiance_revision);
-        scheduler.request_geometry(geometry_revision, spacing_voxels);
+        scheduler.request_geometry(geometry_revision, probe_spacing(spacing_voxels));
         scheduler.claim_next().unwrap().unwrap()
     }
 
     #[test]
+    fn volume_publication_binds_private_epoch_zero_to_every_later_field() {
+        let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
+        let epoch_zero = initial_work(11, 3, 32).destination();
+        let first = DdgiFieldPublication::begin(token, epoch_zero).unwrap();
+
+        assert_eq!(first.generation().build_token(), token);
+        assert_eq!(first.generation().epoch_zero_field(), epoch_zero);
+        assert_eq!(first.field(), epoch_zero);
+
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(epoch_zero).unwrap();
+        let epoch_one_work = scheduler.claim_next().unwrap().unwrap();
+        let epoch_one = epoch_one_work.destination();
+        let second = first.advance(epoch_one).unwrap();
+        assert_eq!(second.generation(), first.generation());
+        assert_eq!(second.field(), epoch_one);
+
+        scheduler
+            .complete_in_flight(epoch_one_work, epoch_one)
+            .unwrap();
+        let epoch_two = scheduler.claim_next().unwrap().unwrap().destination();
+        assert!(first.advance(epoch_two).is_err());
+    }
+
+    #[test]
+    fn publication_level_radiance_epoch_zero_starts_a_new_owner_root() {
+        static_assertions::assert_not_impl_any!(DdgiAtlasPublicationPermit: Clone, Copy);
+        static_assertions::assert_not_impl_any!(DdgiConsumerResources<'static>: Clone, Copy);
+
+        let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
+        let radiance_three = initial_work(11, 3, 32).destination();
+        let first = DdgiFieldPublication::begin(token, radiance_three).unwrap();
+
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(radiance_three).unwrap();
+        scheduler.observe_radiance(4);
+        let radiance_four = scheduler.claim_next().unwrap().unwrap().destination();
+        assert_eq!(radiance_four.field().update_epoch(), 0);
+        assert_eq!(radiance_four.source(), Some(radiance_three.field()));
+
+        assert!(first.advance(radiance_four).is_err());
+        let reset = DdgiFieldPublication::begin(token, radiance_four).unwrap();
+        assert_ne!(reset.generation(), first.generation());
+        assert_eq!(reset.generation().epoch_zero_field(), radiance_four);
+        assert!(DdgiResidentPublication::new(
+            reset,
+            DdgiResidentField {
+                logical: radiance_four,
+                atlas_slot: DdgiAtlasSlot::Atlas0,
+                sky_slot: DdgiSkySlot::Sky0,
+            },
+            3,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn spacing_32_resource_contract_is_full_precision_and_batch_bounded() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let irradiance =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility =
@@ -2353,7 +3473,7 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 52);
+        assert_eq!(bytes.trace_stats, 124);
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
@@ -2397,6 +3517,243 @@ mod tests {
         assert_eq!(stats.emissive_surface_radiance_luma_q8, 9_472);
     }
 
+    fn filter_evidence_batch_for_spacing(
+        first_probe_index: u32,
+        probe_count: u32,
+        spacing_voxels: u32,
+    ) -> DdgiRayBatch {
+        let work = initial_work(7, 3, spacing_voxels);
+        let logical = work.destination();
+        let destination = DdgiResidentField {
+            logical,
+            atlas_slot: DdgiAtlasSlot::Atlas0,
+            sky_slot: DdgiSkySlot::Sky0,
+        };
+        DdgiRayBatch {
+            first_probe_index,
+            probe_count,
+            resident: DdgiResidentIteration {
+                work,
+                logical,
+                source: None,
+                destination,
+                local_refresh_voxel_bound: None,
+                probe_priority: None,
+                history_mode: DdgiHistoryMode::Accumulating,
+                radiance_history_policy: None,
+            },
+        }
+    }
+
+    fn filter_evidence_batch(first_probe_index: u32, probe_count: u32) -> DdgiRayBatch {
+        filter_evidence_batch_for_spacing(first_probe_index, probe_count, 32)
+    }
+
+    fn filter_evidence_raw(probe_count: u32) -> [u32; 31] {
+        let mut raw = [0_u32; 31];
+        raw[13] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
+        raw[14] = probe_count;
+        raw[17] = probe_count;
+        raw[18] = probe_count * 32_768;
+        raw[19] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
+        raw[20] = probe_count;
+        raw[23] = probe_count;
+        raw[24] = probe_count * 32_768;
+        raw[25] = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
+        raw[26] = probe_count * DDGI_RAYS_PER_PROBE;
+        raw[27] = probe_count * 48;
+        raw[28] = probe_count * 16;
+        raw[29] = 32_768;
+        raw[30] = 32_768;
+        raw
+    }
+
+    fn filter_configuration(probe_count: u32) -> DdgiFilterConfigurationIdentity {
+        DdgiFilterConfigurationIdentity {
+            grid_dimensions: [probe_count, 1, 1],
+            configured_history_retention_q16: 64_881,
+        }
+    }
+
+    #[test]
+    fn filter_batch_evidence_rejects_average_only_retention_witness() {
+        let batch = filter_evidence_batch(0, 2);
+        let mut mixed_retention = filter_evidence_raw(batch.probe_count);
+        mixed_retention[18] = 65_536;
+        mixed_retention[29] = 65_536;
+
+        assert!(DdgiFilterBatchEvidence::decode(mixed_retention, batch, true).is_err());
+    }
+
+    #[test]
+    fn filter_configuration_identity_uses_the_authoritative_grid_and_canonical_q16() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
+        let identity = DdgiFilterConfigurationIdentity::from_grid(grid, 0.99);
+        assert_eq!(identity.grid_dimensions, [33, 33, 33]);
+        assert_eq!(identity.probe_count().unwrap(), 35_937);
+        assert_eq!(identity.configured_history_retention_q16, 64_881);
+    }
+
+    #[test]
+    fn filter_batch_evidence_decodes_owner_actions_and_q16_retention() {
+        let batch = filter_evidence_batch(0, 2);
+        let evidence =
+            DdgiFilterBatchEvidence::decode(filter_evidence_raw(batch.probe_count), batch, true)
+                .unwrap()
+                .expect("capture-enabled batch must produce evidence");
+
+        assert_eq!(evidence.field, batch.logical());
+        assert_eq!(evidence.irradiance.owner_version_mask, 2);
+        assert_eq!(evidence.irradiance.probes, 2);
+        assert_eq!(evidence.irradiance.actions.blend, 2);
+        assert_eq!(evidence.irradiance.blend_retention_q16_sum, 65_536);
+        assert_eq!(evidence.irradiance.blend_retention_q16_max, 32_768);
+        assert_eq!(evidence.visibility_history.probes, 2);
+        assert_eq!(evidence.visibility_history.actions.blend, 2);
+        assert_eq!(evidence.visibility_samples.samples, 128);
+        assert_eq!(evidence.visibility_samples.owner_version_mask, 2);
+        assert_eq!(evidence.visibility_samples.accept, 96);
+        assert_eq!(evidence.visibility_samples.reject, 32);
+    }
+
+    #[test]
+    fn filter_batch_evidence_fails_closed_on_wrong_owner_or_partition() {
+        let batch = filter_evidence_batch(0, 2);
+        let mut wrong_owner = filter_evidence_raw(batch.probe_count);
+        wrong_owner[13] = 0;
+        assert!(DdgiFilterBatchEvidence::decode(wrong_owner, batch, true).is_err());
+
+        let mut wrong_partition = filter_evidence_raw(batch.probe_count);
+        wrong_partition[28] += 1;
+        assert!(DdgiFilterBatchEvidence::decode(wrong_partition, batch, true).is_err());
+
+        let mut mixed_owner_versions = filter_evidence_raw(batch.probe_count);
+        mixed_owner_versions[13] = (1 << 0) | (1 << 2);
+        assert!(DdgiFilterBatchEvidence::decode(mixed_owner_versions, batch, true).is_err());
+    }
+
+    #[test]
+    fn filter_batch_evidence_enforces_checked_probe_sample_and_q16_bounds() {
+        let maximum = filter_evidence_batch(0, DDGI_PROBE_BATCH_SIZE);
+        DdgiFilterBatchEvidence::decode(filter_evidence_raw(maximum.probe_count), maximum, true)
+            .unwrap();
+
+        let oversized = filter_evidence_batch(0, DDGI_PROBE_BATCH_SIZE + 1);
+        assert!(DdgiFilterBatchEvidence::decode(
+            filter_evidence_raw(oversized.probe_count),
+            oversized,
+            true,
+        )
+        .is_err());
+
+        let mut excess_samples = filter_evidence_raw(maximum.probe_count);
+        let sample_bound = maximum.probe_count * DDGI_RAYS_PER_PROBE;
+        excess_samples[26] = sample_bound + 1;
+        excess_samples[27] = sample_bound + 1;
+        excess_samples[28] = 0;
+        assert!(DdgiFilterBatchEvidence::decode(excess_samples, maximum, true).is_err());
+    }
+
+    #[test]
+    fn filter_batch_evidence_distinguishes_disabled_from_missing() {
+        let batch = filter_evidence_batch(0, 2);
+        assert_eq!(
+            DdgiFilterBatchEvidence::decode([0; 31], batch, false).unwrap(),
+            None
+        );
+        assert!(DdgiFilterBatchEvidence::decode([0; 31], batch, true).is_err());
+    }
+
+    #[test]
+    fn filter_epoch_evidence_requires_exact_identity_and_full_coverage() {
+        let first = filter_evidence_batch(0, 2);
+        let second = filter_evidence_batch(2, 2);
+        let decode = |batch: DdgiRayBatch| {
+            DdgiFilterBatchEvidence::decode(filter_evidence_raw(batch.probe_count), batch, true)
+                .unwrap()
+                .unwrap()
+        };
+        let configuration = filter_configuration(4);
+        let mut accumulator =
+            DdgiFilterEpochAccumulator::new(first.logical(), configuration).unwrap();
+        accumulator
+            .observe(first, configuration, decode(first))
+            .unwrap();
+        assert!(accumulator.clone().finish().is_err());
+        assert!(accumulator
+            .observe(first, configuration, decode(first))
+            .is_err());
+
+        let mut mixed_epoch = second;
+        mixed_epoch.resident.logical = DdgiFieldIdentity::new(
+            super::super::DdgiFieldKey::new(
+                99,
+                second.geometry_revision() + 1,
+                second.radiance_revision(),
+                second.spacing_voxels(),
+                DdgiFieldState::Converging,
+                0,
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+        assert!(accumulator
+            .observe(mixed_epoch, configuration, decode(second))
+            .is_err());
+
+        let mut changed_configuration = configuration;
+        changed_configuration.configured_history_retention_q16 -= 1;
+        assert!(accumulator
+            .observe(second, changed_configuration, decode(second))
+            .is_err());
+        accumulator
+            .observe(second, configuration, decode(second))
+            .unwrap();
+        let epoch = accumulator.finish().unwrap().evidence;
+        assert_eq!(epoch.field, first.logical());
+        assert_eq!(epoch.probe_count, 4);
+        assert_eq!(epoch.irradiance.actions.blend, 4);
+        assert_eq!(epoch.irradiance.blend_retention_q16_sum, 131_072);
+        assert_eq!(epoch.irradiance.blend_retention_q16_max, 32_768);
+        assert_eq!(epoch.visibility_samples.samples, 256);
+        assert_eq!(epoch.visibility_samples.accept, 192);
+        assert_eq!(epoch.visibility_samples.reject, 64);
+    }
+
+    #[test]
+    fn filter_epoch_evidence_covers_the_complete_spacing_8_volume_without_u32_sums() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(8)).unwrap();
+        let probe_count = grid.probe_count();
+        assert_eq!(probe_count, 274_625);
+        let first_batch =
+            filter_evidence_batch_for_spacing(0, DDGI_PROBE_BATCH_SIZE.min(probe_count), 8);
+        let configuration = DdgiFilterConfigurationIdentity::from_grid(grid, 0.99);
+        let mut accumulator =
+            DdgiFilterEpochAccumulator::new(first_batch.logical(), configuration).unwrap();
+        let mut first_probe_index = 0;
+        while first_probe_index < probe_count {
+            let batch_probe_count = DDGI_PROBE_BATCH_SIZE.min(probe_count - first_probe_index);
+            let batch = filter_evidence_batch_for_spacing(first_probe_index, batch_probe_count, 8);
+            let evidence = DdgiFilterBatchEvidence::decode(
+                filter_evidence_raw(batch_probe_count),
+                batch,
+                true,
+            )
+            .unwrap()
+            .unwrap();
+            accumulator.observe(batch, configuration, evidence).unwrap();
+            first_probe_index += batch_probe_count;
+        }
+
+        let epoch = accumulator.finish().unwrap().evidence;
+        assert_eq!(epoch.probe_count, 274_625);
+        assert_eq!(epoch.irradiance.actions.blend, 274_625);
+        assert_eq!(epoch.irradiance.blend_retention_q16_max, 32_768);
+        assert_eq!(epoch.irradiance.blend_retention_q16_sum, 8_998_912_000);
+        assert_eq!(epoch.visibility_samples.samples, 17_576_000);
+    }
+
     #[test]
     fn texture_descriptors_use_required_oracle_formats() {
         let irradiance = DdgiAtlasLayout::new(1, DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
@@ -2417,102 +3774,6 @@ mod tests {
         assert!(visibility_desc
             .usage
             .contains(vk::ImageUsageFlags::TRANSFER_DST));
-    }
-
-    #[test]
-    fn volume_is_not_ready_when_resources_are_only_allocated() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
-        let status = DdgiVolumeStatus {
-            build_token: None,
-            grid,
-            irradiance_layout: DdgiAtlasLayout::new(
-                grid.probe_count(),
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-            )
-            .unwrap(),
-            visibility_layout: DdgiAtlasLayout::new(
-                grid.probe_count(),
-                DDGI_VISIBILITY_INTERIOR_SIDE,
-            )
-            .unwrap(),
-            resource_bytes: DdgiResourceBytes::new(
-                grid,
-                DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap(),
-                DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap(),
-            ),
-            stage: DdgiVolumeStage::Allocated,
-            scheduled_work: None,
-            complete_field: None,
-            published_field: None,
-            building_field: None,
-            consecutive_below_threshold: 0,
-            last_atlas_validation: None,
-            global_sky_revision: 0,
-            radiance_revision: None,
-            relocated_terrain_revision: None,
-            active_ray_batch: None,
-            filtered_probe_count: 0,
-            probe_priority: None,
-            promotion_ready: false,
-        };
-        assert!(!status.is_ready());
-    }
-
-    #[test]
-    fn runtime_status_keeps_staging_out_of_the_consumer_view_until_ready() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
-        let irradiance_layout =
-            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
-        let visibility_layout =
-            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let field_for = |terrain_revision| initial_work(terrain_revision, 3, 32).destination();
-        let status_for = |stage: DdgiVolumeStage,
-                          terrain_revision: u32,
-                          published: bool|
-         -> DdgiVolumeStatus {
-            DdgiVolumeStatus {
-                build_token: None,
-                grid,
-                irradiance_layout,
-                visibility_layout,
-                resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
-                stage,
-                scheduled_work: None,
-                complete_field: published.then(|| field_for(terrain_revision)),
-                published_field: published.then(|| field_for(terrain_revision)),
-                building_field: None,
-                consecutive_below_threshold: 0,
-                last_atlas_validation: None,
-                global_sky_revision: 3,
-                radiance_revision: Some(3),
-                relocated_terrain_revision: Some(terrain_revision),
-                active_ray_batch: None,
-                filtered_probe_count: 0,
-                probe_priority: None,
-                promotion_ready: published,
-            }
-        };
-
-        let active = status_for(DdgiVolumeStage::Rebuilding, 7, true);
-        let staging = status_for(DdgiVolumeStage::Rebuilding, 8, false);
-        let status = DdgiStatus {
-            active,
-            staging: Some(staging),
-        };
-
-        assert_eq!(status.active(), active);
-        assert_eq!(status.builder(), staging);
-        assert!(!status.staging_is_ready());
-
-        // A complete finite epoch zero can promote while a later epoch writes the other slot.
-        let ready_staging = status_for(DdgiVolumeStage::Rebuilding, 8, true);
-        let status = DdgiStatus {
-            active,
-            staging: Some(ready_staging),
-        };
-        assert_eq!(status.active().relocated_terrain_revision, Some(7));
-        assert_eq!(status.builder().relocated_terrain_revision, Some(8));
-        assert!(status.staging_is_ready());
     }
 
     #[test]
@@ -2652,7 +3913,7 @@ mod tests {
         let initial = initial_work(7, 3, 32).destination();
         let mut scheduler = super::super::DdgiTransportScheduler::new();
         scheduler.install_published(initial).unwrap();
-        scheduler.request_geometry(8, 32);
+        scheduler.request_geometry(8, probe_spacing(32));
         let work = scheduler.claim_next().unwrap().unwrap();
         let local_refresh = UAabb3::new(UVec3::splat(68), UVec3::splat(152));
         let resident = resident_iteration_for_work(
@@ -2803,7 +4064,7 @@ mod tests {
 
     #[test]
     fn immutable_priority_starts_near_the_bound_then_wraps_without_starvation() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let edit = UAabb3::new(UVec3::splat(240), UVec3::splat(272));
         let priority = priority_probe_batch(grid, Some(edit), DDGI_PROBE_BATCH_SIZE).unwrap();
         let center_coordinate = UVec3::splat(8);
