@@ -1,17 +1,146 @@
-use super::App;
-use anyhow::{Context, Result};
+use super::{App, ContreeBuilder, PlainBuilder, VulkanContext, emissive_voxel_lighting, water};
+use anyhow::{Context, Result, anyhow};
 use winit::event_loop::ActiveEventLoop;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ShutdownState {
+    #[default]
+    Running,
+    Quiescing,
+    Complete,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct AppShutdownLifecycle {
+    state: ShutdownState,
+    water_complete: bool,
+    contree_readback_complete: bool,
+    workers_joined: bool,
+}
+
+trait ShutdownActions {
+    fn shutdown_water(&mut self) -> Result<()>;
+    fn discard_contree_readback(&mut self) -> Result<()>;
+    fn join_dependent_workers(&mut self);
+    fn wait_device_idle(&mut self);
+}
+
+impl AppShutdownLifecycle {
+    pub(super) fn is_started(&self) -> bool {
+        self.state != ShutdownState::Running
+    }
+
+    pub(super) fn is_complete(&self) -> bool {
+        self.state == ShutdownState::Complete
+    }
+
+    fn begin(&mut self) -> bool {
+        if self.state != ShutdownState::Running {
+            return false;
+        }
+        self.state = ShutdownState::Quiescing;
+        true
+    }
+
+    #[cfg(test)]
+    fn state(&self) -> ShutdownState {
+        self.state
+    }
+
+    fn drain(&mut self, actions: &mut impl ShutdownActions) -> Result<()> {
+        if self.state == ShutdownState::Complete {
+            return Ok(());
+        }
+        self.begin();
+
+        let mut failures = Vec::new();
+        if !self.water_complete || !self.contree_readback_complete {
+            log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
+        }
+        if !self.water_complete {
+            match actions.shutdown_water() {
+                Ok(()) => self.water_complete = true,
+                Err(error) => failures.push(error),
+            }
+        }
+        if !self.contree_readback_complete {
+            match actions.discard_contree_readback() {
+                Ok(()) => self.contree_readback_complete = true,
+                Err(error) => failures.push(error),
+            }
+        }
+        if !self.workers_joined {
+            log::info!("[SHUTDOWN] phase=join_dependent_workers");
+            actions.join_dependent_workers();
+            self.workers_joined = true;
+        }
+
+        // Every attempt ends behind a device-idle boundary. A retry can successfully consume GPU
+        // work that a prior failed phase retained, so it must establish a fresh boundary too.
+        log::info!("[SHUTDOWN] phase=wait_device_idle");
+        actions.wait_device_idle();
+
+        if failures.is_empty() {
+            debug_assert!(
+                self.water_complete && self.contree_readback_complete && self.workers_joined
+            );
+            self.state = ShutdownState::Complete;
+            log::info!("[SHUTDOWN] phase=complete");
+            return Ok(());
+        }
+
+        let details = failures
+            .iter()
+            .map(|failure| format!("{failure:#}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Err(anyhow!("shutdown phases failed: {details}"))
+    }
+}
+
+struct AppShutdownActions<'a> {
+    water: &'a mut water::WaterRuntime,
+    plain_builder: &'a mut PlainBuilder,
+    contree_builder: &'a mut ContreeBuilder,
+    emissive_voxel_lighting: &'a mut Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
+    vulkan_ctx: &'a VulkanContext,
+}
+
+impl ShutdownActions for AppShutdownActions<'_> {
+    fn shutdown_water(&mut self) -> Result<()> {
+        self.water
+            .shutdown(self.plain_builder)
+            .context("shut down water runtime")
+    }
+
+    fn discard_contree_readback(&mut self) -> Result<()> {
+        self.contree_builder
+            .discard_active_cpu_chunk_cache_job()
+            .context("discard active Contree CPU-cache GPU readback")
+    }
+
+    fn join_dependent_workers(&mut self) {
+        if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
+            runtime.shutdown();
+        }
+        self.contree_builder.shutdown_cpu_chunk_cache_worker();
+    }
+
+    fn wait_device_idle(&mut self) {
+        self.vulkan_ctx.device().wait_idle();
+    }
+}
 
 impl App {
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(err) = self.shutdown_for_termination() {
-            panic!("[SHUTDOWN] failed to drain application GPU work: {err:#}");
+            log::error!("[SHUTDOWN] failed to drain application GPU work: {err:#}");
         }
         event_loop.exit();
     }
 
     pub fn on_about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if self.shutdown_started {
+        if self.shutdown_lifecycle.is_started() {
             return;
         }
         let accepted_extent = self.resize_lifecycle_test.as_mut().and_then(|test| {
@@ -28,37 +157,28 @@ impl App {
         }
     }
 
-    /// Runs the one legal application teardown transition. The flag is set
-    /// before any blocking operation so a re-entrant event cannot submit more
-    /// work while shutdown consumes the already-submitted jobs.
+    /// Drives the one legal application teardown transition. Quiescing is published before any
+    /// blocking operation; successful phases are retained across retries, while every phase after
+    /// a failure is still attempted so no worker is abandoned behind an early return.
     pub(super) fn shutdown_for_termination(&mut self) -> Result<()> {
-        if self.shutdown_started {
+        if self.shutdown_lifecycle.is_complete() {
             return Ok(());
         }
-        self.shutdown_started = true;
 
-        log::info!("[SHUTDOWN] phase=quiesce_producers");
-        self.stop_terrain_edit_loop_sound();
-
-        log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
-        self.abort_loading_visible_terrain_publication();
-        self.water
-            .shutdown(&mut self.plain_builder)
-            .context("shut down water runtime")?;
-        self.contree_builder
-            .discard_active_cpu_chunk_cache_job()
-            .context("discard active Contree CPU-cache GPU readback")?;
-
-        log::info!("[SHUTDOWN] phase=join_dependent_workers");
-        if let Some(runtime) = self.emissive_voxel_lighting.as_mut() {
-            runtime.shutdown();
+        if self.shutdown_lifecycle.begin() {
+            log::info!("[SHUTDOWN] phase=quiesce_producers");
+            self.stop_terrain_edit_loop_sound();
+            self.abort_loading_visible_terrain_publication();
         }
-        self.contree_builder.shutdown_cpu_chunk_cache_worker();
 
-        log::info!("[SHUTDOWN] phase=wait_device_idle");
-        self.vulkan_ctx.device().wait_idle();
-        log::info!("[SHUTDOWN] phase=complete");
-        Ok(())
+        let mut actions = AppShutdownActions {
+            water: &mut self.water,
+            plain_builder: &mut self.plain_builder,
+            contree_builder: &mut self.contree_builder,
+            emissive_voxel_lighting: &mut self.emissive_voxel_lighting,
+            vulkan_ctx: &self.vulkan_ctx,
+        };
+        self.shutdown_lifecycle.drain(&mut actions)
     }
 
     pub(super) fn queue_frame_extent(&mut self, extent: re_flora_vkn::Extent2D) {
@@ -113,5 +233,91 @@ impl App {
             frame_extent_generation.extent().height,
             self.tracer.frame_extent_generation().serial(),
         );
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownState};
+    use anyhow::{Result, anyhow};
+
+    #[derive(Default)]
+    struct FakeShutdownActions {
+        calls: Vec<&'static str>,
+        water_failures_remaining: usize,
+        discard_failures_remaining: usize,
+    }
+
+    impl ShutdownActions for FakeShutdownActions {
+        fn shutdown_water(&mut self) -> Result<()> {
+            self.calls.push("water");
+            if self.water_failures_remaining > 0 {
+                self.water_failures_remaining -= 1;
+                return Err(anyhow!("injected water shutdown failure"));
+            }
+            Ok(())
+        }
+
+        fn discard_contree_readback(&mut self) -> Result<()> {
+            self.calls.push("discard");
+            if self.discard_failures_remaining > 0 {
+                self.discard_failures_remaining -= 1;
+                return Err(anyhow!("injected Contree discard failure"));
+            }
+            Ok(())
+        }
+
+        fn join_dependent_workers(&mut self) {
+            self.calls.push("join");
+        }
+
+        fn wait_device_idle(&mut self) {
+            self.calls.push("idle");
+        }
+    }
+
+    #[test]
+    fn failed_shutdown_attempts_every_phase_and_remains_retryable() {
+        let mut lifecycle = AppShutdownLifecycle::default();
+        assert!(lifecycle.begin());
+        let mut actions = FakeShutdownActions {
+            water_failures_remaining: 1,
+            discard_failures_remaining: 1,
+            ..FakeShutdownActions::default()
+        };
+
+        let error = lifecycle.drain(&mut actions).unwrap_err();
+
+        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
+        assert!(error.to_string().contains("water"));
+        assert!(error.to_string().contains("Contree"));
+        assert_eq!(lifecycle.state(), ShutdownState::Quiescing);
+
+        actions.calls.clear();
+        lifecycle.drain(&mut actions).unwrap();
+        assert_eq!(actions.calls, ["water", "discard", "idle"]);
+        assert_eq!(lifecycle.state(), ShutdownState::Complete);
+    }
+
+    #[test]
+    fn successful_phases_are_not_repeated_but_idle_covers_each_retry() {
+        let mut lifecycle = AppShutdownLifecycle::default();
+        lifecycle.begin();
+        let mut actions = FakeShutdownActions {
+            water_failures_remaining: 1,
+            ..FakeShutdownActions::default()
+        };
+
+        assert!(lifecycle.drain(&mut actions).is_err());
+        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
+
+        actions.calls.clear();
+        lifecycle.drain(&mut actions).unwrap();
+        assert_eq!(actions.calls, ["water", "idle"]);
+
+        actions.calls.clear();
+        assert!(!lifecycle.begin());
+        lifecycle.drain(&mut actions).unwrap();
+        assert!(actions.calls.is_empty());
     }
 }

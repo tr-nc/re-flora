@@ -492,7 +492,7 @@ pub struct App {
     auto_exit_delay: Option<f32>,
     canopy_audio_telemetry_next_log_seconds: Option<f32>,
     visible_terrain_revision: u32,
-    shutdown_started: bool,
+    shutdown_lifecycle: lifecycle::AppShutdownLifecycle,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -507,7 +507,7 @@ pub struct App {
 impl Drop for App {
     fn drop(&mut self) {
         if let Err(err) = self.shutdown_for_termination() {
-            panic!("[SHUTDOWN] failed during App drop: {err:#}");
+            log::error!("[SHUTDOWN] failed during App drop: {err:#}");
         }
         if let Err(err) = self.spatial_sound_manager.stop() {
             log::warn!("Failed to stop audio engine during shutdown: {}", err);
@@ -1502,7 +1502,7 @@ impl App {
                 || canopy_audio_diagnostic)
                 .then_some(0.0),
             visible_terrain_revision: 0,
-            shutdown_started: false,
+            shutdown_lifecycle: lifecycle::AppShutdownLifecycle::default(),
 
             spatial_sound_manager,
             spatial_frame,
@@ -2004,7 +2004,7 @@ impl App {
         _id: WindowId,
         event: WindowEvent,
     ) {
-        if self.shutdown_started {
+        if self.shutdown_lifecycle.is_started() {
             return;
         }
         let is_keyboard_event = matches!(&event, WindowEvent::KeyboardInput { .. });
@@ -2230,7 +2230,7 @@ impl App {
 
             // redraw the window
             WindowEvent::RedrawRequested => {
-                if self.shutdown_started {
+                if self.shutdown_lifecycle.is_started() {
                     return;
                 }
                 // when the windiw is resized, redraw is called afterwards, so when the window is minimized, return
