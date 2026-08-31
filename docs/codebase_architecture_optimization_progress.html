@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Re:Flora 架构优化进度简报</title>
+  <style>
+    :root {
+      --ink: #15231d;
+      --muted: #617069;
+      --paper: #f5f2e8;
+      --surface: rgba(255, 255, 255, 0.78);
+      --line: rgba(21, 35, 29, 0.13);
+      --forest: #164f3a;
+      --leaf: #4d8b62;
+      --lime: #b8d76d;
+      --amber: #cc8b33;
+      --blue: #3f708d;
+      --shadow: 0 18px 50px rgba(28, 53, 42, 0.09);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 8%, rgba(184, 215, 109, 0.27), transparent 27rem),
+        radial-gradient(circle at 96% 22%, rgba(63, 112, 141, 0.15), transparent 29rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 6vw, 68px);
+      border: 1px solid rgba(255, 255, 255, 0.44);
+      border-radius: 30px;
+      color: #f8fff9;
+      background:
+        linear-gradient(125deg, rgba(11, 54, 38, 0.98), rgba(24, 88, 62, 0.95) 55%, rgba(51, 101, 116, 0.93));
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 390px;
+      height: 390px;
+      right: -130px;
+      bottom: -230px;
+      border: 70px solid rgba(184, 215, 109, 0.13);
+      border-radius: 50%;
+    }
+
+    .eyebrow,
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 760;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      padding: 7px 12px;
+      color: #eaffce;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.17);
+    }
+
+    .hero h1 {
+      max-width: 820px;
+      margin: 22px 0 12px;
+      font-size: clamp(2.15rem, 6vw, 4.65rem);
+      line-height: 1.04;
+      letter-spacing: -0.055em;
+    }
+
+    .hero .lede {
+      max-width: 760px;
+      margin: 0;
+      color: rgba(247, 255, 248, 0.8);
+      font-size: clamp(1rem, 2vw, 1.18rem);
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px 20px;
+      margin-top: 30px;
+      color: rgba(247, 255, 248, 0.72);
+      font-size: 0.86rem;
+    }
+
+    .hero-meta code,
+    .branch-card code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.88em;
+    }
+
+    .section { margin-top: 48px; }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 22px;
+      margin-bottom: 18px;
+    }
+
+    .section h2 {
+      margin: 0;
+      font-size: clamp(1.55rem, 3vw, 2.25rem);
+      letter-spacing: -0.035em;
+      line-height: 1.15;
+    }
+
+    .section-head p {
+      max-width: 590px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .overview-grid,
+    .benefit-grid,
+    .branch-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .overview-grid { grid-template-columns: 1.25fr repeat(3, 0.75fr); }
+    .benefit-grid { grid-template-columns: repeat(3, 1fr); }
+    .branch-grid { grid-template-columns: repeat(2, 1fr); }
+
+    .card,
+    .branch-card,
+    .roadmap {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: 0 10px 30px rgba(28, 53, 42, 0.045);
+      backdrop-filter: blur(8px);
+    }
+
+    .card { padding: 22px; }
+
+    .progress-card {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+
+    .ring {
+      display: grid;
+      flex: 0 0 112px;
+      width: 112px;
+      aspect-ratio: 1;
+      place-items: center;
+      border-radius: 50%;
+      background: conic-gradient(var(--lime) 0 66.66%, rgba(255, 255, 255, 0.16) 66.66% 100%);
+      box-shadow: inset 0 0 0 1px rgba(21, 35, 29, 0.08);
+    }
+
+    .ring::before {
+      content: "4 / 6";
+      display: grid;
+      width: 78px;
+      aspect-ratio: 1;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--forest);
+      background: #fcfcf5;
+      font-size: 1.22rem;
+      font-weight: 800;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 750;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin: 7px 0 4px;
+      font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+      font-weight: 820;
+      line-height: 1;
+      letter-spacing: -0.045em;
+    }
+
+    .metric-note,
+    .small-note {
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .progress-card h3,
+    .benefit-grid h3,
+    .branch-card h3 {
+      margin: 0 0 6px;
+      font-size: 1.04rem;
+    }
+
+    .progress-card p,
+    .benefit-grid p,
+    .branch-card p { margin: 0; color: var(--muted); }
+
+    .roadmap { overflow: hidden; }
+
+    .stage {
+      display: grid;
+      grid-template-columns: 44px minmax(160px, 0.66fr) 1.4fr 112px;
+      gap: 16px;
+      align-items: start;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stage:last-child { border-bottom: 0; }
+
+    .stage-index {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 50%;
+      color: white;
+      background: var(--forest);
+      font-weight: 800;
+    }
+
+    .stage.active .stage-index { background: var(--amber); }
+    .stage.pending .stage-index { color: var(--muted); background: #e8e8df; }
+    .stage h3 { margin: 4px 0 2px; font-size: 1rem; }
+    .stage p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+    .status-pill {
+      justify-self: end;
+      padding: 5px 10px;
+      color: #17613f;
+      background: #e3f2da;
+    }
+
+    .active .status-pill { color: #8d5314; background: #fff0d5; }
+    .pending .status-pill { color: #68726c; background: #eceee9; }
+
+    .benefit-grid .card { min-height: 205px; }
+
+    .benefit-icon {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      margin-bottom: 26px;
+      place-items: center;
+      border-radius: 12px;
+      color: white;
+      background: var(--forest);
+      font-weight: 850;
+    }
+
+    .benefit-grid p { font-size: 0.91rem; }
+
+    .branch-card { padding: 24px; }
+
+    .branch-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .branch-tag {
+      padding: 4px 9px;
+      border-radius: 999px;
+      color: var(--forest);
+      background: #e8f0df;
+      font-size: 0.75rem;
+      font-weight: 780;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 20px 0;
+    }
+
+    .stat {
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(22, 79, 58, 0.055);
+    }
+
+    .stat strong { display: block; font-size: 1.2rem; }
+    .stat span { color: var(--muted); font-size: 0.75rem; }
+
+    .work-list,
+    .risk-list {
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .work-list li,
+    .risk-list li {
+      position: relative;
+      padding: 9px 0 9px 24px;
+      border-top: 1px solid var(--line);
+      font-size: 0.91rem;
+    }
+
+    .work-list li::before,
+    .risk-list li::before {
+      position: absolute;
+      left: 2px;
+      top: 9px;
+      font-weight: 900;
+    }
+
+    .work-list li::before { content: "✓"; color: var(--leaf); }
+    .risk-list li::before { content: "→"; color: var(--amber); }
+
+    .callout {
+      display: grid;
+      grid-template-columns: 10px 1fr;
+      gap: 18px;
+      padding: 24px;
+      border: 1px solid rgba(204, 139, 51, 0.28);
+      border-radius: 20px;
+      background: rgba(255, 245, 222, 0.72);
+    }
+
+    .callout::before {
+      content: "";
+      border-radius: 999px;
+      background: var(--amber);
+    }
+
+    .callout h3 { margin: 0 0 8px; }
+    .callout p { margin: 0; color: #725735; }
+
+    .validation {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--line);
+    }
+
+    .validation > div { padding: 20px; background: #fbfbf5; }
+    .validation strong { display: block; margin-bottom: 5px; }
+    .validation span { color: var(--muted); font-size: 0.84rem; }
+
+    footer {
+      margin-top: 46px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    @media (max-width: 900px) {
+      .overview-grid { grid-template-columns: 1fr 1fr; }
+      .progress-card { grid-column: 1 / -1; }
+      .benefit-grid { grid-template-columns: 1fr 1fr; }
+      .validation { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      .page { width: min(100% - 20px, 1180px); padding-top: 10px; }
+      .hero { border-radius: 22px; }
+      .section { margin-top: 38px; }
+      .section-head { align-items: start; flex-direction: column; }
+      .overview-grid,
+      .benefit-grid,
+      .branch-grid,
+      .validation { grid-template-columns: 1fr; }
+      .progress-card { align-items: start; flex-direction: column; }
+      .stage { grid-template-columns: 38px 1fr; }
+      .stage > p { grid-column: 2; }
+      .stage .status-pill { grid-column: 2; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <span class="eyebrow">Architecture convergence brief · 2026-09-01</span>
+      <h1>Re:Flora<br>代码库架构优化进度</h1>
+      <p class="lede">
+        当前工作已经从“大范围发现与重构”进入“末端问题收敛”阶段。主要模块的所有权、生命周期、发布事务和验收边界已完成重塑；剩余工作集中在关停失败恢复与 PetalSonic 实时路径的最后几处复杂度和锁竞争。
+      </p>
+      <div class="hero-meta">
+        <span>目标分支：<code>worktree/clear-valley-5bba</code></span>
+        <span>当前快照：<code>7a8d03e3</code></span>
+        <span>对比本地主分支：<code>89f36f31</code></span>
+      </div>
+    </header>
+
+    <section class="section" aria-labelledby="snapshot-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Executive snapshot</span>
+          <h2 id="snapshot-title">现在处于什么位置？</h2>
+        </div>
+        <p>4 个架构关卡已经关闭，第 5 个正在修复终轮扫描发现的问题；完成两轮独立“零 Strong / 零 Worth”扫描与最终运行验收后，才算真正结束。</p>
+      </div>
+      <div class="overview-grid">
+        <article class="card progress-card">
+          <div class="ring" aria-label="6 个关卡中完成 4 个"></div>
+          <div>
+            <h3>收敛中，而不是“已完成”</h3>
+            <p>大部分结构性工作已合入目标分支。当前仍有 3 个活跃 worker，分别对应 3 个明确的末端修复包，并非遗留的无主 worktree。</p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="metric-label">Re:Flora footprint</div>
+          <div class="metric-value">162</div>
+          <div class="metric-note">相对共同祖先的变更文件数</div>
+        </article>
+        <article class="card">
+          <div class="metric-label">PetalSonic footprint</div>
+          <div class="metric-value">28</div>
+          <div class="metric-note">本地集成分支的变更文件数</div>
+        </article>
+        <article class="card">
+          <div class="metric-label">Active findings</div>
+          <div class="metric-value">3 + 1</div>
+          <div class="metric-note">3 个 Strong，1 个 Worth，正在处理</div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="roadmap-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Milestones</span>
+          <h2 id="roadmap-title">六个收敛关卡</h2>
+        </div>
+        <p>这里的 4/6 是验收关卡数量，不是工时或代码量百分比；越靠后的关卡越强调证据与失败语义。</p>
+      </div>
+      <div class="roadmap">
+        <div class="stage">
+          <span class="stage-index">1</span>
+          <h3>全库架构盘点</h3>
+          <p>按所有权、删除测试、局部性、杠杆率和测试表面审查 Re:Flora 与 PetalSonic，并拒绝浅包装、巨型参数对象和无收益的通用框架。</p>
+          <span class="status-pill">已完成</span>
+        </div>
+        <div class="stage">
+          <span class="stage-index">2</span>
+          <h3>Re:Flora 深模块重构</h3>
+          <p>完成地形、世界编辑、水、树木、光照、DDGI、管线、空间音频、启动命令与诊断证据的所有权收敛。</p>
+          <span class="status-pill">已完成</span>
+        </div>
+        <div class="stage">
+          <span class="stage-index">3</span>
+          <h3>PetalSonic 基础重构</h3>
+          <p>完成 World/runtime/output/render 的生命周期边界、声音身份、声学响应索引、PCM 常驻所有权和非实时退休协议。</p>
+          <span class="status-pill">已完成</span>
+        </div>
+        <div class="stage">
+          <span class="stage-index">4</span>
+          <h3>语义合并与复审</h3>
+          <p>不是只解决文本冲突，而是保留发布顺序、失败不提交、精确重试、资源身份和实时线程约束；上一轮合并复审为 0B / 0M / 0m。</p>
+          <span class="status-pill">已完成</span>
+        </div>
+        <div class="stage active">
+          <span class="stage-index">5</span>
+          <h3>终轮问题修复</h3>
+          <p>正在修复 Re:Flora 可重试关停，以及 PetalSonic 完成回收的二次复杂度、声学输入锁竞争和 SpatialFrame 重复验证分配。</p>
+          <span class="status-pill">进行中</span>
+        </div>
+        <div class="stage pending">
+          <span class="stage-index">6</span>
+          <h3>双重零发现与最终验收</h3>
+          <p>两轮独立架构扫描均达到 0 Strong / 0 Worth；随后通过本地 PetalSonic、Rust/Shader/Python 合约、release 隐藏运行与日志检查。</p>
+          <span class="status-pill">待完成</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="benefits-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Why it matters</span>
+          <h2 id="benefits-title">这轮重构带来了什么？</h2>
+        </div>
+        <p>收益重点不是“文件变得更多或更少”，而是系统行为由明确 owner 负责，并且失败、重试、发布和销毁能够被验证。</p>
+      </div>
+      <div class="benefit-grid">
+        <article class="card">
+          <span class="benefit-icon">01</span>
+          <h3>改动更局部</h3>
+          <p>水、树木、地形连通、DDGI、空间音频等行为由各自深模块封装。新增模式时改 owner 本身，不再跨 App、测试场景和 GPU 提交点同步修改。</p>
+        </article>
+        <article class="card">
+          <span class="benefit-icon">02</span>
+          <h3>错误状态更难产生</h3>
+          <p>线性 capability、typed publication、generation identity 和不可伪造 completion 把“顺序正确”从注释提升为结构约束，减少陈旧帧与错误资源配对。</p>
+        </article>
+        <article class="card">
+          <span class="benefit-icon">03</span>
+          <h3>失败可以精确恢复</h3>
+          <p>连通性、环境阶段、快照读取和 GPU publication 保留失败请求的精确身份；失败时不提交半成品，下一帧重试原工作而不是近似重建。</p>
+        </article>
+        <article class="card">
+          <span class="benefit-icon">04</span>
+          <h3>实时音频更可预测</h3>
+          <p>渲染量子集中拥有混音，声学 publication 使用排序索引与 merge join，PCM 只保留一份 Arc 所有权，完整 Voice 销毁移出实时线程。剩余锁与回收复杂度正在关闭。</p>
+        </article>
+        <article class="card">
+          <span class="benefit-icon">05</span>
+          <h3>GPU 生命周期更清晰</h3>
+          <p>DDGI volume、descriptor、frame view 与 builder residency 具有明确身份和发布次序；extent-dependent pipeline 与资源晋升不再依赖分散的隐式约定。</p>
+        </article>
+        <article class="card">
+          <span class="benefit-icon">06</span>
+          <h3>验收更接近生产</h3>
+          <p>证据来自真实 runtime completion、当前进程日志、Shader 反射与 release 隐藏运行。源码形状检查只负责精确结构合约，不冒充 Rust/GPU 行为证明。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="scope-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Delivered scope</span>
+          <h2 id="scope-title">已经完成的主要工作</h2>
+        </div>
+        <p>下面按代码库列出已经集成的深模块边界。数字只是当前快照的差异足迹，用于理解规模，不等同于架构质量。</p>
+      </div>
+      <div class="branch-grid">
+        <article class="branch-card">
+          <div class="branch-top">
+            <h3>Re:Flora 目标分支</h3>
+            <span class="branch-tag">已集成</span>
+          </div>
+          <p><code>7a8d03e3</code> 对比共同祖先 <code>400794af</code>。本地主分支另有 32 个独立提交，因此最终进入 main 前还需要一次显式语义同步。</p>
+          <div class="stats">
+            <div class="stat"><strong>162</strong><span>变更文件</span></div>
+            <div class="stat"><strong>44,751</strong><span>新增行</span></div>
+            <div class="stat"><strong>10,446</strong><span>删除行</span></div>
+          </div>
+          <ul class="work-list">
+            <li>本地光源 GPU publication：事务提交、revision 与失败回滚</li>
+            <li>可见地形、连通性、WorldEdit：物理状态到观察者的单一顺序</li>
+            <li>WaterRuntime 与树木 publication：worker、补偿与退出路径统一</li>
+            <li>DDGI：资源 owner、不可伪造 completion、运行时恢复与证据链</li>
+            <li>管线拓扑、authoring lighting、空间音频帧和 telemetry owner</li>
+            <li>typed launch plan、互斥场景、运行日志与 Shader CI 合约</li>
+          </ul>
+        </article>
+
+        <article class="branch-card">
+          <div class="branch-top">
+            <h3>PetalSonic 本地集成</h3>
+            <span class="branch-tag">仅本地 · 禁止发布</span>
+          </div>
+          <p><code>be2ddf56</code> 线性领先 PetalSonic 本地主分支 <code>5e25ac43</code> 86 个提交；Re:Flora 验证通过本地依赖覆盖使用它。</p>
+          <div class="stats">
+            <div class="stat"><strong>28</strong><span>变更文件</span></div>
+            <div class="stat"><strong>9,901</strong><span>新增行</span></div>
+            <div class="stat"><strong>5,686</strong><span>删除行</span></div>
+          </div>
+          <ul class="work-list">
+            <li><code>domain::VoiceId</code> 与 World-owned runtime 生命周期</li>
+            <li>OutputPlatform、output session 恢复与服务关停拓扑</li>
+            <li>RenderQuantum 集中拥有 voice mixing 与渲染预算</li>
+            <li>有序声学响应、grouped completed frame 与 merge join</li>
+            <li>索引化 immutable SpatialFrame 与单份常驻 PCM</li>
+            <li>完整 Voice 的非实时退休、容量结算与 publish gate</li>
+          </ul>
+        </article>
+      </div>
+      <p class="small-note">注：Re:Flora 的差异足迹包含共同祖先之后的功能、证据、脚本与测试演进，不能把 44,751 行全部归类为“架构新增代码”。</p>
+    </section>
+
+    <section class="section" aria-labelledby="next-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Active work</span>
+          <h2 id="next-title">正在做与即将做</h2>
+        </div>
+        <p>当前 3 个非 Glass worker 都有明确 owner 与退出条件；完成一个就合入并清掉一个。</p>
+      </div>
+      <div class="branch-grid">
+        <article class="branch-card">
+          <div class="branch-top">
+            <h3>现在正在修</h3>
+            <span class="branch-tag">3 个工作包</span>
+          </div>
+          <ul class="risk-list">
+            <li><strong>Re:Flora shutdown：</strong>由 bool 改为 Running / Quiescing / Complete；所有清理阶段 best-effort 执行，失败阶段可重试，Drop 不再因二次失败 panic。</li>
+            <li><strong>PetalSonic completion reclaim：</strong>移除多 block 渲染中对 completed playback 的二次扫描，改成 playback owner 的一次性回收状态。</li>
+            <li><strong>PetalSonic acoustic input：</strong>消除实时渲染线程的阻塞 Mutex 与 O(V²) voice 查找，并让 SpatialFrame 在构造边界一次性拒绝重复/非有限状态。</li>
+          </ul>
+        </article>
+        <article class="branch-card">
+          <div class="branch-top">
+            <h3>这些修完以后</h3>
+            <span class="branch-tag">最终关卡</span>
+          </div>
+          <ul class="risk-list">
+            <li>对两个 PetalSonic worker 做语义合并，保留实时线程、退休和有序索引的全部约束。</li>
+            <li>Re:Flora 使用 PetalSonic 本地集成版本重新执行完整 Rust 与生产路径检查。</li>
+            <li>进行两轮相互独立的全库终扫；只要发现 Strong 或 Worth，就重新进入修复循环。</li>
+            <li>执行 release hidden/muted app、日志、Shader、Slang、SPIR-V、Python 合约及精确 PATT skip 验收。</li>
+            <li>删除全部已完成 worker；保留 Re:Flora 目标 worktree、PetalSonic 本地集成 worktree，以及用户明确要求忽略的两个 Glass worktree。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="validation-title">
+      <div class="section-head">
+        <div>
+          <span class="metric-label">Evidence</span>
+          <h2 id="validation-title">目前的验证证据</h2>
+        </div>
+        <p>这些是上一轮集成和当前 shutdown 垂直切片的证据；最终代码改变后会再完整重跑，不能用旧结果替代最终验收。</p>
+      </div>
+      <div class="validation">
+        <div><strong>829 passed</strong><span>Re:Flora Rust 主测试集；0 failed，另有精确 PATT skip</span></div>
+        <div><strong>cargo check ✓</strong><span>当前 shutdown worker 使用本地 PetalSonic 依赖通过</span></div>
+        <div><strong>0B / 0M / 0m</strong><span>上一轮 Re:Flora / PetalSonic 语义集成复审结果</span></div>
+        <div><strong>4096 / 2048</strong><span>PetalSonic 大 voice 容量与复杂度/分配门槛覆盖规模</span></div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="boundary-title">
+      <div class="callout">
+        <div>
+          <h3 id="boundary-title">明确边界</h3>
+          <p>PetalSonic 只允许本地修改、测试与集成：不会 push、tag、publish 或合并进它的 main，直到得到用户新的明确授权。两个 Glass Voxel 相关 worktree 不检查、不修改、不合并、不删除。</p>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <strong>读取口径：</strong>Re:Flora 使用 <code>git diff main...worktree/clear-valley-5bba</code> 的共同祖先差异；PetalSonic 使用 <code>main...integration/architecture-deepening-local</code>。快照日期为 2026-09-01，后续提交会改变数字与状态。
+    </footer>
+  </main>
+</body>
+</html>
