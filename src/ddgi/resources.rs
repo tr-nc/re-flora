@@ -1514,6 +1514,34 @@ impl DdgiStatus {
     }
 }
 
+struct DdgiVulkanVolumeResources {
+    ddgi_probe_metadata: Resource<Buffer>,
+    ddgi_transient_ray_data: Resource<Buffer>,
+    ddgi_trace_stats: Resource<Buffer>,
+    ddgi_trace_stats_readback: Buffer,
+    ddgi_relocation_stats: Resource<Buffer>,
+    ddgi_relocation_stats_readback: Buffer,
+    ddgi_atlas_reduction: Resource<Buffer>,
+    ddgi_atlas_reduction_readback: Buffer,
+    ddgi_irradiance_atlas: Resource<Texture>,
+    ddgi_transport_source_irradiance_atlas: Resource<Texture>,
+    ddgi_visibility_atlas: Resource<Texture>,
+    ddgi_transport_source_visibility_atlas: Resource<Texture>,
+    ddgi_global_sky_irradiance: Resource<Texture>,
+    ddgi_global_sky_irradiance_alt: Resource<Texture>,
+    ddgi_radiance_sun: Resource<Buffer>,
+    ddgi_radiance_voxel_palette: Resource<Buffer>,
+    ddgi_transport_query_info: Resource<Buffer>,
+    ddgi_local_light_info: Resource<Buffer>,
+    ddgi_local_lights: Resource<Buffer>,
+}
+
+enum DdgiVolumeResources {
+    Vulkan(Box<DdgiVulkanVolumeResources>),
+    #[cfg(test)]
+    Fixture,
+}
+
 pub(super) struct DdgiVolume {
     build_token: Option<DdgiBuildToken>,
     grid: DdgiVolumeGrid,
@@ -1540,25 +1568,7 @@ pub(super) struct DdgiVolume {
     local_recovery_stable_epochs: u32,
     history_mode: DdgiHistoryMode,
     visibility_preserved_for_iteration: bool,
-    ddgi_probe_metadata: Resource<Buffer>,
-    ddgi_transient_ray_data: Resource<Buffer>,
-    ddgi_trace_stats: Resource<Buffer>,
-    ddgi_trace_stats_readback: Buffer,
-    ddgi_relocation_stats: Resource<Buffer>,
-    ddgi_relocation_stats_readback: Buffer,
-    ddgi_atlas_reduction: Resource<Buffer>,
-    ddgi_atlas_reduction_readback: Buffer,
-    ddgi_irradiance_atlas: Resource<Texture>,
-    ddgi_transport_source_irradiance_atlas: Resource<Texture>,
-    ddgi_visibility_atlas: Resource<Texture>,
-    ddgi_transport_source_visibility_atlas: Resource<Texture>,
-    ddgi_global_sky_irradiance: Resource<Texture>,
-    ddgi_global_sky_irradiance_alt: Resource<Texture>,
-    ddgi_radiance_sun: Resource<Buffer>,
-    ddgi_radiance_voxel_palette: Resource<Buffer>,
-    ddgi_transport_query_info: Resource<Buffer>,
-    ddgi_local_light_info: Resource<Buffer>,
-    ddgi_local_lights: Resource<Buffer>,
+    resources: DdgiVolumeResources,
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
@@ -1662,14 +1672,24 @@ impl ResourceContainer for DdgiBuilderResources<'_> {
                 ResourceLookup::Unique(DescriptorResource::Texture(
                     self.inherited_source
                         .and_then(DdgiVolume::published_irradiance_atlas)
-                        .unwrap_or(&self.builder.ddgi_transport_source_irradiance_atlas),
+                        .unwrap_or(
+                            &self
+                                .builder
+                                .resources()
+                                .ddgi_transport_source_irradiance_atlas,
+                        ),
                 ))
             }
             "ddgi_transport_source_visibility_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(
                     self.inherited_source
                         .and_then(DdgiVolume::published_visibility_atlas)
-                        .unwrap_or(&self.builder.ddgi_transport_source_visibility_atlas),
+                        .unwrap_or(
+                            &self
+                                .builder
+                                .resources()
+                                .ddgi_transport_source_visibility_atlas,
+                        ),
                 ))
             }
             "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
@@ -1781,7 +1801,7 @@ impl DdgiVolumes {
         assert_eq!(resident.publication, permit.publication);
         DdgiConsumerResources {
             publication: permit.publication,
-            probe_metadata: &staging.ddgi_probe_metadata,
+            probe_metadata: &staging.resources().ddgi_probe_metadata,
             global_sky_irradiance: staging.global_sky_irradiance(resident.resident.sky_slot),
             irradiance_atlas: staging.irradiance_atlas(resident.resident.atlas_slot),
             visibility_atlas: staging.visibility_atlas(resident.resident.atlas_slot),
@@ -1812,53 +1832,57 @@ impl DdgiVolumes {
 impl ResourceContainer for DdgiVolume {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_probe_metadata" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_probe_metadata))
-            }
-            "ddgi_transient_ray_data" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transient_ray_data))
-            }
-            "ddgi_trace_stats" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_trace_stats))
-            }
-            "ddgi_relocation_stats" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_relocation_stats))
-            }
-            "ddgi_atlas_reduction" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_atlas_reduction))
-            }
-            "ddgi_radiance_sun" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_radiance_sun))
-            }
-            "ddgi_radiance_voxel_palette" => ResourceLookup::Unique(DescriptorResource::Buffer(
-                &self.ddgi_radiance_voxel_palette,
+            "ddgi_probe_metadata" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_probe_metadata,
             )),
-            "ddgi_transport_query_info" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
+            "ddgi_transient_ray_data" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_transient_ray_data,
+            )),
+            "ddgi_trace_stats" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_trace_stats,
+            )),
+            "ddgi_relocation_stats" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_relocation_stats,
+            )),
+            "ddgi_atlas_reduction" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_atlas_reduction,
+            )),
+            "ddgi_radiance_sun" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_radiance_sun,
+            )),
+            "ddgi_radiance_voxel_palette" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_radiance_voxel_palette,
+            )),
+            "ddgi_transport_query_info" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_transport_query_info,
+            )),
+            "ddgi_local_light_info" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_local_light_info,
+            )),
+            "ddgi_local_lights" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.resources().ddgi_local_lights,
+            )),
+            "ddgi_irradiance_atlas" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.resources().ddgi_irradiance_atlas,
+            )),
+            "ddgi_transport_source_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    &self.resources().ddgi_transport_source_irradiance_atlas,
+                ))
             }
-            "ddgi_local_light_info" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_light_info))
+            "ddgi_visibility_atlas" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.resources().ddgi_visibility_atlas,
+            )),
+            "ddgi_transport_source_visibility_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    &self.resources().ddgi_transport_source_visibility_atlas,
+                ))
             }
-            "ddgi_local_lights" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_local_lights))
-            }
-            "ddgi_irradiance_atlas" => {
-                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
-            }
-            "ddgi_transport_source_irradiance_atlas" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_transport_source_irradiance_atlas),
-            ),
-            "ddgi_visibility_atlas" => {
-                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_visibility_atlas))
-            }
-            "ddgi_transport_source_visibility_atlas" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_transport_source_visibility_atlas),
-            ),
             "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
-                &self.ddgi_global_sky_irradiance,
+                &self.resources().ddgi_global_sky_irradiance,
             )),
             "ddgi_global_sky_irradiance_alt" => ResourceLookup::Unique(
-                DescriptorResource::Texture(&self.ddgi_global_sky_irradiance_alt),
+                DescriptorResource::Texture(&self.resources().ddgi_global_sky_irradiance_alt),
             ),
             _ => ResourceLookup::Missing,
         }
@@ -2139,31 +2163,80 @@ impl DdgiVolume {
             local_recovery_stable_epochs: 0,
             history_mode: DdgiHistoryMode::Accumulating,
             visibility_preserved_for_iteration: false,
-            ddgi_probe_metadata: Resource::new(probe_metadata),
-            ddgi_transient_ray_data: Resource::new(transient_ray_data),
-            ddgi_trace_stats: Resource::new(trace_stats),
-            ddgi_trace_stats_readback: trace_stats_readback,
-            ddgi_relocation_stats: Resource::new(relocation_stats),
-            ddgi_relocation_stats_readback: relocation_stats_readback,
-            ddgi_atlas_reduction: Resource::new(atlas_reduction),
-            ddgi_atlas_reduction_readback: atlas_reduction_readback,
-            ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
-            ddgi_transport_source_irradiance_atlas: Resource::new(
-                transport_source_irradiance_atlas,
-            ),
-            ddgi_visibility_atlas: Resource::new(visibility_atlas),
-            ddgi_transport_source_visibility_atlas: Resource::new(
-                transport_source_visibility_atlas,
-            ),
-            ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
-            ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
-            ddgi_radiance_sun: Resource::new(radiance_sun),
-            ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
-            ddgi_transport_query_info: Resource::new(transport_query_info),
-            ddgi_local_light_info: Resource::new(ddgi_local_light_info),
-            ddgi_local_lights: Resource::new(ddgi_local_lights),
+            resources: DdgiVolumeResources::Vulkan(Box::new(DdgiVulkanVolumeResources {
+                ddgi_probe_metadata: Resource::new(probe_metadata),
+                ddgi_transient_ray_data: Resource::new(transient_ray_data),
+                ddgi_trace_stats: Resource::new(trace_stats),
+                ddgi_trace_stats_readback: trace_stats_readback,
+                ddgi_relocation_stats: Resource::new(relocation_stats),
+                ddgi_relocation_stats_readback: relocation_stats_readback,
+                ddgi_atlas_reduction: Resource::new(atlas_reduction),
+                ddgi_atlas_reduction_readback: atlas_reduction_readback,
+                ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
+                ddgi_transport_source_irradiance_atlas: Resource::new(
+                    transport_source_irradiance_atlas,
+                ),
+                ddgi_visibility_atlas: Resource::new(visibility_atlas),
+                ddgi_transport_source_visibility_atlas: Resource::new(
+                    transport_source_visibility_atlas,
+                ),
+                ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
+                ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
+                ddgi_radiance_sun: Resource::new(radiance_sun),
+                ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
+                ddgi_transport_query_info: Resource::new(transport_query_info),
+                ddgi_local_light_info: Resource::new(ddgi_local_light_info),
+                ddgi_local_lights: Resource::new(ddgi_local_lights),
+            })),
             transport_query_snapshot,
         })
+    }
+
+    fn resources(&self) -> &DdgiVulkanVolumeResources {
+        match &self.resources {
+            DdgiVolumeResources::Vulkan(resources) => resources,
+            #[cfg(test)]
+            DdgiVolumeResources::Fixture => {
+                panic!("test-only DDGI Volume fixture has no Vulkan resources")
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test(grid: DdgiVolumeGrid, build_token: Option<DdgiBuildToken>) -> Self {
+        let irradiance_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
+        let visibility_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
+        Self {
+            build_token,
+            grid,
+            irradiance_layout,
+            visibility_layout,
+            resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
+            stage: DdgiVolumeStage::Allocated,
+            scheduled_work: None,
+            building_iteration: None,
+            complete_field: None,
+            published: None,
+            consecutive_below_threshold: 0,
+            last_atlas_validation: None,
+            global_sky_revisions: [0; 2],
+            radiance_revision: None,
+            radiance_snapshot: None,
+            requested_terrain_revision: None,
+            relocated_terrain_revision: None,
+            active_ray_batch: None,
+            batch_order: DdgiBatchOrder::default(),
+            filtered_probe_count: 0,
+            next_batch_ordinal: 0,
+            local_refresh_voxel_bound: None,
+            local_recovery_stable_epochs: 0,
+            history_mode: DdgiHistoryMode::Accumulating,
+            visibility_preserved_for_iteration: false,
+            resources: DdgiVolumeResources::Fixture,
+            transport_query_snapshot: DdgiTransportQueryInfo::zeroed(),
+        }
     }
 
     pub(crate) fn status(&self) -> DdgiVolumeStatus {
@@ -2262,13 +2335,16 @@ impl DdgiVolume {
             "DDGI local-light transport revision {} does not match radiance revision {revision}",
             snapshot.local_lights.info.transport_revision,
         );
-        self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
-            direction: snapshot.sun_direction.to_array(),
-            terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
-            color: snapshot.sun_color.to_array(),
-            luminance: snapshot.sun_luminance,
-        })?;
-        self.ddgi_radiance_voxel_palette
+        self.resources()
+            .ddgi_radiance_sun
+            .fill_uniform(&DdgiRadianceSun {
+                direction: snapshot.sun_direction.to_array(),
+                terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
+                color: snapshot.sun_color.to_array(),
+                luminance: snapshot.sun_luminance,
+            })?;
+        self.resources()
+            .ddgi_radiance_voxel_palette
             .fill_uniform(&DdgiRadianceVoxelPalette {
                 dirt_color: snapshot.voxel_palette.dirt_color.to_array(),
                 sand_color: snapshot.voxel_palette.sand_color.to_array(),
@@ -2282,11 +2358,15 @@ impl DdgiVolume {
             })?;
         self.transport_query_snapshot.visibility_bias_world =
             snapshot.ddgi_receiver_visibility_bias_world;
-        self.ddgi_transport_query_info
+        self.resources()
+            .ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)?;
-        self.ddgi_local_light_info
+        self.resources()
+            .ddgi_local_light_info
             .fill_uniform(&snapshot.local_lights.info)?;
-        self.ddgi_local_lights.fill(&snapshot.local_lights.lights)?;
+        self.resources()
+            .ddgi_local_lights
+            .fill(&snapshot.local_lights.lights)?;
         self.radiance_revision = Some(revision);
         self.radiance_snapshot = Some(snapshot);
         Ok(())
@@ -2847,15 +2927,15 @@ impl DdgiVolume {
 
     fn irradiance_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
         match slot {
-            DdgiAtlasSlot::Atlas0 => &self.ddgi_irradiance_atlas,
-            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
+            DdgiAtlasSlot::Atlas0 => &self.resources().ddgi_irradiance_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.resources().ddgi_transport_source_irradiance_atlas,
         }
     }
 
     fn visibility_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
         match slot {
-            DdgiAtlasSlot::Atlas0 => &self.ddgi_visibility_atlas,
-            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_visibility_atlas,
+            DdgiAtlasSlot::Atlas0 => &self.resources().ddgi_visibility_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.resources().ddgi_transport_source_visibility_atlas,
         }
     }
 
@@ -2877,7 +2957,7 @@ impl DdgiVolume {
         );
         DdgiConsumerResources {
             publication: permit.resident.publication,
-            probe_metadata: &self.ddgi_probe_metadata,
+            probe_metadata: &self.resources().ddgi_probe_metadata,
             global_sky_irradiance: self.global_sky_irradiance(iteration.destination.sky_slot),
             irradiance_atlas: self.irradiance_atlas(iteration.destination.atlas_slot),
             visibility_atlas: self.visibility_atlas(iteration.destination.atlas_slot),
@@ -2910,8 +2990,8 @@ impl DdgiVolume {
 
     fn global_sky_irradiance(&self, slot: DdgiSkySlot) -> &Resource<Texture> {
         match slot {
-            DdgiSkySlot::Sky0 => &self.ddgi_global_sky_irradiance,
-            DdgiSkySlot::Sky1 => &self.ddgi_global_sky_irradiance_alt,
+            DdgiSkySlot::Sky0 => &self.resources().ddgi_global_sky_irradiance,
+            DdgiSkySlot::Sky1 => &self.resources().ddgi_global_sky_irradiance_alt,
         }
     }
 
@@ -2931,26 +3011,31 @@ impl DdgiVolume {
 
     fn set_transport_source_ready(&mut self, ready: bool) -> Result<()> {
         self.transport_query_snapshot.source_ready = u32::from(ready);
-        self.ddgi_transport_query_info
+        self.resources()
+            .ddgi_transport_query_info
             .fill_uniform(&self.transport_query_snapshot)
     }
 
     /// Declares CPU writes before the frame's reflected DDGI descriptors consume them.
     pub(super) fn record_cpu_buffer_writes(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         for buffer in [
-            &*self.ddgi_radiance_sun,
-            &*self.ddgi_radiance_voxel_palette,
-            &*self.ddgi_transport_query_info,
-            &*self.ddgi_local_light_info,
-            &*self.ddgi_local_lights,
+            &*self.resources().ddgi_radiance_sun,
+            &*self.resources().ddgi_radiance_voxel_palette,
+            &*self.resources().ddgi_transport_query_info,
+            &*self.resources().ddgi_local_light_info,
+            &*self.resources().ddgi_local_lights,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
     }
 
     pub(super) fn clear_relocation_stats(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_relocation_stats
-            .record_fill(cmdbuf, 0, self.resource_bytes.relocation_stats, 0);
+        self.resources().ddgi_relocation_stats.record_fill(
+            cmdbuf,
+            0,
+            self.resource_bytes.relocation_stats,
+            0,
+        );
     }
 
     pub(super) fn clear_trace_stats(
@@ -2958,10 +3043,14 @@ impl DdgiVolume {
         cmdbuf: &re_flora_vkn::CommandBuffer,
         iteration_will_complete: bool,
     ) {
-        self.ddgi_trace_stats
-            .record_fill(cmdbuf, 0, self.resource_bytes.trace_stats, 0);
+        self.resources().ddgi_trace_stats.record_fill(
+            cmdbuf,
+            0,
+            self.resource_bytes.trace_stats,
+            0,
+        );
         if iteration_will_complete {
-            self.ddgi_atlas_reduction.record_fill(
+            self.resources().ddgi_atlas_reduction.record_fill(
                 cmdbuf,
                 0,
                 self.resource_bytes.atlas_reduction,
@@ -2971,31 +3060,42 @@ impl DdgiVolume {
     }
 
     pub(super) fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_trace_stats.record_copy_to_buffer(
+        self.resources().ddgi_trace_stats.record_copy_to_buffer(
             cmdbuf,
-            &self.ddgi_trace_stats_readback,
+            &self.resources().ddgi_trace_stats_readback,
             self.resource_bytes.trace_stats,
             0,
             0,
         );
-        cmdbuf.use_buffer(&self.ddgi_trace_stats_readback, BufferUse::HostRead);
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_trace_stats_readback,
+            BufferUse::HostRead,
+        );
     }
 
     pub(super) fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_relocation_stats.record_copy_to_buffer(
-            cmdbuf,
-            &self.ddgi_relocation_stats_readback,
-            self.resource_bytes.relocation_stats,
-            0,
-            0,
+        self.resources()
+            .ddgi_relocation_stats
+            .record_copy_to_buffer(
+                cmdbuf,
+                &self.resources().ddgi_relocation_stats_readback,
+                self.resource_bytes.relocation_stats,
+                0,
+                0,
+            );
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_relocation_stats_readback,
+            BufferUse::HostRead,
         );
-        cmdbuf.use_buffer(&self.ddgi_relocation_stats_readback, BufferUse::HostRead);
     }
 
     pub(super) fn update_relocation_stats_from_readback(
         &self,
     ) -> Result<DdgiRelocationReadbackStats> {
-        let bytes = self.ddgi_relocation_stats_readback.read_back()?;
+        let bytes = self
+            .resources()
+            .ddgi_relocation_stats_readback
+            .read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.relocation_stats as usize,
             "DDGI relocation stats readback returned {} bytes, expected {}",
@@ -3010,18 +3110,21 @@ impl DdgiVolume {
     }
 
     pub(super) fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
-        self.ddgi_atlas_reduction.record_copy_to_buffer(
+        self.resources().ddgi_atlas_reduction.record_copy_to_buffer(
             cmdbuf,
-            &self.ddgi_atlas_reduction_readback,
+            &self.resources().ddgi_atlas_reduction_readback,
             self.resource_bytes.atlas_reduction,
             0,
             0,
         );
-        cmdbuf.use_buffer(&self.ddgi_atlas_reduction_readback, BufferUse::HostRead);
+        cmdbuf.use_buffer(
+            &self.resources().ddgi_atlas_reduction_readback,
+            BufferUse::HostRead,
+        );
     }
 
     pub(super) fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {
-        let bytes = self.ddgi_atlas_reduction_readback.read_back()?;
+        let bytes = self.resources().ddgi_atlas_reduction_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.atlas_reduction as usize,
             "DDGI atlas reduction readback returned {} bytes, expected {}",
@@ -3036,7 +3139,7 @@ impl DdgiVolume {
     }
 
     pub(super) fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
-        let bytes = self.ddgi_trace_stats_readback.read_back()?;
+        let bytes = self.resources().ddgi_trace_stats_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.trace_stats as usize,
             "DDGI trace stats readback returned {} bytes, expected {}",

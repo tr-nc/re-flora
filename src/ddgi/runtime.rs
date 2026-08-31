@@ -2690,27 +2690,42 @@ mod tests {
     }
 
     #[test]
-    fn encoded_frame_identity_is_stable_while_new_facts_queue() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
-        let mut runtime = DdgiRuntime::new(grid);
-        let plan = DdgiFramePlan {
-            global_sky_needs_update: true,
-            relocation_terrain_revision: Some(7),
-            visibility_preservation_needed: true,
-            ray_batch: None,
-            iteration_will_complete: false,
-        };
-        let work = DdgiFrameWork { serial: 41, plan };
-        let encoded = DdgiEncodedFrame { work };
-        runtime.pending_frame_work_serial = Some(encoded.work.serial);
+    fn encoded_frame_rejects_builder_replacement_without_settling_original_frame() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let active_grid = runtime.active_publication.grid();
+        runtime.install_volumes(DdgiVolumes::new(DdgiVolume::for_test(
+            active_grid,
+            Some(active_token),
+        )));
 
-        runtime.observe_authored_lighting(lighting(1, 1.0));
-        runtime.observe_visible_terrain(8, edit_bound(200, 220));
-        assert_eq!(
-            encoded.work.plan, plan,
-            "queued facts must not rewrite a frame capsule"
+        let encoded = runtime.begin_frame().unwrap().encoded();
+        assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
+        let replacement = runtime.claim_volume_build().unwrap();
+        let replacement_grid = replacement.generation().grid();
+        runtime
+            .complete_volume_build(
+                replacement,
+                Some(DdgiVolume::for_test(replacement_grid, None)),
+            )
+            .unwrap();
+        let replacement_before_commit = runtime.volumes().builder().status();
+
+        let error = runtime.commit_encoded_frame(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("DDGI encoded frame no longer owns its exact builder"),
+            "unexpected frame ownership error: {error:#}"
         );
-        assert_eq!(runtime.pending_frame_work_serial, Some(41));
+        assert_eq!(
+            runtime.volumes().builder().status(),
+            replacement_before_commit,
+            "rejected frame commit must not mutate the replacement builder"
+        );
+        assert!(
+            runtime.pending_frame_work_serial.is_some(),
+            "rejected frame commit must retain the original unsettled capability"
+        );
     }
 
     #[test]
