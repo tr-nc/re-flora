@@ -1,7 +1,6 @@
 mod app;
 mod audio;
 mod branch_skeleton;
-mod branching_gui;
 mod builder;
 mod cli;
 mod ddgi;

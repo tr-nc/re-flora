@@ -1,5 +1,8 @@
-use crate::branching_gui::{edit_branching_desc, BranchingGuiSpec};
 use crate::tree_gen::TreeDesc;
+
+mod branching;
+
+use branching::edit_branching_desc;
 
 pub(super) fn edit_tree_desc(
     ui: &mut egui::Ui,
@@ -26,7 +29,7 @@ pub(super) fn edit_tree_desc(
         .changed();
 
     ui.separator();
-    changed |= edit_branching_desc(ui, &mut tree.branching, &BranchingGuiSpec::default());
+    changed |= edit_branching_desc(ui, &mut tree.branching);
 
     ui.separator();
     ui.heading("Subdivision");
