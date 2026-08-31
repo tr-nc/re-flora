@@ -35,21 +35,6 @@ on:
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/**"
-      - "src/app/core/environment_lighting_test_scene.rs"
-      - "src/app/core/environment_irradiance_capture.rs"
-      - "src/app/core/loading.rs"
-      - "src/app/core/mod.rs"
-      - "src/app/core/visible_terrain.rs"
-      - "src/ddgi/**"
-      - "src/environment_lighting.rs"
-      - "src/main.rs"
-      - "src/run_log.rs"
-      - "src/tracer/mod.rs"
-      - "src/app/core/ddgi_spatial_weight_readback.rs"
-      - "src/app/core/environment_*.rs"
-      - "src/app/core/environment_lighting_test_scene/**"
-      - "src/cli.rs"
-      - "src/tracer/**"
   push:
     branches:
       - main
@@ -85,21 +70,6 @@ on:
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
       - "src/**"
-      - "src/app/core/environment_lighting_test_scene.rs"
-      - "src/app/core/environment_irradiance_capture.rs"
-      - "src/app/core/loading.rs"
-      - "src/app/core/mod.rs"
-      - "src/app/core/visible_terrain.rs"
-      - "src/ddgi/**"
-      - "src/environment_lighting.rs"
-      - "src/main.rs"
-      - "src/run_log.rs"
-      - "src/tracer/mod.rs"
-      - "src/app/core/ddgi_spatial_weight_readback.rs"
-      - "src/app/core/environment_*.rs"
-      - "src/app/core/environment_lighting_test_scene/**"
-      - "src/cli.rs"
-      - "src/tracer/**"
 
 permissions:
   contents: read

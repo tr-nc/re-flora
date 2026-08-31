@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 
 REQUIRED_OWNER_PATHS = (
@@ -11,46 +12,30 @@ REQUIRED_OWNER_PATHS = (
     "docs/ddgi_indirect_transport_spec.md",
     "docs/ddgi_transport_acceptance.md",
     "scripts/analyze_environment_irradiance_capture.py",
-    "scripts/analyze_current_environment_irradiance_capture.py",
     "scripts/check_ddgi_correctness.sh",
-    "scripts/check_ddgi_inflight_terrain_edits.sh",
-    "scripts/check_ddgi_lifecycle_acceptance.sh",
-    "scripts/check_ddgi_local_terrain_convergence.sh",
-    "scripts/check_ddgi_runtime_terrain_edits.sh",
     "scripts/check_ddgi_sky_normalization_evidence.py",
-    "scripts/check_ddgi_terrain_edit_cycle.sh",
-    "scripts/check_ddgi_transport_acceptance.sh",
-    "scripts/ddgi_evidence/__init__.py",
-    "scripts/ddgi_evidence/cli.py",
-    "scripts/ddgi_evidence/executor.py",
-    "scripts/ddgi_evidence/model.py",
-    "scripts/ddgi_evidence/plan.py",
     "scripts/ddgi_evidence/validation.py",
     "scripts/shader_validation_workflow_contract.py",
-    "scripts/summarize_ddgi_convergence.py",
-    "scripts/tests/test_ddgi_evidence_cli.py",
-    "scripts/tests/test_ddgi_evidence_plan.py",
     "scripts/tests/test_ddgi_evidence_validation.py",
-    "scripts/tests/test_analyze_environment_irradiance_capture.py",
-    "scripts/tests/test_shader_validation_workflow.py",
-    "src/app/core/ddgi_spatial_weight_readback.rs",
-    "src/app/core/environment_irradiance_capture.rs",
-    "src/app/core/environment_lighting_test_scene.rs",
     "src/app/core/environment_lighting_test_scene/local_light_scaling.rs",
-    "src/app/core/mod.rs",
-    "src/cli.rs",
-    "src/ddgi/capture.rs",
-    "src/ddgi/resources.rs",
     "src/ddgi/runtime.rs",
-    "src/environment_lighting.rs",
-    "src/tracer/buffer_updater.rs",
-    "src/tracer/pipeline_builder.rs",
 )
 REQUIRED_FEDORA_COMMANDS = (
     "cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity",
     "cargo test --locked ddgi::resources::tests::filter_",
     "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness",
 )
+
+
+@dataclass(frozen=True)
+class ParsedWorkflowContract:
+    routes_by_event: tuple[tuple[str, tuple[str, ...]], ...]
+    fedora_commands: tuple[str, ...]
+    failures: tuple[str, ...]
+
+    def routes(self, event: str, path: str) -> bool:
+        patterns = dict(self.routes_by_event).get(event)
+        return patterns is not None and _routes(patterns, path)
 
 
 def _indent(line: str) -> int:
@@ -271,18 +256,20 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
     return entries == [("CARGO_TERM_COLOR", "always")]
 
 
-def workflow_contract_failures(source: str) -> list[str]:
+def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
     lines = source.splitlines()
     failures: list[str] = []
     on_blocks = _mapping_blocks(lines, "on", 0)
     if len(on_blocks) != 1:
         failures.append("workflow must have one root on mapping")
     on_block = on_blocks[0] if len(on_blocks) == 1 else []
+    routes_by_event: list[tuple[str, tuple[str, ...]]] = []
     for event in ("pull_request", "push"):
         event_blocks = _mapping_blocks(on_block, event, 2)
         if len(event_blocks) != 1:
             failures.append(f"root on must have one {event} mapping")
         patterns = _route_patterns(on_block, event)
+        routes_by_event.append((event, patterns))
         for pattern in patterns:
             if not _supported_route_pattern(pattern):
                 failures.append(f"{event} uses unsupported route pattern {pattern}")
@@ -306,4 +293,12 @@ def workflow_contract_failures(source: str) -> list[str]:
     for command in REQUIRED_FEDORA_COMMANDS:
         if fedora_commands.count(command) != 1:
             failures.append(f"Fedora job does not run {command}")
-    return failures
+    return ParsedWorkflowContract(
+        tuple(routes_by_event),
+        tuple(fedora_commands),
+        tuple(failures),
+    )
+
+
+def workflow_contract_failures(source: str) -> list[str]:
+    return list(parse_workflow_contract(source).failures)
