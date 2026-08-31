@@ -46,6 +46,23 @@ class ActionResult:
     facts: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _ProductionCompletion:
+    """Executor-minted proof that one concrete production action succeeded."""
+
+
+@dataclass(frozen=True)
+class _PerformedAction:
+    result: ActionResult
+    completion: _ProductionCompletion | None
+
+
+@dataclass(frozen=True)
+class _ExecutionOutcome:
+    report: RunReport
+    production_complete: bool
+
+
 class RecordingHost:
     """Zero-side-effect adapter that records the production plan's exact argv."""
 
@@ -54,7 +71,7 @@ class RecordingHost:
         self.stdout = stdout or sys.stdout
         self.stderr = stderr or sys.stderr
 
-    def prepare(self, run_dir: Path) -> ActionResult:
+    def prepare(self, run_dirs: tuple[Path, ...]) -> ActionResult:
         return ActionResult(True)
 
     def build(self, action: BuildRelease, repo_root: Path) -> ActionResult:
@@ -72,16 +89,17 @@ class RecordingHost:
 
     def validate_scenario(self, action: ValidateScenarioLog) -> ActionResult:
         self._record("scenario-validation", ())
+        fact_names = (
+            "field_serial",
+            "source_field_serial",
+            "geometry_revision",
+            "build_token_serial",
+            "obsolete_density_token_serial",
+            "active_revision",
+        )
         return ActionResult(
             True,
-            facts={
-                "field_serial": "1",
-                "source_field_serial": "1",
-                "geometry_revision": "1",
-                "build_token_serial": "1",
-                "obsolete_density_token_serial": "1",
-                "active_revision": "1",
-            },
+            facts={name: f"{{dry-run:{name}}}" for name in fact_names},
         )
 
     def analyze(
@@ -154,11 +172,15 @@ class RecordingHost:
 class SubprocessHost(RecordingHost):
     """Production adapter. Every process launch uses argv with ``shell=False``."""
 
-    def prepare(self, run_dir: Path) -> ActionResult:
-        try:
-            run_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as error:
-            return ActionResult(False, f"cannot create run directory: {error}")
+    def prepare(self, run_dirs: tuple[Path, ...]) -> ActionResult:
+        for run_dir in run_dirs:
+            try:
+                run_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                return ActionResult(
+                    False,
+                    f"cannot create run directory {run_dir}: {error}",
+                )
         return ActionResult(True)
 
     def build(self, action: BuildRelease, repo_root: Path) -> ActionResult:
@@ -219,7 +241,10 @@ class SubprocessHost(RecordingHost):
             facts = validate_scenario_log(action)
         except (OSError, ValueError) as error:
             return ActionResult(False, str(error))
-        return ActionResult(True, facts={name: str(value) for name, value in facts.items()})
+        return ActionResult(
+            True,
+            facts={name: str(value) for name, value in facts.items()},
+        )
 
     def analyze(
         self,
@@ -292,36 +317,119 @@ def _perform(
     action: Action,
     repo_root: Path,
     facts: dict[tuple[str, str], str],
-) -> ActionResult:
+) -> _PerformedAction:
+    production = type(host) is SubprocessHost
     match action:
         case BuildRelease():
-            return host.build(action, repo_root)
+            result = (
+                SubprocessHost.build(host, action, repo_root)
+                if production
+                else host.build(action, repo_root)
+            )
         case Capture():
-            return host.capture(action, repo_root)
+            result = (
+                SubprocessHost.capture(host, action, repo_root)
+                if production
+                else host.capture(action, repo_root)
+            )
         case ValidateProcessEvidence():
-            return host.validate_process(action)
+            result = (
+                SubprocessHost.validate_process(host, action)
+                if production
+                else host.validate_process(action)
+            )
         case ValidateScenarioLog():
-            return host.validate_scenario(action)
+            result = (
+                SubprocessHost.validate_scenario(host, action)
+                if production
+                else host.validate_scenario(action)
+            )
         case AnalyzeCurrentCapture():
-            return host.analyze(action, repo_root, facts)
+            result = (
+                SubprocessHost.analyze(host, action, repo_root, facts)
+                if production
+                else host.analyze(action, repo_root, facts)
+            )
         case ValidateRadianceLifecycle():
-            return host.validate_radiance(action)
+            result = (
+                SubprocessHost.validate_radiance(host, action)
+                if production
+                else host.validate_radiance(action)
+            )
         case SummarizeConvergence():
-            return host.summarize(action, repo_root)
+            result = (
+                SubprocessHost.summarize(host, action, repo_root)
+                if production
+                else host.summarize(action, repo_root)
+            )
         case CheckSkyNormalization():
-            return host.check_sky(action, repo_root)
+            result = (
+                SubprocessHost.check_sky(host, action, repo_root)
+                if production
+                else host.check_sky(action, repo_root)
+            )
         case RelocateArtifact():
-            return host.relocate(action)
-    raise AssertionError(f"unhandled action: {action!r}")
+            result = (
+                SubprocessHost.relocate(host, action)
+                if production
+                else host.relocate(action)
+            )
+        case _:
+            raise AssertionError(f"unhandled action: {action!r}")
+    completion = _ProductionCompletion() if production and result.succeeded else None
+    return _PerformedAction(result, completion)
+
+
+def _workspace_directories(execution_plan: ExecutionPlan) -> tuple[Path, ...]:
+    directories: list[Path] = []
+
+    def collect(plan: ExecutionPlan) -> None:
+        if plan.run_dir not in directories:
+            directories.append(plan.run_dir)
+        for stage in plan.stages:
+            if isinstance(stage, IncludeSuite):
+                collect(stage.execution_plan)
+
+    collect(execution_plan)
+    return tuple(directories)
 
 
 def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
+    if not execution_plan.request.dry_run:
+        directories = _workspace_directories(execution_plan)
+        prepared = (
+            SubprocessHost.prepare(host, directories)
+            if type(host) is SubprocessHost
+            else host.prepare(directories)
+        )
+        if not prepared.succeeded:
+            return RunReport(
+                execution_plan.request.suite,
+                execution_plan.run_dir,
+                (
+                    ActionFailure(
+                        FailureKey(execution_plan.request.suite, "setup"),
+                        prepared.message,
+                    ),
+                ),
+                (),
+                {},
+                (),
+            )
+    return _execute(execution_plan, host).report
+
+
+def _execute(
+    execution_plan: ExecutionPlan,
+    host: RecordingHost,
+) -> _ExecutionOutcome:
     failures: list[ActionFailure] = []
     failure_keys: set[FailureKey] = set()
     claims: list[str] = []
     facts: dict[tuple[str, str], str] = {}
     included_reports: list[IncludedRunReport] = []
     stage_status: dict[str, bool] = {}
+    production_stages: set[str] = set()
 
     def append_failure(failure: ActionFailure) -> None:
         if failure.key in failure_keys:
@@ -329,26 +437,10 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
         failure_keys.add(failure.key)
         failures.append(failure)
 
-    if not execution_plan.request.dry_run:
-        prepared = host.prepare(execution_plan.run_dir)
-        if not prepared.succeeded:
-            append_failure(
-                ActionFailure(
-                    FailureKey(execution_plan.request.suite, "setup"), prepared.message
-                )
-            )
-            return RunReport(
-                execution_plan.request.suite,
-                execution_plan.run_dir,
-                tuple(failures),
-                (),
-                facts,
-                (),
-            )
-
     for stage in execution_plan.stages:
         if isinstance(stage, IncludeSuite):
-            nested = execute(stage.execution_plan, host)
+            outcome = _execute(stage.execution_plan, host)
+            nested = outcome.report
             included_reports.append(IncludedRunReport(stage.id, nested))
             if not nested.succeeded:
                 append_failure(
@@ -361,13 +453,20 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
             claims.extend(nested.claims)
             facts.update(nested.facts)
             stage_status[stage.id] = nested.succeeded
+            if nested.succeeded and outcome.production_complete:
+                production_stages.add(stage.id)
             continue
         if isinstance(stage, Claim):
-            accepted = not failures and all(
-                stage_status.get(required, False) for required in stage.requires
+            accepted = (
+                not execution_plan.request.dry_run
+                and not failures
+                and all(
+                    required in production_stages for required in stage.requires
+                )
             )
             stage_status[stage.id] = accepted
             if accepted:
+                production_stages.add(stage.id)
                 claims.append(stage.message)
                 host.emit(stage.message)
             continue
@@ -382,6 +481,7 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
             else stage.failure_key
         )
         succeeded = True
+        production_complete = True
         blocked_segment = False
         first_failure = ""
         for action in stage.actions:
@@ -392,30 +492,49 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
             ):
                 continue
             try:
-                result = _perform(host, action, execution_plan.request.repo_root, facts)
+                performed = _perform(
+                    host,
+                    action,
+                    execution_plan.request.repo_root,
+                    facts,
+                )
             except KeyError as error:
-                result = ActionResult(False, f"missing dynamic fact {error.args[0]!r}")
+                performed = _PerformedAction(
+                    ActionResult(False, f"missing dynamic fact {error.args[0]!r}"),
+                    None,
+                )
+            result = performed.result
             if not result.succeeded:
                 succeeded = False
+                production_complete = False
                 blocked_segment = True
                 if not first_failure:
                     first_failure = result.message
                 continue
+            if performed.completion is None:
+                production_complete = False
             namespace = stage.id
             if isinstance(action, ValidateScenarioLog) and action.fact_namespace:
                 namespace = action.fact_namespace
             for name, value in result.facts.items():
                 facts[(namespace, name)] = value
         stage_status[stage.id] = succeeded
+        if succeeded and production_complete:
+            production_stages.add(stage.id)
         if not succeeded:
             append_failure(ActionFailure(key, first_failure))
             if isinstance(stage, Setup):
                 break
-    return RunReport(
+    report = RunReport(
         execution_plan.request.suite,
         execution_plan.run_dir,
         tuple(failures),
         tuple(claims),
         facts,
         tuple(included_reports),
+    )
+    return _ExecutionOutcome(
+        report,
+        report.succeeded
+        and all(stage.id in production_stages for stage in execution_plan.stages),
     )

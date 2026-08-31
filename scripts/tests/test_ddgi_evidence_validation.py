@@ -10,10 +10,11 @@ import sys
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
+from ddgi_evidence.model import ScenarioValidation, ValidateScenarioLog  # noqa: E402
 from ddgi_evidence.validation import (  # noqa: E402
     RadianceLifecycleError,
     validate_process_evidence,
-    validate_radiance_event_stream,
+    validate_scenario_log,
 )
 
 
@@ -41,8 +42,20 @@ VALID_RADIANCE_STREAM = """
 
 
 class RadianceLifecycleStreamTests(unittest.TestCase):
+    def validate(self, text: str) -> dict[str, int]:
+        with tempfile.TemporaryDirectory() as temporary:
+            console = Path(temporary) / "radiance.console.log"
+            console.write_text(text, encoding="utf-8")
+            return validate_scenario_log(
+                ValidateScenarioLog(
+                    ScenarioValidation.RADIANCE_STREAM,
+                    console,
+                    32,
+                )
+            )
+
     def test_valid_stream_returns_the_final_capture_identity(self) -> None:
-        facts = validate_radiance_event_stream(VALID_RADIANCE_STREAM, 32)
+        facts = self.validate(VALID_RADIANCE_STREAM)
         self.assertEqual(
             facts,
             {
@@ -55,7 +68,7 @@ class RadianceLifecycleStreamTests(unittest.TestCase):
 
     def assert_rejected(self, text: str, message: str) -> None:
         with self.assertRaisesRegex(RadianceLifecycleError, message):
-            validate_radiance_event_stream(text, 32)
+            self.validate(text)
 
     def test_rejects_out_of_order_and_duplicate_checkpoints(self) -> None:
         lines = VALID_RADIANCE_STREAM.splitlines()

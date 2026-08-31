@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 
 REQUIRED_OWNER_PATHS = (
@@ -11,46 +12,32 @@ REQUIRED_OWNER_PATHS = (
     "docs/ddgi_indirect_transport_spec.md",
     "docs/ddgi_transport_acceptance.md",
     "scripts/analyze_environment_irradiance_capture.py",
-    "scripts/analyze_current_environment_irradiance_capture.py",
     "scripts/check_ddgi_correctness.sh",
-    "scripts/check_ddgi_inflight_terrain_edits.sh",
-    "scripts/check_ddgi_lifecycle_acceptance.sh",
-    "scripts/check_ddgi_local_terrain_convergence.sh",
-    "scripts/check_ddgi_runtime_terrain_edits.sh",
     "scripts/check_ddgi_sky_normalization_evidence.py",
-    "scripts/check_ddgi_terrain_edit_cycle.sh",
-    "scripts/check_ddgi_transport_acceptance.sh",
-    "scripts/ddgi_evidence/__init__.py",
-    "scripts/ddgi_evidence/cli.py",
-    "scripts/ddgi_evidence/executor.py",
-    "scripts/ddgi_evidence/model.py",
-    "scripts/ddgi_evidence/plan.py",
     "scripts/ddgi_evidence/validation.py",
     "scripts/shader_validation_workflow_contract.py",
-    "scripts/summarize_ddgi_convergence.py",
-    "scripts/tests/test_ddgi_evidence_cli.py",
-    "scripts/tests/test_ddgi_evidence_plan.py",
     "scripts/tests/test_ddgi_evidence_validation.py",
-    "scripts/tests/test_analyze_environment_irradiance_capture.py",
-    "scripts/tests/test_shader_validation_workflow.py",
-    "src/app/core/ddgi_spatial_weight_readback.rs",
-    "src/app/core/environment_irradiance_capture.rs",
-    "src/app/core/environment_lighting_test_scene.rs",
     "src/app/core/environment_lighting_test_scene/local_light_scaling.rs",
-    "src/app/core/mod.rs",
-    "src/cli.rs",
-    "src/ddgi/capture.rs",
-    "src/ddgi/resources.rs",
     "src/ddgi/runtime.rs",
-    "src/environment_lighting.rs",
-    "src/tracer/buffer_updater.rs",
-    "src/tracer/pipeline_builder.rs",
 )
 REQUIRED_FEDORA_COMMANDS = (
     "cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity",
     "cargo test --locked ddgi::resources::tests::filter_",
     "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness",
 )
+
+
+@dataclass(frozen=True)
+class ParsedWorkflowContract:
+    routes_by_event: tuple[tuple[str, tuple[str, ...]], ...]
+    fedora_commands: tuple[str, ...]
+    failures: tuple[str, ...]
+
+    def routes(self, event: str, path: str) -> bool:
+        if self.failures:
+            return False
+        patterns = dict(self.routes_by_event).get(event)
+        return patterns is not None and _routes(patterns, path)
 
 
 def _indent(line: str) -> int:
@@ -70,15 +57,27 @@ def _mapping_entry(
     if content.startswith(("\"", "'")):
         quote = content[0]
         closing = content.find(quote, 1)
-        if closing == -1 or not content[closing + 1 :].lstrip().startswith(":"):
+        if (
+            closing == -1
+            or quote in content[1:closing]
+            or not content[closing + 1 :].lstrip().startswith(":")
+        ):
             return None
         key = content[1:closing]
-        value = content[closing + 1 :].lstrip()[1:].strip()
+        suffix = content[closing + 1 :].lstrip()
+        if not suffix.startswith(":"):
+            return None
+        value = suffix[1:].strip()
         return key, value
     key, separator, value = content.partition(":")
-    if not separator or not key:
+    key = key.strip()
+    if (
+        not separator
+        or not key
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", key)
+    ):
         return None
-    return key.strip(), value.strip()
+    return key, value.strip()
 
 
 def _mapping_block(lines: list[str], key: str, indent: int) -> list[str]:
@@ -112,23 +111,42 @@ def _mapping_blocks(lines: list[str], key: str, indent: int) -> list[list[str]]:
     return blocks
 
 
-def _route_patterns(on_block: list[str], event: str) -> tuple[str, ...]:
+def _quoted_route_pattern(value: str) -> str | None:
+    if len(value) < 2 or value[0] not in {"\"", "'"} or value[-1] != value[0]:
+        return None
+    if value[0] in value[1:-1]:
+        return None
+    return value[1:-1]
+
+
+def _route_patterns(
+    on_block: list[str], event: str
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     event_blocks = _mapping_blocks(on_block, event, 2)
     if len(event_blocks) != 1:
-        return ()
+        return (), ()
     paths_blocks = _mapping_blocks(event_blocks[0], "paths", 4)
     if len(paths_blocks) != 1:
-        return ()
+        return (), ()
     paths_block = paths_blocks[0]
     patterns: list[str] = []
+    failures: list[str] = []
     for line in paths_block:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
         if _indent(line) != 6:
+            failures.append(f"{event} has malformed route indentation")
             continue
         item = line.strip()
         if not item.startswith("- "):
+            failures.append(f"{event} has malformed route list item {item}")
             continue
-        patterns.append(item[2:].strip().strip('"\''))
-    return tuple(patterns)
+        pattern = _quoted_route_pattern(item[2:].strip())
+        if pattern is None:
+            failures.append(f"{event} has malformed quoted route {item[2:].strip()}")
+            continue
+        patterns.append(pattern)
+    return tuple(patterns), tuple(failures)
 
 
 def _routes(patterns: tuple[str, ...], path: str) -> bool:
@@ -215,7 +233,14 @@ def _field(
             continue
         value = entry[1].split("#", 1)[0].strip()
         if value not in {"|", ">", "|-", ">-"}:
-            return "scalar", ((value.strip('"\''),) if value else ())
+            if not value:
+                return "scalar", ()
+            if value.startswith(("\"", "'")) or value.endswith(("\"", "'")):
+                scalar = _quoted_route_pattern(value)
+                if scalar is None:
+                    return "invalid", ()
+                return "scalar", (scalar,)
+            return "scalar", (value,)
         values: list[str] = []
         for block_line in lines[index + 1 :]:
             if block_line.strip() and _indent(block_line) <= indent:
@@ -267,22 +292,30 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
         key, value = entry
         if not key:
             return False
-        entries.append((key, value.strip().strip('"\'')))
+        if value.startswith(("\"", "'")) or value.endswith(("\"", "'")):
+            scalar = _quoted_route_pattern(value)
+            if scalar is None:
+                return False
+            value = scalar
+        entries.append((key, value))
     return entries == [("CARGO_TERM_COLOR", "always")]
 
 
-def workflow_contract_failures(source: str) -> list[str]:
+def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
     lines = source.splitlines()
     failures: list[str] = []
     on_blocks = _mapping_blocks(lines, "on", 0)
     if len(on_blocks) != 1:
         failures.append("workflow must have one root on mapping")
     on_block = on_blocks[0] if len(on_blocks) == 1 else []
+    routes_by_event: list[tuple[str, tuple[str, ...]]] = []
     for event in ("pull_request", "push"):
         event_blocks = _mapping_blocks(on_block, event, 2)
         if len(event_blocks) != 1:
             failures.append(f"root on must have one {event} mapping")
-        patterns = _route_patterns(on_block, event)
+        patterns, route_failures = _route_patterns(on_block, event)
+        failures.extend(route_failures)
+        routes_by_event.append((event, patterns))
         for pattern in patterns:
             if not _supported_route_pattern(pattern):
                 failures.append(f"{event} uses unsupported route pattern {pattern}")
@@ -306,4 +339,10 @@ def workflow_contract_failures(source: str) -> list[str]:
     for command in REQUIRED_FEDORA_COMMANDS:
         if fedora_commands.count(command) != 1:
             failures.append(f"Fedora job does not run {command}")
-    return failures
+    if failures:
+        return ParsedWorkflowContract((), (), tuple(failures))
+    return ParsedWorkflowContract(tuple(routes_by_event), tuple(fedora_commands), ())
+
+
+def workflow_contract_failures(source: str) -> list[str]:
+    return list(parse_workflow_contract(source).failures)

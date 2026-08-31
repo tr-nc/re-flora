@@ -12,14 +12,23 @@ import sys
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
+import ddgi_evidence.executor as executor_module  # noqa: E402
 from ddgi_evidence.executor import ActionResult, RecordingHost, execute  # noqa: E402
 from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
+    BuildRelease,
     Capture,
+    Claim,
+    CorrectnessOptions,
     FailureKey,
+    IncludeSuite,
+    LifecycleOptions,
     ProductionAnalyzerOptions,
     RunRequest,
+    RuntimeTerrainEditsOptions,
+    Setup,
     Suite,
+    TransportOptions,
     iter_actions,
 )
 from ddgi_evidence.plan import plan  # noqa: E402
@@ -100,6 +109,139 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
                 sum(command.kind == "analysis" for command in host.commands), 78
             )
 
+    def test_transport_owns_one_release_setup_and_one_workspace_preparation(self) -> None:
+        class PreparingHost(RecordingHost):
+            def __init__(self) -> None:
+                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
+                self.prepare_calls = 0
+
+            def prepare(self, workspace):
+                self.prepare_calls += 1
+                return super().prepare(workspace)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "outputs"
+            request = RunRequest(
+                Suite.TRANSPORT,
+                root,
+                dry_run=False,
+                options=TransportOptions(
+                    output_dir=output / "transport",
+                    correctness=CorrectnessOptions(
+                        output_dir=output / "correctness"
+                    ),
+                    runtime=RuntimeTerrainEditsOptions(
+                        output_dir=output / "runtime"
+                    ),
+                    lifecycle=LifecycleOptions(
+                        output_dir=output / "lifecycle"
+                    ),
+                ),
+                run_id="one-workspace",
+            )
+            execution_plan = plan(request)
+            release_builds = tuple(
+                action
+                for action in iter_actions(execution_plan)
+                if isinstance(action, BuildRelease)
+            )
+            host = PreparingHost()
+
+            report = execute(execution_plan, host)
+
+        self.assertTrue(report.succeeded, report.failures)
+        self.assertEqual(len(release_builds), 1)
+        self.assertEqual(
+            sum(isinstance(stage, Setup) for stage in execution_plan.stages),
+            1,
+        )
+        child_plans = tuple(
+            stage.execution_plan
+            for stage in execution_plan.stages
+            if isinstance(stage, IncludeSuite)
+        )
+        self.assertTrue(child_plans)
+        self.assertTrue(
+            all(
+                not any(isinstance(stage, Setup) for stage in child.stages)
+                for child in child_plans
+            )
+        )
+        self.assertEqual(
+            sum(command.kind == "build" for command in host.commands), 1
+        )
+        self.assertEqual(host.prepare_calls, 1)
+        self.assertEqual(
+            sum(command.kind == "capture" for command in host.commands), 100
+        )
+        self.assertEqual(
+            sum(command.kind == "analysis" for command in host.commands), 78
+        )
+
+    def test_forging_recording_host_cannot_issue_production_evidence_claims(self) -> None:
+        class ForgedActionResult(ActionResult):
+            pass
+
+        forged_result_type = getattr(
+            executor_module,
+            "_ProductionActionResult",
+            ForgedActionResult,
+        )
+
+        class ForgingRecordingHost(RecordingHost):
+            @staticmethod
+            def forge(result: ActionResult) -> ActionResult:
+                return forged_result_type(
+                    result.succeeded,
+                    result.message,
+                    dict(result.facts),
+                )
+
+            def build(self, action, repo_root):
+                return self.forge(super().build(action, repo_root))
+
+            def capture(self, action, repo_root):
+                return self.forge(super().capture(action, repo_root))
+
+            def validate_process(self, action):
+                return self.forge(super().validate_process(action))
+
+            def validate_scenario(self, action):
+                return self.forge(super().validate_scenario(action))
+
+            def analyze(self, action, repo_root, facts):
+                return self.forge(super().analyze(action, repo_root, facts))
+
+            def validate_radiance(self, action):
+                return self.forge(super().validate_radiance(action))
+
+            def summarize(self, action, repo_root):
+                return self.forge(super().summarize(action, repo_root))
+
+            def check_sky(self, action, repo_root):
+                return self.forge(super().check_sky(action, repo_root))
+
+            def relocate(self, action):
+                return self.forge(super().relocate(action))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = io.StringIO()
+            errors = io.StringIO()
+            request = RunRequest(
+                Suite.TRANSPORT,
+                Path(temporary),
+                dry_run=False,
+            )
+            host = ForgingRecordingHost(stdout=output, stderr=errors)
+
+            report = execute(plan(request), host)
+
+        self.assertTrue(report.succeeded, report.failures)
+        self.assertEqual(report.claims, ())
+        self.assertNotIn("=PROVEN", output.getvalue())
+        self.assertIn("{dry-run:geometry_revision}", errors.getvalue())
+
     def test_failure_keys_accumulate_the_full_correctness_capture_matrix(self) -> None:
         class FailingCaptureHost(RecordingHost):
             def capture(self, action, repo_root):
@@ -119,74 +261,56 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             sum(command.kind == "analysis" for command in host.commands), 0
         )
 
-    def test_transport_claims_are_emitted_only_after_their_required_stages(self) -> None:
-        class SelectiveFailureHost(RecordingHost):
-            def __init__(self, failed_suite: Suite, failed_scenario: str = "") -> None:
-                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
-                self.failed_suite = failed_suite
-                self.failed_scenario = failed_scenario
-
-            def capture(self, action, repo_root):
-                recorded = super().capture(action, repo_root)
-                if action.suite is self.failed_suite and (
-                    not self.failed_scenario
-                    or action.scenario == self.failed_scenario
-                ):
-                    return ActionResult(False, "selected fixture failure")
-                return recorded
-
+    def test_transport_claims_require_prior_typed_evidence_stages(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             execution_plan = plan(
                 self.request(Suite.TRANSPORT, Path(temporary))
             )
-            dogleg = execute(
-                execution_plan,
-                SelectiveFailureHost(Suite.TRANSPORT, "dogleg"),
-            )
-            runtime = execute(
-                execution_plan,
-                SelectiveFailureHost(Suite.RUNTIME_TERRAIN_EDITS),
-            )
+        claims = {
+            stage.id: stage
+            for stage in execution_plan.stages
+            if isinstance(stage, Claim)
+        }
+        self.assertEqual(
+            claims["transport.filter-history-outcome"].requires,
+            (
+                "transport.dogleg.32.e0.forward",
+                "transport.dogleg.32.e1.forward",
+                "transport.dogleg.16.e0.forward",
+                "transport.dogleg.16.e1.forward",
+            ),
+        )
+        self.assertEqual(
+            claims["transport.direct-sun"].requires,
+            ("transport.include.runtime",),
+        )
+        self.assertEqual(
+            claims["transport.filter-history-action"].requires[-5:],
+            (
+                "transport.convergence",
+                "transport.include.correctness",
+                "transport.include.runtime",
+                "transport.sky-normalization",
+                "transport.include.lifecycle",
+            ),
+        )
 
-        self.assertFalse(
-            any("filter-history-outcome=ACCEPTED" in claim for claim in dogleg.claims)
-        )
-        self.assertFalse(
-            any("=PROVEN" in claim for claim in dogleg.claims),
-            dogleg.claims,
-        )
-        self.assertTrue(
-            any("filter-history-outcome=ACCEPTED" in claim for claim in runtime.claims)
-        )
-        self.assertFalse(
-            any("direct-sun-framebuffer=PROVEN" in claim for claim in runtime.claims)
-        )
-        self.assertFalse(
-            any("filter-history-action=PROVEN" in claim for claim in runtime.claims)
-        )
+        prior_stage_ids: set[str] = set()
+        for stage in execution_plan.stages:
+            if isinstance(stage, Claim):
+                self.assertLessEqual(set(stage.requires), prior_stage_ids)
+            prior_stage_ids.add(stage.id)
 
     def test_direct_sun_proof_keeps_its_pre_normalization_order(self) -> None:
-        class OrderedHost(RecordingHost):
-            def __init__(self) -> None:
-                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
-                self.events: list[str] = []
-
-            def check_sky(self, action, repo_root):
-                self.events.append("sky-normalization")
-                return super().check_sky(action, repo_root)
-
-            def emit(self, message, *, error=False):
-                if "direct-sun-framebuffer=PROVEN" in message:
-                    self.events.append("direct-sun-proof")
-                return super().emit(message, error=error)
-
         with tempfile.TemporaryDirectory() as temporary:
-            host = OrderedHost()
-            execute(plan(self.request(Suite.TRANSPORT, Path(temporary))), host)
+            execution_plan = plan(
+                self.request(Suite.TRANSPORT, Path(temporary))
+            )
+        stage_ids = tuple(stage.id for stage in execution_plan.stages)
 
         self.assertLess(
-            host.events.index("direct-sun-proof"),
-            host.events.index("sky-normalization"),
+            stage_ids.index("transport.direct-sun"),
+            stage_ids.index("transport.sky-normalization"),
         )
 
     def test_transport_folds_a_failed_include_and_retains_nested_details(self) -> None:
