@@ -1514,7 +1514,7 @@ impl DdgiStatus {
     }
 }
 
-pub struct DdgiVolume {
+pub(super) struct DdgiVolume {
     build_token: Option<DdgiBuildToken>,
     grid: DdgiVolumeGrid,
     irradiance_layout: DdgiAtlasLayout,
@@ -1684,13 +1684,13 @@ impl ResourceContainer for DdgiBuilderResources<'_> {
 ///
 /// A staging volume is never returned by [`Self::active`]. Promotion is the only operation that
 /// can make it consumer-visible, and promotion rejects incomplete volumes.
-pub(crate) struct DdgiVolumes {
+pub(super) struct DdgiVolumes {
     active: DdgiVolume,
     staging: Option<DdgiVolume>,
 }
 
 impl DdgiVolumes {
-    pub(crate) fn new(active: DdgiVolume) -> Self {
+    pub(super) fn new(active: DdgiVolume) -> Self {
         Self {
             active,
             staging: None,
@@ -1866,7 +1866,7 @@ impl ResourceContainer for DdgiVolume {
 }
 
 impl DdgiVolume {
-    pub fn new(
+    pub(super) fn new(
         vulkan_ctx: &VulkanContext,
         allocator: Allocator,
         world_extent_voxels: UVec3,

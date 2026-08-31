@@ -60,7 +60,7 @@ pub use config::{
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
 pub(crate) use resources::{
-    DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources, DdgiVolumes,
+    DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources,
 };
 #[allow(unused_imports)]
 pub use resources::{
@@ -70,7 +70,7 @@ pub use resources::{
     DdgiFilterEpochProof, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     DdgiLocalLightTraceTotals, DdgiProbePriority, DdgiProbePriorityReason, DdgiRayBatch,
     DdgiResourceBytes, DdgiTraceStats, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_MASK,
+    DdgiVolumeStage, DDGI_CONVERGENCE_POLICY, DDGI_FILTER_POLICY_OWNER_MASK,
     DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
