@@ -722,7 +722,7 @@ impl SpatialSoundManager {
             sim_time_seconds,
             listener_pose,
             emitters,
-        ))?;
+        )?)?;
         cadence.mark_published(sim_time_seconds);
         drop(cadence);
 
