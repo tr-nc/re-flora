@@ -700,8 +700,23 @@ enum EnvironmentPhaseRecoveryDiagnostic {
         family: EnvironmentPhaseFamily,
         identity: usize,
         phase: TestScenePhase,
+        injected_frame: u64,
     },
     Complete,
+}
+
+fn require_environment_phase_retry_on_next_frame(
+    injected_frame: u64,
+    retry_frame: u64,
+) -> Result<()> {
+    let expected_retry_frame = injected_frame
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("environment phase injection frame overflowed"))?;
+    anyhow::ensure!(
+        retry_frame == expected_retry_frame,
+        "environment phase recovery missed the next physical frame: injected_frame={injected_frame} retry_frame={retry_frame}"
+    );
+    Ok(())
 }
 
 impl EnvironmentPhaseRecoveryDiagnostic {
@@ -2958,6 +2973,7 @@ impl App {
         let family = environment.family();
         let identity = (&*environment.identity as *const EnvironmentPhaseIdentityPermit) as usize;
         let phase = environment.phase;
+        let frame = self.time_info.total_frame_count();
         let diagnostic = std::mem::replace(
             &mut environment.recovery_diagnostic,
             EnvironmentPhaseRecoveryDiagnostic::Disabled,
@@ -2968,13 +2984,14 @@ impl App {
             }
             EnvironmentPhaseRecoveryDiagnostic::Armed => {
                 log::warn!(
-                    "[ENV_PHASE_RECOVERY] injected family={family:?} owner={} revision_pending=true",
+                    "[ENV_PHASE_RECOVERY] event=injected family={family:?} injected_frame={frame} owner={} revision_pending=true",
                     environment.identity.owner_id,
                 );
                 environment.recovery_diagnostic = EnvironmentPhaseRecoveryDiagnostic::Retrying {
                     family,
                     identity,
                     phase,
+                    injected_frame: frame,
                 };
                 anyhow::bail!("injected {family:?} environment phase preflight failure");
             }
@@ -2982,6 +2999,7 @@ impl App {
                 family: expected_family,
                 identity: expected_identity,
                 phase: expected_phase,
+                injected_frame,
             } => {
                 anyhow::ensure!(
                     family == expected_family && identity == expected_identity,
@@ -2991,8 +3009,10 @@ impl App {
                     phase == expected_phase,
                     "environment phase recovery advanced before its retry"
                 );
+                require_environment_phase_retry_on_next_frame(injected_frame, frame)
+                    .unwrap_or_else(|error| panic!("[ENV_PHASE_RECOVERY] {error:#}"));
                 log::info!(
-                    "[ENV_PHASE_RECOVERY] retried family={family:?} exact_payload=true exact_phase=true owner={}",
+                    "[ENV_PHASE_RECOVERY] event=retried family={family:?} injected_frame={injected_frame} retry_frame={frame} exact_payload=true exact_phase=true owner={}",
                     environment.identity.owner_id,
                 );
                 EnvironmentPhaseRecoveryDiagnostic::Complete
@@ -6336,6 +6356,17 @@ mod tests {
             );
             owners.restore_environment_phase(next_frame).unwrap();
         }
+    }
+
+    #[test]
+    fn environment_phase_recovery_requires_the_next_physical_frame() {
+        require_environment_phase_retry_on_next_frame(41, 42).unwrap();
+
+        let delayed = require_environment_phase_retry_on_next_frame(41, 43).unwrap_err();
+        assert!(delayed
+            .to_string()
+            .contains("injected_frame=41 retry_frame=43"));
+        assert!(require_environment_phase_retry_on_next_frame(u64::MAX, 0).is_err());
     }
 
     #[test]
