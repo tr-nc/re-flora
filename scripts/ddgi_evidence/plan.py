@@ -738,12 +738,24 @@ def _transport(request: RunRequest) -> ExecutionPlan:
         )
     )
     child_run_id = request.run_id
+    shared_output_root = run_dir.parent
+    correctness_options = options.correctness
+    if correctness_options.output_dir is None:
+        correctness_options = replace(
+            correctness_options, output_dir=shared_output_root
+        )
+    runtime_options = options.runtime
+    if runtime_options.output_dir is None:
+        runtime_options = replace(runtime_options, output_dir=shared_output_root)
+    lifecycle_options = options.lifecycle
+    if lifecycle_options.output_dir is None:
+        lifecycle_options = replace(lifecycle_options, output_dir=shared_output_root)
     correctness = plan(
         RunRequest(
             Suite.CORRECTNESS,
             request.repo_root,
             request.dry_run,
-            options.correctness,
+            correctness_options,
             child_run_id,
         )
     )
@@ -752,7 +764,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             Suite.RUNTIME_TERRAIN_EDITS,
             request.repo_root,
             request.dry_run,
-            options.runtime,
+            runtime_options,
             child_run_id,
         )
     )
@@ -761,7 +773,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             Suite.LIFECYCLE,
             request.repo_root,
             request.dry_run,
-            options.lifecycle,
+            lifecycle_options,
             child_run_id,
         )
     )

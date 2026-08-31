@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS))
 from ddgi_evidence.executor import ActionResult, RecordingHost, execute  # noqa: E402
 from ddgi_evidence.model import (  # noqa: E402
     AnalyzeCurrentCapture,
+    BuildRelease,
     Capture,
     FailureKey,
     ProductionAnalyzerOptions,
@@ -118,7 +119,7 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             release_builds = tuple(
                 action
                 for action in iter_actions(execution_plan)
-                if action.__class__.__name__ == "BuildRelease"
+                if isinstance(action, BuildRelease)
             )
             host = PreparingHost()
 

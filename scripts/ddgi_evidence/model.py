@@ -122,9 +122,17 @@ class ProductionAnalyzerOptions:
             )
 
 
+class ReleaseBuildIdentity(Enum):
+    RELEASE_BINARY = "release-binary"
+
+
 @dataclass(frozen=True)
 class BuildRelease:
     quiet: bool = False
+    prerequisite: ReleaseBuildIdentity = field(
+        default=ReleaseBuildIdentity.RELEASE_BINARY,
+        init=False,
+    )
 
     def argv(self, repo_root: Path) -> tuple[str, ...]:
         quiet = ("--quiet",) if self.quiet else ()

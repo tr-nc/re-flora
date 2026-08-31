@@ -23,6 +23,7 @@ from .model import (
     IncludeSuite,
     IncludedRunReport,
     RelocateArtifact,
+    ReleaseBuildIdentity,
     RunReport,
     Setup,
     Suite,
@@ -44,6 +45,14 @@ class ActionResult:
     succeeded: bool
     message: str = ""
     facts: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class _ExecutionContext:
+    prepared_run_dirs: set[Path] = field(default_factory=set)
+    prerequisites: dict[ReleaseBuildIdentity, ActionResult] = field(
+        default_factory=dict
+    )
 
 
 class RecordingHost:
@@ -292,10 +301,17 @@ def _perform(
     action: Action,
     repo_root: Path,
     facts: dict[tuple[str, str], str],
+    context: _ExecutionContext,
 ) -> ActionResult:
     match action:
         case BuildRelease():
-            return host.build(action, repo_root)
+            completed = context.prerequisites.get(action.prerequisite)
+            if completed is not None:
+                return completed
+            result = host.build(action, repo_root)
+            if result.succeeded:
+                context.prerequisites[action.prerequisite] = result
+            return result
         case Capture():
             return host.capture(action, repo_root)
         case ValidateProcessEvidence():
@@ -316,6 +332,14 @@ def _perform(
 
 
 def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
+    return _execute(execution_plan, host, _ExecutionContext())
+
+
+def _execute(
+    execution_plan: ExecutionPlan,
+    host: RecordingHost,
+    context: _ExecutionContext,
+) -> RunReport:
     failures: list[ActionFailure] = []
     failure_keys: set[FailureKey] = set()
     claims: list[str] = []
@@ -329,7 +353,10 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
         failure_keys.add(failure.key)
         failures.append(failure)
 
-    if not execution_plan.request.dry_run:
+    if (
+        not execution_plan.request.dry_run
+        and execution_plan.run_dir not in context.prepared_run_dirs
+    ):
         prepared = host.prepare(execution_plan.run_dir)
         if not prepared.succeeded:
             append_failure(
@@ -345,10 +372,11 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
                 facts,
                 (),
             )
+        context.prepared_run_dirs.add(execution_plan.run_dir)
 
     for stage in execution_plan.stages:
         if isinstance(stage, IncludeSuite):
-            nested = execute(stage.execution_plan, host)
+            nested = _execute(stage.execution_plan, host, context)
             included_reports.append(IncludedRunReport(stage.id, nested))
             if not nested.succeeded:
                 append_failure(
@@ -392,7 +420,13 @@ def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
             ):
                 continue
             try:
-                result = _perform(host, action, execution_plan.request.repo_root, facts)
+                result = _perform(
+                    host,
+                    action,
+                    execution_plan.request.repo_root,
+                    facts,
+                    context,
+                )
             except KeyError as error:
                 result = ActionResult(False, f"missing dynamic fact {error.args[0]!r}")
             if not result.succeeded:
