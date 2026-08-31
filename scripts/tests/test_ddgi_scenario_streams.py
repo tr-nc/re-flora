@@ -456,7 +456,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "",
                 4,
                 "generation_token_serial=3",
-                "published_field_serial=19",
+                ("published_field_serial=19", "published_field_serial=999"),
             ),
             (
                 ScenarioValidation.LOCAL_RECOVERY,
@@ -464,7 +464,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "",
                 4,
                 "generation_token_serial=2",
-                "published_field_serial=12",
+                ("published_field_serial=12", "published_field_serial=999"),
             ),
             (
                 ScenarioValidation.RUNTIME_FINAL,
@@ -472,7 +472,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "sequential-reopened",
                 0,
                 "generation_token_serial=4",
-                "published_field_serial=25",
+                ("published_field_serial=25", "published_field_serial=999"),
             ),
             (
                 ScenarioValidation.RUNTIME_TRANSIENT,
@@ -480,7 +480,10 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "",
                 4,
                 "generation_token_serial=1",
-                "field_serial=1 source_field_serial=0",
+                (
+                    "field_serial=1 source_field_serial=0",
+                    "field_serial=999 source_field_serial=0",
+                ),
             ),
             (
                 ScenarioValidation.FLORA_CONSUMER,
@@ -488,7 +491,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "",
                 4,
                 "generation_token_serial=4",
-                "published_field_serial=25",
+                ("published_field_serial=25", "published_field_serial=999"),
             ),
             (
                 ScenarioValidation.TERRAIN_EDIT,
@@ -496,7 +499,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "reopened",
                 4,
                 "generation_token_serial=4",
-                "published_field_serial=25",
+                ("published_field_serial=25", "published_field_serial=999"),
             ),
         )
         initial_event = (
@@ -519,7 +522,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
         for validation, text, state, minimum_epoch, generation, field in cases:
             mutations = {
                 "generation": _replace_once(text, generation, "generation_token_serial=999"),
-                "field": _replace_once(text, field, field.split("=")[0] + "=999"),
+                "field": _replace_once(text, field[0], field[1]),
                 "mixed-log": _replace_once(
                     text,
                     initial_event,

@@ -1215,6 +1215,115 @@ class _PublishedFieldIdentity:
 
 
 @dataclass(frozen=True)
+class _CheckpointIdentity:
+    build_token: int
+    generation_token: int
+    epoch_zero_field: int
+    field: int
+    source_field: int
+    geometry_revision: int
+    radiance_revision: int
+    spacing_voxels: int
+    state: str
+    update_epoch: int
+    publication: str
+
+    @classmethod
+    def from_event(
+        cls,
+        action: ValidateScenarioLog,
+        event: _ScenarioEvent,
+        label: str,
+    ) -> _CheckpointIdentity:
+        fields = event.fields
+        identity = cls(
+            build_token=_integer(fields, "build_token_serial"),
+            generation_token=_integer(fields, "generation_token_serial"),
+            epoch_zero_field=_integer(fields, "epoch_zero_field_serial"),
+            field=_integer(fields, "field_serial"),
+            source_field=_integer(fields, "source_field_serial"),
+            geometry_revision=_integer(fields, "geometry_revision"),
+            radiance_revision=_integer(fields, "radiance_revision"),
+            spacing_voxels=_integer(fields, "spacing_voxels"),
+            state=fields.get("state", ""),
+            update_epoch=_integer(fields, "update_epoch"),
+            publication=fields.get("publication", ""),
+        )
+        if identity.generation_token != identity.build_token:
+            raise ScenarioLifecycleError(
+                f"{label} identity drift: build token {identity.build_token} does not "
+                f"own generation {identity.generation_token}"
+            )
+        if identity.spacing_voxels != action.spacing_voxels:
+            raise ScenarioLifecycleError(
+                f"{label} identity drift for spacing_voxels: expected "
+                f"{action.spacing_voxels}, got {identity.spacing_voxels}"
+            )
+        if identity.epoch_zero_field <= 0 or identity.field < identity.epoch_zero_field:
+            raise ScenarioLifecycleError(
+                f"{label} field identity drift: epoch-zero={identity.epoch_zero_field}, "
+                f"field={identity.field}"
+            )
+        if identity.state not in {"Converging", "Converged"}:
+            raise ScenarioLifecycleError(
+                f"{label} identity drift: unsupported state {identity.state!r}"
+            )
+        if identity.update_epoch < 0:
+            raise ScenarioLifecycleError(
+                f"{label} identity drift: negative update epoch"
+            )
+        if identity.publication != "Published":
+            raise ScenarioLifecycleError(
+                f"{label} identity drift: publication is {identity.publication!r}"
+            )
+        return identity
+
+    def require_ready(
+        self,
+        event: _ScenarioEvent,
+        revision_field: str,
+        label: str,
+    ) -> None:
+        _same_identity(event, revision_field, self.geometry_revision, label)
+
+    def require_saved(self, event: _ScenarioEvent, label: str) -> None:
+        for name, expected in (
+            ("build_token_serial", self.build_token),
+            ("field_serial", self.field),
+            ("geometry_revision", self.geometry_revision),
+            ("radiance_revision", self.radiance_revision),
+            ("spacing_voxels", self.spacing_voxels),
+        ):
+            _same_identity(event, name, expected, label)
+
+    def require_initial_open(self, event: _ScenarioEvent) -> None:
+        _same_literal(event, "target", "e8", "initial checkpoint")
+        if self.update_epoch < 8:
+            raise ScenarioLifecycleError(
+                "initial checkpoint identity drift: target e8 was not reached"
+            )
+        if (
+            self.field != self.epoch_zero_field + self.update_epoch
+            or self.source_field != self.field - 1
+        ):
+            raise ScenarioLifecycleError(
+                "initial checkpoint field identity has an illegal epoch progression"
+            )
+
+    def require_transient_active(self, event: _ScenarioEvent) -> None:
+        _same_literal(event, "target", "published", "transient checkpoint")
+        if (
+            self.state != "Converging"
+            or self.update_epoch != 0
+            or self.source_field != 0
+            or self.field != self.epoch_zero_field
+        ):
+            raise ScenarioLifecycleError(
+                "transient checkpoint identity drift: active publication is not epoch-zero"
+            )
+
+
+@dataclass(frozen=True)
 class _CompletedCycle:
     initial_revision: int
     final_revision: int
@@ -1709,26 +1818,18 @@ def _validate_initial_open(action: ValidateScenarioLog, text: str) -> dict[str, 
         stream.event(phase, event)
     evidence = stream.finish()
     ready = evidence[_CyclePhase.PORTAL_READY]
-    checkpoint = evidence[_CyclePhase.FINAL_CHECKPOINT]
+    checkpoint_event = evidence[_CyclePhase.FINAL_CHECKPOINT]
     saved = evidence[_CyclePhase.CAPTURE_SAVED]
-    revision = _integer(ready.fields, "terrain_revision")
     _same_literal(ready, "geometry", "static", "initial open")
-    build_token = _integer(checkpoint.fields, "build_token_serial")
-    _same_identity(
-        checkpoint,
-        "generation_token_serial",
-        build_token,
-        "initial capture",
+    checkpoint = _CheckpointIdentity.from_event(
+        action,
+        checkpoint_event,
+        "initial checkpoint",
     )
-    epoch_zero = _integer(checkpoint.fields, "epoch_zero_field_serial")
-    field = _integer(checkpoint.fields, "field_serial")
-    if epoch_zero <= 0 or field < epoch_zero:
-        raise ScenarioLifecycleError("initial capture field identity drift")
-    for name in ("build_token_serial", "field_serial"):
-        _same_identity(saved, name, _integer(checkpoint.fields, name), "initial capture")
-    _same_identity(saved, "geometry_revision", revision, "initial capture")
-    _same_identity(saved, "spacing_voxels", action.spacing_voxels, "initial capture")
-    return {"final_revision": revision}
+    checkpoint.require_initial_open(checkpoint_event)
+    checkpoint.require_ready(ready, "terrain_revision", "initial ready")
+    checkpoint.require_saved(saved, "initial capture")
+    return {"final_revision": checkpoint.geometry_revision}
 
 
 def _runtime_final(action: ValidateScenarioLog, text: str) -> dict[str, int]:
@@ -1838,18 +1939,18 @@ def _runtime_transient(action: ValidateScenarioLog, text: str) -> dict[str, int]
             stream.reject(event)
         stream.event(phase, event)
     evidence = stream.finish()
-    checkpoint = evidence[_CyclePhase.ACTIVE_CHECKPOINT]
-    build_token = _integer(checkpoint.fields, "build_token_serial")
-    _same_identity(
-        checkpoint,
-        "generation_token_serial",
-        build_token,
+    checkpoint_event = evidence[_CyclePhase.ACTIVE_CHECKPOINT]
+    checkpoint = _CheckpointIdentity.from_event(
+        action,
+        checkpoint_event,
         "transient active checkpoint",
     )
-    epoch_zero = _integer(checkpoint.fields, "epoch_zero_field_serial")
-    active_field = _integer(checkpoint.fields, "field_serial")
-    if epoch_zero <= 0 or active_field < epoch_zero:
-        raise ScenarioLifecycleError("transient active field identity drift")
+    checkpoint.require_transient_active(checkpoint_event)
+    checkpoint.require_ready(
+        evidence[_CyclePhase.INITIAL],
+        "terrain_revision",
+        "transient initial ready",
+    )
     prepared_close = evidence[_CyclePhase.PREPARED_CLOSE]
     candidate = evidence[_CyclePhase.OBSOLETE_CANDIDATE]
     skipped = evidence[_CyclePhase.OBSOLETE_SKIPPED]
@@ -1886,10 +1987,7 @@ def _runtime_transient(action: ValidateScenarioLog, text: str) -> dict[str, int]
         if not separator or not current.isdigit() or not total.isdigit() or int(total) <= 0:
             raise ScenarioLifecycleError(f"{phase.value} identity has invalid progress")
     saved = evidence[_CyclePhase.CAPTURE_SAVED]
-    for name in ("build_token_serial", "field_serial"):
-        _same_identity(saved, name, _integer(checkpoint.fields, name), "transient capture")
-    _same_identity(saved, "geometry_revision", initial, "transient capture")
-    _same_identity(saved, "spacing_voxels", action.spacing_voxels, "transient capture")
+    checkpoint.require_saved(saved, "transient capture")
     if "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" in text:
         raise ScenarioLifecycleError("transient identity invalidated the full DDGI domain")
     for event in events:
