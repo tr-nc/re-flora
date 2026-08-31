@@ -57,7 +57,6 @@ use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
-use self::terrain_connectivity::bench::TerrainConnectivityBench;
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
@@ -898,10 +897,6 @@ impl App {
     }
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
-        let source_frame = self
-            .scenario_owner
-            .connectivity_event()
-            .source_frame(frame_slot);
         let Some(profiler) = &self.gpu_profiler else {
             return;
         };
@@ -922,8 +917,7 @@ impl App {
                     );
                 }
                 self.scenario_owner
-                    .connectivity_event()
-                    .observe_gpu_results(source_frame, &results);
+                    .observe_connectivity_gpu_completion(frame_slot, &results);
                 self.gpu_profiler_latest_results = Some(results);
             }
             Ok(None) => {}
@@ -3411,7 +3405,7 @@ impl App {
                     self.on_terminate(event_loop);
                     return;
                 }
-                TerrainConnectivityBench::advance(self)
+                self.advance_connectivity_benchmark()
                     .unwrap_or_else(|err| panic!("[TERRAIN_CONNECTIVITY_BENCH] failed: {err:#}"));
                 if AuthoredFloraBench::run_next(self) {
                     self.on_terminate(event_loop);
@@ -3499,9 +3493,10 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                self.scenario_owner
-                    .connectivity_event()
-                    .note_gpu_frame_started(frame_slot, self.time_info.total_frame_count());
+                self.scenario_owner.record_connectivity_gpu_submission(
+                    frame_slot,
+                    self.time_info.total_frame_count(),
+                );
                 let cmdbuf = frame.command_buffer();
                 let frame_extent_generation = frame.frame_extent_generation();
                 assert_eq!(
@@ -4615,11 +4610,11 @@ impl App {
                         );
                     }
                 }
-                let complete =
-                    TerrainConnectivityBench::observe_completed_frame(self, frame_timing_snapshot)
-                        .unwrap_or_else(|err| {
-                            panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
-                        });
+                let complete = self
+                    .observe_completed_connectivity_benchmark_frame(frame_timing_snapshot)
+                    .unwrap_or_else(|err| {
+                        panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
+                    });
                 if complete {
                     self.on_terminate(event_loop);
                     return;

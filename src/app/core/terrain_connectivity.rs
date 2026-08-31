@@ -1,4 +1,7 @@
-use super::{App, VisibleTerrainChange, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{
+    visible_terrain::VisibleTerrainPublication, App, VisibleTerrainChange, CHUNK_DIM,
+    VOXEL_DIM_PER_CHUNK,
+};
 use crate::app::world_edits::BuildEdit;
 use crate::builder::{PlainBuilder, VOXEL_TYPE_MASK};
 use crate::geom::UAabb3;
@@ -6,7 +9,11 @@ use glam::UVec3;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+mod atlas_write;
 pub(super) mod bench;
+mod detachment;
+use atlas_write::PreparedAtlasWrite;
+use detachment::PreparedTerrainDetachment;
 
 // Most releases resolve from one contiguous readback. Components that cross this
 // fast-path halo continue through lazily loaded tiles below.
@@ -73,6 +80,23 @@ impl TerrainConnectivityRuntime {
             edited.max().saturating_add(halo).min(world_dim),
         );
         Some(TerrainConnectivityRequest::PlayerEdit { edited, block })
+    }
+
+    fn transact_player_release<T>(
+        &mut self,
+        world_dim: UVec3,
+        execute: impl FnOnce() -> anyhow::Result<T>,
+    ) -> anyhow::Result<Option<T>> {
+        let Some(request) = self.take_player_release(world_dim) else {
+            return Ok(None);
+        };
+        match execute() {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                self.restore(request);
+                Err(error)
+            }
+        }
     }
 
     fn take_loaded_world(&mut self, world_dim: UVec3) -> Option<TerrainConnectivityRequest> {
@@ -310,7 +334,7 @@ impl App {
     }
 
     pub(super) fn finish_player_terrain_connectivity_hold(&mut self) -> anyhow::Result<()> {
-        if bench::TerrainConnectivityBench::try_begin_manual_release(self)? {
+        if self.try_begin_manual_connectivity_benchmark_release()? {
             return Ok(());
         }
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
@@ -443,46 +467,22 @@ impl App {
             detached_min,
             detached_max.saturating_add(UVec3::ONE).min(world_dim),
         );
-        let dirty_tiles =
-            prepare_detached_voxel_clear(&mut self.plain_builder, world_dim, &selected_voxels)?;
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                detached_bound,
-            )])?
-            .expect("detached terrain voxels always define a visible rebuild");
+        let prepared = PreparedTerrainDetachment::from_all_selected_voxels(
+            &mut self.plain_builder,
+            world_dim,
+            selected_voxels,
+            detached_bound,
+        )?;
 
-        // Everything above is preparation and may fail without changing authoritative terrain.
-        // The first atlas write enters a non-rollbackable commit: publication and particle count
-        // failures are terminal invariants rather than retryable errors.
-        for (origin, dim, data) in dirty_tiles {
-            self.plain_builder
-                .write_chunk_atlas_region(origin, dim, &data)
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "terrain connectivity atlas commit failed after entering non-rollbackable state: {err:#}"
-                    )
-                });
-        }
-        self.publish_visible_terrain(change).unwrap_or_else(|err| {
-            panic!(
-                "terrain connectivity Visible Terrain Publication failed after atlas commit: {err:#}"
-            )
-        });
-
-        let spawned = self.spawn_detached_terrain_voxel_particles(&selected_voxels);
-        assert_eq!(
-            spawned,
-            selected_voxels.len(),
-            "terrain connectivity cleared {} voxels but spawned only {} particles",
-            selected_voxels.len(),
-            spawned,
-        );
+        // This consumes the only commit capability. Preparation above is fallible and mutation-free;
+        // after the first atlas write, physical/publication failures are terminal invariants.
+        let committed = prepared.commit(self);
         log::info!(
             "[TERRAIN_CONNECTIVITY] mode={} checked_voxels={} detached_voxels={} spawned_particles={} skipped_components={} elapsed_ms={:.2}",
             mode,
             analysis_voxels,
-            selected_voxels.len(),
-            spawned,
+            committed.detached_voxels,
+            committed.spawned_particles,
             skipped_components,
             started.elapsed().as_secs_f64() * 1000.0,
         );
@@ -911,6 +911,22 @@ mod tests {
         assert_eq!(block.min(), UVec3::new(0, 6, 16));
         assert_eq!(block.max(), UVec3::new(49, 59, 69));
         assert!(runtime.take_player_release(UVec3::splat(128)).is_none());
+    }
+
+    #[test]
+    fn failed_player_release_transaction_restores_the_exact_request() {
+        let mut runtime = TerrainConnectivityRuntime::default();
+        let world_dim = UVec3::splat(128);
+        runtime.observe_player_publication(UAabb3::new(UVec3::splat(32), UVec3::splat(34)), true);
+
+        let error = runtime
+            .transact_player_release(world_dim, || {
+                Err::<(), _>(anyhow::anyhow!("injected snapshot failure"))
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("injected snapshot failure"));
+        assert!(runtime.take_player_release(world_dim).is_some());
     }
 
     #[test]

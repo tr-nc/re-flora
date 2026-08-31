@@ -181,7 +181,7 @@ pub(super) struct VisibleTerrainPublication {
 }
 
 impl VisibleTerrainPublication {
-    fn edit(change: VisibleTerrainChange) -> Result<Self> {
+    pub(super) fn edit(change: VisibleTerrainChange) -> Result<Self> {
         Self::from_change(change, VisibleTerrainPublicationKind::Edit)
     }
 
@@ -573,17 +573,23 @@ impl VisibleTerrainPublicationHost for App {
 }
 
 impl App {
+    pub(super) fn commit_prepared_visible_terrain(
+        &mut self,
+        mut publication: VisibleTerrainPublication,
+    ) -> VisibleTerrainCompletion {
+        publication.run_to_completion(self).unwrap_or_else(|err| {
+            panic!(
+                "Visible Terrain Publication failed after entering non-rollbackable state: {err:#}"
+            )
+        })
+    }
+
     pub(super) fn publish_visible_terrain(
         &mut self,
         change: VisibleTerrainChange,
     ) -> Result<VisibleTerrainCompletion> {
-        let mut publication = VisibleTerrainPublication::edit(change)?;
-        let completion = publication.run_to_completion(self).unwrap_or_else(|err| {
-            panic!(
-                "Visible Terrain Publication failed after entering non-rollbackable state: {err:#}"
-            )
-        });
-        Ok(completion)
+        let publication = VisibleTerrainPublication::edit(change)?;
+        Ok(self.commit_prepared_visible_terrain(publication))
     }
 }
 
