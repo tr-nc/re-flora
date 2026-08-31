@@ -265,6 +265,32 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
                 return "".join(lines)
         self.fail(f"route {route.strip()} not found under {event}")
 
+    def test_one_parsed_contract_owns_routes_commands_and_fail_closed_results(self) -> None:
+        parsed = contract.parse_workflow_contract(
+            WORKFLOW.read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(parsed.failures, ())
+        for event in ("pull_request", "push"):
+            self.assertTrue(parsed.routes(event, "src/app/future_owner.rs"))
+            self.assertTrue(
+                parsed.routes(event, "scripts/ddgi_evidence/validation.py")
+            )
+            self.assertTrue(
+                parsed.routes(event, "scripts/check_ddgi_future_acceptance.sh")
+            )
+        self.assertEqual(
+            set(parsed.fedora_commands).intersection(contract.REQUIRED_FEDORA_COMMANDS),
+            set(contract.REQUIRED_FEDORA_COMMANDS),
+        )
+
+        unsupported = WORKFLOW.read_text(encoding="utf-8").replace(
+            '      - "src/**"\n', '      - "src/[future]/**"\n', 1
+        )
+        rejected = contract.parse_workflow_contract(unsupported)
+        self.assertTrue(rejected.failures)
+        self.assertFalse(rejected.routes("pull_request", "src/app/future_owner.rs"))
+
     def test_owner_changes_route_to_executable_fedora_evidence_tests(self) -> None:
         required_runners = {
             "scripts/check_ddgi_correctness.sh",
