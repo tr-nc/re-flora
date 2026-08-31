@@ -22,6 +22,7 @@ use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, BufferUse, Extent3D, ImageDesc, MemoryLocation, SamplerDesc,
     Texture, TextureLayout, VulkanContext,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
@@ -32,6 +33,33 @@ pub const DDGI_FILTER_POLICY_OWNER_MASK: u32 = 1 << DDGI_FILTER_POLICY_OWNER_VER
 const DDGI_FILTER_RETENTION_Q16_ONE: u32 = 65_536;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 7;
+static NEXT_DDGI_VOLUME_ALLOCATION_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_ddgi_volume_allocation_id() -> u64 {
+    let id = NEXT_DDGI_VOLUME_ALLOCATION_ID.fetch_add(1, Ordering::Relaxed);
+    assert_ne!(id, 0, "DDGI Volume allocation identity overflow");
+    id
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DdgiVolumeFrameIdentity {
+    allocation_id: u64,
+    build_token: Option<DdgiBuildToken>,
+    scheduled_work: Option<DdgiScheduledWork>,
+    complete_field: Option<DdgiFieldIdentity>,
+    publication: Option<DdgiFieldPublication>,
+    building_field: Option<DdgiFieldIdentity>,
+}
+
+impl DdgiVolumeFrameIdentity {
+    pub(super) fn build_token(self) -> Option<DdgiBuildToken> {
+        self.build_token
+    }
+
+    pub(super) fn scheduled_work(self) -> Option<DdgiScheduledWork> {
+        self.scheduled_work
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiProbePriorityReason {
@@ -1543,6 +1571,7 @@ enum DdgiVolumeResources {
 }
 
 pub(super) struct DdgiVolume {
+    allocation_id: u64,
     build_token: Option<DdgiBuildToken>,
     grid: DdgiVolumeGrid,
     irradiance_layout: DdgiAtlasLayout,
@@ -2138,6 +2167,7 @@ impl DdgiVolume {
         );
 
         Ok(Self {
+            allocation_id: next_ddgi_volume_allocation_id(),
             build_token: None,
             grid,
             irradiance_layout,
@@ -2209,6 +2239,7 @@ impl DdgiVolume {
         let visibility_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
         Self {
+            allocation_id: next_ddgi_volume_allocation_id(),
             build_token,
             grid,
             irradiance_layout,
@@ -2269,6 +2300,18 @@ impl DdgiVolume {
                 .building_iteration
                 .and_then(|iteration| iteration.probe_priority),
             promotion_ready: self.promotion_is_ready(),
+        }
+    }
+
+    pub(super) fn frame_identity(&self) -> DdgiVolumeFrameIdentity {
+        let status = self.status();
+        DdgiVolumeFrameIdentity {
+            allocation_id: self.allocation_id,
+            build_token: status.build_token,
+            scheduled_work: status.scheduled_work,
+            complete_field: status.complete_field,
+            publication: status.publication,
+            building_field: status.building_field,
         }
     }
 
@@ -3011,9 +3054,13 @@ impl DdgiVolume {
 
     fn set_transport_source_ready(&mut self, ready: bool) -> Result<()> {
         self.transport_query_snapshot.source_ready = u32::from(ready);
-        self.resources()
-            .ddgi_transport_query_info
-            .fill_uniform(&self.transport_query_snapshot)
+        match &self.resources {
+            DdgiVolumeResources::Vulkan(resources) => resources
+                .ddgi_transport_query_info
+                .fill_uniform(&self.transport_query_snapshot),
+            #[cfg(test)]
+            DdgiVolumeResources::Fixture => Ok(()),
+        }
     }
 
     /// Declares CPU writes before the frame's reflected DDGI descriptors consume them.

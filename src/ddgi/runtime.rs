@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use super::resources::{
     DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources, DdgiRelocationReadbackStats,
-    DdgiStatus, DdgiVolume, DdgiVolumePromotion, DdgiVolumeStatus, DdgiVolumes,
+    DdgiStatus, DdgiVolume, DdgiVolumeFrameIdentity, DdgiVolumePromotion, DdgiVolumeStatus,
+    DdgiVolumes,
 };
 use super::scheduler::DdgiSchedulerCompletionPermit;
 #[cfg(test)]
@@ -187,6 +188,7 @@ pub(crate) struct DdgiFramePlan {
 struct DdgiFrameWork {
     serial: u64,
     plan: DdgiFramePlan,
+    builder: DdgiVolumeFrameIdentity,
 }
 ::static_assertions::assert_not_impl_any!(
     DdgiFrameWork: ::core::marker::Copy, ::core::clone::Clone
@@ -199,8 +201,6 @@ struct DdgiFrameWork {
 pub(crate) struct DdgiFrameView<'a> {
     work: DdgiFrameWork,
     builder: &'a DdgiVolume,
-    build_token: Option<DdgiBuildToken>,
-    scheduled_work: Option<DdgiScheduledWork>,
 }
 ::static_assertions::assert_not_impl_any!(
     DdgiFrameView<'_>: ::core::marker::Copy, ::core::clone::Clone
@@ -226,14 +226,19 @@ impl DdgiFrameView<'_> {
     pub(crate) fn assert_encoding_identity(&self) {
         if let Some(terrain_revision) = self.work.plan.relocation_terrain_revision {
             assert_eq!(
-                self.build_token.map(DdgiBuildToken::terrain_revision),
+                self.work
+                    .builder
+                    .build_token()
+                    .map(DdgiBuildToken::terrain_revision),
                 Some(terrain_revision),
                 "DDGI frame relocation must target its exact physical generation"
             );
         }
         if let Some(batch) = self.work.plan.ray_batch {
             let scheduled = self
-                .scheduled_work
+                .work
+                .builder
+                .scheduled_work()
                 .expect("DDGI frame ray batch must retain its scheduled work");
             assert_eq!(
                 scheduled.destination(),
@@ -241,7 +246,9 @@ impl DdgiFrameView<'_> {
                 "DDGI frame batch must retain its scheduled field identity"
             );
             let build_token = self
-                .build_token
+                .work
+                .builder
+                .build_token()
                 .expect("DDGI frame ray batch must retain its physical generation");
             assert_eq!(
                 (build_token.terrain_revision(), build_token.spacing_voxels()),
@@ -1709,17 +1716,12 @@ impl DdgiRuntime {
         let work = DdgiFrameWork {
             serial: self.next_frame_work_serial,
             plan,
+            builder: builder.frame_identity(),
         };
         self.next_frame_work_serial = self.next_frame_work_serial.saturating_add(1);
         self.pending_frame_work_serial = Some(work.serial);
         let builder = self.volumes().builder();
-        let status = builder.status();
-        Ok(DdgiFrameView {
-            work,
-            builder,
-            build_token: status.build_token,
-            scheduled_work: status.scheduled_work,
-        })
+        Ok(DdgiFrameView { work, builder })
     }
 
     /// Commits the transitions represented by one successfully encoded physical frame.
@@ -1732,6 +1734,10 @@ impl DdgiRuntime {
         anyhow::ensure!(
             self.pending_frame_work_serial == Some(work.serial),
             "stale or out-of-order DDGI frame work completion"
+        );
+        anyhow::ensure!(
+            self.volumes().builder().frame_identity() == work.builder,
+            "DDGI encoded frame no longer owns its exact builder"
         );
         self.pending_frame_work_serial = None;
 
@@ -2726,6 +2732,34 @@ mod tests {
             runtime.pending_frame_work_serial.is_some(),
             "rejected frame commit must retain the original unsettled capability"
         );
+    }
+
+    #[test]
+    fn encoded_frame_rejects_new_field_on_the_same_allocation() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        runtime.install_volumes(DdgiVolumes::new(DdgiVolume::for_test(grid, None)));
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+        assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
+        let initial = runtime.claim_volume_build().unwrap();
+        runtime.complete_initial_volume_build(initial).unwrap();
+
+        let encoded = runtime.begin_frame().unwrap().encoded();
+        runtime
+            .begin_next_transport_work()
+            .unwrap()
+            .expect("initial field work must be scheduled on the same allocation");
+        let field_before_commit = runtime.volumes().builder().status();
+
+        let error = runtime.commit_encoded_frame(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("DDGI encoded frame no longer owns its exact builder"),
+            "unexpected frame ownership error: {error:#}"
+        );
+        assert_eq!(runtime.volumes().builder().status(), field_before_commit);
+        assert!(runtime.pending_frame_work_serial.is_some());
     }
 
     #[test]
