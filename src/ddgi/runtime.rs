@@ -1300,7 +1300,7 @@ impl DdgiRuntime {
         }
     }
 
-    pub(crate) fn claim_transport_work(&mut self) -> Option<DdgiRuntimeWork> {
+    fn claim_transport_work(&mut self) -> Option<DdgiRuntimeWork> {
         let scheduled = self
             .transport_scheduler
             .claim_next()

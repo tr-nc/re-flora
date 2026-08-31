@@ -1626,7 +1626,7 @@ pub(crate) struct DdgiActiveResources<'a> {
 ::static_assertions::assert_not_impl_any!(DdgiActiveResources<'_>: Clone, Copy);
 
 impl<'a> DdgiActiveResources<'a> {
-    pub(crate) fn new(volume: &'a DdgiVolume) -> Self {
+    pub(super) fn new(volume: &'a DdgiVolume) -> Self {
         Self { volume }
     }
 }
@@ -1647,7 +1647,7 @@ pub(crate) struct DdgiBuilderResources<'a> {
 ::static_assertions::assert_not_impl_any!(DdgiBuilderResources<'_>: Clone, Copy);
 
 impl<'a> DdgiBuilderResources<'a> {
-    pub(crate) fn new(builder: &'a DdgiVolume, inherited_source: Option<&'a DdgiVolume>) -> Self {
+    pub(super) fn new(builder: &'a DdgiVolume, inherited_source: Option<&'a DdgiVolume>) -> Self {
         Self {
             builder,
             inherited_source,
@@ -1697,37 +1697,37 @@ impl DdgiVolumes {
         }
     }
 
-    pub(crate) fn status(&self) -> DdgiStatus {
+    pub(super) fn status(&self) -> DdgiStatus {
         DdgiStatus::new(
             self.active.status(),
             self.staging.as_ref().map(DdgiVolume::status),
         )
     }
 
-    pub(crate) fn active(&self) -> &DdgiVolume {
+    pub(super) fn active(&self) -> &DdgiVolume {
         &self.active
     }
 
-    pub(crate) fn builder(&self) -> &DdgiVolume {
+    pub(super) fn builder(&self) -> &DdgiVolume {
         self.staging.as_ref().unwrap_or(&self.active)
     }
 
-    pub(crate) fn builder_mut(&mut self) -> &mut DdgiVolume {
+    pub(super) fn builder_mut(&mut self) -> &mut DdgiVolume {
         self.staging.as_mut().unwrap_or(&mut self.active)
     }
 
-    pub(crate) fn builder_is_active(&self) -> bool {
+    pub(super) fn builder_is_active(&self) -> bool {
         self.staging.is_none()
     }
 
     /// Installs a new builder target while returning the previous staging volume, if any.
     /// The caller must rebind builder descriptors before dropping the returned volume.
-    pub(crate) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
+    pub(super) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
         self.staging.replace(staging)
     }
 
     /// Preflights the complete physical staging publication without changing ownership.
-    pub(crate) fn preflight_staging_promotion(
+    pub(super) fn preflight_staging_promotion(
         &self,
         expected_token: DdgiBuildToken,
     ) -> Result<DdgiVolumePromotionPermit> {
@@ -1767,7 +1767,7 @@ impl DdgiVolumes {
     }
 
     /// Borrows descriptor resources only through a preflighted staging authorization.
-    pub(crate) fn staging_consumer_resources(
+    pub(super) fn staging_consumer_resources(
         &self,
         permit: &DdgiVolumePromotionPermit,
     ) -> DdgiConsumerResources<'_> {
@@ -1789,7 +1789,7 @@ impl DdgiVolumes {
     }
 
     /// Consumes a preflighted authorization and performs the infallible ownership swap.
-    pub(crate) fn promote_staging(
+    pub(super) fn promote_staging(
         &mut self,
         permit: DdgiVolumePromotionPermit,
     ) -> DdgiVolumePromotion {
