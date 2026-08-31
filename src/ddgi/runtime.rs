@@ -2591,6 +2591,18 @@ mod tests {
     }
 
     #[test]
+    fn batch_completion_has_only_stale_progress_or_published_states() {
+        fn exhaust(completion: DdgiBatchCompletion) {
+            match completion {
+                DdgiBatchCompletion::Stale(_) => {}
+                DdgiBatchCompletion::Progress(_) => {}
+                DdgiBatchCompletion::Published(_) => {}
+            }
+        }
+        let _ = exhaust;
+    }
+
+    #[test]
     fn latest_terrain_revision_waits_for_older_in_flight_work_to_finish() {
         let (mut runtime, _, _) = initialized_runtime();
         assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
