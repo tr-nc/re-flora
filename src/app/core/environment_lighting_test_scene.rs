@@ -2999,7 +2999,13 @@ impl App {
         else {
             return Ok(());
         };
-        publication.verify_first_build(build_token)?;
+        publication
+            .verify_first_build(build_token)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "[ENV_LIGHT_TEST] initial DDGI publication contract failed; retry is unsafe: {error:#}"
+                )
+            });
         log::info!(
             "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
             build_token.serial(),
