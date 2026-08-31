@@ -18,6 +18,7 @@ from ddgi_evidence.model import (  # noqa: E402
     Capture,
     FailureKey,
     ProductionAnalyzerOptions,
+    ReleaseBuildIdentity,
     RunRequest,
     Suite,
     iter_actions,
@@ -99,6 +100,45 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             self.assertEqual(
                 sum(command.kind == "analysis" for command in host.commands), 78
             )
+
+    def test_transport_owns_one_typed_release_build_and_one_run_preparation(self) -> None:
+        class PreparingHost(RecordingHost):
+            def __init__(self) -> None:
+                super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
+                self.prepared: list[Path] = []
+
+            def prepare(self, run_dir: Path):
+                self.prepared.append(run_dir)
+                return super().prepare(run_dir)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = RunRequest(Suite.TRANSPORT, root, dry_run=False)
+            execution_plan = plan(request)
+            release_builds = tuple(
+                action
+                for action in iter_actions(execution_plan)
+                if action.__class__.__name__ == "BuildRelease"
+            )
+            host = PreparingHost()
+
+            report = execute(execution_plan, host)
+
+        self.assertTrue(report.succeeded, report.failures)
+        self.assertEqual(
+            {action.prerequisite for action in release_builds},
+            {ReleaseBuildIdentity.RELEASE_BINARY},
+        )
+        self.assertEqual(
+            sum(command.kind == "build" for command in host.commands), 1
+        )
+        self.assertEqual(host.prepared, [execution_plan.run_dir])
+        self.assertEqual(
+            sum(command.kind == "capture" for command in host.commands), 100
+        )
+        self.assertEqual(
+            sum(command.kind == "analysis" for command in host.commands), 78
+        )
 
     def test_failure_keys_accumulate_the_full_correctness_capture_matrix(self) -> None:
         class FailingCaptureHost(RecordingHost):
