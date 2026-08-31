@@ -2858,6 +2858,39 @@ mod tests {
     }
 
     #[test]
+    fn one_replacement_claim_cannot_install_the_same_generation_twice() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let active_grid = runtime.active_publication.grid();
+        runtime.install_volumes(DdgiVolumes::new(DdgiVolume::for_test(
+            active_grid,
+            Some(active_token),
+        )));
+
+        assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
+        let generation = replacement_generation(runtime.claim_volume_build().unwrap());
+        let first = DdgiRuntimeVolumeBuild::Replacement(generation);
+        let reconstructed = DdgiRuntimeVolumeBuild::Replacement(generation);
+        runtime
+            .complete_volume_build(
+                first,
+                Some(DdgiVolume::for_test(generation.grid(), None)),
+            )
+            .unwrap();
+        let installed = runtime.volumes().builder_frame_identity();
+
+        let duplicate_install = runtime.complete_volume_build(
+            reconstructed,
+            Some(DdgiVolume::for_test(generation.grid(), None)),
+        );
+
+        assert!(
+            duplicate_install.is_err(),
+            "one Runtime claim must be a linear capability, not a reusable generation value"
+        );
+        assert_eq!(runtime.volumes().builder_frame_identity(), installed);
+    }
+
+    #[test]
     fn encoded_frame_rejects_new_field_on_the_same_allocation() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
