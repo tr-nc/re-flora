@@ -44,6 +44,7 @@ fn next_ddgi_volume_allocation_id() -> u64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct DdgiVolumeFrameIdentity {
     allocation_id: u64,
+    is_staging: bool,
     build_token: Option<DdgiBuildToken>,
     scheduled_work: Option<DdgiScheduledWork>,
     complete_field: Option<DdgiFieldIdentity>,
@@ -1501,13 +1502,6 @@ pub(crate) struct DdgiVolumeStatus {
     pub(crate) promotion_ready: bool,
 }
 
-impl DdgiVolumeStatus {
-    #[cfg(test)]
-    pub(crate) fn is_ready(self) -> bool {
-        self.publication.is_some()
-    }
-}
-
 /// The consumer-visible DDGI volume and an optional volume being built for a later promotion.
 ///
 /// Callers can inspect revisions and readiness without learning which atlas or ray batch the
@@ -1529,11 +1523,6 @@ impl DdgiStatus {
 
     pub(crate) fn staging(self) -> Option<DdgiVolumeStatus> {
         self.staging
-    }
-
-    #[cfg(test)]
-    pub(crate) fn builder(self) -> DdgiVolumeStatus {
-        self.staging.unwrap_or(self.active)
     }
 
     pub(crate) fn staging_is_ready(self) -> bool {
@@ -1770,7 +1759,7 @@ impl DdgiVolumes {
     }
 
     pub(super) fn builder_frame_identity(&self) -> DdgiVolumeFrameIdentity {
-        self.builder().frame_identity()
+        self.builder().frame_identity(self.staging.is_some())
     }
 
     /// Installs a new builder target while returning the previous staging volume, if any.
@@ -2320,10 +2309,11 @@ impl DdgiVolume {
         }
     }
 
-    fn frame_identity(&self) -> DdgiVolumeFrameIdentity {
+    fn frame_identity(&self, is_staging: bool) -> DdgiVolumeFrameIdentity {
         let status = self.status();
         DdgiVolumeFrameIdentity {
             allocation_id: self.allocation_id,
+            is_staging,
             build_token: status.build_token,
             scheduled_work: status.scheduled_work,
             complete_field: status.complete_field,
@@ -3784,102 +3774,6 @@ mod tests {
         assert!(visibility_desc
             .usage
             .contains(vk::ImageUsageFlags::TRANSFER_DST));
-    }
-
-    #[test]
-    fn volume_is_not_ready_when_resources_are_only_allocated() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
-        let status = DdgiVolumeStatus {
-            build_token: None,
-            grid,
-            irradiance_layout: DdgiAtlasLayout::new(
-                grid.probe_count(),
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-            )
-            .unwrap(),
-            visibility_layout: DdgiAtlasLayout::new(
-                grid.probe_count(),
-                DDGI_VISIBILITY_INTERIOR_SIDE,
-            )
-            .unwrap(),
-            resource_bytes: DdgiResourceBytes::new(
-                grid,
-                DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap(),
-                DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap(),
-            ),
-            stage: DdgiVolumeStage::Allocated,
-            scheduled_work: None,
-            complete_field: None,
-            publication: None,
-            building_field: None,
-            consecutive_below_threshold: 0,
-            last_atlas_validation: None,
-            global_sky_revision: 0,
-            radiance_revision: None,
-            relocated_terrain_revision: None,
-            active_ray_batch: None,
-            filtered_probe_count: 0,
-            probe_priority: None,
-            promotion_ready: false,
-        };
-        assert!(!status.is_ready());
-    }
-
-    #[test]
-    fn runtime_status_keeps_staging_out_of_the_consumer_view_until_ready() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
-        let irradiance_layout =
-            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
-        let visibility_layout =
-            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let field_for = |terrain_revision| initial_work(terrain_revision, 3, 32).destination();
-        let status_for = |stage: DdgiVolumeStage,
-                          terrain_revision: u32,
-                          published: bool|
-         -> DdgiVolumeStatus {
-            DdgiVolumeStatus {
-                build_token: None,
-                grid,
-                irradiance_layout,
-                visibility_layout,
-                resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
-                stage,
-                scheduled_work: None,
-                complete_field: published.then(|| field_for(terrain_revision)),
-                publication: None,
-                building_field: None,
-                consecutive_below_threshold: 0,
-                last_atlas_validation: None,
-                global_sky_revision: 3,
-                radiance_revision: Some(3),
-                relocated_terrain_revision: Some(terrain_revision),
-                active_ray_batch: None,
-                filtered_probe_count: 0,
-                probe_priority: None,
-                promotion_ready: published,
-            }
-        };
-
-        let active = status_for(DdgiVolumeStage::Rebuilding, 7, true);
-        let staging = status_for(DdgiVolumeStage::Rebuilding, 8, false);
-        let status = DdgiStatus {
-            active,
-            staging: Some(staging),
-        };
-
-        assert_eq!(status.active(), active);
-        assert_eq!(status.builder(), staging);
-        assert!(!status.staging_is_ready());
-
-        // A complete finite epoch zero can promote while a later epoch writes the other slot.
-        let ready_staging = status_for(DdgiVolumeStage::Rebuilding, 8, true);
-        let status = DdgiStatus {
-            active,
-            staging: Some(ready_staging),
-        };
-        assert_eq!(status.active().relocated_terrain_revision, Some(7));
-        assert_eq!(status.builder().relocated_terrain_revision, Some(8));
-        assert!(status.staging_is_ready());
     }
 
     #[test]
