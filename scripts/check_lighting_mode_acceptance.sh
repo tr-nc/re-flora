@@ -164,20 +164,20 @@ if [[ $app_status -eq 124 ]]; then
         "$app_status" "$timeout_seconds" "$run_log" >&2
     exit 3
 fi
-fatal_log_pattern='\b(?:vk_)?error_[[:alnum:]_]+\b|\berror\b|\bpanic(?:ked)?\b|vuid-|\bvalidation[[:space:]_-]+(?:error|failure)\b|\bdevice[[:space:]_-]+lost\b|\bstale[[:space:]_-]+readback\b'
 set +e
 fatal_log_matches="$(
-    "$rg_bin" -i -n -e "$fatal_log_pattern" "$app_output" "$run_log" 2>&1
+    "$python_bin" "$repo_root/scripts/runtime_log_diagnostics.py" \
+        "$app_output" "$run_log" 2>&1
 )"
 fatal_log_status=$?
 set -e
-if [[ $fatal_log_status -eq 0 ]]; then
+if [[ $fatal_log_status -eq 1 ]]; then
     printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=error-marker\n' >&2
     printf '%s\n' "$fatal_log_matches" >&2
     exit 3
 fi
-if [[ $fatal_log_status -gt 1 ]]; then
-    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=fatal-log-scan-failed rg-status=%s\n' \
+if [[ $fatal_log_status -ne 0 ]]; then
+    printf '[LIGHTING_MODE_ACCEPTANCE_RUNNER] verdict=APP_FAILED reason=fatal-log-scan-failed classifier-status=%s\n' \
         "$fatal_log_status" >&2
     printf '%s\n' "$fatal_log_matches" >&2
     exit 3

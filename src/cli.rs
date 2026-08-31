@@ -1272,8 +1272,8 @@ fn parse_required_screenshot_delay(args: &[String]) -> Result<f32, String> {
     Ok(delay)
 }
 
-pub fn print_help() {
-    println!(
+fn help_text() -> String {
+    format!(
         r#"Usage:
   re-flora [options]
 
@@ -1339,6 +1339,8 @@ Options:
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
+  --lighting-mode-acceptance <artifact>
+                              Run the fixed R13/E2 acceptance and write one .rflma artifact (requires --hidden --mute)
   --environment-lighting-test-scene [case]
                               Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
                               radiance-changes, point-light-changes, voxel-emissive-changes,
@@ -1413,7 +1415,11 @@ Examples:
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#,
         DdgiTerrainHardOrigin::default().label()
-    );
+    )
+}
+
+pub fn print_help() {
+    println!("{}", help_text());
 }
 
 #[derive(Clone, Debug)]
@@ -1607,6 +1613,11 @@ mod tests {
         assert!(!options.platform.render.flags.enable_particles);
         assert_eq!(options.automation.camera, CameraAutomation::None);
         assert!(options.platform.lifecycle.auto_exit_delay.is_none());
+    }
+
+    #[test]
+    fn help_advertises_the_lighting_mode_acceptance_artifact_contract() {
+        assert!(help_text().contains("--lighting-mode-acceptance <artifact>"));
     }
 
     #[test]

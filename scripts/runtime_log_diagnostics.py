@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import re
+import sys
+from collections.abc import Sequence
+from pathlib import Path
 
 
 LOG_TIME = r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}"
@@ -62,3 +65,44 @@ def fatal_diagnostic_excerpts(text: str) -> list[str]:
         if excerpt not in excerpts:
             excerpts.append(excerpt)
     return excerpts
+
+
+def classify_log_files(paths: Sequence[Path]) -> int:
+    """Classify every log as one fail-closed transaction.
+
+    Exit 0 means every readable log is clean, 1 means at least one fatal
+    diagnostic was found, and 2 means the inputs could not be classified.
+    """
+    logs: list[tuple[Path, str]] = []
+    for path in paths:
+        try:
+            logs.append((path, path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError) as error:
+            print(
+                "[RUNTIME_LOG_DIAGNOSTICS] verdict=ERROR "
+                f"reason=log-read-failed path={path} error={error}",
+                file=sys.stderr,
+            )
+            return 2
+
+    found_fatal = False
+    for path, text in logs:
+        for excerpt in fatal_diagnostic_excerpts(text):
+            print(f"{path}:{excerpt}")
+            found_fatal = True
+    return 1 if found_fatal else 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments:
+        print(
+            "usage: runtime_log_diagnostics.py <log> [<log> ...]",
+            file=sys.stderr,
+        )
+        return 2
+    return classify_log_files([Path(argument) for argument in arguments])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

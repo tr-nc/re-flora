@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import sys
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+DIAGNOSTICS = SCRIPTS / "runtime_log_diagnostics.py"
 sys.path.insert(0, str(SCRIPTS))
 
 from runtime_log_diagnostics import (  # noqa: E402
@@ -40,3 +43,55 @@ class RuntimeLogDiagnosticsTests(unittest.TestCase):
             with self.subTest(diagnostic=diagnostic):
                 self.assertIsNotNone(first_fatal_diagnostic(diagnostic))
                 self.assertEqual(fatal_diagnostic_excerpts(diagnostic), [diagnostic])
+
+    def test_cli_accepts_exact_wayland_portal_timeout_across_multiple_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app_log = root / "app.log"
+            run_log = root / "run.log"
+            app_log.write_text(BENIGN_PORTAL_TIMEOUT + "\n")
+            run_log.write_text("validation layers enabled\nerrors=0\n")
+
+            result = subprocess.run(
+                [sys.executable, str(DIAGNOSTICS), str(app_log), str(run_log)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_cli_reports_a_near_miss_from_the_second_log(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app_log = root / "app.log"
+            run_log = root / "run.log"
+            app_log.write_text("clean\n")
+            near_miss = BENIGN_PORTAL_TIMEOUT.replace("100ms", "101ms")
+            run_log.write_text(near_miss + "\n")
+
+            result = subprocess.run(
+                [sys.executable, str(DIAGNOSTICS), str(app_log), str(run_log)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(str(run_log), result.stdout)
+        self.assertIn(near_miss, result.stdout)
+
+    def test_cli_fails_closed_when_any_log_cannot_be_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.log"
+            result = subprocess.run(
+                [sys.executable, str(DIAGNOSTICS), str(missing)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("reason=log-read-failed", result.stderr)
+        self.assertIn(str(missing), result.stderr)
