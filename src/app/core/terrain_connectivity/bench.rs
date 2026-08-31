@@ -4,7 +4,7 @@
 //! 437,205-voxel detached hollow canopy, then represent at most 16,384 voxels as particles, without
 //! exceeding interactive frame budgets? This module is activated only by the diagnostic CLI.
 
-use super::super::launch_owners::ScenarioOwner;
+use super::super::launch_owners::{LaunchMode, LaunchOwners, ScenarioOwner};
 use super::detachment::{PreparedTerrainDetachment, TerrainDetachmentRequest};
 use super::*;
 use crate::cli::{TerrainConnectivityBenchMode, TerrainConnectivityBenchOptions};
@@ -752,6 +752,94 @@ impl ScenarioOwner {
     }
 }
 
+impl LaunchOwners {
+    fn plan_connectivity_action(
+        &mut self,
+        facts: ConnectivityFacts,
+    ) -> anyhow::Result<ConnectivityAction> {
+        match &mut self.mode {
+            LaunchMode::General { scenario, .. } => scenario.plan_connectivity_action(facts),
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => Ok(ConnectivityAction::None),
+        }
+    }
+
+    fn apply_connectivity_execution(
+        &mut self,
+        execution: ConnectivityExecution,
+    ) -> anyhow::Result<ConnectivityEffect> {
+        match &mut self.mode {
+            LaunchMode::General { scenario, .. } => {
+                scenario.apply_connectivity_execution(execution)
+            }
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => {
+                ensure_inactive_connectivity_result(execution.into_result())?;
+                Ok(ConnectivityEffect::default())
+            }
+        }
+    }
+
+    pub(in crate::app::core) fn record_connectivity_gpu_submission(
+        &mut self,
+        frame_slot: usize,
+        frame: u64,
+    ) {
+        if let LaunchMode::General { scenario, .. } = &mut self.mode {
+            scenario.record_connectivity_gpu_submission(frame_slot, frame);
+        }
+    }
+
+    pub(in crate::app::core) fn observe_connectivity_gpu_completion(
+        &mut self,
+        frame_slot: usize,
+        results: &GpuProfilerFrameResults,
+    ) {
+        if let LaunchMode::General { scenario, .. } = &mut self.mode {
+            scenario.observe_connectivity_gpu_completion(frame_slot, results);
+        }
+    }
+
+    pub(in crate::app::core) fn allows_ambient_particle_emitters(&mut self) -> bool {
+        match &mut self.mode {
+            LaunchMode::General { scenario, .. } => scenario.allows_ambient_particle_emitters(),
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => true,
+        }
+    }
+
+    fn plan_manual_connectivity_release(
+        &mut self,
+        facts: ManualReleaseFacts,
+    ) -> anyhow::Result<ConnectivityAction> {
+        match &mut self.mode {
+            LaunchMode::General { scenario, .. } => {
+                scenario.plan_manual_connectivity_release(facts)
+            }
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => Ok(ConnectivityAction::None),
+        }
+    }
+
+    fn plan_completed_connectivity_frame(
+        &mut self,
+        record: CpuFrameRecord,
+    ) -> anyhow::Result<ConnectivityAction> {
+        match &mut self.mode {
+            LaunchMode::General { scenario, .. } => {
+                scenario.plan_completed_connectivity_frame(record)
+            }
+            LaunchMode::Environment { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => Ok(ConnectivityAction::None),
+        }
+    }
+}
+
 fn ensure_inactive_connectivity_result(result: ConnectivityResult) -> anyhow::Result<()> {
     match result {
         ConnectivityResult::None => Ok(()),
@@ -775,13 +863,9 @@ impl App {
             frame: self.time_info.total_frame_count(),
             visible_revision: self.visible_terrain_revision,
         };
-        let action = self
-            .scenario_owner
-            .plan_manual_connectivity_release(facts)?;
+        let action = self.launch_owners.plan_manual_connectivity_release(facts)?;
         let execution = self.execute_connectivity_action(action);
-        let effect = self
-            .scenario_owner
-            .apply_connectivity_execution(execution)?;
+        let effect = self.launch_owners.apply_connectivity_execution(execution)?;
         Ok(effect.manual_release_handled)
     }
 
@@ -807,12 +891,10 @@ impl App {
             visible_revision: self.visible_terrain_revision,
         };
         let action = self
-            .scenario_owner
+            .launch_owners
             .plan_completed_connectivity_frame(record)?;
         let execution = self.execute_connectivity_action(action);
-        let effect = self
-            .scenario_owner
-            .apply_connectivity_execution(execution)?;
+        let effect = self.launch_owners.apply_connectivity_execution(execution)?;
         Ok(effect.observation_complete)
     }
 
@@ -828,10 +910,9 @@ impl App {
                 .ddgi_ready_for_terrain_revision(self.visible_terrain_revision),
             available_particles: self.particle_system.available_capacity(),
         };
-        let action = self.scenario_owner.plan_connectivity_action(facts)?;
+        let action = self.launch_owners.plan_connectivity_action(facts)?;
         let execution = self.execute_connectivity_action(action);
-        self.scenario_owner
-            .apply_connectivity_execution(execution)?;
+        self.launch_owners.apply_connectivity_execution(execution)?;
         Ok(())
     }
 
@@ -2161,6 +2242,22 @@ fn push_bounded<T>(records: &mut VecDeque<T>, record: T) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::launch_owners::{prepare_startup_owners, LaunchMode, ScenarioOwner};
+    use crate::cli::{AutomationPlan, Scenario};
+
+    fn connectivity_launch() -> LaunchOwners {
+        prepare_startup_owners(
+            AutomationPlan::default(),
+            Scenario::TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions {
+                mode: TerrainConnectivityBenchMode::Bounded,
+                available_particles: 8,
+                warmup_frames: 1,
+                observe_frames: 1,
+                voxel_budget: 8,
+            }),
+        )
+        .expect("connectivity launch must construct its exclusive scenario owner")
+    }
 
     fn fixture_job() -> BoundedTopologyJob {
         let bound = isolation_bound();
@@ -2861,27 +2958,23 @@ mod tests {
 
     #[test]
     fn gpu_completion_observes_the_source_frame_from_the_exact_submission_slot() {
-        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
-            TerrainConnectivityBenchOptions {
-                mode: TerrainConnectivityBenchMode::Bounded,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
+        let mut launch = connectivity_launch();
         let results = GpuProfilerFrameResults {
             scopes: Vec::new(),
             dropped_scope_count: 0,
             timestamp_period_ns: 1.0,
         };
-        owner.record_connectivity_gpu_submission(0, 31);
-        owner.record_connectivity_gpu_submission(3, 47);
+        launch.record_connectivity_gpu_submission(0, 31);
+        launch.record_connectivity_gpu_submission(3, 47);
 
-        owner.observe_connectivity_gpu_completion(3, &results);
+        launch.observe_connectivity_gpu_completion(3, &results);
 
-        let ScenarioOwner::Connectivity(bench) = owner else {
-            panic!("test constructed the wrong scenario owner");
+        let LaunchMode::General {
+            scenario: ScenarioOwner::Connectivity(bench),
+            ..
+        } = launch.mode
+        else {
+            panic!("test constructed the wrong launch owner");
         };
         assert_eq!(
             bench
@@ -2895,26 +2988,19 @@ mod tests {
 
     #[test]
     fn only_an_active_connectivity_diagnostic_reserves_ambient_particle_capacity() {
-        let mut connectivity = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
-            TerrainConnectivityBenchOptions {
-                mode: TerrainConnectivityBenchMode::Bounded,
-                available_particles: 8,
-                warmup_frames: 1,
-                observe_frames: 1,
-                voxel_budget: 8,
-            },
-        ));
-        let mut garden = ScenarioOwner::Standard(
-            super::super::super::launch_owners::StandardScenarioOwner::World(
-                super::super::super::launch_owners::WorldScenarioOwner::Garden,
-            ),
-        );
+        let mut connectivity = connectivity_launch();
+        let mut garden = prepare_startup_owners(AutomationPlan::default(), Scenario::Garden)
+            .expect("garden launch must construct its standard scenario owner");
 
         assert!(!connectivity.allows_ambient_particle_emitters());
         assert!(garden.allows_ambient_particle_emitters());
 
-        let ScenarioOwner::Connectivity(bench) = &mut connectivity else {
-            panic!("test constructed the wrong scenario owner");
+        let LaunchMode::General {
+            scenario: ScenarioOwner::Connectivity(bench),
+            ..
+        } = &mut connectivity.mode
+        else {
+            panic!("test constructed the wrong launch owner");
         };
         bench.state = BenchState::Complete;
         assert!(connectivity.allows_ambient_particle_emitters());

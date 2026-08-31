@@ -135,37 +135,27 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
     ))
 }
 
-fn publish_scaling_count(app: &mut App, requested_count: usize) -> (u64, u64) {
+fn publish_scaling_count(
+    app: &mut App,
+    environment: &mut EnvironmentPhasePayload,
+    requested_count: usize,
+) -> (u64, u64) {
     assert!(requested_count <= LOCAL_LIGHT_GPU_CAPACITY);
+    let (ids, _) = environment.local_light_scaling_scratch_mut();
     if requested_count == 0 {
-        let ids = std::mem::take(
-            &mut app
-                .scenario_owner
-                .test_scene_event_mut()
-                .environment()
-                .local_light_scaling_ids,
-        );
-        for id in ids {
+        let removed_ids = std::mem::take(ids);
+        for id in removed_ids {
             app.local_lights
                 .remove(id)
                 .expect("zero-count scaling transition must remove every selected light");
         }
     } else {
-        let first_new = app
-            .scenario_owner
-            .test_scene_event()
-            .environment()
-            .local_light_scaling_ids
-            .len();
+        let first_new = ids.len();
         assert!(first_new <= requested_count);
         let new_ids = (first_new..requested_count)
             .map(|index| add_scaling_light(app, index))
             .collect::<Vec<_>>();
-        app.scenario_owner
-            .test_scene_event_mut()
-            .environment()
-            .local_light_scaling_ids
-            .extend(new_ids);
+        ids.extend(new_ids);
     }
     let snapshot = app.local_lights.snapshot();
     assert_eq!(snapshot.lights().len(), requested_count);
@@ -189,6 +179,7 @@ fn builder_matches(app: &App, state: LocalLightScalingState) -> bool {
 impl App {
     pub(super) fn advance_local_light_scaling(
         &mut self,
+        environment: &mut EnvironmentPhasePayload,
         mut state: LocalLightScalingState,
     ) -> Option<TestScenePhase> {
         let next = match state.stage {
@@ -210,7 +201,7 @@ impl App {
                 assert_eq!(baseline.field().geometry_revision(), state.terrain_revision);
                 assert!(self.local_lights.snapshot().lights().is_empty());
                 let (source_revision, registry_revision) =
-                    publish_scaling_count(self, state.requested_count());
+                    publish_scaling_count(self, environment, state.requested_count());
                 state.expected_source_revision = source_revision;
                 state.expected_registry_revision = registry_revision;
                 state.mutation_frame = self.time_info.total_frame_count();
@@ -255,11 +246,7 @@ impl App {
                 if !builder_matches(self, state) {
                     return None;
                 }
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .local_light_scaling_samples
-                    .clear();
+                environment.local_light_scaling_scratch_mut().1.clear();
                 state.warmup_frames = 0;
                 state.stage = LocalLightScalingStage::Warmup;
                 state
@@ -279,15 +266,12 @@ impl App {
                     return None;
                 }
                 let sample = sample_from_app(self)?;
-                let samples = &mut self
-                    .scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .local_light_scaling_samples;
+                let samples = &mut *environment.local_light_scaling_scratch_mut().1;
                 samples.push(sample);
                 if samples.len() < LOCAL_LIGHT_SCALING_SAMPLE_FRAMES {
                     return Some(TestScenePhase::LocalLightScaling(state));
                 }
+                let samples = samples.clone();
                 let count = state.requested_count();
                 let ddgi = self.tracer.ddgi_local_light_gpu_evidence();
                 let (ddgi_candidates, ddgi_visible, ddgi_occluded) = ddgi
@@ -309,20 +293,20 @@ impl App {
                     state.expected_source_revision,
                     state.expected_registry_revision,
                     count,
-                    sample_percentile(samples, 0.50, |sample| sample.frame_cpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.frame_cpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.frame_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.frame_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.terrain_path_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.terrain_path_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.raster_flora_cache_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.raster_flora_cache_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.ddgi_trace_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.ddgi_trace_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.ddgi_filter_gpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.ddgi_filter_gpu_us),
-                    sample_percentile(samples, 0.50, |sample| sample.render_trace_record_cpu_us),
-                    sample_percentile(samples, 0.95, |sample| sample.render_trace_record_cpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.frame_cpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.frame_cpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.frame_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.frame_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.terrain_path_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.terrain_path_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.raster_flora_cache_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.raster_flora_cache_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.ddgi_trace_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.ddgi_trace_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.ddgi_filter_gpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.ddgi_filter_gpu_us),
+                    sample_percentile(&samples, 0.50, |sample| sample.render_trace_record_cpu_us),
+                    sample_percentile(&samples, 0.95, |sample| sample.render_trace_record_cpu_us),
                     ddgi_candidates,
                     ddgi_visible,
                     ddgi_occluded,
@@ -331,20 +315,14 @@ impl App {
                 if state.count_index + 1 < LOCAL_LIGHT_SCALING_COUNTS.len() {
                     state.count_index += 1;
                     let (source_revision, registry_revision) =
-                        publish_scaling_count(self, state.requested_count());
+                        publish_scaling_count(self, environment, state.requested_count());
                     state.expected_source_revision = source_revision;
                     state.expected_registry_revision = registry_revision;
                     state.mutation_frame = self.time_info.total_frame_count();
                     state.stage = LocalLightScalingStage::AwaitLive;
                     state
                 } else {
-                    let ids = std::mem::take(
-                        &mut self
-                            .scenario_owner
-                            .test_scene_event_mut()
-                            .environment()
-                            .local_light_scaling_ids,
-                    );
+                    let ids = std::mem::take(environment.local_light_scaling_scratch_mut().0);
                     for id in ids {
                         self.local_lights
                             .remove(id)

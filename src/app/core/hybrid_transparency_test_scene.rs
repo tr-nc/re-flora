@@ -41,20 +41,115 @@ enum TestScenePhase {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridPhaseTxn {
+    Inactive,
+    Active {
+        permit_revision: u64,
+        phase: TestScenePhase,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridPhaseResult {
+    Commit(TestScenePhase),
+    Rejected(TestScenePhase),
+}
+
 #[derive(Debug)]
 pub(super) struct HybridTransparencyTestScene {
     phase: TestScenePhase,
+    transaction_revision: u64,
 }
 
 impl HybridTransparencyTestScene {
     pub(super) fn new() -> Self {
         Self {
             phase: TestScenePhase::Pending,
+            transaction_revision: 0,
         }
     }
 
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
+    }
+
+    fn begin_phase(&self) -> HybridPhaseTxn {
+        HybridPhaseTxn::Active {
+            permit_revision: self.transaction_revision,
+            phase: self.phase,
+        }
+    }
+
+    fn finish_phase(&mut self, permit_revision: u64, result: HybridPhaseResult) -> Result<()> {
+        anyhow::ensure!(
+            self.transaction_revision == permit_revision,
+            "stale hybrid phase transaction: permit revision {permit_revision}, current revision {}",
+            self.transaction_revision,
+        );
+        match result {
+            HybridPhaseResult::Commit(phase) => {
+                self.phase = phase;
+                self.transaction_revision = self.transaction_revision.wrapping_add(1);
+            }
+            HybridPhaseResult::Rejected(phase) => {
+                let _ = phase;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl super::launch_owners::LaunchOwners {
+    fn begin_hybrid_phase(&self) -> HybridPhaseTxn {
+        match &self.mode {
+            super::launch_owners::LaunchMode::General {
+                scenario:
+                    super::launch_owners::ScenarioOwner::Standard(
+                        super::launch_owners::StandardScenarioOwner::TestScene(
+                            super::launch_owners::TestSceneOwner::Hybrid(scene),
+                        ),
+                    ),
+                ..
+            } => scene.begin_phase(),
+            super::launch_owners::LaunchMode::General { .. }
+            | super::launch_owners::LaunchMode::Environment { .. }
+            | super::launch_owners::LaunchMode::CanopyAudio { .. }
+            | super::launch_owners::LaunchMode::FoliageShadow { .. } => HybridPhaseTxn::Inactive,
+        }
+    }
+
+    fn finish_hybrid_phase(
+        &mut self,
+        transaction: HybridPhaseTxn,
+        result: HybridPhaseResult,
+    ) -> Result<()> {
+        match (&mut self.mode, transaction) {
+            (
+                super::launch_owners::LaunchMode::General {
+                    scenario:
+                        super::launch_owners::ScenarioOwner::Standard(
+                            super::launch_owners::StandardScenarioOwner::TestScene(
+                                super::launch_owners::TestSceneOwner::Hybrid(scene),
+                            ),
+                        ),
+                    ..
+                },
+                HybridPhaseTxn::Active {
+                    permit_revision, ..
+                },
+            ) => scene.finish_phase(permit_revision, result),
+            (
+                super::launch_owners::LaunchMode::General { .. }
+                | super::launch_owners::LaunchMode::Environment { .. }
+                | super::launch_owners::LaunchMode::CanopyAudio { .. }
+                | super::launch_owners::LaunchMode::FoliageShadow { .. },
+                HybridPhaseTxn::Inactive,
+            ) => Ok(()),
+            _ => {
+                anyhow::bail!("hybrid phase transaction no longer matches its launch owner")
+            }
+        }
     }
 }
 
@@ -148,10 +243,10 @@ impl App {
     }
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
-        let phase = match self.scenario_owner.test_scene_event() {
-            super::launch_owners::TestSceneEvent::Hybrid(scene) => scene.phase,
-            super::launch_owners::TestSceneEvent::None
-            | super::launch_owners::TestSceneEvent::Environment(_) => return,
+        let transaction = self.launch_owners.begin_hybrid_phase();
+        let phase = match transaction {
+            HybridPhaseTxn::Inactive => return,
+            HybridPhaseTxn::Active { phase, .. } => phase,
         };
 
         let next_phase = match phase {
@@ -219,15 +314,53 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::Ready | TestScenePhase::Failed => return,
+            TestScenePhase::Ready | TestScenePhase::Failed => {
+                self.launch_owners
+                    .finish_hybrid_phase(transaction, HybridPhaseResult::Rejected(phase))
+                    .expect("hybrid phase rejection must retain its launch owner");
+                return;
+            }
         };
 
-        match self.scenario_owner.test_scene_event_mut() {
-            super::launch_owners::TestSceneEventMut::Hybrid(scene) => scene.phase = next_phase,
-            super::launch_owners::TestSceneEventMut::None
-            | super::launch_owners::TestSceneEventMut::Environment(_) => {
-                panic!("hybrid test scene state disappeared")
+        self.launch_owners
+            .finish_hybrid_phase(transaction, HybridPhaseResult::Commit(next_phase))
+            .expect("hybrid phase transaction must retain its launch owner");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::core::launch_owners::prepare_startup_owners;
+    use crate::cli::{AutomationPlan, Scenario};
+
+    #[test]
+    fn hybrid_phase_transaction_rejects_without_advancing_the_leaf_owner() {
+        let mut owners =
+            prepare_startup_owners(AutomationPlan::default(), Scenario::HybridTransparency)
+                .unwrap();
+        let rejected = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(rejected, HybridPhaseResult::Rejected(TestScenePhase::Ready))
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Pending,
+                ..
             }
-        }
+        ));
+
+        let committed = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(committed, HybridPhaseResult::Commit(TestScenePhase::Ready))
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Ready,
+                ..
+            }
+        ));
     }
 }

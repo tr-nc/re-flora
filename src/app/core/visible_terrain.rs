@@ -562,12 +562,11 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn observe_initial_terrain_for_ddgi(&mut self) -> Result<u32> {
-        match self.scenario_owner.test_scene_event() {
-            launch_owners::TestSceneEvent::None => {
-                self.observe_initial_published_terrain_for_ddgi()
+        match self.launch_owners.test_scene_frame_plan().kind() {
+            launch_owners::TestSceneKind::None => self.observe_initial_published_terrain_for_ddgi(),
+            launch_owners::TestSceneKind::Environment(_) | launch_owners::TestSceneKind::Hybrid => {
+                Ok(self.visible_terrain_revision)
             }
-            launch_owners::TestSceneEvent::Environment(_)
-            | launch_owners::TestSceneEvent::Hybrid(_) => Ok(self.visible_terrain_revision),
         }
     }
 }

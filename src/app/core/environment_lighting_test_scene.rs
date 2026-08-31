@@ -1,5 +1,8 @@
 use super::placeables::{SprinklerPlacementTarget, SPRINKLER_HEAD_EMITTER_PART};
-use super::App;
+use super::{
+    launch_owners::{LaunchMode, LaunchOwners},
+    App,
+};
 use crate::app::world_edits::{TerrainRemovalEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
@@ -413,7 +416,6 @@ enum TestScenePhase {
         target_revision: u32,
     },
     Ready,
-    Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -518,6 +520,98 @@ fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity)
 
 #[derive(Debug)]
 pub(super) struct EnvironmentLightingTestScene {
+    owner_id: u64,
+    state: EnvironmentPhaseSlot,
+    transaction_revision: u64,
+}
+
+#[derive(Debug)]
+enum EnvironmentPhaseSlot {
+    Ready(EnvironmentPhasePayload),
+    InFlight(EnvironmentPhasePermit),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EnvironmentPhaseFamily {
+    Static,
+    Terrain,
+    Radiance,
+    PointLight,
+    VoxelEmissive,
+    RasterEmitter,
+    MultiSource,
+    LocalLightScaling,
+}
+
+impl EnvironmentPhaseFamily {
+    fn for_case(case: EnvironmentLightingTestCase) -> Self {
+        match case {
+            EnvironmentLightingTestCase::Sealed
+            | EnvironmentLightingTestCase::PattSeam
+            | EnvironmentLightingTestCase::Portal
+            | EnvironmentLightingTestCase::Walls
+            | EnvironmentLightingTestCase::Donor
+            | EnvironmentLightingTestCase::Dogleg => Self::Static,
+            EnvironmentLightingTestCase::DensityChanges
+            | EnvironmentLightingTestCase::TerrainEdits
+            | EnvironmentLightingTestCase::TerrainEditsInflight
+            | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
+            EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
+            EnvironmentLightingTestCase::PointLightChanges => Self::PointLight,
+            EnvironmentLightingTestCase::VoxelEmissiveChanges => Self::VoxelEmissive,
+            EnvironmentLightingTestCase::RasterEmitterChanges => Self::RasterEmitter,
+            EnvironmentLightingTestCase::MultiSourceStress => Self::MultiSource,
+            EnvironmentLightingTestCase::LocalLightScaling => Self::LocalLightScaling,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum EnvironmentFamilyScratch {
+    None,
+    PointLight {
+        supplemental_ids: Vec<LightId>,
+    },
+    MultiSource {
+        overflow_authored_ids: Vec<LightId>,
+    },
+    LocalLightScaling {
+        ids: Vec<LightId>,
+        samples: Vec<LocalLightScalingSample>,
+    },
+}
+
+impl EnvironmentFamilyScratch {
+    fn for_family(family: EnvironmentPhaseFamily) -> Self {
+        match family {
+            EnvironmentPhaseFamily::PointLight => Self::PointLight {
+                supplemental_ids: Vec::new(),
+            },
+            EnvironmentPhaseFamily::MultiSource => Self::MultiSource {
+                overflow_authored_ids: Vec::new(),
+            },
+            EnvironmentPhaseFamily::LocalLightScaling => Self::LocalLightScaling {
+                ids: Vec::new(),
+                samples: Vec::new(),
+            },
+            EnvironmentPhaseFamily::Static
+            | EnvironmentPhaseFamily::Terrain
+            | EnvironmentPhaseFamily::Radiance
+            | EnvironmentPhaseFamily::VoxelEmissive
+            | EnvironmentPhaseFamily::RasterEmitter => Self::None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseIdentityPermit {
+    owner_id: u64,
+}
+
+#[derive(Debug)]
+struct EnvironmentPhasePayload {
+    identity: Box<EnvironmentPhaseIdentityPermit>,
     case: EnvironmentLightingTestCase,
     phase: TestScenePhase,
     initial_publication: Option<InitialTestScenePublication>,
@@ -525,81 +619,48 @@ pub(super) struct EnvironmentLightingTestScene {
     point_light_fixed_gpu_visible_luma_q8: u32,
     point_light_diagnostic_selected_decoy_id: Option<LightId>,
     point_light_diagnostic_overflow_id: Option<LightId>,
-    point_light_diagnostic_supplemental_ids: Vec<LightId>,
     point_light_expected_registry_revision: u64,
-    multi_source_overflow_authored_ids: Vec<LightId>,
-    local_light_scaling_ids: Vec<LightId>,
-    local_light_scaling_samples: Vec<LocalLightScalingSample>,
+    scratch: EnvironmentFamilyScratch,
+    recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic,
 }
 
-impl EnvironmentLightingTestScene {
-    pub(super) fn new(case: EnvironmentLightingTestCase) -> Self {
-        Self {
-            case,
-            phase: TestScenePhase::Pending,
-            initial_publication: None,
-            point_light_fixed_gpu_request_serial: 0,
-            point_light_fixed_gpu_visible_luma_q8: 0,
-            point_light_diagnostic_selected_decoy_id: None,
-            point_light_diagnostic_overflow_id: None,
-            point_light_diagnostic_supplemental_ids: Vec::new(),
-            point_light_expected_registry_revision: 0,
-            multi_source_overflow_authored_ids: Vec::new(),
-            local_light_scaling_ids: Vec::new(),
-            local_light_scaling_samples: Vec::new(),
-        }
+impl EnvironmentPhasePayload {
+    #[cfg(test)]
+    fn identity_ptr(&self) -> *const EnvironmentPhaseIdentityPermit {
+        &*self.identity
     }
 
-    pub(super) fn case(&self) -> EnvironmentLightingTestCase {
-        self.case
+    fn family(&self) -> EnvironmentPhaseFamily {
+        EnvironmentPhaseFamily::for_case(self.case)
     }
 
-    pub(super) fn is_ready(&self) -> bool {
-        self.phase == TestScenePhase::Ready
-    }
-
-    pub(super) fn hides_terrain_edit_preview(&self) -> bool {
-        self.case == EnvironmentLightingTestCase::PattSeam
-    }
-
-    pub(super) fn is_capture_ready(&self) -> bool {
-        self.is_ready()
-            || matches!(
-                self.phase,
-                TestScenePhase::CapturingInflightStaleActive { .. }
-                    | TestScenePhase::CapturingRadianceBaseline { .. }
-                    | TestScenePhase::CapturingRadianceR2NextFrame { .. }
-                    | TestScenePhase::CapturingRadianceR4NextFrame { .. }
-                    | TestScenePhase::CapturingRadianceR4Published { .. }
-            )
-    }
-
-    pub(super) fn radiance_capture_request(&self) -> Option<RadianceCaptureRequest> {
-        let (checkpoint, mutation_frame) = match self.phase {
-            TestScenePhase::CapturingRadianceBaseline { .. } => {
-                (RadianceCaptureCheckpoint::Baseline, None)
-            }
-            TestScenePhase::CapturingRadianceR2NextFrame { mutation_frame, .. } => {
-                (RadianceCaptureCheckpoint::R2NextFrame, Some(mutation_frame))
-            }
-            TestScenePhase::CapturingRadianceR4NextFrame { mutation_frame, .. } => {
-                (RadianceCaptureCheckpoint::R4NextFrame, Some(mutation_frame))
-            }
-            TestScenePhase::CapturingRadianceR4Published { .. } => {
-                (RadianceCaptureCheckpoint::Final, None)
-            }
-            _ => return None,
+    fn point_light_supplemental_ids_mut(&mut self) -> &mut Vec<LightId> {
+        let EnvironmentFamilyScratch::PointLight { supplemental_ids } = &mut self.scratch else {
+            panic!("point-light scratch requested by a different environment phase family")
         };
-        Some(RadianceCaptureRequest {
-            checkpoint,
-            mutation_frame,
-        })
+        supplemental_ids
     }
 
-    pub(super) fn complete_radiance_capture(
+    fn multi_source_overflow_ids_mut(&mut self) -> &mut Vec<LightId> {
+        let EnvironmentFamilyScratch::MultiSource {
+            overflow_authored_ids,
+        } = &mut self.scratch
+        else {
+            panic!("multi-source scratch requested by a different environment phase family")
+        };
+        overflow_authored_ids
+    }
+
+    fn local_light_scaling_scratch_mut(
         &mut self,
-        checkpoint: RadianceCaptureCheckpoint,
-    ) -> bool {
+    ) -> (&mut Vec<LightId>, &mut Vec<LocalLightScalingSample>) {
+        let EnvironmentFamilyScratch::LocalLightScaling { ids, samples } = &mut self.scratch else {
+            panic!("local-light scaling scratch requested by a different environment phase family")
+        };
+        (ids, samples)
+    }
+
+    fn complete_radiance_capture(&mut self, checkpoint: RadianceCaptureCheckpoint) -> bool {
         self.phase = match (self.phase, checkpoint) {
             (
                 TestScenePhase::CapturingRadianceBaseline { r1 },
@@ -621,11 +682,521 @@ impl EnvironmentLightingTestScene {
                 panic!("radiance capture completion mismatch phase={phase:?} checkpoint={actual:?}")
             }
         };
+        self.phase == TestScenePhase::Ready
+    }
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseAttempt {
+    permit: EnvironmentPhasePermit,
+    payload: EnvironmentPhasePayload,
+}
+
+#[derive(Debug)]
+enum EnvironmentPhaseRecoveryDiagnostic {
+    Disabled,
+    Armed,
+    Retrying {
+        family: EnvironmentPhaseFamily,
+        identity: usize,
+        phase: TestScenePhase,
+        injected_frame: u64,
+    },
+    Complete,
+}
+
+fn require_environment_phase_retry_on_next_frame(
+    injected_frame: u64,
+    retry_frame: u64,
+) -> Result<()> {
+    let expected_retry_frame = injected_frame
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("environment phase injection frame overflowed"))?;
+    anyhow::ensure!(
+        retry_frame == expected_retry_frame,
+        "environment phase recovery missed the next physical frame: injected_frame={injected_frame} retry_frame={retry_frame}"
+    );
+    Ok(())
+}
+
+impl EnvironmentPhaseRecoveryDiagnostic {
+    fn from_process_environment() -> Self {
+        if std::env::var_os("RE_FLORA_ENVIRONMENT_PHASE_RECOVERY_DIAGNOSTIC").is_some() {
+            Self::Armed
+        } else {
+            Self::Disabled
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EnvironmentPhasePermit {
+    owner_id: u64,
+    revision: u64,
+    family: EnvironmentPhaseFamily,
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseBusy {
+    permit: EnvironmentPhasePermit,
+}
+
+impl EnvironmentPhaseBusy {
+    #[cfg(test)]
+    fn family(&self) -> EnvironmentPhaseFamily {
+        self.permit.family
+    }
+}
+
+impl std::fmt::Display for EnvironmentPhaseBusy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "environment phase is already in flight for family {:?} at revision {}",
+            self.permit.family, self.permit.revision
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseBusy {}
+
+impl EnvironmentPhaseAttempt {
+    fn request(&self) -> &EnvironmentPhasePayload {
+        &self.payload
+    }
+
+    fn request_mut(&mut self) -> &mut EnvironmentPhasePayload {
+        &mut self.payload
+    }
+
+    fn complete(self) -> EnvironmentPhaseReceipt {
+        EnvironmentPhaseReceipt {
+            permit: self.permit,
+            payload: self.payload,
+        }
+    }
+
+    fn fail(self, error: anyhow::Error) -> EnvironmentPhaseFailure {
+        EnvironmentPhaseFailure::new(self, error)
+    }
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseReceipt {
+    permit: EnvironmentPhasePermit,
+    payload: EnvironmentPhasePayload,
+}
+
+#[derive(Debug)]
+struct EnvironmentPhaseCommitFailure {
+    message: String,
+    receipt: EnvironmentPhaseReceipt,
+}
+
+impl std::fmt::Display for EnvironmentPhaseCommitFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} (payload owner {} family {:?})",
+            self.message, self.receipt.permit.owner_id, self.receipt.permit.family
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseCommitFailure {}
+
+#[derive(Debug)]
+struct EnvironmentPhaseRestoreFailure {
+    message: String,
+    attempt: EnvironmentPhaseAttempt,
+}
+
+impl std::fmt::Display for EnvironmentPhaseRestoreFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} (payload family {:?})",
+            self.message,
+            self.attempt.payload.family()
+        )
+    }
+}
+
+impl std::error::Error for EnvironmentPhaseRestoreFailure {}
+
+#[derive(Debug)]
+struct EnvironmentPhaseFailure {
+    attempt: EnvironmentPhaseAttempt,
+    error: anyhow::Error,
+}
+
+impl EnvironmentPhaseFailure {
+    fn new(attempt: EnvironmentPhaseAttempt, error: anyhow::Error) -> Self {
+        Self { attempt, error }
+    }
+
+    fn family(&self) -> EnvironmentPhaseFamily {
+        self.attempt.request().family()
+    }
+
+    fn into_parts(self) -> (EnvironmentPhaseAttempt, anyhow::Error) {
+        (self.attempt, self.error)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum EnvironmentCapturePort {
+    Inactive,
+    Active {
+        scene_ready: bool,
+        radiance_request: Option<RadianceCaptureRequest>,
+        inflight_target_revision: Option<u32>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EnvironmentEditCycleTimeout {
+    Inactive,
+    Pending {
+        phase: &'static str,
+        target_revision: u32,
+    },
+}
+
+impl EnvironmentCapturePort {
+    pub(super) fn scene_ready(self) -> bool {
+        match self {
+            Self::Inactive => true,
+            Self::Active { scene_ready, .. } => scene_ready,
+        }
+    }
+
+    pub(super) fn radiance_request(self) -> Option<RadianceCaptureRequest> {
+        match self {
+            Self::Inactive => None,
+            Self::Active {
+                radiance_request, ..
+            } => radiance_request,
+        }
+    }
+
+    pub(super) fn inflight_target_revision(self) -> Option<u32> {
+        match self {
+            Self::Inactive => None,
+            Self::Active {
+                inflight_target_revision,
+                ..
+            } => inflight_target_revision,
+        }
+    }
+}
+
+impl LaunchOwners {
+    fn begin_environment_phase(
+        &mut self,
+    ) -> std::result::Result<Option<EnvironmentPhaseAttempt>, EnvironmentPhaseBusy> {
+        match &mut self.mode {
+            LaunchMode::Environment { owner, .. } => owner.begin_phase().map(Some),
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => Ok(None),
+        }
+    }
+
+    #[cfg(test)]
+    fn environment_phase_revision_for_test(&self) -> u64 {
+        let LaunchMode::Environment { owner, .. } = &self.mode else {
+            panic!("environment phase revision requires an environment launch owner")
+        };
+        owner.transaction_revision
+    }
+
+    fn apply_environment_phase_result(
+        &mut self,
+        result: std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure>,
+    ) -> Result<()> {
+        match result {
+            Ok(receipt) => match &mut self.mode {
+                LaunchMode::Environment { owner, .. } => {
+                    owner.commit_phase(receipt).map_err(anyhow::Error::new)
+                }
+                LaunchMode::General { .. }
+                | LaunchMode::CanopyAudio { .. }
+                | LaunchMode::FoliageShadow { .. } => {
+                    anyhow::bail!("environment phase receipt no longer matches its launch owner")
+                }
+            },
+            Err(failure) => {
+                let family = failure.family();
+                let (attempt, error) = failure.into_parts();
+                match &mut self.mode {
+                    LaunchMode::Environment { owner, .. } => {
+                        owner.restore_phase(attempt).map_err(anyhow::Error::new).with_context(
+                            || {
+                                format!(
+                                    "restore {family:?} environment payload after apply failure: {error:#}"
+                                )
+                            },
+                        )?;
+                        Err(error)
+                    }
+                    LaunchMode::General { .. }
+                    | LaunchMode::CanopyAudio { .. }
+                    | LaunchMode::FoliageShadow { .. } => anyhow::bail!(
+                        "{family:?} environment failure no longer matches its launch owner: {error:#}"
+                    ),
+                }
+            }
+        }
+    }
+
+    fn restore_environment_phase(&mut self, attempt: EnvironmentPhaseAttempt) -> Result<()> {
+        match &mut self.mode {
+            LaunchMode::Environment { owner, .. } => {
+                owner.restore_phase(attempt).map_err(anyhow::Error::new)
+            }
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => {
+                anyhow::bail!("environment phase attempt no longer matches its launch owner")
+            }
+        }
+    }
+
+    fn environment_case(&self) -> Option<EnvironmentLightingTestCase> {
+        match &self.mode {
+            LaunchMode::Environment { owner, .. } => Some(owner.case()),
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => None,
+        }
+    }
+
+    pub(super) fn environment_capture_port(&self) -> EnvironmentCapturePort {
+        match &self.mode {
+            LaunchMode::Environment { owner, .. } => EnvironmentCapturePort::Active {
+                scene_ready: owner.is_capture_ready(),
+                radiance_request: owner.radiance_capture_request(),
+                inflight_target_revision: owner.inflight_capture_target_revision(),
+            },
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => EnvironmentCapturePort::Inactive,
+        }
+    }
+
+    pub(super) fn complete_environment_radiance_capture(
+        &mut self,
+        checkpoint: Option<RadianceCaptureCheckpoint>,
+    ) -> bool {
+        let Some(checkpoint) = checkpoint else {
+            return true;
+        };
+        let (complete, receipt) = match &mut self.mode {
+            LaunchMode::Environment { owner, .. } => {
+                let mut attempt = owner
+                    .begin_phase()
+                    .expect("radiance capture cannot overlap an environment phase attempt");
+                let complete = attempt.request_mut().complete_radiance_capture(checkpoint);
+                (complete, attempt.complete())
+            }
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => {
+                panic!("radiance capture completion lost its environment test scene")
+            }
+        };
+        self.apply_environment_phase_result(Ok(receipt))
+            .unwrap_or_else(|failure| {
+                panic!("radiance capture receipt must retain its environment owner: {failure}")
+            });
+        complete
+    }
+
+    pub(super) fn environment_edit_cycle_timeout(&self) -> EnvironmentEditCycleTimeout {
+        match &self.mode {
+            LaunchMode::Environment { owner, .. } => {
+                if owner.recovery_diagnostic_complete() {
+                    return EnvironmentEditCycleTimeout::Inactive;
+                }
+                owner.edit_cycle_target_revision().map_or(
+                    EnvironmentEditCycleTimeout::Inactive,
+                    |target_revision| EnvironmentEditCycleTimeout::Pending {
+                        phase: owner.phase_label(),
+                        target_revision,
+                    },
+                )
+            }
+            LaunchMode::General { .. }
+            | LaunchMode::CanopyAudio { .. }
+            | LaunchMode::FoliageShadow { .. } => EnvironmentEditCycleTimeout::Inactive,
+        }
+    }
+}
+
+impl EnvironmentLightingTestScene {
+    pub(super) fn new(case: EnvironmentLightingTestCase) -> Self {
+        static NEXT_OWNER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let family = EnvironmentPhaseFamily::for_case(case);
+        let owner_id = NEXT_OWNER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self {
+            owner_id,
+            state: EnvironmentPhaseSlot::Ready(EnvironmentPhasePayload {
+                identity: Box::new(EnvironmentPhaseIdentityPermit { owner_id }),
+                case,
+                phase: TestScenePhase::Pending,
+                initial_publication: None,
+                point_light_fixed_gpu_request_serial: 0,
+                point_light_fixed_gpu_visible_luma_q8: 0,
+                point_light_diagnostic_selected_decoy_id: None,
+                point_light_diagnostic_overflow_id: None,
+                point_light_expected_registry_revision: 0,
+                scratch: EnvironmentFamilyScratch::for_family(family),
+                recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic::from_process_environment(),
+            }),
+            transaction_revision: 0,
+        }
+    }
+
+    fn begin_phase(
+        &mut self,
+    ) -> std::result::Result<EnvironmentPhaseAttempt, EnvironmentPhaseBusy> {
+        let permit = match &self.state {
+            EnvironmentPhaseSlot::Ready(request) => EnvironmentPhasePermit {
+                owner_id: self.owner_id,
+                revision: self.transaction_revision,
+                family: request.family(),
+            },
+            EnvironmentPhaseSlot::InFlight(permit) => {
+                return Err(EnvironmentPhaseBusy { permit: *permit })
+            }
+        };
+        let previous = std::mem::replace(&mut self.state, EnvironmentPhaseSlot::InFlight(permit));
+        let EnvironmentPhaseSlot::Ready(request) = previous else {
+            unreachable!("ready environment phase changed before move-out")
+        };
+        Ok(EnvironmentPhaseAttempt {
+            permit,
+            payload: request,
+        })
+    }
+
+    fn commit_phase(
+        &mut self,
+        receipt: EnvironmentPhaseReceipt,
+    ) -> std::result::Result<(), EnvironmentPhaseCommitFailure> {
+        let valid = matches!(
+            self.state,
+            EnvironmentPhaseSlot::InFlight(permit) if permit == receipt.permit
+        ) && receipt.permit.owner_id == self.owner_id
+            && receipt.permit.revision == self.transaction_revision
+            && receipt.payload.identity.owner_id == self.owner_id
+            && receipt.payload.family() == receipt.permit.family;
+        if !valid {
+            return Err(EnvironmentPhaseCommitFailure {
+                message: format!(
+                    "environment phase receipt does not match owner {} revision {} family {:?}",
+                    self.owner_id, self.transaction_revision, receipt.permit.family
+                ),
+                receipt,
+            });
+        }
+        self.state = EnvironmentPhaseSlot::Ready(receipt.payload);
+        self.transaction_revision = self.transaction_revision.wrapping_add(1);
+        Ok(())
+    }
+
+    fn restore_phase(
+        &mut self,
+        attempt: EnvironmentPhaseAttempt,
+    ) -> std::result::Result<(), EnvironmentPhaseRestoreFailure> {
+        let valid = matches!(
+            self.state,
+            EnvironmentPhaseSlot::InFlight(permit) if permit == attempt.permit
+        ) && attempt.permit.owner_id == self.owner_id
+            && attempt.permit.revision == self.transaction_revision
+            && attempt.payload.identity.owner_id == self.owner_id
+            && attempt.payload.family() == attempt.permit.family;
+        if !valid {
+            return Err(EnvironmentPhaseRestoreFailure {
+                message: format!(
+                    "environment phase attempt does not match owner {} revision {} family {:?}",
+                    self.owner_id, self.transaction_revision, attempt.permit.family
+                ),
+                attempt,
+            });
+        }
+        self.state = EnvironmentPhaseSlot::Ready(attempt.payload);
+        Ok(())
+    }
+
+    fn ready_phase(&self) -> &EnvironmentPhasePayload {
+        match &self.state {
+            EnvironmentPhaseSlot::Ready(request) => request,
+            EnvironmentPhaseSlot::InFlight(permit) => panic!(
+                "environment phase owner {} is terminally in flight at revision {} family {:?}",
+                permit.owner_id, permit.revision, permit.family
+            ),
+        }
+    }
+
+    fn recovery_diagnostic_complete(&self) -> bool {
+        self.ready_phase().recovery_diagnostic.is_complete()
+    }
+
+    pub(super) fn case(&self) -> EnvironmentLightingTestCase {
+        self.ready_phase().case
+    }
+
+    pub(super) fn is_ready(&self) -> bool {
+        self.ready_phase().phase == TestScenePhase::Ready
+    }
+
+    pub(super) fn hides_terrain_edit_preview(&self) -> bool {
+        self.ready_phase().case == EnvironmentLightingTestCase::PattSeam
+    }
+
+    pub(super) fn is_capture_ready(&self) -> bool {
+        let phase = self.ready_phase().phase;
         self.is_ready()
+            || matches!(
+                phase,
+                TestScenePhase::CapturingInflightStaleActive { .. }
+                    | TestScenePhase::CapturingRadianceBaseline { .. }
+                    | TestScenePhase::CapturingRadianceR2NextFrame { .. }
+                    | TestScenePhase::CapturingRadianceR4NextFrame { .. }
+                    | TestScenePhase::CapturingRadianceR4Published { .. }
+            )
+    }
+
+    pub(super) fn radiance_capture_request(&self) -> Option<RadianceCaptureRequest> {
+        let (checkpoint, mutation_frame) = match self.ready_phase().phase {
+            TestScenePhase::CapturingRadianceBaseline { .. } => {
+                (RadianceCaptureCheckpoint::Baseline, None)
+            }
+            TestScenePhase::CapturingRadianceR2NextFrame { mutation_frame, .. } => {
+                (RadianceCaptureCheckpoint::R2NextFrame, Some(mutation_frame))
+            }
+            TestScenePhase::CapturingRadianceR4NextFrame { mutation_frame, .. } => {
+                (RadianceCaptureCheckpoint::R4NextFrame, Some(mutation_frame))
+            }
+            TestScenePhase::CapturingRadianceR4Published { .. } => {
+                (RadianceCaptureCheckpoint::Final, None)
+            }
+            _ => return None,
+        };
+        Some(RadianceCaptureRequest {
+            checkpoint,
+            mutation_frame,
+        })
     }
 
     pub(super) fn inflight_capture_target_revision(&self) -> Option<u32> {
-        match self.phase {
+        match self.ready_phase().phase {
             TestScenePhase::CapturingInflightStaleActive { target_revision } => {
                 Some(target_revision)
             }
@@ -634,19 +1205,20 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
-        if !(is_terrain_edit_case(self.case)
-            || self.case == EnvironmentLightingTestCase::RadianceChanges
-            || self.case == EnvironmentLightingTestCase::PointLightChanges
-            || self.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
-            || self.case == EnvironmentLightingTestCase::RasterEmitterChanges
-            || self.case == EnvironmentLightingTestCase::MultiSourceStress
-            || self.case == EnvironmentLightingTestCase::LocalLightScaling
-            || self.case == EnvironmentLightingTestCase::PattSeam)
+        let environment = self.ready_phase();
+        if !(is_terrain_edit_case(environment.case)
+            || environment.case == EnvironmentLightingTestCase::RadianceChanges
+            || environment.case == EnvironmentLightingTestCase::PointLightChanges
+            || environment.case == EnvironmentLightingTestCase::VoxelEmissiveChanges
+            || environment.case == EnvironmentLightingTestCase::RasterEmitterChanges
+            || environment.case == EnvironmentLightingTestCase::MultiSourceStress
+            || environment.case == EnvironmentLightingTestCase::LocalLightScaling
+            || environment.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
             return None;
         }
-        match self.phase {
+        match environment.phase {
             TestScenePhase::TerrainEditPublished {
                 target_revision, ..
             }
@@ -708,7 +1280,7 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn phase_label(&self) -> &'static str {
-        match self.phase {
+        match self.ready_phase().phase {
             TestScenePhase::Pending => "pending",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
@@ -936,7 +1508,6 @@ impl EnvironmentLightingTestScene {
                 "capturing-inflight-stale-active"
             }
             TestScenePhase::Ready => "ready",
-            TestScenePhase::Failed => "failed",
         }
     }
 }
@@ -1110,6 +1681,14 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
         cuboids,
         voxel_type,
     })
+}
+
+fn prepare_initial_environment_lighting_test_scene(
+    case: EnvironmentLightingTestCase,
+) -> Result<WorldEditTransaction> {
+    TestSceneGeometry::build(case)
+        .compile()
+        .context("compile deterministic environment-lighting test scene")
 }
 
 fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditTransaction> {
@@ -1328,16 +1907,22 @@ impl App {
     fn publish_initial_environment_lighting_test_scene(
         &mut self,
         case: EnvironmentLightingTestCase,
-    ) -> Result<u32> {
+        transaction: WorldEditTransaction,
+    ) -> u32 {
         log::info!(
             "[ENV_LIGHT_TEST] constructing static case={} before probe initialization",
             case.label(),
         );
-        TestSceneGeometry::build(case)
-            .compile()
-            .context("compile deterministic environment-lighting test scene")
-            .and_then(|transaction| self.execute_world_edit(transaction))
-            .and_then(require_initial_test_scene_publication)?;
+        let publication = self.execute_world_edit(transaction).unwrap_or_else(|error| {
+            panic!(
+                "[ENV_LIGHT_TEST] initial physical world edit failed after mutation may have started; retry is unsafe: {error:#}"
+            )
+        });
+        require_initial_test_scene_publication(publication).unwrap_or_else(|error| {
+            panic!(
+                "[ENV_LIGHT_TEST] initial physical world edit did not publish; retry is unsafe: {error:#}"
+            )
+        });
         let rebuild_bound = test_rebuild_bound(case);
         let terrain_revision = self.visible_terrain_revision;
         log::info!(
@@ -1352,65 +1937,45 @@ impl App {
             terrain_revision,
             SETTLE_FRAMES,
         );
-        Ok(terrain_revision)
+        terrain_revision
     }
 
     pub(super) fn prepare_environment_lighting_test_scene_before_probe_initialization(
         &mut self,
     ) -> Result<()> {
-        let scene = match self.scenario_owner.test_scene_event() {
-            super::launch_owners::TestSceneEvent::Environment(scene) => scene,
-            super::launch_owners::TestSceneEvent::None
-            | super::launch_owners::TestSceneEvent::Hybrid(_) => return Ok(()),
+        let Some(mut attempt) = self.launch_owners.begin_environment_phase()? else {
+            return Ok(());
         };
-        if scene.phase != TestScenePhase::Pending {
+        if attempt.request().phase != TestScenePhase::Pending {
+            self.launch_owners.restore_environment_phase(attempt)?;
             return Ok(());
         }
-        let case = scene.case;
-        let terrain_revision = self
-            .publish_initial_environment_lighting_test_scene(case)
-            .context("publish initial environment-lighting test scene")?;
-        let scene = self.scenario_owner.test_scene_event_mut().environment();
-        scene.initial_publication = Some(InitialTestScenePublication::new(terrain_revision));
-        scene.phase = TestScenePhase::Settling {
+        let case = attempt.request().case;
+        let transaction = match prepare_initial_environment_lighting_test_scene(case) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                return self
+                    .launch_owners
+                    .apply_environment_phase_result(Err(attempt.fail(error)));
+            }
+        };
+        let terrain_revision =
+            self.publish_initial_environment_lighting_test_scene(case, transaction);
+        let request = attempt.request_mut();
+        request.initial_publication = Some(InitialTestScenePublication::new(terrain_revision));
+        request.phase = TestScenePhase::Settling {
             frames: SETTLE_FRAMES,
             terrain_revision,
         };
-        Ok(())
-    }
-
-    fn verify_environment_lighting_test_scene_first_ddgi_build(&mut self) -> Result<()> {
-        let scene = match self.scenario_owner.test_scene_event() {
-            super::launch_owners::TestSceneEvent::Environment(scene) => scene,
-            super::launch_owners::TestSceneEvent::None
-            | super::launch_owners::TestSceneEvent::Hybrid(_) => return Ok(()),
-        };
-        if !scene
-            .initial_publication
-            .is_some_and(|publication| !publication.first_build_verified)
-        {
-            return Ok(());
-        }
-        let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
-            return Ok(());
-        };
-        let scene = self.scenario_owner.test_scene_event_mut().environment();
-        let publication = scene
-            .initial_publication
-            .as_mut()
-            .expect("initial publication identity must remain installed");
-        publication.verify_first_build(build_token)?;
-        log::info!(
-            "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
-            build_token.serial(),
-            build_token.terrain_revision(),
-            publication.terrain_revision,
-        );
+        self.launch_owners
+            .apply_environment_phase_result(Ok(attempt.complete()))?;
         Ok(())
     }
 
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
-        let case = self.scenario_owner.test_scene_event().environment().case;
+        let Some(case) = self.launch_owners.environment_case() else {
+            panic!("environment camera configuration requires the environment test scene")
+        };
         let (camera_position, camera_target) = camera_pose(case);
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
@@ -1518,11 +2083,14 @@ impl App {
     }
 
     pub(super) fn process_radiance_test_mutation_after_render(&mut self) {
-        let phase = match self.scenario_owner.test_scene_event() {
-            super::launch_owners::TestSceneEvent::Environment(scene) => scene.phase,
-            super::launch_owners::TestSceneEvent::None
-            | super::launch_owners::TestSceneEvent::Hybrid(_) => return,
+        let Some(mut attempt) = self
+            .launch_owners
+            .begin_environment_phase()
+            .expect("radiance mutation cannot overlap an environment phase attempt")
+        else {
+            return;
         };
+        let phase = attempt.request().phase;
         let mutation_frame = self.time_info.total_frame_count();
         let next_phase = match phase {
             TestScenePhase::MutatingRadianceR2 { r1 } => {
@@ -1586,16 +2154,22 @@ impl App {
                     mutation_frame,
                 }
             }
-            _ => return,
+            _ => {
+                self.launch_owners
+                    .restore_environment_phase(attempt)
+                    .expect("radiance no-op must restore its environment phase payload");
+                return;
+            }
         };
-        self.scenario_owner
-            .test_scene_event_mut()
-            .environment()
-            .phase = next_phase;
+        attempt.request_mut().phase = next_phase;
+        self.launch_owners
+            .apply_environment_phase_result(Ok(attempt.complete()))
+            .expect("radiance mutation must retain its environment launch owner");
     }
 
     fn advance_multi_source_lifecycle(
         &mut self,
+        environment: &mut EnvironmentPhasePayload,
         mut state: MultiSourceLifecycleState,
         fixed_gpu_request_serial: u32,
     ) -> Option<TestScenePhase> {
@@ -1710,10 +2284,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source authored diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAuthoredDiagnostic;
                 state
             }
@@ -1737,10 +2308,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source voxel diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitVoxelDiagnostic;
                 state
             }
@@ -1764,10 +2332,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source raster diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitRasterDiagnostic;
                 state
             }
@@ -1790,10 +2355,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("multi-source aggregate diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAggregateDiagnostic;
                 state
             }
@@ -1924,10 +2486,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("swapped aggregate diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitSwappedAggregateDiagnostic;
                 state
             }
@@ -1953,10 +2512,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("swapped authored diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitSwappedAuthoredDiagnostic;
                 log::info!(
                     "[MULTI_SOURCE_ACCEPT] checkpoint=gpu-order-independence before={:?} after={:?} descriptor_multiset_same=true provider_order_stable=true order_independent=true",
@@ -2000,10 +2556,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("post-removal aggregate diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitAfterRemoveAggregateDiagnostic;
                 state
             }
@@ -2026,10 +2579,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("removed authored diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitRemovedAuthoredDiagnostic;
                 log::info!(
                     "[MULTI_SOURCE_ACCEPT] checkpoint=gpu-remove-one before={:?} removed={:?} after={:?} exact_provider_delta=true remaining_provider_count=2",
@@ -2123,10 +2673,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("stale multi-source identity request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitMovedVoxelStaleDiagnostic;
                 state
             }
@@ -2168,10 +2715,7 @@ impl App {
                         .unwrap(),
                     )),
                 );
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .multi_source_overflow_authored_ids = overflow_ids;
+                *environment.multi_source_overflow_ids_mut() = overflow_ids;
                 let snapshot = self.local_lights.snapshot();
                 assert_eq!(snapshot.lights().len(), LOCAL_LIGHT_GPU_CAPACITY + 3);
                 state.expected_source_revision = snapshot.source_revision();
@@ -2231,13 +2775,7 @@ impl App {
                     LOCAL_LIGHT_GPU_CAPACITY,
                 );
 
-                let authored_ids = std::mem::take(
-                    &mut self
-                        .scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .multi_source_overflow_authored_ids,
-                );
+                let authored_ids = std::mem::take(environment.multi_source_overflow_ids_mut());
                 for id in authored_ids {
                     self.local_lights
                         .remove(id)
@@ -2312,10 +2850,7 @@ impl App {
                         POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                     )
                     .expect("final stale raster diagnostic request must succeed");
-                self.scenario_owner
-                    .test_scene_event_mut()
-                    .environment()
-                    .point_light_fixed_gpu_request_serial = request;
+                environment.point_light_fixed_gpu_request_serial = request;
                 state.stage = MultiSourceTestStage::AwaitFinalStaleDiagnostic;
                 state
             }
@@ -2394,21 +2929,130 @@ impl App {
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
-        self.verify_environment_lighting_test_scene_first_ddgi_build()
-            .unwrap_or_else(|err| {
-                panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
+        let Some(attempt) = self
+            .launch_owners
+            .begin_environment_phase()
+            .expect("environment frame cannot overlap another phase attempt")
+        else {
+            return;
+        };
+        let family = attempt.request().family();
+        match self.execute_environment_phase_attempt(attempt) {
+            Ok(receipt) => {
+                self.launch_owners
+                    .apply_environment_phase_result(Ok(receipt))
+                    .expect("environment frame must retain its launch owner");
+            }
+            Err(failure) => {
+                let error = self
+                    .launch_owners
+                    .apply_environment_phase_result(Err(failure))
+                    .expect_err("failed environment frame must restore its phase attempt");
+                log::error!(
+                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable preflight failure: {error:#}"
+                );
+            }
+        }
+    }
+
+    fn execute_environment_phase_attempt(
+        &mut self,
+        mut attempt: EnvironmentPhaseAttempt,
+    ) -> std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> {
+        if let Err(error) = self.preflight_environment_phase(attempt.request_mut()) {
+            return Err(attempt.fail(error));
+        }
+        self.advance_environment_phase_machine(attempt.request_mut());
+        Ok(attempt.complete())
+    }
+
+    fn preflight_environment_phase(
+        &mut self,
+        environment: &mut EnvironmentPhasePayload,
+    ) -> Result<()> {
+        let family = environment.family();
+        let identity = (&*environment.identity as *const EnvironmentPhaseIdentityPermit) as usize;
+        let phase = environment.phase;
+        let frame = self.time_info.total_frame_count();
+        let diagnostic = std::mem::replace(
+            &mut environment.recovery_diagnostic,
+            EnvironmentPhaseRecoveryDiagnostic::Disabled,
+        );
+        environment.recovery_diagnostic = match diagnostic {
+            EnvironmentPhaseRecoveryDiagnostic::Disabled => {
+                EnvironmentPhaseRecoveryDiagnostic::Disabled
+            }
+            EnvironmentPhaseRecoveryDiagnostic::Armed => {
+                log::warn!(
+                    "[ENV_PHASE_RECOVERY] event=injected family={family:?} injected_frame={frame} owner={} revision_pending=true",
+                    environment.identity.owner_id,
+                );
+                environment.recovery_diagnostic = EnvironmentPhaseRecoveryDiagnostic::Retrying {
+                    family,
+                    identity,
+                    phase,
+                    injected_frame: frame,
+                };
+                anyhow::bail!("injected {family:?} environment phase preflight failure");
+            }
+            EnvironmentPhaseRecoveryDiagnostic::Retrying {
+                family: expected_family,
+                identity: expected_identity,
+                phase: expected_phase,
+                injected_frame,
+            } => {
+                anyhow::ensure!(
+                    family == expected_family && identity == expected_identity,
+                    "environment phase recovery did not retain its exact payload"
+                );
+                anyhow::ensure!(
+                    phase == expected_phase,
+                    "environment phase recovery advanced before its retry"
+                );
+                require_environment_phase_retry_on_next_frame(injected_frame, frame)
+                    .unwrap_or_else(|error| panic!("[ENV_PHASE_RECOVERY] {error:#}"));
+                log::info!(
+                    "[ENV_PHASE_RECOVERY] event=retried family={family:?} injected_frame={injected_frame} retry_frame={frame} exact_payload=true exact_phase=true owner={}",
+                    environment.identity.owner_id,
+                );
+                EnvironmentPhaseRecoveryDiagnostic::Complete
+            }
+            EnvironmentPhaseRecoveryDiagnostic::Complete => {
+                EnvironmentPhaseRecoveryDiagnostic::Complete
+            }
+        };
+
+        let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
+            return Ok(());
+        };
+        let Some(publication) = environment
+            .initial_publication
+            .as_mut()
+            .filter(|publication| !publication.first_build_verified)
+        else {
+            return Ok(());
+        };
+        publication
+            .verify_first_build(build_token)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "[ENV_LIGHT_TEST] initial DDGI publication contract failed; retry is unsafe: {error:#}"
+                )
             });
-        let (case, phase, fixed_gpu_request_serial, fixed_gpu_visible_luma_q8) =
-            match self.scenario_owner.test_scene_event() {
-                super::launch_owners::TestSceneEvent::Environment(scene) => (
-                    scene.case,
-                    scene.phase,
-                    scene.point_light_fixed_gpu_request_serial,
-                    scene.point_light_fixed_gpu_visible_luma_q8,
-                ),
-                super::launch_owners::TestSceneEvent::None
-                | super::launch_owners::TestSceneEvent::Hybrid(_) => return,
-            };
+        log::info!(
+            "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
+            build_token.serial(),
+            build_token.terrain_revision(),
+            publication.terrain_revision,
+        );
+        Ok(())
+    }
+
+    fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
+        let case = environment.case;
+        let phase = environment.phase;
+        let fixed_gpu_request_serial = environment.point_light_fixed_gpu_request_serial;
+        let fixed_gpu_visible_luma_q8 = environment.point_light_fixed_gpu_visible_luma_q8;
 
         let next_phase = match phase {
             TestScenePhase::Pending => {
@@ -2523,10 +3167,9 @@ impl App {
                         Ok(target_revision) => {
                             TestScenePhase::PattSeamTerrainPublished { target_revision }
                         }
-                        Err(err) => {
-                            log::error!("[DDGI_SEAM_REPRO] shovel replay failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[DDGI_SEAM_REPRO] shovel replay failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     }
                 } else if is_terrain_edit_case(case) {
                     log::info!(
@@ -2541,10 +3184,9 @@ impl App {
                             edit: TerrainEdit::CloseSkylight,
                             target_revision,
                         },
-                        Err(err) => {
-                            log::error!("[ENV_LIGHT_EDIT_CYCLE] close edit failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[ENV_LIGHT_EDIT_CYCLE] close edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     }
                 } else {
                     log::info!(
@@ -2669,10 +3311,9 @@ impl App {
                     let overflow_id = *supplemental_ids
                         .last()
                         .expect("diagnostic overflow source must exist");
-                    let scene = self.scenario_owner.test_scene_event_mut().environment();
-                    scene.point_light_diagnostic_selected_decoy_id = Some(selected_decoy_id);
-                    scene.point_light_diagnostic_overflow_id = Some(overflow_id);
-                    scene.point_light_diagnostic_supplemental_ids = supplemental_ids;
+                    environment.point_light_diagnostic_selected_decoy_id = Some(selected_decoy_id);
+                    environment.point_light_diagnostic_overflow_id = Some(overflow_id);
+                    *environment.point_light_supplemental_ids_mut() = supplemental_ids;
                     let source_revision = self.local_lights.snapshot().source_revision();
                     let frame = self.time_info.total_frame_count();
                     log_acceptance_field("POINT_LIGHT", "baseline", baseline);
@@ -2731,10 +3372,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("visible fixed-receiver diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
@@ -2773,10 +3411,7 @@ impl App {
                     assert_eq!(evidence.occluded, 0);
                     assert!(evidence.irradiance_luma_q8 > 0);
                     assert!(evidence.irradiance.min_element() > 0.0);
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_visible_luma_q8 = evidence.irradiance_luma_q8;
+                    environment.point_light_fixed_gpu_visible_luma_q8 = evidence.irradiance_luma_q8;
                     let terrain_revision = self
                         .apply_point_light_blocker(VOXEL_TYPE_ROCK, terrain_revision)
                         .expect("point-light blocker add must succeed");
@@ -2810,10 +3445,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("blocked fixed-receiver diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
@@ -2884,10 +3516,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("restored fixed-receiver diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
@@ -2937,10 +3566,7 @@ impl App {
                         fixed_gpu_visible_luma_q8,
                         evidence.irradiance_luma_q8,
                     );
-                    let overflow_id = self
-                        .scenario_owner
-                        .test_scene_event()
-                        .environment()
+                    let overflow_id = environment
                         .point_light_diagnostic_overflow_id
                         .expect("point-light overflow diagnostic id must exist");
                     let request_serial = self
@@ -2954,10 +3580,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("overflow identity diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
@@ -2977,18 +3600,14 @@ impl App {
                     if evidence.request.request_serial != fixed_gpu_request_serial {
                         return;
                     }
-                    let (selected_decoy_id, overflow_id, supplemental_ids) = {
-                        let scene = self.scenario_owner.test_scene_event_mut().environment();
-                        (
-                            scene
-                                .point_light_diagnostic_selected_decoy_id
-                                .expect("selected diagnostic decoy must exist"),
-                            scene
-                                .point_light_diagnostic_overflow_id
-                                .expect("overflow diagnostic id must exist"),
-                            std::mem::take(&mut scene.point_light_diagnostic_supplemental_ids),
-                        )
-                    };
+                    let selected_decoy_id = environment
+                        .point_light_diagnostic_selected_decoy_id
+                        .expect("selected diagnostic decoy must exist");
+                    let overflow_id = environment
+                        .point_light_diagnostic_overflow_id
+                        .expect("overflow diagnostic id must exist");
+                    let supplemental_ids =
+                        std::mem::take(environment.point_light_supplemental_ids_mut());
                     assert_eq!(evidence.request.target.light_id(), Some(overflow_id));
                     assert_eq!(evidence.request.source_revision, expected_source_revision);
                     assert!(!evidence.identity_matches);
@@ -3005,10 +3624,8 @@ impl App {
                     }
                     let snapshot = self.local_lights.snapshot();
                     let source_revision = snapshot.source_revision();
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_expected_registry_revision = snapshot.registry_revision();
+                    environment.point_light_expected_registry_revision =
+                        snapshot.registry_revision();
                     log::info!(
                         "[POINT_LIGHT_ACCEPT] checkpoint=n-diagnostic-overflow identity_matches=false selected_index=none overflow_slot={} overflow_generation={} source_revision_before={} cleanup_source_revision={} authoritative_count_after=1 selected_decoy_slot={} selected_decoy_generation={} stale_direct_expected=false",
                         overflow_id.slot(),
@@ -3036,10 +3653,7 @@ impl App {
                         return;
                     }
                     assert!(self.time_info.total_frame_count() > mutation_frame);
-                    let selected_decoy_id = self
-                        .scenario_owner
-                        .test_scene_event()
-                        .environment()
+                    let selected_decoy_id = environment
                         .point_light_diagnostic_selected_decoy_id
                         .expect("removed selected diagnostic decoy id must be retained");
                     let request_serial = self
@@ -3053,10 +3667,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed identity diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     TestScenePhase::PointLightLifecycle {
                         terrain_revision,
                         baseline,
@@ -3076,10 +3687,7 @@ impl App {
                     if evidence.request.request_serial != fixed_gpu_request_serial {
                         return;
                     }
-                    let selected_decoy_id = self
-                        .scenario_owner
-                        .test_scene_event()
-                        .environment()
+                    let selected_decoy_id = environment
                         .point_light_diagnostic_selected_decoy_id
                         .expect("removed selected diagnostic decoy id must be retained");
                     assert_eq!(evidence.request.target.light_id(), Some(selected_decoy_id));
@@ -3091,11 +3699,8 @@ impl App {
                     assert_eq!(evidence.occluded, 0);
                     assert_eq!(evidence.irradiance_luma_q8, 0);
                     assert_eq!(evidence.irradiance, Vec3::ZERO);
-                    let expected_registry_revision = self
-                        .scenario_owner
-                        .test_scene_event()
-                        .environment()
-                        .point_light_expected_registry_revision;
+                    let expected_registry_revision =
+                        environment.point_light_expected_registry_revision;
                     let observation = self.tracer.local_light_live_observation();
                     assert_eq!(observation.source_revision, Some(expected_source_revision));
                     assert_eq!(
@@ -3626,10 +4231,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("voxel emitter visibility diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitVisibleDiagnostic;
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
@@ -3683,10 +4285,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("blocked voxel-emitter diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitBlockedDiagnostic;
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
@@ -3729,10 +4328,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("restored voxel-emitter diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitRestoredDiagnostic;
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
@@ -3837,10 +4433,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("updated aggregate diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitAggregateDiagnostic;
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
@@ -4079,10 +4672,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed voxel-emitter diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = VoxelEmissiveTestStage::AwaitRemovedDiagnostic;
                     TestScenePhase::VoxelEmissiveLifecycle(state)
                 }
@@ -4167,15 +4757,17 @@ impl App {
                 }
             },
             TestScenePhase::MultiSourceLifecycle(state) => {
-                let Some(next) =
-                    self.advance_multi_source_lifecycle(state, fixed_gpu_request_serial)
-                else {
+                let Some(next) = self.advance_multi_source_lifecycle(
+                    environment,
+                    state,
+                    fixed_gpu_request_serial,
+                ) else {
                     return;
                 };
                 next
             }
             TestScenePhase::LocalLightScaling(state) => {
-                let Some(next) = self.advance_local_light_scaling(state) else {
+                let Some(next) = self.advance_local_light_scaling(environment, state) else {
                     return;
                 };
                 next
@@ -4285,10 +4877,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("raster-emitter fixed GPU diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = RasterEmitterTestStage::AwaitVisibleDiagnostic;
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
@@ -4638,10 +5227,7 @@ impl App {
                             POINT_LIGHT_FIXED_RAY_ORIGIN_OFFSET_WORLD,
                         )
                         .expect("removed raster-emitter diagnostic request must succeed");
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .point_light_fixed_gpu_request_serial = request_serial;
+                    environment.point_light_fixed_gpu_request_serial = request_serial;
                     state.stage = RasterEmitterTestStage::AwaitRemovedDiagnostic;
                     TestScenePhase::RasterEmitterLifecycle(state)
                 }
@@ -4961,10 +5547,9 @@ impl App {
                             target_revision,
                         }
                     }
-                    Err(err) => {
-                        log::error!("[DDGI_ACCEPT][DENSITY] terrain edit failed: {err:#}");
-                        TestScenePhase::Failed
-                    }
+                    Err(err) => panic!(
+                        "[DDGI_ACCEPT][DENSITY] terrain edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                    ),
                 }
             }
             TestScenePhase::WaitingForDensityGeometryReplacement {
@@ -5353,15 +5938,11 @@ impl App {
                             edit: TerrainEdit::ReopenSkylight,
                             target_revision: reopen_revision,
                         },
-                        Err(err) => {
-                            log::error!("[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed: {err:#}");
-                            TestScenePhase::Failed
-                        }
+                        Err(err) => panic!(
+                            "[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                        ),
                     };
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .phase = phase;
+                    environment.phase = phase;
                     return;
                 } else if case == EnvironmentLightingTestCase::TerrainEditsInflightCapture
                     && edit == TerrainEdit::ReopenSkylight
@@ -5394,10 +5975,8 @@ impl App {
                         staging.grid.probe_count(),
                         runtime.coordinator(),
                     );
-                    self.scenario_owner
-                        .test_scene_event_mut()
-                        .environment()
-                        .phase = TestScenePhase::CapturingInflightStaleActive { target_revision };
+                    environment.phase =
+                        TestScenePhase::CapturingInflightStaleActive { target_revision };
                     return;
                 } else if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
                     return;
@@ -5424,12 +6003,9 @@ impl App {
                                     edit: TerrainEdit::ReopenSkylight,
                                     target_revision: reopen_revision,
                                 },
-                                Err(err) => {
-                                    log::error!(
-                                        "[ENV_LIGHT_EDIT_CYCLE] reopen edit failed: {err:#}"
-                                    );
-                                    TestScenePhase::Failed
-                                }
+                                Err(err) => panic!(
+                                    "[ENV_LIGHT_EDIT_CYCLE] reopen edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                                ),
                             }
                         }
                     }
@@ -5471,15 +6047,10 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::CapturingInflightStaleActive { .. }
-            | TestScenePhase::Ready
-            | TestScenePhase::Failed => return,
+            TestScenePhase::CapturingInflightStaleActive { .. } | TestScenePhase::Ready => return,
         };
 
-        self.scenario_owner
-            .test_scene_event_mut()
-            .environment()
-            .phase = next_phase;
+        environment.phase = next_phase;
     }
 
     fn apply_environment_lighting_terrain_edit(
@@ -5627,6 +6198,9 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::core::launch_owners;
+    use crate::app::core::VOXEL_DIM_PER_CHUNK;
+    use crate::cli::{AutomationPlan, Scenario};
     use crate::ddgi::{DdgiBuildKind, DdgiBuildToken, DdgiFieldKey, DdgiFieldPublication};
 
     #[test]
@@ -5635,6 +6209,18 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no Visible Terrain Publication"));
+    }
+
+    #[test]
+    fn initial_test_scene_preflight_is_complete_before_world_mutation() {
+        let plan =
+            prepare_initial_environment_lighting_test_scene(EnvironmentLightingTestCase::Sealed)
+                .unwrap();
+
+        assert_eq!(
+            plan.affected_voxels(VOXEL_DIM_PER_CHUNK).unwrap(),
+            Some(test_rebuild_bound(EnvironmentLightingTestCase::Sealed))
+        );
     }
 
     #[test]
@@ -5661,6 +6247,181 @@ mod tests {
             "first DDGI build terrain revision 16 does not match test-scene Visible Terrain Publication revision 17"
         ));
         assert!(!publication.first_build_verified);
+    }
+
+    #[test]
+    fn environment_phase_has_one_outstanding_attempt_and_restores_the_exact_payload() {
+        static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseFailure: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhasePayload: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseIdentityPermit: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentFamilyScratch: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseRecoveryDiagnostic: Clone, Copy);
+
+        let cases = [
+            (
+                EnvironmentLightingTestCase::Sealed,
+                EnvironmentPhaseFamily::Static,
+            ),
+            (
+                EnvironmentLightingTestCase::TerrainEdits,
+                EnvironmentPhaseFamily::Terrain,
+            ),
+            (
+                EnvironmentLightingTestCase::RadianceChanges,
+                EnvironmentPhaseFamily::Radiance,
+            ),
+            (
+                EnvironmentLightingTestCase::PointLightChanges,
+                EnvironmentPhaseFamily::PointLight,
+            ),
+            (
+                EnvironmentLightingTestCase::VoxelEmissiveChanges,
+                EnvironmentPhaseFamily::VoxelEmissive,
+            ),
+            (
+                EnvironmentLightingTestCase::RasterEmitterChanges,
+                EnvironmentPhaseFamily::RasterEmitter,
+            ),
+            (
+                EnvironmentLightingTestCase::MultiSourceStress,
+                EnvironmentPhaseFamily::MultiSource,
+            ),
+            (
+                EnvironmentLightingTestCase::LocalLightScaling,
+                EnvironmentPhaseFamily::LocalLightScaling,
+            ),
+        ];
+
+        for (case, expected_family) in cases {
+            let mut owners = launch_owners::prepare_startup_owners(
+                AutomationPlan::default(),
+                Scenario::EnvironmentLighting(case),
+            )
+            .unwrap();
+            let mut setup = owners.begin_environment_phase().unwrap().unwrap();
+            match &mut setup.request_mut().scratch {
+                EnvironmentFamilyScratch::None => {}
+                EnvironmentFamilyScratch::PointLight { supplemental_ids } => {
+                    supplemental_ids.reserve_exact(3);
+                }
+                EnvironmentFamilyScratch::MultiSource {
+                    overflow_authored_ids,
+                } => {
+                    overflow_authored_ids.reserve_exact(5);
+                }
+                EnvironmentFamilyScratch::LocalLightScaling { ids, samples } => {
+                    ids.reserve_exact(7);
+                    samples.reserve_exact(11);
+                }
+            }
+            assert_eq!(setup.request().family(), expected_family);
+            let expected_payload = environment_payload_fingerprint(setup.request());
+            owners.restore_environment_phase(setup).unwrap();
+            assert_eq!(owners.environment_phase_revision_for_test(), 0);
+
+            let attempt = owners.begin_environment_phase().unwrap().unwrap();
+            let failure = attempt.fail(anyhow::anyhow!("recoverable owner transaction failure"));
+            assert_eq!(failure.attempt.request().family(), expected_family);
+            assert_eq!(
+                environment_payload_fingerprint(failure.attempt.request()),
+                expected_payload
+            );
+            assert!(failure.error.to_string().contains("transaction failure"));
+            assert_eq!(failure.family(), expected_family);
+
+            let busy = owners.begin_environment_phase().unwrap_err();
+            assert_eq!(busy.family(), expected_family);
+
+            let error = owners
+                .apply_environment_phase_result(Err(failure))
+                .expect_err("typed family failure must restore before returning its error");
+            assert!(error.to_string().contains("transaction failure"));
+            assert_eq!(owners.environment_phase_revision_for_test(), 0);
+
+            let retry = owners.begin_environment_phase().unwrap().unwrap();
+            assert_eq!(
+                environment_payload_fingerprint(retry.request()),
+                expected_payload
+            );
+            owners
+                .apply_environment_phase_result(Ok(retry.complete()))
+                .unwrap();
+            assert_eq!(owners.environment_phase_revision_for_test(), 1);
+            let next_frame = owners.begin_environment_phase().unwrap().unwrap();
+            assert_eq!(
+                environment_payload_fingerprint(next_frame.request()),
+                expected_payload
+            );
+            owners.restore_environment_phase(next_frame).unwrap();
+        }
+    }
+
+    #[test]
+    fn environment_phase_recovery_requires_the_next_physical_frame() {
+        require_environment_phase_retry_on_next_frame(41, 42).unwrap();
+
+        let delayed = require_environment_phase_retry_on_next_frame(41, 43).unwrap_err();
+        assert!(delayed
+            .to_string()
+            .contains("injected_frame=41 retry_frame=43"));
+        assert!(require_environment_phase_retry_on_next_frame(u64::MAX, 0).is_err());
+    }
+
+    #[test]
+    fn lost_environment_attempt_leaves_an_explicit_in_flight_terminal_state() {
+        let mut owner = EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::Sealed);
+        drop(owner.begin_phase().unwrap());
+
+        let busy = owner.begin_phase().unwrap_err();
+        assert_eq!(busy.family(), EnvironmentPhaseFamily::Static);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EnvironmentPayloadFingerprint {
+        case: EnvironmentLightingTestCase,
+        family: EnvironmentPhaseFamily,
+        phase: TestScenePhase,
+        identity: usize,
+        first_allocation: Option<(usize, usize)>,
+        second_allocation: Option<(usize, usize)>,
+    }
+
+    fn environment_payload_fingerprint(
+        request: &EnvironmentPhasePayload,
+    ) -> EnvironmentPayloadFingerprint {
+        let (first_allocation, second_allocation) = match &request.scratch {
+            EnvironmentFamilyScratch::None => (None, None),
+            EnvironmentFamilyScratch::PointLight { supplemental_ids } => (
+                Some((
+                    supplemental_ids.as_ptr() as usize,
+                    supplemental_ids.capacity(),
+                )),
+                None,
+            ),
+            EnvironmentFamilyScratch::MultiSource {
+                overflow_authored_ids,
+            } => (
+                Some((
+                    overflow_authored_ids.as_ptr() as usize,
+                    overflow_authored_ids.capacity(),
+                )),
+                None,
+            ),
+            EnvironmentFamilyScratch::LocalLightScaling { ids, samples } => (
+                Some((ids.as_ptr() as usize, ids.capacity())),
+                Some((samples.as_ptr() as usize, samples.capacity())),
+            ),
+        };
+        EnvironmentPayloadFingerprint {
+            case: request.case,
+            family: request.family(),
+            phase: request.phase,
+            identity: request.identity_ptr() as usize,
+            first_allocation,
+            second_allocation,
+        }
     }
 
     #[test]
@@ -5779,7 +6540,10 @@ mod tests {
         let mut scene = EnvironmentLightingTestScene::new(
             EnvironmentLightingTestCase::TerrainEditsInflightCapture,
         );
-        scene.phase = TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
+        let mut attempt = scene.begin_phase().unwrap();
+        attempt.request_mut().phase =
+            TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
+        scene.commit_phase(attempt.complete()).unwrap();
 
         assert!(scene.is_capture_ready());
         assert!(!scene.is_ready());
