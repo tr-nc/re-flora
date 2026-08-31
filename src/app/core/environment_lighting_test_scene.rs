@@ -621,8 +621,7 @@ struct EnvironmentPhasePayload {
     point_light_diagnostic_overflow_id: Option<LightId>,
     point_light_expected_registry_revision: u64,
     scratch: EnvironmentFamilyScratch,
-    #[cfg(test)]
-    injected_failure: Option<EnvironmentPhaseFamily>,
+    recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic,
 }
 
 impl EnvironmentPhasePayload {
@@ -693,6 +692,28 @@ struct EnvironmentPhaseAttempt {
     payload: EnvironmentPhasePayload,
 }
 
+#[derive(Debug)]
+enum EnvironmentPhaseRecoveryDiagnostic {
+    Disabled,
+    Armed,
+    Retrying {
+        family: EnvironmentPhaseFamily,
+        identity: usize,
+        phase: TestScenePhase,
+    },
+    Complete,
+}
+
+impl EnvironmentPhaseRecoveryDiagnostic {
+    fn from_process_environment() -> Self {
+        if std::env::var_os("RE_FLORA_ENVIRONMENT_PHASE_RECOVERY_DIAGNOSTIC").is_some() {
+            Self::Armed
+        } else {
+            Self::Disabled
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct EnvironmentPhasePermit {
     owner_id: u64,
@@ -743,54 +764,12 @@ impl EnvironmentPhaseAttempt {
     fn fail(self, error: anyhow::Error) -> EnvironmentPhaseFailure {
         EnvironmentPhaseFailure::new(self, error)
     }
-
-    fn begin_execution(self) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        let family = self.request().family();
-        self.reject_injected_failure(family)
-    }
-
-    fn reject_injected_failure(
-        self,
-        expected_family: EnvironmentPhaseFamily,
-    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        debug_assert_eq!(self.request().family(), expected_family);
-        #[cfg(test)]
-        {
-            return self.reject_test_failure(expected_family);
-        }
-        #[cfg(not(test))]
-        Ok(self)
-    }
-
-    #[cfg(test)]
-    fn reject_test_failure(
-        mut self,
-        expected_family: EnvironmentPhaseFamily,
-    ) -> std::result::Result<Self, EnvironmentPhaseFailure> {
-        if self.payload.injected_failure.take() == Some(expected_family) {
-            Err(self.fail(anyhow::anyhow!("injected {expected_family:?} leaf failure")))
-        } else {
-            Ok(self)
-        }
-    }
 }
 
 #[derive(Debug)]
 struct EnvironmentPhaseReceipt {
     permit: EnvironmentPhasePermit,
     payload: EnvironmentPhasePayload,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EnvironmentPhaseProgress {
-    Advanced,
-    Deferred,
-}
-
-#[derive(Debug)]
-struct EnvironmentPhaseSuccess {
-    receipt: EnvironmentPhaseReceipt,
-    progress: EnvironmentPhaseProgress,
 }
 
 #[derive(Debug)]
@@ -909,26 +888,6 @@ impl LaunchOwners {
         }
     }
 
-    fn begin_environment_phase_execution(
-        &mut self,
-    ) -> std::result::Result<Option<EnvironmentPhaseAttempt>, EnvironmentPhaseFailure> {
-        let Some(attempt) = self
-            .begin_environment_phase()
-            .expect("environment frame cannot overlap another phase attempt")
-        else {
-            return Ok(None);
-        };
-        attempt.begin_execution().map(Some)
-    }
-
-    #[cfg(test)]
-    fn inject_environment_phase_fault_for_test(&mut self, family: EnvironmentPhaseFamily) {
-        let LaunchMode::Environment { owner, .. } = &mut self.mode else {
-            panic!("environment phase fault requires an environment launch owner")
-        };
-        owner.inject_phase_fault_for_test(family);
-    }
-
     #[cfg(test)]
     fn environment_phase_revision_for_test(&self) -> u64 {
         let LaunchMode::Environment { owner, .. } = &self.mode else {
@@ -972,24 +931,6 @@ impl LaunchOwners {
                         "{family:?} environment failure no longer matches its launch owner: {error:#}"
                     ),
                 }
-            }
-        }
-    }
-
-    fn complete_environment_phase_execution(
-        &mut self,
-        result: std::result::Result<EnvironmentPhaseSuccess, EnvironmentPhaseFailure>,
-    ) -> Result<EnvironmentPhaseProgress> {
-        match result {
-            Ok(success) => {
-                self.apply_environment_phase_result(Ok(success.receipt))?;
-                Ok(success.progress)
-            }
-            Err(failure) => {
-                let error = self
-                    .apply_environment_phase_result(Err(failure))
-                    .expect_err("environment phase failure must retain its original leaf error");
-                Err(error)
             }
         }
     }
@@ -1091,8 +1032,7 @@ impl EnvironmentLightingTestScene {
                 point_light_diagnostic_overflow_id: None,
                 point_light_expected_registry_revision: 0,
                 scratch: EnvironmentFamilyScratch::for_family(family),
-                #[cfg(test)]
-                injected_failure: None,
+                recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic::from_process_environment(),
             }),
             transaction_revision: 0,
         }
@@ -1119,15 +1059,6 @@ impl EnvironmentLightingTestScene {
             permit,
             payload: request,
         })
-    }
-
-    #[cfg(test)]
-    fn inject_phase_fault_for_test(&mut self, family: EnvironmentPhaseFamily) {
-        let EnvironmentPhaseSlot::Ready(payload) = &mut self.state else {
-            panic!("cannot inject an environment phase fault while an attempt is in flight")
-        };
-        assert_eq!(payload.family(), family);
-        assert!(payload.injected_failure.replace(family).is_none());
     }
 
     fn commit_phase(
@@ -2008,39 +1939,6 @@ impl App {
             frames: SETTLE_FRAMES,
             terrain_revision,
         };
-        self.launch_owners
-            .apply_environment_phase_result(Ok(attempt.complete()))?;
-        Ok(())
-    }
-
-    fn verify_environment_lighting_test_scene_first_ddgi_build(&mut self) -> Result<()> {
-        let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
-            return Ok(());
-        };
-        let Some(mut attempt) = self.launch_owners.begin_environment_phase()? else {
-            return Ok(());
-        };
-        let Some(publication) = attempt
-            .request_mut()
-            .initial_publication
-            .as_mut()
-            .filter(|publication| !publication.first_build_verified)
-        else {
-            self.launch_owners.restore_environment_phase(attempt)?;
-            return Ok(());
-        };
-        if let Err(error) = publication.verify_first_build(build_token) {
-            return self
-                .launch_owners
-                .apply_environment_phase_result(Err(attempt.fail(error)));
-        }
-        let terrain_revision = publication.terrain_revision;
-        log::info!(
-            "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
-            build_token.serial(),
-            build_token.terrain_revision(),
-            terrain_revision,
-        );
         self.launch_owners
             .apply_environment_phase_result(Ok(attempt.complete()))?;
         Ok(())
@@ -3003,39 +2901,27 @@ impl App {
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
-        self.verify_environment_lighting_test_scene_first_ddgi_build()
-            .unwrap_or_else(|err| {
-                panic!("[ENV_LIGHT_TEST] initial DDGI publication contract failed: {err:#}")
-            });
-        let attempt = match self.launch_owners.begin_environment_phase_execution() {
-            Ok(Some(attempt)) => attempt,
-            Ok(None) => return,
-            Err(failure) => {
-                let family = failure.family();
-                let error = self
-                    .launch_owners
-                    .complete_environment_phase_execution(Err(failure))
-                    .expect_err("rejected environment frame must return its leaf failure");
-                log::error!(
-                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable leaf failure: {error:#}"
-                );
-                return;
-            }
+        let Some(attempt) = self
+            .launch_owners
+            .begin_environment_phase()
+            .expect("environment frame cannot overlap another phase attempt")
+        else {
+            return;
         };
         let family = attempt.request().family();
         match self.execute_environment_phase_attempt(attempt) {
-            Ok(success) => {
+            Ok(receipt) => {
                 self.launch_owners
-                    .complete_environment_phase_execution(Ok(success))
+                    .apply_environment_phase_result(Ok(receipt))
                     .expect("environment frame must retain its launch owner");
             }
             Err(failure) => {
                 let error = self
                     .launch_owners
-                    .complete_environment_phase_execution(Err(failure))
+                    .apply_environment_phase_result(Err(failure))
                     .expect_err("failed environment frame must restore its phase attempt");
                 log::error!(
-                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable leaf failure: {error:#}"
+                    "[ENV_LIGHT_TEST] deferred family={family:?} after recoverable preflight failure: {error:#}"
                 );
             }
         }
@@ -3044,111 +2930,83 @@ impl App {
     fn execute_environment_phase_attempt(
         &mut self,
         mut attempt: EnvironmentPhaseAttempt,
-    ) -> std::result::Result<EnvironmentPhaseSuccess, EnvironmentPhaseFailure> {
-        match self.advance_environment_phase(attempt.request_mut()) {
-            Ok(progress) => Ok(EnvironmentPhaseSuccess {
-                receipt: attempt.complete(),
-                progress,
-            }),
-            Err(error) => Err(attempt.fail(error)),
+    ) -> std::result::Result<EnvironmentPhaseReceipt, EnvironmentPhaseFailure> {
+        if let Err(error) = self.preflight_environment_phase(attempt.request_mut()) {
+            return Err(attempt.fail(error));
         }
+        self.advance_environment_phase_machine(attempt.request_mut());
+        Ok(attempt.complete())
     }
 
-    fn advance_environment_phase(
+    fn preflight_environment_phase(
         &mut self,
         environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        match environment.family() {
-            EnvironmentPhaseFamily::Static => self.execute_static_environment_phase(environment),
-            EnvironmentPhaseFamily::Terrain => self.execute_terrain_environment_phase(environment),
-            EnvironmentPhaseFamily::Radiance => {
-                self.execute_radiance_environment_phase(environment)
+    ) -> Result<()> {
+        let family = environment.family();
+        let identity = (&*environment.identity as *const EnvironmentPhaseIdentityPermit) as usize;
+        let phase = environment.phase;
+        let diagnostic = std::mem::replace(
+            &mut environment.recovery_diagnostic,
+            EnvironmentPhaseRecoveryDiagnostic::Disabled,
+        );
+        environment.recovery_diagnostic = match diagnostic {
+            EnvironmentPhaseRecoveryDiagnostic::Disabled => {
+                EnvironmentPhaseRecoveryDiagnostic::Disabled
             }
-            EnvironmentPhaseFamily::PointLight => {
-                self.execute_point_light_environment_phase(environment)
+            EnvironmentPhaseRecoveryDiagnostic::Armed => {
+                log::warn!(
+                    "[ENV_PHASE_RECOVERY] injected family={family:?} owner={} revision_pending=true",
+                    environment.identity.owner_id,
+                );
+                environment.recovery_diagnostic = EnvironmentPhaseRecoveryDiagnostic::Retrying {
+                    family,
+                    identity,
+                    phase,
+                };
+                anyhow::bail!("injected {family:?} environment phase preflight failure");
             }
-            EnvironmentPhaseFamily::VoxelEmissive => {
-                self.execute_voxel_emissive_environment_phase(environment)
+            EnvironmentPhaseRecoveryDiagnostic::Retrying {
+                family: expected_family,
+                identity: expected_identity,
+                phase: expected_phase,
+            } => {
+                anyhow::ensure!(
+                    family == expected_family && identity == expected_identity,
+                    "environment phase recovery did not retain its exact payload"
+                );
+                anyhow::ensure!(
+                    phase == expected_phase,
+                    "environment phase recovery advanced before its retry"
+                );
+                log::info!(
+                    "[ENV_PHASE_RECOVERY] retried family={family:?} exact_payload=true exact_phase=true owner={}",
+                    environment.identity.owner_id,
+                );
+                EnvironmentPhaseRecoveryDiagnostic::Complete
             }
-            EnvironmentPhaseFamily::RasterEmitter => {
-                self.execute_raster_emitter_environment_phase(environment)
+            EnvironmentPhaseRecoveryDiagnostic::Complete => {
+                EnvironmentPhaseRecoveryDiagnostic::Complete
             }
-            EnvironmentPhaseFamily::MultiSource => {
-                self.execute_multi_source_environment_phase(environment)
-            }
-            EnvironmentPhaseFamily::LocalLightScaling => {
-                self.execute_local_light_scaling_environment_phase(environment)
-            }
-        }
-    }
+        };
 
-    fn execute_static_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_terrain_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_radiance_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_point_light_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_voxel_emissive_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_raster_emitter_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_multi_source_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_local_light_scaling_environment_phase(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        self.execute_environment_phase_machine(environment)
-    }
-
-    fn execute_environment_phase_machine(
-        &mut self,
-        environment: &mut EnvironmentPhasePayload,
-    ) -> Result<EnvironmentPhaseProgress> {
-        let previous_phase = environment.phase;
-        self.advance_environment_phase_machine(environment);
-        Ok(if environment.phase == previous_phase {
-            EnvironmentPhaseProgress::Deferred
-        } else {
-            EnvironmentPhaseProgress::Advanced
-        })
+        let Some(build_token) = self.tracer.ddgi_runtime_status().active().build_token else {
+            return Ok(());
+        };
+        let Some(publication) = environment
+            .initial_publication
+            .as_mut()
+            .filter(|publication| !publication.first_build_verified)
+        else {
+            return Ok(());
+        };
+        publication.verify_first_build(build_token)?;
+        log::info!(
+            "[ENV_LIGHT_TEST] first DDGI build verified build_token_serial={} geometry_revision={} visible_terrain_publication_revision={}",
+            build_token.serial(),
+            build_token.terrain_revision(),
+            publication.terrain_revision,
+        );
+        Ok(())
     }
 
     fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
@@ -6353,13 +6211,14 @@ mod tests {
     }
 
     #[test]
-    fn environment_phase_has_one_outstanding_attempt_and_retries_the_exact_payload() {
+    fn environment_phase_has_one_outstanding_attempt_and_restores_the_exact_payload() {
         static_assertions::assert_not_impl_any!(EnvironmentLightingTestScene: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseAttempt: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseFailure: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhasePayload: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentPhaseIdentityPermit: Clone, Copy);
         static_assertions::assert_not_impl_any!(EnvironmentFamilyScratch: Clone, Copy);
+        static_assertions::assert_not_impl_any!(EnvironmentPhaseRecoveryDiagnostic: Clone, Copy);
 
         let cases = [
             (
@@ -6423,25 +6282,23 @@ mod tests {
             owners.restore_environment_phase(setup).unwrap();
             assert_eq!(owners.environment_phase_revision_for_test(), 0);
 
-            owners.inject_environment_phase_fault_for_test(expected_family);
-            let failure = owners
-                .begin_environment_phase_execution()
-                .expect_err("the owner-issued family fault must reject this frame");
+            let attempt = owners.begin_environment_phase().unwrap().unwrap();
+            let failure = attempt.fail(anyhow::anyhow!("recoverable owner transaction failure"));
             assert_eq!(failure.attempt.request().family(), expected_family);
             assert_eq!(
                 environment_payload_fingerprint(failure.attempt.request()),
                 expected_payload
             );
-            assert!(failure.error.to_string().contains("leaf failure"));
+            assert!(failure.error.to_string().contains("transaction failure"));
             assert_eq!(failure.family(), expected_family);
 
             let busy = owners.begin_environment_phase().unwrap_err();
             assert_eq!(busy.family(), expected_family);
 
             let error = owners
-                .complete_environment_phase_execution(Err(failure))
+                .apply_environment_phase_result(Err(failure))
                 .expect_err("typed family failure must restore before returning its error");
-            assert!(error.to_string().contains("leaf failure"));
+            assert!(error.to_string().contains("transaction failure"));
             assert_eq!(owners.environment_phase_revision_for_test(), 0);
 
             let retry = owners.begin_environment_phase().unwrap().unwrap();
