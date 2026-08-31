@@ -238,37 +238,55 @@ impl App {
 
 #[cfg(test)]
 mod shutdown_tests {
-    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownState};
+    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownPhase};
     use anyhow::{anyhow, Result};
 
-    #[derive(Default)]
-    struct FakeShutdownActions {
+    struct RecordingShutdownActions {
         calls: Vec<&'static str>,
-        water_failures_remaining: usize,
-        discard_failures_remaining: usize,
+        water_result: Option<Result<()>>,
+        discard_result: Option<Result<()>>,
+        audio_result: Option<Result<()>>,
     }
 
-    impl ShutdownActions for FakeShutdownActions {
+    impl RecordingShutdownActions {
+        fn successful() -> Self {
+            Self {
+                calls: Vec::new(),
+                water_result: Some(Ok(())),
+                discard_result: Some(Ok(())),
+                audio_result: Some(Ok(())),
+            }
+        }
+    }
+
+    impl ShutdownActions for RecordingShutdownActions {
+        fn quiesce_producers(&mut self) {
+            self.calls.push("quiesce");
+        }
+
         fn shutdown_water(&mut self) -> Result<()> {
             self.calls.push("water");
-            if self.water_failures_remaining > 0 {
-                self.water_failures_remaining -= 1;
-                return Err(anyhow!("injected water shutdown failure"));
-            }
-            Ok(())
+            self.water_result
+                .take()
+                .expect("water owner cannot be consumed twice")
         }
 
         fn discard_contree_readback(&mut self) -> Result<()> {
             self.calls.push("discard");
-            if self.discard_failures_remaining > 0 {
-                self.discard_failures_remaining -= 1;
-                return Err(anyhow!("injected Contree discard failure"));
-            }
-            Ok(())
+            self.discard_result
+                .take()
+                .expect("Contree readback owner cannot be consumed twice")
         }
 
         fn join_dependent_workers(&mut self) {
             self.calls.push("join");
+        }
+
+        fn shutdown_audio(&mut self) -> Result<()> {
+            self.calls.push("audio");
+            self.audio_result
+                .take()
+                .expect("audio owner cannot be consumed twice")
         }
 
         fn wait_device_idle(&mut self) {
@@ -277,47 +295,51 @@ mod shutdown_tests {
     }
 
     #[test]
-    fn failed_shutdown_attempts_every_phase_and_remains_retryable() {
+    fn terminal_shutdown_attempts_every_owner_once_and_persists_failures() {
         let mut lifecycle = AppShutdownLifecycle::default();
-        assert!(lifecycle.begin());
-        let mut actions = FakeShutdownActions {
-            water_failures_remaining: 1,
-            discard_failures_remaining: 1,
-            ..FakeShutdownActions::default()
+        let mut actions = RecordingShutdownActions {
+            calls: Vec::new(),
+            water_result: Some(Err(anyhow!("water owner was consumed"))),
+            discard_result: Some(Ok(())),
+            audio_result: Some(Err(anyhow!("audio owner was consumed"))),
         };
 
-        let error = lifecycle.drain(&mut actions).unwrap_err();
+        let first = lifecycle.terminate(&mut actions).clone();
 
-        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
-        assert!(error.to_string().contains("water"));
-        assert!(error.to_string().contains("Contree"));
-        assert_eq!(lifecycle.state(), ShutdownState::Quiescing);
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
+        assert_eq!(
+            first
+                .failures()
+                .iter()
+                .map(|failure| failure.phase())
+                .collect::<Vec<_>>(),
+            [ShutdownPhase::Water, ShutdownPhase::Audio]
+        );
+        assert!(first.to_string().contains("water owner was consumed"));
+        assert!(first.to_string().contains("audio owner was consumed"));
+        assert!(lifecycle.is_terminated());
 
-        actions.calls.clear();
-        lifecycle.drain(&mut actions).unwrap();
-        assert_eq!(actions.calls, ["water", "discard", "idle"]);
-        assert_eq!(lifecycle.state(), ShutdownState::Complete);
+        let second = lifecycle.terminate(&mut actions);
+        assert_eq!(second, &first);
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
     }
 
     #[test]
-    fn successful_phases_are_not_repeated_but_idle_covers_each_retry() {
+    fn successful_terminal_shutdown_reentry_is_a_noop() {
         let mut lifecycle = AppShutdownLifecycle::default();
-        lifecycle.begin();
-        let mut actions = FakeShutdownActions {
-            water_failures_remaining: 1,
-            ..FakeShutdownActions::default()
-        };
+        let mut actions = RecordingShutdownActions::successful();
 
-        assert!(lifecycle.drain(&mut actions).is_err());
-        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
-
-        actions.calls.clear();
-        lifecycle.drain(&mut actions).unwrap();
-        assert_eq!(actions.calls, ["water", "idle"]);
-
-        actions.calls.clear();
-        assert!(!lifecycle.begin());
-        lifecycle.drain(&mut actions).unwrap();
-        assert!(actions.calls.is_empty());
+        assert!(lifecycle.terminate(&mut actions).is_success());
+        assert!(lifecycle.terminate(&mut actions).is_success());
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
     }
 }
