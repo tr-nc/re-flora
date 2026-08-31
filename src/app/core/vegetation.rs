@@ -82,90 +82,6 @@ impl Default for TreeVariationConfig {
     }
 }
 
-impl TreeVariationConfig {
-    #[allow(dead_code)]
-    pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut changed = false;
-
-        ui.heading("Variation Settings");
-
-        changed |= ui
-            .add(egui::Slider::new(&mut self.size_variance, 0.0..=1.0).text("Size Variance"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.trunk_thickness_variance, 0.0..=1.0)
-                    .text("Thickness Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.iterations_variance, 0.0..=5.0)
-                    .text("Iterations Variance"),
-            )
-            .changed();
-
-        ui.separator();
-        ui.heading("Shape Variation");
-
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.initial_length_variance, 0.0..=1.0)
-                    .text("Initial Length Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.spread_variance, 0.0..=1.0).text("Spread Variance"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.vertical_tendency_variance, 0.0..=1.0)
-                    .text("Vertical Tendency Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.length_dropoff_variance, 0.0..=1.0)
-                    .text("Length Dropoff Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.thickness_reduction_variance, 0.0..=1.0)
-                    .text("Thickness Reduction Variance"),
-            )
-            .changed();
-
-        ui.separator();
-        ui.heading("Branching Variation");
-
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.branch_probability_variance, 0.0..=1.0)
-                    .text("Branch Probability Variance"),
-            )
-            .changed();
-
-        ui.separator();
-        ui.heading("Detail Variation");
-
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.randomness_variance, 0.0..=1.0)
-                    .text("Randomness Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.leaves_size_level_variance, 0.0..=5.0)
-                    .text("Leaves Size Variance"),
-            )
-            .changed();
-
-        changed
-    }
-}
-
 struct CompiledFencePlacement {
     voxel_edit: VoxelEdit,
     rebuild_bound: UAabb3,
@@ -2541,29 +2457,6 @@ impl App {
         );
 
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn edit_tree_with_variance(
-        tree_desc: &mut TreeDesc,
-        tree_variation_config: &mut TreeVariationConfig,
-        ui: &mut egui::Ui,
-    ) -> (bool, bool) {
-        let mut regenerate_pressed = false;
-
-        if ui.button("🌲 Regenerate Procedural Trees").clicked() {
-            regenerate_pressed = true;
-        }
-
-        ui.separator();
-
-        let tree_changed = tree_desc.edit_by_gui(ui);
-
-        ui.separator();
-
-        tree_variation_config.edit_by_gui(ui);
-
-        (tree_changed, regenerate_pressed)
     }
 
     #[allow(dead_code)]
