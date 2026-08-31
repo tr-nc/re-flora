@@ -1212,6 +1212,171 @@ pub struct KochiaVisualParams {
     pub waist_height: f32,
 }
 
+/// Terrain state frozen by the application for one renderer update.
+#[derive(Debug, Clone, Copy)]
+pub struct TerrainFrameInput {
+    pub ray_origin_offset_world: f32,
+    pub ddgi_receiver_visibility_bias_world: f32,
+    pub ddgi_history_retention: f32,
+    pub self_shadow_tolerance_voxels: f32,
+    pub edit_preview_center: Option<Vec3>,
+    pub edit_preview_radius: f32,
+    pub edit_preview_shape: TerrainEditPreviewShape,
+    pub edit_preview_color: Vec3,
+    pub edit_preview_alpha: f32,
+}
+
+/// Material values shared by raster shading and authored environment lighting.
+#[derive(Debug, Clone, Copy)]
+pub struct MaterialFrameInput {
+    pub glass: GlassGuiParams,
+    pub voxel_dirt_color: Vec3,
+    pub voxel_sand_color: Vec3,
+    pub voxel_cherry_wood_color: Vec3,
+    pub voxel_oak_wood_color: Vec3,
+    pub voxel_rock_color: Vec3,
+    pub voxel_color_variance: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FloraAppearanceFrameInput {
+    pub growth_override_enabled: bool,
+    pub growth_override: f32,
+    pub instance_hsv_offset_max: Vec3,
+    pub voxel_hsv_offset_max: Vec3,
+    pub grass_bottom_dark: Vec3,
+    pub grass_bottom_light: Vec3,
+    pub grass_tip_dark: Vec3,
+    pub grass_tip_light: Vec3,
+    pub kochia: KochiaVisualParams,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FloraMotionFrameInput {
+    pub world_tick_seconds: f32,
+    pub grass_vibration_amplitude_voxels: f32,
+    pub grass_vibration_primary_speed: f32,
+    pub grass_vibration_secondary_speed: f32,
+    pub grass_natural_bend_min_voxels: f32,
+    pub grass_natural_bend_max_voxels: f32,
+    pub bend_height_power: f32,
+    pub kochia: KochiaMotionParams,
+    pub leaf_paddle_amplitude_voxels: f32,
+    pub leaf_paddle_primary_speed: f32,
+    pub leaf_paddle_secondary_speed: f32,
+    pub leaf_paddle_amplitude_wind_start_strength: f32,
+    pub leaf_paddle_amplitude_wind_full_strength: f32,
+    pub leaf_paddle_amplitude_wind_knee_bias: f32,
+    pub leaf_paddle_frequency_wind_start_strength: f32,
+    pub leaf_paddle_frequency_wind_full_strength: f32,
+    pub leaf_paddle_frequency_wind_knee_bias: f32,
+    pub leaf_paddle_frequency_min_multiplier: f32,
+    pub leaf_paddle_frequency_max_multiplier: f32,
+    pub fruit: FruitMotionParams,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LeafLightingFrameInput {
+    pub shadow_fragment_opacity: f32,
+    pub shadow_strength: f32,
+    pub shadow_min_transmittance: f32,
+    pub shadow_filter_radius_texels: f32,
+    pub transmission_strength: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FloraGrowthFrameInput {
+    pub flora_tick: u32,
+    pub sprout_delay_ticks: u32,
+    pub full_growth_ticks: u32,
+    pub spawn_time_ms: u32,
+    pub spawn_duration_seconds: f32,
+    pub spawn_rise_fraction: f32,
+    pub spawn_overshoot_min_voxels: f32,
+    pub spawn_overshoot_max_voxels: f32,
+    pub spawn_stagger_seconds: f32,
+}
+
+/// Vegetation owns four cohesive shader-facing snapshots instead of exposing individual GUI knobs.
+#[derive(Debug, Clone, Copy)]
+pub struct VegetationFrameInput {
+    pub appearance: FloraAppearanceFrameInput,
+    pub motion: FloraMotionFrameInput,
+    pub leaf_lighting: LeafLightingFrameInput,
+    pub growth: FloraGrowthFrameInput,
+}
+
+#[derive(Debug, Clone)]
+pub struct WindFrameInput {
+    pub sources: WindGuiParams,
+    pub directional_bias_fraction: f32,
+    pub turbulence_fraction: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SunFrameInput {
+    pub direction: Vec3,
+    pub size: f32,
+    pub color: Vec3,
+    pub luminance: f32,
+    pub display_luminance: f32,
+    pub altitude: f32,
+    pub azimuth: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GodRayFrameInput {
+    pub max_depth: f32,
+    pub max_checks: u32,
+    pub temporal_blend_enabled: bool,
+    pub temporal_alpha: f32,
+    pub weight: f32,
+    pub color: Vec3,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StarlightFrameInput {
+    pub iterations: i32,
+    pub formuparam: f32,
+    pub volsteps: i32,
+    pub stepsize: f32,
+    pub zoom: f32,
+    pub tile: f32,
+    pub speed: f32,
+    pub brightness: f32,
+    pub darkmatter: f32,
+    pub distfading: f32,
+    pub saturation: f32,
+}
+
+/// Sky and post-processing state that changes independently from terrain and vegetation.
+#[derive(Debug, Clone, Copy)]
+pub struct EnvironmentFrameInput {
+    pub lens_flare_intensity: f32,
+    pub lens_flare_sun_pixel_scale: f32,
+    pub clouds: CloudGuiParams,
+    pub sun: SunFrameInput,
+    pub god_rays: GodRayFrameInput,
+    pub starlight: StarlightFrameInput,
+}
+
+/// A frame transaction composed from snapshots with independent change reasons.
+///
+/// Keeping the snapshots typed avoids both a flat parameter bag and a renderer-facing GUI model.
+pub struct RenderFrameInputs {
+    pub terrain: TerrainFrameInput,
+    pub materials: MaterialFrameInput,
+    pub vegetation: VegetationFrameInput,
+    pub wind: WindFrameInput,
+    pub environment: EnvironmentFrameInput,
+}
+
+/// Renderer-owned execution choices for the current frame.
+pub struct RenderFramePlan {
+    pub capture: CaptureFramePlan,
+    pub update_shadow_map: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LodState {
     Lod0,
@@ -2407,104 +2572,21 @@ impl Tracer {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
         lighting_frame: &ResolvedLightingFrameInputs,
         local_lights: &LocalLightSnapshot,
-        capture_frame_plan: CaptureFramePlan,
-        flora_growth_override_enabled: bool,
-        flora_growth_override: f32,
-        terrain_ray_origin_offset_world: f32,
-        ddgi_receiver_visibility_bias_world: f32,
-        ddgi_history_retention: f32,
-        terrain_self_shadow_tolerance_voxels: f32,
-        flora_instance_hsv_offset_max: Vec3,
-        flora_voxel_hsv_offset_max: Vec3,
-        grass_bottom_dark: Vec3,
-        grass_bottom_light: Vec3,
-        grass_tip_dark: Vec3,
-        grass_tip_light: Vec3,
-        world_tick_seconds: f32,
-        update_shadow_map: bool,
-        lens_flare_intensity: f32,
-        lens_flare_sun_pixel_scale: f32,
-        glass_gui_params: GlassGuiParams,
-        wind_directional_bias_fraction: f32,
-        wind_turbulence_fraction: f32,
-        grass_vibration_amplitude_voxels: f32,
-        grass_vibration_primary_speed: f32,
-        grass_vibration_secondary_speed: f32,
-        grass_natural_bend_min_voxels: f32,
-        grass_natural_bend_max_voxels: f32,
-        flora_bend_height_power: f32,
-        kochia_motion: KochiaMotionParams,
-        kochia_visual: KochiaVisualParams,
-        leaf_paddle_amplitude_voxels: f32,
-        leaf_paddle_primary_speed: f32,
-        leaf_paddle_secondary_speed: f32,
-        leaf_paddle_amplitude_wind_start_strength: f32,
-        leaf_paddle_amplitude_wind_full_strength: f32,
-        leaf_paddle_amplitude_wind_knee_bias: f32,
-        leaf_paddle_frequency_wind_start_strength: f32,
-        leaf_paddle_frequency_wind_full_strength: f32,
-        leaf_paddle_frequency_wind_knee_bias: f32,
-        leaf_paddle_frequency_min_multiplier: f32,
-        leaf_paddle_frequency_max_multiplier: f32,
-        fruit_motion: FruitMotionParams,
-        leaf_shadow_fragment_opacity: f32,
-        leaf_shadow_strength: f32,
-        leaf_shadow_min_transmittance: f32,
-        leaf_shadow_filter_radius_texels: f32,
-        leaf_transmission_strength: f32,
-        wind_gui_params: WindGuiParams,
-        cloud_gui_params: CloudGuiParams,
-        flora_tick: u32,
-        sprout_delay_ticks: u32,
-        full_growth_ticks: u32,
-        spawn_time_ms: u32,
-        spawn_duration_seconds: f32,
-        spawn_rise_fraction: f32,
-        spawn_overshoot_min_voxels: f32,
-        spawn_overshoot_max_voxels: f32,
-        spawn_stagger_seconds: f32,
-        sun_dir: Vec3,
-        sun_size: f32,
-        sun_color: Vec3,
-        sun_luminance: f32,
-        sun_display_luminance: f32,
-        sun_altitude: f32,
-        sun_azimuth: f32,
-        god_ray_max_depth: f32,
-        god_ray_max_checks: u32,
-        god_ray_temporal_blend_enabled: bool,
-        god_ray_temporal_alpha: f32,
-        god_ray_weight: f32,
-        god_ray_color: Vec3,
-        starlight_iterations: i32,
-        starlight_formuparam: f32,
-        starlight_volsteps: i32,
-        starlight_stepsize: f32,
-        starlight_zoom: f32,
-        starlight_tile: f32,
-        starlight_speed: f32,
-        starlight_brightness: f32,
-        starlight_darkmatter: f32,
-        starlight_distfading: f32,
-        starlight_saturation: f32,
-        voxel_dirt_color: Vec3,
-        voxel_sand_color: Vec3,
-        voxel_cherry_wood_color: Vec3,
-        voxel_oak_wood_color: Vec3,
-        voxel_rock_color: Vec3,
-        voxel_color_variance: f32,
-        terrain_edit_preview_center: Option<Vec3>,
-        terrain_edit_preview_radius: f32,
-        terrain_edit_preview_shape: TerrainEditPreviewShape,
-        terrain_edit_preview_color: Vec3,
-        terrain_edit_preview_alpha: f32,
+        frame_plan: RenderFramePlan,
+        frame_inputs: RenderFrameInputs,
     ) -> Result<CaptureBuffersReady> {
+        let RenderFrameInputs {
+            terrain,
+            materials,
+            mut vegetation,
+            wind,
+            environment,
+        } = frame_inputs;
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
         self.promote_ready_ddgi_staging()?;
@@ -2530,22 +2612,23 @@ impl Tracer {
                         local_lighting.local_lights.fill(lights)
                     }
                 })?;
-        let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
-        let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
+        let terrain_ray_origin_offset_world = terrain.ray_origin_offset_world.max(0.0);
+        let ddgi_receiver_visibility_bias_world =
+            terrain.ddgi_receiver_visibility_bias_world.max(0.0);
         let authored_environment_lighting = self.environment_lighting.observe(
             AuthoredEnvironmentLightingInput {
-                sun_direction: sun_dir,
-                sun_color,
-                sun_luminance,
+                sun_direction: environment.sun.direction,
+                sun_color: environment.sun.color,
+                sun_luminance: environment.sun.luminance,
                 terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 voxel_palette: DdgiVoxelPaletteSnapshot {
-                    dirt_color: voxel_dirt_color,
-                    sand_color: voxel_sand_color,
-                    cherry_wood_color: voxel_cherry_wood_color,
-                    oak_wood_color: voxel_oak_wood_color,
-                    rock_color: voxel_rock_color,
-                    hash_color_variance: voxel_color_variance,
+                    dirt_color: materials.voxel_dirt_color,
+                    sand_color: materials.voxel_sand_color,
+                    cherry_wood_color: materials.voxel_cherry_wood_color,
+                    oak_wood_color: materials.voxel_oak_wood_color,
+                    rock_color: materials.voxel_rock_color,
+                    hash_color_variance: materials.voxel_color_variance,
                     emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
                     emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
                 },
@@ -2591,7 +2674,7 @@ impl Tracer {
         }
         if self
             .direct_sun_shadows
-            .camera_update_required(update_shadow_map)
+            .camera_update_required(frame_plan.update_shadow_map)
         {
             let world_bound = self.chunk_bound.into();
             let shadow_map_extent = self
@@ -2621,13 +2704,13 @@ impl Tracer {
 
         BufferUpdater::update_god_ray_info(
             &self.resources,
-            god_ray_max_depth,
-            god_ray_max_checks,
-            god_ray_weight,
-            god_ray_color,
+            environment.god_rays.max_depth,
+            environment.god_rays.max_checks,
+            environment.god_rays.weight,
+            environment.god_rays.color,
         )?;
-        self.god_ray_temporal_blend_enabled = god_ray_temporal_blend_enabled;
-        self.god_ray_temporal_alpha = god_ray_temporal_alpha.clamp(0.01, 1.0);
+        self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
+        self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
         BufferUpdater::update_post_processing_info(
             &self.resources,
@@ -2637,99 +2720,63 @@ impl Tracer {
 
         BufferUpdater::update_voxel_colors(
             &self.resources,
-            voxel_dirt_color,
-            voxel_sand_color,
-            voxel_cherry_wood_color,
-            voxel_oak_wood_color,
-            voxel_rock_color,
-            voxel_color_variance,
+            materials.voxel_dirt_color,
+            materials.voxel_sand_color,
+            materials.voxel_cherry_wood_color,
+            materials.voxel_oak_wood_color,
+            materials.voxel_rock_color,
+            materials.voxel_color_variance,
             EMISSIVE_VOXEL_COLOR_SRGB,
             EMISSIVE_VOXEL_SURFACE_RADIANCE,
         )?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,
-            terrain_edit_preview_center,
-            terrain_edit_preview_radius,
-            terrain_edit_preview_shape,
-            terrain_edit_preview_color,
-            terrain_edit_preview_alpha,
+            terrain.edit_preview_center,
+            terrain.edit_preview_radius,
+            terrain.edit_preview_shape,
+            terrain.edit_preview_color,
+            terrain.edit_preview_alpha,
         )?;
 
-        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
+        vegetation.motion.world_tick_seconds =
+            crate::game_time::clamp_world_tick_seconds(vegetation.motion.world_tick_seconds);
+        self.world_tick_seconds = vegetation.motion.world_tick_seconds;
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
-        self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
+        self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
 
-        self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
+        self.ensure_wind_source_buffer_capacity(wind.sources.sources.len())?;
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
-            flora_growth_override_enabled,
-            flora_growth_override,
             lighting_frame,
-            terrain_ray_origin_offset_world,
-            terrain_self_shadow_tolerance_voxels,
-            flora_instance_hsv_offset_max,
-            flora_voxel_hsv_offset_max,
-            grass_bottom_dark,
-            grass_bottom_light,
-            grass_tip_dark,
-            grass_tip_light,
-            lens_flare_intensity,
-            lens_flare_sun_pixel_scale,
-            glass_gui_params,
-            wind_directional_bias_fraction,
-            wind_turbulence_fraction,
-            self.world_tick_seconds,
-            grass_vibration_amplitude_voxels,
-            grass_vibration_primary_speed,
-            grass_vibration_secondary_speed,
-            grass_natural_bend_min_voxels,
-            grass_natural_bend_max_voxels,
-            flora_bend_height_power,
-            kochia_motion,
-            kochia_visual,
-            leaf_paddle_amplitude_voxels,
-            leaf_paddle_primary_speed,
-            leaf_paddle_secondary_speed,
-            leaf_paddle_amplitude_wind_start_strength,
-            leaf_paddle_amplitude_wind_full_strength,
-            leaf_paddle_amplitude_wind_knee_bias,
-            leaf_paddle_frequency_wind_start_strength,
-            leaf_paddle_frequency_wind_full_strength,
-            leaf_paddle_frequency_wind_knee_bias,
-            leaf_paddle_frequency_min_multiplier,
-            leaf_paddle_frequency_max_multiplier,
-            fruit_motion,
-            leaf_shadow_fragment_opacity,
-            leaf_shadow_strength,
-            leaf_shadow_min_transmittance,
-            leaf_shadow_filter_radius_texels,
-            leaf_transmission_strength,
-            wind_gui_params,
-            cloud_gui_params,
+            &terrain,
+            &materials,
+            &vegetation,
+            &wind,
+            &environment,
         )?;
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
-            flora_tick,
-            sprout_delay_ticks,
-            full_growth_ticks,
-            spawn_time_ms,
-            spawn_duration_seconds,
-            spawn_rise_fraction,
-            spawn_overshoot_min_voxels,
-            spawn_overshoot_max_voxels,
-            spawn_stagger_seconds,
+            vegetation.growth.flora_tick,
+            vegetation.growth.sprout_delay_ticks,
+            vegetation.growth.full_growth_ticks,
+            vegetation.growth.spawn_time_ms,
+            vegetation.growth.spawn_duration_seconds,
+            vegetation.growth.spawn_rise_fraction,
+            vegetation.growth.spawn_overshoot_min_voxels,
+            vegetation.growth.spawn_overshoot_max_voxels,
+            vegetation.growth.spawn_stagger_seconds,
         )?;
 
         BufferUpdater::update_sun_info(
             &self.resources,
             sun_dir,
-            sun_size,
+            environment.sun.size,
             sun_color,
             sun_luminance,
-            sun_display_luminance,
-            sun_altitude,
-            sun_azimuth,
+            environment.sun.display_luminance,
+            environment.sun.altitude,
+            environment.sun.azimuth,
         )?;
 
         let ddgi_lighting = self
@@ -2818,7 +2865,7 @@ impl Tracer {
         // coordinator retains the conservative pending bound for scheduling and diagnostics, but
         // consumers intentionally use the resident field until its replacement promotes.
         let ddgi_consumer_invalidation_voxel_bound = None;
-        let capture_buffers_ready = capture_frame_plan.publish_buffers(time_info, |view| {
+        let capture_buffers_ready = frame_plan.capture.publish_buffers(time_info, |view| {
             BufferUpdater::update_shading_info(
                 &self.resources,
                 ddgi_lighting.transport,
@@ -2837,17 +2884,17 @@ impl Tracer {
         })?;
         BufferUpdater::update_starlight_info(
             &self.resources,
-            starlight_iterations,
-            starlight_formuparam,
-            starlight_volsteps,
-            starlight_stepsize,
-            starlight_zoom,
-            starlight_tile,
-            starlight_speed,
-            starlight_brightness,
-            starlight_darkmatter,
-            starlight_distfading,
-            starlight_saturation,
+            environment.starlight.iterations,
+            environment.starlight.formuparam,
+            environment.starlight.volsteps,
+            environment.starlight.stepsize,
+            environment.starlight.zoom,
+            environment.starlight.tile,
+            environment.starlight.speed,
+            environment.starlight.brightness,
+            environment.starlight.darkmatter,
+            environment.starlight.distfading,
+            environment.starlight.saturation,
         )?;
 
         BufferUpdater::update_env_info(&self.resources, frame_serial_idx)?;
