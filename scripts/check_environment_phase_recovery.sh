@@ -53,25 +53,51 @@ for entry in "${cases[@]}"; do
         exit 1
     fi
 
-    injected="[ENV_PHASE_RECOVERY] injected family=$family"
-    retried="[ENV_PHASE_RECOVERY] retried family=$family exact_payload=true exact_phase=true"
-    if ! grep -Fq "$injected" "$latest_log"; then
-        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name missing injection evidence" >&2
+    injected="[ENV_PHASE_RECOVERY] event=injected family=$family"
+    retried="[ENV_PHASE_RECOVERY] event=retried family=$family"
+    exit_marker="Application exited successfully"
+    mapfile -t injected_matches < <(grep -nF "$injected" "$latest_log" || true)
+    mapfile -t retried_matches < <(grep -nF "$retried" "$latest_log" || true)
+    mapfile -t exit_matches < <(grep -nF "$exit_marker" "$latest_log" || true)
+    if (( ${#injected_matches[@]} != 1 )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected one injection, observed=${#injected_matches[@]}" >&2
         tail -n 80 "$latest_log" >&2
         exit 1
     fi
-    if ! grep -Fq "$retried" "$latest_log"; then
-        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name missing exact retry evidence" >&2
+    if (( ${#retried_matches[@]} != 1 )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected one retry, observed=${#retried_matches[@]}" >&2
         tail -n 80 "$latest_log" >&2
         exit 1
     fi
-    if ! grep -Fq "Application exited successfully" "$latest_log"; then
-        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name missing successful exit" >&2
+    if (( ${#exit_matches[@]} != 1 )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected one successful exit, observed=${#exit_matches[@]}" >&2
         tail -n 80 "$latest_log" >&2
         exit 1
     fi
 
-    echo "[ENV_PHASE_RECOVERY_CHECK] PASS case=$case_name family=$family run_log=$latest_log"
+    injected_line="${injected_matches[0]}"
+    retried_line="${retried_matches[0]}"
+    exit_line="${exit_matches[0]}"
+    injected_line_number="${injected_line%%:*}"
+    retried_line_number="${retried_line%%:*}"
+    exit_line_number="${exit_line%%:*}"
+    injected_frame="$(sed -nE 's/.* injected_frame=([0-9]+).*/\1/p' <<<"$injected_line")"
+    retried_injected_frame="$(sed -nE 's/.* injected_frame=([0-9]+).*/\1/p' <<<"$retried_line")"
+    retry_frame="$(sed -nE 's/.* retry_frame=([0-9]+).*/\1/p' <<<"$retried_line")"
+    if [[ -z "$injected_frame" || -z "$retried_injected_frame" || -z "$retry_frame" ]]; then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name missing structured frame serials" >&2
+        exit 1
+    fi
+    if (( injected_line_number >= retried_line_number || retried_line_number >= exit_line_number )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name invalid log order inject=$injected_line_number retry=$retried_line_number exit=$exit_line_number" >&2
+        exit 1
+    fi
+    if (( retried_injected_frame != injected_frame || retry_frame != injected_frame + 1 )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected next-frame retry injected=$injected_frame retried_injected=$retried_injected_frame retry=$retry_frame" >&2
+        exit 1
+    fi
+
+    echo "[ENV_PHASE_RECOVERY_CHECK] PASS case=$case_name family=$family injected_frame=$injected_frame retry_frame=$retry_frame run_log=$latest_log"
 done
 
 if (( matched_cases == 0 )); then
