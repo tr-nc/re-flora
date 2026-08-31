@@ -13,4 +13,4 @@ mod world_ops;
 
 pub use app_controller::AppController;
 pub(crate) use core::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
-pub use gui_config::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
+pub use gui_config::{DebugSettings, GuiAdjustables};

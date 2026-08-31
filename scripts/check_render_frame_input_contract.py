@@ -67,7 +67,8 @@ def main() -> int:
     errors = validate(
         (ROOT / "src/tracer/mod.rs").read_text(encoding="utf-8"),
         (ROOT / "src/tracer/buffer_updater.rs").read_text(encoding="utf-8"),
-        (ROOT / "src/app/core/mod.rs").read_text(encoding="utf-8"),
+        (ROOT / "src/app/core/mod.rs").read_text(encoding="utf-8")
+        + (ROOT / "src/app/core/render_frame_input.rs").read_text(encoding="utf-8"),
     )
     if errors:
         for error in errors:
