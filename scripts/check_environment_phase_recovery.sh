@@ -37,6 +37,22 @@ for entry in "${cases[@]}"; do
     if [[ "$case_name" == "local-light-scaling" ]]; then
         extra_args+=(--perf)
     fi
+
+    previous_latest_log=""
+    if [[ -s "$latest_pointer" ]]; then
+        previous_latest_log="$(<"$latest_pointer")"
+        if [[ -n "$previous_latest_log" ]]; then
+            previous_latest_log="$(realpath -m "$previous_latest_log")"
+        fi
+    fi
+    preexisting_logs=()
+    run_log_dir="$(dirname "$latest_pointer")"
+    if [[ -d "$run_log_dir" ]]; then
+        while IFS= read -r -d '' path; do
+            preexisting_logs+=("$(realpath "$path")")
+        done < <(find "$run_log_dir" -maxdepth 1 -type f -name 're-flora-*.log' -print0)
+    fi
+
     RE_FLORA_ENVIRONMENT_PHASE_RECOVERY_DIAGNOSTIC=1 \
         "$cargo_bin" run --quiet --release --manifest-path "$repo_root/Cargo.toml" -- \
         --hidden --mute --environment-lighting-test-scene "$case_name" \
@@ -52,13 +68,31 @@ for entry in "${cases[@]}"; do
         echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name missing run log: $latest_log" >&2
         exit 1
     fi
+    latest_log="$(realpath "$latest_log")"
+    if [[ -n "$previous_latest_log" && "$latest_log" == "$previous_latest_log" ]]; then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name run-log pointer did not advance: $latest_log" >&2
+        exit 1
+    fi
+    for preexisting_log in "${preexisting_logs[@]}"; do
+        if [[ "$latest_log" == "$preexisting_log" ]]; then
+            echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name run log was not created by this invocation: $latest_log" >&2
+            exit 1
+        fi
+    done
 
+    binding="[RUN_LOG] path=$latest_log"
     injected="[ENV_PHASE_RECOVERY] event=injected family=$family"
     retried="[ENV_PHASE_RECOVERY] event=retried family=$family"
     exit_marker="Application exited successfully"
+    mapfile -t binding_matches < <(grep -nF "$binding" "$latest_log" || true)
     mapfile -t injected_matches < <(grep -nF "$injected" "$latest_log" || true)
     mapfile -t retried_matches < <(grep -nF "$retried" "$latest_log" || true)
     mapfile -t exit_matches < <(grep -nF "$exit_marker" "$latest_log" || true)
+    if (( ${#binding_matches[@]} != 1 )); then
+        echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected one run-log self-binding, observed=${#binding_matches[@]} path=$latest_log" >&2
+        tail -n 80 "$latest_log" >&2
+        exit 1
+    fi
     if (( ${#injected_matches[@]} != 1 )); then
         echo "[ENV_PHASE_RECOVERY_CHECK] FAIL case=$case_name expected one injection, observed=${#injected_matches[@]}" >&2
         tail -n 80 "$latest_log" >&2
