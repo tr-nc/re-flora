@@ -938,300 +938,829 @@ def validate_density_lifecycle(console: Path) -> dict[str, int]:
         raise DensityLifecycleError(str(error)) from error
 
 
-def _last_match(pattern: str, text: str, label: str) -> re.Match[str]:
-    matches = list(re.finditer(pattern, text, re.MULTILINE))
-    if not matches:
-        raise ValueError(f"missing {label}")
-    return matches[-1]
+class ScenarioLifecycleError(ValueError):
+    """The log is not one ordered terrain-edit evidence lifecycle."""
 
 
-def _require_markers(text: str, markers: tuple[str, ...]) -> None:
-    missing = [marker for marker in markers if marker not in text]
-    if missing:
-        raise ValueError("missing markers: " + ", ".join(missing))
+class _ScenarioKind(Enum):
+    PORTAL_READY = "portal-ready"
+    CAPTURE_CHECKPOINT = "capture-checkpoint"
+    INITIAL = "initial"
+    OBSERVED = "observed"
+    REQUEST_EDIT = "request-edit"
+    PREPARED = "prepared"
+    LOCAL_RECOVERY = "local-recovery"
+    VISIBLE = "visible"
+    OBSOLETE_CANDIDATE = "obsolete-candidate"
+    OBSOLETE_SKIPPED = "obsolete-skipped"
+    PROMOTION = "promotion"
+    CONSUMER = "consumer"
+    FLORA = "flora"
+    EDIT_READY = "edit-ready"
+    DENSITY_REQUEST = "density-request"
+    DENSITY_READY = "density-ready"
+    COMPLETE = "complete"
+    TRANSIENT_ARMED = "transient-armed"
+    TRANSIENT_RECORDING = "transient-recording"
+    CAPTURE_SAVED = "capture-saved"
+    CAPTURE_COMPLETE = "capture-complete"
+    CONVERGENCE = "convergence"
 
 
-def _initial_revision(text: str, state: str = "") -> int:
-    if state == "initial-open":
-        match = _last_match(
-            r"\[ENV_LIGHT_TEST\] ready case=portal backend=ddgi terrain_revision=(\d+)",
-            text,
-            "initial portal terrain revision",
+@dataclass(frozen=True)
+class _ScenarioEvent:
+    kind: _ScenarioKind
+    fields: dict[str, str]
+    line: str
+    position: int
+
+
+class _CyclePhase(Enum):
+    PORTAL_READY = "portal-ready"
+    ACTIVE_CHECKPOINT = "active-checkpoint"
+    INITIAL = "initial"
+    OBSERVED_CLOSE = "observed-close"
+    REQUEST_CLOSE = "request-close"
+    PREPARED_CLOSE = "prepared-close"
+    RECOVERY_CLOSE = "recovery-close"
+    VISIBLE_CLOSE = "visible-close"
+    OBSOLETE_CANDIDATE = "obsolete-candidate"
+    OBSERVED_REOPEN = "observed-reopen"
+    REQUEST_REOPEN = "request-reopen"
+    VISIBLE_REOPEN = "visible-reopen"
+    OBSOLETE_SKIPPED = "obsolete-skipped"
+    PREPARED_REOPEN = "prepared-reopen"
+    RECOVERY_REOPEN = "recovery-reopen"
+    PROMOTION_CLOSE = "promotion-close"
+    CONSUMER_CLOSE = "consumer-close"
+    READY_CLOSE = "ready-close"
+    PROMOTION_REOPEN = "promotion-reopen"
+    CONSUMER_REOPEN = "consumer-reopen"
+    READY_REOPEN = "ready-reopen"
+    PREPARED_DENSITY = "prepared-density"
+    REQUEST_DENSITY = "request-density"
+    PROMOTION_DENSITY = "promotion-density"
+    CONSUMER_DENSITY = "consumer-density"
+    FLORA_DENSITY = "flora-density"
+    READY_DENSITY = "ready-density"
+    TRANSIENT_ARMED = "transient-armed"
+    TRANSIENT_RECORDING = "transient-recording"
+    COMPLETE = "complete"
+    FINAL_CHECKPOINT = "final-checkpoint"
+    CAPTURE_SAVED = "capture-saved"
+    CAPTURE_COMPLETE = "capture-complete"
+
+
+@dataclass
+class _OrderedScenarioStream:
+    name: str
+    order: tuple[_CyclePhase, ...]
+    index: int = 0
+
+    def __post_init__(self) -> None:
+        self.events: dict[_CyclePhase, _ScenarioEvent] = {}
+
+    def event(self, phase: _CyclePhase, event: _ScenarioEvent) -> None:
+        expected = self.order[self.index] if self.index < len(self.order) else None
+        if phase in self.events or expected is not phase:
+            label = expected.value if expected is not None else "end-of-lifecycle"
+            raise ScenarioLifecycleError(
+                f"{self.name} event {phase.value} is duplicate or out of order; "
+                f"expected {label}"
+            )
+        self.events[phase] = event
+        self.index += 1
+
+    def finish(self) -> dict[_CyclePhase, _ScenarioEvent]:
+        if self.index != len(self.order):
+            raise ScenarioLifecycleError(
+                f"incomplete {self.name} lifecycle; expected {self.order[self.index].value}"
+            )
+        return self.events
+
+
+def _scenario_events(text: str) -> tuple[_ScenarioEvent, ...]:
+    events: list[_ScenarioEvent] = []
+    for position, line in enumerate(text.splitlines()):
+        kind: _ScenarioKind | None = None
+        if "[ENV_LIGHT_TEST] ready case=portal backend=ddgi" in line:
+            kind = _ScenarioKind.PORTAL_READY
+        elif "[ENV_IRRADIANCE_CAPTURE] checkpoint " in line:
+            kind = _ScenarioKind.CAPTURE_CHECKPOINT
+        elif "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready " in line:
+            kind = _ScenarioKind.INITIAL
+        elif "[DDGI] runtime observed visible terrain revision=" in line:
+            kind = _ScenarioKind.OBSERVED
+        elif "[ENV_LIGHT_EDIT_CYCLE] requested edit=" in line:
+            kind = _ScenarioKind.REQUEST_EDIT
+        elif "[DDGI] staging prepared " in line:
+            kind = _ScenarioKind.PREPARED
+        elif "[DDGI][LOCAL_RECOVERY] prepared " in line:
+            kind = _ScenarioKind.LOCAL_RECOVERY
+        elif "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete " in line:
+            kind = _ScenarioKind.VISIBLE
+        elif "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed " in line:
+            kind = _ScenarioKind.OBSOLETE_CANDIDATE
+        elif (
+            "[DDGI] obsolete staging promotion skipped " in line
+            and "replacement_token_serial=" in line
+        ):
+            kind = _ScenarioKind.OBSOLETE_SKIPPED
+        elif "[DDGI] staging promoted " in line:
+            kind = _ScenarioKind.PROMOTION
+        elif "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster " in line:
+            kind = _ScenarioKind.CONSUMER
+        elif "[DDGI][FLORA_CONSUMER] draw_recorded " in line:
+            kind = _ScenarioKind.FLORA
+        elif "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready " in line:
+            kind = _ScenarioKind.EDIT_READY
+        elif "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild " in line:
+            kind = _ScenarioKind.DENSITY_REQUEST
+        elif "[ENV_LIGHT_EDIT_CYCLE] density rebuild ready " in line:
+            kind = _ScenarioKind.DENSITY_READY
+        elif "[ENV_LIGHT_EDIT_CYCLE] complete mode=" in line:
+            kind = _ScenarioKind.COMPLETE
+        elif "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed " in line:
+            kind = _ScenarioKind.TRANSIENT_ARMED
+        elif "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording " in line:
+            kind = _ScenarioKind.TRANSIENT_RECORDING
+        elif "[ENV_IRRADIANCE_CAPTURE] saved " in line:
+            kind = _ScenarioKind.CAPTURE_SAVED
+        elif "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run" in line:
+            kind = _ScenarioKind.CAPTURE_COMPLETE
+        elif "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated" in line:
+            kind = _ScenarioKind.CONVERGENCE
+        if kind is None:
+            continue
+        fields = _fields(line)
+        if kind is _ScenarioKind.OBSOLETE_CANDIDATE:
+            token = re.search(
+                r"token=Some\(DdgiBuildToken \{ serial: (\d+), .*?spacing_voxels: (\d+)",
+                line,
+            )
+            if token is not None:
+                fields.setdefault("token_serial", token.group(1))
+                fields.setdefault("spacing_voxels", token.group(2))
+        events.append(_ScenarioEvent(kind, fields, line, position))
+    return tuple(events)
+
+
+def _one_initial(events: tuple[_ScenarioEvent, ...]) -> int:
+    initial = next((event for event in events if event.kind is _ScenarioKind.INITIAL), None)
+    if initial is None:
+        raise ScenarioLifecycleError("incomplete terrain edit lifecycle; expected initial")
+    return _integer(initial.fields, "terrain_revision")
+
+
+def _same_identity(
+    event: _ScenarioEvent, name: str, expected: int, label: str
+) -> None:
+    actual = _integer(event.fields, name)
+    if actual != expected:
+        raise ScenarioLifecycleError(
+            f"{label} identity drift for {name}: expected {expected}, got {actual}"
         )
-    else:
-        match = _last_match(
-            r"\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=(\d+)",
-            text,
-            "initial terrain revision",
-        )
-    return int(match.group(1))
 
 
-def _validate_inflight(text: str, spacing: int) -> dict[str, int]:
-    initial = _initial_revision(text)
-    obsolete, replacement = initial + 1, initial + 2
-    _require_markers(
-        text,
-        (
-            f"initial probe field ready terrain_revision={initial}",
-            f"requested edit=close-skylight source_revision={initial} target_revision={obsolete}",
-            f"visible terrain publication complete edit=close-skylight target_revision={obsolete}",
-            f"obsolete candidate observed terrain_revision={obsolete}",
-            f"requested edit=reopen-skylight source_revision={obsolete} target_revision={replacement}",
-            f"visible terrain publication complete edit=reopen-skylight target_revision={replacement}",
-            "[DDGI] obsolete staging promotion skipped",
-            f"replacement_terrain_revision={replacement}",
-            "[DDGI] staging promoted",
-            "kind=Terrain",
-            f"edited probe field ready edit=reopen-skylight terrain_revision={replacement}",
-            f"complete mode=reopened final_terrain_revision={replacement}",
-            "[ENV_IRRADIANCE_CAPTURE] saved",
-        ),
-    )
-    if re.search(
-        rf"\[DDGI\] staging promoted .*kind=Terrain.*terrain_revision={obsolete}(?:\D|$)",
-        text,
-    ):
-        raise ValueError(f"obsolete terrain revision {obsolete} became active")
-    return {"final_revision": replacement, "spacing_voxels": spacing}
+def _same_literal(
+    event: _ScenarioEvent, name: str, expected: str, label: str
+) -> None:
+    try:
+        _literal(event.fields, name, expected)
+    except ValueError as error:
+        raise ScenarioLifecycleError(f"{label} identity drift: {error}") from error
 
 
-def _validate_cycle(text: str, spacing: int, mode: str) -> dict[str, int]:
-    initial = _initial_revision(text)
-    closed, reopened = initial + 1, initial + 2
-    markers = [
-        f"initial probe field ready terrain_revision={initial}",
-        f"requested edit=close-skylight source_revision={initial} target_revision={closed}",
-        f"visible terrain publication complete edit=close-skylight target_revision={closed}",
-        f"edited probe field ready edit=close-skylight terrain_revision={closed}",
-        "[ENV_IRRADIANCE_CAPTURE] saved",
+@dataclass(frozen=True)
+class _CompletedCycle:
+    initial_revision: int
+    final_revision: int
+    final_token: int
+    final_field: int
+    radiance_revision: int
+    close_recovery: _ScenarioEvent
+    close_promotion: _ScenarioEvent
+
+
+def _completed_cycle_order(
+    mode: str, *, inflight: bool, require_flora: bool
+) -> tuple[_CyclePhase, ...]:
+    phases = [
+        _CyclePhase.INITIAL,
+        _CyclePhase.OBSERVED_CLOSE,
+        _CyclePhase.REQUEST_CLOSE,
+        _CyclePhase.PREPARED_CLOSE,
+        _CyclePhase.RECOVERY_CLOSE,
+        _CyclePhase.VISIBLE_CLOSE,
     ]
     if mode == "closed":
-        markers.append(f"complete mode=closed final_terrain_revision={closed}")
-        final = closed
-    else:
-        markers.extend(
+        phases.extend(
             (
-                f"requested edit=reopen-skylight source_revision={closed} target_revision={reopened}",
-                f"visible terrain publication complete edit=reopen-skylight target_revision={reopened}",
-                f"edited probe field ready edit=reopen-skylight terrain_revision={reopened}",
-                f"requested density rebuild terrain_revision={reopened} spacing_voxels={spacing}",
-                f"density rebuild ready terrain_revision={reopened}",
-                f"complete mode=reopened final_terrain_revision={reopened}",
+                _CyclePhase.PROMOTION_CLOSE,
+                _CyclePhase.CONSUMER_CLOSE,
+                _CyclePhase.READY_CLOSE,
             )
         )
-        final = reopened
-    _require_markers(text, tuple(markers))
-    return {"final_revision": final}
+    else:
+        if inflight:
+            phases.append(_CyclePhase.OBSOLETE_CANDIDATE)
+        else:
+            phases.extend(
+                (
+                    _CyclePhase.PROMOTION_CLOSE,
+                    _CyclePhase.CONSUMER_CLOSE,
+                    _CyclePhase.READY_CLOSE,
+                )
+            )
+        phases.extend(
+            (
+                _CyclePhase.OBSERVED_REOPEN,
+                _CyclePhase.REQUEST_REOPEN,
+            )
+        )
+        if inflight:
+            phases.extend(
+                (
+                    _CyclePhase.VISIBLE_REOPEN,
+                    _CyclePhase.OBSOLETE_SKIPPED,
+                    _CyclePhase.PREPARED_REOPEN,
+                    _CyclePhase.RECOVERY_REOPEN,
+                )
+            )
+        else:
+            phases.extend(
+                (
+                    _CyclePhase.PREPARED_REOPEN,
+                    _CyclePhase.RECOVERY_REOPEN,
+                    _CyclePhase.VISIBLE_REOPEN,
+                )
+            )
+        phases.extend(
+            (
+                _CyclePhase.PROMOTION_REOPEN,
+                _CyclePhase.CONSUMER_REOPEN,
+                _CyclePhase.READY_REOPEN,
+                _CyclePhase.PREPARED_DENSITY,
+                _CyclePhase.REQUEST_DENSITY,
+                _CyclePhase.PROMOTION_DENSITY,
+                _CyclePhase.CONSUMER_DENSITY,
+            )
+        )
+        if require_flora:
+            phases.append(_CyclePhase.FLORA_DENSITY)
+        phases.append(_CyclePhase.READY_DENSITY)
+    phases.extend(
+        (
+            _CyclePhase.COMPLETE,
+            _CyclePhase.FINAL_CHECKPOINT,
+            _CyclePhase.CAPTURE_SAVED,
+            _CyclePhase.CAPTURE_COMPLETE,
+        )
+    )
+    return tuple(phases)
+
+
+def _validate_completed_cycle(
+    action: ValidateScenarioLog,
+    text: str,
+    *,
+    mode: str,
+    inflight: bool = False,
+    require_flora: bool = False,
+) -> _CompletedCycle:
+    events = _scenario_events(text)
+    initial = _one_initial(events)
+    close = initial + 1
+    final = close if mode == "closed" else close + 1
+    stream = _OrderedScenarioStream(
+        f"{mode} terrain edit",
+        _completed_cycle_order(mode, inflight=inflight, require_flora=require_flora),
+    )
+    tokens: dict[str, int] = {}
+    for event in events:
+        fields = event.fields
+        phase: _CyclePhase | None = None
+        if event.kind is _ScenarioKind.INITIAL:
+            phase = _CyclePhase.INITIAL
+        elif event.kind is _ScenarioKind.OBSERVED:
+            revision = _integer(fields, "revision")
+            if revision == close:
+                phase = _CyclePhase.OBSERVED_CLOSE
+            elif revision == final and mode != "closed":
+                phase = _CyclePhase.OBSERVED_REOPEN
+        elif event.kind is _ScenarioKind.REQUEST_EDIT:
+            phase = {
+                "close-skylight": _CyclePhase.REQUEST_CLOSE,
+                "reopen-skylight": _CyclePhase.REQUEST_REOPEN,
+            }.get(fields.get("edit"))
+        elif event.kind is _ScenarioKind.PREPARED:
+            kind = fields.get("kind")
+            target = _integer(fields, "target_terrain_revision")
+            if kind == "Terrain" and target == close:
+                phase = _CyclePhase.PREPARED_CLOSE
+            elif kind == "Terrain" and target == final and mode != "closed":
+                phase = _CyclePhase.PREPARED_REOPEN
+            elif kind == "Density" and target == final and mode != "closed":
+                phase = _CyclePhase.PREPARED_DENSITY
+        elif event.kind is _ScenarioKind.LOCAL_RECOVERY:
+            geometry = _integer(fields, "geometry_revision")
+            if geometry == close:
+                phase = _CyclePhase.RECOVERY_CLOSE
+            elif geometry == final and mode != "closed":
+                phase = _CyclePhase.RECOVERY_REOPEN
+        elif event.kind is _ScenarioKind.VISIBLE:
+            phase = {
+                "close-skylight": _CyclePhase.VISIBLE_CLOSE,
+                "reopen-skylight": _CyclePhase.VISIBLE_REOPEN,
+            }.get(fields.get("edit"))
+        elif event.kind is _ScenarioKind.OBSOLETE_CANDIDATE:
+            phase = _CyclePhase.OBSOLETE_CANDIDATE
+        elif event.kind is _ScenarioKind.OBSOLETE_SKIPPED:
+            phase = _CyclePhase.OBSOLETE_SKIPPED
+        elif event.kind is _ScenarioKind.PROMOTION:
+            kind = fields.get("kind")
+            geometry = _integer(fields, "geometry_revision")
+            if kind == "Terrain" and geometry == close:
+                phase = _CyclePhase.PROMOTION_CLOSE
+            elif kind == "Terrain" and geometry == final and mode != "closed":
+                phase = _CyclePhase.PROMOTION_REOPEN
+            elif kind == "Density" and geometry == final and mode != "closed":
+                phase = _CyclePhase.PROMOTION_DENSITY
+        elif event.kind is _ScenarioKind.CONSUMER:
+            token = _integer(fields, "active_token_serial")
+            if token == tokens.get("close"):
+                phase = _CyclePhase.CONSUMER_CLOSE
+            elif token == tokens.get("reopen"):
+                phase = _CyclePhase.CONSUMER_REOPEN
+            elif token == tokens.get("density"):
+                phase = _CyclePhase.CONSUMER_DENSITY
+            elif _integer(fields, "geometry_revision") in (close, final):
+                raise ScenarioLifecycleError(
+                    f"consumer token identity drift: unknown active token {token}"
+                )
+        elif event.kind is _ScenarioKind.FLORA and require_flora:
+            token = _integer(fields, "active_token_serial")
+            if token == tokens.get("density"):
+                phase = _CyclePhase.FLORA_DENSITY
+            elif _integer(fields, "terrain_revision") == final and "density" in tokens:
+                if token != tokens["density"]:
+                    raise ScenarioLifecycleError("flora token identity drift")
+        elif event.kind is _ScenarioKind.EDIT_READY:
+            phase = {
+                "close-skylight": _CyclePhase.READY_CLOSE,
+                "reopen-skylight": _CyclePhase.READY_REOPEN,
+            }.get(fields.get("edit"))
+        elif event.kind is _ScenarioKind.DENSITY_REQUEST:
+            phase = _CyclePhase.REQUEST_DENSITY
+        elif event.kind is _ScenarioKind.DENSITY_READY:
+            phase = _CyclePhase.READY_DENSITY
+        elif event.kind is _ScenarioKind.COMPLETE:
+            phase = _CyclePhase.COMPLETE
+        elif event.kind is _ScenarioKind.CAPTURE_CHECKPOINT:
+            phase = _CyclePhase.FINAL_CHECKPOINT
+        elif event.kind is _ScenarioKind.CAPTURE_SAVED:
+            phase = _CyclePhase.CAPTURE_SAVED
+        elif event.kind is _ScenarioKind.CAPTURE_COMPLETE:
+            phase = _CyclePhase.CAPTURE_COMPLETE
+        if phase is None:
+            continue
+        stream.event(phase, event)
+        if phase is _CyclePhase.PROMOTION_CLOSE:
+            tokens["close"] = _integer(fields, "token_serial")
+        elif phase is _CyclePhase.PROMOTION_REOPEN:
+            tokens["reopen"] = _integer(fields, "token_serial")
+        elif phase is _CyclePhase.PROMOTION_DENSITY:
+            tokens["density"] = _integer(fields, "token_serial")
+    evidence = stream.finish()
+
+    _same_identity(evidence[_CyclePhase.INITIAL], "terrain_revision", initial, "initial")
+    close_revision_phases = [
+        (_CyclePhase.OBSERVED_CLOSE, close),
+        (_CyclePhase.VISIBLE_CLOSE, close),
+    ]
+    if _CyclePhase.READY_CLOSE in evidence:
+        close_revision_phases.append((_CyclePhase.READY_CLOSE, close))
+    for phase, revision in close_revision_phases:
+        name = "revision" if phase is _CyclePhase.OBSERVED_CLOSE else "target_revision"
+        if phase is _CyclePhase.READY_CLOSE:
+            name = "terrain_revision"
+        _same_identity(evidence[phase], name, revision, phase.value)
+    request_close = evidence[_CyclePhase.REQUEST_CLOSE]
+    _same_identity(request_close, "source_revision", initial, "close request")
+    _same_identity(request_close, "target_revision", close, "close request")
+    prepared_close = evidence[_CyclePhase.PREPARED_CLOSE]
+    _same_identity(prepared_close, "active_terrain_revision", initial, "close preparation")
+    _same_identity(prepared_close, "target_terrain_revision", close, "close preparation")
+    close_prepared_token = _integer(prepared_close.fields, "token_serial")
+    close_recovery = evidence[_CyclePhase.RECOVERY_CLOSE]
+    _same_identity(close_recovery, "geometry_revision", close, "close recovery")
+    dirty = _integer(close_recovery.fields, "dirty_probes")
+    preserved = _integer(close_recovery.fields, "preserved_probes")
+    if dirty <= 0 or preserved <= 0:
+        raise ScenarioLifecycleError(
+            "close recovery identity requires nonempty dirty and preserved partitions"
+        )
+    close_promotion = evidence.get(_CyclePhase.PROMOTION_CLOSE)
+    if close_promotion is not None:
+        _same_identity(close_promotion, "token_serial", close_prepared_token, "close promotion")
+        _same_identity(close_promotion, "geometry_revision", close, "close promotion")
+        _same_identity(close_promotion, "spacing_voxels", action.spacing_voxels, "close promotion")
+        _same_literal(close_promotion, "published_state", "Converging", "close promotion")
+        if "published_source=Some(" not in close_promotion.line:
+            raise ScenarioLifecycleError("close promotion identity lacks history source")
+        close_epoch = _integer(close_promotion.fields, "published_update_epoch")
+        if close_epoch < action.minimum_epoch:
+            raise ScenarioLifecycleError("close promotion identity has insufficient recovery")
+        close_consumer = evidence[_CyclePhase.CONSUMER_CLOSE]
+        for name, expected in (
+            ("active_token_serial", close_prepared_token),
+            ("geometry_revision", close),
+            ("spacing_voxels", action.spacing_voxels),
+            ("update_epoch", close_epoch),
+        ):
+            _same_identity(close_consumer, name, expected, "close consumer")
+        _same_identity(
+            close_consumer,
+            "radiance_revision",
+            _integer(close_promotion.fields, "radiance_revision"),
+            "close consumer",
+        )
+
+    final_token = close_prepared_token
+    final_promotion = close_promotion
+    if mode != "closed":
+        for phase, revision in (
+            (_CyclePhase.OBSERVED_REOPEN, final),
+            (_CyclePhase.VISIBLE_REOPEN, final),
+            (_CyclePhase.READY_REOPEN, final),
+            (_CyclePhase.READY_DENSITY, final),
+        ):
+            name = "revision" if phase is _CyclePhase.OBSERVED_REOPEN else "target_revision"
+            if phase in (_CyclePhase.READY_REOPEN, _CyclePhase.READY_DENSITY):
+                name = "terrain_revision"
+            _same_identity(evidence[phase], name, revision, phase.value)
+        request_reopen = evidence[_CyclePhase.REQUEST_REOPEN]
+        _same_identity(request_reopen, "source_revision", close, "reopen request")
+        _same_identity(request_reopen, "target_revision", final, "reopen request")
+        prepared_reopen = evidence[_CyclePhase.PREPARED_REOPEN]
+        expected_active = initial if inflight else close
+        _same_identity(
+            prepared_reopen,
+            "active_terrain_revision",
+            expected_active,
+            "reopen preparation",
+        )
+        _same_identity(prepared_reopen, "target_terrain_revision", final, "reopen preparation")
+        reopen_token = _integer(prepared_reopen.fields, "token_serial")
+        if reopen_token <= close_prepared_token:
+            raise ScenarioLifecycleError("reopen token identity did not supersede close token")
+        if inflight:
+            candidate = evidence[_CyclePhase.OBSOLETE_CANDIDATE]
+            skipped = evidence[_CyclePhase.OBSOLETE_SKIPPED]
+            for event, name, expected in (
+                (candidate, "terrain_revision", close),
+                (candidate, "active_terrain_revision", initial),
+                (candidate, "token_serial", close_prepared_token),
+                (skipped, "token_serial", close_prepared_token),
+                (skipped, "terrain_revision", close),
+                (skipped, "replacement_token_serial", reopen_token),
+                (skipped, "replacement_terrain_revision", final),
+            ):
+                _same_identity(event, name, expected, "latest-wins")
+        recovery_reopen = evidence[_CyclePhase.RECOVERY_REOPEN]
+        _same_identity(recovery_reopen, "geometry_revision", final, "reopen recovery")
+        if _integer(recovery_reopen.fields, "dirty_probes") <= 0 or _integer(
+            recovery_reopen.fields, "preserved_probes"
+        ) <= 0:
+            raise ScenarioLifecycleError("reopen recovery identity lacks a partition")
+        promotion_reopen = evidence[_CyclePhase.PROMOTION_REOPEN]
+        for name, expected in (
+            ("token_serial", reopen_token),
+            ("geometry_revision", final),
+            ("spacing_voxels", action.spacing_voxels),
+        ):
+            _same_identity(promotion_reopen, name, expected, "reopen promotion")
+        reopen_epoch = _integer(promotion_reopen.fields, "published_update_epoch")
+        if reopen_epoch < action.minimum_epoch:
+            raise ScenarioLifecycleError("reopen promotion identity has insufficient recovery")
+        if "published_source=Some(" not in promotion_reopen.line:
+            raise ScenarioLifecycleError("reopen promotion identity lacks history source")
+        consumer_reopen = evidence[_CyclePhase.CONSUMER_REOPEN]
+        for name, expected in (
+            ("active_token_serial", reopen_token),
+            ("geometry_revision", final),
+            ("spacing_voxels", action.spacing_voxels),
+            ("update_epoch", reopen_epoch),
+            ("radiance_revision", _integer(promotion_reopen.fields, "radiance_revision")),
+        ):
+            _same_identity(consumer_reopen, name, expected, "reopen consumer")
+        prepared_density = evidence[_CyclePhase.PREPARED_DENSITY]
+        for name, expected in (
+            ("active_terrain_revision", final),
+            ("target_terrain_revision", final),
+            ("spacing_voxels", action.spacing_voxels),
+        ):
+            _same_identity(prepared_density, name, expected, "density preparation")
+        density_token = _integer(prepared_density.fields, "token_serial")
+        if density_token <= reopen_token:
+            raise ScenarioLifecycleError("density token identity did not supersede reopen token")
+        density_request = evidence[_CyclePhase.REQUEST_DENSITY]
+        _same_identity(density_request, "terrain_revision", final, "density request")
+        _same_identity(density_request, "spacing_voxels", action.spacing_voxels, "density request")
+        density_promotion = evidence[_CyclePhase.PROMOTION_DENSITY]
+        for name, expected in (
+            ("token_serial", density_token),
+            ("geometry_revision", final),
+            ("spacing_voxels", action.spacing_voxels),
+            ("published_update_epoch", 0),
+        ):
+            _same_identity(density_promotion, name, expected, "density promotion")
+        _same_literal(density_promotion, "published_source", "None", "density promotion")
+        density_consumer = evidence[_CyclePhase.CONSUMER_DENSITY]
+        for name, expected in (
+            ("active_token_serial", density_token),
+            ("geometry_revision", final),
+            ("spacing_voxels", action.spacing_voxels),
+            ("update_epoch", 0),
+            ("radiance_revision", _integer(density_promotion.fields, "radiance_revision")),
+        ):
+            _same_identity(density_consumer, name, expected, "density consumer")
+        if require_flora:
+            flora = evidence[_CyclePhase.FLORA_DENSITY]
+            for name, expected in (
+                ("active_token_serial", density_token),
+                ("terrain_revision", final),
+                ("spacing_voxels", action.spacing_voxels),
+            ):
+                _same_identity(flora, name, expected, "flora consumer")
+            if _integer(flora.fields, "instance_count") <= 0:
+                raise ScenarioLifecycleError("flora consumer identity has no instances")
+        final_token = density_token
+        final_promotion = density_promotion
+
+    complete = evidence[_CyclePhase.COMPLETE]
+    _same_literal(complete, "mode", mode, "cycle completion")
+    _same_identity(complete, "final_terrain_revision", final, "cycle completion")
+    checkpoint = evidence[_CyclePhase.FINAL_CHECKPOINT]
+    saved = evidence[_CyclePhase.CAPTURE_SAVED]
+    for event, label in ((checkpoint, "capture checkpoint"), (saved, "capture save")):
+        _same_identity(event, "build_token_serial", final_token, label)
+    final_field = _integer(checkpoint.fields, "field_serial")
+    _same_identity(saved, "field_serial", final_field, "capture save")
+    _same_identity(saved, "geometry_revision", final, "capture save")
+    _same_identity(saved, "spacing_voxels", action.spacing_voxels, "capture save")
+    assert final_promotion is not None
+    radiance = _integer(final_promotion.fields, "radiance_revision")
+    _same_identity(saved, "radiance_revision", radiance, "capture save")
+    return _CompletedCycle(
+        initial,
+        final,
+        final_token,
+        final_field,
+        radiance,
+        close_recovery,
+        close_promotion or final_promotion,
+    )
+
+
+def _validate_inflight(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    cycle = _validate_completed_cycle(
+        action, text, mode="reopened", inflight=True
+    )
+    return {
+        "final_revision": cycle.final_revision,
+        "spacing_voxels": action.spacing_voxels,
+        "build_token_serial": cycle.final_token,
+        "field_serial": cycle.final_field,
+    }
+
+
+def _validate_cycle(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    cycle = _validate_completed_cycle(action, text, mode=action.state)
+    return {
+        "final_revision": cycle.final_revision,
+        "build_token_serial": cycle.final_token,
+        "field_serial": cycle.final_field,
+    }
 
 
 def _validate_local(action: ValidateScenarioLog, text: str) -> dict[str, int]:
-    initial = _initial_revision(text)
-    final = initial + 1
-    if re.search(
-        rf"runtime observed visible terrain revision={final}(?:\D|$).*"
-        r"invalidation_voxel_bound=Some\(\(UVec3\(0, 0, 0\), UVec3\(512, 512, 512\)\)\)",
-        text,
-    ):
-        raise ValueError("terrain edit invalidated the full DDGI domain")
-    recovery = _last_match(
-        rf"^.*\[DDGI\]\[LOCAL_RECOVERY\] prepared .*geometry_revision={final}(?:\D|$).*$",
-        text,
-        "local recovery partition",
-    ).group(0)
-    recovery_fields = _fields(recovery)
-    dirty = _integer(recovery_fields, "dirty_probes")
-    preserved = _integer(recovery_fields, "preserved_probes")
-    if dirty == 0 or preserved == 0:
-        raise ValueError("local recovery requires nonempty dirty and preserved partitions")
-    promotion_match = _last_match(
-        rf"^.*\[DDGI\] staging promoted .*geometry_revision={final}(?:\D|$).*$",
-        text,
-        "terrain promotion",
+    cycle = _validate_completed_cycle(action, text, mode="closed")
+    if "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" in text:
+        raise ScenarioLifecycleError("local recovery identity invalidated the full DDGI domain")
+    recovery = cycle.close_recovery
+    promotion = cycle.close_promotion
+    high_delta = sum(
+        event.position > promotion.position
+        and _integer(event.fields, "geometry_revision") == cycle.final_revision
+        and float(event.fields.get("max_abs_rgb_delta", "0")) > 0.1
+        for event in _scenario_events(text)
+        if event.kind is _ScenarioKind.CONVERGENCE
     )
-    promotion = promotion_match.group(0)
-    if "published_source=Some(" not in promotion:
-        raise ValueError("terrain promotion lacks an explicit history source")
-    epoch = _integer(_fields(promotion), "published_update_epoch")
-    if epoch < action.minimum_epoch:
-        raise ValueError(f"terrain promotion epoch {epoch} is below {action.minimum_epoch}")
-    high_delta = 0
-    for line in text[promotion_match.start() :].splitlines():
-        if (
-            "[DDGI_CONVERGENCE_EVIDENCE] full-atlas validated" in line
-            and f"geometry_revision={final}" in line
-            and float(_fields(line).get("max_abs_rgb_delta", "0")) > 0.1
-        ):
-            high_delta += 1
     if high_delta > action.maximum_high_delta_epochs:
-        raise ValueError(
-            f"post-promotion high-delta epochs {high_delta} exceed "
-            f"{action.maximum_high_delta_epochs}"
+        raise ScenarioLifecycleError(
+            f"local recovery identity has {high_delta} high-delta epochs after promotion"
         )
     return {
-        "final_revision": final,
-        "dirty_probes": dirty,
-        "preserved_probes": preserved,
-        "promoted_epoch": epoch,
+        "final_revision": cycle.final_revision,
+        "dirty_probes": _integer(recovery.fields, "dirty_probes"),
+        "preserved_probes": _integer(recovery.fields, "preserved_probes"),
+        "promoted_epoch": _integer(promotion.fields, "published_update_epoch"),
         "post_promotion_high_delta_epochs": high_delta,
     }
 
 
-def _runtime_final(action: ValidateScenarioLog, text: str) -> dict[str, int]:
-    initial = _initial_revision(text, action.state)
-    final = {
-        "initial-open": initial,
-        "closed": initial + 1,
-        "sequential-reopened": initial + 2,
-        "inflight-latest-wins": initial + 2,
-    }[action.state]
-    if action.state == "initial-open":
-        markers = (
-            f"ready case=portal backend=ddgi terrain_revision={initial} geometry=static",
-            "[ENV_IRRADIANCE_CAPTURE] saved",
-            "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run",
-        )
-    else:
-        closed = initial + 1
-        markers = [
-            f"initial probe field ready terrain_revision={initial}",
-            f"requested edit=close-skylight source_revision={initial} target_revision={closed}",
-            "invalidation_voxel_bound=Some((UVec3(",
-            f"target_terrain_revision={final}",
-            "[DDGI] staging promoted",
-            f"terrain_revision={final}",
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster",
-            "active_token_serial=",
-            "[ENV_IRRADIANCE_CAPTURE] saved",
-            "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run",
-        ]
-        if action.state == "closed":
-            markers.append(f"complete mode=closed final_terrain_revision={final}")
-        else:
-            markers.extend(
-                (
-                    f"requested edit=reopen-skylight source_revision={closed} target_revision={final}",
-                    f"complete mode=reopened final_terrain_revision={final}",
-                )
-            )
-        if action.state == "inflight-latest-wins":
-            markers.extend(
-                (
-                    f"obsolete candidate observed terrain_revision={closed}",
-                    "[DDGI] obsolete staging promotion skipped",
-                    f"replacement_terrain_revision={final}",
-                )
-            )
-    _require_markers(text, tuple(markers))
-    if action.state != "initial-open":
-        if "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" in text:
-            raise ValueError("full-domain DDGI invalidation returned")
-        consumer = _last_match(
-            rf"^.*\[DDGI\]\[CONSUMERS\] consumer_set=terrain_compute,flora_raster "
-            rf".*geometry_revision={final}(?:\D|$).*state=Converging.*$",
-            text,
-            "shared consumer publication",
-        ).group(0)
-        if _integer(_fields(consumer), "update_epoch") < action.minimum_epoch:
-            raise ValueError("shared consumer exposed insufficient local recovery")
-        promotion = _last_match(
-            rf"^.*\[DDGI\] staging promoted .*kind=Terrain .*geometry_revision={final}"
-            rf"(?:\D|$).*published_state=Converging.*$",
-            text,
-            "terrain promotion",
-        ).group(0)
-        if _integer(_fields(promotion), "published_update_epoch") < action.minimum_epoch:
-            raise ValueError("terrain candidate promoted before local recovery")
-        if "published_source=Some(" not in promotion:
-            raise ValueError("terrain promotion did not retain resident history")
-        if action.state == "inflight-latest-wins" and re.search(
-            rf"\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision={initial + 1}(?:\D|$)",
-            text,
-        ):
-            raise ValueError("obsolete terrain revision promoted")
-    return {"final_revision": final}
-
-
-def _runtime_transient(text: str) -> dict[str, int]:
-    _require_markers(
-        text,
+def _validate_initial_open(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    stream = _OrderedScenarioStream(
+        "initial open",
         (
-            "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=",
-            "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=",
-            "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=",
-            "[DDGI] obsolete staging promotion skipped",
-            "invalidation_voxel_bound=Some((UVec3(",
-            "coordinator=BuildingTerrain",
-            "invalidation=stale-active",
-            "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some(",
-            "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision=Some(",
-            "staging_token_serial=Some(",
-            "staging_stage=Rebuilding",
-            "[ENV_IRRADIANCE_CAPTURE] saved",
-            "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run",
+            _CyclePhase.PORTAL_READY,
+            _CyclePhase.FINAL_CHECKPOINT,
+            _CyclePhase.CAPTURE_SAVED,
+            _CyclePhase.CAPTURE_COMPLETE,
         ),
     )
+    for event in _scenario_events(text):
+        phase = {
+            _ScenarioKind.PORTAL_READY: _CyclePhase.PORTAL_READY,
+            _ScenarioKind.CAPTURE_CHECKPOINT: _CyclePhase.FINAL_CHECKPOINT,
+            _ScenarioKind.CAPTURE_SAVED: _CyclePhase.CAPTURE_SAVED,
+            _ScenarioKind.CAPTURE_COMPLETE: _CyclePhase.CAPTURE_COMPLETE,
+        }.get(event.kind)
+        if phase is not None:
+            stream.event(phase, event)
+    evidence = stream.finish()
+    ready = evidence[_CyclePhase.PORTAL_READY]
+    checkpoint = evidence[_CyclePhase.FINAL_CHECKPOINT]
+    saved = evidence[_CyclePhase.CAPTURE_SAVED]
+    revision = _integer(ready.fields, "terrain_revision")
+    _same_literal(ready, "geometry", "static", "initial open")
+    for name in ("build_token_serial", "field_serial"):
+        _same_identity(saved, name, _integer(checkpoint.fields, name), "initial capture")
+    _same_identity(saved, "geometry_revision", revision, "initial capture")
+    _same_identity(saved, "spacing_voxels", action.spacing_voxels, "initial capture")
+    return {"final_revision": revision}
+
+
+def _runtime_final(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    if action.state == "initial-open":
+        return _validate_initial_open(action, text)
+    mode = "closed" if action.state == "closed" else "reopened"
+    cycle = _validate_completed_cycle(
+        action,
+        text,
+        mode=mode,
+        inflight=action.state == "inflight-latest-wins",
+    )
+    return {"final_revision": cycle.final_revision}
+
+
+def _runtime_transient(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    events = _scenario_events(text)
+    initial = _one_initial(events)
+    close, target = initial + 1, initial + 2
+    order = (
+        _CyclePhase.ACTIVE_CHECKPOINT,
+        _CyclePhase.INITIAL,
+        _CyclePhase.OBSERVED_CLOSE,
+        _CyclePhase.REQUEST_CLOSE,
+        _CyclePhase.PREPARED_CLOSE,
+        _CyclePhase.RECOVERY_CLOSE,
+        _CyclePhase.VISIBLE_CLOSE,
+        _CyclePhase.OBSOLETE_CANDIDATE,
+        _CyclePhase.OBSERVED_REOPEN,
+        _CyclePhase.REQUEST_REOPEN,
+        _CyclePhase.VISIBLE_REOPEN,
+        _CyclePhase.OBSOLETE_SKIPPED,
+        _CyclePhase.PREPARED_REOPEN,
+        _CyclePhase.RECOVERY_REOPEN,
+        _CyclePhase.TRANSIENT_ARMED,
+        _CyclePhase.TRANSIENT_RECORDING,
+        _CyclePhase.CAPTURE_SAVED,
+        _CyclePhase.CAPTURE_COMPLETE,
+    )
+    stream = _OrderedScenarioStream("transient terrain edit", order)
+    for event in events:
+        fields = event.fields
+        phase: _CyclePhase | None = None
+        if event.kind is _ScenarioKind.CAPTURE_CHECKPOINT:
+            phase = _CyclePhase.ACTIVE_CHECKPOINT
+        elif event.kind is _ScenarioKind.INITIAL:
+            phase = _CyclePhase.INITIAL
+        elif event.kind is _ScenarioKind.OBSERVED:
+            revision = _integer(fields, "revision")
+            phase = (
+                _CyclePhase.OBSERVED_CLOSE
+                if revision == close
+                else _CyclePhase.OBSERVED_REOPEN if revision == target else None
+            )
+        elif event.kind is _ScenarioKind.REQUEST_EDIT:
+            phase = {
+                "close-skylight": _CyclePhase.REQUEST_CLOSE,
+                "reopen-skylight": _CyclePhase.REQUEST_REOPEN,
+            }.get(fields.get("edit"))
+        elif event.kind is _ScenarioKind.PREPARED and fields.get("kind") == "Terrain":
+            revision = _integer(fields, "target_terrain_revision")
+            phase = (
+                _CyclePhase.PREPARED_CLOSE
+                if revision == close
+                else _CyclePhase.PREPARED_REOPEN if revision == target else None
+            )
+        elif event.kind is _ScenarioKind.LOCAL_RECOVERY:
+            revision = _integer(fields, "geometry_revision")
+            phase = (
+                _CyclePhase.RECOVERY_CLOSE
+                if revision == close
+                else _CyclePhase.RECOVERY_REOPEN if revision == target else None
+            )
+        elif event.kind is _ScenarioKind.VISIBLE:
+            phase = {
+                "close-skylight": _CyclePhase.VISIBLE_CLOSE,
+                "reopen-skylight": _CyclePhase.VISIBLE_REOPEN,
+            }.get(fields.get("edit"))
+        elif event.kind is _ScenarioKind.OBSOLETE_CANDIDATE:
+            phase = _CyclePhase.OBSOLETE_CANDIDATE
+        elif event.kind is _ScenarioKind.OBSOLETE_SKIPPED:
+            phase = _CyclePhase.OBSOLETE_SKIPPED
+        elif event.kind is _ScenarioKind.TRANSIENT_ARMED:
+            phase = _CyclePhase.TRANSIENT_ARMED
+        elif event.kind is _ScenarioKind.TRANSIENT_RECORDING:
+            phase = _CyclePhase.TRANSIENT_RECORDING
+        elif event.kind is _ScenarioKind.CAPTURE_SAVED:
+            phase = _CyclePhase.CAPTURE_SAVED
+        elif event.kind is _ScenarioKind.CAPTURE_COMPLETE:
+            phase = _CyclePhase.CAPTURE_COMPLETE
+        if phase is not None:
+            stream.event(phase, event)
+    evidence = stream.finish()
+    checkpoint = evidence[_CyclePhase.ACTIVE_CHECKPOINT]
+    prepared_close = evidence[_CyclePhase.PREPARED_CLOSE]
+    candidate = evidence[_CyclePhase.OBSOLETE_CANDIDATE]
+    skipped = evidence[_CyclePhase.OBSOLETE_SKIPPED]
+    prepared_reopen = evidence[_CyclePhase.PREPARED_REOPEN]
+    close_token = _integer(prepared_close.fields, "token_serial")
+    reopen_token = _integer(prepared_reopen.fields, "token_serial")
+    if reopen_token <= close_token:
+        raise ScenarioLifecycleError("transient replacement token identity did not advance")
+    for event, name, expected in (
+        (prepared_close, "active_terrain_revision", initial),
+        (prepared_close, "target_terrain_revision", close),
+        (candidate, "terrain_revision", close),
+        (candidate, "active_terrain_revision", initial),
+        (candidate, "token_serial", close_token),
+        (skipped, "token_serial", close_token),
+        (skipped, "replacement_token_serial", reopen_token),
+        (skipped, "replacement_terrain_revision", target),
+        (prepared_reopen, "active_terrain_revision", initial),
+        (prepared_reopen, "target_terrain_revision", target),
+    ):
+        _same_identity(event, name, expected, "transient")
+    for phase in (_CyclePhase.TRANSIENT_ARMED, _CyclePhase.TRANSIENT_RECORDING):
+        event = evidence[phase]
+        for name, expected in (
+            ("active_terrain_revision", initial),
+            ("target_terrain_revision", target),
+            ("staging_token_serial", reopen_token),
+        ):
+            _same_identity(event, name, expected, phase.value)
+        _same_literal(event, "staging_stage", "Rebuilding", phase.value)
+        _same_literal(event, "invalidation", "stale-active", phase.value)
+        progress = event.fields.get("staging_progress", "")
+        current, separator, total = progress.partition("/")
+        if not separator or not current.isdigit() or not total.isdigit() or int(total) <= 0:
+            raise ScenarioLifecycleError(f"{phase.value} identity has invalid progress")
+    saved = evidence[_CyclePhase.CAPTURE_SAVED]
+    for name in ("build_token_serial", "field_serial"):
+        _same_identity(saved, name, _integer(checkpoint.fields, name), "transient capture")
+    _same_identity(saved, "geometry_revision", initial, "transient capture")
+    _same_identity(saved, "spacing_voxels", action.spacing_voxels, "transient capture")
     if "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" in text:
-        raise ValueError("transient state invalidated the full DDGI domain")
-    if not re.search(
-        r"\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] recording .*staging_progress=\d+/[1-9]\d* "
-        r".*coordinator=BuildingTerrain",
-        text,
-    ):
-        raise ValueError("missing GPU-visible staging progress")
-    armed = _last_match(
-        r"^.*\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] armed.*$", text, "armed transient capture"
-    ).group(0)
-    active_match = re.search(r"active_terrain_revision=Some\((\d+)\)", armed)
-    target_match = re.search(r"target_terrain_revision=(\d+)", armed)
-    if not active_match or not target_match:
-        raise ValueError("transient capture lacks active/target revisions")
-    active, target = int(active_match.group(1)), int(target_match.group(1))
-    if active == target:
-        raise ValueError("transient capture active and target revisions are equal")
-    for pattern, label in (
-        (r"\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=(\d+)", "promotion"),
-        (r"\[DDGI\]\[CONSUMERS\].*geometry_revision=(\d+)", "consumer"),
-    ):
-        if any(int(match.group(1)) > active for match in re.finditer(pattern, text)):
-            raise ValueError(f"transient capture exposed post-active {label}")
-    obsolete = _last_match(
-        r"^.*\[DDGI\] obsolete staging promotion skipped .*coordinator=.*$",
-        text,
-        "obsolete staging completion",
-    )
-    latest = _last_match(
-        r"^.*\[DDGI\] staging prepared .*target_terrain_revision=.*$",
-        text,
-        "latest staging start",
-    )
-    if latest.start() <= obsolete.start():
-        raise ValueError("terrain staging updates overlapped")
-    return {"active_revision": active, "target_revision": target}
+        raise ScenarioLifecycleError("transient identity invalidated the full DDGI domain")
+    for event in events:
+        if event.kind not in (_ScenarioKind.PROMOTION, _ScenarioKind.CONSUMER):
+            continue
+        name = (
+            "geometry_revision"
+            if event.kind is _ScenarioKind.PROMOTION
+            else "geometry_revision"
+        )
+        if _integer(event.fields, name) > initial:
+            raise ScenarioLifecycleError("transient identity exposed post-active publication")
+    return {"active_revision": initial, "target_revision": target}
 
 
-def _flora(text: str) -> dict[str, int]:
-    final = _initial_revision(text) + 2
-    consumer = _last_match(
-        rf"^.*\[DDGI\]\[CONSUMERS\].*geometry_revision={final}(?:\D|$).*$",
-        text,
-        "final flora consumer publication",
-    ).group(0)
-    token = _integer(_fields(consumer), "active_token_serial")
-    if not re.search(
-        rf"\[DDGI\]\[FLORA_CONSUMER\] draw_recorded active_token_serial={token} "
-        rf"terrain_revision={final}(?:\D|$).*instance_count=[1-9]\d*",
-        text,
-    ):
-        raise ValueError("flora draw did not consume the final DDGI publication")
-    return {"active_token": token, "final_revision": final}
+def _flora(action: ValidateScenarioLog, text: str) -> dict[str, int]:
+    cycle = _validate_completed_cycle(
+        action, text, mode="reopened", require_flora=True
+    )
+    return {"active_token": cycle.final_token, "final_revision": cycle.final_revision}
 
 
 def validate_scenario_log(action: ValidateScenarioLog) -> dict[str, int]:
     text = action.console.read_text(encoding="utf-8", errors="replace")
     match action.validation:
         case ScenarioValidation.INFLIGHT_FINAL:
-            return _validate_inflight(text, action.spacing_voxels)
+            return _validate_inflight(action, text)
         case ScenarioValidation.RADIANCE_STREAM:
             return validate_radiance_event_stream(text, action.spacing_voxels)
         case ScenarioValidation.DENSITY_STREAM:
@@ -1241,11 +1770,11 @@ def validate_scenario_log(action: ValidateScenarioLog) -> dict[str, int]:
         case ScenarioValidation.RUNTIME_FINAL:
             return _runtime_final(action, text)
         case ScenarioValidation.RUNTIME_TRANSIENT:
-            return _runtime_transient(text)
+            return _runtime_transient(action, text)
         case ScenarioValidation.FLORA_CONSUMER:
-            return _flora(text)
+            return _flora(action, text)
         case ScenarioValidation.TERRAIN_EDIT:
-            return _validate_cycle(text, action.spacing_voxels, action.state)
+            return _validate_cycle(action, text)
     raise AssertionError(f"unhandled scenario validation: {action.validation}")
 
 

@@ -18,6 +18,7 @@ SEQUENTIAL_REOPENED = """
 [ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2
 [DDGI] runtime observed visible terrain revision=3 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
 [ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=2 target_revision=3
+[DDGI] staging prepared token_serial=2 kind=Terrain spacing_voxels=32 active_terrain_revision=2 target_terrain_revision=3
 [DDGI][LOCAL_RECOVERY] prepared geometry_revision=3 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=3
 [DDGI] staging promoted token_serial=2 kind=Terrain spacing_voxels=32 geometry_revision=3 radiance_revision=1 published_state=Converging published_update_epoch=5 published_source=Some(field-7)
@@ -25,6 +26,7 @@ SEQUENTIAL_REOPENED = """
 [ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight terrain_revision=3
 [DDGI] runtime observed visible terrain revision=4 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
 [ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=3 target_revision=4
+[DDGI] staging prepared token_serial=3 kind=Terrain spacing_voxels=32 active_terrain_revision=3 target_terrain_revision=4
 [DDGI][LOCAL_RECOVERY] prepared geometry_revision=4 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=reopen-skylight target_revision=4
 [DDGI] staging promoted token_serial=3 kind=Terrain spacing_voxels=32 geometry_revision=4 radiance_revision=1 published_state=Converging published_update_epoch=5 published_source=Some(field-14)
@@ -38,16 +40,38 @@ SEQUENTIAL_REOPENED = """
 [DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=4 terrain_revision=4 spacing_voxels=32 instance_count=99
 [ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=4
 [ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=4
-[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=4 build_token_serial=4 field_serial=25
+[ENV_IRRADIANCE_CAPTURE] checkpoint target=e8 build_token_serial=4 field_serial=25 state=Converging update_epoch=8 publication=Published
+[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=4 radiance_revision=1 spacing_voxels=32 build_token_serial=4 field_serial=25
+[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
+""".strip()
+
+
+CLOSED = """
+[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2
+[DDGI] runtime observed visible terrain revision=3 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
+[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=2 target_revision=3
+[DDGI] staging prepared token_serial=2 kind=Terrain spacing_voxels=32 active_terrain_revision=2 target_terrain_revision=3
+[DDGI][LOCAL_RECOVERY] prepared geometry_revision=3 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
+[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=3
+[DDGI] staging promoted token_serial=2 kind=Terrain spacing_voxels=32 geometry_revision=3 radiance_revision=1 published_state=Converging published_update_epoch=5 published_source=Some(field-7)
+[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=2 geometry_revision=3 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=5
+[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight terrain_revision=3
+[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=3
+[ENV_IRRADIANCE_CAPTURE] checkpoint target=converged build_token_serial=2 field_serial=12 state=Converged update_epoch=8 publication=Published
+[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=3 radiance_revision=1 spacing_voxels=32 build_token_serial=2 field_serial=12
 [ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
 """.strip()
 
 
 INFLIGHT_FINAL = """
 [ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2
+[DDGI] runtime observed visible terrain revision=3 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
 [ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=2 target_revision=3
+[DDGI] staging prepared token_serial=2 kind=Terrain spacing_voxels=32 active_terrain_revision=2 target_terrain_revision=3
+[DDGI][LOCAL_RECOVERY] prepared geometry_revision=3 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=3
 [ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=3 active_terrain_revision=Some(2) token_serial=2 spacing_voxels=32
+[DDGI] runtime observed visible terrain revision=4 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
 [ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=3 target_revision=4
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=reopen-skylight target_revision=4
 [DDGI] obsolete staging promotion skipped token_serial=2 kind=Terrain terrain_revision=3 replacement_token_serial=3 replacement_terrain_revision=4
@@ -56,24 +80,36 @@ INFLIGHT_FINAL = """
 [DDGI] staging promoted token_serial=3 kind=Terrain spacing_voxels=32 geometry_revision=4 radiance_revision=1 published_state=Converging published_update_epoch=5 published_source=Some(field-14)
 [DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=3 geometry_revision=4 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=5
 [ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=4
+[DDGI] staging prepared token_serial=4 kind=Density spacing_voxels=32 active_terrain_revision=4 target_terrain_revision=4
+[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision=4 spacing_voxels=32
+[DDGI] staging promoted token_serial=4 kind=Density spacing_voxels=32 geometry_revision=4 radiance_revision=1 published_state=Converging published_update_epoch=0 published_source=None
+[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=4 geometry_revision=4 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=0
+[ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=4
 [ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=4
-[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=4 build_token_serial=3 field_serial=16
+[ENV_IRRADIANCE_CAPTURE] checkpoint target=e8 build_token_serial=4 field_serial=25 state=Converging update_epoch=8 publication=Published
+[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=4 radiance_revision=1 spacing_voxels=32 build_token_serial=4 field_serial=25
+[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
 """.strip()
 
 
 TRANSIENT = """
+[ENV_IRRADIANCE_CAPTURE] checkpoint target=published build_token_serial=1 field_serial=1 state=Converging update_epoch=0 publication=Published
 [ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2
+[DDGI] runtime observed visible terrain revision=3 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
 [ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=2 target_revision=3
+[DDGI] staging prepared token_serial=2 kind=Terrain spacing_voxels=32 active_terrain_revision=2 target_terrain_revision=3
+[DDGI][LOCAL_RECOVERY] prepared geometry_revision=3 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=close-skylight target_revision=3
 [ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=3 active_terrain_revision=Some(2) token_serial=2 spacing_voxels=32
+[DDGI] runtime observed visible terrain revision=4 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366))) coordinator=BuildingTerrain
 [ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=3 target_revision=4
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=reopen-skylight target_revision=4
 [DDGI] obsolete staging promotion skipped token_serial=2 kind=Terrain terrain_revision=3 replacement_token_serial=3 replacement_terrain_revision=4 coordinator=AwaitingTerrain
 [DDGI] staging prepared token_serial=3 kind=Terrain spacing_voxels=32 active_terrain_revision=2 target_terrain_revision=4
-[DDGI] runtime observed visible terrain revision=4 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366))) coordinator=BuildingTerrain
+[DDGI][LOCAL_RECOVERY] prepared geometry_revision=4 dirty_probes=48 preserved_probes=4865 minimum_epoch=4 stable_epochs=2 max_absolute_delta=0.100
 [ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some(2) target_terrain_revision=4 staging_token_serial=Some(3) staging_stage=Rebuilding staging_progress=512/4913 coordinator=BuildingTerrain invalidation=stale-active
 [ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision=Some(2) target_terrain_revision=4 staging_token_serial=Some(3) staging_stage=Rebuilding staging_progress=1024/4913 coordinator=BuildingTerrain invalidation=stale-active
-[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=2 build_token_serial=1 field_serial=1
+[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=2 radiance_revision=1 spacing_voxels=32 build_token_serial=1 field_serial=1
 [ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
 """.strip()
 
@@ -152,7 +188,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
 
     def test_local_recovery_rejects_order_duplicate_and_identity_mutations(self) -> None:
         self.assertEqual(
-            self.validate(ScenarioValidation.LOCAL_RECOVERY, SEQUENTIAL_REOPENED)[
+            self.validate(ScenarioValidation.LOCAL_RECOVERY, CLOSED)[
                 "final_revision"
             ],
             3,
@@ -161,15 +197,15 @@ class ScenarioStreamContractTests(unittest.TestCase):
         promotion = "[DDGI] staging promoted token_serial=2 kind=Terrain spacing_voxels=32 geometry_revision=3 radiance_revision=1 published_state=Converging published_update_epoch=5 published_source=Some(field-7)"
         self.assert_rejected(
             ScenarioValidation.LOCAL_RECOVERY,
-            _swap(SEQUENTIAL_REOPENED, recovery, promotion),
+            _swap(CLOSED, recovery, promotion),
         )
         self.assert_rejected(
             ScenarioValidation.LOCAL_RECOVERY,
-            _duplicate(SEQUENTIAL_REOPENED, recovery),
+            _duplicate(CLOSED, recovery),
         )
         self.assert_rejected(
             ScenarioValidation.LOCAL_RECOVERY,
-            SEQUENTIAL_REOPENED.replace(
+            CLOSED.replace(
                 "staging promoted token_serial=2 kind=Terrain",
                 "staging promoted token_serial=9 kind=Terrain",
                 1,
