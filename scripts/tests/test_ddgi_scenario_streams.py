@@ -14,6 +14,14 @@ from ddgi_evidence.model import ScenarioValidation, ValidateScenarioLog  # noqa:
 from ddgi_evidence.validation import validate_scenario_log  # noqa: E402
 
 
+INITIAL_OPEN = """
+[ENV_LIGHT_TEST] ready case=portal backend=ddgi terrain_revision=2 geometry=static
+[ENV_IRRADIANCE_CAPTURE] checkpoint target=e8 build_token_serial=5 generation_token_serial=5 epoch_zero_field_serial=10 field_serial=18 source_field_serial=17 geometry_revision=2 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=8 publication=Published
+[ENV_IRRADIANCE_CAPTURE] saved geometry_revision=2 radiance_revision=1 spacing_voxels=32 build_token_serial=5 field_serial=18
+[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
+""".strip()
+
+
 SEQUENTIAL_REOPENED = """
 [ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2
 [DDGI] runtime observed visible terrain revision=3 invalidation_voxel_bound=Some((UVec3(112, 184, 238), UVec3(224, 276, 366)))
@@ -188,6 +196,86 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 state=state,
                 minimum_epoch=minimum_epoch,
             )
+
+    def test_checkpoint_identity_is_shared_by_initial_open_and_transient(self) -> None:
+        self.assertEqual(
+            self.validate(
+                ScenarioValidation.RUNTIME_FINAL,
+                INITIAL_OPEN,
+                state="initial-open",
+            )["final_revision"],
+            2,
+        )
+        self.assertEqual(
+            self.validate(ScenarioValidation.RUNTIME_TRANSIENT, TRANSIENT)[
+                "active_revision"
+            ],
+            2,
+        )
+        cases = (
+            (
+                "initial-open",
+                ScenarioValidation.RUNTIME_FINAL,
+                INITIAL_OPEN,
+                "initial-open",
+                {
+                    "geometry": (
+                        "geometry_revision=2 radiance_revision=1",
+                        "geometry_revision=999 radiance_revision=1",
+                    ),
+                    "radiance": (
+                        "radiance_revision=1 spacing_voxels=32",
+                        "radiance_revision=999 spacing_voxels=32",
+                    ),
+                    "spacing": (
+                        "spacing_voxels=32 state=Converging",
+                        "spacing_voxels=999 state=Converging",
+                    ),
+                },
+            ),
+            (
+                "transient",
+                ScenarioValidation.RUNTIME_TRANSIENT,
+                TRANSIENT,
+                "",
+                {
+                    "geometry": (
+                        "geometry_revision=2 radiance_revision=1",
+                        "geometry_revision=999 radiance_revision=1",
+                    ),
+                    "radiance": (
+                        "radiance_revision=1 spacing_voxels=32",
+                        "radiance_revision=999 spacing_voxels=32",
+                    ),
+                    "spacing": (
+                        "spacing_voxels=32 state=Converging",
+                        "spacing_voxels=999 state=Converging",
+                    ),
+                    "source-field": (
+                        "source_field_serial=0 geometry_revision=2",
+                        "source_field_serial=999 geometry_revision=2",
+                    ),
+                    "state": (
+                        "state=Converging update_epoch=0",
+                        "state=Unknown update_epoch=0",
+                    ),
+                    "update-epoch": (
+                        "update_epoch=0 publication=Published",
+                        "update_epoch=999 publication=Published",
+                    ),
+                    "publication": (
+                        "publication=Published",
+                        "publication=Private",
+                    ),
+                },
+            ),
+        )
+        for scenario, validation, text, state, mutations in cases:
+            for mutation, (old, new) in mutations.items():
+                with self.subTest(scenario=scenario, mutation=mutation):
+                    mutated = _replace_once(text, old, new)
+                    self.assertNotEqual(mutated, text)
+                    self.assert_rejected(validation, mutated, state=state)
 
     def test_inflight_final_rejects_order_duplicate_and_identity_mutations(self) -> None:
         self.assertEqual(
