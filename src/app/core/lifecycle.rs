@@ -115,3 +115,89 @@ impl App {
         );
     }
 }
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownState};
+    use anyhow::{Result, anyhow};
+
+    #[derive(Default)]
+    struct FakeShutdownActions {
+        calls: Vec<&'static str>,
+        water_failures_remaining: usize,
+        discard_failures_remaining: usize,
+    }
+
+    impl ShutdownActions for FakeShutdownActions {
+        fn shutdown_water(&mut self) -> Result<()> {
+            self.calls.push("water");
+            if self.water_failures_remaining > 0 {
+                self.water_failures_remaining -= 1;
+                return Err(anyhow!("injected water shutdown failure"));
+            }
+            Ok(())
+        }
+
+        fn discard_contree_readback(&mut self) -> Result<()> {
+            self.calls.push("discard");
+            if self.discard_failures_remaining > 0 {
+                self.discard_failures_remaining -= 1;
+                return Err(anyhow!("injected Contree discard failure"));
+            }
+            Ok(())
+        }
+
+        fn join_dependent_workers(&mut self) {
+            self.calls.push("join");
+        }
+
+        fn wait_device_idle(&mut self) {
+            self.calls.push("idle");
+        }
+    }
+
+    #[test]
+    fn failed_shutdown_attempts_every_phase_and_remains_retryable() {
+        let mut lifecycle = AppShutdownLifecycle::default();
+        assert!(lifecycle.begin());
+        let mut actions = FakeShutdownActions {
+            water_failures_remaining: 1,
+            discard_failures_remaining: 1,
+            ..FakeShutdownActions::default()
+        };
+
+        let error = lifecycle.drain(&mut actions).unwrap_err();
+
+        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
+        assert!(error.to_string().contains("water"));
+        assert!(error.to_string().contains("Contree"));
+        assert_eq!(lifecycle.state(), ShutdownState::Quiescing);
+
+        actions.calls.clear();
+        lifecycle.drain(&mut actions).unwrap();
+        assert_eq!(actions.calls, ["water", "discard", "idle"]);
+        assert_eq!(lifecycle.state(), ShutdownState::Complete);
+    }
+
+    #[test]
+    fn successful_phases_are_not_repeated_but_idle_covers_each_retry() {
+        let mut lifecycle = AppShutdownLifecycle::default();
+        lifecycle.begin();
+        let mut actions = FakeShutdownActions {
+            water_failures_remaining: 1,
+            ..FakeShutdownActions::default()
+        };
+
+        assert!(lifecycle.drain(&mut actions).is_err());
+        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
+
+        actions.calls.clear();
+        lifecycle.drain(&mut actions).unwrap();
+        assert_eq!(actions.calls, ["water", "idle"]);
+
+        actions.calls.clear();
+        assert!(!lifecycle.begin());
+        lifecycle.drain(&mut actions).unwrap();
+        assert!(actions.calls.is_empty());
+    }
+}
