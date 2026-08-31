@@ -996,6 +996,7 @@ class _CyclePhase(Enum):
     READY_CLOSE = "ready-close"
     PROMOTION_REOPEN = "promotion-reopen"
     CONSUMER_REOPEN = "consumer-reopen"
+    FLORA_REOPEN = "flora-reopen"
     READY_REOPEN = "ready-reopen"
     PREPARED_DENSITY = "prepared-density"
     REQUEST_DENSITY = "request-density"
@@ -1037,6 +1038,14 @@ class _OrderedScenarioStream:
                 f"incomplete {self.name} lifecycle; expected {self.order[self.index].value}"
             )
         return self.events
+
+    def reject(self, event: _ScenarioEvent) -> None:
+        expected = self.order[self.index] if self.index < len(self.order) else None
+        label = expected.value if expected is not None else "end-of-lifecycle"
+        raise ScenarioLifecycleError(
+            f"{self.name} has unexpected {event.kind.value} event while expecting {label}: "
+            f"{event.line}"
+        )
 
 
 def _scenario_events(text: str) -> tuple[_ScenarioEvent, ...]:
@@ -1132,6 +1141,80 @@ def _same_literal(
 
 
 @dataclass(frozen=True)
+class _PublishedFieldIdentity:
+    build_token: int
+    generation_token: int
+    geometry_revision: int
+    radiance_revision: int
+    spacing_voxels: int
+    epoch_zero_field: int
+    published_field: int
+
+    @classmethod
+    def from_promotion(
+        cls,
+        event: _ScenarioEvent,
+        *,
+        build_token: int,
+        geometry_revision: int,
+        spacing_voxels: int,
+        label: str,
+    ) -> _PublishedFieldIdentity:
+        for name, expected in (
+            ("token_serial", build_token),
+            ("generation_token_serial", build_token),
+            ("geometry_revision", geometry_revision),
+            ("spacing_voxels", spacing_voxels),
+        ):
+            _same_identity(event, name, expected, label)
+        epoch_zero = _integer(event.fields, "epoch_zero_field_serial")
+        published = _integer(event.fields, "published_field_serial")
+        if epoch_zero <= 0 or published < epoch_zero:
+            raise ScenarioLifecycleError(
+                f"{label} field identity drift: epoch-zero={epoch_zero}, "
+                f"published={published}"
+            )
+        return cls(
+            build_token,
+            build_token,
+            geometry_revision,
+            _integer(event.fields, "radiance_revision"),
+            spacing_voxels,
+            epoch_zero,
+            published,
+        )
+
+    def require_consumer(self, event: _ScenarioEvent, label: str) -> None:
+        for name, expected in (
+            ("active_token_serial", self.build_token),
+            ("generation_token_serial", self.generation_token),
+            ("geometry_revision", self.geometry_revision),
+            ("radiance_revision", self.radiance_revision),
+            ("spacing_voxels", self.spacing_voxels),
+            ("epoch_zero_field_serial", self.epoch_zero_field),
+            ("published_field_serial", self.published_field),
+        ):
+            _same_identity(event, name, expected, label)
+
+    def require_checkpoint(self, event: _ScenarioEvent, label: str) -> None:
+        for name, expected in (
+            ("build_token_serial", self.build_token),
+            ("generation_token_serial", self.generation_token),
+            ("geometry_revision", self.geometry_revision),
+            ("radiance_revision", self.radiance_revision),
+            ("spacing_voxels", self.spacing_voxels),
+            ("epoch_zero_field_serial", self.epoch_zero_field),
+        ):
+            _same_identity(event, name, expected, label)
+        field = _integer(event.fields, "field_serial")
+        if field < self.published_field:
+            raise ScenarioLifecycleError(
+                f"{label} field identity drift: checkpoint field {field} precedes "
+                f"published field {self.published_field}"
+            )
+
+
+@dataclass(frozen=True)
 class _CompletedCycle:
     initial_revision: int
     final_revision: int
@@ -1199,6 +1282,12 @@ def _completed_cycle_order(
             (
                 _CyclePhase.PROMOTION_REOPEN,
                 _CyclePhase.CONSUMER_REOPEN,
+            )
+        )
+        if require_flora:
+            phases.append(_CyclePhase.FLORA_REOPEN)
+        phases.extend(
+            (
                 _CyclePhase.READY_REOPEN,
                 _CyclePhase.PREPARED_DENSITY,
                 _CyclePhase.REQUEST_DENSITY,
@@ -1227,9 +1316,20 @@ def _validate_completed_cycle(
     mode: str,
     inflight: bool = False,
     require_flora: bool = False,
+    allow_convergence: bool = False,
 ) -> _CompletedCycle:
     events = _scenario_events(text)
-    initial = _one_initial(events)
+    initial_event = next(
+        (event for event in events if event.kind is _ScenarioKind.INITIAL), None
+    )
+    if initial_event is None:
+        raise ScenarioLifecycleError(
+            "incomplete terrain edit lifecycle; expected initial"
+        )
+    events = tuple(
+        event for event in events if event.position >= initial_event.position
+    )
+    initial = _integer(initial_event.fields, "terrain_revision")
     close = initial + 1
     final = close if mode == "closed" else close + 1
     stream = _OrderedScenarioStream(
@@ -1300,7 +1400,9 @@ def _validate_completed_cycle(
                 )
         elif event.kind is _ScenarioKind.FLORA and require_flora:
             token = _integer(fields, "active_token_serial")
-            if token == tokens.get("density"):
+            if token == tokens.get("reopen"):
+                phase = _CyclePhase.FLORA_REOPEN
+            elif token == tokens.get("density"):
                 phase = _CyclePhase.FLORA_DENSITY
             elif _integer(fields, "terrain_revision") == final and "density" in tokens:
                 if token != tokens["density"]:
@@ -1322,8 +1424,10 @@ def _validate_completed_cycle(
             phase = _CyclePhase.CAPTURE_SAVED
         elif event.kind is _ScenarioKind.CAPTURE_COMPLETE:
             phase = _CyclePhase.CAPTURE_COMPLETE
-        if phase is None:
+        if phase is None and allow_convergence and event.kind is _ScenarioKind.CONVERGENCE:
             continue
+        if phase is None:
+            stream.reject(event)
         stream.event(phase, event)
         if phase is _CyclePhase.PROMOTION_CLOSE:
             tokens["close"] = _integer(fields, "token_serial")
@@ -1361,10 +1465,15 @@ def _validate_completed_cycle(
             "close recovery identity requires nonempty dirty and preserved partitions"
         )
     close_promotion = evidence.get(_CyclePhase.PROMOTION_CLOSE)
+    close_identity: _PublishedFieldIdentity | None = None
     if close_promotion is not None:
-        _same_identity(close_promotion, "token_serial", close_prepared_token, "close promotion")
-        _same_identity(close_promotion, "geometry_revision", close, "close promotion")
-        _same_identity(close_promotion, "spacing_voxels", action.spacing_voxels, "close promotion")
+        close_identity = _PublishedFieldIdentity.from_promotion(
+            close_promotion,
+            build_token=close_prepared_token,
+            geometry_revision=close,
+            spacing_voxels=action.spacing_voxels,
+            label="close promotion",
+        )
         _same_literal(close_promotion, "published_state", "Converging", "close promotion")
         if "published_source=Some(" not in close_promotion.line:
             raise ScenarioLifecycleError("close promotion identity lacks history source")
@@ -1372,22 +1481,12 @@ def _validate_completed_cycle(
         if close_epoch < action.minimum_epoch:
             raise ScenarioLifecycleError("close promotion identity has insufficient recovery")
         close_consumer = evidence[_CyclePhase.CONSUMER_CLOSE]
-        for name, expected in (
-            ("active_token_serial", close_prepared_token),
-            ("geometry_revision", close),
-            ("spacing_voxels", action.spacing_voxels),
-            ("update_epoch", close_epoch),
-        ):
-            _same_identity(close_consumer, name, expected, "close consumer")
-        _same_identity(
-            close_consumer,
-            "radiance_revision",
-            _integer(close_promotion.fields, "radiance_revision"),
-            "close consumer",
-        )
+        close_identity.require_consumer(close_consumer, "close consumer")
+        _same_identity(close_consumer, "update_epoch", close_epoch, "close consumer")
 
     final_token = close_prepared_token
     final_promotion = close_promotion
+    final_identity = close_identity
     if mode != "closed":
         for phase, revision in (
             (_CyclePhase.OBSERVED_REOPEN, final),
@@ -1434,26 +1533,29 @@ def _validate_completed_cycle(
         ) <= 0:
             raise ScenarioLifecycleError("reopen recovery identity lacks a partition")
         promotion_reopen = evidence[_CyclePhase.PROMOTION_REOPEN]
-        for name, expected in (
-            ("token_serial", reopen_token),
-            ("geometry_revision", final),
-            ("spacing_voxels", action.spacing_voxels),
-        ):
-            _same_identity(promotion_reopen, name, expected, "reopen promotion")
+        reopen_identity = _PublishedFieldIdentity.from_promotion(
+            promotion_reopen,
+            build_token=reopen_token,
+            geometry_revision=final,
+            spacing_voxels=action.spacing_voxels,
+            label="reopen promotion",
+        )
         reopen_epoch = _integer(promotion_reopen.fields, "published_update_epoch")
         if reopen_epoch < action.minimum_epoch:
             raise ScenarioLifecycleError("reopen promotion identity has insufficient recovery")
         if "published_source=Some(" not in promotion_reopen.line:
             raise ScenarioLifecycleError("reopen promotion identity lacks history source")
         consumer_reopen = evidence[_CyclePhase.CONSUMER_REOPEN]
-        for name, expected in (
-            ("active_token_serial", reopen_token),
-            ("geometry_revision", final),
-            ("spacing_voxels", action.spacing_voxels),
-            ("update_epoch", reopen_epoch),
-            ("radiance_revision", _integer(promotion_reopen.fields, "radiance_revision")),
-        ):
-            _same_identity(consumer_reopen, name, expected, "reopen consumer")
+        reopen_identity.require_consumer(consumer_reopen, "reopen consumer")
+        _same_identity(consumer_reopen, "update_epoch", reopen_epoch, "reopen consumer")
+        if require_flora:
+            flora_reopen = evidence[_CyclePhase.FLORA_REOPEN]
+            for name, expected in (
+                ("active_token_serial", reopen_token),
+                ("terrain_revision", final),
+                ("spacing_voxels", action.spacing_voxels),
+            ):
+                _same_identity(flora_reopen, name, expected, "reopen flora consumer")
         prepared_density = evidence[_CyclePhase.PREPARED_DENSITY]
         for name, expected in (
             ("active_terrain_revision", final),
@@ -1468,23 +1570,22 @@ def _validate_completed_cycle(
         _same_identity(density_request, "terrain_revision", final, "density request")
         _same_identity(density_request, "spacing_voxels", action.spacing_voxels, "density request")
         density_promotion = evidence[_CyclePhase.PROMOTION_DENSITY]
-        for name, expected in (
-            ("token_serial", density_token),
-            ("geometry_revision", final),
-            ("spacing_voxels", action.spacing_voxels),
-            ("published_update_epoch", 0),
-        ):
-            _same_identity(density_promotion, name, expected, "density promotion")
+        density_identity = _PublishedFieldIdentity.from_promotion(
+            density_promotion,
+            build_token=density_token,
+            geometry_revision=final,
+            spacing_voxels=action.spacing_voxels,
+            label="density promotion",
+        )
+        _same_identity(density_promotion, "published_update_epoch", 0, "density promotion")
         _same_literal(density_promotion, "published_source", "None", "density promotion")
+        if density_identity.published_field != density_identity.epoch_zero_field:
+            raise ScenarioLifecycleError(
+                "density promotion field identity drift: e0 publication is not epoch-zero"
+            )
         density_consumer = evidence[_CyclePhase.CONSUMER_DENSITY]
-        for name, expected in (
-            ("active_token_serial", density_token),
-            ("geometry_revision", final),
-            ("spacing_voxels", action.spacing_voxels),
-            ("update_epoch", 0),
-            ("radiance_revision", _integer(density_promotion.fields, "radiance_revision")),
-        ):
-            _same_identity(density_consumer, name, expected, "density consumer")
+        density_identity.require_consumer(density_consumer, "density consumer")
+        _same_identity(density_consumer, "update_epoch", 0, "density consumer")
         if require_flora:
             flora = evidence[_CyclePhase.FLORA_DENSITY]
             for name, expected in (
@@ -1497,14 +1598,16 @@ def _validate_completed_cycle(
                 raise ScenarioLifecycleError("flora consumer identity has no instances")
         final_token = density_token
         final_promotion = density_promotion
+        final_identity = density_identity
 
     complete = evidence[_CyclePhase.COMPLETE]
     _same_literal(complete, "mode", mode, "cycle completion")
     _same_identity(complete, "final_terrain_revision", final, "cycle completion")
     checkpoint = evidence[_CyclePhase.FINAL_CHECKPOINT]
     saved = evidence[_CyclePhase.CAPTURE_SAVED]
-    for event, label in ((checkpoint, "capture checkpoint"), (saved, "capture save")):
-        _same_identity(event, "build_token_serial", final_token, label)
+    assert final_identity is not None
+    final_identity.require_checkpoint(checkpoint, "capture checkpoint")
+    _same_identity(saved, "build_token_serial", final_token, "capture save")
     final_field = _integer(checkpoint.fields, "field_serial")
     _same_identity(saved, "field_serial", final_field, "capture save")
     _same_identity(saved, "geometry_revision", final, "capture save")
@@ -1545,7 +1648,12 @@ def _validate_cycle(action: ValidateScenarioLog, text: str) -> dict[str, int]:
 
 
 def _validate_local(action: ValidateScenarioLog, text: str) -> dict[str, int]:
-    cycle = _validate_completed_cycle(action, text, mode="closed")
+    cycle = _validate_completed_cycle(
+        action,
+        text,
+        mode="closed",
+        allow_convergence=True,
+    )
     if "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" in text:
         raise ScenarioLifecycleError("local recovery identity invalidated the full DDGI domain")
     recovery = cycle.close_recovery
@@ -1580,21 +1688,42 @@ def _validate_initial_open(action: ValidateScenarioLog, text: str) -> dict[str, 
             _CyclePhase.CAPTURE_COMPLETE,
         ),
     )
-    for event in _scenario_events(text):
+    events = _scenario_events(text)
+    ready_event = next(
+        (event for event in events if event.kind is _ScenarioKind.PORTAL_READY),
+        None,
+    )
+    if ready_event is None:
+        raise ScenarioLifecycleError("incomplete initial open lifecycle; expected portal-ready")
+    for event in (
+        event for event in events if event.position >= ready_event.position
+    ):
         phase = {
             _ScenarioKind.PORTAL_READY: _CyclePhase.PORTAL_READY,
             _ScenarioKind.CAPTURE_CHECKPOINT: _CyclePhase.FINAL_CHECKPOINT,
             _ScenarioKind.CAPTURE_SAVED: _CyclePhase.CAPTURE_SAVED,
             _ScenarioKind.CAPTURE_COMPLETE: _CyclePhase.CAPTURE_COMPLETE,
         }.get(event.kind)
-        if phase is not None:
-            stream.event(phase, event)
+        if phase is None:
+            stream.reject(event)
+        stream.event(phase, event)
     evidence = stream.finish()
     ready = evidence[_CyclePhase.PORTAL_READY]
     checkpoint = evidence[_CyclePhase.FINAL_CHECKPOINT]
     saved = evidence[_CyclePhase.CAPTURE_SAVED]
     revision = _integer(ready.fields, "terrain_revision")
     _same_literal(ready, "geometry", "static", "initial open")
+    build_token = _integer(checkpoint.fields, "build_token_serial")
+    _same_identity(
+        checkpoint,
+        "generation_token_serial",
+        build_token,
+        "initial capture",
+    )
+    epoch_zero = _integer(checkpoint.fields, "epoch_zero_field_serial")
+    field = _integer(checkpoint.fields, "field_serial")
+    if epoch_zero <= 0 or field < epoch_zero:
+        raise ScenarioLifecycleError("initial capture field identity drift")
     for name in ("build_token_serial", "field_serial"):
         _same_identity(saved, name, _integer(checkpoint.fields, name), "initial capture")
     _same_identity(saved, "geometry_revision", revision, "initial capture")
@@ -1617,6 +1746,21 @@ def _runtime_final(action: ValidateScenarioLog, text: str) -> dict[str, int]:
 
 def _runtime_transient(action: ValidateScenarioLog, text: str) -> dict[str, int]:
     events = _scenario_events(text)
+    checkpoint_event = next(
+        (
+            event
+            for event in events
+            if event.kind is _ScenarioKind.CAPTURE_CHECKPOINT
+        ),
+        None,
+    )
+    if checkpoint_event is None:
+        raise ScenarioLifecycleError(
+            "incomplete transient terrain edit lifecycle; expected active-checkpoint"
+        )
+    events = tuple(
+        event for event in events if event.position >= checkpoint_event.position
+    )
     initial = _one_initial(events)
     close, target = initial + 1, initial + 2
     order = (
@@ -1690,10 +1834,22 @@ def _runtime_transient(action: ValidateScenarioLog, text: str) -> dict[str, int]
             phase = _CyclePhase.CAPTURE_SAVED
         elif event.kind is _ScenarioKind.CAPTURE_COMPLETE:
             phase = _CyclePhase.CAPTURE_COMPLETE
-        if phase is not None:
-            stream.event(phase, event)
+        if phase is None:
+            stream.reject(event)
+        stream.event(phase, event)
     evidence = stream.finish()
     checkpoint = evidence[_CyclePhase.ACTIVE_CHECKPOINT]
+    build_token = _integer(checkpoint.fields, "build_token_serial")
+    _same_identity(
+        checkpoint,
+        "generation_token_serial",
+        build_token,
+        "transient active checkpoint",
+    )
+    epoch_zero = _integer(checkpoint.fields, "epoch_zero_field_serial")
+    active_field = _integer(checkpoint.fields, "field_serial")
+    if epoch_zero <= 0 or active_field < epoch_zero:
+        raise ScenarioLifecycleError("transient active field identity drift")
     prepared_close = evidence[_CyclePhase.PREPARED_CLOSE]
     candidate = evidence[_CyclePhase.OBSOLETE_CANDIDATE]
     skipped = evidence[_CyclePhase.OBSOLETE_SKIPPED]

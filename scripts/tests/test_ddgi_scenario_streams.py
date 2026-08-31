@@ -31,19 +31,30 @@ SEQUENTIAL_REOPENED = """
 [ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit=reopen-skylight target_revision=4
 [DDGI] staging promoted token_serial=3 generation_token_serial=3 kind=Terrain spacing_voxels=32 geometry_revision=4 radiance_revision=1 epoch_zero_field_serial=14 published_field_serial=19 published_state=Converging published_update_epoch=5 published_source=Some(field-14)
 [DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=3 generation_token_serial=3 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=14 published_field_serial=19 state=Converging update_epoch=5
-[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=3 terrain_revision=4 spacing_voxels=32 instance_count=99
 [ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=4
 [DDGI] staging prepared token_serial=4 kind=Density spacing_voxels=32 active_terrain_revision=4 target_terrain_revision=4
 [ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision=4 spacing_voxels=32
 [DDGI] staging promoted token_serial=4 generation_token_serial=4 kind=Density spacing_voxels=32 geometry_revision=4 radiance_revision=1 epoch_zero_field_serial=25 published_field_serial=25 published_state=Converging published_update_epoch=0 published_source=None
 [DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=4 generation_token_serial=4 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=25 published_field_serial=25 state=Converging update_epoch=0
-[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=4 terrain_revision=4 spacing_voxels=32 instance_count=99
 [ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=4
 [ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=4
 [ENV_IRRADIANCE_CAPTURE] checkpoint target=e8 build_token_serial=4 generation_token_serial=4 epoch_zero_field_serial=25 field_serial=25 source_field_serial=0 geometry_revision=4 radiance_revision=1 spacing_voxels=32 state=Converging update_epoch=8 publication=Published
 [ENV_IRRADIANCE_CAPTURE] saved geometry_revision=4 radiance_revision=1 spacing_voxels=32 build_token_serial=4 field_serial=25
 [ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run
 """.strip()
+
+
+FLORA_REOPENED = SEQUENTIAL_REOPENED.replace(
+    "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=3 generation_token_serial=3 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=14 published_field_serial=19 state=Converging update_epoch=5",
+    "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=3 generation_token_serial=3 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=14 published_field_serial=19 state=Converging update_epoch=5\n"
+    "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=3 terrain_revision=4 spacing_voxels=32 instance_count=99",
+    1,
+).replace(
+    "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=4 generation_token_serial=4 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=25 published_field_serial=25 state=Converging update_epoch=0",
+    "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial=4 generation_token_serial=4 geometry_revision=4 radiance_revision=1 spacing_voxels=32 epoch_zero_field_serial=25 published_field_serial=25 state=Converging update_epoch=0\n"
+    "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=4 terrain_revision=4 spacing_voxels=32 instance_count=99",
+    1,
+)
 
 
 CLOSED = """
@@ -289,7 +300,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
 
     def test_flora_consumer_rejects_order_duplicate_and_identity_mutations(self) -> None:
         self.assertEqual(
-            self.validate(ScenarioValidation.FLORA_CONSUMER, SEQUENTIAL_REOPENED)[
+            self.validate(ScenarioValidation.FLORA_CONSUMER, FLORA_REOPENED)[
                 "active_token"
             ],
             4,
@@ -298,15 +309,15 @@ class ScenarioStreamContractTests(unittest.TestCase):
         flora = "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial=4 terrain_revision=4 spacing_voxels=32 instance_count=99"
         self.assert_rejected(
             ScenarioValidation.FLORA_CONSUMER,
-            _swap(SEQUENTIAL_REOPENED, consumer, flora),
+            _swap(FLORA_REOPENED, consumer, flora),
         )
         self.assert_rejected(
             ScenarioValidation.FLORA_CONSUMER,
-            _duplicate(SEQUENTIAL_REOPENED, flora),
+            _duplicate(FLORA_REOPENED, flora),
         )
         self.assert_rejected(
             ScenarioValidation.FLORA_CONSUMER,
-            SEQUENTIAL_REOPENED.replace(
+            FLORA_REOPENED.replace(
                 "active_token_serial=4 generation_token_serial=4 geometry_revision=4",
                 "active_token_serial=99 generation_token_serial=4 geometry_revision=4",
                 1,
@@ -385,7 +396,7 @@ class ScenarioStreamContractTests(unittest.TestCase):
             ),
             (
                 ScenarioValidation.FLORA_CONSUMER,
-                SEQUENTIAL_REOPENED,
+                FLORA_REOPENED,
                 "",
                 4,
                 "generation_token_serial=4",
@@ -400,9 +411,15 @@ class ScenarioStreamContractTests(unittest.TestCase):
                 "published_field_serial=25",
             ),
         )
+        initial_event = (
+            "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=2"
+        )
         mixed_event = (
-            "[ENV_LIGHT_TEST] ready case=portal backend=ddgi "
-            "terrain_revision=2 geometry=static"
+            "[DDGI] staging promoted token_serial=999 generation_token_serial=999 "
+            "kind=Terrain spacing_voxels=32 geometry_revision=999 "
+            "radiance_revision=1 epoch_zero_field_serial=999 "
+            "published_field_serial=999 published_state=Converging "
+            "published_update_epoch=0 published_source=None"
         )
         unknown_event = (
             "[ENV_LIGHT_EDIT_CYCLE] requested edit=sideways "
@@ -415,7 +432,11 @@ class ScenarioStreamContractTests(unittest.TestCase):
             mutations = {
                 "generation": _replace_once(text, generation, "generation_token_serial=999"),
                 "field": _replace_once(text, field, field.split("=")[0] + "=999"),
-                "mixed-log": f"{mixed_event}\n{text}",
+                "mixed-log": _replace_once(
+                    text,
+                    initial_event,
+                    f"{initial_event}\n{mixed_event}",
+                ),
                 "unknown-kind": _replace_once(
                     text,
                     capture_complete,
