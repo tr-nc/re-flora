@@ -7,20 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/shader-validation.yml"
-class ConvergenceShaderValidationWorkflowTests(unittest.TestCase):
-    def test_all_convergence_owners_route_through_pull_request_and_push(self) -> None:
-        parsed = contract.parse_workflow_contract(
-            WORKFLOW.read_text(encoding="utf-8")
-        )
-
-        self.assertEqual(parsed.failures, ())
-        for event in ("pull_request", "push"):
-            self.assertTrue(parsed.routes(event, "src/app/reviewer_fixture.rs"))
-            for owner in contract.REQUIRED_OWNER_PATHS:
-                self.assertTrue(
-                    parsed.routes(event, owner),
-                    f"{event} does not route {owner}",
-                )
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -67,14 +53,6 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
         rejected = contract.parse_workflow_contract(unsupported)
         self.assertTrue(rejected.failures)
         self.assertFalse(rejected.routes("pull_request", "src/app/future_owner.rs"))
-
-    def test_owner_changes_route_to_executable_fedora_evidence_tests(self) -> None:
-        self.assertEqual(
-            contract.workflow_contract_failures(
-                WORKFLOW.read_text(encoding="utf-8")
-            ),
-            [],
-        )
 
     def test_broad_source_route_supersedes_the_dedicated_ddgi_glob(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")

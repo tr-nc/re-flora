@@ -34,6 +34,8 @@ class ParsedWorkflowContract:
     failures: tuple[str, ...]
 
     def routes(self, event: str, path: str) -> bool:
+        if self.failures:
+            return False
         patterns = dict(self.routes_by_event).get(event)
         return patterns is not None and _routes(patterns, path)
 
@@ -55,15 +57,27 @@ def _mapping_entry(
     if content.startswith(("\"", "'")):
         quote = content[0]
         closing = content.find(quote, 1)
-        if closing == -1 or not content[closing + 1 :].lstrip().startswith(":"):
+        if (
+            closing == -1
+            or quote in content[1:closing]
+            or not content[closing + 1 :].lstrip().startswith(":")
+        ):
             return None
         key = content[1:closing]
-        value = content[closing + 1 :].lstrip()[1:].strip()
+        suffix = content[closing + 1 :].lstrip()
+        if not suffix.startswith(":"):
+            return None
+        value = suffix[1:].strip()
         return key, value
     key, separator, value = content.partition(":")
-    if not separator or not key:
+    key = key.strip()
+    if (
+        not separator
+        or not key
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", key)
+    ):
         return None
-    return key.strip(), value.strip()
+    return key, value.strip()
 
 
 def _mapping_block(lines: list[str], key: str, indent: int) -> list[str]:
@@ -97,23 +111,42 @@ def _mapping_blocks(lines: list[str], key: str, indent: int) -> list[list[str]]:
     return blocks
 
 
-def _route_patterns(on_block: list[str], event: str) -> tuple[str, ...]:
+def _quoted_route_pattern(value: str) -> str | None:
+    if len(value) < 2 or value[0] not in {"\"", "'"} or value[-1] != value[0]:
+        return None
+    if value[0] in value[1:-1]:
+        return None
+    return value[1:-1]
+
+
+def _route_patterns(
+    on_block: list[str], event: str
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     event_blocks = _mapping_blocks(on_block, event, 2)
     if len(event_blocks) != 1:
-        return ()
+        return (), ()
     paths_blocks = _mapping_blocks(event_blocks[0], "paths", 4)
     if len(paths_blocks) != 1:
-        return ()
+        return (), ()
     paths_block = paths_blocks[0]
     patterns: list[str] = []
+    failures: list[str] = []
     for line in paths_block:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
         if _indent(line) != 6:
+            failures.append(f"{event} has malformed route indentation")
             continue
         item = line.strip()
         if not item.startswith("- "):
+            failures.append(f"{event} has malformed route list item {item}")
             continue
-        patterns.append(item[2:].strip().strip('"\''))
-    return tuple(patterns)
+        pattern = _quoted_route_pattern(item[2:].strip())
+        if pattern is None:
+            failures.append(f"{event} has malformed quoted route {item[2:].strip()}")
+            continue
+        patterns.append(pattern)
+    return tuple(patterns), tuple(failures)
 
 
 def _routes(patterns: tuple[str, ...], path: str) -> bool:
@@ -200,7 +233,14 @@ def _field(
             continue
         value = entry[1].split("#", 1)[0].strip()
         if value not in {"|", ">", "|-", ">-"}:
-            return "scalar", ((value.strip('"\''),) if value else ())
+            if not value:
+                return "scalar", ()
+            if value.startswith(("\"", "'")) or value.endswith(("\"", "'")):
+                scalar = _quoted_route_pattern(value)
+                if scalar is None:
+                    return "invalid", ()
+                return "scalar", (scalar,)
+            return "scalar", (value,)
         values: list[str] = []
         for block_line in lines[index + 1 :]:
             if block_line.strip() and _indent(block_line) <= indent:
@@ -252,7 +292,12 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
         key, value = entry
         if not key:
             return False
-        entries.append((key, value.strip().strip('"\'')))
+        if value.startswith(("\"", "'")) or value.endswith(("\"", "'")):
+            scalar = _quoted_route_pattern(value)
+            if scalar is None:
+                return False
+            value = scalar
+        entries.append((key, value))
     return entries == [("CARGO_TERM_COLOR", "always")]
 
 
@@ -268,7 +313,8 @@ def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
         event_blocks = _mapping_blocks(on_block, event, 2)
         if len(event_blocks) != 1:
             failures.append(f"root on must have one {event} mapping")
-        patterns = _route_patterns(on_block, event)
+        patterns, route_failures = _route_patterns(on_block, event)
+        failures.extend(route_failures)
         routes_by_event.append((event, patterns))
         for pattern in patterns:
             if not _supported_route_pattern(pattern):
@@ -293,11 +339,9 @@ def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
     for command in REQUIRED_FEDORA_COMMANDS:
         if fedora_commands.count(command) != 1:
             failures.append(f"Fedora job does not run {command}")
-    return ParsedWorkflowContract(
-        tuple(routes_by_event),
-        tuple(fedora_commands),
-        tuple(failures),
-    )
+    if failures:
+        return ParsedWorkflowContract((), (), tuple(failures))
+    return ParsedWorkflowContract(tuple(routes_by_event), tuple(fedora_commands), ())
 
 
 def workflow_contract_failures(source: str) -> list[str]:
