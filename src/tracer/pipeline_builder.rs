@@ -1,6 +1,8 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
-use crate::ddgi::{DdgiConsumerResources, DdgiVolume, DdgiVoxelVisibility};
-use crate::resource::ResourceContainer;
+use crate::ddgi::{
+    DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources, DdgiVoxelVisibility,
+};
+use crate::resource::{ResourceContainer, ResourceLookup};
 use crate::tracer::TracerResources;
 use anyhow::{Context, Result};
 use re_flora_vkn::vk;
@@ -11,6 +13,19 @@ use re_flora_vkn::{
     PreparedDescriptorGeneration, RenderPass, RenderTarget, ShaderModule, Texture, TextureLayout,
     VulkanContext,
 };
+
+fn required_ddgi_builder_resource<'a>(
+    resources: &'a DdgiBuilderResources<'_>,
+    name: &str,
+) -> DescriptorResource<'a> {
+    match resources.resolve_resource(name) {
+        ResourceLookup::Unique(resource) => resource,
+        ResourceLookup::Missing => panic!("DDGI builder descriptor resource {name} is missing"),
+        ResourceLookup::Ambiguous { providers } => {
+            panic!("DDGI builder descriptor resource {name} has {providers} providers")
+        }
+    }
+}
 
 pub struct PipelineBuilder {
     shader_modules: ShaderModules,
@@ -36,7 +51,7 @@ impl PipelineBuilder {
             input.contree_builder_resources,
             input.scene_accel_resources,
             input.plain_builder_resources,
-            input.ddgi_volume,
+            &input.ddgi_resources,
             input.ddgi_voxel_visibility,
         );
         let render_passes = Self::create_render_passes(
@@ -61,7 +76,7 @@ impl PipelineBuilder {
             input.pool,
             input.resources,
             input.plain_builder_resources,
-            input.ddgi_volume,
+            &input.ddgi_resources,
             input.ddgi_voxel_visibility,
         );
         let render_targets =
@@ -519,7 +534,7 @@ impl PipelineBuilder {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
-        ddgi_volume: &DdgiVolume,
+        ddgi_volume: &DdgiActiveResources<'_>,
         ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) -> ComputePipelines {
         let device = vulkan_ctx.device();
@@ -820,7 +835,7 @@ impl PipelineBuilder {
         pool: &DescriptorPool,
         resources: &TracerResources,
         plain_builder_resources: &PlainBuilderResources,
-        ddgi_volume: &DdgiVolume,
+        ddgi_volume: &DdgiActiveResources<'_>,
         ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) -> GraphicsPipelines {
         let flora_resources: [&dyn ResourceContainer; 4] = [
@@ -1262,7 +1277,7 @@ pub struct PipelineTopologyBuild<'a> {
     pub contree_builder_resources: &'a ContreeBuilderResources,
     pub scene_accel_resources: &'a SceneAccelBuilderResources,
     pub plain_builder_resources: &'a PlainBuilderResources,
-    pub ddgi_volume: &'a DdgiVolume,
+    pub ddgi_resources: DdgiActiveResources<'a>,
     pub ddgi_voxel_visibility: &'a DdgiVoxelVisibility,
     pub frame_extent_generation: FrameExtentGeneration,
     pub frame_retirement_sink: FrameRetirementSink,
@@ -1468,7 +1483,7 @@ impl PipelineTopology {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
-        active_ddgi_volume: &DdgiVolume,
+        active_ddgi_volume: &DdgiActiveResources<'_>,
         ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) {
         let expected_serial = self
@@ -1518,7 +1533,7 @@ impl PipelineTopology {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
-        active_ddgi_volume: &DdgiVolume,
+        active_ddgi_volume: &DdgiActiveResources<'_>,
         ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) {
         let retire_compute = |pipeline: &ComputePipeline,
@@ -1698,8 +1713,7 @@ impl PipelineTopology {
 
     pub fn publish_ddgi_builder_generation(
         &self,
-        volume: &DdgiVolume,
-        inherited_source: Option<&DdgiVolume>,
+        resources: &DdgiBuilderResources<'_>,
         generation: u64,
     ) {
         let mut relocate = Vec::new();
@@ -1712,143 +1726,56 @@ impl PipelineTopology {
         let mut irradiance_gutter = Vec::new();
         let mut visibility_gutter = Vec::new();
 
-        macro_rules! write_buffer {
-            ($writes:expr, $name:literal, $buffer:expr) => {
+        macro_rules! write_resource {
+            ($writes:expr, $name:literal) => {
                 $writes.push(DescriptorWrite {
                     name: $name,
-                    resource: DescriptorResource::Buffer($buffer),
-                });
-            };
-        }
-        macro_rules! write_texture {
-            ($writes:expr, $name:literal, $texture:expr) => {
-                $writes.push(DescriptorWrite {
-                    name: $name,
-                    resource: DescriptorResource::Texture($texture),
+                    resource: required_ddgi_builder_resource(resources, $name),
                 });
             };
         }
 
-        write_buffer!(relocate, "ddgi_probe_metadata", &volume.ddgi_probe_metadata);
-        write_buffer!(
-            relocate,
-            "ddgi_relocation_stats",
-            &volume.ddgi_relocation_stats
-        );
+        write_resource!(relocate, "ddgi_probe_metadata");
+        write_resource!(relocate, "ddgi_relocation_stats");
         for writes in [
             &mut trace,
             &mut irradiance_filter,
             &mut visibility_filter,
             &mut atlas_reduce,
         ] {
-            write_buffer!(writes, "ddgi_probe_metadata", &volume.ddgi_probe_metadata);
+            write_resource!(writes, "ddgi_probe_metadata");
         }
         for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
-            write_buffer!(
-                writes,
-                "ddgi_transient_ray_data",
-                &volume.ddgi_transient_ray_data
-            );
+            write_resource!(writes, "ddgi_transient_ray_data");
         }
         for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
-            write_buffer!(writes, "ddgi_trace_stats", &volume.ddgi_trace_stats);
+            write_resource!(writes, "ddgi_trace_stats");
         }
-        write_buffer!(
-            atlas_reduce,
-            "ddgi_atlas_reduction",
-            &volume.ddgi_atlas_reduction
-        );
-        write_buffer!(
-            global_sky_filter,
-            "ddgi_radiance_sun",
-            &volume.ddgi_radiance_sun
-        );
-        write_buffer!(trace, "ddgi_radiance_sun", &volume.ddgi_radiance_sun);
-        write_buffer!(
-            trace,
-            "ddgi_radiance_voxel_palette",
-            &volume.ddgi_radiance_voxel_palette
-        );
-        write_buffer!(
-            trace,
-            "ddgi_transport_query_info",
-            &volume.ddgi_transport_query_info
-        );
-        write_buffer!(
-            trace,
-            "ddgi_local_light_info",
-            &volume.ddgi_local_light_info
-        );
-        write_buffer!(trace, "ddgi_local_lights", &volume.ddgi_local_lights);
-
-        let source_irradiance = inherited_source
-            .and_then(DdgiVolume::published_irradiance_atlas)
-            .unwrap_or(&volume.ddgi_transport_source_irradiance_atlas);
-        let source_visibility = inherited_source
-            .and_then(DdgiVolume::published_visibility_atlas)
-            .unwrap_or(&volume.ddgi_transport_source_visibility_atlas);
-        write_texture!(
-            trace,
-            "ddgi_transport_source_irradiance_atlas",
-            source_irradiance
-        );
-        write_texture!(
-            trace,
-            "ddgi_global_sky_irradiance",
-            volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            trace,
-            "ddgi_irradiance_atlas",
-            &volume.ddgi_irradiance_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_visibility_atlas",
-            &volume.ddgi_visibility_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_transport_source_visibility_atlas",
-            source_visibility
-        );
-        write_texture!(
-            global_sky_filter,
-            "ddgi_global_sky_irradiance",
-            volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            octahedral_gutter,
-            "ddgi_global_sky_irradiance",
-            volume.building_global_sky_irradiance()
-        );
+        write_resource!(atlas_reduce, "ddgi_atlas_reduction");
+        write_resource!(global_sky_filter, "ddgi_radiance_sun");
+        write_resource!(trace, "ddgi_radiance_sun");
+        write_resource!(trace, "ddgi_radiance_voxel_palette");
+        write_resource!(trace, "ddgi_transport_query_info");
+        write_resource!(trace, "ddgi_local_light_info");
+        write_resource!(trace, "ddgi_local_lights");
+        write_resource!(trace, "ddgi_transport_source_irradiance_atlas");
+        write_resource!(trace, "ddgi_global_sky_irradiance");
+        write_resource!(trace, "ddgi_irradiance_atlas");
+        write_resource!(trace, "ddgi_visibility_atlas");
+        write_resource!(trace, "ddgi_transport_source_visibility_atlas");
+        write_resource!(global_sky_filter, "ddgi_global_sky_irradiance");
+        write_resource!(octahedral_gutter, "ddgi_global_sky_irradiance");
         for writes in [
             &mut irradiance_filter,
             &mut irradiance_gutter,
             &mut atlas_reduce,
         ] {
-            write_texture!(
-                writes,
-                "ddgi_irradiance_atlas",
-                &volume.ddgi_irradiance_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_irradiance_atlas",
-                source_irradiance
-            );
+            write_resource!(writes, "ddgi_irradiance_atlas");
+            write_resource!(writes, "ddgi_transport_source_irradiance_atlas");
         }
         for writes in [&mut visibility_filter, &mut visibility_gutter] {
-            write_texture!(
-                writes,
-                "ddgi_visibility_atlas",
-                &volume.ddgi_visibility_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_visibility_atlas",
-                source_visibility
-            );
+            write_resource!(writes, "ddgi_visibility_atlas");
+            write_resource!(writes, "ddgi_transport_source_visibility_atlas");
         }
 
         let publish =

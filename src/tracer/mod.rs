@@ -1488,6 +1488,7 @@ impl Tracer {
             allocator.clone(),
         );
 
+        ddgi_runtime.install_volumes(DdgiVolumes::new(ddgi_volume));
         let pipeline_topology = pipeline_builder.build(PipelineTopologyBuild {
             vulkan_ctx: &vulkan_ctx,
             pool: &pool,
@@ -1495,13 +1496,11 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
             plain_builder_resources,
-            ddgi_volume: &ddgi_volume,
+            ddgi_resources: ddgi_runtime.active_resources(),
             ddgi_voxel_visibility: &ddgi_voxel_visibility,
             frame_extent_generation,
             frame_retirement_sink: frame_retirement_sink.clone(),
         });
-        ddgi_runtime.install_volumes(DdgiVolumes::new(ddgi_volume));
-
         let particle_capacity = PARTICLE_CAPACITY;
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
@@ -1593,10 +1592,7 @@ impl Tracer {
         )?;
         if let Some(retired_token) = self
             .ddgi_runtime
-            .volumes()
-            .status()
-            .staging()
-            .and_then(|staging| staging.build_token)
+            .staging_build_token()
             .filter(|retired_token| *retired_token != build_token)
         {
             log::info!(
@@ -1614,12 +1610,9 @@ impl Tracer {
         // Active consumers keep sampling the complete volume until the replacement reaches Ready
         // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
-        let staging = self.ddgi_runtime.volumes().builder();
-        self.pipeline_topology.publish_ddgi_builder_generation(
-            staging,
-            None,
-            descriptor_generation,
-        );
+        let staging = self.ddgi_runtime.initializing_builder_resources();
+        self.pipeline_topology
+            .publish_ddgi_builder_generation(&staging, descriptor_generation);
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
         if let Some(retired_staging) = retired_staging {
@@ -1667,11 +1660,8 @@ impl Tracer {
             );
         }
         if work.kind() == DdgiScheduledWorkKind::GeometryUpdate {
-            if let Some((dirty_probes, preserved_probes)) = self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .local_refresh_probe_partition()
+            if let Some((dirty_probes, preserved_probes)) =
+                self.ddgi_runtime.builder_local_refresh_probe_partition()
             {
                 log::info!(
                     "[DDGI][LOCAL_RECOVERY] prepared geometry_revision={} dirty_probes={} preserved_probes={} minimum_epoch={} stable_epochs={} max_absolute_delta={:.3}",
@@ -1685,19 +1675,9 @@ impl Tracer {
             }
         }
         let descriptor_generation = self.next_descriptor_generation();
-        {
-            let volumes = self.ddgi_runtime.volumes();
-            let builder = volumes.builder();
-            let inherited_source = (work.kind() == DdgiScheduledWorkKind::GeometryUpdate
-                && work.transport_source().is_some()
-                && !volumes.builder_is_active())
-            .then(|| volumes.active());
-            self.pipeline_topology.publish_ddgi_builder_generation(
-                builder,
-                inherited_source,
-                descriptor_generation,
-            );
-        }
+        let builder = self.ddgi_runtime.scheduled_builder_resources(work);
+        self.pipeline_topology
+            .publish_ddgi_builder_generation(&builder, descriptor_generation);
         let lighting = self.ddgi_runtime.lighting_diagnostics();
         log::debug!(
             "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} in_flight_revision={:?} revision_lag={} coalesced_revisions={} mixed_in_flight={}",
@@ -1874,7 +1854,7 @@ impl Tracer {
     }
 
     pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
-        self.ddgi_runtime.volumes().builder().radiance_snapshot()
+        self.ddgi_runtime.builder_radiance_snapshot()
     }
 
     pub(crate) fn local_light_live_observation(&self) -> LocalLightLiveObservation<'_> {
@@ -2163,6 +2143,7 @@ impl Tracer {
         self.camera.on_resize(render_extent);
 
         let descriptor_generation = self.next_descriptor_generation();
+        let active_ddgi = self.ddgi_runtime.active_resources();
         self.pipeline_topology.publish_extent_generation(
             &self.vulkan_ctx,
             self.allocator.clone(),
@@ -2174,7 +2155,7 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
             plain_builder_resources,
-            self.ddgi_runtime.volumes().active(),
+            &active_ddgi,
             &self.ddgi_voxel_visibility,
         );
 
@@ -2204,14 +2185,6 @@ impl Tracer {
             generation,
             resident,
         ));
-    }
-
-    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
-        [
-            &self.resources as &dyn ResourceContainer,
-            self.ddgi_runtime.volumes().active() as &dyn ResourceContainer,
-            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
-        ]
     }
 
     fn promote_ready_ddgi_staging(&mut self) -> Result<()> {
@@ -2265,9 +2238,7 @@ impl Tracer {
         assert_eq!(generation.build_token(), build_token);
         let published_slot = self
             .ddgi_runtime
-            .volumes()
-            .active()
-            .published_irradiance_label()
+            .active_published_irradiance_label()
             .expect("promoted staging volume must have a resident published field");
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
         let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
@@ -2348,7 +2319,9 @@ impl Tracer {
         );
         self.wind_source_buffer_capacity = new_capacity;
         let descriptor_generation = self.next_descriptor_generation();
-        let tracer_resources = self.tracer_descriptor_resources();
+        let active_ddgi = self.ddgi_runtime.active_resources();
+        let tracer_resources: [&dyn ResourceContainer; 3] =
+            [&self.resources, &active_ddgi, &self.ddgi_voxel_visibility];
         let descriptor_retirement = self
             .pipeline_topology
             .compute()
@@ -2519,7 +2492,6 @@ impl Tracer {
         self.current_view_proj_mat = proj_mat * view_mat;
         let ddgi_world_extent = self
             .ddgi_runtime
-            .volumes()
             .status()
             .active()
             .grid
@@ -2769,7 +2741,8 @@ impl Tracer {
             }
         }
         let ddgi_status = self.ddgi_runtime.status().active();
-        let ddgi_physical_status = self.ddgi_runtime.volumes().status().active();
+        let (ddgi_irradiance_tile_columns, ddgi_visibility_tile_columns) =
+            self.ddgi_runtime.active_atlas_tile_columns();
         let ddgi_geometry_revision = self
             .ddgi_voxel_visibility
             .published_revision()
@@ -2787,8 +2760,8 @@ impl Tracer {
                 self.ddgi_ready(),
                 ddgi_geometry_revision,
                 self.desc.environment_irradiance_capture_enabled,
-                ddgi_physical_status.irradiance_layout.tile_grid().x,
-                ddgi_physical_status.visibility_layout.tile_grid().x,
+                ddgi_irradiance_tile_columns,
+                ddgi_visibility_tile_columns,
                 view.as_u32(),
                 self.desc.ddgi_terrain_hard_origin.as_u32(),
                 ddgi_receiver_visibility_bias_world,
@@ -2866,11 +2839,7 @@ impl Tracer {
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
-            let stats = self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .update_relocation_stats_from_readback()?;
+            let stats = self.ddgi_runtime.read_builder_relocation_stats()?;
             anyhow::ensure!(
                 stats.probes == stats.valid.saturating_add(stats.failed),
                 "DDGI relocation stats probe partition is inconsistent: {stats:?}",
@@ -4654,14 +4623,7 @@ impl Tracer {
 
         let environment_probe_instance_count = self
             .environment_probe_visualization
-            .submitted_instance_count(
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .active()
-                    .grid
-                    .probe_count(),
-            );
+            .submitted_instance_count(self.ddgi_runtime.status().active().grid.probe_count());
         if environment_probe_instance_count > 0 {
             let probe_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(

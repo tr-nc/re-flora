@@ -8,8 +8,8 @@ use re_flora_vkn::CommandBuffer;
 use std::time::Duration;
 
 use super::resources::{
-    DdgiConsumerResources, DdgiStatus, DdgiVolume, DdgiVolumePromotion, DdgiVolumeStatus,
-    DdgiVolumes,
+    DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources, DdgiRelocationReadbackStats,
+    DdgiStatus, DdgiVolume, DdgiVolumePromotion, DdgiVolumeStatus, DdgiVolumes,
 };
 use super::scheduler::DdgiSchedulerCompletionPermit;
 #[cfg(test)]
@@ -860,13 +860,13 @@ impl DdgiRuntime {
         }
     }
 
-    pub(crate) fn volumes(&self) -> &DdgiVolumes {
+    fn volumes(&self) -> &DdgiVolumes {
         self.volumes
             .as_ref()
             .expect("DDGI physical volumes must be installed before use")
     }
 
-    pub(crate) fn volumes_mut(&mut self) -> &mut DdgiVolumes {
+    fn volumes_mut(&mut self) -> &mut DdgiVolumes {
         self.volumes
             .as_mut()
             .expect("DDGI physical volumes must be installed before use")
@@ -882,6 +882,67 @@ impl DdgiRuntime {
             self.volumes.replace(volumes).is_none(),
             "DDGI physical volumes may only be installed once"
         );
+    }
+
+    pub(crate) fn active_resources(&self) -> DdgiActiveResources<'_> {
+        DdgiActiveResources::new(self.volumes().active())
+    }
+
+    pub(crate) fn initializing_builder_resources(&self) -> DdgiBuilderResources<'_> {
+        DdgiBuilderResources::new(self.volumes().builder(), None)
+    }
+
+    pub(crate) fn scheduled_builder_resources(
+        &self,
+        work: DdgiScheduledWork,
+    ) -> DdgiBuilderResources<'_> {
+        let volumes = self.volumes();
+        let builder = volumes.builder();
+        assert_eq!(
+            builder.status().scheduled_work,
+            Some(work),
+            "DDGI builder descriptor view must retain its scheduled work"
+        );
+        let inherited_source = (work.kind() == DdgiScheduledWorkKind::GeometryUpdate
+            && work.transport_source().is_some()
+            && !volumes.builder_is_active())
+        .then(|| volumes.active());
+        DdgiBuilderResources::new(builder, inherited_source)
+    }
+
+    pub(crate) fn staging_build_token(&self) -> Option<DdgiBuildToken> {
+        self.volumes()
+            .status()
+            .staging()
+            .and_then(|staging| staging.build_token)
+    }
+
+    pub(crate) fn builder_local_refresh_probe_partition(&self) -> Option<(u32, u32)> {
+        self.volumes().builder().local_refresh_probe_partition()
+    }
+
+    pub(crate) fn builder_radiance_snapshot(
+        &self,
+    ) -> Option<crate::environment_lighting::DdgiRadianceSnapshot> {
+        self.volumes().builder().radiance_snapshot()
+    }
+
+    pub(crate) fn active_published_irradiance_label(&self) -> Option<&'static str> {
+        self.volumes().active().published_irradiance_label()
+    }
+
+    pub(crate) fn active_atlas_tile_columns(&self) -> (u32, u32) {
+        let active = self.volumes().status().active();
+        (
+            active.irradiance_layout.tile_grid().x,
+            active.visibility_layout.tile_grid().x,
+        )
+    }
+
+    pub(crate) fn read_builder_relocation_stats(&self) -> Result<DdgiRelocationReadbackStats> {
+        self.volumes()
+            .builder()
+            .update_relocation_stats_from_readback()
     }
 
     /// Publishes one complete Staging candidate as a synchronous transaction.

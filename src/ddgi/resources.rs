@@ -1619,17 +1619,78 @@ impl DdgiConsumerResources<'_> {
     }
 }
 
+/// Descriptor-only view of the exact consumer-visible Active allocation owned by the runtime.
+pub(crate) struct DdgiActiveResources<'a> {
+    volume: &'a DdgiVolume,
+}
+::static_assertions::assert_not_impl_any!(DdgiActiveResources<'_>: Clone, Copy);
+
+impl<'a> DdgiActiveResources<'a> {
+    pub(crate) fn new(volume: &'a DdgiVolume) -> Self {
+        Self { volume }
+    }
+}
+
+impl ResourceContainer for DdgiActiveResources<'_> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
+        self.volume.resolve_resource(name)
+    }
+}
+
+/// Descriptor-only view of the exact builder and optional inherited Active field selected by the
+/// runtime. It rewrites semantic source/global-sky bindings here so pipeline code never chooses an
+/// Active/Staging allocation or reaches through the lifecycle owner.
+pub(crate) struct DdgiBuilderResources<'a> {
+    builder: &'a DdgiVolume,
+    inherited_source: Option<&'a DdgiVolume>,
+}
+::static_assertions::assert_not_impl_any!(DdgiBuilderResources<'_>: Clone, Copy);
+
+impl<'a> DdgiBuilderResources<'a> {
+    pub(crate) fn new(builder: &'a DdgiVolume, inherited_source: Option<&'a DdgiVolume>) -> Self {
+        Self {
+            builder,
+            inherited_source,
+        }
+    }
+}
+
+impl ResourceContainer for DdgiBuilderResources<'_> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
+        match name {
+            "ddgi_transport_source_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    self.inherited_source
+                        .and_then(DdgiVolume::published_irradiance_atlas)
+                        .unwrap_or(&self.builder.ddgi_transport_source_irradiance_atlas),
+                ))
+            }
+            "ddgi_transport_source_visibility_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(
+                    self.inherited_source
+                        .and_then(DdgiVolume::published_visibility_atlas)
+                        .unwrap_or(&self.builder.ddgi_transport_source_visibility_atlas),
+                ))
+            }
+            "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
+                self.builder.building_global_sky_irradiance(),
+            )),
+            _ => self.builder.resolve_resource(name),
+        }
+    }
+}
+
 /// Owns the DDGI active/staging lifecycle.
 ///
 /// A staging volume is never returned by [`Self::active`]. Promotion is the only operation that
 /// can make it consumer-visible, and promotion rejects incomplete volumes.
-pub struct DdgiVolumes {
+pub(crate) struct DdgiVolumes {
     active: DdgiVolume,
     staging: Option<DdgiVolume>,
 }
 
 impl DdgiVolumes {
-    pub fn new(active: DdgiVolume) -> Self {
+    pub(crate) fn new(active: DdgiVolume) -> Self {
         Self {
             active,
             staging: None,
@@ -1643,25 +1704,25 @@ impl DdgiVolumes {
         )
     }
 
-    pub fn active(&self) -> &DdgiVolume {
+    pub(crate) fn active(&self) -> &DdgiVolume {
         &self.active
     }
 
-    pub fn builder(&self) -> &DdgiVolume {
+    pub(crate) fn builder(&self) -> &DdgiVolume {
         self.staging.as_ref().unwrap_or(&self.active)
     }
 
-    pub fn builder_mut(&mut self) -> &mut DdgiVolume {
+    pub(crate) fn builder_mut(&mut self) -> &mut DdgiVolume {
         self.staging.as_mut().unwrap_or(&mut self.active)
     }
 
-    pub fn builder_is_active(&self) -> bool {
+    pub(crate) fn builder_is_active(&self) -> bool {
         self.staging.is_none()
     }
 
     /// Installs a new builder target while returning the previous staging volume, if any.
     /// The caller must rebind builder descriptors before dropping the returned volume.
-    pub fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
+    pub(crate) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
         self.staging.replace(staging)
     }
 
