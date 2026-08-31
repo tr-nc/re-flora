@@ -4,7 +4,8 @@ use crate::environment_lighting::{
 };
 use crate::geom::UAabb3;
 use anyhow::{Context, Result};
-use re_flora_vkn::CommandBuffer;
+use glam::UVec3;
+use re_flora_vkn::{Allocator, CommandBuffer, VulkanContext};
 use std::time::Duration;
 
 use super::resources::{
@@ -263,12 +264,7 @@ impl DdgiFrameView<'_> {
     }
 
     pub(crate) fn clear_relocation_stats(&self, cmdbuf: &CommandBuffer) {
-        self.builder.ddgi_relocation_stats.record_fill(
-            cmdbuf,
-            0,
-            self.builder.status().resource_bytes.relocation_stats,
-            0,
-        );
+        self.builder.clear_relocation_stats(cmdbuf);
     }
 
     pub(crate) fn record_relocation_readback(&self, cmdbuf: &CommandBuffer) {
@@ -280,20 +276,8 @@ impl DdgiFrameView<'_> {
     }
 
     pub(crate) fn clear_trace_stats(&self, cmdbuf: &CommandBuffer, iteration_will_complete: bool) {
-        self.builder.ddgi_trace_stats.record_fill(
-            cmdbuf,
-            0,
-            self.builder.status().resource_bytes.trace_stats,
-            0,
-        );
-        if iteration_will_complete {
-            self.builder.ddgi_atlas_reduction.record_fill(
-                cmdbuf,
-                0,
-                self.builder.status().resource_bytes.atlas_reduction,
-                0,
-            );
-        }
+        self.builder
+            .clear_trace_stats(cmdbuf, iteration_will_complete);
     }
 
     pub(crate) fn record_trace_readback(
@@ -734,8 +718,19 @@ pub(crate) enum DdgiVolumePublishOutcome {
     DiscardedObsolete(DdgiBuildToken),
     Published {
         token: DdgiBuildToken,
-        retired_active: DdgiVolume,
+        retired_active: DdgiRetiredVolume,
     },
+}
+
+/// Opaque physical DDGI allocation retained until all frames using its descriptors complete.
+pub(crate) struct DdgiRetiredVolume {
+    _volume: DdgiVolume,
+}
+
+impl From<DdgiVolume> for DdgiRetiredVolume {
+    fn from(volume: DdgiVolume) -> Self {
+        Self { _volume: volume }
+    }
 }
 
 /// Resource-independent lighting state exposed for deterministic diagnostics and acceptance
@@ -860,6 +855,28 @@ impl DdgiRuntime {
         }
     }
 
+    /// Allocates and installs the sole initial physical DDGI Volume owned by this runtime.
+    pub(crate) fn allocate(
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        world_extent_voxels: UVec3,
+        spacing: DdgiProbeSpacing,
+        voxels_per_world_unit: UVec3,
+        batch_order: DdgiBatchOrder,
+    ) -> Result<Self> {
+        let volume = DdgiVolume::new(
+            vulkan_ctx,
+            allocator,
+            world_extent_voxels,
+            spacing,
+            voxels_per_world_unit,
+            batch_order,
+        )?;
+        let mut runtime = Self::new(volume.status().grid);
+        runtime.install_volumes(DdgiVolumes::new(volume));
+        Ok(runtime)
+    }
+
     fn volumes(&self) -> &DdgiVolumes {
         self.volumes
             .as_ref()
@@ -872,7 +889,7 @@ impl DdgiRuntime {
             .expect("DDGI physical volumes must be installed before use")
     }
 
-    pub(crate) fn install_volumes(&mut self, volumes: DdgiVolumes) {
+    fn install_volumes(&mut self, volumes: DdgiVolumes) {
         assert_eq!(
             volumes.status().active().grid,
             self.active_publication.grid(),
@@ -1216,7 +1233,7 @@ impl DdgiRuntime {
     ///
     /// Allocation remains concrete Vulkan work outside the runtime. The caller hands the finished
     /// allocation back here and cannot assign tokens, select Active/Staging, or request stages.
-    pub(crate) fn complete_volume_build(
+    fn complete_volume_build(
         &mut self,
         build: DdgiRuntimeVolumeBuild,
         staging: Option<DdgiVolume>,
@@ -1262,6 +1279,46 @@ impl DdgiRuntime {
                 Ok(self.volumes_mut().prepare_staging(staging))
             }
         }
+    }
+
+    pub(crate) fn complete_initial_volume_build(
+        &mut self,
+        build: DdgiRuntimeVolumeBuild,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            matches!(&build, DdgiRuntimeVolumeBuild::Initial(_)),
+            "initial DDGI completion requires an Initial allocation claim"
+        );
+        let retired = self.complete_volume_build(build, None)?;
+        assert!(retired.is_none());
+        Ok(())
+    }
+
+    /// Allocates and installs a runtime-authorized Staging Volume without exposing raw ownership.
+    pub(crate) fn allocate_staging_volume(
+        &mut self,
+        build: DdgiRuntimeVolumeBuild,
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        world_extent_voxels: UVec3,
+        voxels_per_world_unit: UVec3,
+        batch_order: DdgiBatchOrder,
+    ) -> Result<Option<DdgiRetiredVolume>> {
+        anyhow::ensure!(
+            matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)),
+            "staging DDGI allocation requires a Replacement claim"
+        );
+        let staging = DdgiVolume::new(
+            vulkan_ctx,
+            allocator,
+            world_extent_voxels,
+            build.token().spacing(),
+            voxels_per_world_unit,
+            batch_order,
+        )?;
+        Ok(self
+            .complete_volume_build(build, Some(staging))?
+            .map(DdgiRetiredVolume::from))
     }
 
     fn request_geometry_transport(&mut self, token: DdgiBuildToken) {
@@ -1479,7 +1536,7 @@ impl DdgiRuntime {
     }
 
     /// Consumes proof that physical ownership already swapped before committing logical ownership.
-    fn commit_physical_promotion(&mut self, promotion: DdgiVolumePromotion) -> DdgiVolume {
+    fn commit_physical_promotion(&mut self, promotion: DdgiVolumePromotion) -> DdgiRetiredVolume {
         let token = promotion.token();
         let publication = promotion.publication();
         assert!(
@@ -1501,7 +1558,7 @@ impl DdgiRuntime {
         assert!(self.terrain_refresh.mark_promoted(token));
         self.completed_staging_publication = None;
         self.active_publication = DdgiActivePublication::Published(completed);
-        promotion.into_retired_active()
+        DdgiRetiredVolume::from(promotion.into_retired_active())
     }
 
     pub(crate) fn status(&self) -> DdgiRuntimeStatus {

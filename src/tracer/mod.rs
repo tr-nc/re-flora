@@ -104,10 +104,10 @@ use crate::ddgi::{
     DdgiCaptureCheckpoint, DdgiCaptureTarget, DdgiEncodedFrame, DdgiFieldIdentity,
     DdgiFilterConfigurationIdentity, DdgiFramePlan, DdgiFrameView, DdgiLocalLightTraceTotals,
     DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
-    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolume, DdgiVolumePublishOutcome, DdgiVolumes,
-    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolumePublishOutcome, DdgiVoxelVisibility,
+    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
@@ -1453,7 +1453,7 @@ impl Tracer {
             allocator.clone(),
             frame_retirement_sink.clone(),
         );
-        let ddgi_volume = DdgiVolume::new(
+        let mut ddgi_runtime = DdgiRuntime::allocate(
             &vulkan_ctx,
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
@@ -1462,8 +1462,6 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
-        let ddgi_runtime = DdgiRuntime::new(ddgi_volume.status().grid);
-        let mut ddgi_runtime = ddgi_runtime;
         ddgi_runtime.configure_capture(
             desc.environment_irradiance_capture_enabled,
             desc.environment_irradiance_capture_target,
@@ -1488,7 +1486,6 @@ impl Tracer {
             allocator.clone(),
         );
 
-        ddgi_runtime.install_volumes(DdgiVolumes::new(ddgi_volume));
         let pipeline_topology = pipeline_builder.build(PipelineTopologyBuild {
             vulkan_ctx: &vulkan_ctx,
             pool: &pool,
@@ -1582,14 +1579,6 @@ impl Tracer {
     fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
         let build_token = build.token();
         assert!(matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)));
-        let staging = DdgiVolume::new(
-            &self.vulkan_ctx,
-            self.allocator.clone(),
-            self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            build_token.spacing(),
-            self.desc.voxel_dim_per_chunk,
-            self.desc.ddgi_batch_order,
-        )?;
         if let Some(retired_token) = self
             .ddgi_runtime
             .staging_build_token()
@@ -1604,9 +1593,14 @@ impl Tracer {
                 build_token.terrain_revision(),
             );
         }
-        let retired_staging = self
-            .ddgi_runtime
-            .complete_volume_build(build, Some(staging))?;
+        let retired_staging = self.ddgi_runtime.allocate_staging_volume(
+            build,
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
+            self.desc.voxel_dim_per_chunk,
+            self.desc.ddgi_batch_order,
+        )?;
         // Active consumers keep sampling the complete volume until the replacement reaches Ready
         // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
@@ -1809,7 +1803,7 @@ impl Tracer {
         match build {
             build @ DdgiRuntimeVolumeBuild::Initial(_) => {
                 self.ddgi_runtime
-                    .complete_volume_build(build, None)
+                    .complete_initial_volume_build(build)
                     .expect("initial DDGI Volume installation must succeed");
                 let status = self.ddgi_runtime.status().builder();
                 log::info!(

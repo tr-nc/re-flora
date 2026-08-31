@@ -1540,25 +1540,25 @@ pub(super) struct DdgiVolume {
     local_recovery_stable_epochs: u32,
     history_mode: DdgiHistoryMode,
     visibility_preserved_for_iteration: bool,
-    pub ddgi_probe_metadata: Resource<Buffer>,
-    pub ddgi_transient_ray_data: Resource<Buffer>,
-    pub ddgi_trace_stats: Resource<Buffer>,
+    ddgi_probe_metadata: Resource<Buffer>,
+    ddgi_transient_ray_data: Resource<Buffer>,
+    ddgi_trace_stats: Resource<Buffer>,
     ddgi_trace_stats_readback: Buffer,
-    pub ddgi_relocation_stats: Resource<Buffer>,
+    ddgi_relocation_stats: Resource<Buffer>,
     ddgi_relocation_stats_readback: Buffer,
-    pub ddgi_atlas_reduction: Resource<Buffer>,
+    ddgi_atlas_reduction: Resource<Buffer>,
     ddgi_atlas_reduction_readback: Buffer,
-    pub ddgi_irradiance_atlas: Resource<Texture>,
-    pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
-    pub ddgi_visibility_atlas: Resource<Texture>,
-    pub ddgi_transport_source_visibility_atlas: Resource<Texture>,
-    pub ddgi_global_sky_irradiance: Resource<Texture>,
-    pub ddgi_global_sky_irradiance_alt: Resource<Texture>,
-    pub ddgi_radiance_sun: Resource<Buffer>,
-    pub ddgi_radiance_voxel_palette: Resource<Buffer>,
-    pub ddgi_transport_query_info: Resource<Buffer>,
-    pub ddgi_local_light_info: Resource<Buffer>,
-    pub ddgi_local_lights: Resource<Buffer>,
+    ddgi_irradiance_atlas: Resource<Texture>,
+    ddgi_transport_source_irradiance_atlas: Resource<Texture>,
+    ddgi_visibility_atlas: Resource<Texture>,
+    ddgi_transport_source_visibility_atlas: Resource<Texture>,
+    ddgi_global_sky_irradiance: Resource<Texture>,
+    ddgi_global_sky_irradiance_alt: Resource<Texture>,
+    ddgi_radiance_sun: Resource<Buffer>,
+    ddgi_radiance_voxel_palette: Resource<Buffer>,
+    ddgi_transport_query_info: Resource<Buffer>,
+    ddgi_local_light_info: Resource<Buffer>,
+    ddgi_local_lights: Resource<Buffer>,
     transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
@@ -1582,7 +1582,7 @@ impl DdgiVolumePromotion {
         self.publication
     }
 
-    pub(crate) fn into_retired_active(self) -> DdgiVolume {
+    pub(super) fn into_retired_active(self) -> DdgiVolume {
         self.retired_active
     }
 }
@@ -2231,7 +2231,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
+    pub(super) fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
         assert!(
             self.build_token.is_none(),
             "DDGI build token may only be assigned once"
@@ -2239,14 +2239,14 @@ impl DdgiVolume {
         self.build_token = Some(build_token);
     }
 
-    pub fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
+    pub(super) fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
         self.scheduled_work.is_some_and(|work| {
             work.destination().field().radiance_revision() == latest_revision
                 && self.radiance_revision != Some(latest_revision)
         })
     }
 
-    pub fn latch_radiance_snapshot(
+    pub(super) fn latch_radiance_snapshot(
         &mut self,
         revision: u32,
         snapshot: DdgiRadianceSnapshot,
@@ -2296,7 +2296,7 @@ impl DdgiVolume {
         self.radiance_snapshot
     }
 
-    pub fn global_sky_needs_update(&self) -> bool {
+    pub(super) fn global_sky_needs_update(&self) -> bool {
         self.building_iteration.is_some_and(|iteration| {
             self.radiance_revision == Some(iteration.logical.field().radiance_revision())
                 && self.global_sky_revision(iteration.destination.sky_slot)
@@ -2304,7 +2304,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
+    pub(super) fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
         let iteration = self
             .building_iteration
             .context("cannot publish DDGI global sky without scheduled work")?;
@@ -2320,7 +2320,7 @@ impl DdgiVolume {
     }
 
     /// Installs scheduler-authoritative work and derives only its physical residency here.
-    pub fn begin_scheduled_work(
+    pub(super) fn begin_scheduled_work(
         &mut self,
         work: DdgiScheduledWork,
         local_refresh_voxel_bound: Option<UAabb3>,
@@ -2406,7 +2406,7 @@ impl DdgiVolume {
         Ok(())
     }
 
-    pub fn request_initialization(&mut self, terrain_revision: u32) -> bool {
+    pub(super) fn request_initialization(&mut self, terrain_revision: u32) -> bool {
         if initialization_request_is_duplicate(
             self.stage,
             self.requested_terrain_revision,
@@ -2433,13 +2433,13 @@ impl DdgiVolume {
         true
     }
 
-    pub fn pending_relocation_terrain_revision(&self) -> Option<u32> {
+    pub(super) fn pending_relocation_terrain_revision(&self) -> Option<u32> {
         (self.stage == DdgiVolumeStage::RelocationPending)
             .then_some(self.requested_terrain_revision)
             .flatten()
     }
 
-    pub fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
+    pub(super) fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
         self.filtered_probe_count = 0;
@@ -2452,7 +2452,7 @@ impl DdgiVolume {
         Ok(())
     }
 
-    pub fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
+    pub(super) fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
         if !matches!(
             self.stage,
             DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding
@@ -2532,7 +2532,7 @@ impl DdgiVolume {
         )
     }
 
-    pub fn visibility_preservation_needed(&self) -> bool {
+    pub(super) fn visibility_preservation_needed(&self) -> bool {
         self.building_iteration.is_some_and(|iteration| {
             DdgiRayBatch {
                 first_probe_index: 0,
@@ -2544,7 +2544,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn record_visibility_preservation(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_visibility_preservation(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         assert!(self.visibility_preservation_needed());
         let iteration = self
             .building_iteration
@@ -2563,18 +2563,18 @@ impl DdgiVolume {
             );
     }
 
-    pub fn mark_visibility_preserved(&mut self) {
+    pub(super) fn mark_visibility_preserved(&mut self) {
         assert!(self.visibility_preservation_needed());
         self.visibility_preserved_for_iteration = true;
     }
 
-    pub fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
+    pub(super) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
         assert_eq!(self.next_ray_batch_to_trace(), Some(batch));
         self.active_ray_batch = Some(batch);
         self.stage = DdgiVolumeStage::RayBatchReady;
     }
 
-    pub fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
+    pub(super) fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
         assert_eq!(self.stage, DdgiVolumeStage::RayBatchReady);
         assert_eq!(self.active_ray_batch, Some(batch));
         self.filtered_probe_count += batch.probe_count;
@@ -2589,11 +2589,11 @@ impl DdgiVolume {
         };
     }
 
-    pub fn pending_trace_stats_batch_is(&self, batch: DdgiRayBatch) -> bool {
+    pub(super) fn pending_trace_stats_batch_is(&self, batch: DdgiRayBatch) -> bool {
         pending_trace_stats_batch_matches(self.active_ray_batch, self.stage, batch)
     }
 
-    pub fn mark_trace_stats_verified(
+    pub(super) fn mark_trace_stats_verified(
         &mut self,
         batch: DdgiRayBatch,
     ) -> Result<DdgiVerifiedBatchOutcome> {
@@ -2628,7 +2628,7 @@ impl DdgiVolume {
 
     /// Classifies a completed GPU iteration without mutating residency. The runtime uses this to
     /// ask the scheduler whether the completion is still authoritative before publication.
-    pub fn preview_validated_field(
+    pub(super) fn preview_validated_field(
         &self,
         identity: DdgiFieldIdentity,
         stats: DdgiAtlasValidationStats,
@@ -2884,22 +2884,22 @@ impl DdgiVolume {
         }
     }
 
-    pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
+    pub(super) fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
         self.published
             .map(|published| self.irradiance_atlas(published.resident.atlas_slot))
     }
 
-    pub fn published_visibility_atlas(&self) -> Option<&Resource<Texture>> {
+    pub(super) fn published_visibility_atlas(&self) -> Option<&Resource<Texture>> {
         self.published
             .map(|published| self.visibility_atlas(published.resident.atlas_slot))
     }
 
-    pub fn published_irradiance_label(&self) -> Option<&'static str> {
+    pub(super) fn published_irradiance_label(&self) -> Option<&'static str> {
         self.published
             .map(|published| published.resident.atlas_slot.label())
     }
 
-    pub fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
+    pub(super) fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
         self.global_sky_irradiance(
             self.building_iteration
                 .map(|iteration| iteration.destination.sky_slot)
@@ -2936,7 +2936,7 @@ impl DdgiVolume {
     }
 
     /// Declares CPU writes before the frame's reflected DDGI descriptors consume them.
-    pub fn record_cpu_buffer_writes(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_cpu_buffer_writes(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         for buffer in [
             &*self.ddgi_radiance_sun,
             &*self.ddgi_radiance_voxel_palette,
@@ -2948,7 +2948,29 @@ impl DdgiVolume {
         }
     }
 
-    pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn clear_relocation_stats(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.ddgi_relocation_stats
+            .record_fill(cmdbuf, 0, self.resource_bytes.relocation_stats, 0);
+    }
+
+    pub(super) fn clear_trace_stats(
+        &self,
+        cmdbuf: &re_flora_vkn::CommandBuffer,
+        iteration_will_complete: bool,
+    ) {
+        self.ddgi_trace_stats
+            .record_fill(cmdbuf, 0, self.resource_bytes.trace_stats, 0);
+        if iteration_will_complete {
+            self.ddgi_atlas_reduction.record_fill(
+                cmdbuf,
+                0,
+                self.resource_bytes.atlas_reduction,
+                0,
+            );
+        }
+    }
+
+    pub(super) fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         self.ddgi_trace_stats.record_copy_to_buffer(
             cmdbuf,
             &self.ddgi_trace_stats_readback,
@@ -2959,7 +2981,7 @@ impl DdgiVolume {
         cmdbuf.use_buffer(&self.ddgi_trace_stats_readback, BufferUse::HostRead);
     }
 
-    pub fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         self.ddgi_relocation_stats.record_copy_to_buffer(
             cmdbuf,
             &self.ddgi_relocation_stats_readback,
@@ -2970,7 +2992,9 @@ impl DdgiVolume {
         cmdbuf.use_buffer(&self.ddgi_relocation_stats_readback, BufferUse::HostRead);
     }
 
-    pub fn update_relocation_stats_from_readback(&self) -> Result<DdgiRelocationReadbackStats> {
+    pub(super) fn update_relocation_stats_from_readback(
+        &self,
+    ) -> Result<DdgiRelocationReadbackStats> {
         let bytes = self.ddgi_relocation_stats_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.relocation_stats as usize,
@@ -2985,7 +3009,7 @@ impl DdgiVolume {
         Ok(DdgiRelocationReadbackStats::from_array(values))
     }
 
-    pub fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+    pub(super) fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         self.ddgi_atlas_reduction.record_copy_to_buffer(
             cmdbuf,
             &self.ddgi_atlas_reduction_readback,
@@ -2996,7 +3020,7 @@ impl DdgiVolume {
         cmdbuf.use_buffer(&self.ddgi_atlas_reduction_readback, BufferUse::HostRead);
     }
 
-    pub fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {
+    pub(super) fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {
         let bytes = self.ddgi_atlas_reduction_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.atlas_reduction as usize,
@@ -3011,7 +3035,7 @@ impl DdgiVolume {
         Ok(DdgiAtlasValidationStats::from_array(values))
     }
 
-    pub fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
+    pub(super) fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
         let bytes = self.ddgi_trace_stats_readback.read_back()?;
         ensure!(
             bytes.len() == self.resource_bytes.trace_stats as usize,
