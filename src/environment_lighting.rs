@@ -1259,8 +1259,9 @@ mod tests {
         assert!(pipeline_builder.contains(
             "for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter]"
         ));
-        assert!(pipeline_builder
-            .contains("write_buffer!(writes, \"ddgi_trace_stats\", &volume.ddgi_trace_stats);"));
+        assert!(pipeline_builder.contains("resources: &DdgiBuilderResources<'_>"));
+        assert!(pipeline_builder.contains("write_resource!(writes, \"ddgi_trace_stats\");"));
+        assert!(!pipeline_builder.contains("&volume.ddgi_trace_stats"));
     }
 
     #[test]
