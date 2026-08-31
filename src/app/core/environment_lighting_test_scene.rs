@@ -712,6 +712,10 @@ impl EnvironmentPhaseRecoveryDiagnostic {
             Self::Disabled
         }
     }
+
+    fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1000,13 +1004,18 @@ impl LaunchOwners {
 
     pub(super) fn environment_edit_cycle_timeout(&self) -> EnvironmentEditCycleTimeout {
         match &self.mode {
-            LaunchMode::Environment { owner, .. } => owner.edit_cycle_target_revision().map_or(
-                EnvironmentEditCycleTimeout::Inactive,
-                |target_revision| EnvironmentEditCycleTimeout::Pending {
-                    phase: owner.phase_label(),
-                    target_revision,
-                },
-            ),
+            LaunchMode::Environment { owner, .. } => {
+                if owner.recovery_diagnostic_complete() {
+                    return EnvironmentEditCycleTimeout::Inactive;
+                }
+                owner.edit_cycle_target_revision().map_or(
+                    EnvironmentEditCycleTimeout::Inactive,
+                    |target_revision| EnvironmentEditCycleTimeout::Pending {
+                        phase: owner.phase_label(),
+                        target_revision,
+                    },
+                )
+            }
             LaunchMode::General { .. }
             | LaunchMode::CanopyAudio { .. }
             | LaunchMode::FoliageShadow { .. } => EnvironmentEditCycleTimeout::Inactive,
@@ -1118,6 +1127,10 @@ impl EnvironmentLightingTestScene {
                 permit.owner_id, permit.revision, permit.family
             ),
         }
+    }
+
+    fn recovery_diagnostic_complete(&self) -> bool {
+        self.ready_phase().recovery_diagnostic.is_complete()
     }
 
     pub(super) fn case(&self) -> EnvironmentLightingTestCase {

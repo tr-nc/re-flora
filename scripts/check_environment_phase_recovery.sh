@@ -22,18 +22,25 @@ cases=(
 
 mkdir -p "$run_root"
 
+matched_cases=0
 for entry in "${cases[@]}"; do
     case_name="${entry%%:*}"
     family="${entry#*:}"
     if [[ -n "$case_filter" && "$case_filter" != "$case_name" ]]; then
         continue
     fi
+    matched_cases=$((matched_cases + 1))
 
     stdout_log="$run_root/$case_name.stdout.log"
     stderr_log="$run_root/$case_name.stderr.log"
+    extra_args=()
+    if [[ "$case_name" == "local-light-scaling" ]]; then
+        extra_args+=(--perf)
+    fi
     RE_FLORA_ENVIRONMENT_PHASE_RECOVERY_DIAGNOSTIC=1 \
         "$cargo_bin" run --quiet --release --manifest-path "$repo_root/Cargo.toml" -- \
-        --hidden --mute --environment-lighting-test-scene "$case_name" --auto-exit "$auto_exit" \
+        --hidden --mute --environment-lighting-test-scene "$case_name" \
+        "${extra_args[@]}" --auto-exit "$auto_exit" \
         >"$stdout_log" 2>"$stderr_log"
 
     if [[ ! -s "$latest_pointer" ]]; then
@@ -66,3 +73,8 @@ for entry in "${cases[@]}"; do
 
     echo "[ENV_PHASE_RECOVERY_CHECK] PASS case=$case_name family=$family run_log=$latest_log"
 done
+
+if (( matched_cases == 0 )); then
+    echo "[ENV_PHASE_RECOVERY_CHECK] FAIL unknown case filter: $case_filter" >&2
+    exit 1
+fi
