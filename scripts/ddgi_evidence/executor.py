@@ -46,8 +46,15 @@ class ActionResult:
     facts: dict[str, str] = field(default_factory=dict)
 
 
-class _ProductionActionResult(ActionResult):
-    """Successful evidence produced only by the concrete subprocess adapter."""
+@dataclass(frozen=True)
+class _ProductionCompletion:
+    """Executor-minted proof that one concrete production action succeeded."""
+
+
+@dataclass(frozen=True)
+class _PerformedAction:
+    result: ActionResult
+    completion: _ProductionCompletion | None
 
 
 @dataclass(frozen=True)
@@ -174,7 +181,7 @@ class SubprocessHost(RecordingHost):
                     False,
                     f"cannot create run directory {run_dir}: {error}",
                 )
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
     def build(self, action: BuildRelease, repo_root: Path) -> ActionResult:
         return self._run(action.argv(repo_root), cwd=repo_root)
@@ -208,7 +215,7 @@ class SubprocessHost(RecordingHost):
             return ActionResult(False, f"capture process exited {status}")
         if not action.capture.is_file():
             return ActionResult(False, f"capture process produced no artifact: {action.capture}")
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
     def validate_process(self, action: ValidateProcessEvidence) -> ActionResult:
         from .validation import validate_process_evidence
@@ -225,7 +232,7 @@ class SubprocessHost(RecordingHost):
                 shutil.copy2(run_log, destination)
         except (OSError, ValueError) as error:
             return ActionResult(False, str(error))
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
     def validate_scenario(self, action: ValidateScenarioLog) -> ActionResult:
         from .validation import validate_scenario_log
@@ -234,7 +241,7 @@ class SubprocessHost(RecordingHost):
             facts = validate_scenario_log(action)
         except (OSError, ValueError) as error:
             return ActionResult(False, str(error))
-        return _ProductionActionResult(
+        return ActionResult(
             True,
             facts={name: str(value) for name, value in facts.items()},
         )
@@ -256,7 +263,7 @@ class SubprocessHost(RecordingHost):
             action.output.write_text(report, encoding="utf-8")
         except (OSError, ValueError) as error:
             return ActionResult(False, str(error))
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
     def summarize(self, action: SummarizeConvergence, repo_root: Path) -> ActionResult:
         return self._run(action.argv(repo_root), cwd=repo_root)
@@ -269,7 +276,7 @@ class SubprocessHost(RecordingHost):
             action.source.replace(action.destination)
         except OSError as error:
             return ActionResult(False, str(error))
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
     def _run(
         self,
@@ -302,7 +309,7 @@ class SubprocessHost(RecordingHost):
             return ActionResult(False, str(error))
         if return_code != 0:
             return ActionResult(False, f"command exited {return_code}: {shlex.join(argv)}")
-        return _ProductionActionResult(True)
+        return ActionResult(True)
 
 
 def _perform(
@@ -310,27 +317,67 @@ def _perform(
     action: Action,
     repo_root: Path,
     facts: dict[tuple[str, str], str],
-) -> ActionResult:
+) -> _PerformedAction:
+    production = type(host) is SubprocessHost
     match action:
         case BuildRelease():
-            return host.build(action, repo_root)
+            result = (
+                SubprocessHost.build(host, action, repo_root)
+                if production
+                else host.build(action, repo_root)
+            )
         case Capture():
-            return host.capture(action, repo_root)
+            result = (
+                SubprocessHost.capture(host, action, repo_root)
+                if production
+                else host.capture(action, repo_root)
+            )
         case ValidateProcessEvidence():
-            return host.validate_process(action)
+            result = (
+                SubprocessHost.validate_process(host, action)
+                if production
+                else host.validate_process(action)
+            )
         case ValidateScenarioLog():
-            return host.validate_scenario(action)
+            result = (
+                SubprocessHost.validate_scenario(host, action)
+                if production
+                else host.validate_scenario(action)
+            )
         case AnalyzeCurrentCapture():
-            return host.analyze(action, repo_root, facts)
+            result = (
+                SubprocessHost.analyze(host, action, repo_root, facts)
+                if production
+                else host.analyze(action, repo_root, facts)
+            )
         case ValidateRadianceLifecycle():
-            return host.validate_radiance(action)
+            result = (
+                SubprocessHost.validate_radiance(host, action)
+                if production
+                else host.validate_radiance(action)
+            )
         case SummarizeConvergence():
-            return host.summarize(action, repo_root)
+            result = (
+                SubprocessHost.summarize(host, action, repo_root)
+                if production
+                else host.summarize(action, repo_root)
+            )
         case CheckSkyNormalization():
-            return host.check_sky(action, repo_root)
+            result = (
+                SubprocessHost.check_sky(host, action, repo_root)
+                if production
+                else host.check_sky(action, repo_root)
+            )
         case RelocateArtifact():
-            return host.relocate(action)
-    raise AssertionError(f"unhandled action: {action!r}")
+            result = (
+                SubprocessHost.relocate(host, action)
+                if production
+                else host.relocate(action)
+            )
+        case _:
+            raise AssertionError(f"unhandled action: {action!r}")
+    completion = _ProductionCompletion() if production and result.succeeded else None
+    return _PerformedAction(result, completion)
 
 
 def _workspace_directories(execution_plan: ExecutionPlan) -> tuple[Path, ...]:
@@ -349,7 +396,12 @@ def _workspace_directories(execution_plan: ExecutionPlan) -> tuple[Path, ...]:
 
 def execute(execution_plan: ExecutionPlan, host: RecordingHost) -> RunReport:
     if not execution_plan.request.dry_run:
-        prepared = host.prepare(_workspace_directories(execution_plan))
+        directories = _workspace_directories(execution_plan)
+        prepared = (
+            SubprocessHost.prepare(host, directories)
+            if type(host) is SubprocessHost
+            else host.prepare(directories)
+        )
         if not prepared.succeeded:
             return RunReport(
                 execution_plan.request.suite,
@@ -440,14 +492,18 @@ def _execute(
             ):
                 continue
             try:
-                result = _perform(
+                performed = _perform(
                     host,
                     action,
                     execution_plan.request.repo_root,
                     facts,
                 )
             except KeyError as error:
-                result = ActionResult(False, f"missing dynamic fact {error.args[0]!r}")
+                performed = _PerformedAction(
+                    ActionResult(False, f"missing dynamic fact {error.args[0]!r}"),
+                    None,
+                )
+            result = performed.result
             if not result.succeeded:
                 succeeded = False
                 production_complete = False
@@ -455,7 +511,7 @@ def _execute(
                 if not first_failure:
                     first_failure = result.message
                 continue
-            if type(result) is not _ProductionActionResult:
+            if performed.completion is None:
                 production_complete = False
             namespace = stage.id
             if isinstance(action, ValidateScenarioLog) and action.fact_namespace:
