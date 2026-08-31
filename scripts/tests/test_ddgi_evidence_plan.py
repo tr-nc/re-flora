@@ -18,11 +18,16 @@ from ddgi_evidence.model import (  # noqa: E402
     BuildRelease,
     Capture,
     Claim,
+    CorrectnessOptions,
     FailureKey,
+    IncludeSuite,
+    LifecycleOptions,
     ProductionAnalyzerOptions,
-    ReleaseBuildIdentity,
     RunRequest,
+    RuntimeTerrainEditsOptions,
+    Setup,
     Suite,
+    TransportOptions,
     iter_actions,
 )
 from ddgi_evidence.plan import plan  # noqa: E402
@@ -103,19 +108,37 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
                 sum(command.kind == "analysis" for command in host.commands), 78
             )
 
-    def test_transport_owns_one_typed_release_build_and_one_run_preparation(self) -> None:
+    def test_transport_owns_one_release_setup_and_one_workspace_preparation(self) -> None:
         class PreparingHost(RecordingHost):
             def __init__(self) -> None:
                 super().__init__(stdout=io.StringIO(), stderr=io.StringIO())
-                self.prepared: list[Path] = []
+                self.prepare_calls = 0
 
-            def prepare(self, run_dir: Path):
-                self.prepared.append(run_dir)
-                return super().prepare(run_dir)
+            def prepare(self, workspace):
+                self.prepare_calls += 1
+                return super().prepare(workspace)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            request = RunRequest(Suite.TRANSPORT, root, dry_run=False)
+            output = root / "outputs"
+            request = RunRequest(
+                Suite.TRANSPORT,
+                root,
+                dry_run=False,
+                options=TransportOptions(
+                    output_dir=output / "transport",
+                    correctness=CorrectnessOptions(
+                        output_dir=output / "correctness"
+                    ),
+                    runtime=RuntimeTerrainEditsOptions(
+                        output_dir=output / "runtime"
+                    ),
+                    lifecycle=LifecycleOptions(
+                        output_dir=output / "lifecycle"
+                    ),
+                ),
+                run_id="one-workspace",
+            )
             execution_plan = plan(request)
             release_builds = tuple(
                 action
@@ -127,14 +150,27 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             report = execute(execution_plan, host)
 
         self.assertTrue(report.succeeded, report.failures)
+        self.assertEqual(len(release_builds), 1)
         self.assertEqual(
-            {action.prerequisite for action in release_builds},
-            {ReleaseBuildIdentity.RELEASE_BINARY},
+            sum(isinstance(stage, Setup) for stage in execution_plan.stages),
+            1,
+        )
+        child_plans = tuple(
+            stage.execution_plan
+            for stage in execution_plan.stages
+            if isinstance(stage, IncludeSuite)
+        )
+        self.assertTrue(child_plans)
+        self.assertTrue(
+            all(
+                not any(isinstance(stage, Setup) for stage in child.stages)
+                for child in child_plans
+            )
         )
         self.assertEqual(
             sum(command.kind == "build" for command in host.commands), 1
         )
-        self.assertEqual(host.prepared, [execution_plan.run_dir])
+        self.assertEqual(host.prepare_calls, 1)
         self.assertEqual(
             sum(command.kind == "capture" for command in host.commands), 100
         )
