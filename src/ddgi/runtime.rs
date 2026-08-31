@@ -4,6 +4,7 @@ use crate::environment_lighting::{
 };
 use crate::geom::UAabb3;
 use anyhow::{Context, Result};
+use re_flora_vkn::CommandBuffer;
 use std::time::Duration;
 
 use super::resources::{
@@ -181,19 +182,133 @@ pub(crate) struct DdgiFramePlan {
 /// This capsule contains no Vulkan types. The concrete Tracer encoder consumes it once and the
 /// runtime settles the complete encoding result once; callers cannot advance individual Volume
 /// stages or re-plan between passes.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct DdgiFrameWork {
+#[derive(Debug, PartialEq)]
+struct DdgiFrameWork {
     serial: u64,
     plan: DdgiFramePlan,
 }
-#[cfg(test)]
 ::static_assertions::assert_not_impl_any!(
     DdgiFrameWork: ::core::marker::Copy, ::core::clone::Clone
 );
 
-impl DdgiFrameWork {
-    pub(crate) fn plan(self) -> DdgiFramePlan {
-        self.plan
+/// The exact physical DDGI allocation selected for one frame.
+///
+/// The runtime mints this view after latching lighting and choosing the whole pass plan. It borrows
+/// the selected concrete Vulkan resources so an encoder cannot switch builders between passes.
+pub(crate) struct DdgiFrameView<'a> {
+    work: DdgiFrameWork,
+    builder: &'a DdgiVolume,
+    build_token: Option<DdgiBuildToken>,
+    scheduled_work: Option<DdgiScheduledWork>,
+}
+::static_assertions::assert_not_impl_any!(
+    DdgiFrameView<'_>: ::core::marker::Copy, ::core::clone::Clone
+);
+
+/// Proof that the concrete Tracer encoded every pass from one runtime-issued frame view.
+pub(crate) struct DdgiEncodedFrame {
+    work: DdgiFrameWork,
+}
+::static_assertions::assert_not_impl_any!(
+    DdgiEncodedFrame: ::core::marker::Copy, ::core::clone::Clone
+);
+
+impl DdgiFrameView<'_> {
+    pub(crate) fn plan(&self) -> DdgiFramePlan {
+        self.work.plan
+    }
+
+    pub(crate) fn grid(&self) -> DdgiVolumeGrid {
+        self.builder.status().grid
+    }
+
+    pub(crate) fn assert_encoding_identity(&self) {
+        if let Some(terrain_revision) = self.work.plan.relocation_terrain_revision {
+            assert_eq!(
+                self.build_token.map(DdgiBuildToken::terrain_revision),
+                Some(terrain_revision),
+                "DDGI frame relocation must target its exact physical generation"
+            );
+        }
+        if let Some(batch) = self.work.plan.ray_batch {
+            let scheduled = self
+                .scheduled_work
+                .expect("DDGI frame ray batch must retain its scheduled work");
+            assert_eq!(
+                scheduled.destination(),
+                batch.logical(),
+                "DDGI frame batch must retain its scheduled field identity"
+            );
+            let build_token = self
+                .build_token
+                .expect("DDGI frame ray batch must retain its physical generation");
+            assert_eq!(
+                (build_token.terrain_revision(), build_token.spacing_voxels()),
+                (batch.geometry_revision(), batch.spacing_voxels()),
+                "DDGI frame batch must match its physical generation"
+            );
+        }
+    }
+
+    pub(crate) fn irradiance_tile_columns(&self) -> u32 {
+        self.builder.status().irradiance_layout.tile_grid().x
+    }
+
+    pub(crate) fn visibility_tile_columns(&self) -> u32 {
+        self.builder.status().visibility_layout.tile_grid().x
+    }
+
+    pub(crate) fn record_cpu_buffer_writes(&self, cmdbuf: &CommandBuffer) {
+        self.builder.record_cpu_buffer_writes(cmdbuf);
+    }
+
+    pub(crate) fn clear_relocation_stats(&self, cmdbuf: &CommandBuffer) {
+        self.builder.ddgi_relocation_stats.record_fill(
+            cmdbuf,
+            0,
+            self.builder.status().resource_bytes.relocation_stats,
+            0,
+        );
+    }
+
+    pub(crate) fn record_relocation_readback(&self, cmdbuf: &CommandBuffer) {
+        self.builder.record_relocation_stats_readback(cmdbuf);
+    }
+
+    pub(crate) fn record_visibility_preservation(&self, cmdbuf: &CommandBuffer) {
+        self.builder.record_visibility_preservation(cmdbuf);
+    }
+
+    pub(crate) fn clear_trace_stats(&self, cmdbuf: &CommandBuffer, iteration_will_complete: bool) {
+        self.builder.ddgi_trace_stats.record_fill(
+            cmdbuf,
+            0,
+            self.builder.status().resource_bytes.trace_stats,
+            0,
+        );
+        if iteration_will_complete {
+            self.builder.ddgi_atlas_reduction.record_fill(
+                cmdbuf,
+                0,
+                self.builder.status().resource_bytes.atlas_reduction,
+                0,
+            );
+        }
+    }
+
+    pub(crate) fn record_trace_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        iteration_will_complete: bool,
+    ) {
+        self.builder.record_trace_stats_readback(cmdbuf);
+        if iteration_will_complete {
+            self.builder.record_atlas_reduction_readback(cmdbuf);
+        }
+    }
+
+    pub(crate) fn encoded(self) -> DdgiEncodedFrame {
+        DdgiEncodedFrame { work: self.work }
     }
 }
 
@@ -699,7 +814,7 @@ pub(crate) struct DdgiRuntime {
     capture_batch_order: DdgiBatchOrder,
     filter_evidence_accumulator: Option<DdgiFilterEpochAccumulator>,
     next_frame_work_serial: u64,
-    pending_frame_work: Option<DdgiFrameWork>,
+    pending_frame_work_serial: Option<u64>,
 }
 
 impl DdgiRuntime {
@@ -726,7 +841,7 @@ impl DdgiRuntime {
             capture_batch_order: DdgiBatchOrder::default(),
             filter_evidence_accumulator: None,
             next_frame_work_serial: 1,
-            pending_frame_work: None,
+            pending_frame_work_serial: None,
         }
     }
 
@@ -1433,9 +1548,9 @@ impl DdgiRuntime {
     }
 
     /// Latches immutable lighting and selects the complete physical DDGI sequence once per frame.
-    pub(crate) fn begin_frame_work(&mut self) -> Result<DdgiFrameWork> {
+    pub(crate) fn begin_frame(&mut self) -> Result<DdgiFrameView<'_>> {
         anyhow::ensure!(
-            self.pending_frame_work.is_none(),
+            self.pending_frame_work_serial.is_none(),
             "DDGI frame work must be settled before another frame begins"
         );
         let builder = self.volumes().builder();
@@ -1463,22 +1578,29 @@ impl DdgiRuntime {
             plan,
         };
         self.next_frame_work_serial = self.next_frame_work_serial.saturating_add(1);
-        self.pending_frame_work = Some(work);
-        Ok(work)
+        self.pending_frame_work_serial = Some(work.serial);
+        let builder = self.volumes().builder();
+        let status = builder.status();
+        Ok(DdgiFrameView {
+            work,
+            builder,
+            build_token: status.build_token,
+            scheduled_work: status.scheduled_work,
+        })
     }
 
-    /// Settles all physical pass completions, or the single encoding failure, through one seam.
-    pub(crate) fn finish_frame_work(
-        &mut self,
-        work: DdgiFrameWork,
-        outcome: Result<()>,
-    ) -> Result<()> {
+    /// Commits the transitions represented by one successfully encoded physical frame.
+    ///
+    /// Vulkan command recording in this path is infallible. A panic is terminal, so exposing a
+    /// recoverable `Result<()>` encoding outcome would describe a retry contract that does not
+    /// exist. The only accepted input is the linear proof produced by [`DdgiFrameView::encoded`].
+    pub(crate) fn commit_encoded_frame(&mut self, encoded: DdgiEncodedFrame) -> Result<()> {
+        let work = encoded.work;
         anyhow::ensure!(
-            self.pending_frame_work == Some(work),
+            self.pending_frame_work_serial == Some(work.serial),
             "stale or out-of-order DDGI frame work completion"
         );
-        self.pending_frame_work = None;
-        outcome?;
+        self.pending_frame_work_serial = None;
 
         let builder = self.volumes_mut().builder_mut();
         let plan = work.plan;
@@ -2445,7 +2567,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_work_identity_is_stable_and_failure_settles_through_runtime_interface() {
+    fn encoded_frame_identity_is_stable_while_new_facts_queue() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut runtime = DdgiRuntime::new(grid);
         let plan = DdgiFramePlan {
@@ -2456,33 +2578,16 @@ mod tests {
             iteration_will_complete: false,
         };
         let work = DdgiFrameWork { serial: 41, plan };
-        runtime.pending_frame_work = Some(work);
+        let encoded = DdgiEncodedFrame { work };
+        runtime.pending_frame_work_serial = Some(encoded.work.serial);
 
         runtime.observe_authored_lighting(lighting(1, 1.0));
         runtime.observe_visible_terrain(8, edit_bound(200, 220));
         assert_eq!(
-            work.plan(),
-            plan,
+            encoded.work.plan, plan,
             "queued facts must not rewrite a frame capsule"
         );
-
-        let error = runtime
-            .finish_frame_work(
-                work,
-                Err(anyhow::anyhow!("injected Vulkan encoding failure")),
-            )
-            .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("injected Vulkan encoding failure"));
-        assert_eq!(runtime.pending_frame_work, None);
-
-        let stale = runtime
-            .finish_frame_work(work, Ok(()))
-            .expect_err("one frame capsule must settle at most once");
-        assert!(stale
-            .to_string()
-            .contains("stale or out-of-order DDGI frame work completion"));
+        assert_eq!(runtime.pending_frame_work_serial, Some(41));
     }
 
     #[test]
