@@ -2853,6 +2853,33 @@ mod tests {
     }
 
     #[test]
+    fn encoded_frame_rejects_only_the_builder_residency_changing() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let grid = runtime.active_publication.grid();
+        let mut volumes = DdgiVolumes::new(DdgiVolume::for_test(grid, Some(active_token)));
+        volumes.prepare_staging(DdgiVolume::for_test(grid, Some(active_token)));
+        runtime.install_volumes(volumes);
+
+        let builder_before_frame = runtime.volumes().builder().status();
+        let encoded = runtime.begin_frame().unwrap().encoded();
+        runtime.volumes_mut().promote_builder_residency_for_test();
+        assert_eq!(runtime.volumes().active().status(), builder_before_frame);
+
+        let error = runtime.commit_encoded_frame(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("DDGI encoded frame no longer owns its exact builder"),
+            "unexpected frame residency error: {error:#}"
+        );
+        assert_eq!(runtime.volumes().active().status(), builder_before_frame);
+        assert!(
+            runtime.pending_frame_work_serial.is_some(),
+            "rejected residency mutation must retain the unsettled frame capability"
+        );
+    }
+
+    #[test]
     fn one_replacement_claim_installs_exactly_one_staging_allocation() {
         let (mut runtime, active_token, _) = initialized_runtime();
         let active_grid = runtime.active_publication.grid();

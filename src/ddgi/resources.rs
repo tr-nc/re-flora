@@ -44,7 +44,6 @@ fn next_ddgi_volume_allocation_id() -> u64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct DdgiVolumeFrameIdentity {
     allocation_id: u64,
-    is_staging: bool,
     build_token: Option<DdgiBuildToken>,
     scheduled_work: Option<DdgiScheduledWork>,
     complete_field: Option<DdgiFieldIdentity>,
@@ -1771,13 +1770,26 @@ impl DdgiVolumes {
     }
 
     pub(super) fn builder_frame_identity(&self) -> DdgiVolumeFrameIdentity {
-        self.builder().frame_identity(self.staging.is_some())
+        self.builder().frame_identity()
     }
 
     /// Installs a new builder target while returning the previous staging volume, if any.
     /// The caller must rebind builder descriptors before dropping the returned volume.
     pub(super) fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
         self.staging.replace(staging)
+    }
+
+    #[cfg(test)]
+    pub(super) fn promote_builder_residency_for_test(&mut self) {
+        let builder_allocation_id = self.builder().allocation_id;
+        let builder_status = self.builder().status();
+        let staging = self
+            .staging
+            .take()
+            .expect("residency witness requires one Staging builder");
+        self.active = staging;
+        assert_eq!(self.active.allocation_id, builder_allocation_id);
+        assert_eq!(self.active.status(), builder_status);
     }
 
     /// Preflights the complete physical staging publication without changing ownership.
@@ -2308,11 +2320,10 @@ impl DdgiVolume {
         }
     }
 
-    fn frame_identity(&self, is_staging: bool) -> DdgiVolumeFrameIdentity {
+    fn frame_identity(&self) -> DdgiVolumeFrameIdentity {
         let status = self.status();
         DdgiVolumeFrameIdentity {
             allocation_id: self.allocation_id,
-            is_staging,
             build_token: status.build_token,
             scheduled_work: status.scheduled_work,
             complete_field: status.complete_field,
