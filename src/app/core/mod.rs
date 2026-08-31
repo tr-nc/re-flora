@@ -3472,11 +3472,7 @@ impl App {
                             capture: environment_irradiance_capture_plan,
                             update_shadow_map,
                         },
-                        frame_inputs.terrain,
-                        frame_inputs.materials,
-                        frame_inputs.vegetation,
-                        frame_inputs.wind,
-                        frame_inputs.environment,
+                        frame_inputs,
                     )
                     .unwrap();
                 self.tracer.record_host_buffer_writes(cmdbuf);

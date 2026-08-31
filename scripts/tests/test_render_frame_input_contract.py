@@ -27,6 +27,7 @@ class RenderFrameInputContractTests(unittest.TestCase):
     def test_flat_parameter_regression_is_rejected(self) -> None:
         tracer = """
 pub struct TerrainFrameInput;
+pub struct RenderFrameInputs;
 pub struct MaterialFrameInput;
 pub struct VegetationFrameInput;
 pub struct WindFrameInput;
@@ -35,9 +36,9 @@ pub fn update_buffers(&mut self, a: u32, b: u32, c: u32, d: u32, e: u32,
                       f: u32, g: u32, h: u32, i: u32, j: u32) {}
 """
         updater = "pub fn update_gui_input(a: u32) {}"
-        app = "TerrainFrameInput MaterialFrameInput VegetationFrameInput WindFrameInput EnvironmentFrameInput"
+        app = "RenderFrameInputs TerrainFrameInput MaterialFrameInput VegetationFrameInput WindFrameInput EnvironmentFrameInput"
         errors = CONTRACT.validate(tracer, updater, app)
-        self.assertIn("Tracer::update_buffers exposes 11 parameters (max 10)", errors)
+        self.assertIn("Tracer::update_buffers exposes 11 parameters (max 7)", errors)
 
 
 if __name__ == "__main__":

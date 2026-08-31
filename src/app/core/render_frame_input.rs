@@ -3,9 +3,9 @@ use crate::app::{DebugSettings, GuiAdjustables};
 use crate::tracer::{
     CloudGuiParams, EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput,
     FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput, KochiaMotionParams,
-    KochiaVisualParams, LeafLightingFrameInput, MaterialFrameInput, StarlightFrameInput,
-    SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput, VegetationFrameInput,
-    WindFrameInput, WindGuiParams,
+    KochiaVisualParams, LeafLightingFrameInput, MaterialFrameInput, RenderFrameInputs,
+    StarlightFrameInput, SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput,
+    VegetationFrameInput, WindFrameInput, WindGuiParams,
 };
 use egui::Color32;
 use glam::Vec3;
@@ -25,15 +25,6 @@ pub(super) struct LiveRenderFrameFacts {
     pub terrain_edit_preview_alpha: f32,
 }
 
-/// The application-side transaction of independently evolving renderer snapshots.
-pub(super) struct FrozenRenderFrameInputs {
-    pub terrain: TerrainFrameInput,
-    pub materials: MaterialFrameInput,
-    pub vegetation: VegetationFrameInput,
-    pub wind: WindFrameInput,
-    pub environment: EnvironmentFrameInput,
-}
-
 fn color_to_vec3(color: Color32) -> Vec3 {
     Vec3::new(
         color.r() as f32 / 255.0,
@@ -45,7 +36,7 @@ fn color_to_vec3(color: Color32) -> Vec3 {
 pub(super) fn freeze_render_frame_inputs(
     settings: &DebugSettings,
     live: LiveRenderFrameFacts,
-) -> FrozenRenderFrameInputs {
+) -> RenderFrameInputs {
     let gui = &settings.adjustables;
     let terrain = TerrainFrameInput {
         ray_origin_offset_world: gui.terrain_ray_origin_offset_world.value,
@@ -239,7 +230,7 @@ pub(super) fn freeze_render_frame_inputs(
         },
     };
 
-    FrozenRenderFrameInputs {
+    RenderFrameInputs {
         terrain,
         materials,
         vegetation,

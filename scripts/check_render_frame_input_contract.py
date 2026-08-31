@@ -39,12 +39,13 @@ def validate(tracer: str, buffer_updater: str, app: str) -> list[str]:
     frame_parameters = function_parameters(tracer, "update_buffers")
     gui_parameters = function_parameters(buffer_updater, "update_gui_input")
 
-    if len(frame_parameters) > 10:
-        errors.append(f"Tracer::update_buffers exposes {len(frame_parameters)} parameters (max 10)")
+    if len(frame_parameters) > 7:
+        errors.append(f"Tracer::update_buffers exposes {len(frame_parameters)} parameters (max 7)")
     if len(gui_parameters) > 7:
         errors.append(f"BufferUpdater::update_gui_input exposes {len(gui_parameters)} parameters (max 7)")
 
     required_snapshots = (
+        "RenderFrameInputs",
         "TerrainFrameInput",
         "MaterialFrameInput",
         "VegetationFrameInput",

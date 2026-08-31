@@ -1360,6 +1360,17 @@ pub struct EnvironmentFrameInput {
     pub starlight: StarlightFrameInput,
 }
 
+/// A frame transaction composed from snapshots with independent change reasons.
+///
+/// Keeping the snapshots typed avoids both a flat parameter bag and a renderer-facing GUI model.
+pub struct RenderFrameInputs {
+    pub terrain: TerrainFrameInput,
+    pub materials: MaterialFrameInput,
+    pub vegetation: VegetationFrameInput,
+    pub wind: WindFrameInput,
+    pub environment: EnvironmentFrameInput,
+}
+
 /// Renderer-owned execution choices for the current frame.
 pub struct RenderFramePlan {
     pub capture: CaptureFramePlan,
@@ -2567,12 +2578,15 @@ impl Tracer {
         lighting_frame: &ResolvedLightingFrameInputs,
         local_lights: &LocalLightSnapshot,
         frame_plan: RenderFramePlan,
-        terrain: TerrainFrameInput,
-        materials: MaterialFrameInput,
-        mut vegetation: VegetationFrameInput,
-        wind: WindFrameInput,
-        environment: EnvironmentFrameInput,
+        frame_inputs: RenderFrameInputs,
     ) -> Result<CaptureBuffersReady> {
+        let RenderFrameInputs {
+            terrain,
+            materials,
+            mut vegetation,
+            wind,
+            environment,
+        } = frame_inputs;
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
         self.promote_ready_ddgi_staging()?;
