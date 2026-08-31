@@ -15,13 +15,6 @@ pub(super) struct WaterRuntimeOverrides {
 }
 
 impl WaterRuntimeOverrides {
-    fn from_plan(plan: WaterPlan) -> Self {
-        Self {
-            baseline: None,
-            plan,
-        }
-    }
-
     pub(super) fn apply(&self, config: &mut PondWaterConfig) {
         if let Some(baseline) = &self.baseline {
             *config = baseline.clone();
@@ -92,7 +85,10 @@ impl WaterLaunchRequest {
         cells_per_unit: f32,
     ) -> Self {
         let profile = plan.profile;
-        let overrides = WaterRuntimeOverrides::from_plan(plan);
+        let overrides = WaterRuntimeOverrides {
+            baseline: None,
+            plan,
+        };
         let world_grid_dim = UVec3::new(
             (world_extent.x * cells_per_unit).ceil() as u32,
             (world_extent.y * cells_per_unit).ceil() as u32,
@@ -378,29 +374,26 @@ mod tests {
     }
 
     #[test]
-    fn runtime_overrides_do_not_mutate_persisted_desired_water_values() {
-        let desired_damping = 0.25;
-        let mut effective = PondWaterConfig::default().with_linear_damping_per_sec(desired_damping);
-        let overrides = WaterRuntimeOverrides::from_plan(WaterPlan {
-            damping: Some(1.5),
-            ..WaterPlan::default()
-        });
+    fn implicit_launch_replays_only_explicit_overrides_after_later_gui_values() {
+        let resolved = request(
+            WaterPlan {
+                damping: Some(1.5),
+                ..WaterPlan::default()
+            },
+            false,
+            GuiAdjustables::default(),
+        )
+        .resolve();
+        let mut later_gui = PondWaterConfig::default()
+            .with_substep_hz(30.0)
+            .with_terrain_collision_margin_cells(4.0)
+            .with_linear_damping_per_sec(0.25);
 
-        overrides.apply(&mut effective);
+        resolved.runtime_overrides.apply(&mut later_gui);
 
-        assert_eq!(desired_damping, 0.25);
-        assert_eq!(effective.linear_damping_per_sec, 1.5);
-    }
-
-    #[test]
-    fn runtime_owns_the_primary_water_plan_without_field_copying() {
-        let plan = WaterPlan {
-            damping: Some(1.5),
-            ..WaterPlan::default()
-        };
-        let overrides = WaterRuntimeOverrides::from_plan(plan);
-
-        assert_eq!(overrides.plan.damping, Some(1.5));
+        assert_eq!(later_gui.substep_dt, 30.0_f32.recip());
+        assert_eq!(later_gui.terrain_collision_margin_cells, 4.0);
+        assert_eq!(later_gui.linear_damping_per_sec, 1.5);
     }
 
     #[test]
