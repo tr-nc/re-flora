@@ -705,12 +705,12 @@ const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
 const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
 const DEFAULT_CAMERA_HEIGHT: f32 = 1.0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TerrainEditPreviewShape {
     Sphere,
     SurfaceCircle,
@@ -725,7 +725,7 @@ impl TerrainEditPreviewShape {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GlassGuiParams {
     pub tint: Vec3,
     pub reflection_strength: f32,
@@ -739,7 +739,7 @@ pub struct GlassGuiParams {
     pub glint_strength: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CloudGuiParams {
     pub enabled: bool,
     pub coverage: f32,
@@ -1181,7 +1181,7 @@ pub struct TracerDesc {
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FruitMotionParams {
     pub swing_length_voxels: f32,
     pub max_angle_radians: f32,
@@ -1190,7 +1190,7 @@ pub struct FruitMotionParams {
     pub min_response: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KochiaMotionParams {
     pub body_wind_response: f32,
     pub branch_jelly_amplitude_voxels: f32,
@@ -1200,7 +1200,7 @@ pub struct KochiaMotionParams {
     pub tip_flutter_speed: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KochiaVisualParams {
     pub bottom_darkening: f32,
     pub branch_value_variation: f32,
@@ -1213,7 +1213,7 @@ pub struct KochiaVisualParams {
 }
 
 /// Terrain state frozen by the application for one renderer update.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainFrameInput {
     pub ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
@@ -1227,7 +1227,7 @@ pub struct TerrainFrameInput {
 }
 
 /// Material values shared by raster shading and authored environment lighting.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MaterialFrameInput {
     pub glass: GlassGuiParams,
     pub voxel_dirt_color: Vec3,
@@ -1238,7 +1238,7 @@ pub struct MaterialFrameInput {
     pub voxel_color_variance: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
     pub growth_override_enabled: bool,
     pub growth_override: f32,
@@ -1251,7 +1251,7 @@ pub struct FloraAppearanceFrameInput {
     pub kochia: KochiaVisualParams,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraMotionFrameInput {
     pub world_tick_seconds: f32,
     pub grass_vibration_amplitude_voxels: f32,
@@ -1275,7 +1275,7 @@ pub struct FloraMotionFrameInput {
     pub fruit: FruitMotionParams,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LeafLightingFrameInput {
     pub shadow_fragment_opacity: f32,
     pub shadow_strength: f32,
@@ -1284,7 +1284,7 @@ pub struct LeafLightingFrameInput {
     pub transmission_strength: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraGrowthFrameInput {
     pub flora_tick: u32,
     pub sprout_delay_ticks: u32,
@@ -1298,7 +1298,7 @@ pub struct FloraGrowthFrameInput {
 }
 
 /// Vegetation owns four cohesive shader-facing snapshots instead of exposing individual GUI knobs.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VegetationFrameInput {
     pub appearance: FloraAppearanceFrameInput,
     pub motion: FloraMotionFrameInput,
@@ -1306,14 +1306,14 @@ pub struct VegetationFrameInput {
     pub growth: FloraGrowthFrameInput,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindFrameInput {
     pub sources: WindGuiParams,
     pub directional_bias_fraction: f32,
     pub turbulence_fraction: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SunFrameInput {
     pub direction: Vec3,
     pub size: f32,
@@ -1324,7 +1324,7 @@ pub struct SunFrameInput {
     pub azimuth: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GodRayFrameInput {
     pub max_depth: f32,
     pub max_checks: u32,
@@ -1334,7 +1334,7 @@ pub struct GodRayFrameInput {
     pub color: Vec3,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StarlightFrameInput {
     pub iterations: i32,
     pub formuparam: f32,
@@ -1350,7 +1350,7 @@ pub struct StarlightFrameInput {
 }
 
 /// Sky and post-processing state that changes independently from terrain and vegetation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
@@ -1363,6 +1363,7 @@ pub struct EnvironmentFrameInput {
 /// A frame transaction composed from snapshots with independent change reasons.
 ///
 /// Keeping the snapshots typed avoids both a flat parameter bag and a renderer-facing GUI model.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderFrameInputs {
     pub terrain: TerrainFrameInput,
     pub materials: MaterialFrameInput,
