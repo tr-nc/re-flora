@@ -72,7 +72,7 @@ pub use resources::{
     DDGI_FILTER_POLICY_OWNER_VERSION,
 };
 pub(crate) use runtime::{
-    DdgiBatchCompletion, DdgiBatchProgress, DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView,
+    DdgiBatchCompletion, DdgiBatchObservation, DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView,
     DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]

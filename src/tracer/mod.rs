@@ -100,7 +100,7 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBatchCompletion, DdgiBatchOrder, DdgiBatchProgress, DdgiBuildKind, DdgiBuildToken,
+    DdgiBatchCompletion, DdgiBatchObservation, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
     DdgiCaptureCheckpoint, DdgiCaptureTarget, DdgiEncodedFrame, DdgiFieldIdentity,
     DdgiFilterConfigurationIdentity, DdgiFramePlan, DdgiFrameView, DdgiLocalLightTraceTotals,
     DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
@@ -1919,12 +1919,13 @@ impl Tracer {
     fn observe_ddgi_batch_progress(
         &mut self,
         batch: DdgiRayBatch,
-        progress: &DdgiBatchProgress,
+        progress: DdgiBatchObservation,
+        build_token: Option<DdgiBuildToken>,
     ) -> Result<()> {
-        let stats = progress.stats;
-        if progress.filtered_probe_count == batch.probe_count
-            || progress.filtered_probe_count == progress.probe_count
-            || progress.filtered_probe_count.is_multiple_of(1_024)
+        let stats = progress.stats();
+        if progress.filtered_probe_count() == batch.probe_count
+            || progress.filtered_probe_count() == progress.probe_count()
+            || progress.filtered_probe_count().is_multiple_of(1_024)
         {
             log::debug!(
                 "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
@@ -1945,7 +1946,7 @@ impl Tracer {
                 stats.emissive_surface_hits,
                 stats.emissive_surface_radiance_luma_q8,
                 batch.geometry_revision(),
-                progress.build_token.map(DdgiBuildToken::serial),
+                build_token.map(DdgiBuildToken::serial),
                 batch.radiance_revision(),
                 batch.state(),
                 batch.update_epoch(),
@@ -1955,8 +1956,8 @@ impl Tracer {
         self.observe_ddgi_local_light_gpu_evidence(
             batch,
             stats,
-            progress.probe_count,
-            progress.radiance_snapshot,
+            progress.probe_count(),
+            progress.radiance_snapshot(),
         )
     }
 
@@ -2882,19 +2883,28 @@ impl Tracer {
                 DdgiBatchCompletion::Stale(stale) => {
                     log::warn!(
                         "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
-                        stale.build_token,
-                        stale.stage,
-                        stale.complete_field,
-                        stale.building_field,
-                        stale.radiance_revision,
+                        stale.build_token(),
+                        stale.stage(),
+                        stale.complete_field(),
+                        stale.building_field(),
+                        stale.radiance_revision(),
                     );
                 }
                 DdgiBatchCompletion::Progress(progress) => {
-                    self.observe_ddgi_batch_progress(batch, &progress)?;
+                    self.observe_ddgi_batch_progress(
+                        batch,
+                        progress.observation(),
+                        progress.build_token(),
+                    )?;
                 }
                 DdgiBatchCompletion::Published(published) => {
-                    self.observe_ddgi_batch_progress(batch, &published.progress)?;
-                    let publication = published.publication;
+                    let published_progress = published.progress();
+                    self.observe_ddgi_batch_progress(
+                        batch,
+                        published_progress.observation(),
+                        Some(published_progress.build_token()),
+                    )?;
+                    let publication = published.publication();
                     let work = publication.work();
                     let field = publication.field();
                     let atlas_stats = publication.atlas_validation();
@@ -2915,17 +2925,14 @@ impl Tracer {
                                 atlas_stats.max_relative_rgb_delta,
                         lighting.has_mixed_in_flight_revision,
                     );
-                    if let Some(resident) = published.capture_publication {
+                    if published.capture_checkpoint_attached() {
+                        let resident = published.progress().field_publication();
                         let generation = resident.generation();
                         assert_eq!(resident.field(), field);
                         log::info!(
                             "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} generation_token_serial={} epoch_zero_field_serial={} field_serial={} source_field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} publication=Published",
                             self.ddgi_runtime.capture_target().label(),
-                            published
-                                .progress
-                                .build_token
-                                .expect("captured DDGI publication must retain a build token")
-                                .serial(),
+                            published.progress().build_token().serial(),
                             generation.build_token().serial(),
                             generation.epoch_zero_field().field().serial(),
                             field.field().serial(),
@@ -2937,20 +2944,20 @@ impl Tracer {
                             field.field().update_epoch(),
                         );
                     }
-                    if let Some(consumer) = &published.consumer {
-                        let slot = consumer.irradiance_slot;
+                    if let Some(consumer) = published.consumer() {
+                        let slot = consumer.irradiance_slot();
                         let key = field.field();
                         log::debug!(
                             "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?} descriptor_generation={}",
                                     slot,
                                     key.state(),
                                     key.update_epoch(),
-                                    published.progress.build_token.map(DdgiBuildToken::serial),
+                                    published.progress().build_token().serial(),
                                     key.geometry_revision(),
                                     key.radiance_revision(),
                                     key.spacing_voxels(),
                                     field.source(),
-                                    consumer.descriptor_generation,
+                                    consumer.descriptor_generation(),
                                 );
                         log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",

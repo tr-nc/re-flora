@@ -311,7 +311,7 @@ impl DdgiFrameView<'_> {
 pub(crate) enum DdgiBatchCompletion {
     Stale(DdgiStaleBatchObservation),
     Progress(DdgiBatchProgress),
-    Published(DdgiPublishedBatch),
+    Published(DdgiPublishedObservation),
 }
 ::static_assertions::assert_not_impl_any!(
     DdgiBatchCompletion: ::core::fmt::Debug, ::core::fmt::Display, ::core::marker::Copy,
@@ -319,32 +319,151 @@ pub(crate) enum DdgiBatchCompletion {
 );
 
 pub(crate) struct DdgiStaleBatchObservation {
-    pub(crate) build_token: Option<DdgiBuildToken>,
-    pub(crate) stage: DdgiVolumeStage,
-    pub(crate) complete_field: Option<DdgiFieldIdentity>,
-    pub(crate) building_field: Option<DdgiFieldIdentity>,
-    pub(crate) radiance_revision: Option<u32>,
+    build_token: Option<DdgiBuildToken>,
+    stage: DdgiVolumeStage,
+    complete_field: Option<DdgiFieldIdentity>,
+    building_field: Option<DdgiFieldIdentity>,
+    radiance_revision: Option<u32>,
+}
+
+impl DdgiStaleBatchObservation {
+    pub(crate) fn build_token(&self) -> Option<DdgiBuildToken> {
+        self.build_token
+    }
+
+    pub(crate) fn stage(&self) -> DdgiVolumeStage {
+        self.stage
+    }
+
+    pub(crate) fn complete_field(&self) -> Option<DdgiFieldIdentity> {
+        self.complete_field
+    }
+
+    pub(crate) fn building_field(&self) -> Option<DdgiFieldIdentity> {
+        self.building_field
+    }
+
+    pub(crate) fn radiance_revision(&self) -> Option<u32> {
+        self.radiance_revision
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DdgiBatchObservation {
+    stats: DdgiTraceStats,
+    radiance_snapshot: crate::environment_lighting::DdgiRadianceSnapshot,
+    probe_count: u32,
+    filtered_probe_count: u32,
+}
+
+impl DdgiBatchObservation {
+    pub(crate) fn stats(self) -> DdgiTraceStats {
+        self.stats
+    }
+
+    pub(crate) fn radiance_snapshot(self) -> crate::environment_lighting::DdgiRadianceSnapshot {
+        self.radiance_snapshot
+    }
+
+    pub(crate) fn probe_count(self) -> u32 {
+        self.probe_count
+    }
+
+    pub(crate) fn filtered_probe_count(self) -> u32 {
+        self.filtered_probe_count
+    }
 }
 
 pub(crate) struct DdgiBatchProgress {
-    pub(crate) stats: DdgiTraceStats,
-    pub(crate) radiance_snapshot: crate::environment_lighting::DdgiRadianceSnapshot,
-    pub(crate) probe_count: u32,
-    pub(crate) filtered_probe_count: u32,
-    pub(crate) build_token: Option<DdgiBuildToken>,
+    observation: DdgiBatchObservation,
+    build_token: Option<DdgiBuildToken>,
+}
+
+impl DdgiBatchProgress {
+    pub(crate) fn observation(&self) -> DdgiBatchObservation {
+        self.observation
+    }
+
+    pub(crate) fn build_token(&self) -> Option<DdgiBuildToken> {
+        self.build_token
+    }
+}
+
+pub(crate) struct DdgiPublishedProgress {
+    observation: DdgiBatchObservation,
+    build_token: DdgiBuildToken,
+    field_publication: super::DdgiFieldPublication,
+}
+
+impl DdgiPublishedProgress {
+    fn new(
+        observation: DdgiBatchObservation,
+        build_token: DdgiBuildToken,
+        field_publication: super::DdgiFieldPublication,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            field_publication.generation().build_token() == build_token,
+            "published DDGI field generation does not match its required build token"
+        );
+        Ok(Self {
+            observation,
+            build_token,
+            field_publication,
+        })
+    }
+
+    pub(crate) fn observation(&self) -> DdgiBatchObservation {
+        self.observation
+    }
+
+    pub(crate) fn build_token(&self) -> DdgiBuildToken {
+        self.build_token
+    }
+
+    pub(crate) fn field_publication(&self) -> super::DdgiFieldPublication {
+        self.field_publication
+    }
 }
 
 pub(crate) struct DdgiConsumerPublicationObservation {
-    pub(crate) descriptor_generation: u64,
-    pub(crate) irradiance_slot: &'static str,
+    descriptor_generation: u64,
+    irradiance_slot: &'static str,
 }
 
-pub(crate) struct DdgiPublishedBatch {
-    pub(crate) progress: DdgiBatchProgress,
-    pub(crate) publication: DdgiValidatedPublication,
-    pub(crate) capture_publication: Option<super::DdgiFieldPublication>,
-    pub(crate) consumer: Option<DdgiConsumerPublicationObservation>,
+impl DdgiConsumerPublicationObservation {
+    pub(crate) fn descriptor_generation(&self) -> u64 {
+        self.descriptor_generation
+    }
+
+    pub(crate) fn irradiance_slot(&self) -> &'static str {
+        self.irradiance_slot
+    }
+}
+
+pub(crate) struct DdgiPublishedObservation {
+    progress: DdgiPublishedProgress,
+    publication: DdgiValidatedPublication,
+    capture_checkpoint_attached: bool,
+    consumer: Option<DdgiConsumerPublicationObservation>,
     pending_convergence_evidence: convergence_evidence::Pending,
+}
+
+impl DdgiPublishedObservation {
+    pub(crate) fn progress(&self) -> &DdgiPublishedProgress {
+        &self.progress
+    }
+
+    pub(crate) fn publication(&self) -> DdgiValidatedPublication {
+        self.publication
+    }
+
+    pub(crate) fn capture_checkpoint_attached(&self) -> bool {
+        self.capture_checkpoint_attached
+    }
+
+    pub(crate) fn consumer(&self) -> Option<&DdgiConsumerPublicationObservation> {
+        self.consumer.as_ref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -486,7 +605,7 @@ mod convergence_evidence {
         }
     }
 
-    impl super::DdgiPublishedBatch {
+    impl super::DdgiPublishedObservation {
         pub(crate) fn commit_convergence_evidence(self) {
             self.pending_convergence_evidence.emit();
         }
@@ -1840,10 +1959,12 @@ impl DdgiRuntime {
         let DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) = outcome else {
             let after = self.volumes().builder().status();
             return Ok(DdgiBatchCompletion::Progress(DdgiBatchProgress {
-                stats,
-                radiance_snapshot,
-                probe_count: after.grid.probe_count(),
-                filtered_probe_count: after.filtered_probe_count,
+                observation: DdgiBatchObservation {
+                    stats,
+                    radiance_snapshot,
+                    probe_count: after.grid.probe_count(),
+                    filtered_probe_count: after.filtered_probe_count,
+                },
                 build_token: after.build_token,
             }));
         };
@@ -1879,6 +2000,17 @@ impl DdgiRuntime {
         let build_token = before
             .build_token
             .context("validated DDGI field has no volume build token")?;
+        let before_publication = self.volumes().builder().status();
+        let published_progress = DdgiPublishedProgress::new(
+            DdgiBatchObservation {
+                stats,
+                radiance_snapshot,
+                probe_count: before_publication.grid.probe_count(),
+                filtered_probe_count: before_publication.filtered_probe_count,
+            },
+            build_token,
+            field_publication,
+        )?;
         let builder_is_active = self.volumes().builder_is_active();
         let descriptor_generation = if builder_is_active {
             assert_eq!(
@@ -1911,15 +2043,13 @@ impl DdgiRuntime {
             "DDGI validated work changed during publication"
         );
         self.commit_transport_work(work, build_token, field_publication, scheduler_permit);
-        let capture_publication = self
-            .observe_capture_checkpoint(
-                build_token,
-                field,
-                atlas_stats,
-                filter_epoch_proof,
-                DdgiCapturePublication::Published,
-            )
-            .then_some(field_publication);
+        let capture_checkpoint_attached = self.observe_capture_checkpoint(
+            build_token,
+            field,
+            atlas_stats,
+            filter_epoch_proof,
+            DdgiCapturePublication::Published,
+        );
         let consumer = descriptor_generation.map(|descriptor_generation| {
             let irradiance_slot = self
                 .volumes()
@@ -1931,17 +2061,10 @@ impl DdgiRuntime {
                 irradiance_slot,
             }
         });
-        let after = self.volumes().builder().status();
-        Ok(DdgiBatchCompletion::Published(DdgiPublishedBatch {
-            progress: DdgiBatchProgress {
-                stats,
-                radiance_snapshot,
-                probe_count: after.grid.probe_count(),
-                filtered_probe_count: after.filtered_probe_count,
-                build_token: after.build_token,
-            },
+        Ok(DdgiBatchCompletion::Published(DdgiPublishedObservation {
+            progress: published_progress,
             publication,
-            capture_publication,
+            capture_checkpoint_attached,
             consumer,
             pending_convergence_evidence: prepared.pending,
         }))
@@ -2779,8 +2902,9 @@ mod tests {
             active_token.kind(),
         );
 
-        let error =
-            DdgiPublishedProgress::new(observation, wrong_token, field_publication).unwrap_err();
+        let error = DdgiPublishedProgress::new(observation, wrong_token, field_publication)
+            .err()
+            .expect("mismatched published generation must be rejected");
         assert!(error.to_string().contains("generation does not match"));
 
         let progress =
