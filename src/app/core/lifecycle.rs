@@ -1,115 +1,195 @@
-use super::{emissive_voxel_lighting, water, App, ContreeBuilder, PlainBuilder, VulkanContext};
+use super::App;
 use anyhow::{anyhow, Context, Result};
+use std::fmt;
 use winit::event_loop::ActiveEventLoop;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 enum ShutdownState {
     #[default]
     Running,
-    Quiescing,
-    Complete,
+    Terminating,
+    Terminated(ShutdownReport),
 }
 
 #[derive(Debug, Default)]
 pub(super) struct AppShutdownLifecycle {
     state: ShutdownState,
-    water_complete: bool,
-    contree_readback_complete: bool,
-    workers_joined: bool,
 }
 
 trait ShutdownActions {
+    fn quiesce_producers(&mut self);
     fn shutdown_water(&mut self) -> Result<()>;
     fn discard_contree_readback(&mut self) -> Result<()>;
     fn join_dependent_workers(&mut self);
+    fn shutdown_audio(&mut self) -> Result<()>;
     fn wait_device_idle(&mut self);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShutdownPhase {
+    Transaction,
+    Water,
+    ContreeReadback,
+    Audio,
+}
+
+impl fmt::Display for ShutdownPhase {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transaction => formatter.write_str("transaction"),
+            Self::Water => formatter.write_str("water"),
+            Self::ContreeReadback => formatter.write_str("Contree readback"),
+            Self::Audio => formatter.write_str("audio"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ShutdownFailure {
+    phase: ShutdownPhase,
+    detail: String,
+}
+
+impl ShutdownFailure {
+    fn new(phase: ShutdownPhase, error: anyhow::Error) -> Self {
+        Self {
+            phase,
+            detail: format!("{error:#}"),
+        }
+    }
+
+    #[cfg(test)]
+    fn phase(&self) -> ShutdownPhase {
+        self.phase
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ShutdownReport {
+    failures: Vec<ShutdownFailure>,
+}
+
+impl ShutdownReport {
+    fn interrupted() -> Self {
+        Self {
+            failures: vec![ShutdownFailure {
+                phase: ShutdownPhase::Transaction,
+                detail: "a prior shutdown transaction was interrupted; one-shot owners were not invoked again"
+                    .into(),
+            }],
+        }
+    }
+
+    fn record(&mut self, phase: ShutdownPhase, result: Result<()>) {
+        if let Err(error) = result {
+            self.failures.push(ShutdownFailure::new(phase, error));
+        }
+    }
+
+    fn is_success(&self) -> bool {
+        self.failures.is_empty()
+    }
+
+    fn result(&self) -> Result<()> {
+        if self.is_success() {
+            Ok(())
+        } else {
+            Err(anyhow!("application shutdown failed: {self}"))
+        }
+    }
+
+    #[cfg(test)]
+    fn failures(&self) -> &[ShutdownFailure] {
+        &self.failures
+    }
+}
+
+impl fmt::Display for ShutdownReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, failure) in self.failures.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{}: {}", failure.phase, failure.detail)?;
+        }
+        Ok(())
+    }
 }
 
 impl AppShutdownLifecycle {
     pub(super) fn is_started(&self) -> bool {
-        self.state != ShutdownState::Running
+        !matches!(self.state, ShutdownState::Running)
     }
 
-    pub(super) fn is_complete(&self) -> bool {
-        self.state == ShutdownState::Complete
+    fn interrupted() -> Self {
+        Self {
+            state: ShutdownState::Terminated(ShutdownReport::interrupted()),
+        }
     }
 
-    fn begin(&mut self) -> bool {
-        if self.state != ShutdownState::Running {
-            return false;
+    fn report(&self) -> Option<&ShutdownReport> {
+        match &self.state {
+            ShutdownState::Terminated(report) => Some(report),
+            ShutdownState::Running | ShutdownState::Terminating => None,
         }
-        self.state = ShutdownState::Quiescing;
-        true
     }
 
-    #[cfg(test)]
-    fn state(&self) -> ShutdownState {
-        self.state
-    }
+    fn terminate(&mut self, actions: &mut impl ShutdownActions) -> ShutdownReport {
+        if matches!(self.state, ShutdownState::Terminating) {
+            self.state = ShutdownState::Terminated(ShutdownReport::interrupted());
+        }
+        if let ShutdownState::Terminated(report) = &self.state {
+            return report.clone();
+        }
+        self.state = ShutdownState::Terminating;
 
-    fn drain(&mut self, actions: &mut impl ShutdownActions) -> Result<()> {
-        if self.state == ShutdownState::Complete {
-            return Ok(());
-        }
-        self.begin();
+        log::info!("[SHUTDOWN] phase=quiesce_producers");
+        actions.quiesce_producers();
 
-        let mut failures = Vec::new();
-        if !self.water_complete || !self.contree_readback_complete {
-            log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
-        }
-        if !self.water_complete {
-            match actions.shutdown_water() {
-                Ok(()) => self.water_complete = true,
-                Err(error) => failures.push(error),
-            }
-        }
-        if !self.contree_readback_complete {
-            match actions.discard_contree_readback() {
-                Ok(()) => self.contree_readback_complete = true,
-                Err(error) => failures.push(error),
-            }
-        }
-        if !self.workers_joined {
-            log::info!("[SHUTDOWN] phase=join_dependent_workers");
-            actions.join_dependent_workers();
-            self.workers_joined = true;
-        }
+        let mut report = ShutdownReport::default();
+        log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
+        report.record(ShutdownPhase::Water, actions.shutdown_water());
+        report.record(
+            ShutdownPhase::ContreeReadback,
+            actions.discard_contree_readback(),
+        );
 
-        // Every attempt ends behind a device-idle boundary. A retry can successfully consume GPU
-        // work that a prior failed phase retained, so it must establish a fresh boundary too.
+        log::info!("[SHUTDOWN] phase=join_dependent_workers");
+        actions.join_dependent_workers();
+
+        log::info!("[SHUTDOWN] phase=shutdown_audio");
+        report.record(ShutdownPhase::Audio, actions.shutdown_audio());
+
+        // This is the one device-wide idle boundary for terminal App teardown. It runs after every
+        // owner was asked to quiesce, even when an earlier one-shot owner reported a failure.
         log::info!("[SHUTDOWN] phase=wait_device_idle");
         actions.wait_device_idle();
 
-        if failures.is_empty() {
-            debug_assert!(
-                self.water_complete && self.contree_readback_complete && self.workers_joined
-            );
-            self.state = ShutdownState::Complete;
-            log::info!("[SHUTDOWN] phase=complete");
-            return Ok(());
-        }
+        log::info!(
+            "[SHUTDOWN] phase=complete failures={}",
+            report.failures.len()
+        );
+        self.state = ShutdownState::Terminated(report);
+        self.report()
+            .expect("a completed shutdown transaction must retain its report")
+            .clone()
+    }
 
-        let details = failures
-            .iter()
-            .map(|failure| format!("{failure:#}"))
-            .collect::<Vec<_>>()
-            .join("; ");
-        Err(anyhow!("shutdown phases failed: {details}"))
+    #[cfg(test)]
+    fn is_terminated(&self) -> bool {
+        matches!(self.state, ShutdownState::Terminated(_))
     }
 }
 
-struct AppShutdownActions<'a> {
-    water: &'a mut water::WaterRuntime,
-    plain_builder: &'a mut PlainBuilder,
-    contree_builder: &'a mut ContreeBuilder,
-    emissive_voxel_lighting: &'a mut Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
-    vulkan_ctx: &'a VulkanContext,
-}
+impl ShutdownActions for App {
+    fn quiesce_producers(&mut self) {
+        self.stop_terrain_edit_loop_sound();
+        self.abort_loading_visible_terrain_publication();
+    }
 
-impl ShutdownActions for AppShutdownActions<'_> {
     fn shutdown_water(&mut self) -> Result<()> {
         self.water
-            .shutdown(self.plain_builder)
+            .shutdown(&mut self.plain_builder)
             .context("shut down water runtime")
     }
 
@@ -126,6 +206,12 @@ impl ShutdownActions for AppShutdownActions<'_> {
         self.contree_builder.shutdown_cpu_chunk_cache_worker();
     }
 
+    fn shutdown_audio(&mut self) -> Result<()> {
+        self.spatial_sound_manager
+            .stop()
+            .context("shut down audio runtime")
+    }
+
     fn wait_device_idle(&mut self) {
         self.vulkan_ctx.device().wait_idle();
     }
@@ -134,7 +220,7 @@ impl ShutdownActions for AppShutdownActions<'_> {
 impl App {
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(err) = self.shutdown_for_termination() {
-            log::error!("[SHUTDOWN] failed to drain application GPU work: {err:#}");
+            log::error!("[SHUTDOWN] terminal transaction completed with failures: {err:#}");
         }
         event_loop.exit();
     }
@@ -157,28 +243,25 @@ impl App {
         }
     }
 
-    /// Drives the one legal application teardown transition. Quiescing is published before any
-    /// blocking operation; successful phases are retained across retries, while every phase after
-    /// a failure is still attempted so no worker is abandoned behind an early return.
+    /// Drives the one legal application teardown transition.
+    ///
+    /// Every real owner is consumed at most once. Failures are retained in the terminal report, so
+    /// close requests, keyboard exit, auto-exit, and `Drop` all observe the same result without
+    /// retrying one-shot water, readback, worker, or audio capabilities.
     pub(super) fn shutdown_for_termination(&mut self) -> Result<()> {
-        if self.shutdown_lifecycle.is_complete() {
-            return Ok(());
+        if let Some(report) = self.shutdown_lifecycle.report() {
+            return report.result();
         }
 
-        if self.shutdown_lifecycle.begin() {
-            log::info!("[SHUTDOWN] phase=quiesce_producers");
-            self.stop_terrain_edit_loop_sound();
-            self.abort_loading_visible_terrain_publication();
-        }
-
-        let mut actions = AppShutdownActions {
-            water: &mut self.water,
-            plain_builder: &mut self.plain_builder,
-            contree_builder: &mut self.contree_builder,
-            emissive_voxel_lighting: &mut self.emissive_voxel_lighting,
-            vulkan_ctx: &self.vulkan_ctx,
-        };
-        self.shutdown_lifecycle.drain(&mut actions)
+        // Leave an auditable terminal sentinel in `App` while the lifecycle is lent the complete
+        // production adapter. If a phase panics, `Drop` will not re-invoke already consumed owners.
+        let mut lifecycle = std::mem::replace(
+            &mut self.shutdown_lifecycle,
+            AppShutdownLifecycle::interrupted(),
+        );
+        let report = lifecycle.terminate(self);
+        self.shutdown_lifecycle = lifecycle;
+        report.result()
     }
 
     pub(super) fn queue_frame_extent(&mut self, extent: re_flora_vkn::Extent2D) {
@@ -238,37 +321,55 @@ impl App {
 
 #[cfg(test)]
 mod shutdown_tests {
-    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownState};
+    use super::{AppShutdownLifecycle, ShutdownActions, ShutdownPhase};
     use anyhow::{anyhow, Result};
 
-    #[derive(Default)]
-    struct FakeShutdownActions {
+    struct RecordingShutdownActions {
         calls: Vec<&'static str>,
-        water_failures_remaining: usize,
-        discard_failures_remaining: usize,
+        water_result: Option<Result<()>>,
+        discard_result: Option<Result<()>>,
+        audio_result: Option<Result<()>>,
     }
 
-    impl ShutdownActions for FakeShutdownActions {
+    impl RecordingShutdownActions {
+        fn successful() -> Self {
+            Self {
+                calls: Vec::new(),
+                water_result: Some(Ok(())),
+                discard_result: Some(Ok(())),
+                audio_result: Some(Ok(())),
+            }
+        }
+    }
+
+    impl ShutdownActions for RecordingShutdownActions {
+        fn quiesce_producers(&mut self) {
+            self.calls.push("quiesce");
+        }
+
         fn shutdown_water(&mut self) -> Result<()> {
             self.calls.push("water");
-            if self.water_failures_remaining > 0 {
-                self.water_failures_remaining -= 1;
-                return Err(anyhow!("injected water shutdown failure"));
-            }
-            Ok(())
+            self.water_result
+                .take()
+                .expect("water owner cannot be consumed twice")
         }
 
         fn discard_contree_readback(&mut self) -> Result<()> {
             self.calls.push("discard");
-            if self.discard_failures_remaining > 0 {
-                self.discard_failures_remaining -= 1;
-                return Err(anyhow!("injected Contree discard failure"));
-            }
-            Ok(())
+            self.discard_result
+                .take()
+                .expect("Contree readback owner cannot be consumed twice")
         }
 
         fn join_dependent_workers(&mut self) {
             self.calls.push("join");
+        }
+
+        fn shutdown_audio(&mut self) -> Result<()> {
+            self.calls.push("audio");
+            self.audio_result
+                .take()
+                .expect("audio owner cannot be consumed twice")
         }
 
         fn wait_device_idle(&mut self) {
@@ -277,47 +378,51 @@ mod shutdown_tests {
     }
 
     #[test]
-    fn failed_shutdown_attempts_every_phase_and_remains_retryable() {
+    fn terminal_shutdown_attempts_every_owner_once_and_persists_failures() {
         let mut lifecycle = AppShutdownLifecycle::default();
-        assert!(lifecycle.begin());
-        let mut actions = FakeShutdownActions {
-            water_failures_remaining: 1,
-            discard_failures_remaining: 1,
-            ..FakeShutdownActions::default()
+        let mut actions = RecordingShutdownActions {
+            calls: Vec::new(),
+            water_result: Some(Err(anyhow!("water owner was consumed"))),
+            discard_result: Some(Ok(())),
+            audio_result: Some(Err(anyhow!("audio owner was consumed"))),
         };
 
-        let error = lifecycle.drain(&mut actions).unwrap_err();
+        let first = lifecycle.terminate(&mut actions);
 
-        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
-        assert!(error.to_string().contains("water"));
-        assert!(error.to_string().contains("Contree"));
-        assert_eq!(lifecycle.state(), ShutdownState::Quiescing);
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
+        assert_eq!(
+            first
+                .failures()
+                .iter()
+                .map(|failure| failure.phase())
+                .collect::<Vec<_>>(),
+            [ShutdownPhase::Water, ShutdownPhase::Audio]
+        );
+        assert!(first.to_string().contains("water owner was consumed"));
+        assert!(first.to_string().contains("audio owner was consumed"));
+        assert!(lifecycle.is_terminated());
 
-        actions.calls.clear();
-        lifecycle.drain(&mut actions).unwrap();
-        assert_eq!(actions.calls, ["water", "discard", "idle"]);
-        assert_eq!(lifecycle.state(), ShutdownState::Complete);
+        let second = lifecycle.terminate(&mut actions);
+        assert_eq!(second, first);
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
     }
 
     #[test]
-    fn successful_phases_are_not_repeated_but_idle_covers_each_retry() {
+    fn successful_terminal_shutdown_reentry_is_a_noop() {
         let mut lifecycle = AppShutdownLifecycle::default();
-        lifecycle.begin();
-        let mut actions = FakeShutdownActions {
-            water_failures_remaining: 1,
-            ..FakeShutdownActions::default()
-        };
+        let mut actions = RecordingShutdownActions::successful();
 
-        assert!(lifecycle.drain(&mut actions).is_err());
-        assert_eq!(actions.calls, ["water", "discard", "join", "idle"]);
-
-        actions.calls.clear();
-        lifecycle.drain(&mut actions).unwrap();
-        assert_eq!(actions.calls, ["water", "idle"]);
-
-        actions.calls.clear();
-        assert!(!lifecycle.begin());
-        lifecycle.drain(&mut actions).unwrap();
-        assert!(actions.calls.is_empty());
+        assert!(lifecycle.terminate(&mut actions).is_success());
+        assert!(lifecycle.terminate(&mut actions).is_success());
+        assert_eq!(
+            actions.calls,
+            ["quiesce", "water", "discard", "join", "audio", "idle"]
+        );
     }
 }

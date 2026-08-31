@@ -509,12 +509,6 @@ impl Drop for App {
         if let Err(err) = self.shutdown_for_termination() {
             log::error!("[SHUTDOWN] failed during App drop: {err:#}");
         }
-        if let Err(err) = self.spatial_sound_manager.stop() {
-            log::warn!("Failed to stop audio engine during shutdown: {}", err);
-        }
-
-        // Ensure GPU work is done before resources begin destructing
-        self.vulkan_ctx.device().wait_idle();
     }
 }
 
