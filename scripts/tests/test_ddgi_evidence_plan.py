@@ -141,6 +141,24 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
             sum(command.kind == "analysis" for command in host.commands), 78
         )
 
+    def test_recording_host_cannot_issue_production_evidence_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = io.StringIO()
+            errors = io.StringIO()
+            request = RunRequest(
+                Suite.TRANSPORT,
+                Path(temporary),
+                dry_run=False,
+            )
+            host = RecordingHost(stdout=output, stderr=errors)
+
+            report = execute(plan(request), host)
+
+        self.assertTrue(report.succeeded, report.failures)
+        self.assertEqual(report.claims, ())
+        self.assertNotIn("=PROVEN", output.getvalue())
+        self.assertIn("{dry-run:geometry_revision}", errors.getvalue())
+
     def test_failure_keys_accumulate_the_full_correctness_capture_matrix(self) -> None:
         class FailingCaptureHost(RecordingHost):
             def capture(self, action, repo_root):
