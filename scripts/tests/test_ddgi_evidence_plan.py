@@ -188,6 +188,7 @@ class TypedDdgiEvidencePlanTests(unittest.TestCase):
                 dry_run=False,
             )
             host = RecordingHost(stdout=output, stderr=errors)
+            host.issues_production_evidence = True
 
             report = execute(plan(request), host)
 
