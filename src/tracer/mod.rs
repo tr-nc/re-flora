@@ -104,10 +104,10 @@ use crate::ddgi::{
     DdgiCaptureCheckpoint, DdgiCaptureTarget, DdgiEncodedFrame, DdgiFieldIdentity,
     DdgiFilterConfigurationIdentity, DdgiFramePlan, DdgiFrameView, DdgiLocalLightTraceTotals,
     DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
-    DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolumePublishOutcome, DdgiVoxelVisibility,
-    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiRuntimeVolumeBuildKind, DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolumePublishOutcome,
+    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
@@ -1578,7 +1578,7 @@ impl Tracer {
 
     fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
         let build_token = build.token();
-        assert!(matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)));
+        assert_eq!(build.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
         if let Some(retired_token) = self
             .ddgi_runtime
             .staging_build_token()
@@ -1800,8 +1800,8 @@ impl Tracer {
             return;
         };
         let build_token = build.token();
-        match build {
-            build @ DdgiRuntimeVolumeBuild::Initial(_) => {
+        match build.kind() {
+            DdgiRuntimeVolumeBuildKind::Initial => {
                 self.ddgi_runtime
                     .complete_initial_volume_build(build)
                     .expect("initial DDGI Volume installation must succeed");
@@ -1815,7 +1815,7 @@ impl Tracer {
                     DdgiConvergencePolicyEvidence,
                 );
             }
-            build @ DdgiRuntimeVolumeBuild::Replacement(_) => {
+            DdgiRuntimeVolumeBuildKind::Replacement => {
                 let preparation = self.prepare_ddgi_staging(build);
                 require_ddgi_staging_preparation(build_token, preparation);
                 log::info!(

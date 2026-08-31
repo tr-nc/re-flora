@@ -73,7 +73,8 @@ pub use resources::{
 };
 pub(crate) use runtime::{
     DdgiBatchCompletion, DdgiBatchObservation, DdgiEncodedFrame, DdgiFramePlan, DdgiFrameView,
-    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiVolumePublishOutcome,
+    DdgiLightingDiagnostics, DdgiRuntime, DdgiRuntimeVolumeBuild, DdgiRuntimeVolumeBuildKind,
+    DdgiVolumePublishOutcome,
 };
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};

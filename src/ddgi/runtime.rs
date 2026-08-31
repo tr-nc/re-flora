@@ -34,7 +34,7 @@ const DDGI_TRANSPORT_MIN_PUBLICATION_INTERVAL: Duration = Duration::from_millis(
 /// A Volume generation may host multiple transport [`super::DdgiFieldGeneration`] roots as
 /// radiance restarts. The allocation identity therefore stays separate from field lineage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DdgiVolumeGeneration {
+struct DdgiVolumeGeneration {
     token: DdgiBuildToken,
     grid: DdgiVolumeGrid,
 }
@@ -45,11 +45,11 @@ impl DdgiVolumeGeneration {
         Self { token, grid }
     }
 
-    pub(crate) fn token(self) -> DdgiBuildToken {
+    fn token(self) -> DdgiBuildToken {
         self.token
     }
 
-    pub(crate) fn grid(self) -> DdgiVolumeGrid {
+    fn grid(self) -> DdgiVolumeGrid {
         self.grid
     }
 }
@@ -134,12 +134,22 @@ impl DdgiActivePublication {
     }
 }
 
-/// One runtime-authorized physical Volume allocation. Consuming the variant prevents a caller from
-/// reclassifying an Initial allocation as a Replacement (or vice versa) after the claim.
+/// The only classification an allocator may observe before returning the whole build capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DdgiRuntimeVolumeBuildKind {
+    Initial,
+    Replacement,
+}
+
+/// One runtime-authorized physical Volume allocation.
+///
+/// The private payload makes this a linear capability: only [`DdgiRuntime`] can mint its exact
+/// generation and callers may inspect only the allocation kind and token needed for concrete
+/// Vulkan work before handing the whole value back to the runtime.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum DdgiRuntimeVolumeBuild {
-    Initial(DdgiVolumeGeneration),
-    Replacement(DdgiVolumeGeneration),
+pub(crate) struct DdgiRuntimeVolumeBuild {
+    kind: DdgiRuntimeVolumeBuildKind,
+    generation: DdgiVolumeGeneration,
 }
 ::static_assertions::assert_not_impl_any!(
     DdgiRuntimeVolumeBuild: ::core::marker::Copy, ::core::clone::Clone,
@@ -147,14 +157,16 @@ pub(crate) enum DdgiRuntimeVolumeBuild {
 );
 
 impl DdgiRuntimeVolumeBuild {
-    pub(crate) fn generation(&self) -> DdgiVolumeGeneration {
-        match self {
-            Self::Initial(generation) | Self::Replacement(generation) => *generation,
-        }
+    fn new(kind: DdgiRuntimeVolumeBuildKind, generation: DdgiVolumeGeneration) -> Self {
+        Self { kind, generation }
+    }
+
+    pub(crate) fn kind(&self) -> DdgiRuntimeVolumeBuildKind {
+        self.kind
     }
 
     pub(crate) fn token(&self) -> DdgiBuildToken {
-        self.generation().token()
+        self.generation.token()
     }
 }
 
@@ -1331,7 +1343,10 @@ impl DdgiRuntime {
                 let generation = DdgiVolumeGeneration::new(token, grid);
                 self.active_publication = DdgiActivePublication::Building(generation);
                 self.request_geometry_transport(token);
-                return Some(DdgiRuntimeVolumeBuild::Initial(generation));
+                return Some(DdgiRuntimeVolumeBuild::new(
+                    DdgiRuntimeVolumeBuildKind::Initial,
+                    generation,
+                ));
             }
             DdgiActivePublication::Building(_) => return None,
             DdgiActivePublication::Published(active) => active,
@@ -1349,7 +1364,8 @@ impl DdgiRuntime {
             token.spacing(),
         )
         .expect("runtime-issued DDGI replacement must retain a supported Volume grid");
-        Some(DdgiRuntimeVolumeBuild::Replacement(
+        Some(DdgiRuntimeVolumeBuild::new(
+            DdgiRuntimeVolumeBuildKind::Replacement,
             DdgiVolumeGeneration::new(token, grid),
         ))
     }
@@ -1364,8 +1380,9 @@ impl DdgiRuntime {
         build: DdgiRuntimeVolumeBuild,
         staging: Option<DdgiVolume>,
     ) -> Result<Option<DdgiVolume>> {
-        match build {
-            DdgiRuntimeVolumeBuild::Initial(generation) => {
+        let DdgiRuntimeVolumeBuild { kind, generation } = build;
+        match kind {
+            DdgiRuntimeVolumeBuildKind::Initial => {
                 anyhow::ensure!(
                     staging.is_none(),
                     "initial DDGI build must use the installed Active allocation"
@@ -1390,7 +1407,7 @@ impl DdgiRuntime {
                 );
                 Ok(None)
             }
-            DdgiRuntimeVolumeBuild::Replacement(generation) => {
+            DdgiRuntimeVolumeBuildKind::Replacement => {
                 let mut staging =
                     staging.context("staging DDGI build requires a new allocation")?;
                 anyhow::ensure!(
@@ -1412,7 +1429,7 @@ impl DdgiRuntime {
         build: DdgiRuntimeVolumeBuild,
     ) -> Result<()> {
         anyhow::ensure!(
-            matches!(&build, DdgiRuntimeVolumeBuild::Initial(_)),
+            build.kind() == DdgiRuntimeVolumeBuildKind::Initial,
             "initial DDGI completion requires an Initial allocation claim"
         );
         let retired = self.complete_volume_build(build, None)?;
@@ -1431,7 +1448,7 @@ impl DdgiRuntime {
         batch_order: DdgiBatchOrder,
     ) -> Result<Option<DdgiRetiredVolume>> {
         anyhow::ensure!(
-            matches!(&build, DdgiRuntimeVolumeBuild::Replacement(_)),
+            build.kind() == DdgiRuntimeVolumeBuildKind::Replacement,
             "staging DDGI allocation requires a Replacement claim"
         );
         let staging = DdgiVolume::new(
@@ -2398,20 +2415,6 @@ mod tests {
         DdgiProbeSpacing::try_from(voxels).unwrap()
     }
 
-    fn initial_generation(build: DdgiRuntimeVolumeBuild) -> DdgiVolumeGeneration {
-        match build {
-            DdgiRuntimeVolumeBuild::Initial(generation) => generation,
-            DdgiRuntimeVolumeBuild::Replacement(_) => panic!("expected initial DDGI generation"),
-        }
-    }
-
-    fn replacement_generation(build: DdgiRuntimeVolumeBuild) -> DdgiVolumeGeneration {
-        match build {
-            DdgiRuntimeVolumeBuild::Replacement(generation) => generation,
-            DdgiRuntimeVolumeBuild::Initial(_) => panic!("expected replacement DDGI generation"),
-        }
-    }
-
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
         DdgiFieldIdentity::new(
             DdgiFieldKey::new(
@@ -2503,7 +2506,9 @@ mod tests {
         let mut runtime = DdgiRuntime::new(grid);
         runtime.observe_authored_lighting(lighting(1, 1.0));
         assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
-        let token = initial_generation(runtime.claim_volume_build().unwrap()).token();
+        let initial = runtime.claim_volume_build().unwrap();
+        assert_eq!(initial.kind(), DdgiRuntimeVolumeBuildKind::Initial);
+        let token = initial.token();
         let work = runtime.claim_transport_work().unwrap().scheduled();
         let published = work.destination();
         runtime
@@ -2519,28 +2524,21 @@ mod tests {
         runtime.observe_authored_lighting(lighting(1, 1.0));
         runtime.observe_visible_terrain(7, edit_bound(100, 120));
 
-        let initial_generation = match runtime.claim_volume_build().unwrap() {
-            DdgiRuntimeVolumeBuild::Initial(generation) => generation,
-            DdgiRuntimeVolumeBuild::Replacement(_) => panic!("first allocation must be Initial"),
-        };
-        assert_eq!(initial_generation.grid(), grid);
+        let initial = runtime.claim_volume_build().unwrap();
+        assert_eq!(initial.kind(), DdgiRuntimeVolumeBuildKind::Initial);
+        let initial_token = initial.token();
+        assert_eq!(initial_token.spacing(), grid.spacing());
         let initial_work = runtime.claim_transport_work().unwrap().scheduled();
         runtime
-            .complete_transport_work(
-                initial_work,
-                initial_work.destination(),
-                initial_generation.token(),
-            )
+            .complete_transport_work(initial_work, initial_work.destination(), initial_token)
             .unwrap();
 
         runtime.observe_visible_terrain(8, edit_bound(200, 220));
-        let replacement_generation = match runtime.claim_volume_build().unwrap() {
-            DdgiRuntimeVolumeBuild::Replacement(generation) => generation,
-            DdgiRuntimeVolumeBuild::Initial(_) => panic!("resident allocation must be replaced"),
-        };
-        assert_eq!(replacement_generation.grid().spacing_voxels(), 16);
-        assert_eq!(replacement_generation.token().terrain_revision(), 8);
-        assert_ne!(replacement_generation.token(), initial_generation.token());
+        let replacement = runtime.claim_volume_build().unwrap();
+        assert_eq!(replacement.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
+        assert_eq!(replacement.token().spacing_voxels(), 16);
+        assert_eq!(replacement.token().terrain_revision(), 8);
+        assert_ne!(replacement.token(), initial_token);
     }
 
     #[test]
@@ -2576,18 +2574,18 @@ mod tests {
         let (mut runtime, _, _) = initialized_runtime();
         let previous_active = runtime.active_publication.published().unwrap();
         runtime.observe_visible_terrain(8, edit_bound(200, 220));
-        let replacement = replacement_generation(runtime.claim_volume_build().unwrap());
+        let replacement = runtime.claim_volume_build().unwrap().token();
         let work = runtime.claim_transport_work().unwrap().scheduled();
         runtime
-            .complete_transport_work(work, work.destination(), replacement.token())
+            .complete_transport_work(work, work.destination(), replacement)
             .unwrap();
         let staged = runtime.completed_staging_publication.unwrap();
-        assert_eq!(staged.generation, replacement);
+        assert_eq!(staged.generation.token(), replacement);
 
         runtime.configure_capture(true, DdgiCaptureTarget::Published, DdgiBatchOrder::Reverse);
         let proof = filter_proof(staged.field.field());
         assert!(runtime.observe_capture_checkpoint(
-            replacement.token(),
+            replacement,
             staged.field.field(),
             DdgiAtlasValidationStats::default(),
             Some(proof),
@@ -2595,9 +2593,9 @@ mod tests {
         ));
         let staged = runtime.completed_staging_publication.unwrap();
         let authorized = runtime
-            .preflight_staging_publication(replacement.token(), staged.field)
+            .preflight_staging_publication(replacement, staged.field)
             .unwrap();
-        assert_eq!(authorized.generation, replacement);
+        assert_eq!(authorized.generation.token(), replacement);
         assert_ne!(authorized.generation, previous_active.generation);
         assert_eq!(authorized.field, staged.field);
         assert_eq!(
@@ -2618,7 +2616,7 @@ mod tests {
             remaining_staging.capture_checkpoint,
             staged.capture_checkpoint
         );
-        assert!(runtime.token_can_promote(replacement.token()));
+        assert!(runtime.token_can_promote(replacement));
     }
 
     #[test]
@@ -2626,19 +2624,19 @@ mod tests {
         let (mut runtime, _, _) = initialized_runtime();
         let resident = runtime.active_publication.published().unwrap();
         runtime.observe_visible_terrain(8, edit_bound(200, 220));
-        let replacement = replacement_generation(runtime.claim_volume_build().unwrap());
+        let replacement = runtime.claim_volume_build().unwrap().token();
         let work = runtime.claim_transport_work().unwrap().scheduled();
         runtime
-            .complete_transport_work(work, work.destination(), replacement.token())
+            .complete_transport_work(work, work.destination(), replacement)
             .unwrap();
         let staged = runtime.completed_staging_publication.unwrap();
         let wrong_publication = super::super::DdgiFieldPublication::for_test(
-            replacement.token(),
+            replacement,
             field(8, staged.authored_lighting.revision() + 1),
         );
 
         let error = runtime
-            .preflight_staging_publication(replacement.token(), wrong_publication)
+            .preflight_staging_publication(replacement, wrong_publication)
             .expect_err("promotion must reject a physical publication from another field root");
 
         assert!(error
@@ -2652,7 +2650,7 @@ mod tests {
             runtime.completed_staging_publication.unwrap().field,
             staged.field
         );
-        assert!(runtime.token_can_promote(replacement.token()));
+        assert!(runtime.token_can_promote(replacement));
     }
 
     fn volume_status(
@@ -2811,9 +2809,10 @@ mod tests {
             Some(UAabb3::new(UVec3::splat(68), UVec3::splat(152)))
         );
 
-        let generation = initial_generation(runtime.claim_volume_build().unwrap());
-        assert_eq!(generation.token().terrain_revision(), 7);
-        assert_eq!(generation.token().spacing_voxels(), 32);
+        let initial = runtime.claim_volume_build().unwrap();
+        assert_eq!(initial.kind(), DdgiRuntimeVolumeBuildKind::Initial);
+        assert_eq!(initial.token().terrain_revision(), 7);
+        assert_eq!(initial.token().spacing_voxels(), 32);
         assert_eq!(runtime.refresh_state(), DdgiRefreshState::Idle);
         assert_eq!(runtime.invalidation_voxel_bound(), None);
     }
@@ -2830,12 +2829,8 @@ mod tests {
         let encoded = runtime.begin_frame().unwrap().encoded();
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
         let replacement = runtime.claim_volume_build().unwrap();
-        let replacement_grid = replacement.generation().grid();
         runtime
-            .complete_volume_build(
-                replacement,
-                Some(DdgiVolume::for_test(replacement_grid, None)),
-            )
+            .complete_volume_build(replacement, Some(DdgiVolume::for_test(active_grid, None)))
             .unwrap();
         let replacement_before_commit = runtime.volumes().builder().status();
 
@@ -2858,7 +2853,7 @@ mod tests {
     }
 
     #[test]
-    fn one_replacement_claim_cannot_install_the_same_generation_twice() {
+    fn one_replacement_claim_installs_exactly_one_staging_allocation() {
         let (mut runtime, active_token, _) = initialized_runtime();
         let active_grid = runtime.active_publication.grid();
         runtime.install_volumes(DdgiVolumes::new(DdgiVolume::for_test(
@@ -2867,27 +2862,16 @@ mod tests {
         )));
 
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
-        let generation = replacement_generation(runtime.claim_volume_build().unwrap());
-        let first = DdgiRuntimeVolumeBuild::Replacement(generation);
-        let reconstructed = DdgiRuntimeVolumeBuild::Replacement(generation);
+        let replacement = runtime.claim_volume_build().unwrap();
+        assert_eq!(replacement.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
+        let replacement_token = replacement.token();
         runtime
-            .complete_volume_build(
-                first,
-                Some(DdgiVolume::for_test(generation.grid(), None)),
-            )
+            .complete_volume_build(replacement, Some(DdgiVolume::for_test(active_grid, None)))
             .unwrap();
-        let installed = runtime.volumes().builder_frame_identity();
-
-        let duplicate_install = runtime.complete_volume_build(
-            reconstructed,
-            Some(DdgiVolume::for_test(generation.grid(), None)),
+        assert_eq!(
+            runtime.volumes().builder().status().build_token,
+            Some(replacement_token)
         );
-
-        assert!(
-            duplicate_install.is_err(),
-            "one Runtime claim must be a linear capability, not a reusable generation value"
-        );
-        assert_eq!(runtime.volumes().builder_frame_identity(), installed);
     }
 
     #[test]
@@ -2997,7 +2981,8 @@ mod tests {
     fn terrain_refresh_reuses_the_resident_field_as_temporal_history() {
         let (mut runtime, _, resident) = initialized_runtime();
         assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
-        let _generation = replacement_generation(runtime.claim_volume_build().unwrap());
+        let replacement = runtime.claim_volume_build().unwrap();
+        assert_eq!(replacement.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
 
         let refresh = runtime.claim_transport_work().unwrap().scheduled();
         assert_eq!(refresh.kind(), DdgiScheduledWorkKind::GeometryUpdate);
@@ -3049,13 +3034,14 @@ mod tests {
     fn density_request_uses_the_active_geometry_and_requested_spacing() {
         let (mut runtime, active_token, _) = initialized_runtime();
         runtime.request_density_rebuild(probe_spacing(32));
-        let generation = replacement_generation(runtime.claim_volume_build().unwrap());
-        assert_eq!(generation.token().kind(), DdgiBuildKind::Density);
+        let replacement = runtime.claim_volume_build().unwrap();
+        assert_eq!(replacement.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
+        assert_eq!(replacement.token().kind(), DdgiBuildKind::Density);
         assert_eq!(
-            generation.token().terrain_revision(),
+            replacement.token().terrain_revision(),
             active_token.terrain_revision()
         );
-        assert_eq!(generation.token().spacing_voxels(), 32);
+        assert_eq!(replacement.token().spacing_voxels(), 32);
         let work = runtime.claim_transport_work().unwrap().scheduled();
         assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityUpdate);
         assert_eq!(work.destination().field().spacing_voxels(), 32);
