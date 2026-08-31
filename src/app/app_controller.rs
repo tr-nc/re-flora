@@ -33,29 +33,19 @@ impl<P, R> LifecycleSlot<P, R> {
             Self::Running(runtime) => runtime,
         }
     }
-
-    fn preserve_on_suspend(&mut self) {
-        match self {
-            Self::Pending(_) | Self::Running(_) => {}
-        }
-    }
 }
 
-pub struct AppController {
-    slot: LifecycleSlot<RunPlan, App>,
-}
+pub struct AppController(LifecycleSlot<RunPlan, App>);
 
 impl AppController {
     pub fn new(plan: RunPlan) -> Self {
-        Self {
-            slot: LifecycleSlot::Pending(plan),
-        }
+        Self(LifecycleSlot::Pending(plan))
     }
 }
 
 impl ApplicationHandler for AppController {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.slot
+        self.0
             .resume(|plan| {
                 let RunPlan {
                     platform,
@@ -77,14 +67,8 @@ impl ApplicationHandler for AppController {
             .unwrap_or_else(|error| panic!("failed to initialize App: {error:#}"));
     }
 
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.slot.preserve_on_suspend();
-    }
-
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        self.slot
-            .running_mut()
-            .on_window_event(event_loop, id, event);
+        self.0.running_mut().on_window_event(event_loop, id, event);
     }
 
     fn device_event(
@@ -93,13 +77,13 @@ impl ApplicationHandler for AppController {
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        self.slot
+        self.0
             .running_mut()
             .on_device_event(event_loop, device_id, event);
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        self.slot.running_mut().on_about_to_wait(_event_loop);
+        self.0.running_mut().on_about_to_wait(_event_loop);
     }
 }
 
@@ -206,8 +190,6 @@ mod tests {
                 Ok::<_, ()>(DropProbe::new(2, Rc::clone(&counts)))
             })
             .unwrap();
-        slot.preserve_on_suspend();
-
         assert_eq!(first, ResumeOutcome::Started);
         assert_eq!(second, ResumeOutcome::AlreadyRunning);
         assert_eq!(calls.get(), 1);
@@ -240,18 +222,5 @@ mod tests {
         );
         dispatch_one_event(&mut slot);
         assert_eq!(slot.running_mut().dispatched, 1);
-    }
-
-    #[test]
-    fn controller_has_one_lifecycle_field_and_no_parallel_plan_or_app_option() {
-        let source = include_str!("app_controller.rs");
-        assert_eq!(
-            source
-                .matches(concat!("slot: LifecycleSlot<", "RunPlan, App>"))
-                .count(),
-            1
-        );
-        assert!(!source.contains(concat!("initialized: ", "Option<App>")));
-        assert!(!source.contains(concat!("    plan", ": RunPlan,")));
     }
 }

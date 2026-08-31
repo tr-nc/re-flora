@@ -489,7 +489,7 @@ impl App {
 
         let total_start = Instant::now();
         let setup_start = Instant::now();
-        let allows_ambient_emitters = self.scenario_owner.allows_ambient_particle_emitters();
+        let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
         if allows_ambient_emitters {
             self.butterfly_emitter_desc =
                 Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);

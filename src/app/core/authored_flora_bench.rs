@@ -21,13 +21,13 @@ impl AuthoredFloraBench {
     }
 
     pub(super) fn run_next(app: &mut App) -> bool {
-        let Some(mut bench) = app.authored_flora_bench.take() else {
+        let Some(mut bench) = app.launch_owners.authored_flora_bench.take() else {
             return false;
         };
 
         let done = bench.run_sample(app);
         if !done {
-            app.authored_flora_bench = Some(bench);
+            app.launch_owners.authored_flora_bench = Some(bench);
         }
         done
     }
