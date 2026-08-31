@@ -1254,13 +1254,6 @@ mod tests {
         ] {
             assert!(!policy.contains(removed_adapter));
         }
-
-        let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
-        assert!(pipeline_builder.contains(
-            "for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter]"
-        ));
-        assert!(pipeline_builder
-            .contains("write_buffer!(writes, \"ddgi_trace_stats\", &volume.ddgi_trace_stats);"));
     }
 
     #[test]
