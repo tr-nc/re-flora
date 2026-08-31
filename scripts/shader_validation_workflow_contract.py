@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate shader CI routing and executable Fedora DDGI evidence steps."""
+"""Validate shader CI routing and executable Fedora evidence steps."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 
 
-REQUIRED_OWNER_PATHS = (
+REQUIRED_DDGI_OWNER_PATHS = (
     ".github/workflows/shader-validation.yml",
     "docs/ddgi_indirect_transport_spec.md",
     "docs/ddgi_transport_acceptance.md",
@@ -20,11 +20,33 @@ REQUIRED_OWNER_PATHS = (
     "src/app/core/environment_lighting_test_scene/local_light_scaling.rs",
     "src/ddgi/runtime.rs",
 )
-REQUIRED_FEDORA_COMMANDS = (
+REQUIRED_LIGHTING_OWNER_PATHS = (
+    "docs/lighting_mode_acceptance.md",
+    "scripts/analyze_lighting_mode_acceptance.py",
+    "scripts/check_lighting_mode_acceptance.sh",
+    "scripts/check_lighting_mode_acceptance_source_contract.py",
+    "scripts/runtime_log_diagnostics.py",
+    "scripts/tests/test_analyze_lighting_mode_acceptance.py",
+    "scripts/tests/test_check_lighting_mode_acceptance.py",
+    "scripts/tests/test_lighting_mode_acceptance_source_contract.py",
+    "src/app/core/lighting_mode_acceptance.rs",
+    "src/environment_lighting.rs",
+    "src/tracer/buffer_updater.rs",
+)
+REQUIRED_OWNER_PATHS = REQUIRED_DDGI_OWNER_PATHS + REQUIRED_LIGHTING_OWNER_PATHS
+REQUIRED_DDGI_COMMANDS = (
     "cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity",
     "cargo test --locked ddgi::resources::tests::filter_",
     "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness",
 )
+REQUIRED_LIGHTING_COMMANDS = (
+    "python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance",
+    "python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance",
+    "python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract",
+    "cargo test --locked lighting_mode_acceptance",
+    "cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path",
+)
+REQUIRED_FEDORA_COMMANDS = REQUIRED_DDGI_COMMANDS + REQUIRED_LIGHTING_COMMANDS
 
 
 @dataclass(frozen=True)

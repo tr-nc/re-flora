@@ -54,6 +54,79 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
         self.assertTrue(rejected.failures)
         self.assertFalse(rejected.routes("pull_request", "src/app/future_owner.rs"))
 
+    def test_same_contract_owns_lighting_routes_and_real_fedora_commands(self) -> None:
+        parsed = contract.parse_workflow_contract(
+            WORKFLOW.read_text(encoding="utf-8")
+        )
+
+        lighting_owners = (
+            "docs/lighting_mode_acceptance.md",
+            "scripts/analyze_lighting_mode_acceptance.py",
+            "scripts/check_lighting_mode_acceptance.sh",
+            "scripts/check_lighting_mode_acceptance_source_contract.py",
+            "scripts/runtime_log_diagnostics.py",
+            "scripts/tests/test_analyze_lighting_mode_acceptance.py",
+            "scripts/tests/test_check_lighting_mode_acceptance.py",
+            "scripts/tests/test_lighting_mode_acceptance_source_contract.py",
+            "src/app/core/lighting_mode_acceptance.rs",
+            "src/environment_lighting.rs",
+            "src/tracer/buffer_updater.rs",
+        )
+        for owner in lighting_owners:
+            with self.subTest(owner=owner):
+                self.assertIn(owner, contract.REQUIRED_OWNER_PATHS)
+                self.assertTrue(parsed.routes("pull_request", owner))
+                self.assertTrue(parsed.routes("push", owner))
+
+        expected_commands = (
+            "python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance",
+            "python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance",
+            "python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract",
+            "cargo test --locked lighting_mode_acceptance",
+            "cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path",
+        )
+        self.assertEqual(contract.REQUIRED_LIGHTING_COMMANDS, expected_commands)
+        for command in expected_commands:
+            with self.subTest(command=command):
+                self.assertEqual(parsed.fedora_commands.count(command), 1)
+
+    def test_lighting_command_comments_and_disabled_steps_are_only_decoys(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        command = contract.REQUIRED_LIGHTING_COMMANDS[1]
+        step_header = "      - name: Test lighting-mode acceptance runner\n"
+        run_line = f"        run: {command}\n"
+        mutations = {
+            "comment-decoy": source.replace(
+                run_line,
+                f"        # run: {command}\n"
+                f"        # disabled decoy: {command}\n",
+                1,
+            ),
+            "disabled-step": source.replace(
+                step_header,
+                step_header + "        if: false\n",
+                1,
+            ),
+            "custom-shell": source.replace(
+                step_header,
+                step_header + "        shell: echo {0}\n",
+                1,
+            ),
+            "step-environment": source.replace(
+                step_header,
+                step_header + "        env:\n          PATH: /tmp/fake\n",
+                1,
+            ),
+        }
+
+        for mutation, mutated in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assertNotEqual(mutated, source)
+                self.assertIn(
+                    f"Fedora job does not run {command}",
+                    contract.workflow_contract_failures(mutated),
+                )
+
     def test_broad_source_route_supersedes_the_dedicated_ddgi_glob(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
         missing_all_ddgi_routes = source.replace('      - "src/**"\n', "")
@@ -99,7 +172,7 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
 
     def test_on_and_jobs_must_be_unique_root_parents(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
-        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        command = contract.REQUIRED_DDGI_COMMANDS[-1]
         mutations = {
             "renamed-on": source.replace("on:\n", "decoy:\n", 1),
             "renamed-jobs": source.replace("jobs:\n", "decoy:\n", 1),
@@ -233,7 +306,7 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
         self,
     ) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
-        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        command = contract.REQUIRED_DDGI_COMMANDS[-1]
         step_name = "Decode Rust DDGI evidence fixture"
         step_header = f"      - name: {step_name}\n"
         run_line = f"        run: {command}"
@@ -359,7 +432,7 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
 
     def test_quoted_step_keys_are_normalized_before_capability_checks(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
-        command = contract.REQUIRED_FEDORA_COMMANDS[-1]
+        command = contract.REQUIRED_DDGI_COMMANDS[-1]
         step_header = "      - name: Decode Rust DDGI evidence fixture\n"
         quoted_valid = source.replace(
             step_header,

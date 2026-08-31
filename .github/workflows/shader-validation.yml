@@ -37,10 +37,6 @@ on:
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
-      - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
-      - "scripts/tests/test_check_lighting_mode_acceptance.py"
-      - "scripts/tests/test_lighting_mode_acceptance_ci.py"
-      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
       - "src/**"
   push:
@@ -80,10 +76,6 @@ on:
       - "scripts/run_slang_tests.py"
       - "scripts/tests/**"
       - "scripts/validate_spirv_artifacts.py"
-      - "scripts/tests/test_analyze_lighting_mode_acceptance.py"
-      - "scripts/tests/test_check_lighting_mode_acceptance.py"
-      - "scripts/tests/test_lighting_mode_acceptance_ci.py"
-      - "scripts/tests/test_lighting_mode_acceptance_source_contract.py"
       - "shader/**"
       - "src/**"
 
@@ -289,14 +281,20 @@ jobs:
       - name: Audit production shader entry points
         run: python3 scripts/check_shader_manifest.py
 
-      - name: Run lighting-mode acceptance CPU contracts
-        run: |
-          python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance
-          python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance
-          python3 -m unittest scripts.tests.test_lighting_mode_acceptance_ci
-          python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract
-          cargo test --locked lighting_mode_acceptance
-          cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path
+      - name: Test lighting-mode artifact analyzer
+        run: python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance
+
+      - name: Test lighting-mode acceptance runner
+        run: python3 -m unittest scripts.tests.test_check_lighting_mode_acceptance
+
+      - name: Test lighting-mode source contract
+        run: python3 -m unittest scripts.tests.test_lighting_mode_acceptance_source_contract
+
+      - name: Test lighting-mode runtime ownership
+        run: cargo test --locked lighting_mode_acceptance
+
+      - name: Test process-bound lighting run-log ownership
+        run: cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py
