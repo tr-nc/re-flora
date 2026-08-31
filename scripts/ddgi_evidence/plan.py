@@ -100,9 +100,17 @@ def plan(request: RunRequest) -> ExecutionPlan:
 
 
 def _correctness(request: RunRequest) -> ExecutionPlan:
+    body = _correctness_body(request)
+    return replace(
+        body,
+        stages=(Setup("correctness.setup", (BuildRelease(),)), *body.stages),
+    )
+
+
+def _correctness_body(request: RunRequest) -> ExecutionPlan:
     options = _options(request, CorrectnessOptions, CorrectnessOptions())
     run_dir = _run_dir(request, options.output_dir, "ddgi-correctness")
-    stages: list = [Setup("correctness.setup", (BuildRelease(),))]
+    stages: list = []
     views = (
         ("final", "final-a"),
         ("final", "final-b"),
@@ -273,9 +281,17 @@ def _inflight(request: RunRequest) -> ExecutionPlan:
 
 
 def _lifecycle(request: RunRequest) -> ExecutionPlan:
+    body = _lifecycle_body(request)
+    return replace(
+        body,
+        stages=(Setup("lifecycle.setup", (BuildRelease(),)), *body.stages),
+    )
+
+
+def _lifecycle_body(request: RunRequest) -> ExecutionPlan:
     options = _options(request, LifecycleOptions, LifecycleOptions())
     run_dir = _run_dir(request, options.output_dir, "ddgi-lifecycle-acceptance")
-    stages: list = [Setup("lifecycle.setup", (BuildRelease(),))]
+    stages: list = []
     roi = (0.85, 0.60, 1.025, 0.875, 0.675, 1.125)
     for spacing in (32, 16):
         capture = run_dir / f"radiance-changes-spacing-{spacing}.rfirr"
@@ -470,11 +486,19 @@ def _runtime_capture(
 
 
 def _runtime(request: RunRequest) -> ExecutionPlan:
+    body = _runtime_body(request)
+    return replace(
+        body,
+        stages=(Setup("runtime.setup", (BuildRelease(),)), *body.stages),
+    )
+
+
+def _runtime_body(request: RunRequest) -> ExecutionPlan:
     options = _options(
         request, RuntimeTerrainEditsOptions, RuntimeTerrainEditsOptions()
     )
     run_dir = _run_dir(request, options.output_dir, "ddgi-runtime-terrain-edits")
-    stages: list = [Setup("runtime.setup", (BuildRelease(),))]
+    stages: list = []
     states = ("initial-open", "closed", "sequential-reopened", "inflight-latest-wins")
     for spacing in (32, 16):
         for state in states:
@@ -750,7 +774,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
     lifecycle_options = options.lifecycle
     if lifecycle_options.output_dir is None:
         lifecycle_options = replace(lifecycle_options, output_dir=shared_output_root)
-    correctness = plan(
+    correctness = _correctness_body(
         RunRequest(
             Suite.CORRECTNESS,
             request.repo_root,
@@ -759,7 +783,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             child_run_id,
         )
     )
-    runtime = plan(
+    runtime = _runtime_body(
         RunRequest(
             Suite.RUNTIME_TERRAIN_EDITS,
             request.repo_root,
@@ -768,7 +792,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             child_run_id,
         )
     )
-    lifecycle = plan(
+    lifecycle = _lifecycle_body(
         RunRequest(
             Suite.LIFECYCLE,
             request.repo_root,
