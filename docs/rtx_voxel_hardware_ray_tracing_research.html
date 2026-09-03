@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Re:Flora RTX Voxel Hardware Ray Tracing 调研</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08110f;
+      --panel: #101c18;
+      --panel-2: #15241f;
+      --ink: #edf7f1;
+      --muted: #a8bbb2;
+      --line: #284038;
+      --mint: #67e0ad;
+      --cyan: #71d5e8;
+      --amber: #f5c96a;
+      --red: #ff887b;
+      --shadow: 0 18px 48px rgba(0,0,0,.24);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(103,224,173,.12), transparent 30rem),
+        radial-gradient(circle at 92% 8%, rgba(113,213,232,.10), transparent 28rem),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+    }
+    a { color: var(--cyan); text-underline-offset: .18em; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { color: #bff5df; }
+    .wrap { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+    header { padding: 78px 0 46px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--mint); text-transform: uppercase; letter-spacing: .14em; font-size: .76rem; font-weight: 800; }
+    h1 { margin: .45rem 0 1rem; max-width: 930px; font-size: clamp(2.3rem, 6vw, 5.2rem); line-height: .98; letter-spacing: -.055em; }
+    .lede { max-width: 820px; color: var(--muted); font-size: 1.16rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    .chip { border: 1px solid var(--line); background: rgba(16,28,24,.72); border-radius: 999px; padding: 5px 11px; color: var(--muted); font-size: .85rem; }
+    nav { position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line); background: rgba(8,17,15,.92); backdrop-filter: blur(14px); }
+    nav .wrap { display: flex; gap: 18px; overflow-x: auto; padding-block: 11px; }
+    nav a { color: var(--muted); text-decoration: none; white-space: nowrap; font-size: .88rem; }
+    nav a:hover { color: var(--ink); }
+    main { padding: 42px 0 90px; }
+    section { scroll-margin-top: 60px; margin: 0 0 64px; }
+    h2 { margin: 0 0 18px; font-size: clamp(1.65rem, 3vw, 2.45rem); letter-spacing: -.035em; }
+    h3 { margin: 30px 0 12px; font-size: 1.2rem; }
+    p { margin: 0 0 14px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { grid-column: span 4; border: 1px solid var(--line); background: linear-gradient(145deg, rgba(21,36,31,.96), rgba(13,25,21,.96)); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); }
+    .card.wide { grid-column: span 8; }
+    .card.full { grid-column: 1 / -1; }
+    .label { color: var(--muted); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; }
+    .value { margin-top: 5px; font-size: 2rem; line-height: 1.1; font-weight: 760; letter-spacing: -.045em; }
+    .value.good { color: var(--mint); }
+    .value.warn { color: var(--amber); }
+    .value.bad { color: var(--red); }
+    .verdict { border-left: 5px solid var(--red); }
+    .verdict strong { color: var(--red); }
+    .callout { border: 1px solid var(--line); border-left: 4px solid var(--mint); background: var(--panel); border-radius: 10px; padding: 18px 20px; margin: 20px 0; }
+    .callout.warn { border-left-color: var(--amber); }
+    .callout.bad { border-left-color: var(--red); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(16,28,24,.82); margin: 16px 0 24px; }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.025); }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    tr.best td { background: rgba(103,224,173,.07); }
+    tr.slow td { background: rgba(255,136,123,.045); }
+    ul, ol { margin: 10px 0 18px; padding-left: 1.35rem; }
+    li { margin: 6px 0; }
+    pre { overflow-x: auto; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #07100d; color: #c8f3df; font-size: .87rem; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(130px,1fr)); align-items: stretch; gap: 10px; margin: 22px 0; }
+    .flow > div { position: relative; border: 1px solid var(--line); border-radius: 12px; padding: 15px; background: var(--panel-2); }
+    .flow > div:not(:last-child)::after { content: "→"; position: absolute; right: -17px; top: 50%; transform: translateY(-50%); color: var(--mint); font-weight: 800; z-index: 1; }
+    .formula { font-size: clamp(1rem,2vw,1.35rem); color: var(--mint); }
+    .bars { display: grid; gap: 10px; margin-top: 16px; }
+    .bar-row { display: grid; grid-template-columns: 92px 1fr 66px; gap: 10px; align-items: center; font-variant-numeric: tabular-nums; }
+    .bar-track { height: 14px; border-radius: 99px; background: #07100d; overflow: hidden; border: 1px solid var(--line); }
+    .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--mint)); }
+    .bar-fill.bad { background: linear-gradient(90deg, #b45c54, var(--red)); }
+    .small { font-size: .88rem; color: var(--muted); }
+    .source-list { columns: 2; column-gap: 34px; }
+    footer { border-top: 1px solid var(--line); color: var(--muted); padding: 26px 0 48px; }
+    @media (max-width: 850px) {
+      .card, .card.wide { grid-column: 1 / -1; }
+      .flow { grid-template-columns: 1fr; }
+      .flow > div:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -22px; transform: translateX(-50%); }
+      .source-list { columns: 1; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg:#fff; --panel:#fff; --panel-2:#f3f7f5; --ink:#102019; --muted:#4e6259; --line:#ccd9d3; --mint:#08784e; --cyan:#086a7a; --amber:#8b5b00; --red:#a62820; }
+      body { background: white; }
+      nav { display: none; }
+      .card { box-shadow: none; break-inside: avoid; }
+      a { color: var(--cyan); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="eyebrow">Re:Flora · evidence report · 2026-09-04</div>
+      <h1>可编辑 Voxel 的 RTX 路线：语义可行，production 暂不值得</h1>
+      <p class="lede">针对 AABB procedural primitives、triangle BLAS、模板实例化与混合 publication 的源码审计和 RTX 3060 Ti 实测。所有性能数字来自本 worktree 的 release artifact，所有外部主张链接 Khronos/Vulkan 或 NVIDIA 一手资料。</p>
+      <div class="meta">
+        <span class="chip">baseline 7ce60e06</span>
+        <span class="chip">branch agent/rtx-voxel-hardware-rt</span>
+        <span class="chip">RTX 3060 Ti · 580.159.04</span>
+        <span class="chip">1600×1000 release A/B/B/A</span>
+      </div>
+    </div>
+  </header>
+  <nav><div class="wrap">
+    <a href="#verdict">结论</a><a href="#audit">源码审计</a><a href="#premises">前提纠正</a><a href="#designs">架构比较</a><a href="#experiment">实验</a><a href="#results">性能</a><a href="#correctness">正确性</a><a href="#decision">Go / No-go</a><a href="#sources">来源</a>
+  </div></nav>
+
+  <main class="wrap">
+    <section id="verdict">
+      <h2>执行摘要</h2>
+      <div class="grid">
+        <article class="card verdict wide">
+          <div class="label">Production verdict</div>
+          <div class="value bad">NO-GO</div>
+          <p>不把当前宏块 AABB ray query 接成 production tracer，也不先造 full-world triangle lifecycle。最高局部加速只有 1.769×，稀疏场景最低 0.848×。</p>
+        </article>
+        <article class="card">
+          <div class="label">AABB semantics</div>
+          <div class="value good">GO</div>
+          <p>AABB false positive 是可验证的 broad-phase candidate，不是不可避免的最终错误 hit。</p>
+        </article>
+        <article class="card">
+          <div class="label">Best local traversal</div>
+          <div class="value warn">1.769×</div>
+          <p>75% density · 4³ · edit 后<br><span class="small">9.0538 → 5.1167 ms</span></p>
+        </article>
+        <article class="card">
+          <div class="label">Qualified hardware comparisons</div>
+          <div class="value good">4,718,592</div>
+          <p>最终 FP / FN / wrong voxel / t mismatch / exhaustion / committed disagreement 全部为 0。</p>
+        </article>
+        <article class="card">
+          <div class="label">Whole-frame boundary check</div>
+          <div class="value">1.004×</div>
+          <p>1.6335 → 1.6265 ms。B 已销毁实验资源；这是 lifecycle 边界检查，不是 RTX 渲染加速。</p>
+        </article>
+      </div>
+      <div class="callout bad"><strong>核心判断：</strong>用户关于“AABB candidate 必然不可用”的假设被规范和正确性实验反驳；关于“新架构应有数量级价值”的愿望没有被实测支持。现在扩大实现只会先付出 mesh/AS/publication 双生命周期成本。</div>
+    </section>
+
+    <section id="audit">
+      <h2>Production 源码审计</h2>
+      <div class="flow">
+        <div><strong>Atlas authority</strong><br><code>PlainBuilderResources::chunk_atlas</code><br><span class="small">R8_UINT · 512³ world</span></div>
+        <div><strong>Surface</strong><br><code>SurfaceBuilder</code><br><span class="small">共享 scratch</span></div>
+        <div><strong>Contree</strong><br><code>contree_node_data</code><br><code>contree_leaf_data</code></div>
+        <div><strong>Publication</strong><br><code>SceneAccelBuilder::scene_tex</code><br><span class="small">chunk → offsets</span></div>
+        <div><strong>Compute tracer</strong><br><code>generalSceneMarching</code><br><code>marchScene</code></div>
+      </div>
+      <p>仓库没有 conventional terrain triangle mesh。<code>docs/terrain_visual_rebuild_pipeline.md</code> 与 <code>src/app/physical_visible_terrain.rs::PhysicalTerrainPublication</code> 共同定义 <code>Surface → Contree → scene_tex</code> 的完整 publication；<code>src/app/core/visible_terrain.rs::VisibleTerrainPublication</code> 在 physical 完成后才提交 terrain revision 并通知 emissive、shadow、collider 和 DDGI。</p>
+      <div class="grid">
+        <article class="card wide"><div class="label">Authoritative material lookup</div><p><code>shader/slang/tracer.slang::terrainAtlasData</code> 根据 hit center 回查 binding 16 的 <code>chunk_atlas</code>；<code>parseTraceResult</code> 再应用材质、湿度和肥力。任何 RTX backend 都只能引用 atlas，不能成为第二个材质 authority。</p></article>
+        <article class="card"><div class="label">Current dimensions</div><p><code>VOXEL_DIM_PER_CHUNK=256³</code><br><code>CHUNK_DIM=2³</code><br>world = 512³ voxel</p></article>
+        <article class="card"><div class="label">Measured Contree pools</div><p>node 27.43 MiB<br>leaf 90.00 MiB<br><span class="small">由当前 sizing code 与 release log 给出；旧文档 512+512 MiB 已过期。</span></p></article>
+        <article class="card wide"><div class="label">Deep-module seam</div><p>若进入 production，建议由 publication 内部拥有不可变 <code>TerrainAccelerationPublication { terrain_revision, chunk_records, tlas, atlas_view }</code>；它私有化 staging BLAS、scratch、barrier、descriptor rewrite 与 fence retirement。删除 RTX backend 时，atlas/Contree 权威与 edit transaction 不受影响。</p></article>
+      </div>
+      <h3>为什么基线并未启用 hardware RT</h3>
+      <p>固定基线虽有 <code>crates/re-flora-vkn/src/rtx/acceleration_structure::{build_or_update_blas, build_tlas, AccelStruct}</code>，但 production 没有 caller；device 只额外请求 deferred-host-operations，没有请求 AS/ray-query/ray-pipeline 扩展和 feature chain；默认 descriptor pool 也没有 AS descriptor。类型名和 dead helper 不是 dispatch 证据。Khronos 将这些能力定义为需显式启用的扩展，并要求 shader 执行 traversal 指令：<a href="https://docs.vulkan.org/guide/latest/extensions/ray_tracing.html">Vulkan Guide — Ray Tracing</a>、<a href="https://docs.vulkan.org/spec/latest/chapters/raytraversal.html">Vulkan Ray Traversal</a>。</p>
+    </section>
+
+    <section id="premises">
+      <h2>两个数学/规范前提必须先纠正</h2>
+      <div class="grid">
+        <article class="card wide">
+          <div class="label">4×4×4 binary occupancy</div>
+          <div class="value">2<sup>64</sup></div>
+          <p class="formula">18,446,744,073,709,551,616 种，而不是 64 种</p>
+          <p>24 个正旋转的 cycle 分布为 <code>1×64 + 9×32 + 8×24 + 6×16</code>，Burnside 等价类仍是：</p>
+          <pre>(2^64 + 9×2^32 + 8×2^24 + 6×2^16) / 24
+= 768,614,338,020,786,176</pre>
+          <p>连反射也纳入的 48 个立方体对称仍有 <strong>384,307,306,807,269,376</strong> 类。全表不可行，只能按需 canonical cache、只生成 exposed surface、实例化简单模板，或换表示。</p>
+        </article>
+        <article class="card">
+          <div class="label">AABB false candidates</div>
+          <div class="value warn">2.1–80.1%</div>
+          <p>实测候选拒绝率很高，但最终 false hit 为 0；这正是 broad phase + exact intersection 的职责分工。</p>
+        </article>
+      </div>
+      <p>Vulkan 允许实现扩大 AABB bounds，因此会向应用返回 conservative false-positive candidate；规范随后要求应用验证 AABB candidate，只报告真实几何范围内的 hit。ray query 的 candidate 与 committed 状态相互独立：<a href="https://docs.vulkan.org/spec/latest/chapters/raytraversal.html#ray-traversal-intersection-candidate-determination">candidate determination</a>、<a href="https://docs.vulkan.org/spec/latest/chapters/raytraversal.html#ray-traversal-intersection-confirmation-aabb">AABB confirmation</a>。</p>
+      <div class="flow">
+        <div><strong>HW candidate</strong><br>macro AABB</div>
+        <div><strong>Exact test</strong><br>宏块内 voxel DDA</div>
+        <div><strong>Reject / commit</strong><br>只 commit 更近真实 hit</div>
+        <div><strong>Committed decode</strong><br>primitive → macro → voxel</div>
+        <div><strong>CPU oracle</strong><br>hit / voxel / t 对照</div>
+      </div>
+      <div class="callout warn">正确性实验还证明：不能把 conservative candidate entry clamp 回宏块内部；generated t 必须位于 occupied voxel 的非零 interior interval；候选枚举没有顺序保证，因此实现跟踪 exact closest，并只提交更近的真实候选。最终 committed primitive/t 本身也必须过 reference，而不只检查手工候选。</div>
+    </section>
+
+    <section id="designs">
+      <h2>四种所有权与数据布局</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>方案</th><th>几何与层级</th><th>Edit / build</th><th>材质与 ownership</th><th>收益</th><th>风险与判断</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A · Procedural AABB</strong></td><td>每 chunk BLAS；occupied macro AABB；TLAS 每 chunk instance；candidate 内 exact DDA</td><td>空/实变化改变 primitive count，dirty BLAS full rebuild；全部 staging 后发布 TLAS</td><td>metadata 只存 macro origin；真实 voxel/material 查 atlas；backend 私有 descriptor/sync</td><td>不造 surface mesh；直接表达 cavity；最小验证路径</td><td>稀疏 candidate 拒绝高；custom DDA 贵。<strong>语义 go，performance no-go</strong></td></tr>
+          <tr><td><strong>B · Triangle / greedy</strong></td><td>dirty chunk/page 生成 exposed faces 或 greedy quads；chunk BLAS</td><td>face topology 常变，通常 full rebuild；稳定 topology 才 update</td><td>primitive metadata 或 world hit 回查 atlas；要处理边界采样</td><td>fixed-function triangle intersection；NVIDIA 通常建议优先 triangle</td><td>meshing、temporary buffers、publication 复杂；当前无 Amdahl 价值证明</td></tr>
+          <tr><td><strong>C · Shared templates</strong></td><td>unit-cube/box BLAS；occupied voxel/box 作为 TLAS instance</td><td>BLAS 静态；instance count 变化仍重建 TLAS</td><td>instance custom index 定位 world voxel，再查 atlas</td><td>避免 2^64 表；复用 BLAS</td><td>满世界 134,217,728 voxel instances，超过本机 16,777,215 上限；仅适合稀疏对象/greedy boxes</td></tr>
+          <tr class="best"><td><strong>D · Hybrid publication</strong></td><td>Contree/atlas 保持 primary+fallback；RT snapshot 只服务选定高占比 consumer</td><td>加入现有 <code>VisibleTerrainPublication</code>；atomic revision + fence retirement</td><td>atlas 唯一 authority；backend 私有 AS/descriptor/sync</td><td>跨硬件、可删除、不会永久分叉 terrain lifecycle</td><td>仍需证明 consumer 级收益；<strong>若继续，推荐此 ownership shape</strong></td></tr>
+        </tbody>
+      </table></div>
+      <p>NVIDIA 的一手实践建议优先 fixed-function triangle、复用/合并 BLAS、避免过多小 AS，并按内容 profile；这使 triangles 成为后续对照，而不是“voxel 必须 mesh 化”的证明：<a href="https://developer.nvidia.com/blog/effectively-integrating-rtx-ray-tracing-real-time-rendering-engine/">Effectively Integrating RTX</a>、<a href="https://developer.nvidia.com/blog/best-practices-for-using-nvidia-rtx-ray-tracing-updated/">RTX Best Practices</a>。</p>
+      <h3>Update / compaction / synchronization</h3>
+      <ul>
+        <li>Vulkan UPDATE 不能改变 geometry、instance、primitive 数或 active/inactive 状态；本实验清空一个宏块后 primitive count 减一，所以明确执行 BLAS BUILD + TLAS BUILD。<a href="https://docs.vulkan.org/spec/latest/chapters/accelstructures.html#acceleration-structure-update">Vulkan AS Update Rules</a></li>
+        <li>固定槽位的 degenerate AABB 可在 update 中变化，但 degenerate AABB 仍可能调用 intersection shader；它把 topology 成本换成常驻 traversal 成本。<a href="https://docs.vulkan.org/spec/latest/chapters/accelstructures.html#acceleration-structure-inactive-primitives">Inactive / Degenerate Primitives</a></li>
+        <li>BLAS 必须在引用它的 TLAS 使用期间有效，build scratch/input 只能在完成并正确同步后复用。<a href="https://docs.vulkan.org/spec/latest/chapters/accelstructures.html#acceleration-structure-building">Building Acceleration Structures</a></li>
+        <li>compaction 需要 size query、copy、同步和延迟释放；NVIDIA 认为更适合不常 rebuild 的 BLAS，因此本轮 editable synthetic BLAS 不做。<a href="https://developer.nvidia.com/blog/tips-acceleration-structure-compaction/">NVIDIA AS Compaction</a></li>
+      </ul>
+    </section>
+
+    <section id="experiment">
+      <h2>Default-off 的真实 hardware experiment</h2>
+      <p>选择 inline ray query 是为了用最小改动回答 AABB candidate 争议。Khronos 指出 ray query 可在更广 shader stage 使用，但显式 traversal code 也可能限制驱动调度优化；结果不能外推为 ray-tracing pipeline 上限：<a href="https://docs.vulkan.org/guide/latest/extensions/ray_tracing.html#ray-query">Khronos Ray Query</a>。</p>
+      <div class="grid">
+        <article class="card wide"><div class="label">Capability proof</div><p><code>device.rs</code> 仅在 feature-on 请求 <code>VK_KHR_acceleration_structure</code>、<code>VK_KHR_ray_query</code>、deferred-host-operations，并把 AS/ray-query feature 链到 device create。<code>build_aabb_blas_profiled</code> / <code>build_tlas_profiled</code> 调用 <code>vkCmdBuildAccelerationStructuresKHR</code>；Slang shader 声明 <code>RaytracingAccelerationStructure</code> 并执行 <code>TraceRayInline/Proceed/CommitProceduralPrimitiveHit</code>。</p></article>
+        <article class="card"><div class="label">Default boundary</div><p>feature-off 不请求扩展、不扩大 descriptor pool，并拒绝实验 CLI。feature-on 的 synthetic snapshot 在 production renderer 前 drop，不监听 terrain edits。</p></article>
+        <article class="card"><div class="label">GPU / driver</div><p>RTX 3060 Ti<br>580.159.04<br>Vulkan 1.4.312<br>8192 MiB</p></article>
+        <article class="card"><div class="label">Enabled facts</div><p>AS ext/feature true<br>ray query ext/feature true<br>ray pipeline ext true<br><span class="small">未创建 RT pipeline/SBT</span></p></article>
+        <article class="card wide"><div class="label">Device limits captured by vulkaninfo</div><p>geometry 16,777,215 · instance 16,777,215 · primitive 536,870,911 · scratch alignment 128 bytes。完整 machine/UUID/limits 在 <a href="evidence/rtx_voxel_hardware_rt/summary.json">summary.json</a>。</p></article>
+      </div>
+      <h3>固定 workload</h3>
+      <ul>
+        <li>32³ deterministic volume；5%/25%/75% occupancy，另加 shell/cavity、diagonal、boundary、macro seam fixtures。</li>
+        <li>2³、4³、8³；initial 后清空 [8,8,8] 对应完整宏块，使一个 AABB 消失并 full rebuild。</li>
+        <li>每阶段 65,536 rays；warm-up 后 software/hardware/hardware/software；两份独立 artifact。</li>
+        <li>CPU Rust DDA reference 比较 hit/miss、voxel index 与 hit t；candidate budget 4096，DDA budget 512。</li>
+        <li>整帧按 A1/B1/B2/A2；1600×1000、player-default、8 秒；每 run 取最后 64 条 GPU scope，即最后 1,920 rendered frames。</li>
+      </ul>
+      <div class="callout"><strong>可复算：</strong>原始 <a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b1.toml">B1 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b2.toml">B2 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/frame_a1.log">A1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b1.log">B1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b2.log">B2</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_a2.log">A2</a> 日志、<a href="evidence/rtx_voxel_hardware_rt/summary.json">summary.json</a> 均已提交。复算入口是 <code>scripts/summarize_rtx_voxel_hardware_rt.py</code>；它在 capability、candidate、AS GPU build 或 correctness 任一不满足时失败。</div>
+    </section>
+
+    <section id="results">
+      <h2>Local traversal：没有数量级</h2>
+      <div class="bars">
+        <div class="bar-row"><span>5% · 2³</span><div class="bar-track"><div class="bar-fill bad" style="width:48%"></div></div><span>0.848×</span></div>
+        <div class="bar-row"><span>5% · 4³</span><div class="bar-track"><div class="bar-fill bad" style="width:55%"></div></div><span>0.972×</span></div>
+        <div class="bar-row"><span>25% · 4³</span><div class="bar-track"><div class="bar-fill" style="width:67%"></div></div><span>1.192×</span></div>
+        <div class="bar-row"><span>75% · 2³</span><div class="bar-track"><div class="bar-fill" style="width:93%"></div></div><span>1.642×</span></div>
+        <div class="bar-row"><span>75% · 4³ edit</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span>1.769×</span></div>
+        <div class="bar-row"><span>75% · 8³</span><div class="bar-track"><div class="bar-fill" style="width:74%"></div></div><span>1.307×</span></div>
+      </div>
+      <p class="small">图条仅用于相对阅读；精确 initial/edit 值见下表。speedup = software GPU ms / hardware GPU ms。</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="num">Density</th><th class="num">Macro</th><th>Phase</th><th class="num">Software ms</th><th class="num">Hardware ms</th><th class="num">Speedup</th><th class="num">Reject</th><th class="num">Macros</th></tr></thead>
+        <tbody>
+          <tr class="slow"><td class="num">5%</td><td class="num">2³</td><td>initial</td><td class="num">3.8549</td><td class="num">4.5480</td><td class="num">0.848×</td><td class="num">72.3%</td><td class="num">1,429</td></tr>
+          <tr><td class="num">5%</td><td class="num">2³</td><td>edit</td><td class="num">4.6858</td><td class="num">4.4961</td><td class="num">1.042×</td><td class="num">72.1%</td><td class="num">1,428</td></tr>
+          <tr><td class="num">5%</td><td class="num">4³</td><td>initial</td><td class="num">4.1596</td><td class="num">4.2774</td><td class="num">0.972×</td><td class="num">80.1%</td><td class="num">482</td></tr>
+          <tr class="slow"><td class="num">5%</td><td class="num">4³</td><td>edit</td><td class="num">4.1616</td><td class="num">4.6370</td><td class="num">0.897×</td><td class="num">79.8%</td><td class="num">481</td></tr>
+          <tr><td class="num">5%</td><td class="num">8³</td><td>initial</td><td class="num">4.1997</td><td class="num">4.2748</td><td class="num">0.982×</td><td class="num">64.6%</td><td class="num">64</td></tr>
+          <tr><td class="num">5%</td><td class="num">8³</td><td>edit</td><td class="num">4.6756</td><td class="num">4.4621</td><td class="num">1.048×</td><td class="num">64.8%</td><td class="num">63</td></tr>
+          <tr><td class="num">25%</td><td class="num">2³</td><td>initial</td><td class="num">4.9772</td><td class="num">4.7719</td><td class="num">1.043×</td><td class="num">54.5%</td><td class="num">3,683</td></tr>
+          <tr><td class="num">25%</td><td class="num">2³</td><td>edit</td><td class="num">5.2548</td><td class="num">4.2863</td><td class="num">1.226×</td><td class="num">54.3%</td><td class="num">3,682</td></tr>
+          <tr><td class="num">25%</td><td class="num">4³</td><td>initial</td><td class="num">5.8571</td><td class="num">4.9123</td><td class="num">1.192×</td><td class="num">38.3%</td><td class="num">511</td></tr>
+          <tr><td class="num">25%</td><td class="num">4³</td><td>edit</td><td class="num">5.4019</td><td class="num">4.7235</td><td class="num">1.144×</td><td class="num">38.1%</td><td class="num">510</td></tr>
+          <tr><td class="num">25%</td><td class="num">8³</td><td>initial</td><td class="num">5.5160</td><td class="num">5.3841</td><td class="num">1.025×</td><td class="num">14.7%</td><td class="num">64</td></tr>
+          <tr><td class="num">25%</td><td class="num">8³</td><td>edit</td><td class="num">5.0527</td><td class="num">4.8935</td><td class="num">1.033×</td><td class="num">15.7%</td><td class="num">63</td></tr>
+          <tr><td class="num">75%</td><td class="num">2³</td><td>initial</td><td class="num">9.0860</td><td class="num">5.5329</td><td class="num">1.642×</td><td class="num">18.0%</td><td class="num">4,069</td></tr>
+          <tr><td class="num">75%</td><td class="num">2³</td><td>edit</td><td class="num">9.2142</td><td class="num">6.5779</td><td class="num">1.401×</td><td class="num">18.0%</td><td class="num">4,068</td></tr>
+          <tr><td class="num">75%</td><td class="num">4³</td><td>initial</td><td class="num">9.3256</td><td class="num">5.7710</td><td class="num">1.616×</td><td class="num">11.2%</td><td class="num">511</td></tr>
+          <tr class="best"><td class="num">75%</td><td class="num">4³</td><td>edit</td><td class="num">9.0538</td><td class="num">5.1167</td><td class="num"><strong>1.769×</strong></td><td class="num">11.1%</td><td class="num">510</td></tr>
+          <tr><td class="num">75%</td><td class="num">8³</td><td>initial</td><td class="num">9.7332</td><td class="num">7.4476</td><td class="num">1.307×</td><td class="num">2.1%</td><td class="num">64</td></tr>
+          <tr><td class="num">75%</td><td class="num">8³</td><td>edit</td><td class="num">9.7015</td><td class="num">6.8765</td><td class="num">1.411×</td><td class="num">2.1%</td><td class="num">63</td></tr>
+        </tbody>
+      </table></div>
+      <p>4³ 在 dense edit 最好，却在 sparse 两阶段都慢；8³ 降低 primitive/AS build，却扩大 candidate 内 DDA；2³ 缩小 exact work，却放大 primitive count。不存在一个由维度本身推出的固定最优值。</p>
+
+      <h3>AS build 与 memory</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="num">Density</th><th class="num">Macro</th><th class="num">BLAS primitives</th><th class="num">GPU build ms</th><th class="num">Host wait ms</th><th class="num">BLAS bytes</th><th class="num">Scratch bytes</th><th class="num">TLAS GPU ms</th></tr></thead>
+        <tbody>
+          <tr><td class="num">5%</td><td class="num">2³</td><td class="num">1,429</td><td class="num">0.1800</td><td class="num">1.2425</td><td class="num">55,424</td><td class="num">111,232</td><td class="num">0.0422</td></tr>
+          <tr><td class="num">5%</td><td class="num">4³</td><td class="num">482</td><td class="num">0.1472</td><td class="num">0.5158</td><td class="num">19,968</td><td class="num">39,168</td><td class="num">0.0411</td></tr>
+          <tr><td class="num">5%</td><td class="num">8³</td><td class="num">64</td><td class="num">0.1005</td><td class="num">0.3519</td><td class="num">4,224</td><td class="num">7,296</td><td class="num">0.0412</td></tr>
+          <tr><td class="num">75%</td><td class="num">2³</td><td class="num">4,069</td><td class="num">0.1853</td><td class="num">0.5524</td><td class="num">154,240</td><td class="num">312,192</td><td class="num">0.0377</td></tr>
+          <tr><td class="num">75%</td><td class="num">4³</td><td class="num">511</td><td class="num">0.1210</td><td class="num">0.4481</td><td class="num">20,992</td><td class="num">41,088</td><td class="num">0.0370</td></tr>
+          <tr><td class="num">75%</td><td class="num">8³</td><td class="num">64</td><td class="num">0.0888</td><td class="num">0.3317</td><td class="num">4,224</td><td class="num">7,296</td><td class="num">0.0364</td></tr>
+        </tbody>
+      </table></div>
+      <p>编辑后 BLAS GPU rebuild 为 0.0899–0.1903 ms，TLAS 为 0.0365–0.0413 ms；这是 32³、单 BLAS/instance，不可线性外推到 512³。实验 logical live resources 为 4.133–4.429 MiB，其中约 4 MiB 是公共 ray/result/occupancy buffers；device-local heap peak 约 429.8 MiB，粒度不足以宣称精确 AS heap delta。</p>
+
+      <h3>Whole frame 与 Amdahl</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Scope</th><th class="num">A default median ms</th><th class="num">B post-benchmark median ms</th><th class="num">A/B</th></tr></thead>
+        <tbody><tr><td>frame.render</td><td class="num">1.6335</td><td class="num">1.6265</td><td class="num">1.004×</td></tr><tr><td>tracer.render</td><td class="num">0.4790</td><td class="num">0.4770</td><td class="num">1.004×</td></tr><tr><td>tracer.pass</td><td class="num">0.2280</td><td class="num">0.2260</td><td class="num">1.009×</td></tr><tr><td>tracer.shadow_prepass</td><td class="num">0.7700</td><td class="num">0.7690</td><td class="num">1.001×</td></tr></tbody>
+      </table></div>
+      <div class="grid">
+        <article class="card"><div class="label">Tracer pass fraction</div><div class="value">13.96%</div><p>最佳局部倍数移植后的 Amdahl 上界：<strong>1.0646×</strong><br>局部无限快：1.1622×</p></article>
+        <article class="card"><div class="label">All tracer.render fraction</div><div class="value">29.32%</div><p>最佳局部倍数移植后的 Amdahl 上界：<strong>1.1462×</strong><br>局部无限快：1.4149×</p></article>
+        <article class="card verdict"><div class="label">Interpretation</div><div class="value bad">≠ 10×</div><p>Synthetic DDA 与 production Contree 并不等价；这些只是上界说明，不是速度预测。</p></article>
+      </div>
+    </section>
+
+    <section id="correctness">
+      <h2>正确性是性能成立的前置条件</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Gate</th><th class="num">最终值</th></tr></thead>
+        <tbody><tr><td>Hardware ray / CPU reference comparisons</td><td class="num">4,718,592</td></tr><tr><td>False positive</td><td class="num">0</td></tr><tr><td>False negative</td><td class="num">0</td></tr><tr><td>Wrong voxel</td><td class="num">0</td></tr><tr><td>Hit-t over 0.002 tolerance</td><td class="num">0</td></tr><tr><td>Maximum hit-t error</td><td class="num">0.00008392334</td></tr><tr><td>Traversal exhaustion</td><td class="num">0</td></tr><tr><td>Committed primitive/t disagreement</td><td class="num">0</td></tr></tbody>
+      </table></div>
+      <p>覆盖 surface、cavity、world boundary、axis-parallel、diagonal、grazing、macro seam 与 dynamic edit。它证明 deterministic 32³ fixture 上的 AABB candidate 过滤；没有证明 production 512³ 浮点尺度、多 instance overlap、透明材质或长期连续编辑。</p>
+    </section>
+
+    <section id="decision">
+      <h2>Go / No-go 与下一道门</h2>
+      <ol>
+        <li><strong>AABB semantic feasibility：GO。</strong>候选误报可正确过滤。</li>
+        <li><strong>当前 AABB macro query 替换 production tracer：NO-GO。</strong>0.848×–1.769×不足以承担新 lifecycle。</li>
+        <li><strong>立即投入 full-world triangle/greedy backend：NO-GO。</strong>fixed-function 可能更快，但当前 Amdahl 与 consumer 价值没有先成立。</li>
+        <li><strong>保留 default-off capability seam 和 benchmark：GO。</strong>它不改变默认行为，并为后续垂直切片提供共同基线。</li>
+      </ol>
+      <div class="callout"><strong>若继续：</strong>只选一个真实高占比 consumer，优先隔离测量 <code>tracer.shadow_prepass</code> 中的 terrain visibility；在一个 dirty chunk 上让 AABB 与 triangle/greedy 共用 production atlas、rays、reference 与 <code>VisibleTerrainPublication</code> revision。先证明 consumer 级收益，再谈全世界集成。</div>
+      <h3>未验证风险</h3>
+      <ul>
+        <li>未接入 512³ production atlas、真实 streaming/edit publication、multi-BLAS overlap。</li>
+        <li>未测 triangle/greedy、RT pipeline/SBT、compaction、async compute build。</li>
+        <li>未测 glass/transparent hit semantics、真实材质 cache 或非 NVIDIA KHR 设备。</li>
+        <li>每个 local cell 只有 4 个 timing 样本；0.9×–1.1×只应视为无明确收益。</li>
+        <li>整帧 B 不执行 integrated RTX traversal，不能称作 production RTX speedup。</li>
+      </ul>
+    </section>
+
+    <section id="sources">
+      <h2>一手资料与仓库证据</h2>
+      <ul class="source-list">
+        <li><a href="https://docs.vulkan.org/spec/latest/chapters/raytraversal.html">Khronos Vulkan Specification — Ray Traversal</a></li>
+        <li><a href="https://docs.vulkan.org/spec/latest/chapters/accelstructures.html">Khronos Vulkan Specification — Acceleration Structures</a></li>
+        <li><a href="https://docs.vulkan.org/guide/latest/extensions/ray_tracing.html">Khronos Vulkan Guide — Ray Tracing</a></li>
+        <li><a href="https://github.khronos.org/Vulkan-Site/samples/latest/samples/extensions/ray_queries/README.html">Khronos Vulkan Samples — Basic Ray Queries</a></li>
+        <li><a href="https://developer.nvidia.com/blog/best-practices-for-using-nvidia-rtx-ray-tracing-updated/">NVIDIA RTX Best Practices</a></li>
+        <li><a href="https://developer.nvidia.com/blog/effectively-integrating-rtx-ray-tracing-real-time-rendering-engine/">NVIDIA — Effectively Integrating RTX</a></li>
+        <li><a href="https://developer.nvidia.com/blog/tips-acceleration-structure-compaction/">NVIDIA — AS Compaction</a></li>
+        <li><a href="rtx_voxel_hardware_ray_tracing_research.md">同内容 Markdown 报告</a></li>
+        <li><a href="evidence/rtx_voxel_hardware_rt/summary.json">结构化汇总与 machine identity</a></li>
+        <li><a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b1.toml">Hardware artifact B1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b2.toml">B2</a></li>
+      </ul>
+      <p class="small">项目事实绑定固定基线或本分支具体符号；性能事实只来自当前 worktree 的 release artifact/log。HTML 无外部脚本、字体或样式依赖，可直接在浏览器打开。</p>
+    </section>
+  </main>
+  <footer><div class="wrap">Re:Flora RTX Voxel Hardware Ray Tracing · evidence-first, default-off, no production claim</div></footer>
+</body>
+</html>
