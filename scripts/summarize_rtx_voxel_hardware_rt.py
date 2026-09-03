@@ -195,6 +195,25 @@ def command_output(command: list[str]) -> str:
         return f"unavailable: {error}"
 
 
+def vulkan_ray_tracing_limits() -> dict[str, int | str]:
+    output = command_output(["vulkaninfo"])
+    if output.startswith("unavailable:"):
+        return {"error": output}
+    names = (
+        "maxGeometryCount",
+        "maxInstanceCount",
+        "maxPrimitiveCount",
+        "minAccelerationStructureScratchOffsetAlignment",
+        "maxRayRecursionDepth",
+        "maxRayDispatchInvocationCount",
+    )
+    values: dict[str, int | str] = {}
+    for name in names:
+        match = re.search(rf"^\s*{name}\s*=\s*(\d+)\s*$", output, re.MULTILINE)
+        values[name] = int(match.group(1)) if match else "unavailable"
+    return values
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ray-query-artifact", action="append", type=Path, required=True)
@@ -307,6 +326,7 @@ def main() -> None:
                     "--format=csv,noheader",
                 ]
             ),
+            "vulkan_ray_tracing_limits": vulkan_ray_tracing_limits(),
             "kernel": platform.uname()._asdict(),
         },
         "workload": first_artifact["workload"],

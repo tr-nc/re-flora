@@ -4580,7 +4580,15 @@
     "ray_query_feature": true,
     "ray_tracing_pipeline_extension": true,
     "timestamp_period_ns": 1.0,
-    "vendor_id": 4318
+    "vendor_id": 4318,
+    "vulkan_ray_tracing_limits": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "maxRayDispatchInvocationCount": 1073741824,
+      "maxRayRecursionDepth": 31,
+      "minAccelerationStructureScratchOffsetAlignment": 128
+    }
   },
   "method": {
     "commands": {
