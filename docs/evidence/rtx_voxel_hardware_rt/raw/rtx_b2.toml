@@ -1,0 +1,2162 @@
+schema = "re-flora.rtx-voxel-hardware-ray-query.v1"
+fixed_baseline = "7ce60e06f1b70793c18339ce60a59a61c985aa82"
+generated_at = "2026-09-04T04:06:34.332847030+08:00"
+command = [
+    "target/release/re-flora-rtx-b",
+    "--hidden",
+    "--mute",
+    "--perf",
+    "--camera-snapshot",
+    "player-default",
+    "--rtx-voxel-benchmark",
+    "docs/evidence/rtx_voxel_hardware_rt/raw/rtx_b2.toml",
+    "--auto-exit",
+    "8",
+]
+coverage = [
+    "surface",
+    "cavity",
+    "world_boundary",
+    "axis_parallel",
+    "diagonal",
+    "grazing",
+    "macro_seam",
+    "dynamic_edit",
+]
+memory_before_bytes = 48037888
+
+[machine]
+device_name = "NVIDIA GeForce RTX 3060 Ti"
+vendor_id = 4318
+device_id = 9353
+device_type = "DISCRETE_GPU"
+api_version = "1.4.312"
+driver_version_raw = 2435301632
+device_uuid_hex = "2cf8ee5131672062b2a587c546461acb"
+driver_uuid_hex = "c7d8a05ebe165883a8186d61bf0812b6"
+timestamp_period_ns = 1.0
+acceleration_structure_extension = true
+ray_query_extension = true
+ray_tracing_pipeline_extension = true
+acceleration_structure_feature = true
+ray_query_feature = true
+
+[workload]
+world_dimension = 32
+ray_grid_width = 256
+ray_grid_height = 256
+ray_count = 65536
+candidate_budget = 4096
+sample_order = [
+    "software",
+    "hardware",
+    "hardware",
+    "software",
+]
+density_percent = [
+    5,
+    25,
+    75,
+]
+macro_dimensions = [
+    2,
+    4,
+    8,
+]
+
+[[configurations]]
+requested_density_percent = 5
+actual_occupied_voxels_before = 2045
+actual_occupied_voxels_after = 2044
+macro_dimension = 2
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4440008
+
+[configurations.initial]
+occupied_macro_count = 1429
+aabb_input_bytes = 34296
+macro_metadata_bytes = 22864
+
+[configurations.initial.blas]
+primitive_count = 1429
+acceleration_structure_bytes = 55424
+scratch_bytes = 111232
+host_build_ms = 1.396086
+gpu_build_ms = 0.176288
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.39466
+gpu_build_ms = 0.041728
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 3.730496
+host_wait_ms = 4.169697
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.392448
+host_wait_ms = 4.713471
+hit_count = 56581
+candidate_count = 237318
+rejected_candidate_count = 171511
+committed_candidate_count = 65807
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7856
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000049591064
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 3.424608
+host_wait_ms = 3.863811
+hit_count = 56581
+candidate_count = 237318
+rejected_candidate_count = 171511
+committed_candidate_count = 65807
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7856
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000049591064
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.072224
+host_wait_ms = 4.558689
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 1428
+aabb_input_bytes = 34272
+macro_metadata_bytes = 22848
+
+[configurations.after_edit.blas]
+primitive_count = 1428
+acceleration_structure_bytes = 55424
+scratch_bytes = 110976
+host_build_ms = 0.6087710000000001
+gpu_build_ms = 0.187712
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.33500599999999997
+gpu_build_ms = 0.04096
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.363296
+host_wait_ms = 4.716805
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.654048
+host_wait_ms = 5.041418
+hit_count = 56581
+candidate_count = 235453
+rejected_candidate_count = 169664
+committed_candidate_count = 65789
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7844
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000049591064
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.255072
+host_wait_ms = 4.712206
+hit_count = 56581
+candidate_count = 235453
+rejected_candidate_count = 169664
+committed_candidate_count = 65789
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7844
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000049591064
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.004544
+host_wait_ms = 4.392990999999999
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 1
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 5
+actual_occupied_voxels_before = 2045
+actual_occupied_voxels_after = 2039
+macro_dimension = 4
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4366672
+
+[configurations.initial]
+occupied_macro_count = 482
+aabb_input_bytes = 11568
+macro_metadata_bytes = 7712
+
+[configurations.initial.blas]
+primitive_count = 482
+acceleration_structure_bytes = 19968
+scratch_bytes = 39168
+host_build_ms = 0.549832
+gpu_build_ms = 0.150368
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.430151
+gpu_build_ms = 0.041056
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.381856
+host_wait_ms = 4.740993
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 3.881312
+host_wait_ms = 4.351945000000001
+hit_count = 56581
+candidate_count = 328484
+rejected_candidate_count = 263148
+committed_candidate_count = 65336
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 8187
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000045776367
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.107232
+host_wait_ms = 4.57311
+hit_count = 56581
+candidate_count = 328484
+rejected_candidate_count = 263148
+committed_candidate_count = 65336
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 8187
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000045776367
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.486176
+host_wait_ms = 4.82691
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 481
+aabb_input_bytes = 11544
+macro_metadata_bytes = 7696
+
+[configurations.after_edit.blas]
+primitive_count = 481
+acceleration_structure_bytes = 19968
+scratch_bytes = 39168
+host_build_ms = 0.564536
+gpu_build_ms = 0.150304
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.414546
+gpu_build_ms = 0.041216
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.381152
+host_wait_ms = 4.802014000000001
+hit_count = 56522
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.565536
+host_wait_ms = 4.905746
+hit_count = 56522
+candidate_count = 321458
+rejected_candidate_count = 256458
+committed_candidate_count = 65000
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7936
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000045776367
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.62
+host_wait_ms = 5.106426
+hit_count = 56522
+candidate_count = 321458
+rejected_candidate_count = 256458
+committed_candidate_count = 65000
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 7936
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000045776367
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.087872
+host_wait_ms = 4.6175690000000005
+hit_count = 56522
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 6
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 5
+actual_occupied_voxels_before = 2045
+actual_occupied_voxels_after = 1987
+macro_dimension = 8
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4334208
+
+[configurations.initial]
+occupied_macro_count = 64
+aabb_input_bytes = 1536
+macro_metadata_bytes = 1024
+
+[configurations.initial.blas]
+primitive_count = 64
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.56755
+gpu_build_ms = 0.09936
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.325331
+gpu_build_ms = 0.041216
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.263808
+host_wait_ms = 4.638134
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.171232
+host_wait_ms = 4.551977
+hit_count = 56581
+candidate_count = 201835
+rejected_candidate_count = 130306
+committed_candidate_count = 71529
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 14663
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00005340576
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.68384
+host_wait_ms = 5.012512999999999
+hit_count = 56581
+candidate_count = 201835
+rejected_candidate_count = 130306
+committed_candidate_count = 71529
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 14663
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00005340576
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 3.8096
+host_wait_ms = 4.135628
+hit_count = 56581
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 63
+aabb_input_bytes = 1512
+macro_metadata_bytes = 1008
+
+[configurations.after_edit.blas]
+primitive_count = 63
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.478024
+gpu_build_ms = 0.09008
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.294551
+gpu_build_ms = 0.036512
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.414304
+host_wait_ms = 4.749068
+hit_count = 56214
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.582592
+host_wait_ms = 4.946029
+hit_count = 56214
+candidate_count = 198375
+rejected_candidate_count = 128625
+committed_candidate_count = 69750
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 13185
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00005340576
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 3.990272
+host_wait_ms = 4.244084
+hit_count = 56214
+candidate_count = 198375
+rejected_candidate_count = 128625
+committed_candidate_count = 69750
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 13185
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00005340576
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.104544
+host_wait_ms = 4.4480580000000005
+hit_count = 56214
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00008392334
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 58
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 25
+actual_occupied_voxels_before = 8405
+actual_occupied_voxels_after = 8404
+macro_dimension = 2
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4614520
+
+[configurations.initial]
+occupied_macro_count = 3683
+aabb_input_bytes = 88392
+macro_metadata_bytes = 58928
+
+[configurations.initial.blas]
+primitive_count = 3683
+acceleration_structure_bytes = 139776
+scratch_bytes = 282752
+host_build_ms = 0.54613
+gpu_build_ms = 0.185888
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.186275
+gpu_build_ms = 0.03728
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 5.44592
+host_wait_ms = 5.694858
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.564352
+host_wait_ms = 4.982997999999999
+hit_count = 65536
+candidate_count = 211367
+rejected_candidate_count = 115149
+committed_candidate_count = 96218
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 25584
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.804864
+host_wait_ms = 5.205576
+hit_count = 65536
+candidate_count = 211367
+rejected_candidate_count = 115149
+committed_candidate_count = 96218
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 25584
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.865152
+host_wait_ms = 5.246507
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 3682
+aabb_input_bytes = 88368
+macro_metadata_bytes = 58912
+
+[configurations.after_edit.blas]
+primitive_count = 3682
+acceleration_structure_bytes = 139776
+scratch_bytes = 282752
+host_build_ms = 0.591384
+gpu_build_ms = 0.182336
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.34428200000000003
+gpu_build_ms = 0.037184
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.618752
+host_wait_ms = 5.023353
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.944512
+host_wait_ms = 5.238300000000001
+hit_count = 65536
+candidate_count = 209263
+rejected_candidate_count = 113673
+committed_candidate_count = 95590
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 25108
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.093472
+host_wait_ms = 4.382993
+hit_count = 65536
+candidate_count = 209263
+rejected_candidate_count = 113673
+committed_candidate_count = 95590
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 25108
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 4.813472
+host_wait_ms = 5.211108
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 1
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 25
+actual_occupied_voxels_before = 8405
+actual_occupied_voxels_after = 8388
+macro_dimension = 4
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4368856
+
+[configurations.initial]
+occupied_macro_count = 511
+aabb_input_bytes = 12264
+macro_metadata_bytes = 8176
+
+[configurations.initial.blas]
+primitive_count = 511
+acceleration_structure_bytes = 20992
+scratch_bytes = 41088
+host_build_ms = 0.6085459999999999
+gpu_build_ms = 0.1184
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.34223400000000004
+gpu_build_ms = 0.037088
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 5.855616
+host_wait_ms = 6.251296
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.374016
+host_wait_ms = 4.622039
+hit_count = 65536
+candidate_count = 194208
+rejected_candidate_count = 74360
+committed_candidate_count = 119848
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 39241
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 4.343648
+host_wait_ms = 4.743417
+hit_count = 65536
+candidate_count = 194208
+rejected_candidate_count = 74360
+committed_candidate_count = 119848
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 39241
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 5.329728
+host_wait_ms = 5.505046
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 510
+aabb_input_bytes = 12240
+macro_metadata_bytes = 8160
+
+[configurations.after_edit.blas]
+primitive_count = 510
+acceleration_structure_bytes = 20992
+scratch_bytes = 41088
+host_build_ms = 0.360742
+gpu_build_ms = 0.12432
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.213322
+gpu_build_ms = 0.036064
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 6.04928
+host_wait_ms = 6.27548
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.086176
+host_wait_ms = 4.273037
+hit_count = 65536
+candidate_count = 193836
+rejected_candidate_count = 73941
+committed_candidate_count = 119895
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 39373
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.089856
+host_wait_ms = 5.357416000000001
+hit_count = 65536
+candidate_count = 193836
+rejected_candidate_count = 73941
+committed_candidate_count = 119895
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 39373
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00002670288
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 6.307808
+host_wait_ms = 6.519822
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 17
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 25
+actual_occupied_voxels_before = 8405
+actual_occupied_voxels_after = 8253
+macro_dimension = 8
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4334208
+
+[configurations.initial]
+occupied_macro_count = 64
+aabb_input_bytes = 1536
+macro_metadata_bytes = 1024
+
+[configurations.initial.blas]
+primitive_count = 64
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.42405
+gpu_build_ms = 0.089056
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.33242299999999997
+gpu_build_ms = 0.035968
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 4.864128
+host_wait_ms = 5.276861
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 5.488256
+host_wait_ms = 5.8031109999999995
+hit_count = 65536
+candidate_count = 146163
+rejected_candidate_count = 21457
+committed_candidate_count = 124706
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 50407
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.61344
+host_wait_ms = 5.881761999999999
+hit_count = 65536
+candidate_count = 146163
+rejected_candidate_count = 21457
+committed_candidate_count = 124706
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 50407
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 6.457152
+host_wait_ms = 6.7753559999999995
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 63
+aabb_input_bytes = 1512
+macro_metadata_bytes = 1008
+
+[configurations.after_edit.blas]
+primitive_count = 63
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.462688
+gpu_build_ms = 0.089728
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.381526
+gpu_build_ms = 0.035648
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 6.009984
+host_wait_ms = 6.339554
+hit_count = 65532
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.774592
+host_wait_ms = 5.131992
+hit_count = 65532
+candidate_count = 144552
+rejected_candidate_count = 22672
+committed_candidate_count = 121880
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 46493
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.439904
+host_wait_ms = 5.768343000000001
+hit_count = 65532
+candidate_count = 144552
+rejected_candidate_count = 22672
+committed_candidate_count = 121880
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 46493
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 5.944064
+host_wait_ms = 6.35176
+hit_count = 65532
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000022888184
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 152
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 75
+actual_occupied_voxels_before = 24401
+actual_occupied_voxels_after = 24397
+macro_dimension = 2
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4644424
+
+[configurations.initial]
+occupied_macro_count = 4069
+aabb_input_bytes = 97656
+macro_metadata_bytes = 65104
+
+[configurations.initial.blas]
+primitive_count = 4069
+acceleration_structure_bytes = 154240
+scratch_bytes = 312192
+host_build_ms = 0.620822
+gpu_build_ms = 0.183136
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.271043
+gpu_build_ms = 0.037824
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 9.382976
+host_wait_ms = 9.64557
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 6.34352
+host_wait_ms = 6.58853
+hit_count = 65536
+candidate_count = 181080
+rejected_candidate_count = 32689
+committed_candidate_count = 148391
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 48995
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000005722046
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 6.501504
+host_wait_ms = 6.810147
+hit_count = 65536
+candidate_count = 181080
+rejected_candidate_count = 32689
+committed_candidate_count = 148391
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 48995
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000005722046
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 9.703744
+host_wait_ms = 9.991728
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 4068
+aabb_input_bytes = 97632
+macro_metadata_bytes = 65088
+
+[configurations.after_edit.blas]
+primitive_count = 4068
+acceleration_structure_bytes = 154240
+scratch_bytes = 311936
+host_build_ms = 0.573377
+gpu_build_ms = 0.183232
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.23793
+gpu_build_ms = 0.037312
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 10.032192
+host_wait_ms = 10.363743999999999
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 4.883904
+host_wait_ms = 5.083052
+hit_count = 65536
+candidate_count = 181080
+rejected_candidate_count = 32689
+committed_candidate_count = 148391
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 48995
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000005722046
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.396288
+host_wait_ms = 5.677432
+hit_count = 65536
+candidate_count = 181080
+rejected_candidate_count = 32689
+committed_candidate_count = 148391
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 48995
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000005722046
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 9.865056
+host_wait_ms = 10.002455000000001
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 4
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 75
+actual_occupied_voxels_before = 24401
+actual_occupied_voxels_after = 24354
+macro_dimension = 4
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4368856
+
+[configurations.initial]
+occupied_macro_count = 511
+aabb_input_bytes = 12264
+macro_metadata_bytes = 8176
+
+[configurations.initial.blas]
+primitive_count = 511
+acceleration_structure_bytes = 20992
+scratch_bytes = 41088
+host_build_ms = 0.294422
+gpu_build_ms = 0.119552
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.17486300000000002
+gpu_build_ms = 0.039232
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 8.931168
+host_wait_ms = 9.043061
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 5.083968
+host_wait_ms = 5.197151
+hit_count = 65536
+candidate_count = 169102
+rejected_candidate_count = 18996
+committed_candidate_count = 150106
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51221
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.0000076293945
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.578592
+host_wait_ms = 5.708915
+hit_count = 65536
+candidate_count = 169102
+rejected_candidate_count = 18996
+committed_candidate_count = 150106
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51221
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.0000076293945
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 8.412224
+host_wait_ms = 8.634134
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 510
+aabb_input_bytes = 12240
+macro_metadata_bytes = 8160
+
+[configurations.after_edit.blas]
+primitive_count = 510
+acceleration_structure_bytes = 20992
+scratch_bytes = 41088
+host_build_ms = 0.375672
+gpu_build_ms = 0.133504
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.187479
+gpu_build_ms = 0.037152
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 9.094624
+host_wait_ms = 9.365396
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 5.245824
+host_wait_ms = 5.530294
+hit_count = 65536
+candidate_count = 169212
+rejected_candidate_count = 18924
+committed_candidate_count = 150288
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51221
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.0000076293945
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 5.04464
+host_wait_ms = 5.2743590000000005
+hit_count = 65536
+candidate_count = 169212
+rejected_candidate_count = 18924
+committed_candidate_count = 150288
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51221
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.0000076293945
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 9.843936
+host_wait_ms = 10.037778000000001
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 47
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
+
+[[configurations]]
+requested_density_percent = 75
+actual_occupied_voxels_before = 24401
+actual_occupied_voxels_after = 24045
+macro_dimension = 8
+peak_device_local_heap_usage_bytes = 450691072
+logical_live_resource_bytes = 4334208
+
+[configurations.initial]
+occupied_macro_count = 64
+aabb_input_bytes = 1536
+macro_metadata_bytes = 1024
+
+[configurations.initial.blas]
+primitive_count = 64
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.254328
+gpu_build_ms = 0.088608
+
+[configurations.initial.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.137882
+gpu_build_ms = 0.036192
+
+[[configurations.initial.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 8.794048
+host_wait_ms = 8.98516
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 7.486176
+host_wait_ms = 7.7228200000000005
+hit_count = 65536
+candidate_count = 137687
+rejected_candidate_count = 2848
+committed_candidate_count = 134839
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 53350
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 7.719392
+host_wait_ms = 7.904803
+hit_count = 65536
+candidate_count = 137687
+rejected_candidate_count = 2848
+committed_candidate_count = 134839
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 53350
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.initial.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 8.823712
+host_wait_ms = 9.03589
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.initial.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.after_edit]
+occupied_macro_count = 63
+aabb_input_bytes = 1512
+macro_metadata_bytes = 1008
+
+[configurations.after_edit.blas]
+primitive_count = 63
+acceleration_structure_bytes = 4224
+scratch_bytes = 7296
+host_build_ms = 0.277997
+gpu_build_ms = 0.0888
+
+[configurations.after_edit.tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.160718
+gpu_build_ms = 0.036832
+
+[[configurations.after_edit.samples]]
+order_index = 0
+mode = "software"
+gpu_ms = 9.00448
+host_wait_ms = 9.156685
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 1
+mode = "hardware"
+gpu_ms = 6.275232
+host_wait_ms = 6.432266
+hit_count = 65536
+candidate_count = 139074
+rejected_candidate_count = 2973
+committed_candidate_count = 136101
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51527
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 2
+mode = "hardware"
+gpu_ms = 7.185728
+host_wait_ms = 7.416627
+hit_count = 65536
+candidate_count = 139074
+rejected_candidate_count = 2973
+committed_candidate_count = 136101
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 51527
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[configurations.after_edit.samples]]
+order_index = 3
+mode = "software"
+gpu_ms = 9.283008
+host_wait_ms = 9.568742
+hit_count = 65536
+candidate_count = 0
+rejected_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+query_committed_disagreement_count = 0
+
+[configurations.after_edit.samples.correctness]
+reference_ray_count = 65536
+false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000009536743
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[configurations.edit]
+cleared_macro_min = [
+    8,
+    8,
+    8,
+]
+cleared_voxel_count = 356
+topology_changed = true
+update_mode = "blas_rebuild_and_tlas_rebuild"
+reason = "the edit removes one AABB primitive, so primitive count changes and Vulkan UPDATE/refit is not legal"
