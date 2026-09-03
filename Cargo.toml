@@ -54,6 +54,7 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
+rtx-voxel-experiment = ["re-flora-vkn/rtx-voxel-experiment"]
 
 [profile.test]
 # uncomment this line to use release build for tests

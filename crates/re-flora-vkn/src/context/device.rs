@@ -1,4 +1,4 @@
-use super::Queue;
+use super::{DeviceCapabilities, Queue};
 use super::{instance::Instance, physical_device::PhysicalDevice, queue::QueueFamilyIndices};
 use crate::SubmitDesc;
 use ash::vk;
@@ -119,20 +119,28 @@ impl Device {
         instance: &Instance,
         physical_device: &PhysicalDevice,
         queue_family_indices: &QueueFamilyIndices,
+        capabilities: DeviceCapabilities,
     ) -> Self {
         let physical_device_raw = physical_device.as_raw();
-        let extension_requirements = device_extension_requirements();
+        let extension_requirements = device_extension_requirements(capabilities);
         validate_device_capabilities(
             instance.as_raw(),
             physical_device_raw,
             &extension_requirements,
+            capabilities,
         );
         let device = create_device(
             instance.as_raw(),
             physical_device_raw,
             queue_family_indices,
             &extension_requirements,
+            capabilities,
         );
+        if capabilities.hardware_ray_query {
+            log::info!(
+                "[VKN][HARDWARE_RAY_QUERY] enabled extensions=VK_KHR_acceleration_structure,VK_KHR_ray_query,VK_KHR_deferred_host_operations features=accelerationStructure,rayQuery"
+            );
+        }
         Self(Arc::new(DeviceInner {
             device,
             gpu_job_fence_pool: Mutex::new(Vec::new()),
@@ -544,6 +552,7 @@ fn create_device(
     physical_device: vk::PhysicalDevice,
     queue_family_indices: &QueueFamilyIndices,
     extension_requirements: &[DeviceExtensionRequirement],
+    capabilities: DeviceCapabilities,
 ) -> ash::Device {
     let queue_priorities = [1.0f32];
     let queue_create_infos = {
@@ -592,15 +601,31 @@ fn create_device(
         .push_next(&mut buffer_device_address_features);
     // .push_next(&mut physical_device_shader_clock_features_khr);
 
-    unsafe {
-        instance
-            .create_device(physical_device, &device_create_info, None)
-            .expect("Failed to create logical device")
+    if capabilities.hardware_ray_query {
+        let mut acceleration_structure_features =
+            vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
+                .acceleration_structure(true);
+        let mut ray_query_features =
+            vk::PhysicalDeviceRayQueryFeaturesKHR::default().ray_query(true);
+        let device_create_info = device_create_info
+            .push_next(&mut acceleration_structure_features)
+            .push_next(&mut ray_query_features);
+        unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .expect("Failed to create logical device with hardware ray query")
+        }
+    } else {
+        unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .expect("Failed to create logical device")
+        }
     }
 }
 
-fn device_extension_requirements() -> Vec<DeviceExtensionRequirement> {
-    let requirements = vec![
+fn device_extension_requirements(capabilities: DeviceCapabilities) -> Vec<DeviceExtensionRequirement> {
+    let mut requirements = vec![
         DeviceExtensionRequirement {
             name: vk::KHR_SWAPCHAIN_NAME,
             reason: "Required to present rendered images to the window surface",
@@ -609,12 +634,24 @@ fn device_extension_requirements() -> Vec<DeviceExtensionRequirement> {
             name: vk::KHR_MAINTENANCE4_NAME,
             reason: "Needed because compute shaders rely on LocalSizeId execution mode",
         },
-        DeviceExtensionRequirement {
-            name: vk::KHR_DEFERRED_HOST_OPERATIONS_NAME,
-            reason:
-                "Needed for `VK_KHR_acceleration_structure` companion functionality (shader builds)",
-        },
     ];
+
+    if capabilities.hardware_ray_query {
+        requirements.extend([
+            DeviceExtensionRequirement {
+                name: vk::KHR_DEFERRED_HOST_OPERATIONS_NAME,
+                reason: "Required by VK_KHR_acceleration_structure",
+            },
+            DeviceExtensionRequirement {
+                name: vk::KHR_ACCELERATION_STRUCTURE_NAME,
+                reason: "Required to build BLAS/TLAS for the RTX voxel experiment",
+            },
+            DeviceExtensionRequirement {
+                name: vk::KHR_RAY_QUERY_NAME,
+                reason: "Required for inline traversal in the RTX voxel experiment compute shader",
+            },
+        ]);
+    }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
@@ -661,17 +698,26 @@ fn collect_missing_extension_rows(
 fn collect_missing_feature_rows(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
+    capabilities: DeviceCapabilities,
 ) -> Vec<(String, String)> {
     let mut rows = Vec::new();
 
     let mut buffer_device_address_features =
         vk::PhysicalDeviceBufferDeviceAddressFeatures::default();
     let mut maintenance4_features = vk::PhysicalDeviceMaintenance4Features::default();
+    let mut acceleration_structure_features =
+        vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default();
+    let mut ray_query_features = vk::PhysicalDeviceRayQueryFeaturesKHR::default();
     // let mut shader_clock_features = vk::PhysicalDeviceShaderClockFeaturesKHR::default();
 
     let mut features2 = vk::PhysicalDeviceFeatures2::default()
         .push_next(&mut buffer_device_address_features)
         .push_next(&mut maintenance4_features);
+    if capabilities.hardware_ray_query {
+        features2 = features2
+            .push_next(&mut acceleration_structure_features)
+            .push_next(&mut ray_query_features);
+    }
     // .push_next(&mut shader_clock_features);
 
     unsafe {
@@ -700,6 +746,24 @@ fn collect_missing_feature_rows(
         ));
     }
 
+    if capabilities.hardware_ray_query
+        && acceleration_structure_features.acceleration_structure != vk::TRUE
+    {
+        rows.push((
+            "accelerationStructure".to_string(),
+            "VK_KHR_acceleration_structure feature required for the RTX voxel experiment"
+                .to_string(),
+        ));
+    }
+
+    if capabilities.hardware_ray_query && ray_query_features.ray_query != vk::TRUE {
+        rows.push((
+            "rayQuery".to_string(),
+            "VK_KHR_ray_query feature required for the RTX voxel experiment compute shader"
+                .to_string(),
+        ));
+    }
+
     // if shader_clock_features.shader_subgroup_clock != vk::TRUE {
     //     rows.push((
     //         "shader_subgroup_clock".to_string(),
@@ -714,10 +778,11 @@ fn validate_device_capabilities(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     extension_requirements: &[DeviceExtensionRequirement],
+    capabilities: DeviceCapabilities,
 ) {
     let missing_extensions =
         collect_missing_extension_rows(instance, physical_device, extension_requirements);
-    let missing_features = collect_missing_feature_rows(instance, physical_device);
+    let missing_features = collect_missing_feature_rows(instance, physical_device, capabilities);
 
     if missing_extensions.is_empty() && missing_features.is_empty() {
         return;
@@ -755,4 +820,36 @@ fn validate_device_capabilities(
         "Selected GPU \"{}\" lacks required Vulkan capabilities. Please choose a device that provides the extensions/features listed above.",
         device_name
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extension_names(capabilities: DeviceCapabilities) -> Vec<&'static CStr> {
+        device_extension_requirements(capabilities)
+            .into_iter()
+            .map(|requirement| requirement.name)
+            .collect()
+    }
+
+    #[test]
+    fn default_device_does_not_request_hardware_ray_query_extensions() {
+        let names = extension_names(DeviceCapabilities::default());
+
+        assert!(!names.contains(&vk::KHR_ACCELERATION_STRUCTURE_NAME));
+        assert!(!names.contains(&vk::KHR_RAY_QUERY_NAME));
+        assert!(!names.contains(&vk::KHR_DEFERRED_HOST_OPERATIONS_NAME));
+    }
+
+    #[test]
+    fn hardware_ray_query_requests_its_complete_extension_set() {
+        let names = extension_names(DeviceCapabilities {
+            hardware_ray_query: true,
+        });
+
+        assert!(names.contains(&vk::KHR_ACCELERATION_STRUCTURE_NAME));
+        assert!(names.contains(&vk::KHR_RAY_QUERY_NAME));
+        assert!(names.contains(&vk::KHR_DEFERRED_HOST_OPERATIONS_NAME));
+    }
 }

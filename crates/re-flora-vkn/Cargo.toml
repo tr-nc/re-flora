@@ -29,3 +29,4 @@ re-flora-shader-build = { path = "../re-flora-shader-build" }
 default = []
 no_validation_layer = []
 sync_diagnostics = []
+rtx-voxel-experiment = []

@@ -13,6 +13,12 @@ use winit::window::Window;
 
 pub struct VulkanContextDesc {
     pub name: String,
+    pub capabilities: DeviceCapabilities,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DeviceCapabilities {
+    pub hardware_ray_query: bool,
 }
 
 struct VulkanContextInner {
@@ -140,7 +146,12 @@ impl VulkanContext {
         let instance = Instance::new(&entry, window, &desc.name);
         let surface = Surface::new(&entry, &instance, window);
         let (physical_device, queue_family_indices) = PhysicalDevice::new(&instance, &surface);
-        let device = Device::new(&instance, &physical_device, &queue_family_indices);
+        let device = Device::new(
+            &instance,
+            &physical_device,
+            &queue_family_indices,
+            desc.capabilities,
+        );
 
         let fast_access_items = FastAccessItems::new(&device, &queue_family_indices);
 

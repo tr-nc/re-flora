@@ -1,6 +1,6 @@
 use super::App;
 use crate::window::{select_monitor_by_score, WindowMode, WindowState, WindowStateDesc};
-use re_flora_vkn::{VulkanContext, VulkanContextDesc};
+use re_flora_vkn::{DeviceCapabilities, VulkanContext, VulkanContextDesc};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {
@@ -74,11 +74,15 @@ impl App {
         window_state
     }
 
-    pub(super) fn create_vulkan_context(window_state: &WindowState) -> VulkanContext {
+    pub(super) fn create_vulkan_context(
+        window_state: &WindowState,
+        hardware_ray_query: bool,
+    ) -> VulkanContext {
         VulkanContext::new(
             &window_state.window(),
             VulkanContextDesc {
                 name: "Re: Flora".into(),
+                capabilities: DeviceCapabilities { hardware_ray_query },
             },
         )
     }

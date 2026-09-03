@@ -1090,7 +1090,7 @@ impl App {
         let lighting_mode_acceptance_requested = lighting_mode_acceptance_options.is_some();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
-        let vulkan_ctx = Self::create_vulkan_context(&window_state);
+        let vulkan_ctx = Self::create_vulkan_context(&window_state, false);
 
         let device = vulkan_ctx.device();
 
