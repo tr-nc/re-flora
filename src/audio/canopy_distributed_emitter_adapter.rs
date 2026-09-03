@@ -1,13 +1,12 @@
 use crate::audio::{
-    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticSampleId,
-    CanopyAcousticSolveStatus, CanopyAudioGenerationKey, CanopyAudioLifecycleSnapshot,
-    CanopyAudioSampleTelemetry, CanopyAudioTelemetry, CanopyAudioVoice,
-    CanopyExtentAcousticObservation, CanopyOcclusionClassification, CanopyRouteAcousticObservation,
-    CanopySampleAcousticObservation, SpatialAcousticTelemetryEvent, SpatialSoundManager,
+    ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticObservation,
+    CanopyAcousticSampleId, CanopyAcousticSolveStatus, CanopyAudioGenerationKey,
+    CanopyAudioLifecycleSnapshot, CanopyAudioSampleTelemetry, CanopyAudioTelemetry,
+    CanopyAudioVoice, CanopyExtentAcousticObservation, CanopyOcclusionClassification,
+    CanopyRouteAcousticObservation, CanopySampleAcousticObservation, SpatialSoundManager,
 };
 use crate::wind::{Wind, WindResponseCurve, WindSource};
-use anyhow::Result;
-use log::warn;
+use anyhow::{Context, Result};
 use petalsonic::{
     AcousticOcclusionState, AcousticSolveStatus, AcousticTelemetryDiagnostics,
     DistributedOcclusionProfile, ExtentSample, ExtentSampleId, OcclusionProfile, ResidentClip,
@@ -27,6 +26,8 @@ pub struct CanopyDistributedEmitterAdapter {
     spatial_sound_manager: SpatialSoundManager,
     telemetry: CanopyAudioTelemetry,
     voices: HashMap<CanopyAudioGenerationKey, CanopyAudioVoice>,
+    #[cfg(test)]
+    fail_spawn_key: Option<CanopyAudioGenerationKey>,
 }
 
 impl CanopyDistributedEmitterAdapter {
@@ -35,6 +36,8 @@ impl CanopyDistributedEmitterAdapter {
             spatial_sound_manager,
             telemetry: CanopyAudioTelemetry::default(),
             voices: HashMap::new(),
+            #[cfg(test)]
+            fail_spawn_key: None,
         }
     }
 
@@ -59,19 +62,11 @@ impl CanopyDistributedEmitterAdapter {
             .copied()
             .filter(|key| !active_keys.contains(key))
             .collect::<Vec<_>>();
-        for key in stale_keys {
-            if let Some(voice) = self.voices.remove(&key) {
-                self.spatial_sound_manager.remove_source(voice.uuid);
-                for sample in voice.descriptor.samples() {
-                    self.telemetry.remove_source(voice.sample_key(sample.id()));
-                }
-            }
-        }
-
         let mut created = Vec::new();
+        let mut created_keys = Vec::new();
         for active in snapshot.generations() {
             if !self.voices.contains_key(&active.key()) {
-                match self.spawn_voice(
+                let uuid = match self.spawn_voice(
                     active,
                     rustle_clip,
                     base_volume_db,
@@ -79,22 +74,67 @@ impl CanopyDistributedEmitterAdapter {
                     base_wind,
                     time_seconds,
                 ) {
-                    Ok(uuid) => created.push(uuid),
+                    Ok(uuid) => uuid,
                     Err(error) => {
-                        warn!(
-                            "Failed to spawn distributed canopy Voice tree={} generation={}: {error:#}",
-                            active.key().tree_id(),
-                            active.key().generation(),
-                        );
-                        continue;
+                        self.rollback_created_voices(&created_keys);
+                        return Err(error).with_context(|| {
+                            format!(
+                                "spawning distributed canopy Voice tree={} generation={}",
+                                active.key().tree_id(),
+                                active.key().generation(),
+                            )
+                        });
                     }
-                }
+                };
+                created.push(uuid);
+                created_keys.push(active.key());
             }
             if let Some(voice) = self.voices.get_mut(&active.key()) {
-                voice.set_lifecycle_power(active.lifecycle_power(), &self.spatial_sound_manager)?;
+                if let Err(error) =
+                    voice.set_lifecycle_power(active.lifecycle_power(), &self.spatial_sound_manager)
+                {
+                    self.rollback_created_voices(&created_keys);
+                    return Err(error).with_context(|| {
+                        format!(
+                            "publishing canopy Voice power tree={} generation={}",
+                            active.key().tree_id(),
+                            active.key().generation(),
+                        )
+                    });
+                }
             }
         }
+        for key in stale_keys {
+            self.remove_voice(key);
+        }
         Ok(created)
+    }
+
+    fn remove_voice(&mut self, key: CanopyAudioGenerationKey) {
+        if let Some(voice) = self.voices.remove(&key) {
+            self.spatial_sound_manager.remove_source(voice.uuid);
+            for sample in voice.descriptor.samples() {
+                self.telemetry.remove_source(voice.sample_key(sample.id()));
+            }
+        }
+    }
+
+    fn rollback_created_voices(&mut self, created_keys: &[CanopyAudioGenerationKey]) {
+        for &key in created_keys.iter().rev() {
+            self.remove_voice(key);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_spawn_for_test(&mut self, key: CanopyAudioGenerationKey) {
+        self.fail_spawn_key = Some(key);
+    }
+
+    #[cfg(test)]
+    pub(super) fn active_generation_keys_for_test(&self) -> Vec<CanopyAudioGenerationKey> {
+        let mut keys = self.voices.keys().copied().collect::<Vec<_>>();
+        keys.sort();
+        keys
     }
 
     pub fn update(
@@ -158,15 +198,14 @@ impl CanopyDistributedEmitterAdapter {
         self.telemetry.set_enabled(enabled);
     }
 
-    pub fn collect_acoustic_telemetry(&mut self) {
-        for event in self.spatial_sound_manager.drain_acoustic_telemetry() {
+    pub fn collect_acoustic_telemetry(&mut self, observations: Vec<CanopyAcousticObservation>) {
+        for event in observations {
             match event {
-                SpatialAcousticTelemetryEvent::ExtentResponse {
-                    source_uuid: Some(source_uuid),
+                CanopyAcousticObservation::ExtentResponse {
+                    generation,
                     response,
                 } => {
-                    let Some(voice) = self.voices.values().find(|voice| voice.uuid == source_uuid)
-                    else {
+                    let Some(voice) = self.voices.get(&generation) else {
                         continue;
                     };
                     let key = voice.key;
@@ -231,20 +270,7 @@ impl CanopyDistributedEmitterAdapter {
                         },
                     );
                 }
-                SpatialAcousticTelemetryEvent::ExtentResponse {
-                    source_uuid: None, ..
-                } => {}
-                SpatialAcousticTelemetryEvent::VoiceConclusion {
-                    source_uuid,
-                    conclusion,
-                } => {
-                    // This event reached the canopy-owned inbox, so the local-footstep consumer
-                    // cannot drain or misattribute it. Existing extent telemetry remains the
-                    // canopy diagnostic authority, so no current canopy snapshot field projects
-                    // this QoS record.
-                    let _ = (source_uuid, conclusion);
-                }
-                SpatialAcousticTelemetryEvent::SolveDiscarded {
+                CanopyAcousticObservation::SolveDiscarded {
                     spatial_revision,
                     geometry_version,
                 } => {
@@ -313,11 +339,21 @@ impl CanopyDistributedEmitterAdapter {
         base_wind: f32,
         time_seconds: f32,
     ) -> Result<Uuid> {
+        #[cfg(test)]
+        if self.fail_spawn_key == Some(active.key()) {
+            self.fail_spawn_key = None;
+            anyhow::bail!(
+                "injected canopy Voice spawn failure tree={} generation={}",
+                active.key().tree_id(),
+                active.key().generation(),
+            );
+        }
         let descriptor = active.descriptor();
         let phase = Self::phase_at_time(descriptor.phase(), rustle_clip, time_seconds);
         let uuid = self
             .spatial_sound_manager
-            .add_looping_spatial_clip_with_extent_at_phase(
+            .add_canopy_looping_clip_with_extent_at_phase(
+                active.key(),
                 rustle_clip.clone(),
                 TREE_SILENT_VOLUME_DB,
                 descriptor.tree_origin_world(),
@@ -372,8 +408,61 @@ impl CanopyDistributedEmitterAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::CanopyAudioLifecycle;
     use crate::tree_gen::LeafPlacement;
     use glam::Vec3;
+    use petalsonic::{
+        AcousticHit, AcousticRay, AcousticRayQuerySnapshot, AcousticSceneSnapshot,
+        EnvironmentalAcousticsBudget,
+    };
+    use std::sync::Arc;
+
+    struct NoAcousticHits;
+
+    impl AcousticRayQuerySnapshot for NoAcousticHits {
+        fn trace_any_hit_batch(
+            &self,
+            _rays: &[AcousticRay],
+            _min_distances: &[f32],
+            _max_distances: &[f32],
+            hits: &mut [bool],
+        ) {
+            hits.fill(false);
+        }
+
+        fn trace_closest_hit_batch(
+            &self,
+            _rays: &[AcousticRay],
+            _min_distances: &[f32],
+            _max_distances: &[f32],
+            hits: &mut [Option<AcousticHit>],
+        ) {
+            hits.fill(None);
+        }
+    }
+
+    fn test_manager() -> SpatialSoundManager {
+        SpatialSoundManager::new(
+            64,
+            AcousticSceneSnapshot::new(1, Arc::new(NoAcousticHits)),
+            Some("re-flora-canopy-publication-device-that-does-not-exist".to_owned()),
+            EnvironmentalAcousticsBudget::default(),
+        )
+        .unwrap()
+    }
+
+    fn descriptor(generation: u64, x: f32) -> CanopyAcousticDescriptor {
+        CanopyAcousticDescriptor::build(
+            generation,
+            Vec3::new(x, 0.0, 0.0),
+            generation,
+            &[LeafPlacement {
+                position: Vec3::new(4.0, 4.0, 4.0),
+                anchor: Vec3::ZERO,
+            }],
+            &[],
+        )
+    }
 
     #[test]
     fn descriptor_maps_to_one_normalized_weighted_extent() {
@@ -418,5 +507,36 @@ mod tests {
             CanopyDistributedEmitterAdapter::occlusion_profile(),
             OcclusionProfile::AmbientDistributed(_)
         ));
+    }
+
+    #[test]
+    fn failed_generation_spawn_rolls_back_every_voice_created_by_the_sync() {
+        let manager = test_manager();
+        let mut adapter = CanopyDistributedEmitterAdapter::new(manager);
+        let mut lifecycle = CanopyAudioLifecycle::new(0.35);
+        lifecycle.replace(1, descriptor(1, 1.0), 0.0).unwrap();
+        lifecycle.replace(2, descriptor(2, 2.0), 0.0).unwrap();
+        let snapshot = lifecycle.snapshot(0.0).unwrap();
+        let failing_key = CanopyAudioGenerationKey::new(2, 2);
+        adapter.fail_spawn_for_test(failing_key);
+        let clip = ResidentClip::from_mono_pcm(vec![0.0; 16], 48_000).unwrap();
+
+        let error = adapter
+            .synchronize(
+                &snapshot,
+                &clip,
+                -10.0,
+                WindResponseCurve {
+                    min_strength: 0.0,
+                    max_strength: 1.0,
+                    power: 1.0,
+                },
+                0.0,
+                0.0,
+            )
+            .expect_err("the second generation spawn should fail the whole sync");
+
+        assert!(format!("{error:#}").contains("injected canopy Voice spawn failure"));
+        assert!(adapter.active_generation_keys_for_test().is_empty());
     }
 }

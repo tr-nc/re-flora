@@ -42,6 +42,12 @@ _Avoid_: campaign, narrative progression
 
 ## Environment Lighting
 
+**Authored Environment Lighting**:
+The normalized current-frame lighting fact whose live identity and revision are authoritative for
+immediate lighting observation. Transported lighting derives immutable snapshots from this fact on
+its own cadence without becoming a second live authority.
+_Avoid_: environment lighting cache, DDGI radiance state
+
 **DDGI Probe**:
 A directionless spatial sample that represents surrounding diffuse irradiance and visibility over
 the sphere.
@@ -50,6 +56,21 @@ _Avoid_: SH probe, point light
 **DDGI Volume**:
 A spatial field of DDGI probes with a defined transform, extent, and readiness state.
 _Avoid_: probe cloud, ambient grid
+
+**DDGI Volume Generation**:
+The identity of one physical DDGI Volume allocation. It may retain several successive DDGI Field
+Generations without being reallocated.
+_Avoid_: field generation, transport revision
+
+**DDGI Field Generation**:
+One immutable transport lineage rooted at an epoch-zero field inside a DDGI Volume Generation. A
+radiance restart creates a new Field Generation without implying a new physical allocation.
+_Avoid_: volume generation, update epoch
+
+**DDGI Volume Publication**:
+One complete DDGI field, its exact Volume Generation, and the authored-lighting and capture facts
+that belong to that field.
+_Avoid_: ready flag, resident metadata
 
 **Irradiance Map**:
 The directional diffuse-lighting function stored by a DDGI probe and queried with a surface normal.

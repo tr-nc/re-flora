@@ -8,7 +8,8 @@ use crate::geom::UAabb3;
 
 use super::{
     LocalLight, LocalLightInfluenceBound, LocalLightProviderSnapshot,
-    LocalLightProviderSnapshotError, PointLight, ProviderId, SourceLight, SourceLightKey,
+    LocalLightProviderSnapshotError, LocalLightSourceProvider, PointLight, ProviderId, SourceLight,
+    SourceLightKey,
 };
 
 pub(crate) const EMISSIVE_VOXEL_PROVIDER_ID: ProviderId = ProviderId::new(2);
@@ -126,6 +127,12 @@ pub(crate) struct EmissiveVoxelProvider {
     voxel_count: usize,
     source_revision: u64,
     snapshot: LocalLightProviderSnapshot,
+}
+
+impl LocalLightSourceProvider for EmissiveVoxelProvider {
+    fn local_light_snapshot(&self) -> LocalLightProviderSnapshot {
+        self.snapshot()
+    }
 }
 
 impl EmissiveVoxelProvider {

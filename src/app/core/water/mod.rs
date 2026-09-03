@@ -1,9 +1,13 @@
+mod coordinator;
 mod runtime;
 mod settings;
 mod simulation;
 mod terrain;
 
-pub(super) use runtime::AsyncWaterSim;
-pub(super) use settings::{apply_water_gui_adjustables_to_config, WaterRuntimeOverrides};
-pub(super) use simulation::WaterEditSoak;
-pub(super) use terrain::WaterTerrainRuntime;
+pub(super) use coordinator::{WaterPhase, WaterPublicationResumed, WaterRuntime};
+#[cfg(test)]
+pub(super) use settings::EXPERIENCE_PARTICLE_COUNT;
+pub(super) use settings::{
+    WaterLaunchRequest, EXPERIENCE_INITIAL_FLUID_MAX_WS, EXPERIENCE_INITIAL_FLUID_MIN_WS,
+};
+pub(super) use simulation::{WaterEditFrameResult, WaterEditFrameTxn, WaterEditSoak};

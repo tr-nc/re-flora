@@ -80,7 +80,7 @@ impl App {
 
     pub(super) fn terrain_edit_pointer_available(&self) -> bool {
         !self.blocking_panel_open()
-            && self.glass_voxel_test_scene.is_none()
+            && self.launch_owners.glass_experiment_settings().is_none()
             && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
     }
 
@@ -363,7 +363,7 @@ impl App {
     pub(super) fn refresh_terrain_edit_hold_from_mouse_buttons(&mut self) {
         if !self.player_tools.finish_pointer_release() {
             self.stop_terrain_edit_loop_sound();
-            if let Err(err) = self.resolve_detached_terrain_after_edit() {
+            if let Err(err) = self.finish_player_terrain_connectivity_hold() {
                 log::error!("Failed to resolve detached terrain after edit release: {err:#}");
             }
         }

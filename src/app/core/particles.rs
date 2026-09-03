@@ -1,4 +1,3 @@
-use super::terrain_connectivity::bench::TerrainConnectivityBench;
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
@@ -141,6 +140,10 @@ impl TreeLeafEmitterRuntime {
             indices_by_tree: HashMap::new(),
             desc,
         }
+    }
+
+    pub(super) fn empty_like(&self) -> Self {
+        Self::new(self.desc)
     }
 
     pub(super) fn upsert(&mut self, tree_id: u32, clusters: &[ClusterResult]) {
@@ -494,11 +497,8 @@ impl App {
 
         let total_start = Instant::now();
         let setup_start = Instant::now();
-        let diagnostic_capacity_isolation = self
-            .terrain_connectivity_bench
-            .as_ref()
-            .is_some_and(TerrainConnectivityBench::active);
-        if !diagnostic_capacity_isolation {
+        let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
+        if allows_ambient_emitters {
             self.butterfly_emitter_desc =
                 Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
             for emitter in &mut self.butterfly_emitters {
@@ -513,7 +513,7 @@ impl App {
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
         let emit_start = Instant::now();
-        if !diagnostic_capacity_isolation {
+        if allows_ambient_emitters {
             Self::drive_emitters(
                 &mut self.butterfly_emitters,
                 &mut self.particle_system,
@@ -590,7 +590,7 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
-        if !self.water_terrain_status().is_initialized() {
+        if !self.water.terrain_status().is_initialized() {
             return;
         }
 
@@ -599,14 +599,14 @@ impl App {
             return;
         }
 
-        let bounds = self.water_sim.config.collider;
+        let bounds = self.water.config().collider;
         let water_particle_size = water_debug_particle_size(
             self.debug_settings
                 .adjustables
                 .water_particle_quad_size
                 .value,
         );
-        let Some(frame) = self.water_sim.latest_particle_frame() else {
+        let Some(frame) = self.water.latest_particle_frame() else {
             return;
         };
         for particle in frame

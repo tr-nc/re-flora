@@ -18,13 +18,13 @@ impl TreeBench {
     }
 
     pub(super) fn run_next(app: &mut App) -> bool {
-        let Some(mut bench) = app.tree_bench.take() else {
+        let Some(mut bench) = app.launch_owners.tree_bench.take() else {
             return false;
         };
 
         let done = bench.run_sample(app);
         if !done {
-            app.tree_bench = Some(bench);
+            app.launch_owners.tree_bench = Some(bench);
         }
         done
     }

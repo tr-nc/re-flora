@@ -15,6 +15,11 @@ or scheduler change.
 | consecutive passing epochs | `2` |
 | maximum complete epochs | `128` (`e0` through `e127`) |
 
+The checked-in machine contract is
+`config/ddgi_convergence_acceptance.toml`. Rust locks the runtime policy to that contract, while the
+Python summarizer independently rejects a process whose logged policy drifts from it. This prevents
+the producer and every acceptance process from moving together to a shorter budget unnoticed.
+
 The maximum is a finite temporal sampling budget and sleep backstop. `Threshold` means both deltas
 passed for the required consecutive epochs after the minimum age. `SampleBudget` means the latest
 finite nonnegative field was retained and put to sleep at e127 even though its maximum texel delta did
@@ -51,13 +56,123 @@ Run:
 scripts/check_ddgi_transport_acceptance.sh
 ```
 
-The convergence summarizer validates:
+Three evidence seams were compared for this acceptance wire:
 
-- one contiguous epoch sequence for the capture's exact geometry/radiance/spacing identity;
-- full valid/stored atlas coverage for every epoch;
-- finite, nonnegative RGB values;
+- Extending the Python source parser to every `std::io`, print, file, alias, helper, or FFI output
+  path was rejected. It would be an incomplete Rust effect analyzer with unbounded false-negative
+  and false-positive cases.
+- Replacing logs with a private artifact writer could become a deep module if convergence evidence
+  needs a first-class binary artifact. It is not the current seam: path binding, atomic write,
+  flush/error semantics, and capture provenance would change the acceptance wire in a larger slice.
+- The selected seam keeps the private canonical macro/log producer as a local structure tripwire
+  and makes independently parsed console plus process-bound run log the runtime authority. This
+  preserves the existing wire while rejecting malformed, extra, or stream-inconsistent evidence.
+
+The runtime keeps convergence facts, exact evidence-line construction, and log emission inside a
+private child module. Batch completion carries only an opaque, non-debuggable pending capability;
+after Tracer's final fallible batch observation succeeds, its last batch-block statement consumes
+that capability. Parent runtime code can prepare but cannot inspect or format the evidence, and
+Tracer cannot reconstruct its count or terminal identity. Child-module Rust tests prove the exact
+one-line Published and ordered two-line Converged results. The Python source tripwire dynamically
+reads all `src/**/*.rs`; its global raw-identifier inventory permits only the runtime definition and
+Tracer's canonical final direct commit call. Its child-module checks are deliberately limited to
+the private capability, closed macro/log inventory, same-receiver consuming commit, and canonical
+commit-last position.
+Rustc owns the opaque types' non-`Debug`/non-`Display` and non-`Copy`/non-`Clone`/non-`Default`
+proof through production-configuration, owner-local compile-time negative trait assertions. The
+latter traits seal the pending capability against duplication or default fabrication. Each
+assertion is an unconfigured module-root item adjacent to its owned struct, so an ordinary non-test
+build enforces the seal. A source-level
+trait parser was rejected because imports and aliases require Rust name resolution and generic
+wrappers create false positives; representation marker fields would enlarge the production
+interface, while language negative impls remain unstable. The source tripwire therefore checks
+only the exact direct-item assertion placement and payload, including absolute paths to the macro
+crate and `core::fmt` traits. Owner-local traits or modules therefore cannot shadow the rustc-owned
+proof, and the tripwire does not duplicate Rust trait semantics.
+Within the private child module's deliberately controlled Rust source grammar, the same tripwire
+requires absolute `::log` paths, one canonical child-private log gate and sink, and the fixed
+owner-local formatting/vector macros. It does not claim global sink or marker uniqueness and does
+not inspect arbitrary parent `std::io`, print, file, alias, helper, or FFI output. Those effects are
+outside the source tripwire and are rejected at the dual-stream runtime acceptance seam. This is a
+local structure guard, not a general Rust name resolver, effect analyzer, or control-flow proof.
+The private emitter checks that its dedicated target is enabled at Debug level before constructing
+the evidence-line vector, so ordinary production logging does not pay that allocation cost.
+
+The convergence summarizer independently parses both the capture console and its preserved,
+process-bound `.run.log`, then requires semantic equality of the complete initialization event,
+ordered validation curve, and terminal identity. The initialization identity retains the logger
+timestamp, terrain revision, spacing, probe count, stage, and policy; the curve must use that
+spacing and its captured geometry must name that terrain revision. The checked-in initialization
+grid extent derives the exact probe count for each spacing, and every full-atlas record must report
+exactly `probe_count * 64` valid irradiance texels and `probe_count * 100` scanned stored texels.
+Every authoritative event is a
+complete production logger line: initialization comes from `re_flora::tracer`, while validation
+and terminal events come from `re_flora::ddgi::runtime::convergence_evidence` at Debug level.
+Raw, prefixed, wrong-level, wrong-module, and suffixed marker lines are not evidence. Before
+selecting the capture identity, every validation record in each stream passes a cross-language wire mirror. The
+`[validation_wire]` table in `config/ddgi_convergence_acceptance.toml` is its single field/type
+owner: the Python parser derives all `u64`/`u32`/`f32` bounds and the decimal rounding cell from
+that table, while the runtime formatter test compiles each mapped getter or fact against the
+declared Rust type and checks the production formatter's decimal precision. This keeps the mirror
+synchronized with `DdgiFieldKey`, `DdgiAtlasValidationStats`, the capsule's consecutive count, and
+`DDGI_CONVERGENCE_POLICY` without a second Python type or formatting registry.
+
+The mirror requires nonzero field serial/radiance revision/spacing and rejects Converged epoch
+zero. The canonical validation record carries `source_field_serial=none|<u64>` directly from
+`DdgiFieldIdentity::source()`; it never infers provenance from record position or the
+geometry/radiance/spacing tuple. Every numeric field must fit its Rust type; delta and threshold
+floats must round to a finite, nonnegative `f32`. Validated atlas records require zero
+non-finite/negative counts, positive complete 8x8/10x10 coverage, and the runtime policy's thresholds
+and required consecutive count.
+
+The parser reconstructs every validation and terminal marker suffix in the production field order.
+Exponent notation, leading zeros, altered precision, repeated fields, and trailing text are not
+alternative wire spellings. Capture identity integers must be genuine JSON integers rather than
+booleans and fit their Rust `u32`/`u64` ranges. Capture-analysis deltas must be finite numeric values;
+they are converted to Rust `f32` and rendered with the same eight decimal places before comparison.
+Threshold tokens use the production `f32` policy
+with that precision. The initialization policy uses Rust's shortest display; its complete suffix
+must match the checked-in top-level contract tokens exactly rather than relying on a tolerance.
+
+Field serials are globally unique and strictly increasing. Every epoch zero starts a new generation,
+even when a later density rebuild uses the same geometry/radiance/spacing tuple. A source-free start
+must be Converging at epoch zero with streak zero. A source-backed start must name an earlier serial
+that is present in the process-bound stream. It need not be physically adjacent: a completed
+candidate that later becomes obsolete may appear between the resident source and the next
+authoritative geometry generation. Source and destination spacing must match, and the destination
+epoch must be source epoch plus one for an unchanged geometry/radiance revision or zero for a new
+transport revision. A source-backed epoch-zero start classifies its first streak from previous
+streak zero. The first record must therefore be
+source-free. Every nonzero epoch must retain the generation tuple, advance exactly one epoch, and
+name the immediately preceding field serial as its source. Thus generation identity is the explicit
+lineage, not the tuple. Capture validation selects the unique generation containing the terminal
+field serial, so an earlier same-tuple density generation cannot be mixed into the reported epochs.
+Each generation's
+consecutive-below count and Converging/Converged state follow the production classification state
+machine. A displayed delta is ambiguous only when its configured eight-place rounding cell crosses
+the actual Rust `f32` threshold; clearly above or below cells have one possible streak outcome. These
+checks apply to legal historical generations before capture selection, not only to the selected
+curve.
+
+Markers form an ordered event stream. A Published/Converging validation has no terminal; every
+Converged validation must be followed by its matching terminal as the next marker event, although
+ordinary non-marker logs may intervene. Premature, orphaned, missing, or duplicate terminals fail.
+Acceptance additionally requires the process's one terminal to match the final validation and RFIRR
+capture. Terminal integer bounds are inherited by that exact match. `max_rgb_value` is not in the evidence wire;
+production atlas validation checks that private fact before the capsule can be constructed.
+Consequently old-identity duplicates, raw stdout/stderr injection, direct run-log injection, and
+synchronized duplicate records fail closed even when the source tripwire cannot see how bytes were
+produced. Console-only or run-log-only evidence cannot qualify. It validates:
+
+- one authoritative typed runtime-policy record per process, checked against the shared acceptance
+  contract with no runner-owned epoch-count copy;
+- legal explicit-lineage historical and captured generations with unique ordered field serials;
+- full valid/stored atlas coverage and production-possible convergence classification for every
+  epoch;
+- finite, nonnegative delta and policy values representable as production `f32` fields;
 - the exact policy constants above;
-- captured epoch/state matching the terminal log record;
+- exactly one dedicated typed terminal record whose identity and epoch match the final full-atlas
+  validation and capture, including the final field serial;
 - terminal reason matching either the first valid threshold stop or e127 sample-budget stop.
 
 ## Known limitation and next experiment

@@ -94,12 +94,18 @@ fn fruit_phase_after_cycle_change(
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct RegisteredFruit {
     spec: TreeFruitSpec,
     required_bricks: Vec<StaticVoxelBrickId>,
     phase: FruitSweepPhase,
     body: Option<DynamicBodyId>,
+}
+
+pub(super) struct TreeFruitPublicationCheckpoint {
+    tree_id: u32,
+    previous: Option<BTreeMap<u64, RegisteredFruit>>,
+    attached_refresh_was_pending: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +207,17 @@ pub(super) struct TerrainPhysics {
 }
 
 impl TerrainPhysics {
+    pub(super) fn tree_fruit_publication_checkpoint(
+        &self,
+        tree_id: u32,
+    ) -> TreeFruitPublicationCheckpoint {
+        TreeFruitPublicationCheckpoint {
+            tree_id,
+            previous: self.fruits_by_tree.get(&tree_id).cloned(),
+            attached_refresh_was_pending: self.attached_fruit_refresh_trees.contains(&tree_id),
+        }
+    }
+
     pub(super) fn new(fruit_cycle: f32) -> Self {
         let mut collision_world = CollisionWorld::new();
         collision_world
@@ -282,7 +299,7 @@ impl TerrainPhysics {
             .context("updating dynamic fruit geometry")
     }
 
-    pub(super) fn register_tree_fruits(
+    pub(super) fn publish_tree_fruits(
         &mut self,
         tree_id: u32,
         specs: Vec<TreeFruitSpec>,
@@ -317,29 +334,76 @@ impl TerrainPhysics {
             };
             registered.insert(fruit.spec.id, fruit);
         }
-        for stale in previous.into_values() {
-            if let Some(body) = stale.body {
-                self.collision_world.remove_dynamic_body(body);
-            }
-        }
         self.fruits_by_tree.insert(tree_id, registered);
         self.spawn_pending_fruits()?;
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
-    pub(super) fn unregister_tree_fruits(
+    pub(super) fn unpublish_tree_fruits(
         &mut self,
         tree_id: u32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
-        if let Some(fruits) = self.fruits_by_tree.remove(&tree_id) {
-            for fruit in fruits.into_values() {
-                if let Some(body) = fruit.body {
+        self.fruits_by_tree.remove(&tree_id);
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
+    pub(super) fn commit_tree_fruit_publication(
+        &mut self,
+        checkpoint: TreeFruitPublicationCheckpoint,
+    ) {
+        let retained_bodies = self
+            .fruits_by_tree
+            .get(&checkpoint.tree_id)
+            .into_iter()
+            .flat_map(BTreeMap::values)
+            .filter_map(|fruit| fruit.body)
+            .collect::<HashSet<_>>();
+        for body in checkpoint
+            .previous
+            .into_iter()
+            .flat_map(BTreeMap::into_values)
+            .filter_map(|fruit| fruit.body)
+        {
+            if !retained_bodies.contains(&body) {
+                self.collision_world.remove_dynamic_body(body);
+            }
+        }
+    }
+
+    pub(super) fn restore_tree_fruit_publication(
+        &mut self,
+        checkpoint: TreeFruitPublicationCheckpoint,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        self.restore_tree_fruit_publication_state(checkpoint);
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
+    fn restore_tree_fruit_publication_state(&mut self, checkpoint: TreeFruitPublicationCheckpoint) {
+        let previous_bodies = checkpoint
+            .previous
+            .as_ref()
+            .into_iter()
+            .flat_map(BTreeMap::values)
+            .filter_map(|fruit| fruit.body)
+            .collect::<HashSet<_>>();
+        if let Some(current) = self.fruits_by_tree.remove(&checkpoint.tree_id) {
+            for body in current.into_values().filter_map(|fruit| fruit.body) {
+                if !previous_bodies.contains(&body) {
                     self.collision_world.remove_dynamic_body(body);
                 }
             }
         }
-        self.sync_dynamic_fruit_rendering(tracer)
+        if let Some(previous) = checkpoint.previous {
+            self.fruits_by_tree.insert(checkpoint.tree_id, previous);
+        }
+        if checkpoint.attached_refresh_was_pending {
+            self.attached_fruit_refresh_trees.insert(checkpoint.tree_id);
+        } else {
+            self.attached_fruit_refresh_trees
+                .remove(&checkpoint.tree_id);
+        }
     }
 
     pub(super) fn set_fruit_cycle(
@@ -871,6 +935,26 @@ mod tests {
         }
     }
 
+    fn registered_fruit(mut spec: TreeFruitSpec, id: u64, body: DynamicBodyId) -> RegisteredFruit {
+        spec.id = id;
+        RegisteredFruit {
+            spec,
+            required_bricks: Vec::new(),
+            phase: FruitSweepPhase::Dropped,
+            body: Some(body),
+        }
+    }
+
+    fn spawn_test_fruit_body(world: &mut CollisionWorld, x: f32) -> DynamicBodyId {
+        world
+            .spawn_dynamic_body(apple_dynamic_body_desc(
+                Vec3::new(x, 96.0, 64.0),
+                Vec3::ZERO,
+                Vec3::ZERO,
+            ))
+            .unwrap()
+    }
+
     fn two_layer_flat_floor() -> BrickOccupancy {
         BrickOccupancy::from_filled_voxels((0..2).flat_map(|y| {
             (0..STATIC_VOXEL_BRICK_DIM)
@@ -924,6 +1008,83 @@ mod tests {
         assert_eq!(fruit.attached_radius_voxels(0.625), Some(2));
         assert_eq!(fruit.attached_radius_voxels(0.70), Some(2));
         assert_eq!(fruit.attached_radius_voxels(0.88), None);
+    }
+
+    #[test]
+    fn committed_fruit_publication_retires_only_stale_body_identity() {
+        let mut physics = TerrainPhysics::new(0.5);
+        let retained = spawn_test_fruit_body(&mut physics.collision_world, 64.0);
+        let stale = spawn_test_fruit_body(&mut physics.collision_world, 65.0);
+        let incoming = spawn_test_fruit_body(&mut physics.collision_world, 66.0);
+        physics.fruits_by_tree.insert(
+            5,
+            BTreeMap::from([
+                (7, registered_fruit(fruit_spec(), 7, retained)),
+                (8, registered_fruit(fruit_spec(), 8, stale)),
+            ]),
+        );
+        let checkpoint = physics.tree_fruit_publication_checkpoint(5);
+        physics.fruits_by_tree.insert(
+            5,
+            BTreeMap::from([
+                (7, registered_fruit(fruit_spec(), 7, retained)),
+                (9, registered_fruit(fruit_spec(), 9, incoming)),
+            ]),
+        );
+
+        physics.commit_tree_fruit_publication(checkpoint);
+
+        assert!(physics
+            .collision_world
+            .dynamic_body_state(retained)
+            .is_some());
+        assert!(physics
+            .collision_world
+            .dynamic_body_state(incoming)
+            .is_some());
+        assert!(physics.collision_world.dynamic_body_state(stale).is_none());
+    }
+
+    #[test]
+    fn rolled_back_fruit_publication_restores_exact_previous_body_identity() {
+        let mut physics = TerrainPhysics::new(0.5);
+        let retained = spawn_test_fruit_body(&mut physics.collision_world, 64.0);
+        let stale = spawn_test_fruit_body(&mut physics.collision_world, 65.0);
+        let incoming = spawn_test_fruit_body(&mut physics.collision_world, 66.0);
+        physics.fruits_by_tree.insert(
+            5,
+            BTreeMap::from([
+                (7, registered_fruit(fruit_spec(), 7, retained)),
+                (8, registered_fruit(fruit_spec(), 8, stale)),
+            ]),
+        );
+        physics.attached_fruit_refresh_trees.insert(5);
+        let checkpoint = physics.tree_fruit_publication_checkpoint(5);
+        physics.fruits_by_tree.insert(
+            5,
+            BTreeMap::from([
+                (7, registered_fruit(fruit_spec(), 7, retained)),
+                (9, registered_fruit(fruit_spec(), 9, incoming)),
+            ]),
+        );
+        physics.attached_fruit_refresh_trees.remove(&5);
+
+        physics.restore_tree_fruit_publication_state(checkpoint);
+
+        let restored = physics.fruits_by_tree.get(&5).unwrap();
+        assert_eq!(restored.keys().copied().collect::<Vec<_>>(), vec![7, 8]);
+        assert_eq!(restored[&7].body, Some(retained));
+        assert_eq!(restored[&8].body, Some(stale));
+        assert!(physics
+            .collision_world
+            .dynamic_body_state(retained)
+            .is_some());
+        assert!(physics.collision_world.dynamic_body_state(stale).is_some());
+        assert!(physics
+            .collision_world
+            .dynamic_body_state(incoming)
+            .is_none());
+        assert!(physics.attached_fruit_refresh_trees.contains(&5));
     }
 
     #[test]

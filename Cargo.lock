@@ -2807,9 +2807,9 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "petalsonic"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4477a81b5d3af88b7cf64d2a0c4eaff25fecfacef960188fdbcc3efb6b6e066c"
+checksum = "85a5a8184d90e89a1d3510e7a555f6895cdab17410f49429300710dc7a580cd0"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -3265,6 +3265,7 @@ dependencies = [
  "resource_container_derive",
  "serde",
  "spirv-reflect",
+ "static_assertions",
  "tempfile",
  "thiserror 2.0.18",
  "time",

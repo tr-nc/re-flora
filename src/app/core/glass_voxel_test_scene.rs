@@ -1,7 +1,7 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, VoxelAtlasStateWrite, VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelAtlasStateWrite, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
-use crate::cli::GlassCoverage;
+use crate::cli::{GlassCoverage, GlassDebugView};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::{append_box, GeometryPreviewMesh, GlassSceneQueryEventKind, TerrainRayQuery};
 use crate::voxel_material::{
@@ -39,7 +39,7 @@ const GPU_CAPTURE_GLASS_CELL: UVec3 = UVec3::new(256, 192, 278);
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 1.72);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TestScenePhase {
+pub(super) enum TestScenePhase {
     Pending,
     TerrainPublished,
     Settling { frames: u8, terrain_revision: u32 },
@@ -52,20 +52,46 @@ enum TestScenePhase {
 pub(super) struct GlassVoxelTestScene {
     phase: TestScenePhase,
     coverage: GlassCoverage,
+    debug_view: GlassDebugView,
     validate_fixed_camera_frame: bool,
 }
 
 impl GlassVoxelTestScene {
-    pub(super) fn new(coverage: GlassCoverage, validate_fixed_camera_frame: bool) -> Self {
+    pub(super) fn new(
+        coverage: GlassCoverage,
+        debug_view: GlassDebugView,
+        validate_fixed_camera_frame: bool,
+    ) -> Self {
         Self {
             phase: TestScenePhase::Pending,
             coverage,
+            debug_view,
             validate_fixed_camera_frame,
         }
     }
 
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
+    }
+
+    pub(super) fn phase(&self) -> TestScenePhase {
+        self.phase
+    }
+
+    pub(super) fn set_phase(&mut self, phase: TestScenePhase) {
+        self.phase = phase;
+    }
+
+    pub(super) fn coverage(&self) -> GlassCoverage {
+        self.coverage
+    }
+
+    pub(super) fn debug_view(&self) -> GlassDebugView {
+        self.debug_view
+    }
+
+    pub(super) fn validate_fixed_camera_frame(&self) -> bool {
+        self.validate_fixed_camera_frame
     }
 }
 
@@ -102,7 +128,7 @@ fn glass_cuboids(coverage: GlassCoverage) -> Vec<Cuboid> {
     }
 }
 
-fn scene_plan(coverage: GlassCoverage) -> Result<WorldEditPlan> {
+fn scene_plan(coverage: GlassCoverage) -> Result<WorldEditTransaction> {
     let mut voxel_edits = vec![
         stamp_cuboids(vec![cuboid(CLEAR_MIN, CLEAR_MAX)], VOXEL_TYPE_EMPTY)?,
         stamp_cuboids(vec![cuboid(FLOOR_MIN, FLOOR_MAX)], VOXEL_TYPE_ROCK)?,
@@ -112,13 +138,10 @@ fn scene_plan(coverage: GlassCoverage) -> Result<WorldEditPlan> {
     if !glass.is_empty() {
         voxel_edits.push(stamp_cuboids(glass, VOXEL_TYPE_SAND)?);
     }
-    Ok(WorldEditPlan {
+    Ok(WorldEditTransaction::terrain_change(
         voxel_edits,
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
-            REBUILD_MIN,
-            REBUILD_MAX,
-        ))],
-    })
+        UAabb3::new(REBUILD_MIN, REBUILD_MAX),
+    ))
 }
 
 fn sentinel_mesh() -> GeometryPreviewMesh {
@@ -182,10 +205,10 @@ impl App {
     pub(super) fn configure_glass_voxel_test_scene(&mut self) -> Result<()> {
         validate_glass_policy()?;
         let coverage = self
-            .glass_voxel_test_scene
-            .as_ref()
-            .context("Glass voxel scene configuration lost its runtime state")?
-            .coverage;
+            .launch_owners
+            .glass_experiment_settings()
+            .map(|(coverage, _)| coverage)
+            .context("Glass voxel scene configuration lost its runtime state")?;
         self.set_manual_time_of_day(TEST_TIME_OF_DAY);
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
         self.camera_control.set_orbit_focus(CAMERA_TARGET);
@@ -343,11 +366,7 @@ impl App {
     }
 
     pub(super) fn process_glass_voxel_test_scene(&mut self) {
-        let Some(phase) = self
-            .glass_voxel_test_scene
-            .as_ref()
-            .map(|scene| scene.phase)
-        else {
+        let Some(phase) = self.launch_owners.glass_scene_phase() else {
             return;
         };
 
@@ -360,13 +379,13 @@ impl App {
                     return;
                 }
                 let coverage = self
-                    .glass_voxel_test_scene
-                    .as_ref()
-                    .expect("Glass voxel test scene state disappeared")
-                    .coverage;
+                    .launch_owners
+                    .glass_experiment_settings()
+                    .map(|(coverage, _)| coverage)
+                    .expect("Glass voxel test scene state disappeared");
                 match scene_plan(coverage)
                     .context("compile deterministic Glass voxel test scene")
-                    .and_then(|plan| self.execute_edit_plan(plan))
+                    .and_then(|transaction| self.execute_world_edit(transaction).map(|_| ()))
                 {
                     Ok(()) => TestScenePhase::TerrainPublished,
                     Err(err) => {
@@ -377,10 +396,10 @@ impl App {
             }
             TestScenePhase::TerrainPublished => {
                 let coverage = self
-                    .glass_voxel_test_scene
-                    .as_ref()
-                    .expect("Glass voxel test scene state disappeared")
-                    .coverage;
+                    .launch_owners
+                    .glass_experiment_settings()
+                    .map(|(coverage, _)| coverage)
+                    .expect("Glass voxel test scene state disappeared");
                 let glass_count = self
                     .validate_glass_voxel_atlas_state(coverage)
                     .unwrap_or_else(|err| {
@@ -440,9 +459,10 @@ impl App {
                         panic!("[GLASS_VOXEL_TEST] debug readback failed: {err:#}")
                     });
                 let (coverage, validate_fixed_camera_frame) = self
-                    .glass_voxel_test_scene
-                    .as_ref()
-                    .map(|scene| (scene.coverage, scene.validate_fixed_camera_frame))
+                    .launch_owners
+                    .glass_experiment_settings()
+                    .zip(self.launch_owners.glass_scene_fixed_camera_validation())
+                    .map(|((coverage, _), validate)| (coverage, validate))
                     .expect("Glass voxel test scene state disappeared");
                 let pixel_count = usize::try_from(glass_debug.extent.width)
                     .unwrap()
@@ -521,10 +541,7 @@ impl App {
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
 
-        self.glass_voxel_test_scene
-            .as_mut()
-            .expect("Glass voxel test scene state disappeared")
-            .phase = next_phase;
+        self.launch_owners.set_glass_scene_phase(next_phase);
     }
 }
 
@@ -544,7 +561,7 @@ mod tests {
         ] {
             let plan = scene_plan(coverage).unwrap();
             let glass_edits = plan
-                .voxel_edits
+                .voxel_edits()
                 .iter()
                 .filter_map(|edit| match edit {
                     VoxelEdit::StampCuboids {
@@ -565,8 +582,10 @@ mod tests {
 
     #[test]
     fn explicit_camera_snapshot_disables_fixed_camera_frame_validation() {
-        let fixed = GlassVoxelTestScene::new(GlassCoverage::TwentyFive, true);
-        let custom = GlassVoxelTestScene::new(GlassCoverage::TwentyFive, false);
+        let fixed =
+            GlassVoxelTestScene::new(GlassCoverage::TwentyFive, GlassDebugView::Final, true);
+        let custom =
+            GlassVoxelTestScene::new(GlassCoverage::TwentyFive, GlassDebugView::Final, false);
 
         assert!(fixed.validate_fixed_camera_frame);
         assert!(!custom.validate_fixed_camera_frame);

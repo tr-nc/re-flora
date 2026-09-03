@@ -400,6 +400,7 @@ pub struct PushConstantIrradianceFilter {
     pub local_refresh_enabled: [u32; 4],
     pub local_refresh_world_min: [f32; 4],
     pub local_refresh_world_max: [f32; 4],
+    pub filter_evidence: [u32; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
@@ -496,6 +497,7 @@ pub struct PushConstantVisibilityFilter {
     pub local_refresh_enabled: [u32; 4],
     pub local_refresh_world_min: [f32; 4],
     pub local_refresh_world_max: [f32; 4],
+    pub filter_evidence: [u32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).

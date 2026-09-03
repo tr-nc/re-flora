@@ -4,6 +4,7 @@
 
 import contree_node;
 import ddgi_config;
+import ddgi_filter_policy;
 import ddgi_query;
 import ddgi_sampling;
 import ddgi_types;
@@ -217,9 +218,9 @@ void main(uint3 groupId : SV_GroupID,
         metadata.state_and_reserved.y == pc.terrain_revision;
     float3 nominalProbePosition =
         metadata.nominal_position_and_min_clearance.xyz;
-    bool probeNeedsLocalRefresh = pc.local_refresh_enabled.x != 0u &&
-        all(nominalProbePosition >= pc.local_refresh_world_min.xyz) &&
-        all(nominalProbePosition <= pc.local_refresh_world_max.xyz);
+    bool probeNeedsLocalRefresh = ddgiFilterProbeNeedsLocalRefresh(
+        nominalProbePosition, pc.local_refresh_enabled.x,
+        pc.local_refresh_world_min.xyz, pc.local_refresh_world_max.xyz);
     bool resetLocalHistory =
         probeNeedsLocalRefresh && pc.local_refresh_enabled.y == 0u;
     bool useHistory = pc.has_history != 0u && !resetLocalHistory;

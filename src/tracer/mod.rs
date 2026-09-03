@@ -1,6 +1,16 @@
 mod resources;
 pub use resources::*;
 
+mod capture_frame;
+#[cfg(test)]
+pub(crate) use capture_frame::record_capture_frame_for_test;
+use capture_frame::CaptureReadbackPermit;
+use capture_frame::{CaptureBuffersReady, CaptureReadbackTarget};
+pub(crate) use capture_frame::{
+    CaptureCoordinator, CaptureFramePlan, CaptureReadbackCandidate, CaptureReadinessObservation,
+    RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame,
+};
+
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
@@ -42,6 +52,11 @@ use local_light_visibility_diagnostic::{
     LocalLightVisibilityDiagnostic, LocalLightVisibilityDiagnosticEvidence,
 };
 
+mod local_light_live_publication;
+use local_light_live_publication::{
+    LocalLightLiveObservation, LocalLightLivePublication, LocalLightLiveUpload,
+};
+
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -63,6 +78,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
+use crate::app::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
@@ -80,40 +96,37 @@ const FLORA_LIGHTING_CACHE_LOD_BIT: u32 = 1 << 31;
 const FLORA_INSTANCE_TYPE_MASK: u32 = 0xff;
 const FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT: u32 = 8;
 
-use crate::audio::SpatialSoundManager;
-
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiLocalLightTraceTotals, DdgiRayBatch,
-    DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind, DdgiTraceStats,
-    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
+    DdgiBatchCompletion, DdgiBatchObservation, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
+    DdgiCaptureCheckpoint, DdgiCaptureTarget, DdgiEncodedFrame, DdgiFieldIdentity,
+    DdgiFilterConfigurationIdentity, DdgiFramePlan, DdgiFrameView, DdgiLocalLightTraceTotals,
+    DdgiProbeSpacing, DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeBuild,
+    DdgiRuntimeVolumeBuildKind, DdgiScheduledWorkKind, DdgiTraceStats, DdgiVolumePublishOutcome,
     DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
-    DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
+    AuthoredEnvironmentLighting, AuthoredEnvironmentLightingInput, DdgiRadianceSnapshot,
+    DdgiVoxelPaletteSnapshot,
 };
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
     EnvironmentProbeVisualizationSettings,
 };
-use crate::gameplay::{
-    calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
-};
+use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraPose};
 use crate::generated::gpu_structs::{
     PushConstantFlora, PushConstantGlassResolve, PushConstantLeafShadowTemporal,
 };
 use crate::geom::UAabb3;
 use crate::lighting::{
-    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightOverflow,
-    LocalLightOverflowReason, LocalLightSnapshot, ProviderId, EMISSIVE_VOXEL_COLOR_SRGB,
-    EMISSIVE_VOXEL_SURFACE_RADIANCE, LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS,
-    LOCAL_LIGHT_GPU_CAPACITY,
+    LightId, LocalLightBudget, LocalLightGpuSnapshot, LocalLightInfluenceBound, LocalLightSnapshot,
+    EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
+    LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
@@ -122,15 +135,37 @@ use crate::wind::WindSource;
 use anyhow::{Context, Result};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
-    ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
-    DescriptorPool, DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, Extent3D,
-    FrameExtentGeneration, FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler,
-    GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDescriptorGeneration,
-    PreparedDrawDescriptors, PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout,
+    execute_one_time_gpu_job, Allocator, Buffer, BufferUsage, BufferUse, ClearValue,
+    ColorClearValue, CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource,
+    DescriptorUpdate, Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement,
+    FrameRetirementSink, GpuProfiler, GraphicsPipeline, MemoryLocation, PipelineBarrier,
+    PipelineStage, PreparedDrawDescriptors, PushConstantInfo, Texture, TextureLayout,
     TextureRegion, Viewport, VulkanContext,
 };
-use std::time::Instant;
+use std::{fmt, time::Instant};
+
+impl CaptureReadbackTarget for Buffer {
+    fn capture_readback_byte_count(&self) -> u64 {
+        self.get_size_bytes()
+    }
+}
+
+struct DdgiConvergencePolicyEvidence;
+
+impl fmt::Display for DdgiConvergencePolicyEvidence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "convergence_max_absolute_rgb_delta={} convergence_max_relative_rgb_delta={} convergence_relative_floor={} convergence_consecutive_epochs={} convergence_minimum_update_epochs={} convergence_maximum_update_epochs={}",
+            DDGI_CONVERGENCE_POLICY.absolute_threshold,
+            DDGI_CONVERGENCE_POLICY.relative_threshold,
+            DDGI_CONVERGENCE_POLICY.relative_floor,
+            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
+            DDGI_CONVERGENCE_POLICY.minimum_update_epochs,
+            DDGI_CONVERGENCE_POLICY.maximum_update_epochs,
+        )
+    }
+}
 
 fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<()>) {
     result.unwrap_or_else(|err| {
@@ -142,6 +177,28 @@ fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<
             build_token.spacing_voxels(),
         )
     });
+}
+
+pub(crate) struct LightingModeProductionReadback {
+    terrain_rgbe: Buffer,
+    terrain_depth: Buffer,
+    raster_rgba: Buffer,
+}
+
+pub(crate) struct LightingModeProductionLayers {
+    pub terrain_rgbe: Vec<u8>,
+    pub terrain_depth: Vec<u8>,
+    pub raster_rgba: Vec<u8>,
+}
+
+impl LightingModeProductionReadback {
+    pub(crate) fn read(self) -> Result<LightingModeProductionLayers> {
+        Ok(LightingModeProductionLayers {
+            terrain_rgbe: self.terrain_rgbe.read_back()?,
+            terrain_depth: self.terrain_depth.read_back()?,
+            raster_rgba: self.raster_rgba.read_back()?,
+        })
+    }
 }
 
 fn local_light_impact_voxel_bound(
@@ -270,6 +327,7 @@ struct DdgiAtlasFilterPushConstants {
     local_refresh_enabled: [u32; 4],
     local_refresh_world_min: [f32; 4],
     local_refresh_world_max: [f32; 4],
+    filter_evidence: [u32; 4],
 }
 
 #[repr(C)]
@@ -289,6 +347,334 @@ struct DdgiVisibilityFilterPushConstants {
     local_refresh_enabled: [u32; 4],
     local_refresh_world_min: [f32; 4],
     local_refresh_world_max: [f32; 4],
+    filter_evidence: [u32; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DdgiPendingTraceStatsReadback {
+    batch: DdgiRayBatch,
+    filter_configuration: DdgiFilterConfigurationIdentity,
+}
+
+struct DdgiFrameEncoding {
+    encoded: DdgiEncodedFrame,
+    plan: DdgiFramePlan,
+    trace_readback: Option<DdgiPendingTraceStatsReadback>,
+    relocation_readback_pending: bool,
+}
+
+/// Concrete Vulkan encoder for one runtime-issued DDGI frame.
+///
+/// The runtime owns the physical allocation and lifecycle. This private adapter only knows how to
+/// turn its exact, borrowed frame view into commands for the current concrete pipeline topology.
+struct DdgiFrameEncoder<'a> {
+    frame: DdgiFrameView<'a>,
+    pipelines: &'a PipelineTopology,
+    chunk_bound: UAabb3,
+    voxels_per_world_unit: UVec3,
+    history_retention: f32,
+    capture_enabled: bool,
+    glass_experiment_enabled: bool,
+}
+
+impl DdgiFrameEncoder<'_> {
+    fn record(
+        self,
+        cmdbuf: &CommandBuffer,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) -> DdgiFrameEncoding {
+        self.frame.assert_encoding_identity();
+        let plan = self.frame.plan();
+        self.frame.record_cpu_buffer_writes(cmdbuf);
+
+        if plan.global_sky_needs_update {
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.global_sky_filter",
+                || self.record_global_sky_filter(cmdbuf),
+            );
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.global_sky_gutter",
+                || self.record_global_sky_gutter(cmdbuf),
+            );
+        }
+
+        let relocation_readback_pending = plan.relocation_terrain_revision.is_some();
+        if let Some(terrain_revision) = plan.relocation_terrain_revision {
+            self.frame.clear_relocation_stats(cmdbuf);
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.probe_relocate",
+                || self.record_probe_relocation(cmdbuf, terrain_revision),
+            );
+            self.frame.record_relocation_readback(cmdbuf);
+        }
+
+        if plan.visibility_preservation_needed {
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.visibility_preserve",
+                || self.frame.record_visibility_preservation(cmdbuf),
+            );
+        }
+
+        let trace_readback = plan.ray_batch.map(|batch| {
+            self.frame
+                .clear_trace_stats(cmdbuf, plan.iteration_will_complete);
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.probe_trace",
+                || self.record_probe_trace(cmdbuf, batch),
+            );
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.irradiance_filter",
+                || self.record_irradiance_filter(cmdbuf, batch),
+            );
+            if batch.writes_visibility() {
+                Tracer::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "ddgi.visibility_filter",
+                    || self.record_visibility_filter(cmdbuf, batch),
+                );
+            }
+            Tracer::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.atlas_gutters",
+                || self.record_atlas_gutters(cmdbuf, batch),
+            );
+            if plan.iteration_will_complete {
+                Tracer::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "ddgi.atlas_reduce",
+                    || self.record_atlas_reduction(cmdbuf, batch),
+                );
+            }
+            self.frame
+                .record_trace_readback(cmdbuf, plan.iteration_will_complete);
+            DdgiPendingTraceStatsReadback {
+                batch,
+                filter_configuration: DdgiFilterConfigurationIdentity::from_grid(
+                    self.frame.grid(),
+                    self.history_retention,
+                ),
+            }
+        });
+
+        DdgiFrameEncoding {
+            encoded: self.frame.encoded(),
+            plan,
+            trace_readback,
+            relocation_readback_pending,
+        }
+    }
+
+    fn record_global_sky_filter(&self, cmdbuf: &CommandBuffer) {
+        self.pipelines.compute().ddgi_global_sky_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                1,
+            ),
+            None,
+        );
+    }
+
+    fn record_global_sky_gutter(&self, cmdbuf: &CommandBuffer) {
+        self.pipelines.compute().ddgi_octahedral_gutter_ppl.record(
+            cmdbuf,
+            Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
+            None,
+        );
+    }
+
+    fn record_probe_relocation(&self, cmdbuf: &CommandBuffer, terrain_revision: u32) {
+        let grid = self.frame.grid();
+        let push_constants = DdgiProbeRelocationPushConstants {
+            grid_dimensions: grid.dimensions().to_array(),
+            spacing_voxels: grid.spacing_voxels(),
+            voxels_per_world_unit: self.voxels_per_world_unit.as_vec3().to_array(),
+            terrain_revision,
+            glass_experiment_enabled: u32::from(self.glass_experiment_enabled),
+            _padding: [0; 3],
+        };
+        self.pipelines.compute().ddgi_probe_relocate_ppl.record(
+            cmdbuf,
+            Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn local_refresh_push_constants(&self, batch: DdgiRayBatch) -> ([u32; 4], [f32; 4], [f32; 4]) {
+        let Some(bound) = batch.local_refresh_voxel_bound() else {
+            return ([0; 4], [0.0; 4], [0.0; 4]);
+        };
+        let voxels_per_world_unit = self.voxels_per_world_unit.as_vec3();
+        let world_min = bound.min().as_vec3() / voxels_per_world_unit;
+        let world_max = bound.max().as_vec3() / voxels_per_world_unit;
+        (
+            [1, batch.local_recovery_epoch(), 0, 0],
+            [world_min.x, world_min.y, world_min.z, 0.0],
+            [world_max.x, world_max.y, world_max.z, 0.0],
+        )
+    }
+
+    fn record_probe_trace(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.local_refresh_push_constants(batch);
+        let push_constants = DdgiProbeTracePushConstants {
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            terrain_revision: batch.geometry_revision(),
+            has_history: u32::from(batch.source().is_some()),
+            source_slot: batch.source_slot_index(),
+            far_distance_world,
+            _padding: [0; 2],
+            epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
+        };
+        self.pipelines.compute().ddgi_probe_trace_ppl.record(
+            cmdbuf,
+            Extent3D::new(batch.probe_count * DDGI_TRACE_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_irradiance_filter(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.local_refresh_push_constants(batch);
+        let push_constants = DdgiAtlasFilterPushConstants {
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            tile_columns: self.frame.irradiance_tile_columns(),
+            terrain_revision: batch.geometry_revision(),
+            destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.irradiance_history_is_valid()),
+            history_retention: batch.irradiance_history_retention(self.history_retention),
+            epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
+            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+        };
+        self.pipelines.compute().ddgi_irradiance_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                batch.probe_count * DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                1,
+            ),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_visibility_filter(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let grid = self.frame.grid();
+        let spacing_world =
+            Vec3::splat(grid.spacing_voxels() as f32) / self.voxels_per_world_unit.as_vec3();
+        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.local_refresh_push_constants(batch);
+        let push_constants = DdgiVisibilityFilterPushConstants {
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            tile_columns: self.frame.visibility_tile_columns(),
+            terrain_revision: batch.geometry_revision(),
+            spacing_world: spacing_world.to_array(),
+            far_distance_world,
+            destination_slot: batch.destination_slot_index(),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.visibility_history_is_valid()),
+            history_retention: batch.visibility_history_retention(self.history_retention),
+            epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
+            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+        };
+        self.pipelines.compute().ddgi_visibility_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                batch.probe_count * DDGI_VISIBILITY_INTERIOR_SIDE,
+                DDGI_VISIBILITY_INTERIOR_SIDE,
+                1,
+            ),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_atlas_gutters(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let irradiance_push = DdgiAtlasGutterPushConstants {
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            tile_columns: self.frame.irradiance_tile_columns(),
+            destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
+        };
+        self.pipelines.compute().ddgi_irradiance_gutter_ppl.record(
+            cmdbuf,
+            Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&irradiance_push)),
+        );
+        if batch.writes_visibility() {
+            let visibility_push = DdgiAtlasGutterPushConstants {
+                tile_columns: self.frame.visibility_tile_columns(),
+                destination_is_transport_source: batch.destination_slot_index(),
+                ..irradiance_push
+            };
+            self.pipelines.compute().ddgi_visibility_gutter_ppl.record(
+                cmdbuf,
+                Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
+                Some(bytemuck::bytes_of(&visibility_push)),
+            );
+        }
+    }
+
+    fn record_atlas_reduction(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let grid = self.frame.grid();
+        let source = batch.source();
+        let push_constants = DdgiAtlasReductionPushConstants {
+            terrain_revision: batch.geometry_revision(),
+            probe_count: grid.probe_count(),
+            tile_columns: self.frame.irradiance_tile_columns(),
+            destination_slot: batch.destination_slot_index(),
+            source_slot: batch.source_slot_index(),
+            has_source: u32::from(source.is_some()),
+            relative_floor: DDGI_CONVERGENCE_POLICY.relative_floor,
+            _padding: 0,
+        };
+        let stored_texel_count = grid.probe_count() * DDGI_IRRADIANCE_STORED_SIDE.pow(2);
+        let workgroup_count = stored_texel_count.div_ceil(DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE);
+        self.pipelines.compute().ddgi_atlas_reduce_ppl.record(
+            cmdbuf,
+            Extent3D::new(workgroup_count * DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
 }
 
 #[repr(C)]
@@ -333,12 +719,12 @@ const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
 const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
 const DEFAULT_CAMERA_HEIGHT: f32 = 1.0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TerrainEditPreviewShape {
     Sphere,
     SurfaceCircle,
@@ -353,7 +739,7 @@ impl TerrainEditPreviewShape {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GlassGuiParams {
     pub tint: Vec3,
     pub reflection_strength: f32,
@@ -367,7 +753,7 @@ pub struct GlassGuiParams {
     pub glint_strength: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CloudGuiParams {
     pub enabled: bool,
     pub coverage: f32,
@@ -640,6 +1026,19 @@ mod ddgi_density_rebuild_tests {
     }
 }
 
+#[cfg(test)]
+mod ddgi_convergence_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn production_formatter_matches_the_convergence_summarizer_contract() {
+        assert_eq!(
+            DdgiConvergencePolicyEvidence.to_string(),
+            "convergence_max_absolute_rgb_delta=0.0025 convergence_max_relative_rgb_delta=0.02 convergence_relative_floor=0.05 convergence_consecutive_epochs=2 convergence_minimum_update_epochs=8 convergence_maximum_update_epochs=128"
+        );
+    }
+}
+
 pub fn grass_flora_height_color_tables(
     bottom_dark_srgb: Vec3,
     bottom_light_srgb: Vec3,
@@ -700,11 +1099,11 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
 }
 
 fn flora_lighting_cache_dispatch_enabled(
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_is_ddgi: bool,
     local_lights_active: bool,
     required_entries: u32,
 ) -> bool {
-    (raster_flora_ddgi_lighting || local_lights_active) && required_entries > 0
+    (raster_lighting_is_ddgi || local_lights_active) && required_entries > 0
 }
 
 #[cfg(test)]
@@ -827,14 +1226,13 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
-    pub ddgi_debug_view: DdgiDebugView,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
     pub glass_experiment_enabled: bool,
     pub glass_debug_view: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FruitMotionParams {
     pub swing_length_voxels: f32,
     pub max_angle_radians: f32,
@@ -843,7 +1241,7 @@ pub struct FruitMotionParams {
     pub min_response: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KochiaMotionParams {
     pub body_wind_response: f32,
     pub branch_jelly_amplitude_voxels: f32,
@@ -853,7 +1251,7 @@ pub struct KochiaMotionParams {
     pub tip_flutter_speed: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KochiaVisualParams {
     pub bottom_darkening: f32,
     pub branch_value_variation: f32,
@@ -863,6 +1261,172 @@ pub struct KochiaVisualParams {
     pub waist_diameter_voxels: f32,
     pub top_diameter_voxels: f32,
     pub waist_height: f32,
+}
+
+/// Terrain state frozen by the application for one renderer update.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TerrainFrameInput {
+    pub ray_origin_offset_world: f32,
+    pub ddgi_receiver_visibility_bias_world: f32,
+    pub ddgi_history_retention: f32,
+    pub self_shadow_tolerance_voxels: f32,
+    pub edit_preview_center: Option<Vec3>,
+    pub edit_preview_radius: f32,
+    pub edit_preview_shape: TerrainEditPreviewShape,
+    pub edit_preview_color: Vec3,
+    pub edit_preview_alpha: f32,
+}
+
+/// Material values shared by raster shading and authored environment lighting.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialFrameInput {
+    pub glass: GlassGuiParams,
+    pub voxel_dirt_color: Vec3,
+    pub voxel_sand_color: Vec3,
+    pub voxel_cherry_wood_color: Vec3,
+    pub voxel_oak_wood_color: Vec3,
+    pub voxel_rock_color: Vec3,
+    pub voxel_color_variance: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloraAppearanceFrameInput {
+    pub growth_override_enabled: bool,
+    pub growth_override: f32,
+    pub instance_hsv_offset_max: Vec3,
+    pub voxel_hsv_offset_max: Vec3,
+    pub grass_bottom_dark: Vec3,
+    pub grass_bottom_light: Vec3,
+    pub grass_tip_dark: Vec3,
+    pub grass_tip_light: Vec3,
+    pub kochia: KochiaVisualParams,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloraMotionFrameInput {
+    pub world_tick_seconds: f32,
+    pub grass_vibration_amplitude_voxels: f32,
+    pub grass_vibration_primary_speed: f32,
+    pub grass_vibration_secondary_speed: f32,
+    pub grass_natural_bend_min_voxels: f32,
+    pub grass_natural_bend_max_voxels: f32,
+    pub bend_height_power: f32,
+    pub kochia: KochiaMotionParams,
+    pub leaf_paddle_amplitude_voxels: f32,
+    pub leaf_paddle_primary_speed: f32,
+    pub leaf_paddle_secondary_speed: f32,
+    pub leaf_paddle_amplitude_wind_start_strength: f32,
+    pub leaf_paddle_amplitude_wind_full_strength: f32,
+    pub leaf_paddle_amplitude_wind_knee_bias: f32,
+    pub leaf_paddle_frequency_wind_start_strength: f32,
+    pub leaf_paddle_frequency_wind_full_strength: f32,
+    pub leaf_paddle_frequency_wind_knee_bias: f32,
+    pub leaf_paddle_frequency_min_multiplier: f32,
+    pub leaf_paddle_frequency_max_multiplier: f32,
+    pub fruit: FruitMotionParams,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LeafLightingFrameInput {
+    pub shadow_fragment_opacity: f32,
+    pub shadow_strength: f32,
+    pub shadow_min_transmittance: f32,
+    pub shadow_filter_radius_texels: f32,
+    pub transmission_strength: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloraGrowthFrameInput {
+    pub flora_tick: u32,
+    pub sprout_delay_ticks: u32,
+    pub full_growth_ticks: u32,
+    pub spawn_time_ms: u32,
+    pub spawn_duration_seconds: f32,
+    pub spawn_rise_fraction: f32,
+    pub spawn_overshoot_min_voxels: f32,
+    pub spawn_overshoot_max_voxels: f32,
+    pub spawn_stagger_seconds: f32,
+}
+
+/// Vegetation owns four cohesive shader-facing snapshots instead of exposing individual GUI knobs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VegetationFrameInput {
+    pub appearance: FloraAppearanceFrameInput,
+    pub motion: FloraMotionFrameInput,
+    pub leaf_lighting: LeafLightingFrameInput,
+    pub growth: FloraGrowthFrameInput,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindFrameInput {
+    pub sources: WindGuiParams,
+    pub directional_bias_fraction: f32,
+    pub turbulence_fraction: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SunFrameInput {
+    pub direction: Vec3,
+    pub size: f32,
+    pub color: Vec3,
+    pub luminance: f32,
+    pub display_luminance: f32,
+    pub altitude: f32,
+    pub azimuth: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GodRayFrameInput {
+    pub max_depth: f32,
+    pub max_checks: u32,
+    pub temporal_blend_enabled: bool,
+    pub temporal_alpha: f32,
+    pub weight: f32,
+    pub color: Vec3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StarlightFrameInput {
+    pub iterations: i32,
+    pub formuparam: f32,
+    pub volsteps: i32,
+    pub stepsize: f32,
+    pub zoom: f32,
+    pub tile: f32,
+    pub speed: f32,
+    pub brightness: f32,
+    pub darkmatter: f32,
+    pub distfading: f32,
+    pub saturation: f32,
+}
+
+/// Sky and post-processing state that changes independently from terrain and vegetation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnvironmentFrameInput {
+    pub lens_flare_intensity: f32,
+    pub lens_flare_sun_pixel_scale: f32,
+    pub clouds: CloudGuiParams,
+    pub sun: SunFrameInput,
+    pub god_rays: GodRayFrameInput,
+    pub starlight: StarlightFrameInput,
+}
+
+/// A frame transaction composed from snapshots with independent change reasons.
+///
+/// Keeping the snapshots typed avoids both a flat parameter bag and a renderer-facing GUI model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderFrameInputs {
+    pub terrain: TerrainFrameInput,
+    pub materials: MaterialFrameInput,
+    pub vegetation: VegetationFrameInput,
+    pub wind: WindFrameInput,
+    pub environment: EnvironmentFrameInput,
+}
+
+/// Renderer-owned execution choices for the current frame.
+pub struct RenderFramePlan {
+    pub capture: CaptureFramePlan,
+    pub update_shadow_map: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -878,16 +1442,6 @@ pub struct DirectSunShadowResources<'a> {
     pub leaf_shadow_opacity_blended_tex: &'a Texture,
     pub leaf_shadow_mask_tex: &'a Texture,
     pub cloud_shadow_tex: &'a Texture,
-}
-
-/// Descriptor sets prepared for a private DDGI staging volume. The sets retain the staging
-/// volume's resource owners but are not visible to any frame until promotion publishes them.
-struct PreparedDdgiConsumerDescriptors {
-    token_serial: u64,
-    tracer: PreparedDescriptorGeneration,
-    flora_lighting_cache: PreparedDescriptorGeneration,
-    tree_leaf_lighting_cache: PreparedDescriptorGeneration,
-    graphics: Vec<PreparedDescriptorGeneration>,
 }
 
 struct PreparedTreeFoliageBatch<'a> {
@@ -961,35 +1515,22 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
-    environment_lighting: EnvironmentLightingCache,
+    environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
-    prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
-    ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
+    ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
     ddgi_relocation_stats_readback_pending: bool,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
-    local_light_live_revision: Option<u64>,
-    local_light_live_payload: Option<crate::lighting::LocalLightGpuPayload>,
-    local_light_uploaded_source_revision: Option<u64>,
-    local_light_uploaded_registry_revision: Option<u64>,
-    local_light_live_count: u32,
-    local_light_live_overflow: Vec<LocalLightOverflow>,
+    local_light_live_publication: LocalLightLivePublication,
     local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
-    compute_pipelines: ComputePipelines,
-    graphics_pipelines: GraphicsPipelines,
-
-    render_target_color_and_depth: RenderTarget,
-    render_target_depth_only: RenderTarget,
-    render_target_leaf_shadow_opacity: RenderTarget,
-    render_target_gui: RenderTarget,
+    pipeline_topology: PipelineTopology,
     frame_retirement_sink: FrameRetirementSink,
-    frame_extent_generation: FrameExtentGeneration,
     descriptor_generation: u64,
     tree_instance_generation: u64,
 
@@ -997,11 +1538,10 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
-    raster_flora_ddgi_lighting: bool,
+    raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
-    spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -1117,8 +1657,8 @@ impl Tracer {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
+        raster_lighting_state: ResolvedRasterLightingState,
         desc: TracerDesc,
-        spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
@@ -1137,8 +1677,8 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let shader_modules =
-            PipelineBuilder::create_shader_modules(&vulkan_ctx, desc.glass_experiment_enabled)?;
+        let pipeline_builder = PipelineBuilder::new(&vulkan_ctx, desc.glass_experiment_enabled)?;
+        let shader_modules = pipeline_builder.shader_modules();
 
         let resources = TracerResources::new(
             &vulkan_ctx,
@@ -1178,16 +1718,15 @@ impl Tracer {
             allocator.clone(),
             frame_retirement_sink.clone(),
         );
-        let ddgi_volume = DdgiVolume::new(
+        let mut ddgi_runtime = DdgiRuntime::allocate(
             &vulkan_ctx,
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
-            desc.environment_probe_spacing_voxels,
+            DdgiProbeSpacing::try_from(desc.environment_probe_spacing_voxels)
+                .map_err(anyhow::Error::msg)?,
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
-        let ddgi_runtime = DdgiRuntime::new(ddgi_volume.status().grid);
-        let mut ddgi_runtime = ddgi_runtime;
         ddgi_runtime.configure_capture(
             desc.environment_irradiance_capture_enabled,
             desc.environment_irradiance_capture_target,
@@ -1218,87 +1757,18 @@ impl Tracer {
             allocator.clone(),
         );
 
-        let compute_pipelines = PipelineBuilder::create_compute_pipelines(
-            &vulkan_ctx,
-            &shader_modules,
-            &pool,
-            &resources,
+        let pipeline_topology = pipeline_builder.build(PipelineTopologyBuild {
+            vulkan_ctx: &vulkan_ctx,
+            pool: &pool,
+            resources: &resources,
             contree_builder_resources,
             scene_accel_resources,
             plain_builder_resources,
-            &ddgi_volume,
-            &ddgi_voxel_visibility,
-        );
-        let render_passes = PipelineBuilder::create_render_passes(
-            &vulkan_ctx,
-            resources.extent_dependent_resources.gfx_output_tex.clone(),
-            resources.extent_dependent_resources.gfx_depth_tex.clone(),
-            resources.shadow.shadow_map_depth_tex.clone(),
-            resources.shadow.leaf_shadow_opacity_tex.clone(),
-        );
-
-        let graphics_pipelines = PipelineBuilder::create_graphics_pipelines(
-            &vulkan_ctx,
-            &shader_modules,
-            &render_passes,
-            &pool,
-            &resources,
-            plain_builder_resources,
-            &ddgi_volume,
-            &ddgi_voxel_visibility,
-        );
-        ddgi_runtime.install_volumes(DdgiVolumes::new(ddgi_volume));
-
-        let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
-            &vulkan_ctx,
-            &render_passes.render_pass_color_and_depth,
-            &resources.extent_dependent_resources.gfx_output_tex,
-            &resources.extent_dependent_resources.gfx_depth_tex,
-        );
-        let framebuffer_depth_only = Self::create_framebuffer_depth(
-            &vulkan_ctx,
-            &render_passes.render_pass_depth,
-            &resources.shadow.shadow_map_depth_tex,
-        );
-        let framebuffer_leaf_shadow_opacity = Self::create_framebuffer_color(
-            &vulkan_ctx,
-            &render_passes.render_pass_leaf_shadow_opacity,
-            &resources.shadow.leaf_shadow_opacity_tex,
-        );
-
-        let render_target_color_and_depth = RenderTarget::new(
-            render_passes.render_pass_color_and_depth,
-            vec![framebuffer_color_and_depth],
-        );
-        let render_target_depth_only = RenderTarget::new(
-            render_passes.render_pass_depth,
-            vec![framebuffer_depth_only],
-        );
-        let render_target_leaf_shadow_opacity = RenderTarget::new(
-            render_passes.render_pass_leaf_shadow_opacity,
-            vec![framebuffer_leaf_shadow_opacity],
-        );
-        let gui_render_pass = RenderPass::with_attachments(
-            vulkan_ctx.device().clone(),
-            &[AttachmentDescOuter {
-                texture: resources
-                    .extent_dependent_resources
-                    .screenshot_output_tex
-                    .clone(),
-                load_op: vk::AttachmentLoadOp::LOAD,
-                store_op: vk::AttachmentStoreOp::STORE,
-                initial_layout: TextureLayout::GENERAL,
-                final_layout: TextureLayout::GENERAL,
-                ty: AttachmentType::Color,
-            }],
-        );
-        let framebuffer_gui = Self::create_framebuffer_color(
-            &vulkan_ctx,
-            &gui_render_pass,
-            &resources.extent_dependent_resources.screenshot_output_tex,
-        );
-        let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
-
+            ddgi_resources: ddgi_runtime.active_resources(),
+            ddgi_voxel_visibility: &ddgi_voxel_visibility,
+            frame_extent_generation,
+            frame_retirement_sink: frame_retirement_sink.clone(),
+        });
         let particle_capacity = PARTICLE_CAPACITY;
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
@@ -1324,53 +1794,43 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
-            environment_lighting: EnvironmentLightingCache::default(),
+            environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
-            prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
             ddgi_local_light_gpu_evidence_complete: None,
             ddgi_relocation_stats_readback_pending: false,
             ddgi_flora_consumer_logged_token_serial: None,
-            local_light_live_revision: None,
-            local_light_live_payload: None,
-            local_light_uploaded_source_revision: None,
-            local_light_uploaded_registry_revision: None,
-            local_light_live_count: 0,
-            local_light_live_overflow: Vec::new(),
+            local_light_live_publication: LocalLightLivePublication::default(),
             local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
             },
-            compute_pipelines,
-            graphics_pipelines,
-            render_target_color_and_depth,
-            render_target_depth_only,
-            render_target_leaf_shadow_opacity,
-            render_target_gui,
+            pipeline_topology,
             frame_retirement_sink,
-            frame_extent_generation,
             descriptor_generation: 1,
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-            raster_flora_ddgi_lighting: true,
+            raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
-            spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
     }
 
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
-        self.ddgi_runtime
-            .status(self.ddgi_runtime.volumes().status())
+        self.ddgi_runtime.status()
+    }
+
+    fn raster_lighting_is_ddgi(&self) -> bool {
+        self.raster_lighting_state.is_ddgi()
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
@@ -1380,7 +1840,9 @@ impl Tracer {
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) {
-        self.ddgi_runtime.request_density_rebuild(spacing_voxels);
+        let spacing = DdgiProbeSpacing::try_from(spacing_voxels)
+            .expect("DDGI rebuild caller must select a supported Probe spacing");
+        self.ddgi_runtime.request_density_rebuild(spacing);
         log::info!(
             "[DDGI] density rebuild queued spacing_voxels={} coordinator={:?}",
             spacing_voxels,
@@ -1389,23 +1851,12 @@ impl Tracer {
         self.drive_pending_ddgi_rebuild();
     }
 
-    fn prepare_ddgi_staging(&mut self, build_token: DdgiBuildToken) -> Result<()> {
-        let mut staging = DdgiVolume::new(
-            &self.vulkan_ctx,
-            self.allocator.clone(),
-            self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            build_token.spacing_voxels(),
-            self.desc.voxel_dim_per_chunk,
-            self.desc.ddgi_batch_order,
-        )?;
-        staging.assign_build_token(build_token);
-        staging.request_initialization(build_token.terrain_revision());
+    fn prepare_ddgi_staging(&mut self, build: DdgiRuntimeVolumeBuild) -> Result<()> {
+        let build_token = build.token();
+        assert_eq!(build.kind(), DdgiRuntimeVolumeBuildKind::Replacement);
         if let Some(retired_token) = self
             .ddgi_runtime
-            .volumes()
-            .status()
-            .staging()
-            .and_then(|staging| staging.build_token)
+            .staging_build_token()
             .filter(|retired_token| *retired_token != build_token)
         {
             log::info!(
@@ -1417,22 +1868,22 @@ impl Tracer {
                 build_token.terrain_revision(),
             );
         }
-        // Builder descriptors move first. Active consumers keep sampling the complete volume until
-        // the replacement reaches Ready and is explicitly promoted on a later frame.
+        let retired_staging = self.ddgi_runtime.allocate_staging_volume(
+            build,
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
+            self.desc.voxel_dim_per_chunk,
+            self.desc.ddgi_batch_order,
+        )?;
+        // Active consumers keep sampling the complete volume until the replacement reaches Ready
+        // and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
-        let descriptor_retirements =
-            self.update_ddgi_builder_descriptors(&staging, None, descriptor_generation);
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
-        }
-        // Prepare the consumer generation while this volume is still private. The descriptor
-        // writes and owner copies are paid during staging setup; promotion only swaps the already
-        // complete sets into the active pipelines and schedules the old generation for retirement.
-        self.prepared_ddgi_consumer_descriptors =
-            Some(self.stage_ddgi_consumer_descriptors(&staging));
+        let staging = self.ddgi_runtime.initializing_builder_resources();
+        self.pipeline_topology
+            .publish_ddgi_builder_generation(&staging, descriptor_generation);
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
-        let retired_staging = self.ddgi_runtime.volumes_mut().prepare_staging(staging);
         if let Some(retired_staging) = retired_staging {
             self.frame_retirement_sink.retire(FrameRetirement::new(
                 "ddgi.staging.volume",
@@ -1440,7 +1891,7 @@ impl Tracer {
                 retired_staging,
             ));
         }
-        let status = self.ddgi_runtime.volumes().status();
+        let status = self.ddgi_runtime.status();
         log::info!(
             "[DDGI] staging prepared token_serial={} kind={:?} spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
             build_token.serial(),
@@ -1457,32 +1908,16 @@ impl Tracer {
     }
 
     fn start_next_ddgi_scheduled_work(&mut self) -> Result<bool> {
-        let Some(runtime_work) = self.ddgi_runtime.claim_transport_work() else {
+        let Some(runtime_work) = self.ddgi_runtime.begin_next_transport_work()? else {
             return Ok(false);
         };
         let work = runtime_work.scheduled();
         let destination = work.destination().field();
         assert_eq!(
-            runtime_work.authored_lighting().revision,
+            runtime_work.authored_lighting().revision(),
             destination.radiance_revision(),
             "DDGI transport work must retain the authored lighting revision it was scheduled with",
         );
-        let status = self.ddgi_runtime.volumes().builder().status();
-        anyhow::ensure!(
-            status.grid.spacing_voxels() == destination.spacing_voxels(),
-            "DDGI scheduler selected spacing {} for builder spacing {}",
-            destination.spacing_voxels(),
-            status.grid.spacing_voxels(),
-        );
-        self.ddgi_runtime
-            .volumes_mut()
-            .builder_mut()
-            .begin_scheduled_work(
-                work,
-                runtime_work.local_refresh_voxel_bound(),
-                runtime_work.radiance_history_policy(),
-                runtime_work.probe_priority(),
-            )?;
         if let Some(priority) = runtime_work.probe_priority() {
             log::debug!(
                 "[DDGI][PRIORITY] latched reason={:?} voxel_min={:?} voxel_max={:?} field_serial={} revision={}",
@@ -1494,11 +1929,8 @@ impl Tracer {
             );
         }
         if work.kind() == DdgiScheduledWorkKind::GeometryUpdate {
-            if let Some((dirty_probes, preserved_probes)) = self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .local_refresh_probe_partition()
+            if let Some((dirty_probes, preserved_probes)) =
+                self.ddgi_runtime.builder_local_refresh_probe_partition()
             {
                 log::info!(
                     "[DDGI][LOCAL_RECOVERY] prepared geometry_revision={} dirty_probes={} preserved_probes={} minimum_epoch={} stable_epochs={} max_absolute_delta={:.3}",
@@ -1512,18 +1944,9 @@ impl Tracer {
             }
         }
         let descriptor_generation = self.next_descriptor_generation();
-        let descriptor_retirements = {
-            let volumes = self.ddgi_runtime.volumes();
-            let builder = volumes.builder();
-            let inherited_source = (work.kind() == DdgiScheduledWorkKind::GeometryUpdate
-                && work.transport_source().is_some()
-                && !volumes.builder_is_active())
-            .then(|| volumes.active());
-            self.update_ddgi_builder_descriptors(builder, inherited_source, descriptor_generation)
-        };
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
-        }
+        let builder = self.ddgi_runtime.scheduled_builder_resources(work);
+        self.pipeline_topology
+            .publish_ddgi_builder_generation(&builder, descriptor_generation);
         let lighting = self.ddgi_runtime.lighting_diagnostics();
         log::debug!(
             "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} in_flight_revision={:?} revision_lag={} coalesced_revisions={} mixed_in_flight={}",
@@ -1578,7 +2001,8 @@ impl Tracer {
                     &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
                     BufferUse::HostWrite,
                 );
-                self.compute_pipelines
+                self.pipeline_topology
+                    .compute()
                     .ddgi_voxel_visibility_pack_ppl
                     .record(
                         cmdbuf,
@@ -1586,7 +2010,8 @@ impl Tracer {
                         None,
                     );
                 pack_to_blocks.record_insert(self.vulkan_ctx.device(), cmdbuf);
-                self.compute_pipelines
+                self.pipeline_topology
+                    .compute()
                     .ddgi_voxel_visibility_blocks_ppl
                     .record(
                         cmdbuf,
@@ -1650,35 +2075,23 @@ impl Tracer {
             return;
         };
         let build_token = build.token();
-        match build.target() {
-            DdgiRuntimeVolumeTarget::Active => {
-                let builder_status = self.ddgi_runtime.volumes().builder().status();
-                assert!(
-                    builder_status.build_token.is_none(),
-                    "initial DDGI Volume must not already have a build token"
-                );
+        match build.kind() {
+            DdgiRuntimeVolumeBuildKind::Initial => {
                 self.ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .assign_build_token(build_token);
-                assert!(
-                    self.ddgi_runtime
-                        .volumes_mut()
-                        .builder_mut()
-                        .request_initialization(build_token.terrain_revision()),
-                    "initial DDGI Volume must accept its authoritative terrain revision"
-                );
-                let status = self.ddgi_runtime.volumes().status().builder();
+                    .complete_initial_volume_build(build)
+                    .expect("initial DDGI Volume installation must succeed");
+                let status = self.ddgi_runtime.status().builder();
                 log::info!(
-                    "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
+                    "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?} {}",
                     build_token.terrain_revision(),
                     status.grid.spacing_voxels(),
                     status.grid.probe_count(),
                     status.stage,
+                    DdgiConvergencePolicyEvidence,
                 );
             }
-            DdgiRuntimeVolumeTarget::Staging => {
-                let preparation = self.prepare_ddgi_staging(build_token);
+            DdgiRuntimeVolumeBuildKind::Replacement => {
+                let preparation = self.prepare_ddgi_staging(build);
                 require_ddgi_staging_preparation(build_token, preparation);
                 log::info!(
                     "[DDGI] rebuild started token_serial={} kind={:?} terrain_revision={} spacing_voxels={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
@@ -1697,52 +2110,31 @@ impl Tracer {
         }
     }
 
-    pub fn ddgi_debug_view(&self) -> DdgiDebugView {
-        self.desc.ddgi_debug_view
-    }
-
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
         self.ddgi_runtime
-            .live_authored_lighting()
-            .map_or(0, |lighting| lighting.revision)
+            .latest_transport_lighting()
+            .map_or(0, |lighting| lighting.revision())
     }
 
     pub(crate) fn ddgi_live_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
         self.ddgi_runtime
-            .live_authored_lighting()
-            .map(|lighting| lighting.snapshot)
+            .latest_transport_lighting()
+            .map(|lighting| lighting.snapshot())
     }
 
     pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
-        self.ddgi_runtime.volumes().builder().radiance_snapshot()
+        self.ddgi_runtime.builder_radiance_snapshot()
     }
 
-    pub(crate) fn local_light_live_state(&self) -> (Option<u64>, u32) {
-        (
-            self.local_light_uploaded_source_revision,
-            self.local_light_live_count,
-        )
-    }
-
-    pub(crate) fn local_light_revision_observability(
-        &self,
-    ) -> (Option<u64>, Option<u64>, Option<u64>) {
-        (
-            self.local_light_uploaded_source_revision,
-            self.local_light_uploaded_registry_revision,
-            self.local_light_live_revision,
-        )
+    pub(crate) fn local_light_live_observation(&self) -> LocalLightLiveObservation<'_> {
+        self.local_light_live_publication.observation()
     }
 
     pub(crate) fn local_light_transport_observability(&self) -> (u64, u64) {
         (
-            self.environment_lighting.revision_lag(),
-            self.environment_lighting.coalesced_live_revisions(),
+            self.ddgi_runtime.lighting_revision_lag(),
+            self.ddgi_runtime.coalesced_live_revisions(),
         )
-    }
-
-    pub(crate) fn local_light_overflow_evidence(&self) -> &[LocalLightOverflow] {
-        &self.local_light_live_overflow
     }
 
     pub(crate) fn ddgi_lighting_diagnostics(&self) -> crate::ddgi::DdgiLightingDiagnostics {
@@ -1797,6 +2189,51 @@ impl Tracer {
         &self,
     ) -> Option<LocalLightVisibilityDiagnosticEvidence> {
         self.local_light_visibility_diagnostic.published()
+    }
+
+    fn observe_ddgi_batch_progress(
+        &mut self,
+        batch: DdgiRayBatch,
+        progress: DdgiBatchObservation,
+        build_token: Option<DdgiBuildToken>,
+    ) -> Result<()> {
+        let stats = progress.stats();
+        if progress.filtered_probe_count() == batch.probe_count
+            || progress.filtered_probe_count() == progress.probe_count()
+            || progress.filtered_probe_count().is_multiple_of(1_024)
+        {
+            log::debug!(
+                "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
+                batch.first_probe_index,
+                batch.probe_count,
+                crate::ddgi::DDGI_RAYS_PER_PROBE,
+                stats.ray_records,
+                stats.valid_probe_rays,
+                stats.invalid_probe_rays,
+                stats.misses,
+                stats.frontface_hits,
+                stats.backface_hits,
+                stats.non_finite_records,
+                stats.local_light_candidates,
+                stats.local_light_visible,
+                stats.local_light_occluded,
+                stats.local_light_irradiance_luma_q8,
+                stats.emissive_surface_hits,
+                stats.emissive_surface_radiance_luma_q8,
+                batch.geometry_revision(),
+                build_token.map(DdgiBuildToken::serial),
+                batch.radiance_revision(),
+                batch.state(),
+                batch.update_epoch(),
+                batch.source(),
+            );
+        }
+        self.observe_ddgi_local_light_gpu_evidence(
+            batch,
+            stats,
+            progress.probe_count(),
+            progress.radiance_snapshot(),
+        )
     }
 
     fn observe_ddgi_local_light_gpu_evidence(
@@ -1872,47 +2309,23 @@ impl Tracer {
     }
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
-        self.ddgi_runtime
-            .status(self.ddgi_runtime.volumes().status())
-            .capture_checkpoint()
+        self.ddgi_runtime.status().capture_checkpoint()
     }
 
     pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {
         self.ddgi_runtime.capture_target()
     }
 
-    fn observe_ddgi_capture_checkpoint(
-        &mut self,
-        build_token: DdgiBuildToken,
-        field: DdgiFieldIdentity,
-        validation: crate::ddgi::DdgiAtlasValidationStats,
-        publication: DdgiCapturePublication,
-    ) {
-        if !self.ddgi_runtime.observe_capture_checkpoint(
-            build_token,
-            field,
-            validation,
-            publication,
-        ) {
-            return;
-        }
-        log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} state={:?} update_epoch={} publication={:?}",
-            self.ddgi_runtime.capture_target().label(),
-            build_token.serial(),
-            field.field().serial(),
-            field.field().state(),
-            field.field().update_epoch(),
-            publication,
-        );
+    pub fn ddgi_ready(&self) -> bool {
+        self.ddgi_runtime.status().active().is_ready()
     }
 
-    pub fn ddgi_ready(&self) -> bool {
-        self.ddgi_runtime.volumes().status().active().is_ready()
+    pub(crate) fn authored_environment_lighting_revision(&self) -> u64 {
+        self.environment_lighting.live_revision()
     }
 
     pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
-        let status = self.ddgi_runtime.volumes().status().active();
+        let status = self.ddgi_runtime.status().active();
         status.is_ready() && status.relocated_terrain_revision == Some(revision)
     }
 
@@ -1928,12 +2341,13 @@ impl Tracer {
     }
 
     pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
-        self.frame_extent_generation
+        self.pipeline_topology.frame_extent_generation()
     }
 
     pub fn assert_frame_extent_generation(&self, generation: FrameExtentGeneration) {
         assert_eq!(
-            generation, self.frame_extent_generation,
+            generation,
+            self.pipeline_topology.frame_extent_generation(),
             "tracer extent resources are not bound to the acquired frame generation"
         );
     }
@@ -1941,15 +2355,27 @@ impl Tracer {
     pub fn record_environment_irradiance_capture_readback(
         &self,
         cmdbuf: &CommandBuffer,
-        readback: &Buffer,
+        permit: CaptureReadbackPermit<Buffer>,
     ) {
+        let (readback, identity) = permit.into_parts();
         let source = &self
             .resources
             .extent_dependent_resources
             .environment_irradiance_capture;
-        assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
-        source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
-        cmdbuf.use_buffer(readback, BufferUse::HostRead);
+        assert_eq!(identity.target_byte_count, readback.get_size_bytes());
+        assert_eq!(source.get_size_bytes(), identity.target_byte_count);
+        log::trace!(
+            target: "re_flora::tracer::capture_frame",
+            "capture readback authorized frame={} field_serial={} radiance={:?} inflight_revision={:?} target_serial={} bytes={}",
+            identity.physical_frame_serial,
+            identity.checkpoint.field.field().serial(),
+            identity.radiance_request,
+            identity.inflight_target_revision,
+            identity.target_serial,
+            identity.target_byte_count,
+        );
+        source.record_copy_to_buffer(cmdbuf, &readback, source.get_size_bytes(), 0, 0);
+        cmdbuf.use_buffer(&readback, BufferUse::HostRead);
     }
 
     pub fn record_ddgi_spatial_weight_readback(&self, cmdbuf: &CommandBuffer, readback: &Buffer) {
@@ -1960,6 +2386,50 @@ impl Tracer {
         assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
         cmdbuf.use_buffer(readback, BufferUse::HostRead);
+    }
+
+    pub(crate) fn prepare_lighting_mode_production_readback(
+        &self,
+    ) -> LightingModeProductionReadback {
+        let resources = &self.resources.extent_dependent_resources;
+        let make_buffer = |byte_count| {
+            Buffer::new_sized(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                BufferUsage::transfer_dst(),
+                MemoryLocation::GpuToCpu,
+                byte_count,
+            )
+        };
+        LightingModeProductionReadback {
+            terrain_rgbe: make_buffer(resources.compute_output_tex.get_image().get_size() as u64),
+            terrain_depth: make_buffer(resources.compute_depth_tex.get_image().get_size() as u64),
+            raster_rgba: make_buffer(resources.gfx_output_tex.get_image().get_size() as u64),
+        }
+    }
+
+    pub(crate) fn record_lighting_mode_production_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        readback: &LightingModeProductionReadback,
+    ) {
+        let resources = &self.resources.extent_dependent_resources;
+        for (source, destination) in [
+            (
+                resources.compute_output_tex.get_image(),
+                &readback.terrain_rgbe,
+            ),
+            (
+                resources.compute_depth_tex.get_image(),
+                &readback.terrain_depth,
+            ),
+            (resources.gfx_output_tex.get_image(), &readback.raster_rgba),
+        ] {
+            cmdbuf.use_buffer(destination, BufferUse::TransferWrite);
+            let final_layout = source.get_layout(0);
+            source.record_copy_to_buffer(cmdbuf, destination, final_layout);
+            cmdbuf.use_buffer(destination, BufferUse::HostRead);
+        }
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
@@ -1979,66 +2449,6 @@ impl Tracer {
         self.environment_probe_visualization = settings.sanitized();
     }
 
-    /// A framebuffer that contains the color and depth textures for the main render pass
-    fn create_framebuffer_color_and_depth(
-        vulkan_ctx: &VulkanContext,
-        render_pass: &RenderPass,
-        target_texture: &Texture,
-        depth_texture: &Texture,
-    ) -> Framebuffer {
-        let target_image_extent = target_texture
-            .get_image()
-            .get_desc()
-            .extent
-            .as_extent_2d()
-            .unwrap();
-
-        Framebuffer::from_textures(
-            vulkan_ctx.clone(),
-            render_pass,
-            &[target_texture, depth_texture],
-            target_image_extent,
-        )
-        .unwrap()
-    }
-
-    /// A framebuffer that contains a color texture.
-    fn create_framebuffer_color(
-        vulkan_ctx: &VulkanContext,
-        render_pass: &RenderPass,
-        color_tex: &Texture,
-    ) -> Framebuffer {
-        let color_extent = color_tex
-            .get_image()
-            .get_desc()
-            .extent
-            .as_extent_2d()
-            .unwrap();
-        Framebuffer::from_textures(vulkan_ctx.clone(), render_pass, &[color_tex], color_extent)
-            .unwrap()
-    }
-
-    /// A framebuffer that contains the shadow map texture
-    fn create_framebuffer_depth(
-        vulkan_ctx: &VulkanContext,
-        render_pass: &RenderPass,
-        shadow_map_tex: &Texture,
-    ) -> Framebuffer {
-        let shadow_image_extent = shadow_map_tex
-            .get_image()
-            .get_desc()
-            .extent
-            .as_extent_2d()
-            .unwrap();
-        Framebuffer::from_textures(
-            vulkan_ctx.clone(),
-            render_pass,
-            &[shadow_map_tex],
-            shadow_image_extent,
-        )
-        .unwrap()
-    }
-
     pub fn on_resize(
         &mut self,
         frame_extent_generation: FrameExtentGeneration,
@@ -2046,324 +2456,31 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
     ) {
-        let expected_serial = self
-            .frame_extent_generation
-            .serial()
-            .checked_add(1)
-            .expect("tracer frame extent generation overflow");
-        assert_eq!(
-            frame_extent_generation.serial(),
-            expected_serial,
-            "tracer frame extent generation must advance exactly once"
-        );
         let screen_extent = frame_extent_generation.extent();
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
-
         self.camera.on_resize(render_extent);
 
-        // Publish the replacement extent bundle before rebuilding framebuffers. The returned
-        // bundle remains owned until the frame-completion retirement clock releases it.
-        let retired_extent_resources = self.resources.replace_extent_dependent_resources(
-            self.vulkan_ctx.device().clone(),
+        let descriptor_generation = self.next_descriptor_generation();
+        let active_ddgi = self.ddgi_runtime.active_resources();
+        self.pipeline_topology.publish_extent_generation(
+            &self.vulkan_ctx,
             self.allocator.clone(),
+            &mut self.resources,
             render_extent,
-            screen_extent,
+            frame_extent_generation,
             self.desc.environment_irradiance_capture_enabled,
-            self.desc.glass_experiment_enabled,
+            descriptor_generation,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+            &active_ddgi,
+            &self.ddgi_voxel_visibility,
         );
-
-        let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
-            &self.vulkan_ctx,
-            self.render_target_color_and_depth.get_render_pass(),
-            &self.resources.extent_dependent_resources.gfx_output_tex,
-            &self.resources.extent_dependent_resources.gfx_depth_tex,
-        );
-        let framebuffer_depth_only = Self::create_framebuffer_depth(
-            &self.vulkan_ctx,
-            self.render_target_depth_only.get_render_pass(),
-            &self.resources.shadow.shadow_map_depth_tex,
-        );
-        let framebuffer_leaf_shadow_opacity = Self::create_framebuffer_color(
-            &self.vulkan_ctx,
-            self.render_target_leaf_shadow_opacity.get_render_pass(),
-            &self.resources.shadow.leaf_shadow_opacity_tex,
-        );
-        let framebuffer_gui = Self::create_framebuffer_color(
-            &self.vulkan_ctx,
-            self.render_target_gui.get_render_pass(),
-            &self
-                .resources
-                .extent_dependent_resources
-                .screenshot_output_tex,
-        );
-
-        let new_render_target_color_and_depth = RenderTarget::new(
-            self.render_target_color_and_depth.get_render_pass().clone(),
-            vec![framebuffer_color_and_depth],
-        );
-        let new_render_target_depth_only = RenderTarget::new(
-            self.render_target_depth_only.get_render_pass().clone(),
-            vec![framebuffer_depth_only],
-        );
-        let new_render_target_leaf_shadow_opacity = RenderTarget::new(
-            self.render_target_leaf_shadow_opacity
-                .get_render_pass()
-                .clone(),
-            vec![framebuffer_leaf_shadow_opacity],
-        );
-        let new_render_target_gui = RenderTarget::new(
-            self.render_target_gui.get_render_pass().clone(),
-            vec![framebuffer_gui],
-        );
-
-        let retired_render_target_color_and_depth = std::mem::replace(
-            &mut self.render_target_color_and_depth,
-            new_render_target_color_and_depth,
-        );
-        let retired_render_target_depth_only = std::mem::replace(
-            &mut self.render_target_depth_only,
-            new_render_target_depth_only,
-        );
-        let retired_render_target_leaf_shadow_opacity = std::mem::replace(
-            &mut self.render_target_leaf_shadow_opacity,
-            new_render_target_leaf_shadow_opacity,
-        );
-        let retired_render_target_gui =
-            std::mem::replace(&mut self.render_target_gui, new_render_target_gui);
-
-        let retired_generation = self.frame_extent_generation.serial();
-        self.frame_extent_generation = frame_extent_generation;
-        self.frame_retirement_sink.retire(FrameRetirement::new(
-            "tracer.extent_dependent",
-            retired_generation,
-            (
-                retired_extent_resources,
-                retired_render_target_color_and_depth,
-                retired_render_target_depth_only,
-                retired_render_target_leaf_shadow_opacity,
-                retired_render_target_gui,
-            ),
-        ));
 
         self.cloud_history_valid = false;
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
         self.direct_sun_shadows.invalidate_cloud_history();
-        self.update_sets(
-            contree_builder_resources,
-            scene_accel_resources,
-            plain_builder_resources,
-        );
-    }
-
-    fn update_sets(
-        &mut self,
-        contree_builder_resources: &ContreeBuilderResources,
-        scene_accel_resources: &SceneAccelBuilderResources,
-        plain_builder_resources: &PlainBuilderResources,
-    ) {
-        let descriptor_generation = self.next_descriptor_generation();
-        let frame_retirement_sink = self.frame_retirement_sink.clone();
-        let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
-            frame_retirement_sink.retire(
-                ppl.publish_descriptors(
-                    "tracer.resize.compute.descriptors",
-                    descriptor_generation,
-                    DescriptorUpdate::All(resources),
-                )
-                .expect("compute descriptor update failed during update_sets"),
-            );
-        };
-
-        let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
-            frame_retirement_sink.retire(
-                ppl.publish_descriptors(
-                    "tracer.resize.graphics.descriptors",
-                    descriptor_generation,
-                    DescriptorUpdate::All(resources),
-                )
-                .expect("graphics descriptor update failed during update_sets"),
-            );
-        };
-
-        let update_graphics_set_fn =
-            |ppl: &GraphicsPipeline, binding_name: &str, resources: &[&dyn ResourceContainer]| {
-                frame_retirement_sink.retire(
-                    ppl.publish_descriptors(
-                        "tracer.resize.graphics.descriptors",
-                        descriptor_generation,
-                        DescriptorUpdate::SetContaining {
-                            anchor: binding_name,
-                            providers: resources,
-                        },
-                    )
-                    .expect("graphics descriptor set update failed during update_sets"),
-                );
-            };
-
-        let all_resources = self.all_descriptor_resources(
-            contree_builder_resources,
-            scene_accel_resources,
-            plain_builder_resources,
-        );
-        update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
-        update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
-        update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
-        update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
-        // The flora lighting cache pipeline has only per-draw set 1 descriptors. Its
-        // generation is created by the transient adapter at dispatch time.
-
-        let tracer_resources = self.tracer_descriptor_resources();
-        let environment_lighting_resources = self.environment_lighting_descriptor_resources();
-        update_compute_fn(&self.compute_pipelines.wind_volume_ppl, &tracer_resources);
-        update_compute_fn(
-            &self.compute_pipelines.shadow_depth_copy_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(
-            &self.compute_pipelines.leaf_shadow_mask_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(&self.compute_pipelines.vsm_creation_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
-        update_compute_fn(
-            &self.compute_pipelines.god_ray_temporal_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
-        update_compute_fn(
-            &self.compute_pipelines.cloud_shadow_temporal_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(
-            &self.compute_pipelines.cloud_temporal_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
-        update_compute_fn(
-            &self.compute_pipelines.lens_flare_temporal_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(
-            &self.compute_pipelines.lens_flare_sun_visible_ppl,
-            &tracer_resources,
-        );
-        update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
-        if let Some(pipeline) = &self.compute_pipelines.glass_resolve_ppl {
-            update_compute_fn(pipeline, &all_resources);
-        }
-        update_compute_fn(
-            &self.compute_pipelines.post_processing_ppl,
-            &tracer_resources,
-        );
-
-        // update graphics pipelines descriptor sets
-        update_graphics_fn(
-            &self.graphics_pipelines.terrain_depth_prefill_ppl,
-            &tracer_resources,
-        );
-        update_graphics_set_fn(
-            &self.graphics_pipelines.flora_ppl,
-            "gui_input",
-            &all_resources,
-        );
-        update_graphics_set_fn(
-            &self.graphics_pipelines.flora_lod_ppl,
-            "gui_input",
-            &all_resources,
-        );
-        update_graphics_set_fn(
-            &self.graphics_pipelines.leaves_ppl,
-            "gui_input",
-            &environment_lighting_resources,
-        );
-        update_graphics_set_fn(
-            &self.graphics_pipelines.leaves_lod_ppl,
-            "gui_input",
-            &environment_lighting_resources,
-        );
-        update_graphics_set_fn(
-            &self.graphics_pipelines.leaves_shadow_lod_ppl,
-            "gui_input",
-            &tracer_resources,
-        );
-        update_graphics_fn(
-            &self.graphics_pipelines.sprinkler_ppl,
-            &environment_lighting_resources,
-        );
-        update_graphics_fn(
-            &self.graphics_pipelines.geometry_preview_ppl,
-            &tracer_resources,
-        );
-        update_graphics_fn(
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_depth_ppl,
-            &environment_lighting_resources,
-        );
-        update_graphics_fn(
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_overlay_ppl,
-            &environment_lighting_resources,
-        );
-        update_graphics_fn(
-            &self.graphics_pipelines.dynamic_fruit_ppl,
-            &environment_lighting_resources,
-        );
-        update_graphics_fn(
-            &self.graphics_pipelines.particle_ppl,
-            &environment_lighting_resources,
-        );
-        update_graphics_fn(
-            &self.graphics_pipelines.water_droplet_ppl,
-            &environment_lighting_resources,
-        );
-        let ddgi_builder = self.ddgi_runtime.volumes().builder();
-        let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_builder];
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
-            &ddgi_resources,
-        );
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
-            &[ddgi_builder],
-        );
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_probe_relocate_ppl,
-            &[plain_builder_resources, ddgi_builder],
-        );
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_probe_trace_ppl,
-            &[
-                &self.resources,
-                contree_builder_resources,
-                scene_accel_resources,
-                plain_builder_resources,
-                ddgi_builder,
-                &self.ddgi_voxel_visibility,
-            ],
-        );
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_voxel_visibility_pack_ppl,
-            &[plain_builder_resources, &self.ddgi_voxel_visibility],
-        );
-        update_compute_fn(
-            &self.compute_pipelines.ddgi_voxel_visibility_blocks_ppl,
-            &[&self.ddgi_voxel_visibility],
-        );
-        for pipeline in [
-            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
-            &self.compute_pipelines.ddgi_visibility_filter_ppl,
-            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
-            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
-            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
-        ] {
-            update_compute_fn(pipeline, &[ddgi_builder]);
-        }
     }
 
     fn next_descriptor_generation(&mut self) -> u64 {
@@ -2388,517 +2505,73 @@ impl Tracer {
         ));
     }
 
-    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
-        [
-            &self.resources as &dyn ResourceContainer,
-            self.ddgi_runtime.volumes().active() as &dyn ResourceContainer,
-            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
-        ]
-    }
-
-    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
-        [
-            &self.resources as &dyn ResourceContainer,
-            self.ddgi_runtime.volumes().active() as &dyn ResourceContainer,
-            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
-        ]
-    }
-
-    fn all_descriptor_resources<'a>(
-        &'a self,
-        contree_builder_resources: &'a ContreeBuilderResources,
-        scene_accel_resources: &'a SceneAccelBuilderResources,
-        plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 6] {
-        [
-            &self.resources as &dyn ResourceContainer,
-            contree_builder_resources as &dyn ResourceContainer,
-            scene_accel_resources as &dyn ResourceContainer,
-            plain_builder_resources as &dyn ResourceContainer,
-            self.ddgi_runtime.volumes().active() as &dyn ResourceContainer,
-            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
-        ]
-    }
-
-    fn update_ddgi_builder_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-        inherited_source: Option<&DdgiVolume>,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let mut relocate = Vec::new();
-        let mut trace = Vec::new();
-        let mut irradiance_filter = Vec::new();
-        let mut visibility_filter = Vec::new();
-        let mut atlas_reduce = Vec::new();
-        let mut global_sky_filter = Vec::new();
-        let mut octahedral_gutter = Vec::new();
-        let mut irradiance_gutter = Vec::new();
-        let mut visibility_gutter = Vec::new();
-
-        macro_rules! write_buffer {
-            ($writes:expr, $name:literal, $buffer:expr) => {
-                $writes.push(DescriptorWrite {
-                    name: $name,
-                    resource: DescriptorResource::Buffer($buffer),
-                });
-            };
-        }
-        macro_rules! write_texture {
-            ($writes:expr, $name:literal, $texture:expr) => {
-                $writes.push(DescriptorWrite {
-                    name: $name,
-                    resource: DescriptorResource::Texture($texture),
-                });
-            };
-        }
-
-        write_buffer!(
-            relocate,
-            "ddgi_probe_metadata",
-            &ddgi_volume.ddgi_probe_metadata
-        );
-        write_buffer!(
-            relocate,
-            "ddgi_relocation_stats",
-            &ddgi_volume.ddgi_relocation_stats
-        );
-
-        for writes in [
-            &mut trace,
-            &mut irradiance_filter,
-            &mut visibility_filter,
-            &mut atlas_reduce,
-        ] {
-            write_buffer!(
-                writes,
-                "ddgi_probe_metadata",
-                &ddgi_volume.ddgi_probe_metadata
-            );
-        }
-        for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
-            write_buffer!(
-                writes,
-                "ddgi_transient_ray_data",
-                &ddgi_volume.ddgi_transient_ray_data
-            );
-        }
-        write_buffer!(trace, "ddgi_trace_stats", &ddgi_volume.ddgi_trace_stats);
-        write_buffer!(
-            atlas_reduce,
-            "ddgi_atlas_reduction",
-            &ddgi_volume.ddgi_atlas_reduction
-        );
-        write_buffer!(
-            global_sky_filter,
-            "ddgi_radiance_sun",
-            &ddgi_volume.ddgi_radiance_sun
-        );
-        write_buffer!(trace, "ddgi_radiance_sun", &ddgi_volume.ddgi_radiance_sun);
-        write_buffer!(
-            trace,
-            "ddgi_radiance_voxel_palette",
-            &ddgi_volume.ddgi_radiance_voxel_palette
-        );
-        write_buffer!(
-            trace,
-            "ddgi_transport_query_info",
-            &ddgi_volume.ddgi_transport_query_info
-        );
-        write_buffer!(
-            trace,
-            "ddgi_local_light_info",
-            &ddgi_volume.ddgi_local_light_info
-        );
-        write_buffer!(trace, "ddgi_local_lights", &ddgi_volume.ddgi_local_lights);
-
-        let source_irradiance = inherited_source
-            .and_then(DdgiVolume::published_irradiance_atlas)
-            .unwrap_or(&ddgi_volume.ddgi_transport_source_irradiance_atlas);
-        let source_visibility = inherited_source
-            .and_then(DdgiVolume::published_visibility_atlas)
-            .unwrap_or(&ddgi_volume.ddgi_transport_source_visibility_atlas);
-
-        write_texture!(
-            trace,
-            "ddgi_transport_source_irradiance_atlas",
-            source_irradiance
-        );
-        write_texture!(
-            trace,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            trace,
-            "ddgi_irradiance_atlas",
-            &ddgi_volume.ddgi_irradiance_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_visibility_atlas",
-            &ddgi_volume.ddgi_visibility_atlas
-        );
-        write_texture!(
-            trace,
-            "ddgi_transport_source_visibility_atlas",
-            source_visibility
-        );
-        write_texture!(
-            global_sky_filter,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        write_texture!(
-            octahedral_gutter,
-            "ddgi_global_sky_irradiance",
-            ddgi_volume.building_global_sky_irradiance()
-        );
-        for writes in [
-            &mut irradiance_filter,
-            &mut irradiance_gutter,
-            &mut atlas_reduce,
-        ] {
-            write_texture!(
-                writes,
-                "ddgi_irradiance_atlas",
-                &ddgi_volume.ddgi_irradiance_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_irradiance_atlas",
-                source_irradiance
-            );
-        }
-        for writes in [&mut visibility_filter, &mut visibility_gutter] {
-            write_texture!(
-                writes,
-                "ddgi_visibility_atlas",
-                &ddgi_volume.ddgi_visibility_atlas
-            );
-            write_texture!(
-                writes,
-                "ddgi_transport_source_visibility_atlas",
-                source_visibility
-            );
-        }
-
-        vec![
-            self.compute_pipelines
-                .ddgi_probe_relocate_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&relocate),
-                )
-                .expect("DDGI relocation descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_probe_trace_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&trace),
-                )
-                .expect("DDGI trace descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_irradiance_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&irradiance_filter),
-                )
-                .expect("DDGI irradiance filter descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_visibility_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&visibility_filter),
-                )
-                .expect("DDGI visibility filter descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_atlas_reduce_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&atlas_reduce),
-                )
-                .expect("DDGI atlas reduction descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_global_sky_filter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&global_sky_filter),
-                )
-                .expect("DDGI global sky filter descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_octahedral_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&octahedral_gutter),
-                )
-                .expect("DDGI octahedral gutter descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_irradiance_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&irradiance_gutter),
-                )
-                .expect("DDGI irradiance gutter descriptor update failed"),
-            self.compute_pipelines
-                .ddgi_visibility_gutter_ppl
-                .publish_descriptors(
-                    "ddgi.builder.descriptors",
-                    generation,
-                    DescriptorUpdate::Named(&visibility_gutter),
-                )
-                .expect("DDGI visibility gutter descriptor update failed"),
-        ]
-    }
-
-    fn stage_ddgi_consumer_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-    ) -> PreparedDdgiConsumerDescriptors {
-        let graphics_pipelines = [
-            &self.graphics_pipelines.flora_ppl,
-            &self.graphics_pipelines.flora_lod_ppl,
-            &self.graphics_pipelines.leaves_ppl,
-            &self.graphics_pipelines.leaves_lod_ppl,
-            &self.graphics_pipelines.sprinkler_ppl,
-            &self.graphics_pipelines.dynamic_fruit_ppl,
-            &self.graphics_pipelines.particle_ppl,
-            &self.graphics_pipelines.water_droplet_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_depth_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_overlay_ppl,
-        ];
-        let irradiance_atlas = ddgi_volume
-            .published_irradiance_atlas()
-            .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
-        let visibility_atlas = ddgi_volume
-            .published_visibility_atlas()
-            .unwrap_or(&ddgi_volume.ddgi_visibility_atlas);
-        let mut tracer_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut flora_lighting_cache_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut tree_leaf_lighting_cache_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        let mut graphics_writes = vec![DescriptorWrite {
-            name: "ddgi_probe_metadata",
-            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-        }];
-        for (binding, texture) in [
-            (
-                "ddgi_global_sky_irradiance",
-                ddgi_volume.published_global_sky_irradiance(),
-            ),
-            ("ddgi_irradiance_atlas", irradiance_atlas),
-            ("ddgi_visibility_atlas", visibility_atlas),
-        ] {
-            let write = DescriptorWrite {
-                name: binding,
-                resource: DescriptorResource::Texture(texture),
-            };
-            tracer_writes.push(write);
-            flora_lighting_cache_writes.push(write);
-            tree_leaf_lighting_cache_writes.push(write);
-            graphics_writes.push(write);
-        }
-
-        PreparedDdgiConsumerDescriptors {
-            token_serial: ddgi_volume
-                .status()
-                .build_token
-                .expect("staged DDGI consumer descriptors require a build token")
-                .serial(),
-            tracer: self
-                .compute_pipelines
-                .tracer_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
-                .expect("DDGI consumer tracer descriptor preparation failed"),
-            flora_lighting_cache: self
-                .compute_pipelines
-                .flora_lighting_cache_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&flora_lighting_cache_writes))
-                .expect("DDGI consumer flora cache descriptor preparation failed"),
-            tree_leaf_lighting_cache: self
-                .compute_pipelines
-                .tree_leaf_lighting_cache_ppl
-                .prepare_descriptors(DescriptorUpdate::Named(&tree_leaf_lighting_cache_writes))
-                .expect("DDGI consumer tree-leaf cache descriptor preparation failed"),
-            graphics: graphics_pipelines
-                .iter()
-                .map(|pipeline| {
-                    pipeline
-                        .prepare_descriptors(DescriptorUpdate::Named(&graphics_writes))
-                        .expect("DDGI consumer graphics descriptor preparation failed")
-                })
-                .collect(),
-        }
-    }
-
-    fn publish_ddgi_consumer_descriptors(
-        &self,
-        prepared: PreparedDdgiConsumerDescriptors,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let graphics_pipelines = [
-            &self.graphics_pipelines.flora_ppl,
-            &self.graphics_pipelines.flora_lod_ppl,
-            &self.graphics_pipelines.leaves_ppl,
-            &self.graphics_pipelines.leaves_lod_ppl,
-            &self.graphics_pipelines.sprinkler_ppl,
-            &self.graphics_pipelines.dynamic_fruit_ppl,
-            &self.graphics_pipelines.particle_ppl,
-            &self.graphics_pipelines.water_droplet_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_depth_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_overlay_ppl,
-        ];
-        assert_eq!(
-            prepared.graphics.len(),
-            graphics_pipelines.len(),
-            "DDGI consumer descriptor preparation pipeline order changed"
-        );
-        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
-        retirements.push(
-            self.compute_pipelines
-                .tracer_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.tracer,
-                ),
-        );
-        retirements.push(
-            self.compute_pipelines
-                .flora_lighting_cache_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.flora_lighting_cache,
-                ),
-        );
-        retirements.push(
-            self.compute_pipelines
-                .tree_leaf_lighting_cache_ppl
-                .publish_prepared_descriptors(
-                    "ddgi.consumer.descriptors",
-                    generation,
-                    prepared.tree_leaf_lighting_cache,
-                ),
-        );
-        for (pipeline, descriptor_sets) in graphics_pipelines.into_iter().zip(prepared.graphics) {
-            retirements.push(pipeline.publish_prepared_descriptors(
-                "ddgi.consumer.descriptors",
-                generation,
-                descriptor_sets,
-            ));
-        }
-        retirements
-    }
-
-    fn update_ddgi_consumer_descriptors(
-        &self,
-        ddgi_volume: &DdgiVolume,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
-        let prepared = self.stage_ddgi_consumer_descriptors(ddgi_volume);
-        self.publish_ddgi_consumer_descriptors(prepared, generation)
-    }
-
-    fn promote_ready_ddgi_staging(&mut self) {
-        let status = self.ddgi_runtime.volumes().status();
-        if !status.staging_is_ready() {
-            return;
-        }
-        let build_token = status
-            .staging()
-            .and_then(|staging| staging.build_token)
-            .expect("every DDGI staging volume must carry its build token");
-        if !self.ddgi_runtime.token_can_promote(build_token) {
-            log::info!(
-                "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
-                build_token.serial(),
-                build_token.kind(),
-                build_token.terrain_revision(),
-                build_token.spacing_voxels(),
-                self.ddgi_runtime.refresh_state(),
-            );
-            assert!(
-                self.ddgi_runtime.finish_obsolete_volume_build(build_token),
-                "completed obsolete DDGI staging token must release the single update slot"
-            );
-            self.prepared_ddgi_consumer_descriptors = None;
-            return;
-        }
-
+    fn promote_ready_ddgi_staging(&mut self) -> Result<()> {
         // Previous frames may still sample the active volume. Publish a new descriptor generation
         // and keep the old generation/resource owners on the frame-completion retirement clock
         // while the frame's shading constants move to the complete staging volume.
         let publication_started = Instant::now();
-        let descriptor_generation = self.next_descriptor_generation();
-        let prepared = self
-            .prepared_ddgi_consumer_descriptors
-            .take()
-            .filter(|prepared| prepared.token_serial == build_token.serial());
-        let descriptor_retirements = if let Some(prepared) = prepared {
-            self.publish_ddgi_consumer_descriptors(prepared, descriptor_generation)
-        } else {
-            let builder = self.ddgi_runtime.volumes().builder();
-            self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
+        let mut descriptor_generation = None;
+        let mut descriptor_rebind_ms = 0.0;
+        let publication = {
+            let topology = &self.pipeline_topology;
+            let next_generation = &mut self.descriptor_generation;
+            self.ddgi_runtime.publish_ready_volume(|resources| {
+                descriptor_generation =
+                    Some(topology.publish_ddgi_consumers(resources, next_generation)?);
+                descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
+                Ok(())
+            })
         };
-        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
-        for retirement in descriptor_retirements {
-            self.frame_retirement_sink.retire(retirement);
-        }
-        // DdgiRuntime::promote_ready_volume performs promote_staging(build_token) and the
-        // coordinator token promotion as one fail-fast transaction.
-        let retired_active = self
-            .ddgi_runtime
-            .promote_ready_volume(build_token)
-            .expect("ready DDGI staging volume must be promotable");
+        let (build_token, retired_active) = match publication {
+            Ok(DdgiVolumePublishOutcome::Idle) => return Ok(()),
+            Ok(DdgiVolumePublishOutcome::DiscardedObsolete(build_token)) => {
+                log::info!(
+                    "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
+                    build_token.serial(),
+                    build_token.kind(),
+                    build_token.terrain_revision(),
+                    build_token.spacing_voxels(),
+                    self.ddgi_runtime.refresh_state(),
+                );
+                return Ok(());
+            }
+            Ok(DdgiVolumePublishOutcome::Published {
+                token,
+                retired_active,
+            }) => (token, retired_active),
+            Err(error) => return Err(error.context("publish ready DDGI staging Volume")),
+        };
+        let descriptor_generation = descriptor_generation
+            .expect("published DDGI Volume must expose its descriptor generation");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
-        let active = self.ddgi_runtime.volumes().status().active();
-        let published = active
-            .published_field
-            .expect("promoted staging volume must have a finite published field");
+        let active = self.ddgi_runtime.status().active();
+        let publication = active
+            .publication
+            .expect("promoted staging volume must retain its resident publication");
+        let generation = publication.generation();
+        let generation_root = generation.epoch_zero_field();
+        let published = publication.field();
         let published_key = published.field();
+        assert_eq!(generation.build_token(), build_token);
         let published_slot = self
             .ddgi_runtime
-            .volumes()
-            .active()
-            .published_irradiance_label()
+            .active_published_irradiance_label()
             .expect("promoted staging volume must have a resident published field");
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
         let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
         log::info!(
-            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
+            "[DDGI] staging promoted token_serial={} generation_token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} epoch_zero_field_serial={} published_field_serial={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
             build_token.serial(),
+            generation.build_token().serial(),
             build_token.kind(),
             active.grid.spacing_voxels(),
             active.grid.probe_count(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.global_sky_revision,
+            generation_root.field().serial(),
+            published_key.serial(),
             published_key.state(),
             published_key.update_epoch(),
             published_slot,
@@ -2916,17 +2589,25 @@ impl Tracer {
             descriptor_generation,
         );
         log::info!(
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} generation_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} epoch_zero_field_serial={} published_field_serial={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=pipeline_topology",
             build_token.serial(),
+            generation.build_token().serial(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.grid.spacing_voxels(),
+            generation_root.field().serial(),
+            published_key.serial(),
             published_slot,
             published_key.state(),
             published_key.update_epoch(),
             published.source(),
         );
-        drop(retired_active);
+        self.frame_retirement_sink.retire(FrameRetirement::new(
+            "ddgi.active.volume",
+            descriptor_generation,
+            retired_active,
+        ));
+        Ok(())
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -2956,199 +2637,101 @@ impl Tracer {
         );
         self.wind_source_buffer_capacity = new_capacity;
         let descriptor_generation = self.next_descriptor_generation();
-        let tracer_resources = self.tracer_descriptor_resources();
-        let descriptor_retirement = self.compute_pipelines.wind_volume_ppl.publish_descriptors(
-            "tracer.wind.descriptors",
-            descriptor_generation,
-            DescriptorUpdate::All(&tracer_resources),
-        )?;
+        let active_ddgi = self.ddgi_runtime.active_resources();
+        let tracer_resources: [&dyn ResourceContainer; 3] =
+            [&self.resources, &active_ddgi, &self.ddgi_voxel_visibility];
+        let descriptor_retirement = self
+            .pipeline_topology
+            .compute()
+            .wind_volume_ppl
+            .publish_descriptors(
+                "tracer.wind.descriptors",
+                descriptor_generation,
+                DescriptorUpdate::All(&tracer_resources),
+            )?;
         self.frame_retirement_sink.retire(descriptor_retirement);
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
+        lighting_frame: &ResolvedLightingFrameInputs,
         local_lights: &LocalLightSnapshot,
-        flora_growth_override_enabled: bool,
-        flora_growth_override: f32,
-        dither_strength_lsb: f32,
-        raster_flora_ddgi_lighting: bool,
-        path_tracing_reference: bool,
-        path_tracing_max_bounces: u32,
-        path_tracing_ambient_light: Vec3,
-        terrain_ray_origin_offset_world: f32,
-        ddgi_receiver_visibility_bias_world: f32,
-        ddgi_history_retention: f32,
-        terrain_self_shadow_tolerance_voxels: f32,
-        flora_instance_hsv_offset_max: Vec3,
-        flora_voxel_hsv_offset_max: Vec3,
-        grass_bottom_dark: Vec3,
-        grass_bottom_light: Vec3,
-        grass_tip_dark: Vec3,
-        grass_tip_light: Vec3,
-        world_tick_seconds: f32,
-        update_shadow_map: bool,
-        lens_flare_intensity: f32,
-        lens_flare_sun_pixel_scale: f32,
-        glass_gui_params: GlassGuiParams,
-        wind_directional_bias_fraction: f32,
-        wind_turbulence_fraction: f32,
-        grass_vibration_amplitude_voxels: f32,
-        grass_vibration_primary_speed: f32,
-        grass_vibration_secondary_speed: f32,
-        grass_natural_bend_min_voxels: f32,
-        grass_natural_bend_max_voxels: f32,
-        flora_bend_height_power: f32,
-        kochia_motion: KochiaMotionParams,
-        kochia_visual: KochiaVisualParams,
-        leaf_paddle_amplitude_voxels: f32,
-        leaf_paddle_primary_speed: f32,
-        leaf_paddle_secondary_speed: f32,
-        leaf_paddle_amplitude_wind_start_strength: f32,
-        leaf_paddle_amplitude_wind_full_strength: f32,
-        leaf_paddle_amplitude_wind_knee_bias: f32,
-        leaf_paddle_frequency_wind_start_strength: f32,
-        leaf_paddle_frequency_wind_full_strength: f32,
-        leaf_paddle_frequency_wind_knee_bias: f32,
-        leaf_paddle_frequency_min_multiplier: f32,
-        leaf_paddle_frequency_max_multiplier: f32,
-        fruit_motion: FruitMotionParams,
-        leaf_shadow_fragment_opacity: f32,
-        leaf_shadow_strength: f32,
-        leaf_shadow_min_transmittance: f32,
-        leaf_shadow_filter_radius_texels: f32,
-        leaf_transmission_strength: f32,
-        wind_gui_params: WindGuiParams,
-        cloud_gui_params: CloudGuiParams,
-        flora_tick: u32,
-        sprout_delay_ticks: u32,
-        full_growth_ticks: u32,
-        spawn_time_ms: u32,
-        spawn_duration_seconds: f32,
-        spawn_rise_fraction: f32,
-        spawn_overshoot_min_voxels: f32,
-        spawn_overshoot_max_voxels: f32,
-        spawn_stagger_seconds: f32,
-        sun_dir: Vec3,
-        sun_size: f32,
-        sun_color: Vec3,
-        sun_luminance: f32,
-        sun_display_luminance: f32,
-        sun_altitude: f32,
-        sun_azimuth: f32,
-        god_ray_max_depth: f32,
-        god_ray_max_checks: u32,
-        god_ray_temporal_blend_enabled: bool,
-        god_ray_temporal_alpha: f32,
-        god_ray_weight: f32,
-        god_ray_color: Vec3,
-        starlight_iterations: i32,
-        starlight_formuparam: f32,
-        starlight_volsteps: i32,
-        starlight_stepsize: f32,
-        starlight_zoom: f32,
-        starlight_tile: f32,
-        starlight_speed: f32,
-        starlight_brightness: f32,
-        starlight_darkmatter: f32,
-        starlight_distfading: f32,
-        starlight_saturation: f32,
-        voxel_dirt_color: Vec3,
-        voxel_sand_color: Vec3,
-        voxel_cherry_wood_color: Vec3,
-        voxel_oak_wood_color: Vec3,
-        voxel_rock_color: Vec3,
-        voxel_color_variance: f32,
-        terrain_edit_preview_center: Option<Vec3>,
-        terrain_edit_preview_radius: f32,
-        terrain_edit_preview_shape: TerrainEditPreviewShape,
-        terrain_edit_preview_color: Vec3,
-        terrain_edit_preview_alpha: f32,
-    ) -> Result<()> {
-        self.promote_ready_ddgi_staging();
-        let provisional_local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+        frame_plan: RenderFramePlan,
+        frame_inputs: RenderFrameInputs,
+    ) -> Result<CaptureBuffersReady> {
+        let RenderFrameInputs {
+            terrain,
+            materials,
+            mut vegetation,
+            wind,
+            environment,
+        } = frame_inputs;
+        let frame_serial_idx = lighting_frame.sampling_serial();
+        let dither_strength_lsb = lighting_frame.dither_strength_lsb();
+        self.promote_ready_ddgi_staging()?;
+        let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
-        );
-        let provisional_payload = provisional_local_light_gpu.payload();
-        let selection_changed = self.local_light_live_payload.map_or_else(
-            || provisional_payload.count() > 0,
-            |previous| !previous.selection_eq(provisional_payload),
-        );
-        let live_revision = if selection_changed {
-            self.local_light_live_revision
-                .unwrap_or(0)
-                .wrapping_add(1)
-                .max(1)
+        )
+        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
         } else {
-            self.local_light_live_revision.unwrap_or(0)
-        };
-        let local_light_gpu = provisional_local_light_gpu
-            .with_live_revision(live_revision)
-            .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
-                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
-            } else {
-                0
-            });
-        let metadata_changed = self.local_light_uploaded_source_revision
-            != Some(local_lights.source_revision())
-            || self.local_light_uploaded_registry_revision
-                != Some(local_lights.registry_revision());
-        if selection_changed || metadata_changed {
-            self.resources
-                .local_lighting
-                .local_light_info
-                .fill_uniform(&local_light_gpu.info)?;
-            if selection_changed {
-                self.resources
-                    .local_lighting
-                    .local_lights
-                    .fill(&local_light_gpu.lights)?;
-            }
-            self.local_light_live_revision = Some(live_revision);
-            self.local_light_live_payload = Some(local_light_gpu.payload());
-            self.local_light_uploaded_source_revision = Some(local_lights.source_revision());
-            self.local_light_uploaded_registry_revision = Some(local_lights.registry_revision());
-            self.local_light_live_count = local_light_gpu.info.count;
-            log::info!(
-                "[LOCAL_LIGHT][LIVE] source_revision={} registry_revision={} live_gpu_revision={} count={} capacity={} overflow_count={} selection_changed={} direct_upload=true",
-                local_lights.source_revision(),
-                local_lights.registry_revision(),
-                live_revision,
-                local_light_gpu.info.count,
-                local_light_gpu.info.capacity,
-                local_light_gpu.info.overflow_count,
-                selection_changed,
-            );
-            let mut overflow_groups =
-                std::collections::BTreeMap::<(ProviderId, LocalLightOverflowReason), usize>::new();
-            for overflow in &local_light_gpu.overflow {
-                *overflow_groups
-                    .entry((overflow.source.provider(), overflow.reason))
-                    .or_insert(0usize) += 1;
-            }
-            for ((provider, reason), count) in overflow_groups {
-                log::info!(
-                    "[LOCAL_LIGHT][OVERFLOW] source_revision={} provider={} reason={} count={} explicit=true",
-                    local_lights.source_revision(),
-                    provider.get(),
-                    reason.label(),
-                    count,
-                );
-            }
-            self.local_light_live_overflow = local_light_gpu.overflow.clone();
-        }
-        let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
-        let ddgi_receiver_visibility_bias_world = ddgi_receiver_visibility_bias_world.max(0.0);
+            0
+        });
+        let local_lighting = &self.resources.local_lighting;
+        let local_light_payload =
+            self.local_light_live_publication
+                .publish(local_light_gpu, |upload| match upload {
+                    LocalLightLiveUpload::Info { info } => {
+                        local_lighting.local_light_info.fill_uniform(info)
+                    }
+                    LocalLightLiveUpload::InfoAndLights { info, lights } => {
+                        local_lighting.local_light_info.fill_uniform(info)?;
+                        local_lighting.local_lights.fill(lights)
+                    }
+                })?;
+        let terrain_ray_origin_offset_world = terrain.ray_origin_offset_world.max(0.0);
+        let ddgi_receiver_visibility_bias_world =
+            terrain.ddgi_receiver_visibility_bias_world.max(0.0);
+        let authored_environment_lighting = self.environment_lighting.observe(
+            AuthoredEnvironmentLightingInput {
+                sun_direction: environment.sun.direction,
+                sun_color: environment.sun.color,
+                sun_luminance: environment.sun.luminance,
+                terrain_ray_origin_offset_world,
+                ddgi_receiver_visibility_bias_world,
+                glass_experiment_enabled: self.desc.glass_experiment_enabled,
+                glass_material_revision: if self.desc.glass_experiment_enabled {
+                    crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
+                } else {
+                    0
+                },
+                voxel_palette: DdgiVoxelPaletteSnapshot {
+                    dirt_color: materials.voxel_dirt_color,
+                    sand_color: materials.voxel_sand_color,
+                    cherry_wood_color: materials.voxel_cherry_wood_color,
+                    oak_wood_color: materials.voxel_oak_wood_color,
+                    rock_color: materials.voxel_rock_color,
+                    hash_color_variance: materials.voxel_color_variance,
+                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
+                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
+                },
+                local_lights: local_light_payload,
+            },
+            time_info.time_since_start_duration(),
+        );
+        let authored_snapshot = authored_environment_lighting.snapshot();
+        let sun_dir = authored_snapshot.sun_direction;
+        let sun_color = authored_snapshot.sun_color;
+        let sun_luminance = authored_snapshot.sun_luminance;
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
         let ddgi_world_extent = self
             .ddgi_runtime
-            .volumes()
             .status()
             .active()
             .grid
@@ -3173,12 +2756,12 @@ impl Tracer {
                 "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
                 shadow_light_space_change,
                 self.direct_sun_shadows.light_space_revision(),
-                sun_dir.normalize(),
+                sun_dir,
             );
         }
         if self
             .direct_sun_shadows
-            .camera_update_required(update_shadow_map)
+            .camera_update_required(frame_plan.update_shadow_map)
         {
             let world_bound = self.chunk_bound.into();
             let shadow_map_extent = self
@@ -3208,13 +2791,13 @@ impl Tracer {
 
         BufferUpdater::update_god_ray_info(
             &self.resources,
-            god_ray_max_depth,
-            god_ray_max_checks,
-            god_ray_weight,
-            god_ray_color,
+            environment.god_rays.max_depth,
+            environment.god_rays.max_checks,
+            environment.god_rays.weight,
+            environment.god_rays.color,
         )?;
-        self.god_ray_temporal_blend_enabled = god_ray_temporal_blend_enabled;
-        self.god_ray_temporal_alpha = god_ray_temporal_alpha.clamp(0.01, 1.0);
+        self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
+        self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
         BufferUpdater::update_post_processing_info(
             &self.resources,
@@ -3224,189 +2807,121 @@ impl Tracer {
 
         BufferUpdater::update_voxel_colors(
             &self.resources,
-            voxel_dirt_color,
-            voxel_sand_color,
-            voxel_cherry_wood_color,
-            voxel_oak_wood_color,
-            voxel_rock_color,
-            voxel_color_variance,
+            materials.voxel_dirt_color,
+            materials.voxel_sand_color,
+            materials.voxel_cherry_wood_color,
+            materials.voxel_oak_wood_color,
+            materials.voxel_rock_color,
+            materials.voxel_color_variance,
             EMISSIVE_VOXEL_COLOR_SRGB,
             EMISSIVE_VOXEL_SURFACE_RADIANCE,
         )?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,
-            terrain_edit_preview_center,
-            terrain_edit_preview_radius,
-            terrain_edit_preview_shape,
-            terrain_edit_preview_color,
-            terrain_edit_preview_alpha,
+            terrain.edit_preview_center,
+            terrain.edit_preview_radius,
+            terrain.edit_preview_shape,
+            terrain.edit_preview_color,
+            terrain.edit_preview_alpha,
         )?;
 
-        self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
-        self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
-        self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
+        vegetation.motion.world_tick_seconds =
+            crate::game_time::clamp_world_tick_seconds(vegetation.motion.world_tick_seconds);
+        self.world_tick_seconds = vegetation.motion.world_tick_seconds;
+        self.raster_lighting_state = lighting_frame.raster_lighting_state();
+        self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
 
-        self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
-        BufferUpdater::update_gui_input(
+        self.ensure_wind_source_buffer_capacity(wind.sources.sources.len())?;
+        crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
-            flora_growth_override_enabled,
-            flora_growth_override,
-            raster_flora_ddgi_lighting,
-            path_tracing_reference,
-            path_tracing_max_bounces,
-            path_tracing_ambient_light,
-            terrain_ray_origin_offset_world,
-            terrain_self_shadow_tolerance_voxels,
-            flora_instance_hsv_offset_max,
-            flora_voxel_hsv_offset_max,
-            grass_bottom_dark,
-            grass_bottom_light,
-            grass_tip_dark,
-            grass_tip_light,
-            lens_flare_intensity,
-            lens_flare_sun_pixel_scale,
-            glass_gui_params,
-            wind_directional_bias_fraction,
-            wind_turbulence_fraction,
-            self.world_tick_seconds,
-            grass_vibration_amplitude_voxels,
-            grass_vibration_primary_speed,
-            grass_vibration_secondary_speed,
-            grass_natural_bend_min_voxels,
-            grass_natural_bend_max_voxels,
-            flora_bend_height_power,
-            kochia_motion,
-            kochia_visual,
-            leaf_paddle_amplitude_voxels,
-            leaf_paddle_primary_speed,
-            leaf_paddle_secondary_speed,
-            leaf_paddle_amplitude_wind_start_strength,
-            leaf_paddle_amplitude_wind_full_strength,
-            leaf_paddle_amplitude_wind_knee_bias,
-            leaf_paddle_frequency_wind_start_strength,
-            leaf_paddle_frequency_wind_full_strength,
-            leaf_paddle_frequency_wind_knee_bias,
-            leaf_paddle_frequency_min_multiplier,
-            leaf_paddle_frequency_max_multiplier,
-            fruit_motion,
-            leaf_shadow_fragment_opacity,
-            leaf_shadow_strength,
-            leaf_shadow_min_transmittance,
-            leaf_shadow_filter_radius_texels,
-            leaf_transmission_strength,
-            wind_gui_params,
-            cloud_gui_params,
+            lighting_frame,
+            &terrain,
+            &materials,
+            &vegetation,
+            &wind,
+            &environment,
         )?;
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
-            flora_tick,
-            sprout_delay_ticks,
-            full_growth_ticks,
-            spawn_time_ms,
-            spawn_duration_seconds,
-            spawn_rise_fraction,
-            spawn_overshoot_min_voxels,
-            spawn_overshoot_max_voxels,
-            spawn_stagger_seconds,
+            vegetation.growth.flora_tick,
+            vegetation.growth.sprout_delay_ticks,
+            vegetation.growth.full_growth_ticks,
+            vegetation.growth.spawn_time_ms,
+            vegetation.growth.spawn_duration_seconds,
+            vegetation.growth.spawn_rise_fraction,
+            vegetation.growth.spawn_overshoot_min_voxels,
+            vegetation.growth.spawn_overshoot_max_voxels,
+            vegetation.growth.spawn_stagger_seconds,
         )?;
 
         BufferUpdater::update_sun_info(
             &self.resources,
             sun_dir,
-            sun_size,
+            environment.sun.size,
             sun_color,
             sun_luminance,
-            sun_display_luminance,
-            sun_altitude,
-            sun_azimuth,
+            environment.sun.display_luminance,
+            environment.sun.altitude,
+            environment.sun.azimuth,
         )?;
 
-        let environment_lighting = self.environment_lighting.update(
-            DdgiRadianceSnapshot {
-                sun_direction: sun_dir,
-                sun_color,
-                sun_luminance,
-                terrain_ray_origin_offset_world,
-                ddgi_receiver_visibility_bias_world,
-                glass_experiment_enabled: self.desc.glass_experiment_enabled,
-                glass_material_revision: if self.desc.glass_experiment_enabled {
-                    crate::voxel_material::GLASS_EXPERIMENT_MATERIAL_REVISION
-                } else {
-                    0
-                },
-                voxel_palette: DdgiVoxelPaletteSnapshot {
-                    dirt_color: voxel_dirt_color,
-                    sand_color: voxel_sand_color,
-                    cherry_wood_color: voxel_cherry_wood_color,
-                    oak_wood_color: voxel_oak_wood_color,
-                    rock_color: voxel_rock_color,
-                    hash_color_variance: voxel_color_variance,
-                    emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
-                    emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
-                },
-                local_lights: local_light_gpu.payload(),
-            },
-            time_info.time_since_start_duration(),
-        );
-        if environment_lighting.transport_published {
+        let ddgi_lighting = self
+            .ddgi_runtime
+            .observe_authored_lighting(authored_environment_lighting);
+        if ddgi_lighting.transport_published {
             log::info!(
                 "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
-                environment_lighting.live.revision,
-                environment_lighting.transport.revision,
-                environment_lighting.transport.source_live_revision,
-                environment_lighting.revision_lag(),
-                environment_lighting.coalesced_live_revisions,
-                environment_lighting.transport.published_at.as_millis(),
-                environment_lighting
+                authored_environment_lighting.revision,
+                ddgi_lighting.transport.revision(),
+                ddgi_lighting.transport.source_live_revision(),
+                ddgi_lighting.revision_lag(authored_environment_lighting),
+                ddgi_lighting.coalesced_live_revisions,
+                ddgi_lighting.transport.published_at().as_millis(),
+                ddgi_lighting
                     .transport_age(time_info.time_since_start_duration())
                     .as_millis(),
-                environment_lighting.transport.change.reason,
-                environment_lighting
+                ddgi_lighting.transport.change().reason,
+                ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_angle_radians
                     .to_degrees(),
-                environment_lighting
+                ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_color_relative,
-                environment_lighting
+                ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .sun_luminance_relative,
-                environment_lighting
+                ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .non_solar_changed,
-                environment_lighting
+                ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .local_lights_changed,
-                environment_lighting
+                ddgi_lighting
                     .transport
-                    .snapshot
+                    .snapshot()
                     .local_lights
                     .source_revision(),
-                environment_lighting.transport.snapshot.local_lights.count(),
-                environment_lighting.transport.snapshot.sun_direction,
-                environment_lighting.transport.snapshot.sun_color,
-                environment_lighting.transport.snapshot.sun_luminance,
+                ddgi_lighting.transport.snapshot().local_lights.count(),
+                ddgi_lighting.transport.snapshot().sun_direction,
+                ddgi_lighting.transport.snapshot().sun_color,
+                ddgi_lighting.transport.snapshot().sun_luminance,
             );
-            if environment_lighting
-                .transport
-                .change
-                .delta
-                .local_lights_changed
-            {
-                let impact = environment_lighting
+            if ddgi_lighting.transport.change().delta.local_lights_changed {
+                let impact = ddgi_lighting
                     .transport
-                    .change
+                    .change()
                     .delta
                     .local_light_impact_bound
                     .map(|bound| {
@@ -3414,7 +2929,6 @@ impl Tracer {
                             bound,
                             self.desc.voxel_dim_per_chunk,
                             self.ddgi_runtime
-                                .volumes()
                                 .status()
                                 .active()
                                 .grid
@@ -3422,12 +2936,14 @@ impl Tracer {
                         )
                     });
                 self.ddgi_runtime.observe_lighting_impact_probe_priority(
-                    environment_lighting.transport.revision,
+                    ddgi_lighting.transport.revision(),
                     impact,
                 );
             }
         }
-        let ddgi_status = self.ddgi_runtime.volumes().status().active();
+        let ddgi_status = self.ddgi_runtime.status().active();
+        let (ddgi_irradiance_tile_columns, ddgi_visibility_tile_columns) =
+            self.ddgi_runtime.active_atlas_tile_columns();
         let ddgi_geometry_revision = self
             .ddgi_voxel_visibility
             .published_revision()
@@ -3436,47 +2952,46 @@ impl Tracer {
         // coordinator retains the conservative pending bound for scheduling and diagnostics, but
         // consumers intentionally use the resident field until its replacement promotes.
         let ddgi_consumer_invalidation_voxel_bound = None;
-        BufferUpdater::update_shading_info(
-            &self.resources,
-            environment_lighting.transport,
-            ddgi_status.grid,
-            self.desc.voxel_dim_per_chunk,
-            self.ddgi_ready(),
-            ddgi_geometry_revision,
-            self.desc.environment_irradiance_capture_enabled,
-            ddgi_status.irradiance_layout.tile_grid().x,
-            ddgi_status.visibility_layout.tile_grid().x,
-            self.desc.ddgi_debug_view.as_u32(),
-            self.desc.ddgi_terrain_hard_origin.as_u32(),
-            self.desc.glass_experiment_enabled,
-            self.desc.glass_debug_view,
-            ddgi_receiver_visibility_bias_world,
-            ddgi_consumer_invalidation_voxel_bound,
-        )?;
-        self.ddgi_runtime
-            .observe_authored_lighting(environment_lighting.transport);
-
+        let capture_buffers_ready = frame_plan.capture.publish_buffers(time_info, |view| {
+            BufferUpdater::update_shading_info(
+                &self.resources,
+                ddgi_lighting.transport,
+                ddgi_status.grid,
+                self.desc.voxel_dim_per_chunk,
+                self.ddgi_ready(),
+                ddgi_geometry_revision,
+                self.desc.environment_irradiance_capture_enabled,
+                ddgi_irradiance_tile_columns,
+                ddgi_visibility_tile_columns,
+                view.as_u32(),
+                self.desc.ddgi_terrain_hard_origin.as_u32(),
+                self.desc.glass_experiment_enabled,
+                self.desc.glass_debug_view,
+                ddgi_receiver_visibility_bias_world,
+                ddgi_consumer_invalidation_voxel_bound,
+            )
+        })?;
         BufferUpdater::update_starlight_info(
             &self.resources,
-            starlight_iterations,
-            starlight_formuparam,
-            starlight_volsteps,
-            starlight_stepsize,
-            starlight_zoom,
-            starlight_tile,
-            starlight_speed,
-            starlight_brightness,
-            starlight_darkmatter,
-            starlight_distfading,
-            starlight_saturation,
+            environment.starlight.iterations,
+            environment.starlight.formuparam,
+            environment.starlight.volsteps,
+            environment.starlight.stepsize,
+            environment.starlight.zoom,
+            environment.starlight.tile,
+            environment.starlight.speed,
+            environment.starlight.brightness,
+            environment.starlight.darkmatter,
+            environment.starlight.distfading,
+            environment.starlight.saturation,
         )?;
 
-        BufferUpdater::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
+        BufferUpdater::update_env_info(&self.resources, frame_serial_idx)?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
-        Ok(())
+        Ok(capture_buffers_ready)
     }
 
     fn with_gpu_scope<T>(
@@ -3527,11 +3042,7 @@ impl Tracer {
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
-            let stats = self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .update_relocation_stats_from_readback()?;
+            let stats = self.ddgi_runtime.read_builder_relocation_stats()?;
             anyhow::ensure!(
                 stats.probes == stats.valid.saturating_add(stats.failed),
                 "DDGI relocation stats probe partition is inconsistent: {stats:?}",
@@ -3565,196 +3076,49 @@ impl Tracer {
             );
         }
 
-        if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let volume = self.ddgi_runtime.volumes().builder();
-            if !volume.pending_trace_stats_batch_is(batch) {
-                log::warn!(
-                    "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
-                    volume.status().build_token,
-                    volume.status().stage,
-                    volume.status().complete_field,
-                    volume.status().building_field,
-                    volume.status().radiance_revision,
-                );
-            } else {
-                let stats = volume.update_trace_stats_from_readback()?;
-                anyhow::ensure!(
-                    stats.ray_records == batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
-                    "DDGI trace produced {} records for a {}x{} batch",
-                    stats.ray_records,
-                    batch.probe_count,
-                    crate::ddgi::DDGI_RAYS_PER_PROBE,
-                );
-                anyhow::ensure!(
-                    stats.non_finite_records == 0,
-                    "DDGI trace produced non-finite records: {stats:?}",
-                );
-                let filtered_probe_count = volume.status().filtered_probe_count;
-                let probe_count = volume.status().grid.probe_count();
-                let build_token = volume.status().build_token;
-                let radiance_snapshot = volume
-                    .radiance_snapshot()
-                    .context("DDGI trace-stat readback lost its immutable radiance snapshot")?;
-                if filtered_probe_count == batch.probe_count
-                    || filtered_probe_count == probe_count
-                    || filtered_probe_count.is_multiple_of(1_024)
-                {
-                    log::debug!(
-                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} local_light_candidates={} local_light_visible={} local_light_occluded={} local_light_irradiance_luma_q8={} emissive_surface_hits={} emissive_surface_radiance_luma_q8={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
-                        batch.first_probe_index,
-                        batch.probe_count,
-                        crate::ddgi::DDGI_RAYS_PER_PROBE,
-                        stats.ray_records,
-                        stats.valid_probe_rays,
-                        stats.invalid_probe_rays,
-                        stats.misses,
-                        stats.frontface_hits,
-                        stats.backface_hits,
-                        stats.non_finite_records,
-                        stats.local_light_candidates,
-                        stats.local_light_visible,
-                        stats.local_light_occluded,
-                        stats.local_light_irradiance_luma_q8,
-                        stats.emissive_surface_hits,
-                        stats.emissive_surface_radiance_luma_q8,
-                        batch.geometry_revision(),
-                        build_token.map(DdgiBuildToken::serial),
-                        batch.radiance_revision(),
-                        batch.state(),
-                        batch.update_epoch(),
-                        batch.source(),
+        if let Some(pending) = self.ddgi_trace_stats_readback_pending.take() {
+            let batch = pending.batch;
+            let completion = {
+                let topology = &self.pipeline_topology;
+                let next_generation = &mut self.descriptor_generation;
+                self.ddgi_runtime.complete_pending_batch(
+                    batch,
+                    pending.filter_configuration,
+                    |resources| topology.publish_ddgi_consumers(resources, next_generation),
+                )?
+            };
+            match completion {
+                DdgiBatchCompletion::Stale(stale) => {
+                    log::warn!(
+                        "[DDGI] stale trace-stat readback ignored batch={batch:?} builder_token={:?} builder_stage={:?} builder_complete={:?} builder_building={:?} builder_radiance_revision={:?}",
+                        stale.build_token(),
+                        stale.stage(),
+                        stale.complete_field(),
+                        stale.building_field(),
+                        stale.radiance_revision(),
                     );
                 }
-                self.observe_ddgi_local_light_gpu_evidence(
-                    batch,
-                    stats,
-                    probe_count,
-                    radiance_snapshot,
-                )?;
-                let outcome = self
-                    .ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .mark_trace_stats_verified(batch)?;
-                match outcome {
-                    DdgiVerifiedBatchOutcome::Continue => {}
-                    DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) => {
-                        let atlas_stats = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .update_atlas_validation_from_readback()?;
-                        let classified_field = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .preview_validated_field(
-                                identity,
-                                atlas_stats,
-                                DDGI_CONVERGENCE_POLICY,
-                            )?;
-                        let work = self
-                            .ddgi_runtime
-                            .volumes()
-                            .builder()
-                            .status()
-                            .scheduled_work
-                            .expect("validated DDGI epoch must retain scheduled work");
-                        self.ddgi_runtime
-                            .validate_transport_completion(work, classified_field)
-                            .map_err(|error| {
-                                anyhow::anyhow!(
-                                    "DDGI scheduler rejected completion before publication: {error:?}"
-                                )
-                            })?;
-                        let validated = self
-                            .ddgi_runtime
-                            .volumes_mut()
-                            .builder_mut()
-                            .mark_atlas_validated(identity, atlas_stats, DDGI_CONVERGENCE_POLICY)?;
-                        let status = self.ddgi_runtime.volumes().builder().status();
-                        let key = identity.field();
-                        log::debug!(
-                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} max_rgb_value={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
-                            build_token.map(DdgiBuildToken::serial),
-                            key.geometry_revision(),
-                            key.radiance_revision(),
-                            key.spacing_voxels(),
-                            key.state(),
-                            key.update_epoch(),
-                            identity.source(),
-                            batch.source_label(),
-                            batch.destination_label(),
-                            atlas_stats.max_absolute_rgb_delta,
-                            atlas_stats.max_relative_rgb_delta,
-                            atlas_stats.max_rgb_value,
-                            atlas_stats.non_finite_count,
-                            atlas_stats.negative_rgb_texel_count,
-                            atlas_stats.valid_texel_count,
-                            atlas_stats.scanned_stored_texel_count,
-                            DDGI_CONVERGENCE_POLICY.absolute_threshold,
-                            DDGI_CONVERGENCE_POLICY.relative_threshold,
-                            status.consecutive_below_threshold,
-                            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
-                            self.ddgi_runtime.volumes().builder().published_irradiance_label(),
-                            status.stage,
-                        );
-
-                        let completed = match validated {
-                            DdgiValidatedIterationOutcome::Published {
-                                work,
-                                field,
-                                consecutive_below_threshold,
-                            } => {
-                                let field_key = field.field();
-                                log::debug!(
-                                    "[DDGI] finite field published serial={} state={:?} update_epoch={} slot={} source={:?} consecutive_below={} ready=true partial_next_never_visible=true",
-                                    field_key.serial(),
-                                    field_key.state(),
-                                    field_key.update_epoch(),
-                                    batch.destination_label(),
-                                    field.source(),
-                                    consecutive_below_threshold,
-                                );
-                                Some((work, field))
-                            }
-                            DdgiValidatedIterationOutcome::Converged {
-                                work,
-                                field,
-                                reason,
-                            } => {
-                                log::info!(
-                                    "[DDGI] transport converged serial={} update_epoch={} slot={} source={:?} reason={:?} ready=true",
-                                    field.field().serial(),
-                                    field.field().update_epoch(),
-                                    batch.destination_label(),
-                                    field.source(),
-                                    reason,
-                                );
-                                Some((work, field))
-                            }
-                        };
-
-                        if let Some((_, field)) = completed {
-                            anyhow::ensure!(
-                                field == classified_field,
-                                "DDGI atlas classification changed during publication"
-                            );
-                        }
-
-                        if let Some((work, field)) = completed {
-                            let completed_build_token = build_token
-                                .context("validated DDGI field has no volume build token")?;
-                            self.ddgi_runtime
-                                .complete_transport_work(work, field, completed_build_token)
-                                .map_err(|error| {
-                                    anyhow::anyhow!(
-                                        "DDGI scheduler rejected validated completion: {error:?}"
-                                    )
-                                })?;
-                            let lighting = self.ddgi_runtime.lighting_diagnostics();
-                            log::debug!(
-                                "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
+                DdgiBatchCompletion::Progress(progress) => {
+                    self.observe_ddgi_batch_progress(
+                        batch,
+                        progress.observation(),
+                        progress.build_token(),
+                    )?;
+                }
+                DdgiBatchCompletion::Published(published) => {
+                    let published_progress = published.progress();
+                    self.observe_ddgi_batch_progress(
+                        batch,
+                        published_progress.observation(),
+                        Some(published_progress.build_token()),
+                    )?;
+                    let publication = published.publication();
+                    let work = publication.work();
+                    let field = publication.field();
+                    let atlas_stats = publication.atlas_validation();
+                    let lighting = self.ddgi_runtime.lighting_diagnostics();
+                    log::debug!(
+                        "[DDGI][PUBLICATION] serial={} geometry_revision={} radiance_revision={} update_epoch={} kind={:?} latest_transport_revision={:?} source_live_revision={:?} scheduler_published_revision={:?} revision_lag={} coalesced_revisions={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} mixed_in_flight={}",
                                 field.field().serial(),
                                 field.field().geometry_revision(),
                                 field.field().radiance_revision(),
@@ -3767,39 +3131,43 @@ impl Tracer {
                                 lighting.coalesced_revisions,
                                 atlas_stats.max_absolute_rgb_delta,
                                 atlas_stats.max_relative_rgb_delta,
-                                lighting.has_mixed_in_flight_revision,
-                            );
-                            if self.ddgi_runtime.volumes().builder_is_active() {
-                                let descriptor_generation = self.next_descriptor_generation();
-                                let descriptor_retirements = {
-                                    let builder = self.ddgi_runtime.volumes().builder();
-                                    self.update_ddgi_consumer_descriptors(
-                                        builder,
-                                        descriptor_generation,
-                                    )
-                                };
-                                for retirement in descriptor_retirements {
-                                    self.frame_retirement_sink.retire(retirement);
-                                }
-                                let slot = self
-                                    .ddgi_runtime
-                                    .volumes()
-                                    .builder()
-                                    .published_irradiance_label()
-                                    .expect("validated DDGI field must be resident");
-                                let key = field.field();
-                                log::debug!(
-                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
+                        lighting.has_mixed_in_flight_revision,
+                    );
+                    if published.capture_checkpoint_attached() {
+                        let resident = published.progress().field_publication();
+                        let generation = resident.generation();
+                        assert_eq!(resident.field(), field);
+                        log::info!(
+                            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} generation_token_serial={} epoch_zero_field_serial={} field_serial={} source_field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} publication=Published",
+                            self.ddgi_runtime.capture_target().label(),
+                            published.progress().build_token().serial(),
+                            generation.build_token().serial(),
+                            generation.epoch_zero_field().field().serial(),
+                            field.field().serial(),
+                            field.source().map_or(0, |source| source.serial()),
+                            field.field().geometry_revision(),
+                            field.field().radiance_revision(),
+                            field.field().spacing_voxels(),
+                            field.field().state(),
+                            field.field().update_epoch(),
+                        );
+                    }
+                    if let Some(consumer) = published.consumer() {
+                        let slot = consumer.irradiance_slot();
+                        let key = field.field();
+                        log::debug!(
+                            "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?} descriptor_generation={}",
                                     slot,
                                     key.state(),
                                     key.update_epoch(),
-                                    build_token.map(DdgiBuildToken::serial),
+                                    published.progress().build_token().serial(),
                                     key.geometry_revision(),
                                     key.radiance_revision(),
                                     key.spacing_voxels(),
                                     field.source(),
+                                    consumer.descriptor_generation(),
                                 );
-                                log::debug!(
+                        log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
                                     key.geometry_revision(),
                                     key.state(),
@@ -3807,22 +3175,16 @@ impl Tracer {
                                     key.radiance_revision(),
                                     slot,
                                 );
-                            }
-                            self.observe_ddgi_capture_checkpoint(
-                                completed_build_token,
-                                field,
-                                atlas_stats,
-                                DdgiCapturePublication::Published,
-                            );
-                        }
                     }
+                    published.commit_convergence_evidence();
                 }
             }
         }
 
         self.start_next_ddgi_scheduled_work()?;
 
-        self.graphics_pipelines
+        self.pipeline_topology
+            .graphics()
             .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
@@ -3842,15 +3204,13 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        self.ddgi_runtime
-            .volumes()
-            .builder()
-            .record_cpu_buffer_writes(cmdbuf);
-
         if self.local_light_visibility_diagnostic.has_queued() {
             let diagnostic = &mut self.local_light_visibility_diagnostic;
             let resources = &self.resources.local_lighting;
-            let pipeline = &self.compute_pipelines.local_light_visibility_diagnostic_ppl;
+            let pipeline = &self
+                .pipeline_topology
+                .compute()
+                .local_light_visibility_diagnostic_ppl;
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3860,219 +3220,74 @@ impl Tracer {
             );
         }
 
-        if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
-            let revision = lighting.revision;
-            if self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .should_latch_radiance_snapshot(revision)
-            {
-                self.ddgi_runtime
-                    .volumes_mut()
-                    .builder_mut()
-                    .latch_radiance_snapshot(revision, lighting.snapshot)?;
-                log::info!(
-                    "[DDGI] radiance snapshot latched revision={} stage={:?}",
-                    revision,
-                    self.ddgi_runtime.volumes().status().builder().stage,
-                );
-            }
+        let ddgi_frame = self.ddgi_runtime.begin_frame()?;
+        let ddgi_encoding = DdgiFrameEncoder {
+            frame: ddgi_frame,
+            pipelines: &self.pipeline_topology,
+            chunk_bound: self.chunk_bound,
+            voxels_per_world_unit: self.desc.voxel_dim_per_chunk,
+            history_retention: self.ddgi_history_retention,
+            capture_enabled: self.desc.environment_irradiance_capture_enabled,
+            glass_experiment_enabled: self.desc.glass_experiment_enabled,
         }
-
-        if self.ddgi_runtime.frame_plan().global_sky_needs_update {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.global_sky_filter",
-                || self.record_ddgi_global_sky_filter_pass(cmdbuf),
-            );
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.global_sky_gutter",
-                || self.record_ddgi_global_sky_gutter_pass(cmdbuf),
-            );
-            let environment_revision = self
-                .ddgi_runtime
-                .volumes()
-                .status()
-                .builder()
-                .radiance_revision
-                .expect("a DDGI global-sky pass requires a latched radiance snapshot");
-            self.ddgi_runtime
-                .mark_global_sky_ready(environment_revision)?;
-            let status = self.ddgi_runtime.volumes().status().builder();
+        .record(cmdbuf, gpu_profiler.as_deref_mut(), gpu_profiler_frame_slot);
+        let ddgi_frame_plan = ddgi_encoding.plan;
+        let ddgi_relocation_revision = ddgi_frame_plan.relocation_terrain_revision;
+        let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
+        self.ddgi_trace_stats_readback_pending = ddgi_encoding.trace_readback;
+        self.ddgi_relocation_stats_readback_pending = ddgi_encoding.relocation_readback_pending;
+        self.ddgi_runtime
+            .commit_encoded_frame(ddgi_encoding.encoded)?;
+        let ddgi_status = self.ddgi_runtime.status().builder();
+        if ddgi_frame_plan.global_sky_needs_update {
             log::info!(
                 "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
-                environment_revision,
+                ddgi_status.radiance_revision.expect("completed global sky work must retain its radiance revision"),
                 DDGI_IRRADIANCE_INTERIOR_SIDE,
                 DDGI_IRRADIANCE_INTERIOR_SIDE,
                 DDGI_IRRADIANCE_STORED_SIDE,
                 DDGI_IRRADIANCE_STORED_SIDE,
-                status.stage,
+                ddgi_status.stage,
             );
         }
-
-        let ddgi_relocation_revision = self.ddgi_runtime.frame_plan().relocation_terrain_revision;
         if let Some(terrain_revision) = ddgi_relocation_revision {
-            let volume = self.ddgi_runtime.volumes().builder();
-            volume.ddgi_relocation_stats.record_fill(
-                cmdbuf,
-                0,
-                volume.status().resource_bytes.relocation_stats,
-                0,
-            );
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.probe_relocate",
-                || self.record_ddgi_probe_relocation_pass(cmdbuf, terrain_revision),
-            );
-            let volume = self.ddgi_runtime.volumes().builder();
-            volume.record_relocation_stats_readback(cmdbuf);
-            self.ddgi_relocation_stats_readback_pending = true;
-            self.ddgi_runtime.mark_relocated(terrain_revision)?;
-            let status = self.ddgi_runtime.volumes().status().builder();
             log::info!(
                 "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels={} local_search_radius_voxels={} stage={:?}",
                 terrain_revision,
-                status.grid.probe_count(),
-                status.grid.spacing_voxels(),
-                status.grid.spacing_voxels() / 2,
-                (status.grid.spacing_voxels() / 4).max(1),
-                (status.grid.spacing_voxels() / 4).max(1),
-                status.stage,
+                ddgi_status.grid.probe_count(),
+                ddgi_status.grid.spacing_voxels(),
+                ddgi_status.grid.spacing_voxels() / 2,
+                (ddgi_status.grid.spacing_voxels() / 4).max(1),
+                (ddgi_status.grid.spacing_voxels() / 4).max(1),
+                ddgi_status.stage,
             );
         }
-
-        if self
-            .ddgi_runtime
-            .frame_plan()
-            .visibility_preservation_needed
-        {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.visibility_preserve",
-                || {
-                    self.ddgi_runtime
-                        .volumes()
-                        .builder()
-                        .record_visibility_preservation(cmdbuf)
-                },
-            );
-            self.ddgi_runtime.mark_visibility_preserved();
+        if ddgi_frame_plan.visibility_preservation_needed {
             log::debug!(
                 "[DDGI][VISIBILITY] preserved=true geometry_revision={} radiance_revision={:?} visibility_filter_skipped=true",
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .builder()
-                    .scheduled_work
+                ddgi_status
+                    .target_work
                     .expect("visibility preservation requires scheduled work")
                     .destination()
                     .field()
                     .geometry_revision(),
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .builder()
-                    .radiance_revision,
+                ddgi_status.radiance_revision,
             );
         }
-
-        let ddgi_frame_plan = self.ddgi_runtime.frame_plan();
-        let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
         if let Some(batch) = ddgi_ray_batch {
-            let iteration_will_complete = ddgi_frame_plan.iteration_will_complete;
-            {
-                let volume = self.ddgi_runtime.volumes().builder();
-                volume.ddgi_trace_stats.record_fill(
-                    cmdbuf,
-                    0,
-                    volume.status().resource_bytes.trace_stats,
-                    0,
-                );
-                if iteration_will_complete {
-                    volume.ddgi_atlas_reduction.record_fill(
-                        cmdbuf,
-                        0,
-                        volume.status().resource_bytes.atlas_reduction,
-                        0,
-                    );
-                }
-            }
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.probe_trace",
-                || self.record_ddgi_probe_trace_pass(cmdbuf, batch),
-            );
-            self.ddgi_runtime.mark_ray_batch_ready(batch);
-
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.irradiance_filter",
-                || self.record_ddgi_irradiance_filter_pass(cmdbuf, batch),
-            );
-            // Trace directions rotate once per full epoch, so irradiance and directional distance
-            // moments update together into the same ping-pong slot.
-            if batch.writes_visibility() {
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "ddgi.visibility_filter",
-                    || self.record_ddgi_visibility_filter_pass(cmdbuf, batch),
-                );
-            }
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "ddgi.atlas_gutters",
-                || self.record_ddgi_atlas_gutter_passes(cmdbuf, batch),
-            );
-            if iteration_will_complete {
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "ddgi.atlas_reduce",
-                    || self.record_ddgi_atlas_reduction_pass(cmdbuf, batch),
-                );
-            }
-
-            let volume = self.ddgi_runtime.volumes().builder();
-            volume.record_trace_stats_readback(cmdbuf);
-            if iteration_will_complete {
-                volume.record_atlas_reduction_readback(cmdbuf);
-            }
-            self.ddgi_trace_stats_readback_pending = Some(batch);
-
-            self.ddgi_runtime.mark_ray_batch_filtered(batch);
-            let status = self.ddgi_runtime.volumes().status().builder();
-            if status.filtered_probe_count == batch.probe_count
-                || status.filtered_probe_count == status.grid.probe_count()
-                || status.filtered_probe_count.is_multiple_of(1_024)
+            if ddgi_status.filtered_probe_count == batch.probe_count
+                || ddgi_status.filtered_probe_count == ddgi_status.grid.probe_count()
+                || ddgi_status.filtered_probe_count.is_multiple_of(1_024)
             {
                 log::debug!(
                     "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} priority={:?} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
-                    status.filtered_probe_count,
-                    status.grid.probe_count(),
+                    ddgi_status.filtered_probe_count,
+                    ddgi_status.grid.probe_count(),
                     batch.geometry_revision(),
-                    status.build_token.map(DdgiBuildToken::serial),
+                    ddgi_status.build_token.map(DdgiBuildToken::serial),
                     batch.radiance_revision(),
                     batch.spacing_voxels(),
                     batch.state(),
@@ -4083,8 +3298,8 @@ impl Tracer {
                     batch.irradiance_history_retention(self.ddgi_history_retention),
                     batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),
-                    iteration_will_complete,
-                    status.stage,
+                    ddgi_frame_plan.iteration_will_complete,
+                    ddgi_status.stage,
                 );
             }
         }
@@ -4353,6 +3568,39 @@ impl Tracer {
 
     #[allow(clippy::too_many_arguments)]
     pub fn record_trace_after_shadow_prepass(
+        &mut self,
+        capture_buffers_ready: CaptureBuffersReady,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+        lod_distance: f32,
+        flora_draw_distance: f32,
+        grass_render_mode: u32,
+        time: f32,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
+        render_flags: &crate::RenderFlags,
+        gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) -> Result<RenderedCaptureFrame> {
+        capture_buffers_ready.record_trace(|| {
+            self.record_trace_commands_after_shadow_prepass(
+                cmdbuf,
+                surface_resources,
+                lod_distance,
+                flora_draw_distance,
+                grass_render_mode,
+                time,
+                flora_color_tables,
+                leaf_color_tables,
+                render_flags,
+                gpu_profiler,
+                gpu_profiler_frame_slot,
+            )
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_trace_commands_after_shadow_prepass(
         &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
@@ -4800,7 +4048,7 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) {
-        let render_target = &self.render_target_color_and_depth;
+        let render_target = self.pipeline_topology.color_and_depth_target();
 
         let clear_values = [
             vk::ClearValue {
@@ -4886,8 +4134,8 @@ impl Tracer {
             .expect("visible raster flora lighting cache entry count overflow");
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
-            self.raster_flora_ddgi_lighting,
-            self.local_light_live_count > 0,
+            self.raster_lighting_is_ddgi(),
+            self.local_light_live_publication.observation().count > 0,
             required_lighting_cache_entries,
         ) {
             self.flora_lighting_cache.ensure_capacity(
@@ -4897,7 +4145,8 @@ impl Tracer {
                 required_lighting_cache_entries,
             );
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
-            self.compute_pipelines
+            self.pipeline_topology
+                .compute()
                 .flora_lighting_cache_ppl
                 .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
@@ -4932,7 +4181,8 @@ impl Tracer {
                 );
                 push_constant.instance_ty =
                     flora_lighting_cache_instance_ty(species_index as u32, batch.instance_count());
-                self.compute_pipelines
+                self.pipeline_topology
+                    .compute()
                     .flora_lighting_cache_ppl
                     .record_with_descriptors(
                         cmdbuf,
@@ -4967,7 +4217,8 @@ impl Tracer {
                 );
             }
             if required_tree_leaf_cache_entries > 0 {
-                self.compute_pipelines
+                self.pipeline_topology
+                    .compute()
                     .tree_leaf_lighting_cache_ppl
                     .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
                 let leaf_cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
@@ -5004,7 +4255,8 @@ impl Tracer {
                     );
                     push_constant.instance_ty =
                         flora_lighting_cache_instance_ty(LEAF_INSTANCE_TYPE, instance_count);
-                    self.compute_pipelines
+                    self.pipeline_topology
+                        .compute()
                         .tree_leaf_lighting_cache_ppl
                         .record_with_descriptors(
                             cmdbuf,
@@ -5053,8 +4305,8 @@ impl Tracer {
                 let instances =
                     &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
                 let pipeline = match batch.lod_state() {
-                    LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
+                    LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
+                    LodState::Lod1 => &self.pipeline_topology.graphics().flora_lod_ppl,
                 };
                 pipeline
                     .prepare_draw_descriptors(
@@ -5094,8 +4346,8 @@ impl Tracer {
                     TreeFoliageInstanceStream::Visible,
                 );
                 let pipeline = match batch.lod_state() {
-                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                    LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
+                    LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
                 };
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
@@ -5133,15 +4385,16 @@ impl Tracer {
             "every tree foliage frame batch must have one paired prepared batch",
         );
 
-        self.graphics_pipelines
+        self.pipeline_topology
+            .graphics()
             .terrain_depth_prefill_ppl
             .prepare_descriptor_resources(cmdbuf);
         if enable_flora {
             for pipeline in [
-                &self.graphics_pipelines.flora_ppl,
-                &self.graphics_pipelines.flora_lod_ppl,
-                &self.graphics_pipelines.leaves_ppl,
-                &self.graphics_pipelines.leaves_lod_ppl,
+                &self.pipeline_topology.graphics().flora_ppl,
+                &self.pipeline_topology.graphics().flora_lod_ppl,
+                &self.pipeline_topology.graphics().leaves_ppl,
+                &self.pipeline_topology.graphics().leaves_lod_ppl,
             ] {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
@@ -5149,30 +4402,36 @@ impl Tracer {
         if self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
         {
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .sprinkler_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
         if self.geometry_preview_resources.has_visible_mesh() {
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .geometry_preview_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
         if self.dynamic_fruit_resources.instance_count > 0 {
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .dynamic_fruit_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
         if enable_particles {
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .particle_ppl
                 .prepare_descriptor_resources(cmdbuf);
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .water_droplet_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
         if enable_glass {
-            self.graphics_pipelines
+            self.pipeline_topology
+                .graphics()
                 .glass_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
@@ -5205,7 +4464,7 @@ impl Tracer {
         // raster geometry is blended. This preserves per-fragment terrain
         // occlusion even when a nearer translucent raster object later owns the
         // final raster depth pixel.
-        let terrain_depth_prefill = &self.graphics_pipelines.terrain_depth_prefill_ppl;
+        let terrain_depth_prefill = &self.pipeline_topology.graphics().terrain_depth_prefill_ppl;
         terrain_depth_prefill.record_bind(cmdbuf);
         terrain_depth_prefill.record_viewport_scissor(cmdbuf, viewport, scissor);
         cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.terrain_depth_prefill_vertices]);
@@ -5227,8 +4486,8 @@ impl Tracer {
                 let species_index = group.species_index();
                 let lod_state = group.lod_state();
                 let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
+                    LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
+                    LodState::Lod1 => &self.pipeline_topology.graphics().flora_lod_ppl,
                 };
                 let mesh = match lod_state {
                     LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
@@ -5275,8 +4534,8 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
-            if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
-                let active = self.ddgi_runtime.volumes().status().active();
+            if self.raster_lighting_is_ddgi() && recorded_flora_instance_count > 0 {
+                let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())
                 }) {
@@ -5317,8 +4576,8 @@ impl Tracer {
                 {
                     let lod_state = group.lod_state();
                     let pipeline = match lod_state {
-                        LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                        LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                        LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
+                        LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
                     };
                     let (indices_buf, vertices_buf, indices_len) = match lod_state {
                         LodState::Lod0 => (
@@ -5407,8 +4666,8 @@ impl Tracer {
             {
                 let lod_state = group.lod_state();
                 let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                    LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
+                    LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
                 };
                 let (indices_buf, vertices_buf, indices_len) = match lod_state {
                     LodState::Lod0 => (
@@ -5482,7 +4741,7 @@ impl Tracer {
                 )
             });
             let resources = &self.irrigation_pipe_resources;
-            let pipeline = &self.graphics_pipelines.sprinkler_ppl;
+            let pipeline = &self.pipeline_topology.graphics().sprinkler_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             cmdbuf.bind_index_buffer_u32(&resources.indices);
@@ -5516,7 +4775,7 @@ impl Tracer {
                 )
             });
             let resources = &self.sprinkler_resources;
-            let pipeline = &self.graphics_pipelines.sprinkler_ppl;
+            let pipeline = &self.pipeline_topology.graphics().sprinkler_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             cmdbuf.bind_index_buffer_u32(&resources.indices);
@@ -5549,7 +4808,7 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let pipeline = &self.graphics_pipelines.geometry_preview_ppl;
+            let pipeline = &self.pipeline_topology.graphics().geometry_preview_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             for resources in [
@@ -5583,14 +4842,7 @@ impl Tracer {
 
         let environment_probe_instance_count = self
             .environment_probe_visualization
-            .submitted_instance_count(
-                self.ddgi_runtime
-                    .volumes()
-                    .status()
-                    .active()
-                    .grid
-                    .probe_count(),
-            );
+            .submitted_instance_count(self.ddgi_runtime.status().active().grid.probe_count());
         if environment_probe_instance_count > 0 {
             let probe_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -5602,11 +4854,13 @@ impl Tracer {
             });
             let pipeline = if self.environment_probe_visualization.depth_tested {
                 &self
-                    .graphics_pipelines
+                    .pipeline_topology
+                    .graphics()
                     .environment_probe_visualization_depth_ppl
             } else {
                 &self
-                    .graphics_pipelines
+                    .pipeline_topology
+                    .graphics()
                     .environment_probe_visualization_overlay_ppl
             };
             let push_constants = EnvironmentProbeVisualizationPushConstants::new(
@@ -5658,7 +4912,7 @@ impl Tracer {
                 )
             });
             let resources = &self.dynamic_fruit_resources;
-            let pipeline = &self.graphics_pipelines.dynamic_fruit_ppl;
+            let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             cmdbuf.bind_index_buffer_u32(&resources.indices);
@@ -5713,7 +4967,7 @@ impl Tracer {
                     );
                 };
             draw_particles(
-                &self.graphics_pipelines.particle_ppl,
+                &self.pipeline_topology.graphics().particle_ppl,
                 &particle_resources.instance_buffer,
                 particle_resources.instance_count,
             );
@@ -5721,7 +4975,7 @@ impl Tracer {
             // particles. Their nearest depth lets the hybrid compositor place them over the
             // ray-traced terrain while preserving correct blending between sorted droplets.
             draw_particles(
-                &self.graphics_pipelines.water_droplet_ppl,
+                &self.pipeline_topology.graphics().water_droplet_ppl,
                 &particle_resources.translucent_instance_buffer,
                 particle_resources.translucent_instance_count,
             );
@@ -5746,7 +5000,7 @@ impl Tracer {
             });
             let glass = &self.resources.meshes.glass;
             if glass.indices_len > 0 {
-                let glass_ppl = &self.graphics_pipelines.glass_ppl;
+                let glass_ppl = &self.pipeline_topology.graphics().glass_ppl;
                 glass_ppl.record_bind(cmdbuf);
                 glass_ppl.record_viewport_scissor(cmdbuf, viewport, scissor);
                 cmdbuf.bind_index_buffer_u32(&glass.indices);
@@ -5839,10 +5093,11 @@ impl Tracer {
         leaf_color_tables: FloraHeightColorTables,
         time: f32,
     ) {
-        self.graphics_pipelines
+        self.pipeline_topology
+            .graphics()
             .leaves_shadow_lod_ppl
             .prepare_descriptor_resources(cmdbuf);
-        let pipeline = &self.graphics_pipelines.leaves_shadow_lod_ppl;
+        let pipeline = &self.pipeline_topology.graphics().leaves_shadow_lod_ppl;
         let tree_foliage_frame_plan = TreeFoliageFramePlan::for_shadow(
             surface_resources
                 .instances
@@ -5903,7 +5158,8 @@ impl Tracer {
 
         let clear_values: [vk::ClearValue; 0] = [];
 
-        self.render_target_leaf_shadow_opacity
+        self.pipeline_topology
+            .leaf_shadow_opacity_target()
             .record_begin(cmdbuf, &clear_values);
 
         let shadow_extent = self
@@ -5922,7 +5178,8 @@ impl Tracer {
             },
         };
 
-        self.graphics_pipelines
+        self.pipeline_topology
+            .graphics()
             .leaves_shadow_lod_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
@@ -5985,7 +5242,9 @@ impl Tracer {
             }
         }
 
-        self.render_target_leaf_shadow_opacity.record_end(cmdbuf);
+        self.pipeline_topology
+            .leaf_shadow_opacity_target()
+            .record_end(cmdbuf);
     }
 
     fn record_dynamic_fruit_shadow_pass(&self, cmdbuf: &CommandBuffer) {
@@ -5994,11 +5253,12 @@ impl Tracer {
             return;
         }
 
-        let pipeline = &self.graphics_pipelines.dynamic_fruit_shadow_ppl;
+        let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_shadow_ppl;
         pipeline.prepare_descriptor_resources(cmdbuf);
 
         let clear_values: [vk::ClearValue; 0] = [];
-        self.render_target_depth_only
+        self.pipeline_topology
+            .depth_only_target()
             .record_begin(cmdbuf, &clear_values);
 
         let shadow_extent = self
@@ -6031,11 +5291,13 @@ impl Tracer {
             None,
         );
 
-        self.render_target_depth_only.record_end(cmdbuf);
+        self.pipeline_topology
+            .depth_only_target()
+            .record_end(cmdbuf);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.tracer_shadow_ppl.record(
+        self.pipeline_topology.compute().tracer_shadow_ppl.record(
             cmdbuf,
             self.resources
                 .shadow
@@ -6044,214 +5306,23 @@ impl Tracer {
                 .get_desc()
                 .extent,
             None,
-        );
-    }
-
-    fn record_ddgi_global_sky_filter_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.ddgi_global_sky_filter_ppl.record(
-            cmdbuf,
-            Extent3D::new(
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-                1,
-            ),
-            None,
-        );
-    }
-
-    fn record_ddgi_global_sky_gutter_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.ddgi_octahedral_gutter_ppl.record(
-            cmdbuf,
-            Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
-            None,
-        );
-    }
-
-    fn record_ddgi_probe_relocation_pass(&self, cmdbuf: &CommandBuffer, terrain_revision: u32) {
-        let volume = self.ddgi_runtime.volumes().builder();
-        let grid = volume.status().grid;
-        let push_constants = DdgiProbeRelocationPushConstants {
-            grid_dimensions: grid.dimensions().to_array(),
-            spacing_voxels: grid.spacing_voxels(),
-            voxels_per_world_unit: self.desc.voxel_dim_per_chunk.as_vec3().to_array(),
-            terrain_revision,
-            glass_experiment_enabled: u32::from(self.desc.glass_experiment_enabled),
-            _padding: [0; 3],
-        };
-        self.compute_pipelines.ddgi_probe_relocate_ppl.record(
-            cmdbuf,
-            Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-    }
-
-    fn record_ddgi_probe_trace_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
-        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
-            self.ddgi_local_refresh_push_constants(batch);
-        let push_constants = DdgiProbeTracePushConstants {
-            first_probe_index: batch.first_probe_index,
-            probe_count: batch.probe_count,
-            terrain_revision: batch.geometry_revision(),
-            has_history: u32::from(batch.source().is_some()),
-            source_slot: batch.source_slot_index(),
-            far_distance_world,
-            _padding: [0; 2],
-            epoch_rotation: batch.epoch_rotation(),
-            local_refresh_enabled,
-            local_refresh_world_min,
-            local_refresh_world_max,
-        };
-        self.compute_pipelines.ddgi_probe_trace_ppl.record(
-            cmdbuf,
-            Extent3D::new(batch.probe_count * DDGI_TRACE_WORKGROUP_SIZE, 1, 1),
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-    }
-
-    fn ddgi_local_refresh_push_constants(
-        &self,
-        batch: DdgiRayBatch,
-    ) -> ([u32; 4], [f32; 4], [f32; 4]) {
-        let Some(bound) = batch.local_refresh_voxel_bound() else {
-            return ([0; 4], [0.0; 4], [0.0; 4]);
-        };
-        let voxels_per_world_unit = self.desc.voxel_dim_per_chunk.as_vec3();
-        let world_min = bound.min().as_vec3() / voxels_per_world_unit;
-        let world_max = bound.max().as_vec3() / voxels_per_world_unit;
-        (
-            [1, batch.local_recovery_epoch(), 0, 0],
-            [world_min.x, world_min.y, world_min.z, 0.0],
-            [world_max.x, world_max.y, world_max.z, 0.0],
-        )
-    }
-
-    fn record_ddgi_irradiance_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self.ddgi_runtime.volumes().builder();
-        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
-            self.ddgi_local_refresh_push_constants(batch);
-        let push_constants = DdgiAtlasFilterPushConstants {
-            first_probe_index: batch.first_probe_index,
-            probe_count: batch.probe_count,
-            tile_columns: volume.status().irradiance_layout.tile_grid().x,
-            terrain_revision: batch.geometry_revision(),
-            destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
-            source_slot: batch.source_slot_index(),
-            has_history: u32::from(batch.irradiance_history_is_valid()),
-            history_retention: batch.irradiance_history_retention(self.ddgi_history_retention),
-            epoch_rotation: batch.epoch_rotation(),
-            local_refresh_enabled,
-            local_refresh_world_min,
-            local_refresh_world_max,
-        };
-        self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
-            cmdbuf,
-            Extent3D::new(
-                batch.probe_count * DDGI_IRRADIANCE_INTERIOR_SIDE,
-                DDGI_IRRADIANCE_INTERIOR_SIDE,
-                1,
-            ),
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-    }
-
-    fn record_ddgi_visibility_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self.ddgi_runtime.volumes().builder();
-        let grid = volume.status().grid;
-        let spacing_world =
-            Vec3::splat(grid.spacing_voxels() as f32) / self.desc.voxel_dim_per_chunk.as_vec3();
-        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
-        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
-            self.ddgi_local_refresh_push_constants(batch);
-        let push_constants = DdgiVisibilityFilterPushConstants {
-            first_probe_index: batch.first_probe_index,
-            probe_count: batch.probe_count,
-            tile_columns: volume.status().visibility_layout.tile_grid().x,
-            terrain_revision: batch.geometry_revision(),
-            spacing_world: spacing_world.to_array(),
-            far_distance_world,
-            destination_slot: batch.destination_slot_index(),
-            source_slot: batch.source_slot_index(),
-            has_history: u32::from(batch.visibility_history_is_valid()),
-            history_retention: batch.visibility_history_retention(self.ddgi_history_retention),
-            epoch_rotation: batch.epoch_rotation(),
-            local_refresh_enabled,
-            local_refresh_world_min,
-            local_refresh_world_max,
-        };
-        self.compute_pipelines.ddgi_visibility_filter_ppl.record(
-            cmdbuf,
-            Extent3D::new(
-                batch.probe_count * DDGI_VISIBILITY_INTERIOR_SIDE,
-                DDGI_VISIBILITY_INTERIOR_SIDE,
-                1,
-            ),
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-    }
-
-    fn record_ddgi_atlas_gutter_passes(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self.ddgi_runtime.volumes().builder();
-        let irradiance_push = DdgiAtlasGutterPushConstants {
-            first_probe_index: batch.first_probe_index,
-            probe_count: batch.probe_count,
-            tile_columns: volume.status().irradiance_layout.tile_grid().x,
-            destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
-        };
-        self.compute_pipelines.ddgi_irradiance_gutter_ppl.record(
-            cmdbuf,
-            Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
-            Some(bytemuck::bytes_of(&irradiance_push)),
-        );
-
-        if batch.writes_visibility() {
-            let visibility_push = DdgiAtlasGutterPushConstants {
-                tile_columns: volume.status().visibility_layout.tile_grid().x,
-                destination_is_transport_source: batch.destination_slot_index(),
-                ..irradiance_push
-            };
-            self.compute_pipelines.ddgi_visibility_gutter_ppl.record(
-                cmdbuf,
-                Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
-                Some(bytemuck::bytes_of(&visibility_push)),
-            );
-        }
-    }
-
-    fn record_ddgi_atlas_reduction_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self.ddgi_runtime.volumes().builder();
-        let source = batch.source();
-        let push_constants = DdgiAtlasReductionPushConstants {
-            terrain_revision: batch.geometry_revision(),
-            probe_count: volume.status().grid.probe_count(),
-            tile_columns: volume.status().irradiance_layout.tile_grid().x,
-            destination_slot: batch.destination_slot_index(),
-            source_slot: batch.source_slot_index(),
-            has_source: u32::from(source.is_some()),
-            relative_floor: DDGI_CONVERGENCE_POLICY.relative_floor,
-            _padding: 0,
-        };
-        let stored_texel_count =
-            volume.status().grid.probe_count() * DDGI_IRRADIANCE_STORED_SIDE.pow(2);
-        let workgroup_count = stored_texel_count.div_ceil(DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE);
-        self.compute_pipelines.ddgi_atlas_reduce_ppl.record(
-            cmdbuf,
-            Extent3D::new(workgroup_count * DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE, 1, 1),
-            Some(bytemuck::bytes_of(&push_constants)),
         );
     }
 
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.shadow_depth_copy_ppl.record(
-            cmdbuf,
-            self.resources
-                .shadow
-                .shadow_map_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
-        );
+        self.pipeline_topology
+            .compute()
+            .shadow_depth_copy_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .shadow
+                    .shadow_map_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                None,
+            );
     }
 
     fn record_leaf_shadow_temporal_pass(
@@ -6266,29 +5337,35 @@ impl Tracer {
             ..bytemuck::Zeroable::zeroed()
         };
         let push_constants_bytes = bytemuck::bytes_of(&push_constants);
-        self.compute_pipelines.leaf_shadow_temporal_ppl.record(
-            cmdbuf,
-            self.resources
-                .shadow
-                .leaf_shadow_opacity_blended_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            Some(push_constants_bytes),
-        );
+        self.pipeline_topology
+            .compute()
+            .leaf_shadow_temporal_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .shadow
+                    .leaf_shadow_opacity_blended_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                Some(push_constants_bytes),
+            );
     }
 
     fn record_leaf_shadow_mask_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.leaf_shadow_mask_ppl.record(
-            cmdbuf,
-            self.resources
-                .shadow
-                .leaf_shadow_mask_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
-        );
+        self.pipeline_topology
+            .compute()
+            .leaf_shadow_mask_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .shadow
+                    .leaf_shadow_mask_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                None,
+            );
     }
 
     fn record_store_leaf_shadow_history(&self, cmdbuf: &CommandBuffer) {
@@ -6329,7 +5406,7 @@ impl Tracer {
     ) {
         let push_constants = WindVolumePushConstants { time, bucket_index };
 
-        self.compute_pipelines.wind_volume_ppl.record(
+        self.pipeline_topology.compute().wind_volume_ppl.record(
             cmdbuf,
             dispatch_extent,
             Some(bytemuck::bytes_of(&push_constants)),
@@ -6394,7 +5471,8 @@ impl Tracer {
             .get_image()
             .get_desc()
             .extent;
-        self.compute_pipelines
+        self.pipeline_topology
+            .compute()
             .vsm_creation_ppl
             .record(cmdbuf, extent, None);
 
@@ -6405,19 +5483,23 @@ impl Tracer {
             _pad0: 0,
         };
         let push_constants_bytes = bytemuck::bytes_of(&push_constants);
-        self.compute_pipelines
-            .vsm_blur_h_ppl
-            .record(cmdbuf, extent, Some(push_constants_bytes));
+        self.pipeline_topology.compute().vsm_blur_h_ppl.record(
+            cmdbuf,
+            extent,
+            Some(push_constants_bytes),
+        );
 
-        self.compute_pipelines
-            .vsm_blur_v_ppl
-            .record(cmdbuf, extent, Some(push_constants_bytes));
+        self.pipeline_topology.compute().vsm_blur_v_ppl.record(
+            cmdbuf,
+            extent,
+            Some(push_constants_bytes),
+        );
 
         self.record_store_vsm_history(cmdbuf);
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.tracer_ppl.record(
+        self.pipeline_topology.compute().tracer_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6473,7 +5555,7 @@ impl Tracer {
     }
 
     fn record_god_ray_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.god_ray_ppl.record(
+        self.pipeline_topology.compute().god_ray_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6491,16 +5573,19 @@ impl Tracer {
             temporal_blend_enabled: u32::from(self.god_ray_temporal_blend_enabled),
             temporal_alpha: self.god_ray_temporal_alpha,
         };
-        self.compute_pipelines.god_ray_temporal_ppl.record(
-            cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .god_ray_output_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
+        self.pipeline_topology
+            .compute()
+            .god_ray_temporal_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .god_ray_output_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                Some(bytemuck::bytes_of(&push_constants)),
+            );
     }
 
     fn record_cloud_shadow_pass(&self, cmdbuf: &CommandBuffer, reset_cloud_history: bool) {
@@ -6512,18 +5597,18 @@ impl Tracer {
             .get_desc()
             .extent;
 
-        self.compute_pipelines
+        self.pipeline_topology
+            .compute()
             .cloud_shadow_ppl
             .record(cmdbuf, extent, None);
 
         let push_constants = CloudShadowTemporalPushConstants {
             reset_history: u32::from(reset_cloud_history),
         };
-        self.compute_pipelines.cloud_shadow_temporal_ppl.record(
-            cmdbuf,
-            extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
+        self.pipeline_topology
+            .compute()
+            .cloud_shadow_temporal_ppl
+            .record(cmdbuf, extent, Some(bytemuck::bytes_of(&push_constants)));
     }
 
     fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
@@ -6535,14 +5620,15 @@ impl Tracer {
             .get_desc()
             .extent;
 
-        self.compute_pipelines
+        self.pipeline_topology
+            .compute()
             .cloud_ppl
             .record(cmdbuf, extent, None);
 
         let push_constants = CloudTemporalPushConstants {
             reset_history: u32::from(!self.cloud_history_valid),
         };
-        self.compute_pipelines.cloud_temporal_ppl.record(
+        self.pipeline_topology.compute().cloud_temporal_ppl.record(
             cmdbuf,
             extent,
             Some(bytemuck::bytes_of(&push_constants)),
@@ -6567,7 +5653,7 @@ impl Tracer {
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.composition_ppl.record(
+        self.pipeline_topology.compute().composition_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6581,7 +5667,8 @@ impl Tracer {
 
     fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
         let pipeline = self
-            .compute_pipelines
+            .pipeline_topology
+            .compute()
             .glass_resolve_ppl
             .as_ref()
             .expect("Glass resolve pipeline must exist when the experiment is enabled");
@@ -6645,7 +5732,7 @@ impl Tracer {
     }
 
     fn record_lens_flare_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.lens_flare_ppl.record(
+        self.pipeline_topology.compute().lens_flare_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6661,33 +5748,39 @@ impl Tracer {
         let push_constants = EffectTemporalPushConstants {
             reset_history: u32::from(!self.lens_flare_history_valid),
         };
-        self.compute_pipelines.lens_flare_temporal_ppl.record(
-            cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .lens_flare_output_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
+        self.pipeline_topology
+            .compute()
+            .lens_flare_temporal_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .lens_flare_output_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                Some(bytemuck::bytes_of(&push_constants)),
+            );
     }
 
     fn record_lens_flare_sun_visible_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.lens_flare_sun_visible_ppl.record(
-            cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .lens_flare_raw_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
-        );
+        self.pipeline_topology
+            .compute()
+            .lens_flare_sun_visible_ppl
+            .record(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .lens_flare_raw_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                None,
+            );
     }
 
     fn record_post_processing_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.post_processing_ppl.record(
+        self.pipeline_topology.compute().post_processing_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources
@@ -6701,9 +5794,11 @@ impl Tracer {
 
     #[allow(dead_code)]
     fn record_player_collider_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines
-            .player_collider_ppl
-            .record(cmdbuf, Extent3D::new(1, 1, 1), None);
+        self.pipeline_topology.compute().player_collider_ppl.record(
+            cmdbuf,
+            Extent3D::new(1, 1, 1),
+            None,
+        );
     }
 
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
@@ -6742,15 +5837,6 @@ impl Tracer {
         self.cloud_history_valid = false;
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
-        if let Err(err) = self
-            .spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-        {
-            log::warn!(
-                "Failed to update listener after applying camera pose: {}",
-                err
-            );
-        }
     }
 
     pub fn camera_front(&self) -> Vec3 {
@@ -6770,15 +5856,6 @@ impl Tracer {
         let changed = self.camera.set_pose_looking_at(position, target);
         if changed {
             self.direct_sun_shadows.invalidate_local_histories();
-            if let Err(err) = self
-                .spatial_sound_manager
-                .update_player_pos(self.camera.position(), self.camera.vectors())
-            {
-                log::warn!(
-                    "Failed to update listener after applying look-at camera pose: {}",
-                    err
-                );
-            }
         }
         changed
     }
@@ -6815,16 +5892,8 @@ impl Tracer {
         Some(camera_pos + direction * distance_from_camera)
     }
 
-    #[allow(dead_code)]
-    pub fn camera_vectors(&self) -> &CameraVectors {
-        self.camera.vectors()
-    }
-
     pub fn update_fly_camera(&mut self, frame_delta_time: f32) {
         self.camera.update_transform_fly_mode(frame_delta_time);
-        self.spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-            .unwrap();
     }
 
     pub fn prepare_walk_camera_movement(
@@ -6845,9 +5914,6 @@ impl Tracer {
     ) {
         self.camera
             .apply_walk_movement(frame_delta_time, sim_time_seconds, request, result);
-        self.spatial_sound_manager
-            .update_player_pos(self.camera.position(), self.camera.vectors())
-            .unwrap();
     }
 
     pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
@@ -7410,7 +6476,7 @@ impl Tracer {
                     &self.resources.terrain_query.terrain_query_info,
                     BufferUse::HostWrite,
                 );
-                self.compute_pipelines.terrain_query_ppl.record(
+                self.pipeline_topology.compute().terrain_query_ppl.record(
                     cmdbuf,
                     Extent3D::new(query_count, 1, 1),
                     None,
@@ -7707,7 +6773,7 @@ impl Tracer {
                     &self.resources.terrain_query.terrain_query_info,
                     BufferUse::HostWrite,
                 );
-                self.compute_pipelines.terrain_query_ppl.record(
+                self.pipeline_topology.compute().terrain_query_ppl.record(
                     cmdbuf,
                     Extent3D::new(query_count, 1, 1),
                     None,

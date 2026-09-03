@@ -124,6 +124,7 @@ static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_WRAP = 18u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_READBACK = 19u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT_NO_SURFACE = 20u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE = 21u;
+static const uint DDGI_DEBUG_MOMENT_SUPPORT = 22u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
@@ -134,17 +135,20 @@ float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
     uint mode = shading_info.ddgi_terrain_hard_origin;
     if (mode == DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED)
     {
-        return voxelCenter + normalDirection *
-            gui_input.terrain_ray_origin_offset_world;
+        return terrainRayOriginFromPosition(
+            voxelCenter, normalDirection,
+            gui_input.terrain_ray_origin_offset_world);
     }
     if (mode == DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED)
     {
-        return surfacePosition +
-            normalDirection * gui_input.terrain_ray_origin_offset_world;
+        return terrainRayOriginFromPosition(
+            surfacePosition, normalDirection,
+            gui_input.terrain_ray_origin_offset_world);
     }
-    float biasWorld = max(
-        0.0, shading_info.environment_probe_visibility_bias_world);
-    return surfacePosition + normalDirection * biasWorld;
+    return terrainRayOriginFromPosition(
+        surfacePosition, normalDirection,
+        ddgiVisibilityBiasWorld(
+            shading_info.environment_probe_visibility_bias_world));
 }
 
 float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
@@ -156,7 +160,7 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
 float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
                                                 float3 normal)
 {
-    return terrainRayOriginFromSurface(
+    return terrainRayOriginFromPosition(
         surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
@@ -424,6 +428,11 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
         return float3(saturate(momentResult.accumulated_base_weight),
                       saturate(momentResult.accumulated_weight),
                       float(momentResult.contributing_probe_count) / 8.0);
+    // Raw normalization inputs pair with weight-sum's contributor count.
+    if (view == DDGI_DEBUG_MOMENT_SUPPORT)
+        return float3(momentResult.accumulated_base_weight,
+                      momentResult.accumulated_weight,
+                      momentResult.dominant_probe_weight);
     if (view == DDGI_DEBUG_DOMINANT_PROBE)
         return ddgiDominantProbeDebugColor(momentResult);
     if (view == DDGI_DEBUG_UNOCCLUDED_IRRADIANCE)

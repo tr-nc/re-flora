@@ -1,5 +1,5 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
@@ -41,20 +41,115 @@ enum TestScenePhase {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridPhaseTxn {
+    Inactive,
+    Active {
+        permit_revision: u64,
+        phase: TestScenePhase,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HybridPhaseResult {
+    Commit(TestScenePhase),
+    Rejected(TestScenePhase),
+}
+
 #[derive(Debug)]
 pub(super) struct HybridTransparencyTestScene {
     phase: TestScenePhase,
+    transaction_revision: u64,
 }
 
 impl HybridTransparencyTestScene {
     pub(super) fn new() -> Self {
         Self {
             phase: TestScenePhase::Pending,
+            transaction_revision: 0,
         }
     }
 
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
+    }
+
+    fn begin_phase(&self) -> HybridPhaseTxn {
+        HybridPhaseTxn::Active {
+            permit_revision: self.transaction_revision,
+            phase: self.phase,
+        }
+    }
+
+    fn finish_phase(&mut self, permit_revision: u64, result: HybridPhaseResult) -> Result<()> {
+        anyhow::ensure!(
+            self.transaction_revision == permit_revision,
+            "stale hybrid phase transaction: permit revision {permit_revision}, current revision {}",
+            self.transaction_revision,
+        );
+        match result {
+            HybridPhaseResult::Commit(phase) => {
+                self.phase = phase;
+                self.transaction_revision = self.transaction_revision.wrapping_add(1);
+            }
+            HybridPhaseResult::Rejected(phase) => {
+                let _ = phase;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl super::launch_owners::LaunchOwners {
+    fn begin_hybrid_phase(&self) -> HybridPhaseTxn {
+        match &self.mode {
+            super::launch_owners::LaunchMode::General {
+                scenario:
+                    super::launch_owners::ScenarioOwner::Standard(
+                        super::launch_owners::StandardScenarioOwner::TestScene(
+                            super::launch_owners::TestSceneOwner::Hybrid(scene),
+                        ),
+                    ),
+                ..
+            } => scene.begin_phase(),
+            super::launch_owners::LaunchMode::General { .. }
+            | super::launch_owners::LaunchMode::Environment { .. }
+            | super::launch_owners::LaunchMode::CanopyAudio { .. }
+            | super::launch_owners::LaunchMode::FoliageShadow { .. } => HybridPhaseTxn::Inactive,
+        }
+    }
+
+    fn finish_hybrid_phase(
+        &mut self,
+        transaction: HybridPhaseTxn,
+        result: HybridPhaseResult,
+    ) -> Result<()> {
+        match (&mut self.mode, transaction) {
+            (
+                super::launch_owners::LaunchMode::General {
+                    scenario:
+                        super::launch_owners::ScenarioOwner::Standard(
+                            super::launch_owners::StandardScenarioOwner::TestScene(
+                                super::launch_owners::TestSceneOwner::Hybrid(scene),
+                            ),
+                        ),
+                    ..
+                },
+                HybridPhaseTxn::Active {
+                    permit_revision, ..
+                },
+            ) => scene.finish_phase(permit_revision, result),
+            (
+                super::launch_owners::LaunchMode::General { .. }
+                | super::launch_owners::LaunchMode::Environment { .. }
+                | super::launch_owners::LaunchMode::CanopyAudio { .. }
+                | super::launch_owners::LaunchMode::FoliageShadow { .. },
+                HybridPhaseTxn::Inactive,
+            ) => Ok(()),
+            _ => {
+                anyhow::bail!("hybrid phase transaction no longer matches its launch owner")
+            }
+        }
     }
 }
 
@@ -70,9 +165,9 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
-fn scene_plan() -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
-        voxel_edits: vec![
+fn scene_plan() -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::terrain_change(
+        vec![
             stamp_cuboids(
                 vec![Cuboid::from_min_max(CLEAR_MIN, CLEAR_MAX)],
                 VOXEL_TYPE_EMPTY,
@@ -82,11 +177,8 @@ fn scene_plan() -> Result<WorldEditPlan> {
                 VOXEL_TYPE_ROCK,
             )?,
         ],
-        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
-            REBUILD_MIN,
-            REBUILD_MAX,
-        ))],
-    })
+        UAabb3::new(REBUILD_MIN, REBUILD_MAX),
+    ))
 }
 
 fn sentinel_mesh() -> GeometryPreviewMesh {
@@ -152,12 +244,10 @@ impl App {
     }
 
     pub(super) fn process_hybrid_transparency_test_scene(&mut self) {
-        let Some(phase) = self
-            .hybrid_transparency_test_scene
-            .as_ref()
-            .map(|scene| scene.phase)
-        else {
-            return;
+        let transaction = self.launch_owners.begin_hybrid_phase();
+        let phase = match transaction {
+            HybridPhaseTxn::Inactive => return,
+            HybridPhaseTxn::Active { phase, .. } => phase,
         };
 
         let next_phase = match phase {
@@ -174,9 +264,9 @@ impl App {
                 );
                 match scene_plan()
                     .context("compile deterministic hybrid transparency test scene")
-                    .and_then(|plan| self.execute_edit_plan(plan))
+                    .and_then(|transaction| self.execute_world_edit(transaction))
                 {
-                    Ok(()) => TestScenePhase::TerrainPublished,
+                    Ok(_) => TestScenePhase::TerrainPublished,
                     Err(err) => {
                         log::error!("[HYBRID_ALPHA_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed
@@ -225,12 +315,53 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::Ready | TestScenePhase::Failed => return,
+            TestScenePhase::Ready | TestScenePhase::Failed => {
+                self.launch_owners
+                    .finish_hybrid_phase(transaction, HybridPhaseResult::Rejected(phase))
+                    .expect("hybrid phase rejection must retain its launch owner");
+                return;
+            }
         };
 
-        self.hybrid_transparency_test_scene
-            .as_mut()
-            .expect("test scene state disappeared")
-            .phase = next_phase;
+        self.launch_owners
+            .finish_hybrid_phase(transaction, HybridPhaseResult::Commit(next_phase))
+            .expect("hybrid phase transaction must retain its launch owner");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::core::launch_owners::prepare_startup_owners;
+    use crate::cli::{AutomationPlan, Scenario};
+
+    #[test]
+    fn hybrid_phase_transaction_rejects_without_advancing_the_leaf_owner() {
+        let mut owners =
+            prepare_startup_owners(AutomationPlan::default(), Scenario::HybridTransparency)
+                .unwrap();
+        let rejected = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(rejected, HybridPhaseResult::Rejected(TestScenePhase::Ready))
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Pending,
+                ..
+            }
+        ));
+
+        let committed = owners.begin_hybrid_phase();
+        owners
+            .finish_hybrid_phase(committed, HybridPhaseResult::Commit(TestScenePhase::Ready))
+            .unwrap();
+        assert!(matches!(
+            owners.begin_hybrid_phase(),
+            HybridPhaseTxn::Active {
+                phase: TestScenePhase::Ready,
+                ..
+            }
+        ));
     }
 }

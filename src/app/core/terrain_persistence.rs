@@ -13,13 +13,13 @@ enum TerrainPersistenceStatus {
     Ready,
     Saving,
     Loading,
+    PublishedAwaitingDependents,
     Error(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TerrainSimulationGate {
     Running,
-    WaterPaused,
     Frozen,
 }
 
@@ -38,10 +38,13 @@ pub(super) struct TerrainPersistenceRuntime {
 }
 
 impl TerrainPersistenceRuntime {
-    pub(super) fn from_options(options: &crate::AppOptions) -> Result<Self> {
+    pub(super) fn from_plan(
+        options: &crate::TerrainPersistencePlan,
+        glass_experiment_enabled: bool,
+    ) -> Result<Self> {
         let metadata = terrain_snapshot_metadata();
         let startup_reader = options
-            .terrain_load_path
+            .load_path
             .as_deref()
             .map(|path| -> Result<TerrainSnapshotReader> {
                 TerrainSnapshotReader::validate(path, metadata)
@@ -60,15 +63,14 @@ impl TerrainPersistenceRuntime {
 
         Ok(Self {
             startup_reader,
-            startup_load_requested: options.terrain_load_path.is_some(),
-            startup_save_path: options.terrain_save_path.clone(),
+            startup_load_requested: options.load_path.is_some(),
+            startup_save_path: options.save_path.clone(),
             snapshot_path: options
-                .terrain_load_path
+                .load_path
                 .clone()
-                .or_else(|| options.terrain_save_path.clone())
+                .or_else(|| options.save_path.clone())
                 .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
-            disabled_reason: options
-                .glass_voxel_test_scene
+            disabled_reason: glass_experiment_enabled
                 .then_some(GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON),
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,
@@ -104,23 +106,19 @@ impl TerrainPersistenceRuntime {
         match &self.status {
             TerrainPersistenceStatus::Ready => match self.simulation_gate {
                 TerrainSimulationGate::Running => "Ready".to_owned(),
-                TerrainSimulationGate::WaterPaused => {
-                    "Ready (waiting for water terrain)".to_owned()
-                }
                 TerrainSimulationGate::Frozen => "Error: restart required".to_owned(),
             },
             TerrainPersistenceStatus::Saving => "Saving".to_owned(),
             TerrainPersistenceStatus::Loading => "Loading".to_owned(),
+            TerrainPersistenceStatus::PublishedAwaitingDependents => {
+                "Ready (waiting for water terrain)".to_owned()
+            }
             TerrainPersistenceStatus::Error(error) => format!("Error: {error}"),
         }
     }
 
     pub(super) fn allows_world_updates(&self) -> bool {
         self.simulation_gate != TerrainSimulationGate::Frozen
-    }
-
-    pub(super) fn allows_water_simulation(&self) -> bool {
-        self.simulation_gate == TerrainSimulationGate::Running
     }
 
     fn selected_path(&self) -> &str {
@@ -136,7 +134,6 @@ impl TerrainPersistenceRuntime {
     }
 
     fn finish_save(&mut self, error: Option<String>) {
-        self.simulation_gate = TerrainSimulationGate::Running;
         self.status = error.map_or(
             TerrainPersistenceStatus::Ready,
             TerrainPersistenceStatus::Error,
@@ -151,16 +148,11 @@ impl TerrainPersistenceRuntime {
         true
     }
 
-    fn mark_water_paused(&mut self) {
-        debug_assert_ne!(self.simulation_gate, TerrainSimulationGate::Frozen);
-        self.simulation_gate = TerrainSimulationGate::WaterPaused;
-    }
-
     fn finish_load(&mut self, failure: Option<(bool, String)>) {
         match failure {
             None => {
-                self.status = TerrainPersistenceStatus::Ready;
-                self.simulation_gate = TerrainSimulationGate::WaterPaused;
+                self.status = TerrainPersistenceStatus::PublishedAwaitingDependents;
+                self.simulation_gate = TerrainSimulationGate::Running;
             }
             Some((mutated, error)) => {
                 self.status = TerrainPersistenceStatus::Error(error);
@@ -173,15 +165,29 @@ impl TerrainPersistenceRuntime {
         }
     }
 
-    fn observe_water_terrain_ready(&mut self, ready: bool) -> bool {
-        if ready
-            && self.status == TerrainPersistenceStatus::Ready
-            && self.simulation_gate == TerrainSimulationGate::WaterPaused
-        {
-            self.simulation_gate = TerrainSimulationGate::Running;
-            return true;
+    pub(in crate::app::core) fn complete_published_load(
+        &mut self,
+        _event: water::WaterPublicationResumed,
+    ) {
+        assert_eq!(
+            self.status,
+            TerrainPersistenceStatus::PublishedAwaitingDependents,
+            "water resumed without a published terrain load awaiting dependents"
+        );
+        self.status = TerrainPersistenceStatus::Ready;
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::core) fn published_awaiting_dependents_for_test() -> Self {
+        Self {
+            startup_reader: None,
+            startup_load_requested: false,
+            startup_save_path: None,
+            snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
+            disabled_reason: None,
+            status: TerrainPersistenceStatus::PublishedAwaitingDependents,
+            simulation_gate: TerrainSimulationGate::Running,
         }
-        false
     }
 }
 
@@ -262,23 +268,14 @@ impl App {
         }
     }
 
-    pub(super) fn maybe_resume_terrain_persistence_water(&mut self) {
-        let water_ready = self.water_terrain_status().is_ready();
-        if self
-            .terrain_persistence
-            .observe_water_terrain_ready(water_ready)
-        {
-            log::info!("[TERRAIN_PERSISTENCE] water terrain cache Ready; water simulation resumed");
-        }
-    }
-
     fn run_terrain_save(&mut self, path: &Path) -> Result<()> {
         let result = (|| {
             self.quiesce_terrain_for_snapshot()?;
             self.write_terrain_snapshot(path)
         })();
-        if self.terrain_persistence.simulation_gate != TerrainSimulationGate::Frozen {
-            self.terrain_persistence.simulation_gate = TerrainSimulationGate::Running;
+        if self.water.phase() == water::WaterPhase::Quiesced {
+            let resumed = self.water.resume_after_snapshot_read();
+            debug_assert!(resumed, "snapshot save must release its water quiescence");
         }
         result
     }
@@ -323,14 +320,22 @@ impl App {
             .map_err(TerrainLoadFailure::before_mutation)?;
         let mut reader =
             TerrainSnapshotReader::open(path).map_err(TerrainLoadFailure::before_mutation)?;
-        self.quiesce_terrain_for_snapshot()
-            .map_err(TerrainLoadFailure::before_mutation)?;
+        if let Err(error) = self.quiesce_terrain_for_snapshot() {
+            self.water.resume_after_snapshot_read();
+            return Err(TerrainLoadFailure::before_mutation(error));
+        }
 
         let mut mutated = false;
         let upload_result = (|| -> Result<()> {
             while let Some(chunk) = reader.read_next_chunk()? {
-                mutated = true;
                 let chunk_id = UVec3::from_array(chunk.coordinate);
+                if !mutated {
+                    if let Err(error) = self.water.snapshot_mutation_started() {
+                        self.water.resume_after_snapshot_read();
+                        return Err(error);
+                    }
+                    mutated = true;
+                }
                 self.plain_builder.write_chunk_atlas_region(
                     chunk_id * VOXEL_DIM_PER_CHUNK,
                     VOXEL_DIM_PER_CHUNK,
@@ -341,16 +346,22 @@ impl App {
             Ok(())
         })();
         if let Err(error) = upload_result {
+            if mutated {
+                self.water.retain_quiescence_after_publication_failure();
+            } else {
+                self.water.resume_after_snapshot_read();
+            }
             return Err(TerrainLoadFailure { mutated, error });
         }
 
-        self.publish_snapshot_replacement()
-            .map_err(TerrainLoadFailure::after_mutation)
+        self.publish_snapshot_replacement().map_err(|error| {
+            self.water.retain_quiescence_after_publication_failure();
+            TerrainLoadFailure::after_mutation(error)
+        })
     }
 
     fn quiesce_terrain_for_snapshot(&mut self) -> Result<()> {
-        self.water_sim.pause_and_wait()?;
-        self.terrain_persistence.mark_water_paused();
+        self.water.quiesce_for_snapshot()?;
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(
@@ -365,7 +376,7 @@ impl App {
 
     fn publish_snapshot_replacement(&mut self) -> Result<()> {
         anyhow::ensure!(
-            !self.terrain_persistence.allows_water_simulation(),
+            self.water.phase() == water::WaterPhase::Quiesced,
             "snapshot replacement requires quiesced water simulation"
         );
         self.plain_builder.mark_all_solid_workgroups_dirty();
@@ -374,24 +385,9 @@ impl App {
                 terrain_chunk_ids(),
             )])?
             .context("snapshot replacement has no visible terrain chunks")?;
-        self.publish_visible_terrain(change)?;
-
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        anyhow::ensure!(
-            self.contree_builder.cpu_chunk_cache_jobs_idle(),
-            "Contree CPU cache did not reach Ready after snapshot publication"
-        );
-        self.terrain_physics
-            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
-        loop {
-            let (completed, total) = self
-                .terrain_physics
-                .process_world_terrain_collider_import(&self.contree_builder)?;
-            if completed >= total {
-                break;
-            }
-        }
-        self.enqueue_startup_water_terrain_collider_rebuilds();
+        let mut publication =
+            visible_terrain::VisibleTerrainPublication::snapshot_replacement(change)?;
+        publication.run_to_completion(self)?;
         self.player_tools.cancel_continuous_hold();
         Ok(())
     }
@@ -435,17 +431,13 @@ mod tests {
 
     #[test]
     fn glass_voxel_experiment_disables_runtime_persistence_without_freezing_the_world() {
-        let options = crate::AppOptions::try_from_arg_strings(vec![
-            "re-flora".to_owned(),
-            "--glass-voxel-test-scene".to_owned(),
-        ])
-        .unwrap();
-        let mut runtime = TerrainPersistenceRuntime::from_options(&options).unwrap();
+        let options = crate::TerrainPersistencePlan::default();
+        let mut runtime = TerrainPersistenceRuntime::from_plan(&options, true).unwrap();
 
         assert!(!runtime.can_start_operation());
         assert!(!runtime.begin_save());
         assert!(runtime.allows_world_updates());
-        assert!(runtime.allows_water_simulation());
+        assert_eq!(runtime.simulation_gate, TerrainSimulationGate::Running);
         assert_eq!(
             runtime.status_label(),
             "Disabled: Glass voxel experiment cannot be persisted",
@@ -456,33 +448,27 @@ mod tests {
     fn successful_load_waits_for_water_without_freezing_world_updates() {
         let mut runtime = runtime();
         assert!(runtime.begin_load());
-        runtime.mark_water_paused();
         runtime.finish_load(None);
 
         assert!(runtime.allows_world_updates());
-        assert!(!runtime.allows_water_simulation());
         assert!(!runtime.can_start_operation());
-        assert!(!runtime.observe_water_terrain_ready(false));
-        assert!(runtime.observe_water_terrain_ready(true));
-        assert!(runtime.allows_water_simulation());
-        assert!(runtime.can_start_operation());
+        assert_eq!(
+            runtime.status,
+            TerrainPersistenceStatus::PublishedAwaitingDependents
+        );
     }
 
     #[test]
     fn load_failure_before_mutation_resumes_but_failure_after_mutation_freezes() {
         let mut recoverable = runtime();
         assert!(recoverable.begin_load());
-        recoverable.mark_water_paused();
         recoverable.finish_load(Some((false, "invalid snapshot".to_owned())));
         assert!(recoverable.allows_world_updates());
-        assert!(recoverable.allows_water_simulation());
 
         let mut fatal = runtime();
         assert!(fatal.begin_load());
-        fatal.mark_water_paused();
         fatal.finish_load(Some((true, "publication failed".to_owned())));
         assert!(!fatal.allows_world_updates());
-        assert!(!fatal.allows_water_simulation());
         assert!(!fatal.can_start_operation());
     }
 
