@@ -19,6 +19,17 @@ from typing import Any
 FRAME_PATTERN = re.compile(r"\[PERF\]\[GPU_FRAME_SCOPE\] frame (\d+) .*? (.+)$")
 SCOPE_PATTERN = re.compile(r"([A-Za-z0-9_.]+)=(\d+)us")
 FRAME_SCOPES = ("frame.render", "tracer.render", "tracer.pass", "tracer.shadow_prepass")
+EXPECTED_DENSITY_PERCENT = (5, 25, 75)
+EXPECTED_MACRO_DIMENSIONS = (2, 4, 8)
+EXPECTED_PHASES = ("initial", "after_edit")
+EXPECTED_LOCAL_SAMPLE_ORDER = ("software", "hardware", "hardware", "software")
+EXPECTED_FRAME_RUN_ORDER = ("A1", "B1", "B2", "A2")
+CORRECTNESS_COUNT_FIELDS = (
+    "false_positive_count",
+    "false_negative_count",
+    "wrong_voxel_count",
+    "hit_t_mismatch_count",
+)
 
 
 def percentile(values: list[float], percentile_value: float) -> float:
@@ -78,6 +89,70 @@ def parse_frame_log(path: Path, tail_samples: int) -> dict[str, Any]:
         "scopes_ms": {scope: stats([frame[scope] for frame in selected]) for scope in FRAME_SCOPES},
         "selected_samples": selected,
     }
+
+
+def validate_ray_query_artifact(path: Path, artifact: dict[str, Any]) -> None:
+    workload = artifact["workload"]
+    if (
+        tuple(workload["density_percent"]) != EXPECTED_DENSITY_PERCENT
+        or tuple(workload["macro_dimensions"]) != EXPECTED_MACRO_DIMENSIONS
+        or tuple(workload["sample_order"]) != EXPECTED_LOCAL_SAMPLE_ORDER
+    ):
+        raise ValueError(f"{path}: workload does not match the fixed report matrix")
+
+    expected_configurations = {
+        (density, macro)
+        for density in EXPECTED_DENSITY_PERCENT
+        for macro in EXPECTED_MACRO_DIMENSIONS
+    }
+    configurations = artifact["configurations"]
+    actual_configurations = [
+        (configuration["requested_density_percent"], configuration["macro_dimension"])
+        for configuration in configurations
+    ]
+    if (
+        len(actual_configurations) != len(expected_configurations)
+        or set(actual_configurations) != expected_configurations
+    ):
+        raise ValueError(
+            f"{path}: workload Cartesian product is missing, duplicated, or unexpected: "
+            f"{actual_configurations}"
+        )
+
+    expected_samples = list(enumerate(EXPECTED_LOCAL_SAMPLE_ORDER))
+    for configuration in configurations:
+        configuration_key = (
+            configuration["requested_density_percent"],
+            configuration["macro_dimension"],
+        )
+        for phase_name in EXPECTED_PHASES:
+            if phase_name not in configuration:
+                raise ValueError(f"{path}: missing phase {configuration_key}/{phase_name}")
+            samples = configuration[phase_name].get("samples", [])
+            actual_samples = [(sample.get("order_index"), sample.get("mode")) for sample in samples]
+            if actual_samples != expected_samples:
+                raise ValueError(
+                    f"{path}: phase sample sequence differs for "
+                    f"{configuration_key}/{phase_name}: {actual_samples}"
+                )
+            for sample in samples:
+                zero_counts = {
+                    "traversal_exhausted_count": sample["traversal_exhausted_count"],
+                    "query_committed_disagreement_count": sample[
+                        "query_committed_disagreement_count"
+                    ],
+                    **{
+                        name: sample["correctness"][name]
+                        for name in CORRECTNESS_COUNT_FIELDS
+                    },
+                }
+                nonzero = {name: value for name, value in zero_counts.items() if value != 0}
+                if nonzero:
+                    raise ValueError(
+                        f"{path}: zero-count evidence gate failed for "
+                        f"{configuration_key}/{phase_name}/sample "
+                        f"{sample['order_index']}: {nonzero}"
+                    )
 
 
 def local_summary(artifacts: list[tuple[Path, dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -224,11 +299,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
+    if len(args.ray_query_artifact) != 2 or len(
+        {path.resolve() for path in args.ray_query_artifact}
+    ) != 2:
+        raise ValueError("expected exactly two independent ray-query artifacts")
+
     artifact_rows = []
     artifact_metadata = []
     for path in args.ray_query_artifact:
         with path.open("rb") as source:
             artifact = tomllib.load(source)
+        validate_ray_query_artifact(path, artifact)
         artifact_rows.append((path, artifact))
         artifact_metadata.append(
             {
@@ -239,6 +320,12 @@ def main() -> None:
                 "command": artifact["command"],
             }
         )
+    if (
+        len({metadata["sha256"] for metadata in artifact_metadata}) != 2
+        or len({metadata["generated_at"] for metadata in artifact_metadata}) != 2
+        or len({tuple(metadata["command"]) for metadata in artifact_metadata}) != 2
+    ):
+        raise ValueError("expected exactly two independent ray-query artifacts")
     first_artifact = artifact_rows[0][1]
     for _, artifact in artifact_rows[1:]:
         if artifact["machine"] != first_artifact["machine"] or artifact["workload"] != first_artifact["workload"]:
@@ -252,10 +339,15 @@ def main() -> None:
         if not first_artifact["machine"][capability]:
             raise ValueError(f"required hardware capability is false: {capability}")
 
+    frame_labels = tuple(label for label, _ in args.frame_run)
+    frame_paths = tuple(path.resolve() for _, path in args.frame_run)
+    if frame_labels != EXPECTED_FRAME_RUN_ORDER or len(set(frame_paths)) != len(
+        EXPECTED_FRAME_RUN_ORDER
+    ):
+        raise ValueError(
+            "frame evidence must be exactly four distinct logs in A1/B1/B2/A2 order"
+        )
     frame_runs = {label: parse_frame_log(path, args.tail_samples) for label, path in args.frame_run}
-    for required_label in ("A1", "B1", "B2", "A2"):
-        if required_label not in frame_runs:
-            raise ValueError(f"missing frame run {required_label}")
 
     arm_frames: dict[str, dict[str, Any]] = {}
     for arm, labels in {"A_default": ("A1", "A2"), "B_rtx_feature_post_benchmark": ("B1", "B2")}.items():
@@ -275,8 +367,18 @@ def main() -> None:
 
     local = local_summary(artifact_rows)
     for row in local:
-        if row["candidate_count"]["max"] <= 0 or row["build"]["blas_gpu_ms"]["max"] <= 0:
-            raise ValueError("artifact does not demonstrate real AS build and hardware candidates")
+        hardware_evidence = {
+            "candidate_count": row["candidate_count"],
+            "committed_candidate_count": row["committed_candidate_count"],
+            "blas_gpu_ms": row["build"]["blas_gpu_ms"],
+            "tlas_gpu_ms": row["build"]["tlas_gpu_ms"],
+        }
+        non_positive = [name for name, values in hardware_evidence.items() if values["min"] <= 0]
+        if non_positive:
+            raise ValueError(f"hardware evidence minimum is not positive for {non_positive}: {row}")
+        committed_disagreement = row["query_committed_disagreement_count"]
+        if committed_disagreement["min"] != 0 or committed_disagreement["max"] != 0:
+            raise ValueError(f"committed query disagreement gate failed: {row}")
         if row["traversal_exhausted_count_max"] != 0 or any(row["correctness_count_max"].values()):
             raise ValueError(f"correctness gate failed: {row}")
     best_local = max(row["local_speedup_software_over_hardware"] for row in local)

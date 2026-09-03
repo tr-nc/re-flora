@@ -223,7 +223,7 @@ python3 scripts/summarize_rtx_voxel_hardware_rt.py \
   --output docs/evidence/rtx_voxel_hardware_rt/summary.json
 ```
 
-汇总器校验两份 artifact 的 machine/workload 完全相同，要求 AS/ray-query capability 为 true、candidate 与 GPU build time 非零，并在任一 correctness/exhaustion 计数非零时失败。测量 binary SHA-256：A `2d0b4a5e...58830`，B `55a1e352...a1544`；完整值在 `summary.json`。
+汇总器要求恰好两份路径、内容、时间与命令身份均独立的 artifact，校验 machine/workload 完全相同，并固定验证 3 density × 3 macro × 2 phase 的完整笛卡尔积及每 phase 的 software/hardware/hardware/software 顺序。每个聚合单元的 candidate count、committed candidate count、BLAS GPU time、TLAS GPU time 都必须 `min > 0`；任一 correctness、traversal exhaustion 或 committed disagreement 计数非零都会失败。测量 binary SHA-256：A `2d0b4a5e...58830`，B `55a1e352...a1544`；完整值在 `summary.json`。
 
 ## 6. 结果
 

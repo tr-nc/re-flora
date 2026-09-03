@@ -240,7 +240,7 @@
         <li>CPU Rust DDA reference 比较 hit/miss、voxel index 与 hit t；candidate budget 4096，DDA budget 512。</li>
         <li>整帧按 A1/B1/B2/A2；1600×1000、player-default、8 秒；每 run 取最后 64 条 GPU scope，即最后 1,920 rendered frames。</li>
       </ul>
-      <div class="callout"><strong>可复算：</strong>原始 <a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b1.toml">B1 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b2.toml">B2 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/frame_a1.log">A1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b1.log">B1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b2.log">B2</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_a2.log">A2</a> 日志、<a href="evidence/rtx_voxel_hardware_rt/summary.json">summary.json</a> 均已提交。复算入口是 <code>scripts/summarize_rtx_voxel_hardware_rt.py</code>；它在 capability、candidate、AS GPU build 或 correctness 任一不满足时失败。</div>
+      <div class="callout"><strong>可复算：</strong>原始 <a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b1.toml">B1 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/rtx_b2.toml">B2 TOML</a>、<a href="evidence/rtx_voxel_hardware_rt/raw/frame_a1.log">A1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b1.log">B1</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_b2.log">B2</a> / <a href="evidence/rtx_voxel_hardware_rt/raw/frame_a2.log">A2</a> 日志、<a href="evidence/rtx_voxel_hardware_rt/summary.json">summary.json</a> 均已提交。汇总器要求恰好两份独立 artifact、完整 3×3×2 workload 笛卡尔积及每 phase 的 software/hardware/hardware/software 顺序；每个聚合单元的 candidate、committed candidate、BLAS/TLAS GPU time 都须 <code>min &gt; 0</code>，任一 correctness、exhaustion 或 committed disagreement 非零都会失败。</div>
     </section>
 
     <section id="results">
