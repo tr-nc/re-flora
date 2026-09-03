@@ -326,6 +326,11 @@ def _global_environment_is_safe(lines: list[str]) -> bool:
 def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
     lines = source.splitlines()
     failures: list[str] = []
+    if any(
+        line.lstrip().startswith("run: ") and line.rstrip().endswith(":")
+        for line in lines
+    ):
+        failures.append("inline run commands ending in a colon must use a block scalar")
     on_blocks = _mapping_blocks(lines, "on", 0)
     if len(on_blocks) != 1:
         failures.append("workflow must have one root on mapping")

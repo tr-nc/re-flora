@@ -54,6 +54,21 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
         self.assertTrue(rejected.failures)
         self.assertFalse(rejected.routes("pull_request", "src/app/future_owner.rs"))
 
+    def test_inline_run_command_ending_in_colon_is_rejected_before_github(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        invalid = source.replace(
+            "        run: >-\n"
+            "          timeout 10m cargo test --locked environment_lighting::tests::",
+            "        run: timeout 10m cargo test --locked environment_lighting::tests::",
+            1,
+        )
+
+        self.assertNotEqual(source, invalid)
+        self.assertIn(
+            "inline run commands ending in a colon must use a block scalar",
+            contract.workflow_contract_failures(invalid),
+        )
+
     def test_same_contract_owns_lighting_routes_and_real_fedora_commands(self) -> None:
         parsed = contract.parse_workflow_contract(
             WORKFLOW.read_text(encoding="utf-8")

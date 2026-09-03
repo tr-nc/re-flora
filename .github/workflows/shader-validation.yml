@@ -233,7 +233,8 @@ jobs:
         run: cargo check --locked
 
       - name: Run environment lighting source gates
-        run: timeout 10m cargo test --locked environment_lighting::tests::
+        run: >-
+          timeout 10m cargo test --locked environment_lighting::tests::
 
       - name: Run environment lighting acceptance scene gates
         run: >-
@@ -241,7 +242,8 @@ jobs:
           --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof
 
       - name: Run process-bound log marker gate
-        run: timeout 10m cargo test --locked startup_log_tests::
+        run: >-
+          timeout 10m cargo test --locked startup_log_tests::
 
       - name: Run DDGI convergence evidence gates
         run: |
