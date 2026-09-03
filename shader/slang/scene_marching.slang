@@ -69,13 +69,16 @@ public MarchingResult marchScene(
     direction = max(abs(direction), float3(EPSILON)) *
                 (step(float3(0.0), direction) * 2.0 - 1.0);
 
-    float2 sceneDistance = intersectSlabs(minimumBound, maximumBound, origin, inverseDirection);
-    if (sceneDistance.x > sceneDistance.y || sceneDistance.y < 0.0)
+    float minimumSceneDistance;
+    float maximumSceneDistance;
+    intersectSlabs(minimumBound, maximumBound, origin, inverseDirection,
+                   minimumSceneDistance, maximumSceneDistance);
+    if (minimumSceneDistance > maximumSceneDistance || maximumSceneDistance < 0.0)
     {
         return result;
     }
 
-    float marchDistance = max(sceneDistance.x, 0.0) + EPSILON;
+    float marchDistance = max(minimumSceneDistance, 0.0) + EPSILON;
     float3 marchedOrigin = origin + marchDistance * direction;
 
     float3 deltaDistance = 1.0 / abs(direction);

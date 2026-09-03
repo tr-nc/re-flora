@@ -77,13 +77,15 @@ ContreeMarchingResult marchLocalContree(
     result.position = float3(0.0);
     result.center_position = float3(0.0);
 
-    float2 slabDistance = intersectSlabs(float3(1.0), float3(1.9999999), origin,
-                                         1.0 / direction);
-    if (slabDistance.x > slabDistance.y || slabDistance.y < 0.0)
+    float minimumSlabDistance;
+    float maximumSlabDistance;
+    intersectSlabs(float3(1.0), float3(1.9999999), origin, 1.0 / direction,
+                   minimumSlabDistance, maximumSlabDistance);
+    if (minimumSlabDistance > maximumSlabDistance || maximumSlabDistance < 0.0)
     {
         return result;
     }
-    origin += max(slabDistance.x, 0.0) * direction;
+    origin += max(minimumSlabDistance, 0.0) * direction;
 
     uint mirrorMask = 0u;
     if (direction.x > 0.0) mirrorMask |= 3u << 0u;
