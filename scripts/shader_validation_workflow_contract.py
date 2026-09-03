@@ -46,7 +46,13 @@ REQUIRED_LIGHTING_COMMANDS = (
     "cargo test --locked lighting_mode_acceptance",
     "cargo test --locked startup_log_tests::run_log_binding_marker_uses_the_existing_absolute_path",
 )
-REQUIRED_FEDORA_COMMANDS = REQUIRED_DDGI_COMMANDS + REQUIRED_LIGHTING_COMMANDS
+FEDORA_DEPENDENCY_COMMAND = "rg --version"
+PYTHON_POLICY_DEPENDENCY_COMMAND = (
+    "sudo apt-get update && sudo apt-get install -y ripgrep"
+)
+REQUIRED_FEDORA_COMMANDS = (
+    REQUIRED_DDGI_COMMANDS + REQUIRED_LIGHTING_COMMANDS + (FEDORA_DEPENDENCY_COMMAND,)
+)
 
 
 @dataclass(frozen=True)
@@ -216,6 +222,22 @@ def _supported_route_pattern(pattern: str) -> bool:
     )
 
 
+def _job_step_blocks(job_block: list[str]) -> list[list[str]]:
+    steps_block = _mapping_block(job_block, "steps", 4)
+    steps: list[list[str]] = []
+    current: list[str] | None = None
+    for line in steps_block:
+        if _indent(line) == 6 and line.strip().startswith("- "):
+            if current is not None:
+                steps.append(current)
+            current = [line]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        steps.append(current)
+    return steps
+
+
 def _step_blocks(jobs_block: list[str], job: str) -> list[list[str]]:
     job_blocks = _mapping_blocks(jobs_block, job, 2)
     if len(job_blocks) != 1:
@@ -231,19 +253,7 @@ def _step_blocks(jobs_block: list[str], job: str) -> list[list[str]]:
         or _has_default_shell(job_block, 4)
     ):
         return []
-    steps_block = _mapping_block(job_block, "steps", 4)
-    steps: list[list[str]] = []
-    current: list[str] | None = None
-    for line in steps_block:
-        if _indent(line) == 6 and line.strip().startswith("- "):
-            if current is not None:
-                steps.append(current)
-            current = [line]
-        elif current is not None:
-            current.append(line)
-    if current is not None:
-        steps.append(current)
-    return steps
+    return _job_step_blocks(job_block)
 
 
 def _field(
@@ -366,6 +376,22 @@ def parse_workflow_contract(source: str) -> ParsedWorkflowContract:
     for command in REQUIRED_FEDORA_COMMANDS:
         if fedora_commands.count(command) != 1:
             failures.append(f"Fedora job does not run {command}")
+    python_policy_blocks = _mapping_blocks(jobs_block, "python-policy-tests", 2)
+    if len(python_policy_blocks) != 1:
+        failures.append("root jobs must have one python-policy-tests mapping")
+    python_policy_commands = [
+        command
+        for step in (
+            _job_step_blocks(python_policy_blocks[0])
+            if len(python_policy_blocks) == 1
+            else []
+        )
+        if (command := _step_single_command(step)) is not None
+    ]
+    if python_policy_commands.count(PYTHON_POLICY_DEPENDENCY_COMMAND) != 1:
+        failures.append(
+            "Python policy job does not install its ripgrep runtime dependency"
+        )
     if failures:
         return ParsedWorkflowContract((), (), tuple(failures))
     return ParsedWorkflowContract(tuple(routes_by_event), tuple(fedora_commands), ())

@@ -69,6 +69,35 @@ class RfirrShaderValidationWorkflowTests(unittest.TestCase):
             contract.workflow_contract_failures(invalid),
         )
 
+    def test_ci_installs_and_verifies_the_acceptance_runner_dependency(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        parsed = contract.parse_workflow_contract(source)
+
+        self.assertEqual(parsed.failures, ())
+        self.assertIn(contract.FEDORA_DEPENDENCY_COMMAND, parsed.fedora_commands)
+
+        missing_fedora_verification = source.replace(
+            "      - name: Verify acceptance runner dependencies\n"
+            f"        run: {contract.FEDORA_DEPENDENCY_COMMAND}\n\n",
+            "",
+            1,
+        )
+        self.assertIn(
+            f"Fedora job does not run {contract.FEDORA_DEPENDENCY_COMMAND}",
+            contract.workflow_contract_failures(missing_fedora_verification),
+        )
+
+        missing_python_dependency = source.replace(
+            "      - name: Install acceptance runner dependencies\n"
+            f"        run: {contract.PYTHON_POLICY_DEPENDENCY_COMMAND}\n\n",
+            "",
+            1,
+        )
+        self.assertIn(
+            "Python policy job does not install its ripgrep runtime dependency",
+            contract.workflow_contract_failures(missing_python_dependency),
+        )
+
     def test_same_contract_owns_lighting_routes_and_real_fedora_commands(self) -> None:
         parsed = contract.parse_workflow_contract(
             WORKFLOW.read_text(encoding="utf-8")
