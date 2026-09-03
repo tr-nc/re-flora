@@ -41,12 +41,20 @@ float3 floorToScale(float3 position, int scaleExponent)
     return asfloat(asuint(position) & uint3(mask));
 }
 
-public bool3 contreeAdvanceSideMask(float3 sideDistance)
+public uint contreeAdvanceSideMask(float3 sideDistance)
 {
     bool advanceX = sideDistance.x <= sideDistance.y &&
         sideDistance.x <= sideDistance.z;
     bool advanceY = !advanceX && sideDistance.y <= sideDistance.z;
-    return bool3(advanceX, advanceY, !advanceX && !advanceY);
+    if (advanceX)
+    {
+        return 1u;
+    }
+    if (advanceY)
+    {
+        return 2u;
+    }
+    return 4u;
 }
 
 ContreeMarchingResult marchLocalContree(
@@ -134,7 +142,9 @@ ContreeMarchingResult marchLocalContree(
         float3 sideDistance = (cellMinimum - origin) * inverseDirection;
         float maximumDistance = min(min(sideDistance.x, sideDistance.y), sideDistance.z);
 
-        bool3 sideMask = contreeAdvanceSideMask(sideDistance);
+        uint sideMaskBits = contreeAdvanceSideMask(sideDistance);
+        bool3 sideMask =
+            (uint3(sideMaskBits) & uint3(1u, 2u, 4u)) != uint3(0u);
         int3 base = asint(cellMinimum);
         int3 offset = int3((1 << advanceScaleExponent) - 1);
         int3 neighborMaximum = base + select(sideMask, int3(-1), offset);
