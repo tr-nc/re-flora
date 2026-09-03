@@ -317,6 +317,12 @@ impl DdgiFieldPublication {
         Self::begin(build_token, field).expect("test publication must describe a valid generation")
     }
 
+    #[cfg(test)]
+    pub(crate) fn advance_for_test(self, field: DdgiFieldIdentity) -> Self {
+        self.advance(field)
+            .expect("test publication must preserve its field generation")
+    }
+
     pub fn generation(self) -> DdgiFieldGeneration {
         self.generation
     }

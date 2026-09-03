@@ -1603,7 +1603,20 @@ impl DdgiRuntime {
         let permit = self
             .transport_scheduler
             .preflight_completion(work, published)?;
-        let publication = super::DdgiFieldPublication::for_test(build_token, published);
+        let publication = if published.field().update_epoch() == 0 {
+            super::DdgiFieldPublication::for_test(build_token, published)
+        } else {
+            [
+                self.active_publication.published(),
+                self.completed_staging_publication,
+            ]
+            .into_iter()
+            .flatten()
+            .find(|publication| publication.generation.token() == build_token)
+            .expect("test completion must retain its preceding physical publication")
+            .field
+            .advance_for_test(published)
+        };
         Ok(self.commit_transport_work(work, build_token, publication, permit))
     }
 
@@ -1623,7 +1636,6 @@ impl DdgiRuntime {
             work.destination().field().radiance_revision(),
             "completed DDGI work and authored lighting revision diverged",
         );
-        assert_eq!(work.destination(), publication.field());
         assert_eq!(publication.generation().build_token(), build_token);
         let published = self.transport_scheduler.commit_completion(permit);
         assert_eq!(published, publication.field());
@@ -2515,6 +2527,33 @@ mod tests {
             .complete_transport_work(work, published, token)
             .unwrap();
         (runtime, token, published)
+    }
+
+    #[test]
+    fn runtime_commits_a_physically_classified_converged_field() {
+        let (mut runtime, token, _) = initialized_runtime();
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        assert_eq!(work.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
+        let converged = work
+            .destination()
+            .with_state(DdgiFieldState::Converged)
+            .unwrap();
+
+        let published = runtime
+            .complete_transport_work(work, converged, token)
+            .unwrap();
+
+        assert_eq!(published, converged);
+        assert_eq!(
+            runtime
+                .active_publication
+                .published()
+                .unwrap()
+                .field
+                .field(),
+            converged
+        );
+        assert!(runtime.claim_transport_work().is_none());
     }
 
     #[test]
