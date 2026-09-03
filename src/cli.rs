@@ -317,6 +317,7 @@ pub struct AudioPlan {
 pub struct RenderPlan {
     pub flags: RenderFlags,
     pub perf_logging: bool,
+    pub rtx_voxel_benchmark: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -995,6 +996,15 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
 
     let no_shadows = args.iter().any(|a| a == "--no-shadows");
     let no_flora = args.iter().any(|a| a == "--no-flora");
+    let rtx_voxel_benchmark =
+        parse_required_string_after("--rtx-voxel-benchmark", "an output TOML path")?
+            .map(PathBuf::from);
+    if rtx_voxel_benchmark.is_some() && !cfg!(feature = "rtx-voxel-experiment") {
+        return Err(
+            "--rtx-voxel-benchmark requires a binary built with --features rtx-voxel-experiment"
+                .to_owned(),
+        );
+    }
     Ok(RunPlan {
         platform: PlatformPlan {
             display: DisplayPlan {
@@ -1018,6 +1028,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                     enable_clouds: false,
                 },
                 perf_logging: args.iter().any(|a| a == "--perf"),
+                rtx_voxel_benchmark,
             },
             lifecycle: LifecyclePlan {
                 auto_exit_delay: parse_optional_f32_after(&args, "--auto-exit")?,
@@ -1456,6 +1467,8 @@ Options:
                               Exercise egui texture generations through full/partial/free updates
   --resize-lifecycle-test     Exercise coalesced programmatic resizes through the render path
   --perf                      Enable per-frame performance logging
+  --rtx-voxel-benchmark <report.toml>
+                              Run the feature-gated Vulkan AABB ray-query experiment at startup
   --water-experience          Launch the stable basin, water fill, lighting, and camera experience
   --water-profile <profile>   Select water profile: default, performance
   --water-particles <N>       Seed N initial water MLS-MPM particles in the startup pool (0 = none)
@@ -2526,6 +2539,26 @@ mod tests {
         assert_eq!(
             options.automation.camera,
             CameraAutomation::Snapshot("tree-closeup".to_owned())
+        );
+    }
+
+    #[cfg(not(feature = "rtx-voxel-experiment"))]
+    #[test]
+    fn rejects_rtx_voxel_benchmark_without_compile_time_feature() {
+        let error = try_launch(&["re-flora", "--rtx-voxel-benchmark", "target/rtx-voxel.toml"])
+            .unwrap_err();
+
+        assert!(error.contains("--features rtx-voxel-experiment"));
+    }
+
+    #[cfg(feature = "rtx-voxel-experiment")]
+    #[test]
+    fn parses_rtx_voxel_benchmark_with_compile_time_feature() {
+        let options = parse(&["re-flora", "--rtx-voxel-benchmark", "target/rtx-voxel.toml"]);
+
+        assert_eq!(
+            options.platform.render.rtx_voxel_benchmark,
+            Some(PathBuf::from("target/rtx-voxel.toml"))
         );
     }
 

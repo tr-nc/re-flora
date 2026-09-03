@@ -19,6 +19,8 @@ mod gui_adjustables;
 mod particles;
 mod procedual_placer;
 mod resource;
+#[cfg(feature = "rtx-voxel-experiment")]
+mod rtx_voxel_benchmark;
 mod run_log;
 mod scene_query;
 #[allow(dead_code)]

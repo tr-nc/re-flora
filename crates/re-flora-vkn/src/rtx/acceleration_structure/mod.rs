@@ -64,7 +64,7 @@ pub fn build_tlas_profiled(
         geometry: vk::AccelerationStructureGeometryDataKHR {
             instances: instances_data,
         },
-        flags: vk::GeometryFlagsKHR::OPAQUE,
+        flags: vk::GeometryFlagsKHR::empty(),
         ..Default::default()
     };
     build_profiled(

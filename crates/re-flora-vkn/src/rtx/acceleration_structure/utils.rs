@@ -2,8 +2,11 @@ use ash::{khr, vk};
 
 use crate::{
     execute_one_time_command, Allocator, Buffer, BufferUsage, Device, MemoryLocation,
-    PipelineStage, TimestampQueryPool, VulkanContext,
+    VulkanContext,
 };
+#[cfg(feature = "rtx-voxel-experiment")]
+use crate::{PipelineStage, TimestampQueryPool};
+#[cfg(feature = "rtx-voxel-experiment")]
 use std::time::Instant;
 
 use super::AccelStruct;
@@ -155,12 +158,14 @@ pub fn build_or_update_acc(
     }
 }
 
+#[cfg(feature = "rtx-voxel-experiment")]
 #[derive(Clone, Copy, Debug)]
 pub struct AccelerationStructureCommandTiming {
     pub host_ms: f64,
     pub gpu_ms: f64,
 }
 
+#[cfg(feature = "rtx-voxel-experiment")]
 #[allow(clippy::too_many_arguments)]
 pub fn build_acc_profiled(
     vulkan_ctx: &VulkanContext,
@@ -225,6 +230,7 @@ pub fn build_acc_profiled(
     AccelerationStructureCommandTiming { host_ms, gpu_ms }
 }
 
+#[cfg(feature = "rtx-voxel-experiment")]
 fn acceleration_structure_scratch_alignment(vulkan_ctx: &VulkanContext) -> u64 {
     let mut as_properties = vk::PhysicalDeviceAccelerationStructurePropertiesKHR::default();
     let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut as_properties);
@@ -237,6 +243,7 @@ fn acceleration_structure_scratch_alignment(vulkan_ctx: &VulkanContext) -> u64 {
     u64::from(as_properties.min_acceleration_structure_scratch_offset_alignment.max(1))
 }
 
+#[cfg(feature = "rtx-voxel-experiment")]
 fn make_aligned_scratch_buf(
     vulkan_ctx: &VulkanContext,
     allocator: Allocator,
@@ -254,6 +261,7 @@ fn make_aligned_scratch_buf(
     )
 }
 
+#[cfg(feature = "rtx-voxel-experiment")]
 fn align_up(value: u64, alignment: u64) -> u64 {
     value.div_ceil(alignment) * alignment
 }
