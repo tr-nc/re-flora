@@ -48,8 +48,34 @@ def find_slangc() -> Path:
     return candidate
 
 
+def runtime_library_search_variable(os_name: str, platform_name: str) -> str:
+    if os_name == "nt":
+        return "PATH"
+    if platform_name == "darwin":
+        return "DYLD_LIBRARY_PATH"
+    return "LD_LIBRARY_PATH"
+
+
+def slang_test_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    configured_library = environment.get("SLANG_LIB")
+    if not configured_library:
+        return environment
+
+    library_directory = str(Path(configured_library).resolve().parent)
+    variable = runtime_library_search_variable(os.name, sys.platform)
+    existing = environment.get(variable)
+    environment[variable] = (
+        os.pathsep.join((library_directory, existing))
+        if existing
+        else library_directory
+    )
+    return environment
+
+
 def main() -> int:
     slangc = find_slangc()
+    test_environment = slang_test_environment()
     tests = sorted(TEST_ROOT.glob("*.slang"))
     if not tests:
         raise RuntimeError(f"no Slang CPU tests found under {TEST_ROOT}")
@@ -79,7 +105,11 @@ def main() -> int:
             )
             print(f"running {source.relative_to(ROOT).as_posix()}", flush=True)
             subprocess.run(
-                [executable], cwd=ROOT, check=True, timeout=SLANG_TEST_TIMEOUT_SECONDS
+                [executable],
+                cwd=ROOT,
+                check=True,
+                timeout=SLANG_TEST_TIMEOUT_SECONDS,
+                env=test_environment,
             )
 
     print(f"all {len(tests)} Slang CPU tests passed")
