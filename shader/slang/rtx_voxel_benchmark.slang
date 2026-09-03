@@ -124,7 +124,10 @@ bool traceVoxelRange(BenchmarkRay ray, int3 lower, int3 upper,
             if (voxelExitT > currentT + 1.0e-6)
             {
                 hitT = currentT;
-                reportT = 0.5 * (currentT + voxelExitT);
+                float interiorBias = min(
+                    max(1.0e-6, abs(currentT) * 1.0e-6),
+                    0.25 * (voxelExitT - currentT));
+                reportT = currentT + interiorBias;
                 hitVoxel = index;
                 return true;
             }
@@ -161,7 +164,6 @@ BenchmarkResult traceHardware(BenchmarkRay ray)
     result.voxel_index = INVALID_VOXEL;
     result.primitive_index = INVALID_VOXEL;
     float closestExactHitT = ray.t_max;
-    float closestReportedHitT = ray.t_max;
     uint closestExactVoxel = INVALID_VOXEL;
     uint closestExactPrimitive = INVALID_VOXEL;
 
@@ -201,14 +203,14 @@ BenchmarkResult traceHardware(BenchmarkRay ray)
             if (hitT < closestExactHitT)
             {
                 closestExactHitT = hitT;
-                closestReportedHitT = reportT;
                 closestExactVoxel = hitVoxel;
                 closestExactPrimitive = primitiveIndex;
+                // Commit only the closest exact candidate observed so far. This avoids
+                // submitting a later, farther procedural hit and makes the query's committed
+                // state independently checkable against the same exact ordering criterion.
+                query.CommitProceduralPrimitiveHit(reportT);
+                result.committed_candidate_count += 1u;
             }
-            // A generated intersection must be inside both the macro AABB and the occupied
-            // voxel. Reporting their entry boundary can round outside the candidate interval.
-            query.CommitProceduralPrimitiveHit(reportT);
-            result.committed_candidate_count += 1u;
         }
         else
         {
@@ -217,17 +219,35 @@ BenchmarkResult traceHardware(BenchmarkRay ray)
         }
     }
 
-    if (closestExactVoxel != INVALID_VOXEL)
-    {
-        result.hit_t = closestExactHitT;
-        result.voxel_index = closestExactVoxel;
-        result.primitive_index = closestExactPrimitive;
-    }
     if (query.CommittedStatus() == COMMITTED_PROCEDURAL_PRIMITIVE_HIT)
     {
-        bool disagrees = query.CommittedPrimitiveIndex() != closestExactPrimitive ||
-            abs(query.CommittedRayT() - closestReportedHitT) > 1.0e-3;
+        uint committedPrimitive = query.CommittedPrimitiveIndex();
+        uint4 committedMacro = macro_data[committedPrimitive];
+        float committedExactT;
+        float committedReportT;
+        uint committedVoxel;
+        uint committedDdaExhausted;
+        bool committedIsExactHit = traceVoxelRange(
+            ray, int3(committedMacro.xyz),
+            min(int3(committedMacro.xyz) + int3(benchmark.macro_dimension),
+                int3(benchmark.world_dimension)),
+            committedExactT, committedReportT, committedVoxel,
+            committedDdaExhausted);
+        if (committedIsExactHit)
+        {
+            result.hit_t = committedExactT;
+            result.voxel_index = committedVoxel;
+            result.primitive_index = committedPrimitive;
+        }
+        result.traversal_exhausted |= committedDdaExhausted;
+        bool disagrees = !committedIsExactHit ||
+            committedPrimitive != closestExactPrimitive ||
+            abs(query.CommittedRayT() - committedReportT) > 1.0e-3;
         result.padding = disagrees ? 1u : 0u;
+    }
+    else if (closestExactVoxel != INVALID_VOXEL)
+    {
+        result.padding = 1u;
     }
     return result;
 }
