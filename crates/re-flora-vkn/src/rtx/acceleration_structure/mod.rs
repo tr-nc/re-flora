@@ -6,6 +6,123 @@ use ash::{khr, vk};
 
 use crate::{Allocator, Buffer, VulkanContext};
 
+#[cfg(feature = "rtx-voxel-experiment")]
+pub struct ProfiledAccelerationStructure {
+    pub acceleration_structure: AccelStruct,
+    pub acceleration_structure_bytes: u64,
+    pub scratch_bytes: u64,
+    pub host_build_ms: f64,
+    pub gpu_build_ms: f64,
+}
+
+#[cfg(feature = "rtx-voxel-experiment")]
+pub fn build_aabb_blas_profiled(
+    vulkan_ctx: &VulkanContext,
+    allocator: Allocator,
+    acc_device: khr::acceleration_structure::Device,
+    aabbs: &Buffer,
+    primitive_count: u32,
+) -> ProfiledAccelerationStructure {
+    assert!(primitive_count > 0, "an AABB BLAS must contain a primitive");
+    let aabb_data = vk::AccelerationStructureGeometryAabbsDataKHR::default()
+        .data(vk::DeviceOrHostAddressConstKHR {
+            device_address: aabbs.device_address(),
+        })
+        .stride(std::mem::size_of::<vk::AabbPositionsKHR>() as u64);
+    let geom = vk::AccelerationStructureGeometryKHR {
+        geometry_type: vk::GeometryTypeKHR::AABBS,
+        geometry: vk::AccelerationStructureGeometryDataKHR { aabbs: aabb_data },
+        flags: vk::GeometryFlagsKHR::empty(),
+        ..Default::default()
+    };
+    build_profiled(
+        vulkan_ctx,
+        allocator,
+        acc_device,
+        geom,
+        primitive_count,
+        vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+    )
+}
+
+#[cfg(feature = "rtx-voxel-experiment")]
+pub fn build_tlas_profiled(
+    vulkan_ctx: &VulkanContext,
+    allocator: Allocator,
+    acc_device: khr::acceleration_structure::Device,
+    instances: &Buffer,
+    instance_count: u32,
+) -> ProfiledAccelerationStructure {
+    assert!(instance_count > 0, "a TLAS must contain an instance");
+    let instances_data = vk::AccelerationStructureGeometryInstancesDataKHR::default()
+        .array_of_pointers(false)
+        .data(vk::DeviceOrHostAddressConstKHR {
+            device_address: instances.device_address(),
+        });
+    let geom = vk::AccelerationStructureGeometryKHR {
+        geometry_type: vk::GeometryTypeKHR::INSTANCES,
+        geometry: vk::AccelerationStructureGeometryDataKHR {
+            instances: instances_data,
+        },
+        flags: vk::GeometryFlagsKHR::OPAQUE,
+        ..Default::default()
+    };
+    build_profiled(
+        vulkan_ctx,
+        allocator,
+        acc_device,
+        geom,
+        instance_count,
+        vk::AccelerationStructureTypeKHR::TOP_LEVEL,
+    )
+}
+
+#[cfg(feature = "rtx-voxel-experiment")]
+fn build_profiled(
+    vulkan_ctx: &VulkanContext,
+    allocator: Allocator,
+    acc_device: khr::acceleration_structure::Device,
+    geom: vk::AccelerationStructureGeometryKHR<'_>,
+    primitive_count: u32,
+    acceleration_structure_type: vk::AccelerationStructureTypeKHR,
+) -> ProfiledAccelerationStructure {
+    let flags = vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE;
+    let (acceleration_structure_bytes, scratch_bytes) = utils::query_properties(
+        &acc_device,
+        geom,
+        &[primitive_count],
+        acceleration_structure_type,
+        flags,
+        vk::BuildAccelerationStructureModeKHR::BUILD,
+        1,
+    );
+    let acceleration_structure = utils::create_acc(
+        vulkan_ctx.device(),
+        &allocator,
+        acc_device.clone(),
+        acceleration_structure_bytes,
+        acceleration_structure_type,
+    );
+    let timing = utils::build_acc_profiled(
+        vulkan_ctx,
+        allocator,
+        scratch_bytes,
+        geom,
+        &acc_device,
+        &acceleration_structure,
+        acceleration_structure_type,
+        flags,
+        primitive_count,
+    );
+    ProfiledAccelerationStructure {
+        acceleration_structure,
+        acceleration_structure_bytes,
+        scratch_bytes,
+        host_build_ms: timing.host_ms,
+        gpu_build_ms: timing.gpu_ms,
+    }
+}
+
 #[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn build_or_update_blas(

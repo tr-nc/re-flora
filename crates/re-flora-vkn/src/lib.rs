@@ -1,4 +1,6 @@
 pub use ash::vk;
+#[cfg(feature = "rtx-voxel-experiment")]
+pub use ash::khr;
 
 mod query;
 pub use query::*;

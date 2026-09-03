@@ -67,6 +67,46 @@ impl DescriptorPool {
         Self::from_create_info(device, create_info)
     }
 
+    /// Development pool for the opt-in hardware ray-query experiment.
+    ///
+    /// Kept separate from [`Self::new`] so the production pool does not claim an
+    /// acceleration-structure descriptor capability on devices where it was not enabled.
+    #[cfg(feature = "rtx-voxel-experiment")]
+    pub fn new_for_hardware_ray_query(device: &Device) -> Result<Self> {
+        const MAX_DESCRIPTORS: u32 = 10_000;
+        const MAX_SETS: u32 = 5_000;
+
+        let pool_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: MAX_DESCRIPTORS,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: MAX_DESCRIPTORS,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: MAX_DESCRIPTORS,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_IMAGE,
+                descriptor_count: MAX_DESCRIPTORS,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+                descriptor_count: MAX_DESCRIPTORS,
+            },
+        ];
+
+        let create_info = vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&pool_sizes)
+            .max_sets(MAX_SETS)
+            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
+
+        Self::from_create_info(device, create_info)
+    }
+
     /// Creates a pool sized according to the provided descriptor set layouts.
     /// MARK: this function is archived, it follows a good practice, but it's not handy to use.
     #[allow(unused)]
