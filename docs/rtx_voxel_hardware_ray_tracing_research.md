@@ -1,8 +1,8 @@
 # Re:Flora 可编辑 Voxel 的 NVIDIA RTX Hardware Ray Tracing 调研与最小实验
 
-日期：2026-09-04  
-固定基线：`7ce60e06f1b70793c18339ce60a59a61c985aa82`  
-实验分支：`agent/rtx-voxel-hardware-rt`
+- 日期：2026-09-04
+- 固定基线：`7ce60e06f1b70793c18339ce60a59a61c985aa82`
+- 实验分支：`agent/rtx-voxel-hardware-rt`
 
 ## 结论先行
 
