@@ -1,6 +1,6 @@
 schema = "re-flora.rtx-voxel-hardware-ray-query.v1"
 fixed_baseline = "7ce60e06f1b70793c18339ce60a59a61c985aa82"
-generated_at = "2026-09-04T04:06:34.332847030+08:00"
+generated_at = "2026-09-04T04:19:00.907548126+08:00"
 command = [
     "target/release/re-flora-rtx-b",
     "--hidden",
@@ -81,21 +81,21 @@ macro_metadata_bytes = 22864
 primitive_count = 1429
 acceleration_structure_bytes = 55424
 scratch_bytes = 111232
-host_build_ms = 1.396086
-gpu_build_ms = 0.176288
+host_build_ms = 1.210324
+gpu_build_ms = 0.182048
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.39466
-gpu_build_ms = 0.041728
+host_build_ms = 0.261896
+gpu_build_ms = 0.042048
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 3.730496
-host_wait_ms = 4.169697
+gpu_ms = 3.714752
+host_wait_ms = 3.844211
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -116,14 +116,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.392448
-host_wait_ms = 4.713471
+gpu_ms = 4.580512
+host_wait_ms = 4.778386
 hit_count = 56581
-candidate_count = 237318
-rejected_candidate_count = 171511
-committed_candidate_count = 65807
+candidate_count = 237048
+rejected_candidate_count = 171308
+committed_candidate_count = 57176
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7856
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -138,14 +138,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 3.424608
-host_wait_ms = 3.863811
+gpu_ms = 4.551712
+host_wait_ms = 4.770184
 hit_count = 56581
-candidate_count = 237318
-rejected_candidate_count = 171511
-committed_candidate_count = 65807
+candidate_count = 237048
+rejected_candidate_count = 171308
+committed_candidate_count = 57176
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7856
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -160,8 +160,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.072224
-host_wait_ms = 4.558689
+gpu_ms = 4.474432
+host_wait_ms = 4.68963
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -188,21 +188,21 @@ macro_metadata_bytes = 22848
 primitive_count = 1428
 acceleration_structure_bytes = 55424
 scratch_bytes = 110976
-host_build_ms = 0.6087710000000001
-gpu_build_ms = 0.187712
+host_build_ms = 0.640462
+gpu_build_ms = 0.190784
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.33500599999999997
-gpu_build_ms = 0.04096
+host_build_ms = 0.284767
+gpu_build_ms = 0.041152
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.363296
-host_wait_ms = 4.716805
+gpu_ms = 4.732704
+host_wait_ms = 5.136733
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -223,14 +223,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.654048
-host_wait_ms = 5.041418
+gpu_ms = 4.850784
+host_wait_ms = 5.248909
 hit_count = 56581
-candidate_count = 235453
-rejected_candidate_count = 169664
-committed_candidate_count = 65789
+candidate_count = 235183
+rejected_candidate_count = 169461
+committed_candidate_count = 57176
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7844
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -245,14 +245,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.255072
-host_wait_ms = 4.712206
+gpu_ms = 4.234496
+host_wait_ms = 4.5826210000000005
 hit_count = 56581
-candidate_count = 235453
-rejected_candidate_count = 169664
-committed_candidate_count = 65789
+candidate_count = 235183
+rejected_candidate_count = 169461
+committed_candidate_count = 57176
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7844
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -267,8 +267,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.004544
-host_wait_ms = 4.392990999999999
+gpu_ms = 4.683968
+host_wait_ms = 5.0373
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -314,21 +314,21 @@ macro_metadata_bytes = 7712
 primitive_count = 482
 acceleration_structure_bytes = 19968
 scratch_bytes = 39168
-host_build_ms = 0.549832
-gpu_build_ms = 0.150368
+host_build_ms = 0.528693
+gpu_build_ms = 0.146976
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.430151
-gpu_build_ms = 0.041056
+host_build_ms = 0.176865
+gpu_build_ms = 0.041024
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.381856
-host_wait_ms = 4.740993
+gpu_ms = 4.28368
+host_wait_ms = 4.655881
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -349,14 +349,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 3.881312
-host_wait_ms = 4.351945000000001
+gpu_ms = 4.039136
+host_wait_ms = 4.4177100000000005
 hit_count = 56581
-candidate_count = 328484
-rejected_candidate_count = 263148
-committed_candidate_count = 65336
+candidate_count = 328348
+rejected_candidate_count = 263040
+committed_candidate_count = 56805
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 8187
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -371,14 +371,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.107232
-host_wait_ms = 4.57311
+gpu_ms = 4.629952
+host_wait_ms = 4.919343
 hit_count = 56581
-candidate_count = 328484
-rejected_candidate_count = 263148
-committed_candidate_count = 65336
+candidate_count = 328348
+rejected_candidate_count = 263040
+committed_candidate_count = 56805
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 8187
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -393,8 +393,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.486176
-host_wait_ms = 4.82691
+gpu_ms = 4.834272
+host_wait_ms = 5.107454
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -421,21 +421,21 @@ macro_metadata_bytes = 7696
 primitive_count = 481
 acceleration_structure_bytes = 19968
 scratch_bytes = 39168
-host_build_ms = 0.564536
-gpu_build_ms = 0.150304
+host_build_ms = 0.529844
+gpu_build_ms = 0.145504
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.414546
-gpu_build_ms = 0.041216
+host_build_ms = 0.264988
+gpu_build_ms = 0.040544
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.381152
-host_wait_ms = 4.802014000000001
+gpu_ms = 4.36176
+host_wait_ms = 4.54411
 hit_count = 56522
 candidate_count = 0
 rejected_candidate_count = 0
@@ -456,14 +456,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.565536
-host_wait_ms = 4.905746
+gpu_ms = 4.8768
+host_wait_ms = 5.142528
 hit_count = 56522
-candidate_count = 321458
-rejected_candidate_count = 256458
-committed_candidate_count = 65000
+candidate_count = 321311
+rejected_candidate_count = 256339
+committed_candidate_count = 56720
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7936
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -478,14 +478,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.62
-host_wait_ms = 5.106426
+gpu_ms = 5.38992
+host_wait_ms = 5.531831
 hit_count = 56522
-candidate_count = 321458
-rejected_candidate_count = 256458
-committed_candidate_count = 65000
+candidate_count = 321311
+rejected_candidate_count = 256339
+committed_candidate_count = 56720
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 7936
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -500,8 +500,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.087872
-host_wait_ms = 4.6175690000000005
+gpu_ms = 3.540832
+host_wait_ms = 3.727386
 hit_count = 56522
 candidate_count = 0
 rejected_candidate_count = 0
@@ -547,21 +547,21 @@ macro_metadata_bytes = 1024
 primitive_count = 64
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.56755
-gpu_build_ms = 0.09936
+host_build_ms = 0.294626
+gpu_build_ms = 0.101632
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.325331
-gpu_build_ms = 0.041216
+host_build_ms = 0.153796
+gpu_build_ms = 0.04128
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.263808
-host_wait_ms = 4.638134
+gpu_ms = 4.507744
+host_wait_ms = 4.636208
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -582,14 +582,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.171232
-host_wait_ms = 4.551977
+gpu_ms = 5.216992
+host_wait_ms = 5.406183
 hit_count = 56581
-candidate_count = 201835
-rejected_candidate_count = 130306
-committed_candidate_count = 71529
+candidate_count = 201823
+rejected_candidate_count = 130296
+committed_candidate_count = 56585
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 14663
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -604,14 +604,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.68384
-host_wait_ms = 5.012512999999999
+gpu_ms = 4.028448
+host_wait_ms = 4.21779
 hit_count = 56581
-candidate_count = 201835
-rejected_candidate_count = 130306
-committed_candidate_count = 71529
+candidate_count = 201823
+rejected_candidate_count = 130296
+committed_candidate_count = 56585
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 14663
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -626,8 +626,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 3.8096
-host_wait_ms = 4.135628
+gpu_ms = 4.207328
+host_wait_ms = 4.4131789999999995
 hit_count = 56581
 candidate_count = 0
 rejected_candidate_count = 0
@@ -654,21 +654,21 @@ macro_metadata_bytes = 1008
 primitive_count = 63
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.478024
-gpu_build_ms = 0.09008
+host_build_ms = 0.257819
+gpu_build_ms = 0.088928
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.294551
-gpu_build_ms = 0.036512
+host_build_ms = 0.149621
+gpu_build_ms = 0.03712
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.414304
-host_wait_ms = 4.749068
+gpu_ms = 5.19264
+host_wait_ms = 5.32752
 hit_count = 56214
 candidate_count = 0
 rejected_candidate_count = 0
@@ -689,14 +689,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.582592
-host_wait_ms = 4.946029
+gpu_ms = 4.416992
+host_wait_ms = 4.5976159999999995
 hit_count = 56214
-candidate_count = 198375
-rejected_candidate_count = 128625
-committed_candidate_count = 69750
+candidate_count = 198359
+rejected_candidate_count = 128610
+committed_candidate_count = 56218
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 13185
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -711,14 +711,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 3.990272
-host_wait_ms = 4.244084
+gpu_ms = 4.668512
+host_wait_ms = 4.931341
 hit_count = 56214
-candidate_count = 198375
-rejected_candidate_count = 128625
-committed_candidate_count = 69750
+candidate_count = 198359
+rejected_candidate_count = 128610
+committed_candidate_count = 56218
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 13185
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -733,8 +733,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.104544
-host_wait_ms = 4.4480580000000005
+gpu_ms = 5.1416
+host_wait_ms = 5.28629
 hit_count = 56214
 candidate_count = 0
 rejected_candidate_count = 0
@@ -780,21 +780,21 @@ macro_metadata_bytes = 58928
 primitive_count = 3683
 acceleration_structure_bytes = 139776
 scratch_bytes = 282752
-host_build_ms = 0.54613
-gpu_build_ms = 0.185888
+host_build_ms = 0.412934
+gpu_build_ms = 0.188864
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.186275
-gpu_build_ms = 0.03728
+host_build_ms = 0.182609
+gpu_build_ms = 0.036832
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 5.44592
-host_wait_ms = 5.694858
+gpu_ms = 5.173824
+host_wait_ms = 5.428454
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -815,14 +815,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.564352
-host_wait_ms = 4.982997999999999
+gpu_ms = 5.007648
+host_wait_ms = 5.212536
 hit_count = 65536
-candidate_count = 211367
-rejected_candidate_count = 115149
-committed_candidate_count = 96218
+candidate_count = 211257
+rejected_candidate_count = 115056
+committed_candidate_count = 65617
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 25584
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -837,14 +837,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.804864
-host_wait_ms = 5.205576
+gpu_ms = 4.829728
+host_wait_ms = 5.093104
 hit_count = 65536
-candidate_count = 211367
-rejected_candidate_count = 115149
-committed_candidate_count = 96218
+candidate_count = 211257
+rejected_candidate_count = 115056
+committed_candidate_count = 65617
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 25584
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -859,8 +859,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.865152
-host_wait_ms = 5.246507
+gpu_ms = 4.111264
+host_wait_ms = 4.317718
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -887,21 +887,21 @@ macro_metadata_bytes = 58912
 primitive_count = 3682
 acceleration_structure_bytes = 139776
 scratch_bytes = 282752
-host_build_ms = 0.591384
-gpu_build_ms = 0.182336
+host_build_ms = 0.49878599999999995
+gpu_build_ms = 0.184224
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.34428200000000003
-gpu_build_ms = 0.037184
+host_build_ms = 0.141368
+gpu_build_ms = 0.036512
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.618752
-host_wait_ms = 5.023353
+gpu_ms = 6.495968
+host_wait_ms = 6.67453
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -922,14 +922,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.944512
-host_wait_ms = 5.238300000000001
+gpu_ms = 5.15536
+host_wait_ms = 5.422534
 hit_count = 65536
-candidate_count = 209263
-rejected_candidate_count = 113673
-committed_candidate_count = 95590
+candidate_count = 209163
+rejected_candidate_count = 113590
+committed_candidate_count = 65617
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 25108
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -944,14 +944,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.093472
-host_wait_ms = 4.382993
+gpu_ms = 4.439424
+host_wait_ms = 4.714117
 hit_count = 65536
-candidate_count = 209263
-rejected_candidate_count = 113673
-committed_candidate_count = 95590
+candidate_count = 209163
+rejected_candidate_count = 113590
+committed_candidate_count = 65617
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 25108
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -966,8 +966,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 4.813472
-host_wait_ms = 5.211108
+gpu_ms = 5.760448
+host_wait_ms = 5.964765000000001
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1013,21 +1013,21 @@ macro_metadata_bytes = 8176
 primitive_count = 511
 acceleration_structure_bytes = 20992
 scratch_bytes = 41088
-host_build_ms = 0.6085459999999999
-gpu_build_ms = 0.1184
+host_build_ms = 0.309998
+gpu_build_ms = 0.120896
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.34223400000000004
-gpu_build_ms = 0.037088
+host_build_ms = 0.18696500000000002
+gpu_build_ms = 0.037248
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 5.855616
-host_wait_ms = 6.251296
+gpu_ms = 6.741184
+host_wait_ms = 6.946181
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1048,14 +1048,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.374016
-host_wait_ms = 4.622039
+gpu_ms = 4.948288
+host_wait_ms = 5.147541
 hit_count = 65536
-candidate_count = 194208
-rejected_candidate_count = 74360
-committed_candidate_count = 119848
+candidate_count = 193902
+rejected_candidate_count = 74205
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 39241
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1070,14 +1070,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 4.343648
-host_wait_ms = 4.743417
+gpu_ms = 5.262976
+host_wait_ms = 5.533456
 hit_count = 65536
-candidate_count = 194208
-rejected_candidate_count = 74360
-committed_candidate_count = 119848
+candidate_count = 193902
+rejected_candidate_count = 74205
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 39241
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1092,8 +1092,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 5.329728
-host_wait_ms = 5.505046
+gpu_ms = 5.573504
+host_wait_ms = 5.755211
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1120,21 +1120,21 @@ macro_metadata_bytes = 8160
 primitive_count = 510
 acceleration_structure_bytes = 20992
 scratch_bytes = 41088
-host_build_ms = 0.360742
-gpu_build_ms = 0.12432
+host_build_ms = 0.32373
+gpu_build_ms = 0.120832
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.213322
-gpu_build_ms = 0.036064
+host_build_ms = 0.174748
+gpu_build_ms = 0.03744
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 6.04928
-host_wait_ms = 6.27548
+gpu_ms = 4.719328
+host_wait_ms = 4.9320010000000005
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1155,14 +1155,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.086176
-host_wait_ms = 4.273037
+gpu_ms = 4.241696
+host_wait_ms = 4.4311359999999995
 hit_count = 65536
-candidate_count = 193836
-rejected_candidate_count = 73941
-committed_candidate_count = 119895
+candidate_count = 193508
+rejected_candidate_count = 73756
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 39373
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1177,14 +1177,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.089856
-host_wait_ms = 5.357416000000001
+gpu_ms = 5.062912
+host_wait_ms = 5.249034
 hit_count = 65536
-candidate_count = 193836
-rejected_candidate_count = 73941
-committed_candidate_count = 119895
+candidate_count = 193508
+rejected_candidate_count = 73756
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 39373
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1199,8 +1199,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 6.307808
-host_wait_ms = 6.519822
+gpu_ms = 5.703232
+host_wait_ms = 5.877559
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1246,21 +1246,21 @@ macro_metadata_bytes = 1024
 primitive_count = 64
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.42405
-gpu_build_ms = 0.089056
+host_build_ms = 0.309897
+gpu_build_ms = 0.088896
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.33242299999999997
-gpu_build_ms = 0.035968
+host_build_ms = 0.182998
+gpu_build_ms = 0.036704
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 4.864128
-host_wait_ms = 5.276861
+gpu_ms = 5.819136
+host_wait_ms = 6.0777399999999995
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1281,14 +1281,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 5.488256
-host_wait_ms = 5.8031109999999995
+gpu_ms = 5.382048
+host_wait_ms = 5.6424270000000005
 hit_count = 65536
-candidate_count = 146163
-rejected_candidate_count = 21457
-committed_candidate_count = 124706
+candidate_count = 146068
+rejected_candidate_count = 21429
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 50407
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1303,14 +1303,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.61344
-host_wait_ms = 5.881761999999999
+gpu_ms = 5.470144
+host_wait_ms = 5.728655
 hit_count = 65536
-candidate_count = 146163
-rejected_candidate_count = 21457
-committed_candidate_count = 124706
+candidate_count = 146068
+rejected_candidate_count = 21429
+committed_candidate_count = 65579
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 50407
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1325,8 +1325,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 6.457152
-host_wait_ms = 6.7753559999999995
+gpu_ms = 3.93728
+host_wait_ms = 4.2101619999999995
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1353,21 +1353,21 @@ macro_metadata_bytes = 1008
 primitive_count = 63
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.462688
-gpu_build_ms = 0.089728
+host_build_ms = 0.41879500000000003
+gpu_build_ms = 0.090816
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.381526
-gpu_build_ms = 0.035648
+host_build_ms = 0.317713
+gpu_build_ms = 0.0368
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 6.009984
-host_wait_ms = 6.339554
+gpu_ms = 4.934336
+host_wait_ms = 5.26106
 hit_count = 65532
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1388,14 +1388,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.774592
-host_wait_ms = 5.131992
+gpu_ms = 4.713344
+host_wait_ms = 5.114395
 hit_count = 65532
-candidate_count = 144552
-rejected_candidate_count = 22672
-committed_candidate_count = 121880
+candidate_count = 144443
+rejected_candidate_count = 22634
+committed_candidate_count = 65575
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 46493
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1410,14 +1410,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.439904
-host_wait_ms = 5.768343000000001
+gpu_ms = 5.269696
+host_wait_ms = 5.603460999999999
 hit_count = 65532
-candidate_count = 144552
-rejected_candidate_count = 22672
-committed_candidate_count = 121880
+candidate_count = 144443
+rejected_candidate_count = 22634
+committed_candidate_count = 65575
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 46493
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1432,8 +1432,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 5.944064
-host_wait_ms = 6.35176
+gpu_ms = 5.335904
+host_wait_ms = 5.670935
 hit_count = 65532
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1479,21 +1479,21 @@ macro_metadata_bytes = 65104
 primitive_count = 4069
 acceleration_structure_bytes = 154240
 scratch_bytes = 312192
-host_build_ms = 0.620822
-gpu_build_ms = 0.183136
+host_build_ms = 0.455453
+gpu_build_ms = 0.18432
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.271043
-gpu_build_ms = 0.037824
+host_build_ms = 0.350994
+gpu_build_ms = 0.037728
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 9.382976
-host_wait_ms = 9.64557
+gpu_ms = 9.90528
+host_wait_ms = 10.258905
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1514,14 +1514,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 6.34352
-host_wait_ms = 6.58853
+gpu_ms = 6.011648
+host_wait_ms = 6.206012
 hit_count = 65536
-candidate_count = 181080
-rejected_candidate_count = 32689
-committed_candidate_count = 148391
+candidate_count = 180707
+rejected_candidate_count = 32479
+committed_candidate_count = 65655
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 48995
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1536,14 +1536,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 6.501504
-host_wait_ms = 6.810147
+gpu_ms = 5.800256
+host_wait_ms = 6.155402
 hit_count = 65536
-candidate_count = 181080
-rejected_candidate_count = 32689
-committed_candidate_count = 148391
+candidate_count = 180707
+rejected_candidate_count = 32479
+committed_candidate_count = 65655
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 48995
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1558,8 +1558,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 9.703744
-host_wait_ms = 9.991728
+gpu_ms = 9.097472
+host_wait_ms = 9.382437000000001
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1586,21 +1586,21 @@ macro_metadata_bytes = 65088
 primitive_count = 4068
 acceleration_structure_bytes = 154240
 scratch_bytes = 311936
-host_build_ms = 0.573377
-gpu_build_ms = 0.183232
+host_build_ms = 0.420657
+gpu_build_ms = 0.179968
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.23793
-gpu_build_ms = 0.037312
+host_build_ms = 0.178512
+gpu_build_ms = 0.03936
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 10.032192
-host_wait_ms = 10.363743999999999
+gpu_ms = 9.259104
+host_wait_ms = 9.404029
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1621,14 +1621,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 4.883904
-host_wait_ms = 5.083052
+gpu_ms = 6.459488
+host_wait_ms = 6.584312
 hit_count = 65536
-candidate_count = 181080
-rejected_candidate_count = 32689
-committed_candidate_count = 148391
+candidate_count = 180707
+rejected_candidate_count = 32479
+committed_candidate_count = 65655
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 48995
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1643,14 +1643,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.396288
-host_wait_ms = 5.677432
+gpu_ms = 7.092992
+host_wait_ms = 7.2820849999999995
 hit_count = 65536
-candidate_count = 181080
-rejected_candidate_count = 32689
-committed_candidate_count = 148391
+candidate_count = 180707
+rejected_candidate_count = 32479
+committed_candidate_count = 65655
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 48995
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1665,8 +1665,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 9.865056
-host_wait_ms = 10.002455000000001
+gpu_ms = 9.16928
+host_wait_ms = 9.277284
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1712,21 +1712,21 @@ macro_metadata_bytes = 8176
 primitive_count = 511
 acceleration_structure_bytes = 20992
 scratch_bytes = 41088
-host_build_ms = 0.294422
-gpu_build_ms = 0.119552
+host_build_ms = 0.5140910000000001
+gpu_build_ms = 0.120704
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.17486300000000002
-gpu_build_ms = 0.039232
+host_build_ms = 0.247414
+gpu_build_ms = 0.037024
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 8.931168
-host_wait_ms = 9.043061
+gpu_ms = 10.140128
+host_wait_ms = 10.457267
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1747,14 +1747,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 5.083968
-host_wait_ms = 5.197151
+gpu_ms = 5.591808
+host_wait_ms = 5.892017
 hit_count = 65536
-candidate_count = 169102
-rejected_candidate_count = 18996
-committed_candidate_count = 150106
+candidate_count = 168727
+rejected_candidate_count = 18872
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51221
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1769,14 +1769,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.578592
-host_wait_ms = 5.708915
+gpu_ms = 6.388352
+host_wait_ms = 6.724333
 hit_count = 65536
-candidate_count = 169102
-rejected_candidate_count = 18996
-committed_candidate_count = 150106
+candidate_count = 168727
+rejected_candidate_count = 18872
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51221
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -1791,8 +1791,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 8.412224
-host_wait_ms = 8.634134
+gpu_ms = 10.211872
+host_wait_ms = 10.427543
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1819,21 +1819,21 @@ macro_metadata_bytes = 8160
 primitive_count = 510
 acceleration_structure_bytes = 20992
 scratch_bytes = 41088
-host_build_ms = 0.375672
-gpu_build_ms = 0.133504
+host_build_ms = 0.34886500000000004
+gpu_build_ms = 0.12112
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.187479
-gpu_build_ms = 0.037152
+host_build_ms = 0.180948
+gpu_build_ms = 0.037824
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 9.094624
-host_wait_ms = 9.365396
+gpu_ms = 9.856896
+host_wait_ms = 10.130093
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1854,14 +1854,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 5.245824
-host_wait_ms = 5.530294
+gpu_ms = 6.47856
+host_wait_ms = 6.649299
 hit_count = 65536
-candidate_count = 169212
-rejected_candidate_count = 18924
-committed_candidate_count = 150288
+candidate_count = 168844
+rejected_candidate_count = 18789
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51221
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1876,14 +1876,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 5.04464
-host_wait_ms = 5.2743590000000005
+gpu_ms = 4.712288
+host_wait_ms = 4.985098000000001
 hit_count = 65536
-candidate_count = 169212
-rejected_candidate_count = 18924
-committed_candidate_count = 150288
+candidate_count = 168844
+rejected_candidate_count = 18789
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51221
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -1898,8 +1898,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 9.843936
-host_wait_ms = 10.037778000000001
+gpu_ms = 8.741024
+host_wait_ms = 9.071404999999999
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1945,21 +1945,21 @@ macro_metadata_bytes = 1024
 primitive_count = 64
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.254328
-gpu_build_ms = 0.088608
+host_build_ms = 0.384229
+gpu_build_ms = 0.088544
 
 [configurations.initial.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.137882
-gpu_build_ms = 0.036192
+host_build_ms = 0.17701699999999998
+gpu_build_ms = 0.036864
 
 [[configurations.initial.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 8.794048
-host_wait_ms = 8.98516
+gpu_ms = 9.950016
+host_wait_ms = 10.237223
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -1980,14 +1980,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 7.486176
-host_wait_ms = 7.7228200000000005
+gpu_ms = 7.554976
+host_wait_ms = 7.831003
 hit_count = 65536
-candidate_count = 137687
-rejected_candidate_count = 2848
-committed_candidate_count = 134839
+candidate_count = 137573
+rejected_candidate_count = 2845
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 53350
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -2002,14 +2002,14 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 7.719392
-host_wait_ms = 7.904803
+gpu_ms = 7.765344
+host_wait_ms = 8.083598
 hit_count = 65536
-candidate_count = 137687
-rejected_candidate_count = 2848
-committed_candidate_count = 134839
+candidate_count = 137573
+rejected_candidate_count = 2845
+committed_candidate_count = 65651
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 53350
+query_committed_disagreement_count = 0
 
 [configurations.initial.samples.correctness]
 reference_ray_count = 65536
@@ -2024,8 +2024,8 @@ first_mismatches = []
 [[configurations.initial.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 8.823712
-host_wait_ms = 9.03589
+gpu_ms = 10.014272
+host_wait_ms = 10.348806
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -2052,21 +2052,21 @@ macro_metadata_bytes = 1008
 primitive_count = 63
 acceleration_structure_bytes = 4224
 scratch_bytes = 7296
-host_build_ms = 0.277997
-gpu_build_ms = 0.0888
+host_build_ms = 0.504679
+gpu_build_ms = 0.090816
 
 [configurations.after_edit.tlas]
 primitive_count = 1
 acceleration_structure_bytes = 2048
 scratch_bytes = 2176
-host_build_ms = 0.160718
-gpu_build_ms = 0.036832
+host_build_ms = 0.406544
+gpu_build_ms = 0.037024
 
 [[configurations.after_edit.samples]]
 order_index = 0
 mode = "software"
-gpu_ms = 9.00448
-host_wait_ms = 9.156685
+gpu_ms = 10.492864
+host_wait_ms = 10.965157999999999
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
@@ -2087,14 +2087,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 1
 mode = "hardware"
-gpu_ms = 6.275232
-host_wait_ms = 6.432266
+gpu_ms = 6.80768
+host_wait_ms = 7.1990300000000005
 hit_count = 65536
-candidate_count = 139074
-rejected_candidate_count = 2973
-committed_candidate_count = 136101
+candidate_count = 138941
+rejected_candidate_count = 2942
+committed_candidate_count = 65627
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51527
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -2109,14 +2109,14 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 2
 mode = "hardware"
-gpu_ms = 7.185728
-host_wait_ms = 7.416627
+gpu_ms = 6.94528
+host_wait_ms = 7.299017
 hit_count = 65536
-candidate_count = 139074
-rejected_candidate_count = 2973
-committed_candidate_count = 136101
+candidate_count = 138941
+rejected_candidate_count = 2942
+committed_candidate_count = 65627
 traversal_exhausted_count = 0
-query_committed_disagreement_count = 51527
+query_committed_disagreement_count = 0
 
 [configurations.after_edit.samples.correctness]
 reference_ray_count = 65536
@@ -2131,8 +2131,8 @@ first_mismatches = []
 [[configurations.after_edit.samples]]
 order_index = 3
 mode = "software"
-gpu_ms = 9.283008
-host_wait_ms = 9.568742
+gpu_ms = 9.81232
+host_wait_ms = 10.241783000000002
 hit_count = 65536
 candidate_count = 0
 rejected_candidate_count = 0
