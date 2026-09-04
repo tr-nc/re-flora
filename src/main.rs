@@ -20,6 +20,8 @@ mod particles;
 mod procedual_placer;
 mod resource;
 #[cfg(feature = "rtx-voxel-experiment")]
+mod rtx_static_tracer_bullet;
+#[cfg(feature = "rtx-voxel-experiment")]
 mod rtx_voxel_benchmark;
 mod run_log;
 mod scene_query;

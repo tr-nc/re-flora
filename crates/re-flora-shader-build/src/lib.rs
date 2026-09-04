@@ -52,6 +52,12 @@ pub struct CompilerOutput {
 
 pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
+        logical_path: "shader/experiments/rtx_static_tracer_bullet.comp",
+        source_path: "shader/slang/rtx_static_tracer_bullet.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/experiments/rtx_voxel_benchmark.comp",
         source_path: "shader/slang/rtx_voxel_benchmark.slang",
         module_path: "shader/slang",

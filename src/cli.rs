@@ -317,6 +317,7 @@ pub struct AudioPlan {
 pub struct RenderPlan {
     pub flags: RenderFlags,
     pub perf_logging: bool,
+    pub rtx_static_tracer_bullet: Option<PathBuf>,
     pub rtx_voxel_benchmark: Option<PathBuf>,
 }
 
@@ -999,9 +1000,21 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
     let rtx_voxel_benchmark =
         parse_required_string_after("--rtx-voxel-benchmark", "an output TOML path")?
             .map(PathBuf::from);
+    let rtx_static_tracer_bullet =
+        parse_required_string_after("--rtx-static-tracer-bullet", "an output TOML path")?
+            .map(PathBuf::from);
+    if rtx_voxel_benchmark.is_some() && rtx_static_tracer_bullet.is_some() {
+        return Err("Choose only one RTX experiment per run.".to_owned());
+    }
     if rtx_voxel_benchmark.is_some() && !cfg!(feature = "rtx-voxel-experiment") {
         return Err(
             "--rtx-voxel-benchmark requires a binary built with --features rtx-voxel-experiment"
+                .to_owned(),
+        );
+    }
+    if rtx_static_tracer_bullet.is_some() && !cfg!(feature = "rtx-voxel-experiment") {
+        return Err(
+            "--rtx-static-tracer-bullet requires a binary built with --features rtx-voxel-experiment"
                 .to_owned(),
         );
     }
@@ -1028,6 +1041,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                     enable_clouds: false,
                 },
                 perf_logging: args.iter().any(|a| a == "--perf"),
+                rtx_static_tracer_bullet,
                 rtx_voxel_benchmark,
             },
             lifecycle: LifecyclePlan {
@@ -2559,6 +2573,34 @@ mod tests {
         assert_eq!(
             options.platform.render.rtx_voxel_benchmark,
             Some(PathBuf::from("target/rtx-voxel.toml"))
+        );
+    }
+
+    #[cfg(not(feature = "rtx-voxel-experiment"))]
+    #[test]
+    fn rejects_static_tracer_bullet_without_compile_time_feature() {
+        let error = try_launch(&[
+            "re-flora",
+            "--rtx-static-tracer-bullet",
+            "target/rtx-static.toml",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--features rtx-voxel-experiment"));
+    }
+
+    #[cfg(feature = "rtx-voxel-experiment")]
+    #[test]
+    fn parses_static_tracer_bullet_with_compile_time_feature() {
+        let options = parse(&[
+            "re-flora",
+            "--rtx-static-tracer-bullet",
+            "target/rtx-static.toml",
+        ]);
+
+        assert_eq!(
+            options.platform.render.rtx_static_tracer_bullet,
+            Some(PathBuf::from("target/rtx-static.toml"))
         );
     }
 

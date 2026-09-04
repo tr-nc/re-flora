@@ -1090,8 +1090,10 @@ impl App {
         let lighting_mode_acceptance_requested = lighting_mode_acceptance_options.is_some();
         let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
         let window_state = Self::create_window_state(_event_loop, display);
-        let vulkan_ctx =
-            Self::create_vulkan_context(&window_state, render.rtx_voxel_benchmark.is_some());
+        let vulkan_ctx = Self::create_vulkan_context(
+            &window_state,
+            render.rtx_voxel_benchmark.is_some() || render.rtx_static_tracer_bullet.is_some(),
+        );
 
         let device = vulkan_ctx.device();
 
@@ -1101,6 +1103,11 @@ impl App {
         if let Some(output_path) = render.rtx_voxel_benchmark.as_deref() {
             crate::rtx_voxel_benchmark::run(&vulkan_ctx, allocator.clone(), output_path)
                 .context("run RTX voxel hardware ray-query benchmark")?;
+        }
+        #[cfg(feature = "rtx-voxel-experiment")]
+        if let Some(output_path) = render.rtx_static_tracer_bullet.as_deref() {
+            crate::rtx_static_tracer_bullet::run(&vulkan_ctx, allocator.clone(), output_path)
+                .context("run static RTX tracer bullet")?;
         }
 
         let mut terrain_persistence =
