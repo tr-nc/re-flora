@@ -1,0 +1,1594 @@
+{
+  "artifacts": [
+    {
+      "command": [
+        "target/rtx-static-tracer-bullet/re-flora-49945c59",
+        "--hidden",
+        "--mute",
+        "--rtx-static-tracer-bullet",
+        "docs/evidence/rtx_static_tracer_bullet/raw/static_b1.toml",
+        "--auto-exit",
+        "0.5"
+      ],
+      "generated_at": "2026-09-05T00:11:55.101525982+08:00",
+      "path": "docs/evidence/rtx_static_tracer_bullet/raw/static_b1.toml",
+      "schema": "re-flora.rtx-static-tracer-bullet.v1",
+      "sha256": "848a75b78345cb3c1848a2624e2de96283bc6f446c162ba7cb97f5fbc9cdc6a3"
+    },
+    {
+      "command": [
+        "target/rtx-static-tracer-bullet/re-flora-49945c59",
+        "--hidden",
+        "--mute",
+        "--rtx-static-tracer-bullet",
+        "docs/evidence/rtx_static_tracer_bullet/raw/static_b2.toml",
+        "--auto-exit",
+        "0.5"
+      ],
+      "generated_at": "2026-09-05T00:12:42.957729975+08:00",
+      "path": "docs/evidence/rtx_static_tracer_bullet/raw/static_b2.toml",
+      "schema": "re-flora.rtx-static-tracer-bullet.v1",
+      "sha256": "febffce55a0ff8a3f26a7d7ffb7ab5f93dfd49687474622b8e429daa97830413"
+    }
+  ],
+  "binary_sha256": "0f26d405ea2059d0d2df2f47f4daf49c87a025a53df1a2e0fdc0dff5cb4054ce",
+  "fixed_baseline": "7ce60e06f1b70793c18339ce60a59a61c985aa82",
+  "highest_credible_triangle_speedup": 1.3090557181945681,
+  "highest_credible_triangle_speedup_volume": "dense_75_percent_with_fixture",
+  "illustrative_amdahl_only": {
+    "assumed_replaced_fraction_to_bound": {
+      "0.25": 1.0627248291966422,
+      "0.5": 1.1338450673837426,
+      "0.75": 1.2151671306241947,
+      "1.0": 1.3090557181945681
+    },
+    "local_speedup": 1.3090557181945681,
+    "warning": "No production fraction was measured; these are hypothetical bounds, not frame predictions."
+  },
+  "machine": {
+    "acceleration_structure_extension": true,
+    "acceleration_structure_feature": true,
+    "api_version": "1.4.312",
+    "device_id": 9353,
+    "device_name": "NVIDIA GeForce RTX 3060 Ti",
+    "device_type": "DISCRETE_GPU",
+    "device_uuid_hex": "2cf8ee5131672062b2a587c546461acb",
+    "driver_uuid_hex": "c7d8a05ebe165883a8186d61bf0812b6",
+    "driver_version_raw": 2435301632,
+    "ray_query_extension": true,
+    "ray_query_feature": true,
+    "ray_tracing_pipeline_extension": true,
+    "timestamp_period_ns": 1.0,
+    "vendor_id": 4318
+  },
+  "method": {
+    "artifact_count": 2,
+    "pooled_samples_per_mode_per_volume": 24,
+    "sample_order": [
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles"
+    ],
+    "samples_per_mode_per_artifact_per_volume": 12,
+    "scope": "static build-once synthetic traversal only; no production whole-frame claim",
+    "units": "GPU timestamp milliseconds; ns/ray; Mray/s",
+    "warmups_per_mode": 2
+  },
+  "prototype_notice": "PROTOTYPE/TRACER BULLET: static build-once traversal ceiling only; discardable and not production architecture",
+  "results": [
+    {
+      "aabb_broad_phase_rejection_fraction": 0.04440385412366512,
+      "aabb_speedup_per_artifact": [
+        0.42836125186615204,
+        0.421647167961287
+      ],
+      "aabb_speedup_software_over_aabb": 0.42725863679813364,
+      "actual_density_percent": {
+        "count": 2,
+        "max": 5.6003570556640625,
+        "mean": 5.6003570556640625,
+        "median": 5.6003570556640625,
+        "min": 5.6003570556640625,
+        "p95": 5.6003570556640625
+      },
+      "build": {
+        "aabb_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 551168.0,
+            "mean": 551168.0,
+            "median": 551168.0,
+            "min": 551168.0,
+            "p95": 551168.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.670368,
+            "mean": 0.485328,
+            "median": 0.485328,
+            "min": 0.300288,
+            "p95": 0.6518639999999999
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 2.618135,
+            "mean": 1.567914,
+            "median": 1.567914,
+            "min": 0.517693,
+            "p95": 2.5131129
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 1120384.0,
+            "mean": 1120384.0,
+            "median": 1120384.0,
+            "min": 1120384.0,
+            "p95": 1120384.0
+          }
+        },
+        "aabb_extraction_host_ms": {
+          "count": 2,
+          "max": 0.020495,
+          "mean": 0.017193,
+          "median": 0.017193,
+          "min": 0.013890999999999999,
+          "p95": 0.0201648
+        },
+        "aabb_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.355392,
+            "mean": 0.19832,
+            "median": 0.19832,
+            "min": 0.041248,
+            "p95": 0.3396848
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 2.171255,
+            "mean": 1.1995685,
+            "median": 1.1995685,
+            "min": 0.227882,
+            "p95": 2.07408635
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        },
+        "triangle_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 10909056.0,
+            "mean": 10909056.0,
+            "median": 10909056.0,
+            "min": 10909056.0,
+            "p95": 10909056.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 1.106016,
+            "mean": 1.063056,
+            "median": 1.063056,
+            "min": 1.020096,
+            "p95": 1.10172
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 2.39149,
+            "mean": 2.2604585000000004,
+            "median": 2.2604585000000004,
+            "min": 2.129427,
+            "p95": 2.37838685
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 3299712.0,
+            "mean": 3299712.0,
+            "median": 3299712.0,
+            "min": 3299712.0,
+            "p95": 3299712.0
+          }
+        },
+        "triangle_extraction_host_ms": {
+          "count": 2,
+          "max": 4.884897,
+          "mean": 4.7151309999999995,
+          "median": 4.7151309999999995,
+          "min": 4.545365,
+          "p95": 4.867920399999999
+        },
+        "triangle_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.3536,
+            "mean": 0.19931200000000002,
+            "median": 0.19931200000000002,
+            "min": 0.045024,
+            "p95": 0.3381712
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 1.508782,
+            "mean": 0.8753635000000001,
+            "median": 0.8753635000000001,
+            "min": 0.241945,
+            "p95": 1.44544015
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        }
+      },
+      "exposed_face_count": 77942,
+      "memory": {
+        "build_peak_accounted_bytes": {
+          "count": 2,
+          "max": 108093388.0,
+          "mean": 108093388.0,
+          "median": 108093388.0,
+          "min": 108093388.0,
+          "p95": 108093388.0
+        },
+        "peak_device_local_heap_usage_bytes": {
+          "count": 2,
+          "max": 452132864.0,
+          "mean": 452132864.0,
+          "median": 452132864.0,
+          "min": 452132864.0,
+          "p95": 452132864.0
+        },
+        "static_live_resource_bytes": {
+          "count": 2,
+          "max": 97704772.0,
+          "mean": 97704772.0,
+          "median": 97704772.0,
+          "min": 97704772.0,
+          "p95": 97704772.0
+        }
+      },
+      "modes": {
+        "exposed_face_triangles": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 1024825.0,
+            "mean": 1024825.0,
+            "median": 1024825.0,
+            "min": 1024825.0,
+            "p95": 1024825.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 124.56656,
+            "mean": 116.340528,
+            "median": 116.037632,
+            "min": 104.896832,
+            "p95": 123.19890079999999
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1024825.0,
+            "mean": 1024825.0,
+            "median": 1024825.0,
+            "min": 1024825.0,
+            "p95": 1024825.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00018310547,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 9.996259944246933,
+            "mean": 9.026728359652848,
+            "median": 9.03651908019351,
+            "min": 8.417796879033988,
+            "p95": 9.506492946262865
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 118.79592895507812,
+            "mean": 110.95097351074219,
+            "median": 110.662109375,
+            "min": 100.03741455078125,
+            "p95": 117.4916275024414
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "software_dda": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 75.30336,
+            "mean": 69.340384,
+            "median": 69.620496,
+            "min": 61.767424,
+            "p95": 73.83123359999999
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1024825.0,
+            "mean": 1024825.0,
+            "median": 1024825.0,
+            "min": 1024825.0,
+            "p95": 1024825.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00035858154,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 16.976197679864388,
+            "mean": 15.154700123977385,
+            "median": 15.061800426314637,
+            "min": 13.924690744211148,
+            "p95": 16.349080339150056
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 71.81488037109375,
+            "mean": 66.12814331054688,
+            "median": 66.39527893066406,
+            "min": 58.906005859375,
+            "p95": 70.41095123291015
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "voxel_aabb_exact": {
+          "candidate_count": {
+            "count": 24,
+            "max": 1237843.0,
+            "mean": 1237843.0,
+            "median": 1237843.0,
+            "min": 1237843.0,
+            "p95": 1237843.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 1024825.0,
+            "mean": 1024825.0,
+            "median": 1024825.0,
+            "min": 1024825.0,
+            "p95": 1024825.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 1182878.0,
+            "mean": 1182878.0,
+            "median": 1182878.0,
+            "min": 1182878.0,
+            "p95": 1182878.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 1031070.0,
+            "mean": 1031070.0,
+            "median": 1031070.0,
+            "min": 1031070.0,
+            "p95": 1031070.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 181.30048,
+            "mean": 165.08640666666668,
+            "median": 162.94696,
+            "min": 149.690784,
+            "p95": 179.43226239999998
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1024825.0,
+            "mean": 1024825.0,
+            "median": 1024825.0,
+            "min": 1024825.0,
+            "p95": 1024825.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00018310547,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 7.004946944495928,
+            "mean": 6.369004863720107,
+            "median": 6.4350756138702625,
+            "min": 5.783636094068808,
+            "p95": 6.803754374214934
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 172.901611328125,
+            "mean": 157.43866602579752,
+            "median": 155.39833068847656,
+            "min": 142.75625610351562,
+            "p95": 171.11994018554688
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 54965.0,
+            "mean": 54965.0,
+            "median": 54965.0,
+            "min": 54965.0,
+            "p95": 54965.0
+          },
+          "traversal_exhausted_count_max": 0
+        }
+      },
+      "occupied_voxel_count": 14681,
+      "surface_voxel_count": 14681,
+      "triangle_primitive_count": 155884,
+      "triangle_speedup_per_artifact": [
+        0.608473037798946,
+        0.5883982770144495
+      ],
+      "triangle_speedup_software_over_triangle": 0.5999820472034452,
+      "volume": "sparse_5_percent_with_fixture"
+    },
+    {
+      "aabb_broad_phase_rejection_fraction": 0.05700032857261876,
+      "aabb_speedup_per_artifact": [
+        1.3254175196343159,
+        1.2478807706835089
+      ],
+      "aabb_speedup_software_over_aabb": 1.2935031531200105,
+      "actual_density_percent": {
+        "count": 2,
+        "max": 74.09400939941406,
+        "mean": 74.09400939941406,
+        "median": 74.09400939941406,
+        "min": 74.09400939941406,
+        "p95": 74.09400939941406
+      },
+      "build": {
+        "aabb_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 6104192.0,
+            "mean": 6104192.0,
+            "median": 6104192.0,
+            "min": 6104192.0,
+            "p95": 6104192.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.838944,
+            "mean": 0.8324,
+            "median": 0.8324,
+            "min": 0.825856,
+            "p95": 0.8382896
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 1.156326,
+            "mean": 1.040677,
+            "median": 1.040677,
+            "min": 0.9250280000000001,
+            "p95": 1.1447611
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 12423424.0,
+            "mean": 12423424.0,
+            "median": 12423424.0,
+            "min": 12423424.0,
+            "p95": 12423424.0
+          }
+        },
+        "aabb_extraction_host_ms": {
+          "count": 2,
+          "max": 0.26129199999999997,
+          "mean": 0.2553385,
+          "median": 0.2553385,
+          "min": 0.24938500000000002,
+          "p95": 0.26069665
+        },
+        "aabb_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.039808,
+            "mean": 0.039728,
+            "median": 0.039728,
+            "min": 0.039648,
+            "p95": 0.0398
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 0.22544,
+            "mean": 0.1657625,
+            "median": 0.1657625,
+            "min": 0.106085,
+            "p95": 0.21947225
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        },
+        "triangle_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 42710144.0,
+            "mean": 42710144.0,
+            "median": 42710144.0,
+            "min": 42710144.0,
+            "p95": 42710144.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 3.058624,
+            "mean": 3.055536,
+            "median": 3.055536,
+            "min": 3.052448,
+            "p95": 3.0583152
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 3.938125,
+            "mean": 3.6809325,
+            "median": 3.6809325,
+            "min": 3.42374,
+            "p95": 3.91240575
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 12918144.0,
+            "mean": 12918144.0,
+            "median": 12918144.0,
+            "min": 12918144.0,
+            "p95": 12918144.0
+          }
+        },
+        "triangle_extraction_host_ms": {
+          "count": 2,
+          "max": 19.187935,
+          "mean": 18.254404,
+          "median": 18.254404,
+          "min": 17.320873,
+          "p95": 19.0945819
+        },
+        "triangle_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.040768,
+            "mean": 0.040672,
+            "median": 0.040672,
+            "min": 0.040576,
+            "p95": 0.0407584
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 0.302921,
+            "mean": 0.217975,
+            "median": 0.217975,
+            "min": 0.133029,
+            "p95": 0.2944264
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        }
+      },
+      "exposed_face_count": 305264,
+      "memory": {
+        "build_peak_accounted_bytes": {
+          "count": 2,
+          "max": 190529068.0,
+          "mean": 190529068.0,
+          "median": 190529068.0,
+          "min": 190529068.0,
+          "p95": 190529068.0
+        },
+        "peak_device_local_heap_usage_bytes": {
+          "count": 2,
+          "max": 452132864.0,
+          "mean": 452132864.0,
+          "median": 452132864.0,
+          "min": 452132864.0,
+          "p95": 452132864.0
+        },
+        "static_live_resource_bytes": {
+          "count": 2,
+          "max": 139289716.0,
+          "mean": 139289716.0,
+          "median": 139289716.0,
+          "min": 139289716.0,
+          "p95": 139289716.0
+        }
+      },
+      "modes": {
+        "exposed_face_triangles": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 1048576.0,
+            "mean": 1048576.0,
+            "median": 1048576.0,
+            "min": 1048576.0,
+            "p95": 1048576.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 177.67472,
+            "mean": 164.542948,
+            "median": 164.59628800000002,
+            "min": 147.01408,
+            "p95": 176.9854976
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1048576.0,
+            "mean": 1048576.0,
+            "median": 1048576.0,
+            "min": 1048576.0,
+            "p95": 1048576.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 1.5258789e-05,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 7.1324869019348345,
+            "mean": 6.393253852899517,
+            "median": 6.370764788270972,
+            "min": 5.901661192993578,
+            "p95": 6.916390600142499
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 169.44381713867188,
+            "mean": 156.92038345336914,
+            "median": 156.97125244140625,
+            "min": 140.20355224609375,
+            "p95": 168.7865234375
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "software_dda": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 227.158528,
+            "mean": 214.69361466666666,
+            "median": 215.465712,
+            "min": 196.111968,
+            "p95": 224.4285872
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1048576.0,
+            "mean": 1048576.0,
+            "median": 1048576.0,
+            "min": 1048576.0,
+            "p95": 1048576.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 1.5258789e-05,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 5.346823096487411,
+            "mean": 4.889865953138806,
+            "median": 4.866560926236307,
+            "min": 4.616053859972187,
+            "p95": 5.187691845771497
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 216.63525390625,
+            "mean": 204.74778620402017,
+            "median": 205.48411560058594,
+            "min": 187.02694702148438,
+            "p95": 214.0317794799805
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "voxel_aabb_exact": {
+          "candidate_count": {
+            "count": 24,
+            "max": 2136514.0,
+            "mean": 2136514.0,
+            "median": 2136514.0,
+            "min": 2136514.0,
+            "p95": 2136514.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 1048576.0,
+            "mean": 1048576.0,
+            "median": 1048576.0,
+            "min": 1048576.0,
+            "p95": 1048576.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 2014732.0,
+            "mean": 2014732.0,
+            "median": 2014732.0,
+            "min": 2014732.0,
+            "p95": 2014732.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 1073542.0,
+            "mean": 1073542.0,
+            "median": 1073542.0,
+            "min": 1073542.0,
+            "p95": 1073542.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 176.299456,
+            "mean": 167.49369733333333,
+            "median": 166.575328,
+            "min": 156.471744,
+            "p95": 176.09325760000002
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 1048576.0,
+            "mean": 1048576.0,
+            "median": 1048576.0,
+            "min": 1048576.0,
+            "p95": 1048576.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 1.5258789e-05,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 6.701376064422212,
+            "mean": 6.26729927015494,
+            "median": 6.294913921231222,
+            "min": 5.9476984432668925,
+            "p95": 6.577370120739772
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 168.13226318359375,
+            "mean": 159.73443730672201,
+            "median": 158.85861206054688,
+            "min": 149.22308349609375,
+            "p95": 167.9356170654297
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 121782.0,
+            "mean": 121782.0,
+            "median": 121782.0,
+            "min": 121782.0,
+            "p95": 121782.0
+          },
+          "traversal_exhausted_count_max": 0
+        }
+      },
+      "occupied_voxel_count": 194233,
+      "surface_voxel_count": 163101,
+      "triangle_primitive_count": 610528,
+      "triangle_speedup_per_artifact": [
+        1.3922824357987187,
+        1.222826039419443
+      ],
+      "triangle_speedup_software_over_triangle": 1.3090557181945681,
+      "volume": "dense_75_percent_with_fixture"
+    },
+    {
+      "aabb_broad_phase_rejection_fraction": 0.062123759233811617,
+      "aabb_speedup_per_artifact": [
+        0.4369045844671882,
+        0.4329428700358791
+      ],
+      "aabb_speedup_software_over_aabb": 0.4335451168233734,
+      "actual_density_percent": {
+        "count": 2,
+        "max": 0.61187744140625,
+        "mean": 0.61187744140625,
+        "median": 0.61187744140625,
+        "min": 0.61187744140625,
+        "p95": 0.61187744140625
+      },
+      "build": {
+        "aabb_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 61952.0,
+            "mean": 61952.0,
+            "median": 61952.0,
+            "min": 61952.0,
+            "p95": 61952.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.359456,
+            "mean": 0.265168,
+            "median": 0.265168,
+            "min": 0.17088,
+            "p95": 0.3500272
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 1.2895109999999999,
+            "mean": 0.7932849999999999,
+            "median": 0.7932849999999999,
+            "min": 0.297059,
+            "p95": 1.2398884
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 124416.0,
+            "mean": 124416.0,
+            "median": 124416.0,
+            "min": 124416.0,
+            "p95": 124416.0
+          }
+        },
+        "aabb_extraction_host_ms": {
+          "count": 2,
+          "max": 0.002924,
+          "mean": 0.0022895,
+          "median": 0.0022895,
+          "min": 0.001655,
+          "p95": 0.00286055
+        },
+        "aabb_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.193312,
+            "mean": 0.11464,
+            "median": 0.11464,
+            "min": 0.035968,
+            "p95": 0.18544480000000002
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 1.2751869999999998,
+            "mean": 0.6989439999999999,
+            "median": 0.6989439999999999,
+            "min": 0.12270099999999999,
+            "p95": 1.2175626999999998
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        },
+        "triangle_blas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 491136.0,
+            "mean": 491136.0,
+            "median": 491136.0,
+            "min": 491136.0,
+            "p95": 491136.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.30704,
+            "mean": 0.30696,
+            "median": 0.30696,
+            "min": 0.30688,
+            "p95": 0.30703199999999997
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 0.739454,
+            "mean": 0.676801,
+            "median": 0.676801,
+            "min": 0.614148,
+            "p95": 0.7331886999999999
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 148608.0,
+            "mean": 148608.0,
+            "median": 148608.0,
+            "min": 148608.0,
+            "p95": 148608.0
+          }
+        },
+        "triangle_extraction_host_ms": {
+          "count": 2,
+          "max": 0.25053800000000004,
+          "mean": 0.233443,
+          "median": 0.233443,
+          "min": 0.21634799999999998,
+          "p95": 0.24882850000000004
+        },
+        "triangle_tlas": {
+          "acceleration_structure_bytes": {
+            "count": 2,
+            "max": 2048.0,
+            "mean": 2048.0,
+            "median": 2048.0,
+            "min": 2048.0,
+            "p95": 2048.0
+          },
+          "gpu_build_ms": {
+            "count": 2,
+            "max": 0.0376,
+            "mean": 0.036736000000000005,
+            "median": 0.036736000000000005,
+            "min": 0.035872,
+            "p95": 0.0375136
+          },
+          "host_build_ms": {
+            "count": 2,
+            "max": 0.231244,
+            "mean": 0.173964,
+            "median": 0.173964,
+            "min": 0.116684,
+            "p95": 0.225516
+          },
+          "scratch_bytes": {
+            "count": 2,
+            "max": 2176.0,
+            "mean": 2176.0,
+            "median": 2176.0,
+            "min": 2176.0,
+            "p95": 2176.0
+          }
+        }
+      },
+      "exposed_face_count": 3472,
+      "memory": {
+        "build_peak_accounted_bytes": {
+          "count": 2,
+          "max": 86119664.0,
+          "mean": 86119664.0,
+          "median": 86119664.0,
+          "min": 86119664.0,
+          "p95": 86119664.0
+        },
+        "peak_device_local_heap_usage_bytes": {
+          "count": 2,
+          "max": 452132864.0,
+          "mean": 452132864.0,
+          "median": 452132864.0,
+          "min": 452132864.0,
+          "p95": 452132864.0
+        },
+        "static_live_resource_bytes": {
+          "count": 2,
+          "max": 85553808.0,
+          "mean": 85553808.0,
+          "median": 85553808.0,
+          "min": 85553808.0,
+          "p95": 85553808.0
+        }
+      },
+      "modes": {
+        "exposed_face_triangles": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 105747.0,
+            "mean": 105747.0,
+            "median": 105747.0,
+            "min": 105747.0,
+            "p95": 105747.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 238.934976,
+            "mean": 213.93633599999998,
+            "median": 212.122544,
+            "min": 200.203168,
+            "p95": 235.61610080000003
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 105747.0,
+            "mean": 105747.0,
+            "median": 105747.0,
+            "min": 105747.0,
+            "p95": 105747.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00019836426,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 5.2375594775802945,
+            "mean": 4.912159271371788,
+            "median": 4.943259979795679,
+            "min": 4.388541257350284,
+            "p95": 5.195014079568594
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 227.86614990234375,
+            "mean": 204.0255889892578,
+            "median": 202.2958221435547,
+            "min": 190.92861938476562,
+            "p95": 224.7010238647461
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "software_dda": {
+          "candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 101.3232,
+            "mean": 91.386272,
+            "median": 91.5568,
+            "min": 83.836416,
+            "p95": 100.2020288
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 105747.0,
+            "mean": 105747.0,
+            "median": 105747.0,
+            "min": 105747.0,
+            "p95": 105747.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00039672852,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 12.507404896697874,
+            "mean": 11.503106393700861,
+            "median": 11.45273799816172,
+            "min": 10.348824356119822,
+            "p95": 12.468134027153452
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 96.62933349609375,
+            "mean": 87.15274047851562,
+            "median": 87.31536865234375,
+            "min": 79.95263671875,
+            "p95": 95.56010131835937
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 0.0,
+            "mean": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "p95": 0.0
+          },
+          "traversal_exhausted_count_max": 0
+        },
+        "voxel_aabb_exact": {
+          "candidate_count": {
+            "count": 24,
+            "max": 143359.0,
+            "mean": 143359.0,
+            "median": 143359.0,
+            "min": 143359.0,
+            "p95": 143359.0
+          },
+          "committed_candidate_count": {
+            "count": 24,
+            "max": 105747.0,
+            "mean": 105747.0,
+            "median": 105747.0,
+            "min": 105747.0,
+            "p95": 105747.0
+          },
+          "committed_disagreement_count_max": 0,
+          "confirmed_candidate_count": {
+            "count": 24,
+            "max": 134453.0,
+            "mean": 134453.0,
+            "median": 134453.0,
+            "min": 134453.0,
+            "p95": 134453.0
+          },
+          "correctness_count_max": {
+            "committed_false_positive_count": 0,
+            "false_negative_count": 0,
+            "false_positive_count": 0,
+            "hit_t_mismatch_count": 0,
+            "primitive_mapping_mismatch_count": 0,
+            "wrong_face_count": 0,
+            "wrong_normal_count": 0,
+            "wrong_voxel_count": 0
+          },
+          "generated_candidate_count": {
+            "count": 24,
+            "max": 106102.0,
+            "mean": 106102.0,
+            "median": 106102.0,
+            "min": 106102.0,
+            "p95": 106102.0
+          },
+          "gpu_ms": {
+            "count": 24,
+            "max": 230.528064,
+            "mean": 211.15879066666665,
+            "median": 211.181712,
+            "min": 198.72592,
+            "p95": 219.7301568
+          },
+          "hit_count": {
+            "count": 24,
+            "max": 105747.0,
+            "mean": 105747.0,
+            "median": 105747.0,
+            "min": 105747.0,
+            "p95": 105747.0
+          },
+          "hit_t_tolerance": 0.002,
+          "max_hit_t_error": 0.00019836426,
+          "mrays_per_second": {
+            "count": 24,
+            "max": 5.276493373385817,
+            "mean": 4.971179284534679,
+            "median": 4.965281818491372,
+            "min": 4.548582857139684,
+            "p95": 5.2316156284948
+          },
+          "ns_per_ray": {
+            "count": 24,
+            "max": 219.84869384765625,
+            "mean": 201.37671534220377,
+            "median": 201.39857482910156,
+            "min": 189.51980590820312,
+            "p95": 209.55100708007814
+          },
+          "rejected_candidate_count": {
+            "count": 24,
+            "max": 8906.0,
+            "mean": 8906.0,
+            "median": 8906.0,
+            "min": 8906.0,
+            "p95": 8906.0
+          },
+          "traversal_exhausted_count_max": 0
+        }
+      },
+      "occupied_voxel_count": 1604,
+      "surface_voxel_count": 1604,
+      "triangle_primitive_count": 6944,
+      "triangle_speedup_per_artifact": [
+        0.4360153628932528,
+        0.42175859429123963
+      ],
+      "triangle_speedup_software_over_triangle": 0.43162220419155445,
+      "volume": "shell_cavity"
+    }
+  ],
+  "run_logs": [
+    {
+      "path": "docs/evidence/rtx_static_tracer_bullet/raw/static_b1.console.log",
+      "sha256": "6edeb9e42ac6cf9c4c1aac353a6a421d4e4e9fd7a9a9303e3fc31f18b38088b6"
+    },
+    {
+      "path": "docs/evidence/rtx_static_tracer_bullet/raw/static_b2.console.log",
+      "sha256": "829adad88816d565251d1aede7646d6d28ec5d2629f413412b02d16ece7bdc40"
+    }
+  ],
+  "schema": "re-flora.rtx-static-tracer-bullet-summary.v1",
+  "source_head": "49945c5909d8565253881b27fd33f0b4b16a8e26",
+  "verdict": "NO-GO_ORDER_OF_MAGNITUDE_STATIC_TRAVERSAL",
+  "workload": {
+    "candidate_budget": 4096,
+    "max_dda_steps": 256,
+    "ray_count": 1048576,
+    "ray_grid_height": 1024,
+    "ray_grid_width": 1024,
+    "sample_order": [
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "exposed_face_triangles",
+      "voxel_aabb_exact",
+      "software_dda",
+      "software_dda",
+      "voxel_aabb_exact",
+      "exposed_face_triangles"
+    ],
+    "volumes": [
+      "sparse_5_percent_with_fixture",
+      "dense_75_percent_with_fixture",
+      "shell_cavity"
+    ],
+    "warmups_per_mode": 2,
+    "world_dimension": 64
+  }
+}

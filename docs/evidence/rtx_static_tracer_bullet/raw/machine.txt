@@ -1,0 +1,36 @@
+PROTOTYPE/TRACER BULLET capture identity
+captured_local_date=2026-09-05 Asia/Shanghai
+fixed_baseline=7ce60e06f1b70793c18339ce60a59a61c985aa82
+binary_source_head=49945c5909d8565253881b27fd33f0b4b16a8e26
+binary_sha256=0f26d405ea2059d0d2df2f47f4daf49c87a025a53df1a2e0fdc0dff5cb4054ce
+
+$ nvidia-smi --query-gpu=name,driver_version,memory.total,pci.bus_id --format=csv,noheader
+NVIDIA GeForce RTX 3060 Ti, 580.159.04, 8192 MiB, 00000000:01:00.0
+
+$ vulkaninfo --summary
+Vulkan Instance Version: 1.4.335
+GPU0 apiVersion=1.4.312 driverVersion=580.159.4.0 vendorID=0x10de deviceID=0x2489
+GPU0 deviceType=PHYSICAL_DEVICE_TYPE_DISCRETE_GPU deviceName=NVIDIA GeForce RTX 3060 Ti
+GPU0 driverID=DRIVER_ID_NVIDIA_PROPRIETARY driverName=NVIDIA driverInfo=580.159.04
+GPU0 conformanceVersion=1.4.1.3
+GPU0 deviceUUID=2cf8ee51-3167-2062-b2a5-87c546461acb
+GPU0 driverUUID=c7d8a05e-be16-5883-a818-6d61bf0812b6
+
+$ uname -a
+Linux fedora 7.0.12-101.fc43.x86_64 #1 SMP PREEMPT_DYNAMIC Thu Jun 11 01:32:26 UTC 2026 x86_64 GNU/Linux
+
+$ lscpu (selected fields)
+Architecture: x86_64
+CPU(s): 16
+Model name: 12th Gen Intel(R) Core(TM) i5-12600KF
+Thread(s) per core: 2
+Core(s) per socket: 10
+Socket(s): 1
+CPU max MHz: 4900.0000
+
+Capture commands (same frozen binary, sequential independent processes):
+target/rtx-static-tracer-bullet/re-flora-49945c59 --hidden --mute --rtx-static-tracer-bullet docs/evidence/rtx_static_tracer_bullet/raw/static_b1.toml --auto-exit 0.5
+target/rtx-static-tracer-bullet/re-flora-49945c59 --hidden --mute --rtx-static-tracer-bullet docs/evidence/rtx_static_tracer_bullet/raw/static_b2.toml --auto-exit 0.5
+
+Each artifact uses a fixed 64^3 volume, 1024x1024 (1,048,576) deterministic rays,
+2 warmups per mode, and 12 timed samples per mode in the embedded balanced order.

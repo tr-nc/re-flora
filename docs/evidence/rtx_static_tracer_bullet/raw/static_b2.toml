@@ -1,0 +1,3584 @@
+schema = "re-flora.rtx-static-tracer-bullet.v1"
+prototype_notice = "PROTOTYPE/TRACER BULLET: static build-once traversal ceiling only; discardable and not production architecture"
+fixed_baseline = "7ce60e06f1b70793c18339ce60a59a61c985aa82"
+generated_at = "2026-09-05T00:12:42.957729975+08:00"
+command = [
+    "target/rtx-static-tracer-bullet/re-flora-49945c59",
+    "--hidden",
+    "--mute",
+    "--rtx-static-tracer-bullet",
+    "docs/evidence/rtx_static_tracer_bullet/raw/static_b2.toml",
+    "--auto-exit",
+    "0.5",
+]
+coverage = [
+    "sparse",
+    "dense",
+    "shell",
+    "cavity",
+    "axis_parallel",
+    "grazing",
+    "world_boundary",
+    "diagonal",
+]
+memory_before_bytes = 48955392
+
+[machine]
+device_name = "NVIDIA GeForce RTX 3060 Ti"
+vendor_id = 4318
+device_id = 9353
+device_type = "DISCRETE_GPU"
+api_version = "1.4.312"
+driver_version_raw = 2435301632
+device_uuid_hex = "2cf8ee5131672062b2a587c546461acb"
+driver_uuid_hex = "c7d8a05ebe165883a8186d61bf0812b6"
+timestamp_period_ns = 1.0
+acceleration_structure_extension = true
+ray_query_extension = true
+ray_tracing_pipeline_extension = true
+acceleration_structure_feature = true
+ray_query_feature = true
+
+[workload]
+world_dimension = 64
+ray_grid_width = 1024
+ray_grid_height = 1024
+ray_count = 1048576
+candidate_budget = 4096
+max_dda_steps = 256
+warmups_per_mode = 2
+sample_order = [
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "exposed_face_triangles",
+    "voxel_aabb_exact",
+    "software_dda",
+    "software_dda",
+    "voxel_aabb_exact",
+    "exposed_face_triangles",
+]
+volumes = [
+    "sparse_5_percent_with_fixture",
+    "dense_75_percent_with_fixture",
+    "shell_cavity",
+]
+
+[[volumes]]
+name = "sparse_5_percent_with_fixture"
+occupied_voxel_count = 14681
+surface_voxel_count = 14681
+exposed_face_count = 77942
+triangle_primitive_count = 155884
+actual_density_percent = 5.6003570556640625
+static_live_resource_bytes = 97704772
+build_peak_accounted_bytes = 108093388
+peak_device_local_heap_usage_bytes = 452132864
+
+[volumes.build]
+triangle_extraction_host_ms = 4.884897
+aabb_extraction_host_ms = 0.020495
+triangle_vertex_input_bytes = 3741216
+triangle_index_input_bytes = 1870608
+triangle_metadata_bytes = 1247072
+aabb_input_bytes = 352344
+aabb_metadata_bytes = 58724
+
+[volumes.build.triangle_blas]
+primitive_count = 155884
+acceleration_structure_bytes = 10909056
+scratch_bytes = 3299712
+host_build_ms = 2.39149
+gpu_build_ms = 1.106016
+
+[volumes.build.triangle_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.241945
+gpu_build_ms = 0.045024
+
+[volumes.build.aabb_blas]
+primitive_count = 14681
+acceleration_structure_bytes = 551168
+scratch_bytes = 1120384
+host_build_ms = 0.517693
+gpu_build_ms = 0.300288
+
+[volumes.build.aabb_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.227882
+gpu_build_ms = 0.041248
+
+[[volumes.samples]]
+order_index = 0
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 61.767424
+host_wait_ms = 62.491267
+ns_per_ray = 58.906005859375
+mrays_per_second = 16.976197679864388
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 1
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 179.120768
+host_wait_ms = 179.718359
+ns_per_ray = 170.8228759765625
+mrays_per_second = 5.854016883179062
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 2
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 111.62336
+host_wait_ms = 111.935549
+ns_per_ray = 106.45233154296875
+mrays_per_second = 9.393875977214805
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 3
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 110.533408
+host_wait_ms = 110.857238
+ns_per_ray = 105.41287231445313
+mrays_per_second = 9.486507463879157
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 4
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 149.690784
+host_wait_ms = 150.98044199999998
+ns_per_ray = 142.75625610351563
+mrays_per_second = 7.004946944495928
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 5
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 65.523104
+host_wait_ms = 66.2943
+ns_per_ray = 62.487701416015625
+mrays_per_second = 16.003149057163103
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 6
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 115.258048
+host_wait_ms = 116.253051
+ns_per_ray = 109.91864013671875
+mrays_per_second = 9.097638023507045
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 7
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 165.611776
+host_wait_ms = 167.089619
+ns_per_ray = 157.939697265625
+mrays_per_second = 6.3315304341642955
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 8
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 72.33008
+host_wait_ms = 76.18515400000001
+ns_per_ray = 68.97933959960938
+mrays_per_second = 14.497094431528348
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 9
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 63.930432
+host_wait_ms = 64.28557599999999
+ns_per_ray = 60.96881103515625
+mrays_per_second = 16.401828787892438
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 10
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 160.363712
+host_wait_ms = 162.16139299999998
+ns_per_ray = 152.93475341796875
+mrays_per_second = 6.538736144995197
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 11
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 124.56656
+host_wait_ms = 124.959559
+ns_per_ray = 118.79592895507813
+mrays_per_second = 8.417796879033988
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 12
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 68.789792
+host_wait_ms = 72.296833
+ns_per_ray = 65.60305786132813
+mrays_per_second = 15.243191896844229
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 13
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 162.838528
+host_wait_ms = 164.049623
+ns_per_ray = 155.294921875
+mrays_per_second = 6.439360591616254
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 14
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 117.629504
+host_wait_ms = 118.62808299999999
+ns_per_ray = 112.18023681640625
+mrays_per_second = 8.914226145168477
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 15
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 116.09712
+host_wait_ms = 116.427215
+ns_per_ray = 110.71884155273438
+mrays_per_second = 9.03188640682904
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 16
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 158.299936
+host_wait_ms = 159.280789
+ns_per_ray = 150.96658325195313
+mrays_per_second = 6.623982463265177
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 17
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 68.570496
+host_wait_ms = 71.191014
+ns_per_ray = 65.3939208984375
+mrays_per_second = 15.291941303735065
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 18
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 118.920384
+host_wait_ms = 120.582652
+ns_per_ray = 113.41131591796875
+mrays_per_second = 8.817462277955645
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 19
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 176.247904
+host_wait_ms = 177.485979
+ns_per_ray = 168.08309936523438
+mrays_per_second = 5.9494381277861885
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 20
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 73.14416
+host_wait_ms = 74.51363699999999
+ns_per_ray = 69.75570678710938
+mrays_per_second = 14.335744644548518
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 21
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 73.915392
+host_wait_ms = 75.735236
+ns_per_ray = 70.4912109375
+mrays_per_second = 14.186165717689763
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 22
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 176.04144
+host_wait_ms = 176.421758
+ns_per_ray = 167.88619995117188
+mrays_per_second = 5.956415716663076
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 23
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 122.634528
+host_wait_ms = 124.301146
+ns_per_ray = 116.95339965820313
+mrays_per_second = 8.550414121543323
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 24
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 73.354336
+host_wait_ms = 75.616104
+ns_per_ray = 69.95614624023438
+mrays_per_second = 14.294669642977885
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 25
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 162.93216
+host_wait_ms = 164.717047
+ns_per_ray = 155.38421630859375
+mrays_per_second = 6.43566009313324
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 26
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 115.978144
+host_wait_ms = 117.300587
+ns_per_ray = 110.60537719726563
+mrays_per_second = 9.041151753557982
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 27
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 117.350688
+host_wait_ms = 117.68680099999999
+ns_per_ray = 111.91433715820313
+mrays_per_second = 8.935405645001415
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 28
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 159.304416
+host_wait_ms = 160.29526099999998
+ns_per_ray = 151.92453002929688
+mrays_per_second = 6.5822155237680295
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 29
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 68.191936
+host_wait_ms = 69.681039
+ns_per_ray = 65.03289794921875
+mrays_per_second = 15.37683282668496
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 30
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 115.529984
+host_wait_ms = 117.693681
+ns_per_ray = 110.177978515625
+mrays_per_second = 9.076223883143617
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 31
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 159.677056
+host_wait_ms = 160.889882
+ns_per_ray = 152.2799072265625
+mrays_per_second = 6.566854539201926
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 32
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 70.63888
+host_wait_ms = 72.43914699999999
+ns_per_ray = 67.36648559570313
+mrays_per_second = 14.84417646485901
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 33
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 65.331136
+host_wait_ms = 65.945953
+ns_per_ray = 62.30462646484375
+mrays_per_second = 16.050172462943245
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00035858154
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 34
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 172.71904
+host_wait_ms = 174.98997799999998
+ns_per_ray = 164.71771240234375
+mrays_per_second = 6.070992520569822
+hit_count = 1024825
+candidate_count = 1237843
+rejected_candidate_count = 54965
+generated_candidate_count = 1031070
+confirmed_candidate_count = 1182878
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 35
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 121.307968
+host_wait_ms = 121.694119
+ns_per_ray = 115.68829345703125
+mrays_per_second = 8.643916943691613
+hit_count = 1024825
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1024825
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00018310547
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes]]
+name = "dense_75_percent_with_fixture"
+occupied_voxel_count = 194233
+surface_voxel_count = 163101
+exposed_face_count = 305264
+triangle_primitive_count = 610528
+actual_density_percent = 74.09400939941406
+static_live_resource_bytes = 139289716
+build_peak_accounted_bytes = 190529068
+peak_device_local_heap_usage_bytes = 452132864
+
+[volumes.build]
+triangle_extraction_host_ms = 19.187935
+aabb_extraction_host_ms = 0.26129199999999997
+triangle_vertex_input_bytes = 14652672
+triangle_index_input_bytes = 7326336
+triangle_metadata_bytes = 4884224
+aabb_input_bytes = 3914424
+aabb_metadata_bytes = 652404
+
+[volumes.build.triangle_blas]
+primitive_count = 610528
+acceleration_structure_bytes = 42710144
+scratch_bytes = 12918144
+host_build_ms = 3.42374
+gpu_build_ms = 3.058624
+
+[volumes.build.triangle_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.133029
+gpu_build_ms = 0.040576
+
+[volumes.build.aabb_blas]
+primitive_count = 163101
+acceleration_structure_bytes = 6104192
+scratch_bytes = 12423424
+host_build_ms = 0.9250280000000001
+gpu_build_ms = 0.838944
+
+[volumes.build.aabb_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.106085
+gpu_build_ms = 0.039808
+
+[[volumes.samples]]
+order_index = 0
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 213.008672
+host_wait_ms = 214.50116799999998
+ns_per_ray = 203.14089965820313
+mrays_per_second = 4.9226915982087345
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 1
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 176.299456
+host_wait_ms = 177.262747
+ns_per_ray = 168.13226318359375
+mrays_per_second = 5.9476984432668925
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 2
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 167.325408
+host_wait_ms = 168.66953600000002
+ns_per_ray = 159.57394409179688
+mrays_per_second = 6.266687244533717
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 3
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 171.7656
+host_wait_ms = 172.08172
+ns_per_ray = 163.80844116210938
+mrays_per_second = 6.104691509825017
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 4
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 165.226656
+host_wait_ms = 166.885096
+ns_per_ray = 157.57241821289063
+mrays_per_second = 6.346288337397569
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 5
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 213.510944
+host_wait_ms = 215.301092
+ns_per_ray = 203.61990356445313
+mrays_per_second = 4.911111254325212
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 6
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 171.857536
+host_wait_ms = 172.55647399999998
+ns_per_ray = 163.8961181640625
+mrays_per_second = 6.101425776289495
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 7
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 163.42288
+host_wait_ms = 163.893088
+ns_per_ray = 155.85220336914063
+mrays_per_second = 6.416335338111774
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 8
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 196.111968
+host_wait_ms = 196.444558
+ns_per_ray = 187.02694702148438
+mrays_per_second = 5.346823096487411
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 9
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 201.738784
+host_wait_ms = 203.232169
+ns_per_ray = 192.39309692382813
+mrays_per_second = 5.197691684311926
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 10
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 168.930368
+host_wait_ms = 169.925987
+ns_per_ray = 161.10455322265625
+mrays_per_second = 6.207149208364952
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 11
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 165.4504
+host_wait_ms = 166.558974
+ns_per_ray = 157.78579711914063
+mrays_per_second = 6.3377060436239505
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 12
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 216.622528
+host_wait_ms = 217.222176
+ns_per_ray = 206.58734130859375
+mrays_per_second = 4.840567644007922
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 13
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 174.622112
+host_wait_ms = 174.960323
+ns_per_ray = 166.53262329101563
+mrays_per_second = 6.004829445654626
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 14
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 173.633728
+host_wait_ms = 174.59278799999998
+ns_per_ray = 165.59002685546875
+mrays_per_second = 6.0390110382240945
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 15
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 176.989664
+host_wait_ms = 178.23788199999998
+ns_per_ray = 168.79049682617188
+mrays_per_second = 5.924504156355706
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 16
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 163.288064
+host_wait_ms = 163.58979300000001
+ns_per_ray = 155.7236328125
+mrays_per_second = 6.421632875750184
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 17
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 204.359904
+host_wait_ms = 204.816375
+ns_per_ray = 194.89279174804688
+mrays_per_second = 5.131026094042401
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 18
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 173.921056
+host_wait_ms = 175.430453
+ns_per_ray = 165.86404418945313
+mrays_per_second = 6.029034230334941
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 19
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 171.646272
+host_wait_ms = 173.157888
+ns_per_ray = 163.69464111328125
+mrays_per_second = 6.108935473996196
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 20
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 224.453504
+host_wait_ms = 224.75886500000001
+ns_per_ray = 214.0555419921875
+mrays_per_second = 4.671684697780436
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 21
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 224.287392
+host_wait_ms = 225.274056
+ns_per_ray = 213.89712524414063
+mrays_per_second = 4.675144646561319
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 22
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 174.28608
+host_wait_ms = 174.69878699999998
+ns_per_ray = 166.212158203125
+mrays_per_second = 6.01640704753931
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 23
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 175.251808
+host_wait_ms = 176.334537
+ns_per_ray = 167.13314819335938
+mrays_per_second = 5.983253536534128
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 24
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 205.625536
+host_wait_ms = 207.94583799999998
+ns_per_ray = 196.09979248046875
+mrays_per_second = 5.099444458104658
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 25
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 166.38624
+host_wait_ms = 167.043476
+ns_per_ray = 158.67828369140625
+mrays_per_second = 6.302059593389454
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 26
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 176.961888
+host_wait_ms = 178.54871699999998
+ns_per_ray = 168.76400756835938
+mrays_per_second = 5.925434068605779
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 27
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 174.203584
+host_wait_ms = 176.825231
+ns_per_ray = 166.13348388671875
+mrays_per_second = 6.019256182467521
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 28
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 172.396736
+host_wait_ms = 174.50564599999998
+ns_per_ray = 164.41033935546875
+mrays_per_second = 6.082342533445645
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 29
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 218.6944
+host_wait_ms = 218.990395
+ns_per_ray = 208.563232421875
+mrays_per_second = 4.794708963741185
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 30
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 167.463392
+host_wait_ms = 167.788984
+ns_per_ray = 159.70553588867188
+mrays_per_second = 6.2615237125974375
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 31
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 176.297536
+host_wait_ms = 178.288262
+ns_per_ray = 168.13043212890625
+mrays_per_second = 5.947763217745709
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 32
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 211.990368
+host_wait_ms = 216.479162
+ns_per_ray = 202.16976928710938
+mrays_per_second = 4.9463379392784494
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 33
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 207.427232
+host_wait_ms = 208.662817
+ns_per_ray = 197.81802368164063
+mrays_per_second = 5.055151099928866
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 34
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 166.296288
+host_wait_ms = 167.193805
+ns_per_ray = 158.59249877929688
+mrays_per_second = 6.305468466018917
+hit_count = 1048576
+candidate_count = 2136514
+rejected_candidate_count = 121782
+generated_candidate_count = 1073542
+confirmed_candidate_count = 2014732
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 35
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 177.67472
+host_wait_ms = 179.601118
+ns_per_ray = 169.44381713867188
+mrays_per_second = 5.901661192993578
+hit_count = 1048576
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 1048576
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.000015258789
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes]]
+name = "shell_cavity"
+occupied_voxel_count = 1604
+surface_voxel_count = 1604
+exposed_face_count = 3472
+triangle_primitive_count = 6944
+actual_density_percent = 0.61187744140625
+static_live_resource_bytes = 85553808
+build_peak_accounted_bytes = 86119664
+peak_device_local_heap_usage_bytes = 452132864
+
+[volumes.build]
+triangle_extraction_host_ms = 0.25053800000000004
+aabb_extraction_host_ms = 0.001655
+triangle_vertex_input_bytes = 166656
+triangle_index_input_bytes = 83328
+triangle_metadata_bytes = 55552
+aabb_input_bytes = 38496
+aabb_metadata_bytes = 6416
+
+[volumes.build.triangle_blas]
+primitive_count = 6944
+acceleration_structure_bytes = 491136
+scratch_bytes = 148608
+host_build_ms = 0.739454
+gpu_build_ms = 0.30688
+
+[volumes.build.triangle_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 0.231244
+gpu_build_ms = 0.0376
+
+[volumes.build.aabb_blas]
+primitive_count = 1604
+acceleration_structure_bytes = 61952
+scratch_bytes = 124416
+host_build_ms = 1.2895109999999999
+gpu_build_ms = 0.359456
+
+[volumes.build.aabb_tlas]
+primitive_count = 1
+acceleration_structure_bytes = 2048
+scratch_bytes = 2176
+host_build_ms = 1.2751869999999998
+gpu_build_ms = 0.193312
+
+[[volumes.samples]]
+order_index = 0
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 84.803648
+host_wait_ms = 85.726528
+ns_per_ray = 80.87506103515625
+mrays_per_second = 12.364751101273379
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 1
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 207.741856
+host_wait_ms = 208.923106
+ns_per_ray = 198.11807250976563
+mrays_per_second = 5.04749509891738
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 2
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 202.782176
+host_wait_ms = 203.162005
+ns_per_ray = 193.38815307617188
+mrays_per_second = 5.170947568882977
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 3
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 203.478816
+host_wait_ms = 205.452596
+ns_per_ray = 194.05252075195313
+mrays_per_second = 5.153244060551247
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 4
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 219.884832
+host_wait_ms = 221.09797700000001
+ns_per_ray = 209.69851684570313
+mrays_per_second = 4.768750943221041
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 5
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 101.3232
+host_wait_ms = 102.453151
+ns_per_ray = 96.62933349609375
+mrays_per_second = 10.348824356119822
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 6
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 233.971616
+host_wait_ms = 235.100787
+ns_per_ray = 223.13272094726563
+mrays_per_second = 4.481637635908793
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 7
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 208.660576
+host_wait_ms = 209.83919600000002
+ns_per_ray = 198.99423217773438
+mrays_per_second = 5.025271280761729
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 8
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 93.171008
+host_wait_ms = 94.09539699999999
+ns_per_ray = 88.85479736328125
+mrays_per_second = 11.25431636416341
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 9
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 90.560928
+host_wait_ms = 91.573175
+ns_per_ray = 86.36563110351563
+mrays_per_second = 11.578679935788644
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 10
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 198.72592
+host_wait_ms = 199.11968199999998
+ns_per_ray = 189.51980590820313
+mrays_per_second = 5.276493373385817
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 11
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 203.435808
+host_wait_ms = 203.995466
+ns_per_ray = 194.01150512695313
+mrays_per_second = 5.154333498653295
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 12
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 84.55888
+host_wait_ms = 85.957825
+ns_per_ray = 80.64163208007813
+mrays_per_second = 12.400542675115847
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 13
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 205.041472
+host_wait_ms = 206.491988
+ns_per_ray = 195.54278564453125
+mrays_per_second = 5.113970309382094
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 14
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 211.574368
+host_wait_ms = 213.436531
+ns_per_ray = 201.77304077148438
+mrays_per_second = 4.956063486858673
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 15
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 226.237504
+host_wait_ms = 227.156894
+ns_per_ray = 215.75689697265625
+mrays_per_second = 4.6348460421486966
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 16
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 230.528064
+host_wait_ms = 234.71186699999998
+ns_per_ray = 219.84869384765625
+mrays_per_second = 4.548582857139684
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 17
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 89.736992
+host_wait_ms = 90.999977
+ns_per_ray = 85.57986450195313
+mrays_per_second = 11.684991625304312
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 18
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 208.15776
+host_wait_ms = 208.575292
+ns_per_ray = 198.51470947265625
+mrays_per_second = 5.037410087425998
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 19
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 200.387968
+host_wait_ms = 200.900309
+ns_per_ray = 191.1048583984375
+mrays_per_second = 5.2327293423126084
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 20
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 93.208544
+host_wait_ms = 93.76540299999999
+ns_per_ray = 88.89059448242188
+mrays_per_second = 11.249784139960386
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 21
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 84.020096
+host_wait_ms = 86.226005
+ns_per_ray = 80.1278076171875
+mrays_per_second = 12.480061912807146
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 22
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 200.672704
+host_wait_ms = 202.999441
+ns_per_ray = 191.37640380859375
+mrays_per_second = 5.2253045835272145
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 23
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 215.870304
+host_wait_ms = 216.970941
+ns_per_ray = 205.86996459960938
+mrays_per_second = 4.857435138461657
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 24
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 90.541472
+host_wait_ms = 91.4422
+ns_per_ray = 86.34707641601563
+mrays_per_second = 11.58116801988817
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 25
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 218.853664
+host_wait_ms = 221.343245
+ns_per_ray = 208.71511840820313
+mrays_per_second = 4.7912197622608685
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 26
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 235.906304
+host_wait_ms = 236.71033599999998
+ns_per_ray = 224.977783203125
+mrays_per_second = 4.444883338090024
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 27
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 238.934976
+host_wait_ms = 240.007992
+ns_per_ray = 227.86614990234375
+mrays_per_second = 4.388541257350284
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 28
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 211.007328
+host_wait_ms = 213.19452
+ns_per_ray = 201.23226928710938
+mrays_per_second = 4.9693819164422575
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 29
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 83.836416
+host_wait_ms = 84.227764
+ns_per_ray = 79.95263671875
+mrays_per_second = 12.507404896697874
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 30
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 200.203168
+host_wait_ms = 200.489801
+ns_per_ray = 190.92861938476563
+mrays_per_second = 5.2375594775802945
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 31
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 202.675936
+host_wait_ms = 203.334822
+ns_per_ray = 193.28683471679688
+mrays_per_second = 5.173658110058018
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 32
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 88.091936
+host_wait_ms = 88.41112299999999
+ns_per_ray = 84.01101684570313
+mrays_per_second = 11.903200765164248
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 33
+mode = "software_dda"
+ray_count = 1048576
+gpu_ms = 100.635584
+host_wait_ms = 101.63902800000001
+ns_per_ray = 95.97357177734375
+mrays_per_second = 10.419535102017196
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 0
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00039672852
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 34
+mode = "voxel_aabb_exact"
+ray_count = 1048576
+gpu_ms = 215.15712
+host_wait_ms = 219.172572
+ns_per_ray = 205.1898193359375
+mrays_per_second = 4.873536139543047
+hit_count = 105747
+candidate_count = 143359
+rejected_candidate_count = 8906
+generated_candidate_count = 106102
+confirmed_candidate_count = 134453
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
+
+[[volumes.samples]]
+order_index = 35
+mode = "exposed_face_triangles"
+ray_count = 1048576
+gpu_ms = 220.915424
+host_wait_ms = 221.845448
+ns_per_ray = 210.68136596679688
+mrays_per_second = 4.746504254949623
+hit_count = 105747
+candidate_count = 0
+rejected_candidate_count = 0
+generated_candidate_count = 0
+confirmed_candidate_count = 0
+committed_candidate_count = 105747
+traversal_exhausted_count = 0
+committed_disagreement_count = 0
+
+[volumes.samples.correctness]
+reference_ray_count = 1048576
+false_positive_count = 0
+committed_false_positive_count = 0
+false_negative_count = 0
+wrong_voxel_count = 0
+wrong_face_count = 0
+wrong_normal_count = 0
+primitive_mapping_mismatch_count = 0
+hit_t_mismatch_count = 0
+max_hit_t_error = 0.00019836426
+hit_t_tolerance = 0.002
+first_mismatches = []
