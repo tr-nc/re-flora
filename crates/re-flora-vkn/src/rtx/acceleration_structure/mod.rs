@@ -45,6 +45,46 @@ pub fn build_aabb_blas_profiled(
     )
 }
 
+/// PROTOTYPE/TRACER BULLET: build one static, opaque triangle geometry for peak traversal.
+#[cfg(feature = "rtx-voxel-experiment")]
+pub fn build_triangle_blas_profiled(
+    vulkan_ctx: &VulkanContext,
+    allocator: Allocator,
+    acc_device: khr::acceleration_structure::Device,
+    vertices: &Buffer,
+    vertex_count: u32,
+    indices: &Buffer,
+    primitive_count: u32,
+) -> ProfiledAccelerationStructure {
+    assert!(vertex_count > 0, "a triangle BLAS must contain vertices");
+    assert!(primitive_count > 0, "a triangle BLAS must contain primitives");
+    let triangles = vk::AccelerationStructureGeometryTrianglesDataKHR::default()
+        .vertex_format(vk::Format::R32G32B32_SFLOAT)
+        .vertex_data(vk::DeviceOrHostAddressConstKHR {
+            device_address: vertices.device_address(),
+        })
+        .vertex_stride(std::mem::size_of::<[f32; 3]>() as u64)
+        .max_vertex(vertex_count - 1)
+        .index_type(vk::IndexType::UINT32)
+        .index_data(vk::DeviceOrHostAddressConstKHR {
+            device_address: indices.device_address(),
+        });
+    let geom = vk::AccelerationStructureGeometryKHR {
+        geometry_type: vk::GeometryTypeKHR::TRIANGLES,
+        geometry: vk::AccelerationStructureGeometryDataKHR { triangles },
+        flags: vk::GeometryFlagsKHR::OPAQUE,
+        ..Default::default()
+    };
+    build_profiled(
+        vulkan_ctx,
+        allocator,
+        acc_device,
+        geom,
+        primitive_count,
+        vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL,
+    )
+}
+
 #[cfg(feature = "rtx-voxel-experiment")]
 pub fn build_tlas_profiled(
     vulkan_ctx: &VulkanContext,
