@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -67,6 +68,7 @@ class CheckDdgiSkyNormalizationEvidenceTests(unittest.TestCase):
             },
             "capture_contract": {
                 "field": "pre-transport-sky-only",
+                "proof_scope": checker.LEGACY_V2_PROOF_SCOPE,
                 "spacings_voxels": list(checker.SPACINGS),
                 "command_template": list(checker.COMMAND_TEMPLATE),
                 "authored_scene_marker": checker.AUTHORED_SCENE_MARKER,
@@ -98,6 +100,69 @@ class CheckDdgiSkyNormalizationEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = self.make_evidence(root, delta=2.0e-6)
+
+            failures = self.validate(evidence, root)
+
+        self.assertTrue(
+            any("channel_error_max exceeds hard threshold" in item for item in failures),
+            failures,
+        )
+
+    def test_legacy_comparator_rejects_version_and_metadata_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = self.make_evidence(root)
+            before = analyzer.load_capture(
+                root / "before/portal-spacing32-sky-only.rfirr"
+            )
+            after = analyzer.load_capture(
+                root / "after/portal-spacing32-sky-only.rfirr"
+            )
+
+            wrong_version = checker.compare_legacy_v2_payloads(
+                after, replace(before, version=3)
+            )
+            wrong_spacing = checker.compare_legacy_v2_payloads(
+                after, replace(before, spacing_voxels=16)
+            )
+
+        self.assertFalse(wrong_version["compatible"])
+        self.assertIn("version", wrong_version["metadata_mismatches"])
+        self.assertFalse(wrong_spacing["compatible"])
+        self.assertIn("spacing_voxels", wrong_spacing["metadata_mismatches"])
+
+    def test_legacy_comparator_rejects_nonfinite_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "capture.rfirr"
+            self.write_capture(path, 32, [(float("nan"), 0.5, 0.75, 1.0)])
+            capture = analyzer.load_capture(path)
+
+            comparison = checker.compare_legacy_v2_payloads(capture, capture)
+
+        self.assertFalse(comparison["compatible"])
+
+    def test_max_tail_cannot_hide_below_p99(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = self.make_evidence(root)
+            for spacing in checker.SPACINGS:
+                before = [(0.25, 0.5, 0.75, 1.0)] * 100
+                after = list(before)
+                after[-1] = (0.25 + 2.0e-6, 0.5, 0.75, 1.0)
+                self.write_capture(
+                    root / f"before/portal-spacing{spacing}-sky-only.rfirr",
+                    spacing,
+                    before,
+                )
+                self.write_capture(
+                    root / f"after/portal-spacing{spacing}-sky-only.rfirr",
+                    spacing,
+                    after,
+                )
+            evidence["cases"] = [
+                checker.collect_case(root, spacing) for spacing in checker.SPACINGS
+            ]
 
             failures = self.validate(evidence, root)
 

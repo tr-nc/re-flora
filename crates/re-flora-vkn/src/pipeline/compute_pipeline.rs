@@ -154,6 +154,13 @@ impl ComputePipeline {
             .publish_prepared(name, generation, pending)
     }
 
+    pub fn validate_prepared_descriptors(
+        &self,
+        pending: &PreparedDescriptorGeneration,
+    ) -> Result<()> {
+        self.0.descriptors.validate_prepared(pending)
+    }
+
     /// Starts a new frame for manually-bound buffer descriptor sets.
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
         self.0.descriptors.begin_transient_frame(frame_slot);

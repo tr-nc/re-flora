@@ -134,9 +134,9 @@ impl DdgiSpatialWeightReadbackRuntime {
         let field = terminal_field
             .context("cannot capture DDGI spatial weights before a terminal field is complete")?;
         ensure!(
-            active.published_field == Some(field),
+            active.published_field() == Some(field),
             "terminal DDGI field is not the published active field: terminal={field:?} published={:?}",
-            active.published_field,
+            active.published_field(),
         );
 
         let allocator = tracer

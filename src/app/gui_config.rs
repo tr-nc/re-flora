@@ -10,6 +10,7 @@ use crate::app::gui_config_model::{
     GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind,
     GuiParamValue, TreeGuiConfig,
 };
+use crate::app::tree_gui::edit_tree_desc;
 use crate::tree_gen::TreeDesc;
 use crate::wind::WindSource;
 use egui::Color32;
@@ -90,9 +91,8 @@ impl DebugSettings {
         render_gui_from_config(ui, config, adjustables, wind_sources, |section_name, ui| {
             if section_name == "Debug" {
                 ui.collapsing("Tree", |ui| {
-                    tree_desc_changed |= tree
-                        .desc
-                        .edit_by_gui_with_leaves_toggle(ui, Some(&mut tree.render_leaves));
+                    tree_desc_changed |=
+                        edit_tree_desc(ui, &mut tree.desc, Some(&mut tree.render_leaves));
                 });
             }
         });

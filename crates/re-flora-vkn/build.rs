@@ -17,7 +17,7 @@ fn main() {
     let shader_root = project_root.join("shader/slang");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
-    println!("cargo:rerun-if-changed={}", shader_root.display());
+    emit_shader_rerun_inputs(&shader_root);
     println!("cargo:rerun-if-env-changed=SLANGC");
     println!("cargo:rerun-if-env-changed=SLANG_LIB");
     println!("cargo:rerun-if-env-changed=VULKAN_SDK");
@@ -122,6 +122,27 @@ fn main() {
         compiled_shader_count,
         reused_shader_count,
     );
+}
+
+// Cargo does not recursively watch a directory named by rerun-if-changed.
+// Register every shader source so edits to imported modules invalidate the
+// build script before the dependency-digest cache decides what to recompile.
+fn emit_shader_rerun_inputs(shader_root: &Path) {
+    let mut pending = vec![shader_root.to_owned()];
+    while let Some(directory) = pending.pop() {
+        let mut entries = fs::read_dir(&directory)
+            .unwrap_or_else(|error| panic!("read shader directory {}: {error}", directory.display()))
+            .map(|entry| entry.expect("read shader directory entry").path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
 }
 
 // Cache entries use dependency paths reported by Slang after a successful

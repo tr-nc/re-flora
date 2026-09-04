@@ -236,6 +236,25 @@ class PerfSuiteTests(unittest.TestCase):
                 "[PERF][GPU_FRAME_SCOPE]\nvalidation error: VUID-test", scenario
             )
 
+    def test_validation_shares_the_exact_cosmetic_portal_exception(self) -> None:
+        scenario = self.scenario()
+        perf_suite.validate_log(
+            "[PERF][GPU_FRAME_SCOPE]\n"
+            "[12:34:56.789 ERROR sctk_adwaita::config] "
+            "XDG Settings Portal did not return response in time: "
+            "timeout: 100ms, key: color-scheme\n",
+            scenario,
+        )
+
+        with self.assertRaisesRegex(ValueError, "fatal or validation"):
+            perf_suite.validate_log(
+                "[PERF][GPU_FRAME_SCOPE]\n"
+                "[12:34:56.789 WARN sctk_adwaita::config] "
+                "XDG Settings Portal did not return response in time: "
+                "timeout: 100ms, key: color-scheme\n",
+                scenario,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

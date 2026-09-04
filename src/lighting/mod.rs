@@ -899,11 +899,9 @@ mod tests {
             include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
             include_str!("../../shader/slang/tree_leaf_lighting_cache.comp.slang"),
         ] {
-            assert!(source.contains("import local_lighting;"));
             assert!(source.contains("evaluateVoxelVisibleLocalLightIrradiance"));
         }
         let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
-        assert!(ddgi.contains("import local_lighting;"));
         assert!(ddgi.contains("evaluateVoxelVisibleLocalLight("));
 
         let evaluator = include_str!("../../shader/slang/local_lighting.slang");

@@ -41,12 +41,20 @@ float3 floorToScale(float3 position, int scaleExponent)
     return asfloat(asuint(position) & uint3(mask));
 }
 
-public bool3 contreeAdvanceSideMask(float3 sideDistance)
+public uint contreeAdvanceSideMask(float3 sideDistance)
 {
     bool advanceX = sideDistance.x <= sideDistance.y &&
         sideDistance.x <= sideDistance.z;
     bool advanceY = !advanceX && sideDistance.y <= sideDistance.z;
-    return bool3(advanceX, advanceY, !advanceX && !advanceY);
+    if (advanceX)
+    {
+        return 1u;
+    }
+    if (advanceY)
+    {
+        return 2u;
+    }
+    return 4u;
 }
 
 ContreeMarchingResult marchLocalContree(
@@ -69,13 +77,15 @@ ContreeMarchingResult marchLocalContree(
     result.position = float3(0.0);
     result.center_position = float3(0.0);
 
-    float2 slabDistance = intersectSlabs(float3(1.0), float3(1.9999999), origin,
-                                         1.0 / direction);
-    if (slabDistance.x > slabDistance.y || slabDistance.y < 0.0)
+    float minimumSlabDistance;
+    float maximumSlabDistance;
+    intersectSlabs(float3(1.0), float3(1.9999999), origin, 1.0 / direction,
+                   minimumSlabDistance, maximumSlabDistance);
+    if (minimumSlabDistance > maximumSlabDistance || maximumSlabDistance < 0.0)
     {
         return result;
     }
-    origin += max(slabDistance.x, 0.0) * direction;
+    origin += max(minimumSlabDistance, 0.0) * direction;
 
     uint mirrorMask = 0u;
     if (direction.x > 0.0) mirrorMask |= 3u << 0u;
@@ -134,7 +144,9 @@ ContreeMarchingResult marchLocalContree(
         float3 sideDistance = (cellMinimum - origin) * inverseDirection;
         float maximumDistance = min(min(sideDistance.x, sideDistance.y), sideDistance.z);
 
-        bool3 sideMask = contreeAdvanceSideMask(sideDistance);
+        uint sideMaskBits = contreeAdvanceSideMask(sideDistance);
+        bool3 sideMask =
+            (uint3(sideMaskBits) & uint3(1u, 2u, 4u)) != uint3(0u);
         int3 base = asint(cellMinimum);
         int3 offset = int3((1 << advanceScaleExponent) - 1);
         int3 neighborMaximum = base + select(sideMask, int3(-1), offset);

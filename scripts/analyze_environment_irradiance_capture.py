@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,10 +23,36 @@ HEADER_V5 = HEADER_V4
 HEADER_V6 = HEADER_V4
 HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
+HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
+HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
+CURRENT_RFIRR_VERSION = 10
+
+
+def parse_expected_rfirr_version(value: str) -> int:
+    if value == "current":
+        return CURRENT_RFIRR_VERSION
+    try:
+        return int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "expected an integer RFIRR version or 'current'"
+        ) from error
+
+
+def is_current_capture(capture: Capture) -> bool:
+    return capture.version == CURRENT_RFIRR_VERSION
+
+
+def local_recovery_retention_q16(
+    configured_history_retention_q16: int, update_epoch: int
+) -> int:
+    denominator = update_epoch + 1
+    epoch_q16 = (update_epoch * 65_536 + denominator // 2) // denominator
+    return min(configured_history_retention_q16, epoch_q16)
 
 DEBUG_VIEW_LABELS = {
     0: "final",
@@ -40,6 +67,10 @@ DEBUG_VIEW_LABELS = {
     9: "relocation",
     10: "irradiance-atlas",
     11: "visibility-atlas",
+    12: "unoccluded-irradiance",
+    13: "equal-weight-irradiance",
+    14: "raw-cage-irradiance",
+    22: "moment-support",
 }
 TRANSPORT_STAGE_LABELS = {
     1: "seed-sky",
@@ -111,6 +142,9 @@ class Capture:
     max_rel_delta: float | None = None
     nonfinite_count: int | None = None
     valid_count: int | None = None
+    grid_dimensions: tuple[int, int, int] | None = None
+    configured_history_retention_q16: int | None = None
+    filter_evidence: dict[str, object] | None = None
 
     @property
     def sample_count(self) -> int:
@@ -189,16 +223,19 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6, 7, 8):
+    elif version in (4, 5, 6, 7, 8, 9, 10):
         header = {
             4: HEADER_V4,
             5: HEADER_V5,
             6: HEADER_V6,
             7: HEADER_V7,
             8: HEADER_V8,
+            9: HEADER_V9,
+            10: HEADER_V10,
         }[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
+        values = header.unpack_from(data)
         (
             _,
             _,
@@ -226,7 +263,7 @@ def load_capture(path: Path) -> Capture:
             max_rel_delta,
             nonfinite_count,
             valid_count,
-        ) = header.unpack_from(data)
+        ) = values[:26]
         header_size = header.size
         lifecycle_metadata = (
             {
@@ -259,19 +296,244 @@ def load_capture(path: Path) -> Capture:
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
             **lifecycle_metadata,
         }
+        if version == 9:
+            (
+                evidence_present,
+                irradiance_owner_version,
+                visibility_history_owner_version,
+                visibility_sample_owner_version,
+                evidence_field_serial,
+                evidence_update_epoch,
+                evidence_probe_count,
+                visibility_written,
+                evidence_reserved,
+                irradiance_replace,
+                irradiance_retain,
+                irradiance_blend,
+                irradiance_retention_sum_q16,
+                visibility_replace,
+                visibility_retain,
+                visibility_blend,
+                visibility_retention_sum_q16,
+                visibility_samples,
+                visibility_accept,
+                visibility_reject,
+            ) = values[26:]
+            if evidence_present != 1:
+                raise ValueError(f"{path}: v9 filter evidence is missing")
+            if evidence_reserved != 0:
+                raise ValueError(f"{path}: v9 filter evidence reserved lane is nonzero")
+            if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
+                raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
+            if evidence_probe_count == 0:
+                raise ValueError(f"{path}: filter evidence has zero probes")
+            if irradiance_owner_version != 1:
+                raise ValueError(f"{path}: irradiance history owner version mismatch")
+            if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
+                raise ValueError(f"{path}: irradiance history action partition mismatch")
+            if irradiance_blend == 0:
+                if irradiance_retention_sum_q16 != 0:
+                    raise ValueError(f"{path}: irradiance retention without Blend")
+            elif irradiance_retention_sum_q16 % irradiance_blend != 0:
+                raise ValueError(f"{path}: irradiance Blend retention is not exact")
+            if visibility_written not in (0, 1):
+                raise ValueError(f"{path}: invalid visibility-written flag")
+            if visibility_written:
+                if visibility_history_owner_version != 1 or visibility_sample_owner_version != 1:
+                    raise ValueError(f"{path}: visibility owner version mismatch")
+                if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
+                    raise ValueError(f"{path}: visibility history action partition mismatch")
+                if visibility_blend == 0:
+                    if visibility_retention_sum_q16 != 0:
+                        raise ValueError(f"{path}: visibility retention without Blend")
+                elif visibility_retention_sum_q16 % visibility_blend != 0:
+                    raise ValueError(f"{path}: visibility Blend retention is not exact")
+                if visibility_samples != visibility_accept + visibility_reject:
+                    raise ValueError(f"{path}: visibility sample partition mismatch")
+            elif any(
+                value != 0
+                for value in (
+                    visibility_history_owner_version,
+                    visibility_sample_owner_version,
+                    visibility_replace,
+                    visibility_retain,
+                    visibility_blend,
+                    visibility_retention_sum_q16,
+                    visibility_samples,
+                    visibility_accept,
+                    visibility_reject,
+                )
+            ):
+                raise ValueError(f"{path}: unwritten visibility has filter evidence")
+            metadata["filter_evidence"] = {
+                "field_serial": evidence_field_serial,
+                "update_epoch": evidence_update_epoch,
+                "probe_count": evidence_probe_count,
+                "visibility_written": bool(visibility_written),
+                "irradiance_history": {
+                    "owner_version": irradiance_owner_version,
+                    "replace": irradiance_replace,
+                    "retain": irradiance_retain,
+                    "blend": irradiance_blend,
+                    "blend_retention_q16": irradiance_retention_sum_q16,
+                },
+                "visibility_history": {
+                    "owner_version": visibility_history_owner_version,
+                    "replace": visibility_replace,
+                    "retain": visibility_retain,
+                    "blend": visibility_blend,
+                    "blend_retention_q16": visibility_retention_sum_q16,
+                },
+                "visibility_samples": {
+                    "owner_version": visibility_sample_owner_version,
+                    "samples": visibility_samples,
+                    "accept": visibility_accept,
+                    "reject": visibility_reject,
+                },
+            }
+        elif version == 10:
+            (
+                evidence_present,
+                irradiance_owner_version_mask,
+                visibility_history_owner_version_mask,
+                visibility_sample_owner_version_mask,
+                evidence_field_serial,
+                evidence_update_epoch,
+                evidence_probe_count,
+                visibility_written,
+                evidence_reserved,
+                grid_x,
+                grid_y,
+                grid_z,
+                configured_history_retention_q16,
+                irradiance_replace,
+                irradiance_retain,
+                irradiance_blend,
+                irradiance_retention_sum_q16,
+                irradiance_retention_max_q16,
+                visibility_replace,
+                visibility_retain,
+                visibility_blend,
+                visibility_retention_sum_q16,
+                visibility_retention_max_q16,
+                visibility_samples,
+                visibility_accept,
+                visibility_reject,
+            ) = values[26:]
+            if evidence_present != 1:
+                raise ValueError(f"{path}: v10 filter evidence is missing")
+            if evidence_reserved != 0:
+                raise ValueError(f"{path}: v10 filter evidence reserved lane is nonzero")
+            if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
+                raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
+            if evidence_probe_count == 0:
+                raise ValueError(f"{path}: filter evidence has zero probes")
+            grid_dimensions = (grid_x, grid_y, grid_z)
+            grid_product = grid_x * grid_y * grid_z
+            if any(dimension == 0 for dimension in grid_dimensions):
+                raise ValueError(f"{path}: v10 probe grid has a zero dimension")
+            if grid_product > 0xFFFFFFFF:
+                raise ValueError(f"{path}: v10 probe grid product exceeds u32")
+            if grid_product != evidence_probe_count:
+                raise ValueError(f"{path}: v10 probe grid product does not match filter evidence")
+            if configured_history_retention_q16 > 65_536:
+                raise ValueError(f"{path}: v10 configured history retention is out of range")
+            if irradiance_owner_version_mask != 2:
+                raise ValueError(f"{path}: irradiance history owner mask mismatch")
+            if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
+                raise ValueError(f"{path}: irradiance history action partition mismatch")
+            if irradiance_blend == 0:
+                if irradiance_retention_sum_q16 != 0 or irradiance_retention_max_q16 != 0:
+                    raise ValueError(f"{path}: irradiance retention without Blend")
+            elif (
+                irradiance_retention_max_q16 > 65_536
+                or irradiance_blend * irradiance_retention_max_q16
+                != irradiance_retention_sum_q16
+            ):
+                raise ValueError(f"{path}: irradiance history lacks one exact Blend retention")
+            if visibility_written not in (0, 1):
+                raise ValueError(f"{path}: invalid visibility-written flag")
+            if visibility_written:
+                if visibility_history_owner_version_mask != 2 or visibility_sample_owner_version_mask != 2:
+                    raise ValueError(f"{path}: visibility owner mask mismatch")
+                if visibility_replace + visibility_retain + visibility_blend != evidence_probe_count:
+                    raise ValueError(f"{path}: visibility history action partition mismatch")
+                if visibility_blend == 0:
+                    if visibility_retention_sum_q16 != 0 or visibility_retention_max_q16 != 0:
+                        raise ValueError(f"{path}: visibility retention without Blend")
+                elif (
+                    visibility_retention_max_q16 > 65_536
+                    or visibility_blend * visibility_retention_max_q16
+                    != visibility_retention_sum_q16
+                ):
+                    raise ValueError(f"{path}: visibility history lacks one exact Blend retention")
+                if visibility_samples != visibility_accept + visibility_reject:
+                    raise ValueError(f"{path}: visibility sample partition mismatch")
+                if visibility_samples % 64 != 0:
+                    raise ValueError(f"{path}: visibility samples do not cover whole 64-ray probes")
+                if visibility_samples < visibility_blend * 64:
+                    raise ValueError(f"{path}: visibility samples undercounts Blend probes")
+                if visibility_samples > (visibility_blend + visibility_replace) * 64:
+                    raise ValueError(f"{path}: visibility samples exceeds fresh history probes")
+            elif any(
+                value != 0
+                for value in (
+                    visibility_history_owner_version_mask,
+                    visibility_sample_owner_version_mask,
+                    visibility_replace,
+                    visibility_retain,
+                    visibility_blend,
+                    visibility_retention_sum_q16,
+                    visibility_retention_max_q16,
+                    visibility_samples,
+                    visibility_accept,
+                    visibility_reject,
+                )
+            ):
+                raise ValueError(f"{path}: unwritten visibility has filter evidence")
+            metadata["filter_evidence"] = {
+                "field_serial": evidence_field_serial,
+                "update_epoch": evidence_update_epoch,
+                "probe_count": evidence_probe_count,
+                "visibility_written": bool(visibility_written),
+                "irradiance_history": {
+                    "owner_version_mask": irradiance_owner_version_mask,
+                    "replace": irradiance_replace,
+                    "retain": irradiance_retain,
+                    "blend": irradiance_blend,
+                    "blend_retention_q16_sum": irradiance_retention_sum_q16,
+                    "blend_retention_q16_max": irradiance_retention_max_q16,
+                },
+                "visibility_history": {
+                    "owner_version_mask": visibility_history_owner_version_mask,
+                    "replace": visibility_replace,
+                    "retain": visibility_retain,
+                    "blend": visibility_blend,
+                    "blend_retention_q16_sum": visibility_retention_sum_q16,
+                    "blend_retention_q16_max": visibility_retention_max_q16,
+                },
+                "visibility_samples": {
+                    "owner_version_mask": visibility_sample_owner_version_mask,
+                    "samples": visibility_samples,
+                    "accept": visibility_accept,
+                    "reject": visibility_reject,
+                },
+            }
+            metadata["grid_dimensions"] = grid_dimensions
+            metadata["configured_history_retention_q16"] = configured_history_retention_q16
     else:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
     expected_plane_counts = (
         (5,)
-        if version == 8
+        if version in (8, 9, 10)
         else ((4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2)))
     )
     if plane_count not in expected_plane_counts:
         expected_label = (
             "five"
-            if version == 8
+            if version in (8, 9, 10)
             else (
                 "four"
                 if version == 7
@@ -713,6 +975,9 @@ def summarize(
         "backend": capture.backend,
         "spacing_voxels": capture.spacing_voxels,
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
+        "grid_dimensions": capture.grid_dimensions,
+        "configured_history_retention_q16": capture.configured_history_retention_q16,
+        "filter_evidence": capture.filter_evidence,
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,
         "finite": finite
@@ -1029,38 +1294,44 @@ def cross_process_metadata_mismatches(
 
 
 def compare(first: Capture, second: Capture) -> dict[str, object]:
-    base_compatible = (
-        first.width,
-        first.height,
-        first.backend,
-        first.spacing_voxels,
-        first.debug_view,
-    ) == (
-        second.width,
-        second.height,
-        second.backend,
-        second.spacing_voxels,
-        second.debug_view,
-    )
+    base_fields = ("width", "height", "backend", "spacing_voxels", "debug_view")
+    base_mismatches = [
+        field for field in base_fields if getattr(first, field) != getattr(second, field)
+    ]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         first, second
     )
-    compatible = base_compatible and not mismatches
+    compatible = not base_mismatches and not mismatches
+    environment_irradiance_bit_exact = first.payload == second.payload
+    world_payload_bit_exact = first.world_payload == second.world_payload
+    terrain_shadow_receiver_bit_exact = (
+        first.terrain_shadow_receiver_payload
+        == second.terrain_shadow_receiver_payload
+    )
+    direct_sun_shadow_bit_exact = (
+        first.direct_sun_shadow_payload == second.direct_sun_shadow_payload
+    )
+    direct_light_payload_bit_exact = (
+        first.direct_light_payload == second.direct_light_payload
+    )
     environment_bit_exact = (
         compatible
-        and first.payload == second.payload
-        and first.world_payload == second.world_payload
-        and first.terrain_shadow_receiver_payload
-        == second.terrain_shadow_receiver_payload
-        and first.direct_sun_shadow_payload == second.direct_sun_shadow_payload
+        and environment_irradiance_bit_exact
+        and world_payload_bit_exact
+        and terrain_shadow_receiver_bit_exact
+        and direct_sun_shadow_bit_exact
     )
-    direct_light_bit_exact = (
-        compatible and first.direct_light_payload == second.direct_light_payload
-    )
+    direct_light_bit_exact = compatible and direct_light_payload_bit_exact
     return {
         "compatible": compatible,
+        "base_mismatches": base_mismatches,
         "metadata_mismatches": mismatches,
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "environment_irradiance_bit_exact": environment_irradiance_bit_exact,
+        "world_payload_bit_exact": world_payload_bit_exact,
+        "terrain_shadow_receiver_bit_exact": terrain_shadow_receiver_bit_exact,
+        "direct_sun_shadow_bit_exact": direct_sun_shadow_bit_exact,
+        "direct_light_payload_bit_exact": direct_light_payload_bit_exact,
         "environment_bit_exact": environment_bit_exact,
         "direct_light_bit_exact": direct_light_bit_exact,
         "bit_exact": environment_bit_exact and direct_light_bit_exact,
@@ -1119,6 +1390,39 @@ def float4_alpha_payload(payload: bytes) -> bytes:
     )
 
 
+def required_capture_planes_finite(capture: Capture) -> bool:
+    payloads = (
+        capture.payload,
+        capture.world_payload,
+        capture.direct_light_payload,
+        capture.terrain_shadow_receiver_payload,
+        capture.direct_sun_shadow_payload,
+    )
+    return all(
+        math.isfinite(value)
+        for payload in payloads
+        if payload
+        for pixel in PIXEL.iter_unpack(payload)
+        for value in pixel
+    )
+
+
+def has_reference_identity_planes(capture: Capture) -> bool:
+    expected_plane_size = capture.sample_count * PIXEL.size
+    return (
+        capture.version in (8, 9, 10)
+        and capture.plane_count == 5
+        and all(
+            len(payload) == expected_plane_size
+            for payload in (
+                capture.payload,
+                capture.world_payload,
+                capture.direct_light_payload,
+                capture.terrain_shadow_receiver_payload,
+                capture.direct_sun_shadow_payload,
+            )
+        )
+    )
 def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, object]:
     base_compatible = (
         current.version,
@@ -1180,18 +1484,40 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
         approximate, exact
     )
-    compatible = base_compatible and not mismatches
-    if not compatible:
+    identity_planes_available = has_reference_identity_planes(
+        approximate
+    ) and has_reference_identity_planes(exact)
+    approximate_finite = required_capture_planes_finite(approximate)
+    reference_finite = required_capture_planes_finite(exact)
+    world_xyz_matches = world_xyz_payload(
+        approximate.world_payload
+    ) == world_xyz_payload(exact.world_payload)
+    hit_mask_matches = float4_alpha_payload(
+        approximate.payload
+    ) == float4_alpha_payload(exact.payload)
+    compatible = base_compatible and not mismatches and identity_planes_available
+    comparison_ready = (
+        compatible
+        and approximate_finite
+        and reference_finite
+        and world_xyz_matches
+        and hit_mask_matches
+    )
+    if not comparison_ready:
         return {
-            "compatible": False,
+            "compatible": compatible,
             "metadata_mismatches": mismatches,
             "process_local_identity_mismatches": process_local_identity_mismatches,
+            "identity_planes_available": identity_planes_available,
+            "approximate_finite": approximate_finite,
+            "reference_finite": reference_finite,
+            "world_xyz_matches": world_xyz_matches,
+            "hit_mask_matches": hit_mask_matches,
         }
 
     luminance_errors: list[float] = []
     luminance_overestimates: list[float] = []
     channel_errors: list[float] = []
-    hit_mask_matches = True
     peak_error = (-1.0, 0, 0)
     peak_overestimate = (0.0, 0, 0)
     for index, (approx_pixel, exact_pixel) in enumerate(
@@ -1199,7 +1525,6 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     ):
         ar, ag, ab, ah = approx_pixel
         er, eg, eb, eh = exact_pixel
-        hit_mask_matches = hit_mask_matches and ((ah > 0.5) == (eh > 0.5))
         if ah <= 0.5 or eh <= 0.5:
             continue
         rgb_error = (abs(ar - er), abs(ag - eg), abs(ab - eb))
@@ -1225,6 +1550,10 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         "compatible": True,
         "metadata_mismatches": [],
         "process_local_identity_mismatches": process_local_identity_mismatches,
+        "identity_planes_available": True,
+        "approximate_finite": True,
+        "reference_finite": True,
+        "world_xyz_matches": True,
         "hit_mask_matches": hit_mask_matches,
         "sample_count": len(luminance_errors),
         "luminance_error_mean": (
@@ -1316,6 +1645,66 @@ def compare_roi_baseline(
     }
 
 
+def compare_debug_baseline(
+    current: Capture,
+    baseline: Capture,
+    world_roi: tuple[float, float, float, float, float, float] | None,
+) -> dict[str, object]:
+    mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
+        current, baseline
+    )
+    base_compatible = (
+        current.version,
+        current.width,
+        current.height,
+        current.backend,
+        current.spacing_voxels,
+    ) == (
+        baseline.version,
+        baseline.width,
+        baseline.height,
+        baseline.backend,
+        baseline.spacing_voxels,
+    )
+    world_xyz_matches = world_xyz_payload(
+        current.world_payload
+    ) == world_xyz_payload(baseline.world_payload)
+    terrain_hit_mask_matches = float4_alpha_payload(
+        current.payload
+    ) == float4_alpha_payload(baseline.payload)
+    current_summary = summarize(current, world_roi)
+    baseline_summary = summarize(baseline, world_roi)
+    current_mean = current_summary["world_roi_luminance_mean"]
+    baseline_mean = baseline_summary["world_roi_luminance_mean"]
+    compatible = (
+        base_compatible
+        and not mismatches
+        and current.debug_view != baseline.debug_view
+        and world_xyz_matches
+        and terrain_hit_mask_matches
+        and current_mean is not None
+        and baseline_mean is not None
+    )
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": mismatches,
+        "process_local_identity_mismatches": process_local_identity_mismatches,
+        "baseline_debug_view": DEBUG_VIEW_LABELS.get(
+            baseline.debug_view, baseline.debug_view
+        ),
+        "current_debug_view": DEBUG_VIEW_LABELS.get(
+            current.debug_view, current.debug_view
+        ),
+        "world_xyz_matches": world_xyz_matches,
+        "terrain_hit_mask_matches": terrain_hit_mask_matches,
+        "baseline_roi_luminance_mean": baseline_mean,
+        "current_roi_luminance_mean": current_mean,
+        "roi_luminance_gain": (
+            current_mean - baseline_mean if compatible else None
+        ),
+    }
+
+
 def compare_direct_light_baseline(
     current: Capture,
     baseline: Capture,
@@ -1359,7 +1748,9 @@ def compare_direct_light_baseline(
     }
 
 
-def main() -> int:
+def _run_cli(
+    argv: Sequence[str] | None, *, allow_version_override: bool
+) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
@@ -1371,6 +1762,7 @@ def main() -> int:
     )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--debug-baseline", type=Path)
     parser.add_argument("--direct-light-baseline", type=Path)
     parser.add_argument(
         "--min-direct-light-sunlit-roi-luminance-absolute-delta", type=float
@@ -1381,6 +1773,8 @@ def main() -> int:
     parser.add_argument("--require-nonnegative-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
+    parser.add_argument("--max-reference-error-max", type=float)
+    parser.add_argument("--min-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
     parser.add_argument("--world-roi", type=float, nargs=6)
     parser.add_argument("--camera-position", type=float, nargs=3)
@@ -1393,6 +1787,8 @@ def main() -> int:
     parser.add_argument("--min-roi-channel-share-gain", type=float)
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
+    parser.add_argument("--min-debug-roi-luminance-gain", type=float)
+    parser.add_argument("--max-debug-roi-luminance-gain", type=float)
     parser.add_argument("--max-world-roi-environment-zero-count", type=int)
     parser.add_argument("--max-world-roi-combined-zero-count", type=int)
     parser.add_argument(
@@ -1436,7 +1832,21 @@ def main() -> int:
             "to have no more than this combined direct-shadow transmittance range"
         ),
     )
-    parser.add_argument("--expect-version", type=int)
+    if allow_version_override:
+        parser.add_argument(
+            "--expect-version",
+            type=parse_expected_rfirr_version,
+            default=CURRENT_RFIRR_VERSION,
+        )
+    else:
+        parser.set_defaults(expect_version=CURRENT_RFIRR_VERSION)
+    parser.add_argument("--require-filter-history-retain-blend", action="store_true")
+    parser.add_argument("--require-filter-local-recovery-policy", action="store_true")
+    parser.add_argument("--expect-filter-blend-retention-q16", type=int)
+    parser.add_argument("--min-filter-visibility-reject-count", type=int)
+    parser.add_argument(
+        "--expect-debug-view", choices=tuple(DEBUG_VIEW_LABELS.values())
+    )
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
@@ -1474,7 +1884,7 @@ def main() -> int:
         action="store_true",
         help="apply correctness-gate policy, including rejecting NonConverged fields",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     first = load_capture(args.capture)
     capture_summary = summarize(
@@ -1507,6 +1917,7 @@ def main() -> int:
             failures.append(f"{field}: expected {expected}, got {actual}")
 
     expect("version", args.expect_version)
+    expect("debug_view", args.expect_debug_view)
     expect("spacing_voxels", args.expect_spacing_voxels)
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
@@ -1525,6 +1936,74 @@ def main() -> int:
     expect("source_radiance_revision", args.expect_source_radiance_revision)
     expect("publication_state", args.expect_publication_state)
     expect("batch_order", args.expect_batch_order)
+
+    filter_evidence = capture_summary["filter_evidence"]
+    if args.require_filter_history_retain_blend:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        else:
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                if history["retain"] == 0 or history["blend"] == 0:
+                    failures.append(f"{label}: expected both Retain and Blend actions")
+    if args.require_filter_local_recovery_policy:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        elif first.configured_history_retention_q16 is None:
+            failures.append("v10 configured history retention identity is missing")
+        else:
+            expected_q16 = local_recovery_retention_q16(
+                first.configured_history_retention_q16,
+                filter_evidence["update_epoch"]
+            )
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                expected_sum = history["blend"] * expected_q16
+                if history["retain"] == 0 or history["blend"] == 0:
+                    failures.append(
+                        f"{label}: local recovery requires both Retain and Blend actions"
+                    )
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"] != expected_q16
+                ):
+                    failures.append(
+                        f"{label}: expected epoch {filter_evidence['update_epoch']} "
+                        f"local-recovery retention q16 {expected_q16}, got "
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
+                    )
+    if args.expect_filter_blend_retention_q16 is not None:
+        if filter_evidence is None:
+            failures.append("owner-generated filter evidence is missing")
+        else:
+            for label in ("irradiance_history", "visibility_history"):
+                history = filter_evidence[label]
+                expected_sum = history["blend"] * args.expect_filter_blend_retention_q16
+                if (
+                    history["blend_retention_q16_sum"] != expected_sum
+                    or history["blend_retention_q16_max"]
+                    != args.expect_filter_blend_retention_q16
+                ):
+                    failures.append(
+                        f"{label}: expected Blend retention q16 "
+                        f"{args.expect_filter_blend_retention_q16}, got "
+                        f"sum={history['blend_retention_q16_sum']} "
+                        f"max={history['blend_retention_q16_max']} "
+                        f"count={history['blend']}"
+                    )
+    if args.min_filter_visibility_reject_count is not None:
+        reject = (
+            None
+            if filter_evidence is None
+            else filter_evidence["visibility_samples"]["reject"]
+        )
+        if reject is None or reject < args.min_filter_visibility_reject_count:
+            failures.append(
+                "filter visibility reject count: expected at least "
+                f"{args.min_filter_visibility_reject_count}, got {reject}"
+            )
 
     def gate_min(field: str, threshold: float | None) -> None:
         nonlocal exit_code
@@ -1659,9 +2138,29 @@ def main() -> int:
     if args.compare is not None:
         comparison = compare(first, load_capture(args.compare))
         report["comparison"] = comparison
-        if not comparison["environment_bit_exact"]:
-            exit_code = 1
-        if args.compare_direct_light and not comparison["direct_light_bit_exact"]:
+        if not comparison["compatible"]:
+            failures.append(
+                "comparison capture identity is incompatible: "
+                f"base_mismatches={comparison['base_mismatches']} "
+                f"metadata_mismatches={comparison['metadata_mismatches']}"
+            )
+        for field, label in (
+            (
+                "environment_irradiance_bit_exact",
+                "environment irradiance and terrain hit-mask plane",
+            ),
+            (
+                "world_payload_bit_exact",
+                "world XYZ and exact-sun-visibility plane",
+            ),
+            ("terrain_shadow_receiver_bit_exact", "terrain-shadow receiver plane"),
+            ("direct_sun_shadow_bit_exact", "direct-sun shadow plane"),
+        ):
+            if not comparison[field]:
+                failures.append(f"comparison {label} is not bit-exact")
+        if args.compare_direct_light and not comparison["direct_light_payload_bit_exact"]:
+            failures.append("comparison direct-light plane is not bit-exact")
+        if failures:
             exit_code = 1
     elif args.compare_direct_light:
         failures.append("--compare-direct-light requires --compare")
@@ -1712,20 +2211,131 @@ def main() -> int:
     if args.reference is not None:
         reference = compare_reference(first, load_capture(args.reference))
         report["reference_comparison"] = reference
-        if not reference["compatible"] or not reference.get("hit_mask_matches", False):
+        if not reference["compatible"]:
+            failures.append("reference comparison is incompatible")
+            exit_code = 1
+        if not reference.get("identity_planes_available", False):
+            failures.append(
+                "reference comparison requires RFIRR v8-v10 five-plane identity evidence"
+            )
+            exit_code = 1
+        if not reference.get("approximate_finite", False):
+            failures.append("capture contains non-finite required-plane values")
+            exit_code = 1
+        if not reference.get("reference_finite", False):
+            failures.append(
+                "reference capture contains non-finite required-plane values"
+            )
+            exit_code = 1
+        if not reference.get("world_xyz_matches", False):
+            failures.append("reference world XYZ payload does not match capture")
+            exit_code = 1
+        if not reference.get("hit_mask_matches", False):
+            failures.append("reference terrain hit mask does not match capture")
+            exit_code = 1
+        reference_ready = all(
+            (
+                reference["compatible"],
+                reference.get("approximate_finite", False),
+                reference.get("reference_finite", False),
+                reference.get("world_xyz_matches", False),
+                reference.get("hit_mask_matches", False),
+            )
+        )
+        if (
+            reference_ready
+            and args.min_reference_error_p99 is not None
+            and reference.get("luminance_error_p99", -math.inf)
+            < args.min_reference_error_p99
+        ):
+            failures.append(
+                "reference luminance_error_p99: expected at least "
+                f"{args.min_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99')}"
+            )
             exit_code = 1
         if (
-            args.max_reference_error_p99 is not None
+            reference_ready
+            and args.max_reference_error_p99 is not None
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
         ):
+            failures.append(
+                "reference luminance_error_p99: expected at most "
+                f"{args.max_reference_error_p99:g}, got "
+                f"{reference.get('luminance_error_p99'):g}"
+            )
             exit_code = 1
         if (
-            args.max_reference_overestimate_p99 is not None
+            reference_ready
+            and args.max_reference_overestimate_p99 is not None
             and reference.get("luminance_overestimate_p99", math.inf)
             > args.max_reference_overestimate_p99
         ):
+            failures.append(
+                "reference luminance_overestimate_p99: expected at most "
+                f"{args.max_reference_overestimate_p99:g}, got "
+                f"{reference.get('luminance_overestimate_p99'):g}"
+            )
             exit_code = 1
+        if (
+            reference_ready
+            and args.max_reference_error_max is not None
+            and reference.get("luminance_error_max", math.inf)
+            > args.max_reference_error_max
+        ):
+            failures.append(
+                "reference luminance_error_max: expected at most "
+                f"{args.max_reference_error_max:g}, got "
+                f"{reference.get('luminance_error_max'):g}"
+            )
+            exit_code = 1
+    else:
+        for option, threshold in (
+            ("--min-reference-error-p99", args.min_reference_error_p99),
+            ("--max-reference-error-p99", args.max_reference_error_p99),
+            (
+                "--max-reference-overestimate-p99",
+                args.max_reference_overestimate_p99,
+            ),
+            ("--max-reference-error-max", args.max_reference_error_max),
+        ):
+            if threshold is not None:
+                failures.append(f"{option} requires --reference")
+                exit_code = 1
+    if args.debug_baseline is not None:
+        debug_baseline = compare_debug_baseline(
+            first,
+            load_capture(args.debug_baseline),
+            tuple(args.world_roi) if args.world_roi is not None else None,
+        )
+        report["debug_baseline_comparison"] = debug_baseline
+        if not debug_baseline["compatible"]:
+            failures.append("debug baseline comparison is incompatible")
+            exit_code = 1
+        gain = debug_baseline["roi_luminance_gain"]
+        if args.min_debug_roi_luminance_gain is not None and (
+            gain is None or gain < args.min_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at least "
+                f"{args.min_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+        if args.max_debug_roi_luminance_gain is not None and (
+            gain is None or gain > args.max_debug_roi_luminance_gain
+        ):
+            failures.append(
+                "debug roi_luminance_gain: expected at most "
+                f"{args.max_debug_roi_luminance_gain:g}, got {gain}"
+            )
+            exit_code = 1
+    elif (
+        args.min_debug_roi_luminance_gain is not None
+        or args.max_debug_roi_luminance_gain is not None
+    ):
+        failures.append("debug ROI luminance gates require --debug-baseline")
+        exit_code = 1
     if args.baseline is not None:
         baseline_comparison = compare_roi_baseline(
             first,
@@ -1784,8 +2394,16 @@ def main() -> int:
         args.max_luminance is not None
         and capture_summary["luminance_max"] > args.max_luminance
     ):
+        failures.append(
+            "luminance_max: expected at most "
+            f"{args.max_luminance:g}, got {capture_summary['luminance_max']}"
+        )
         exit_code = 1
     if args.require_zero_rgb and capture_summary["rgb_nonzero_count"] != 0:
+        failures.append(
+            "terrain-hit RGB: expected exact zero, got "
+            f"{capture_summary['rgb_nonzero_count']} nonzero samples"
+        )
         exit_code = 1
     if args.require_nonnegative_rgb and any(
         count != 0 for count in capture_summary["rgb_channel_negative_count"]
@@ -1796,9 +2414,23 @@ def main() -> int:
         args.min_luminance_p99 is not None
         and capture_summary["luminance_p99"] < args.min_luminance_p99
     ):
+        failures.append(
+            "luminance_p99: expected at least "
+            f"{args.min_luminance_p99:g}, got {capture_summary['luminance_p99']}"
+        )
         exit_code = 1
     print(json.dumps(report, indent=2, sort_keys=True))
     return exit_code
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Compatibility CLI, including explicit historical RFIRR versions."""
+    return _run_cli(argv, allow_version_override=True)
+
+
+def main_current(argv: Sequence[str] | None = None) -> int:
+    """Production CLI whose interface only accepts the current RFIRR schema."""
+    return _run_cli(argv, allow_version_override=False)
 
 
 if __name__ == "__main__":

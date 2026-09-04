@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     LocalLight, LocalLightInfluenceBound, LocalLightProviderSnapshot,
-    LocalLightProviderSnapshotError, ProviderId, SourceLight, SourceLightKey,
+    LocalLightProviderSnapshotError, LocalLightSourceProvider, ProviderId, SourceLight,
+    SourceLightKey,
 };
 
 pub(crate) const RASTER_ENTITY_LIGHT_PROVIDER_ID: ProviderId = ProviderId::new(3);
@@ -140,6 +141,12 @@ impl Default for RasterEntityEmitterProvider {
             snapshot: LocalLightProviderSnapshot::new(RASTER_ENTITY_LIGHT_PROVIDER_ID, 0, [])
                 .expect("empty raster emitter provider snapshot is valid"),
         }
+    }
+}
+
+impl LocalLightSourceProvider for RasterEntityEmitterProvider {
+    fn local_light_snapshot(&self) -> LocalLightProviderSnapshot {
+        self.snapshot()
     }
 }
 

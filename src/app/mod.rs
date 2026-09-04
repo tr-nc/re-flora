@@ -8,8 +8,10 @@ mod gui_config_loader;
 mod gui_config_model;
 mod physical_visible_terrain;
 mod terrain_edit_bounds;
+mod tree_gui;
 mod world_edits;
 mod world_ops;
 
 pub use app_controller::AppController;
-pub use gui_config::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
+pub(crate) use core::{ResolvedLightingFrameInputs, ResolvedRasterLightingState};
+pub use gui_config::{DebugSettings, GuiAdjustables};

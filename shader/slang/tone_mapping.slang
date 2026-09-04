@@ -1,3 +1,5 @@
+module tone_mapping;
+
 static const float DISPLAY_TONE_MAP_EXPOSURE = 2.0;
 static const float DISPLAY_TONE_MAP_SCENE_WHITE = 4.0;
 static const float3 DISPLAY_LUMINANCE_WEIGHTS =

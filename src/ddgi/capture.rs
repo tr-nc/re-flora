@@ -1,5 +1,6 @@
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldState,
+    DdgiFilterEpochProof,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +74,7 @@ pub struct DdgiCaptureCheckpoint {
     pub build_token: DdgiBuildToken,
     pub field: DdgiFieldIdentity,
     pub validation: DdgiAtlasValidationStats,
+    pub filter_proof: Option<DdgiFilterEpochProof>,
     pub publication: DdgiCapturePublication,
     pub batch_order: DdgiBatchOrder,
 }

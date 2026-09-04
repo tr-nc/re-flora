@@ -1,56 +1,131 @@
+use super::water::{
+    EXPERIENCE_INITIAL_FLUID_MAX_WS as INITIAL_FLUID_MAX_WS,
+    EXPERIENCE_INITIAL_FLUID_MIN_WS as INITIAL_FLUID_MIN_WS,
+};
 use super::App;
-use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::geom::{build_bvh, Cuboid};
 use anyhow::Result;
 use glam::Vec3;
-use re_flora_water::PondWaterConfig;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const BASIN_OUTER_MIN_WS: Vec3 = Vec3::new(0.32, 0.08, 0.32);
 const BASIN_OUTER_MAX_WS: Vec3 = Vec3::new(1.68, 0.90, 1.68);
 const BASIN_INNER_MIN_WS: Vec3 = Vec3::new(0.42, 0.28, 0.42);
 const BASIN_INNER_MAX_WS: Vec3 = Vec3::new(1.58, 1.35, 1.58);
-const INITIAL_FLUID_MIN_WS: Vec3 = Vec3::new(0.48, 0.32, 0.48);
-const INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new(1.52, 0.72, 1.52);
 const CAMERA_POSITION_WS: Vec3 = Vec3::new(1.0, 1.85, 2.35);
 const CAMERA_TARGET_WS: Vec3 = Vec3::new(1.0, 0.57, 1.0);
 const EXPERIENCE_TIME_OF_DAY: f32 = 0.42;
-const EXPERIENCE_PARTICLE_COUNT: usize = 10_000;
-const EXPERIENCE_SUBSTEP_HZ: f32 = 60.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WaterExperiencePhase {
-    WaitingForCompleteFrame,
+    PendingActivation,
+    WaitingForCompleteFrame { expected_particle_count: usize },
     Ready,
+}
+
+pub(super) enum WaterExperienceFrameTxn {
+    Inactive,
+    PendingActivation,
+    Waiting { expected_particle_count: usize },
+    Ready,
+}
+
+pub(super) enum WaterExperienceFrameResult {
+    NotReady,
+    Ready {
+        particle_count: usize,
+        sim_time_seconds: f32,
+        revision: u64,
+    },
+}
+
+pub(super) struct WaterExperienceReadyReceipt {
+    pub(super) particle_count: usize,
+    pub(super) sim_time_seconds: f32,
+    pub(super) revision: u64,
 }
 
 #[derive(Debug)]
 pub(super) struct WaterExperienceScene {
-    expected_particle_count: usize,
     phase: WaterExperiencePhase,
 }
 
 impl WaterExperienceScene {
-    pub(super) fn new(expected_particle_count: usize) -> Self {
+    pub(super) fn pending() -> Self {
         Self {
-            expected_particle_count,
-            phase: WaterExperiencePhase::WaitingForCompleteFrame,
+            phase: WaterExperiencePhase::PendingActivation,
         }
     }
 
-    pub(super) fn configure_water(config: &mut PondWaterConfig) {
-        *config = config
-            .clone()
-            .with_particle_count(EXPERIENCE_PARTICLE_COUNT)
-            .with_initial_fluid_bounds(INITIAL_FLUID_MIN_WS, INITIAL_FLUID_MAX_WS)
-            .with_substep_hz(EXPERIENCE_SUBSTEP_HZ)
-            .with_terrain_collision_margin_cells(0.0)
-            .with_linear_damping_per_sec(1.5);
+    pub(super) fn activate(&mut self, expected_particle_count: usize) {
+        match self.phase {
+            WaterExperiencePhase::PendingActivation => {
+                self.phase = WaterExperiencePhase::WaitingForCompleteFrame {
+                    expected_particle_count,
+                };
+            }
+            WaterExperiencePhase::WaitingForCompleteFrame { .. } | WaterExperiencePhase::Ready => {
+                panic!("water experience was activated more than once")
+            }
+        }
     }
 
-    fn is_waiting(&self) -> bool {
-        self.phase == WaterExperiencePhase::WaitingForCompleteFrame
+    pub(super) fn begin_frame(&self) -> WaterExperienceFrameTxn {
+        match self.phase {
+            WaterExperiencePhase::PendingActivation => WaterExperienceFrameTxn::PendingActivation,
+            WaterExperiencePhase::WaitingForCompleteFrame {
+                expected_particle_count,
+            } => WaterExperienceFrameTxn::Waiting {
+                expected_particle_count,
+            },
+            WaterExperiencePhase::Ready => WaterExperienceFrameTxn::Ready,
+        }
+    }
+
+    pub(super) fn finish_frame(
+        &mut self,
+        transaction: WaterExperienceFrameTxn,
+        result: WaterExperienceFrameResult,
+    ) -> anyhow::Result<Option<WaterExperienceReadyReceipt>> {
+        let WaterExperienceFrameTxn::Waiting {
+            expected_particle_count,
+        } = transaction
+        else {
+            anyhow::ensure!(
+                matches!(result, WaterExperienceFrameResult::NotReady),
+                "inactive water-experience frame received a ready result"
+            );
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            matches!(
+                self.phase,
+                WaterExperiencePhase::WaitingForCompleteFrame {
+                    expected_particle_count: current
+                } if current == expected_particle_count
+            ),
+            "stale water-experience frame transaction"
+        );
+        let WaterExperienceFrameResult::Ready {
+            particle_count,
+            sim_time_seconds,
+            revision,
+        } = result
+        else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            complete_frame_is_ready(particle_count, expected_particle_count, sim_time_seconds),
+            "water-experience ready receipt does not describe a complete frame"
+        );
+        self.phase = WaterExperiencePhase::Ready;
+        Ok(Some(WaterExperienceReadyReceipt {
+            particle_count,
+            sim_time_seconds,
+            revision,
+        }))
     }
 }
 
@@ -78,22 +153,19 @@ fn cuboid_edit(min_ws: Vec3, max_ws: Vec3, voxel_type: u32) -> Result<VoxelEdit>
     })
 }
 
-fn terrain_plan() -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan {
+fn terrain_plan() -> Result<WorldEditTransaction> {
+    Ok(WorldEditTransaction::during_loading(vec![
         // Establish a known solid basin first, then carve the open water volume.
         // Loading builds every terrain chunk after this plan, so no extra runtime
         // rebuild or transient old scene is needed.
-        voxel_edits: vec![
-            cuboid_edit(BASIN_OUTER_MIN_WS, BASIN_OUTER_MAX_WS, VOXEL_TYPE_ROCK)?,
-            cuboid_edit(BASIN_INNER_MIN_WS, BASIN_INNER_MAX_WS, VOXEL_TYPE_EMPTY)?,
-        ],
-        build_edits: Vec::new(),
-    })
+        cuboid_edit(BASIN_OUTER_MIN_WS, BASIN_OUTER_MAX_WS, VOXEL_TYPE_ROCK)?,
+        cuboid_edit(BASIN_INNER_MIN_WS, BASIN_INNER_MAX_WS, VOXEL_TYPE_EMPTY)?,
+    ]))
 }
 
 impl App {
     pub(super) fn apply_water_experience_terrain(&mut self) -> Result<()> {
-        self.execute_edit_plan(terrain_plan()?)?;
+        self.execute_world_edit(terrain_plan()?)?;
         log::info!(
             "[WATER_EXPERIENCE] terrain basin outer={:?}..{:?} inner={:?}..{:?}",
             BASIN_OUTER_MIN_WS,
@@ -119,7 +191,7 @@ impl App {
             CAMERA_POSITION_WS,
             CAMERA_TARGET_WS,
             EXPERIENCE_TIME_OF_DAY,
-            self.water_sim.config.particle_count,
+            self.water.config().particle_count,
             INITIAL_FLUID_MIN_WS,
             INITIAL_FLUID_MAX_WS,
         );
@@ -127,39 +199,64 @@ impl App {
     }
 
     pub(super) fn process_water_experience_scene(&mut self) {
-        let Some(expected_particle_count) = self
-            .water_experience_scene
-            .as_ref()
-            .filter(|scene| scene.is_waiting())
-            .map(|scene| scene.expected_particle_count)
+        let transaction = self.launch_owners.begin_water_experience_frame();
+        let super::launch_owners::WaterExperienceFrameTxn::Waiting {
+            expected_particle_count,
+        } = &transaction
         else {
             return;
         };
-        if !self.water_terrain_status().is_ready() {
+        if !self.water.terrain_status().is_ready() {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         }
-        let Some(frame) = self.water_sim.latest_particle_frame() else {
+        let Some(frame) = self.water.latest_particle_frame() else {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         };
         if !complete_frame_is_ready(
             frame.particles().len(),
-            expected_particle_count,
+            *expected_particle_count,
             frame.sim_time_seconds(),
         ) {
+            self.launch_owners
+                .finish_water_experience_frame(
+                    transaction,
+                    super::launch_owners::WaterExperienceFrameResult::NotReady,
+                )
+                .expect("water-experience wait transaction must remain current");
             return;
         }
 
-        let revision = frame.revision();
-        let sim_time_seconds = frame.sim_time_seconds();
-        self.water_experience_scene
-            .as_mut()
-            .expect("water experience disappeared while becoming ready")
-            .phase = WaterExperiencePhase::Ready;
+        let receipt = self
+            .launch_owners
+            .finish_water_experience_frame(
+                transaction,
+                super::launch_owners::WaterExperienceFrameResult::Ready {
+                    particle_count: frame.particles().len(),
+                    sim_time_seconds: frame.sim_time_seconds(),
+                    revision: frame.revision(),
+                },
+            )
+            .unwrap_or_else(|error| {
+                panic!("[WATER_EXPERIENCE] failed to commit ready frame: {error:#}")
+            })
+            .expect("ready water-experience frame must produce a receipt");
         log::info!(
             "[WATER_EXPERIENCE] ready complete_frame_revision={} sim_time_seconds={:.6} particles={} terrain_cache=ready",
-            revision,
-            sim_time_seconds,
-            expected_particle_count,
+            receipt.revision,
+            receipt.sim_time_seconds,
+            receipt.particle_count,
         );
     }
 }
@@ -167,7 +264,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use re_flora_water::collider::WaterBoxCollider;
+    use crate::app::core::water::EXPERIENCE_PARTICLE_COUNT;
 
     fn assert_vec3_close(actual: Vec3, expected: Vec3) {
         assert!(
@@ -177,37 +274,19 @@ mod tests {
     }
 
     #[test]
-    fn experience_water_config_is_deterministic_and_has_free_surface_headroom() {
-        let mut config =
-            PondWaterConfig::default().with_collider_bounds(Vec3::ZERO, Vec3::splat(2.0));
-
-        WaterExperienceScene::configure_water(&mut config);
-
-        assert_eq!(config.particle_count, EXPERIENCE_PARTICLE_COUNT);
-        assert_eq!(config.substep_dt, EXPERIENCE_SUBSTEP_HZ.recip());
-        assert_eq!(config.terrain_collision_margin_cells, 0.0);
-        assert_eq!(config.linear_damping_per_sec, 1.5);
-        assert_eq!(
-            config.initial_fluid_bounds,
-            Some(WaterBoxCollider::new(
-                INITIAL_FLUID_MIN_WS,
-                INITIAL_FLUID_MAX_WS
-            ))
-        );
-        assert!(INITIAL_FLUID_MAX_WS.y < config.collider.max_ws.y);
-    }
-
-    #[test]
     fn experience_terrain_plan_builds_solid_basin_then_carves_open_volume() {
         let plan = terrain_plan().unwrap();
 
-        assert!(plan.build_edits.is_empty());
-        assert_eq!(plan.voxel_edits.len(), 2);
+        assert!(plan
+            .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+            .unwrap()
+            .is_none());
+        assert_eq!(plan.voxel_edits().len(), 2);
         let VoxelEdit::StampCuboids {
             cuboids,
             voxel_type,
             ..
-        } = &plan.voxel_edits[0]
+        } = &plan.voxel_edits()[0]
         else {
             panic!("expected outer basin cuboid");
         };
@@ -219,7 +298,7 @@ mod tests {
             cuboids,
             voxel_type,
             ..
-        } = &plan.voxel_edits[1]
+        } = &plan.voxel_edits()[1]
         else {
             panic!("expected inner basin cuboid");
         };

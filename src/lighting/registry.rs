@@ -147,6 +147,82 @@ pub(crate) enum LocalLightReconcileError {
     },
 }
 
+pub(crate) trait LocalLightSourceProvider: Clone {
+    fn local_light_snapshot(&self) -> LocalLightProviderSnapshot;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LocalLightSourcePublicationError<E> {
+    Provider(E),
+    Reconcile(LocalLightReconcileError),
+    Commit(LocalLightSourceCommitError),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LocalLightSourceCommitError {
+    StaleProvider {
+        expected_revision: u64,
+        current_revision: u64,
+    },
+    StaleRegistry {
+        expected_publication_revision: u64,
+        current_publication_revision: u64,
+    },
+}
+
+/// A fully validated provider mutation and registry reconciliation. Dropping this value leaves
+/// both live owners unchanged; committing installs both candidates in one infallible operation.
+pub(crate) struct PreparedLocalLightSourcePublication<P, T> {
+    base_provider_snapshot: LocalLightProviderSnapshot,
+    base_registry_publication_revision: u64,
+    provider: P,
+    registry: LocalLightRegistry,
+    change: T,
+    reconcile: LocalLightReconcileOutcome,
+}
+
+impl<P: LocalLightSourceProvider, T> PreparedLocalLightSourcePublication<P, T> {
+    pub(crate) const fn change(&self) -> &T {
+        &self.change
+    }
+
+    pub(crate) fn light_id(&self, provider: ProviderId, key: SourceLightKey) -> Option<LightId> {
+        self.registry.light_id(provider, key)
+    }
+
+    pub(crate) fn commit(
+        self,
+        provider: &mut P,
+        registry: &mut LocalLightRegistry,
+    ) -> Result<LocalLightSourcePublication<T>, LocalLightSourceCommitError> {
+        let current_provider_snapshot = provider.local_light_snapshot();
+        if current_provider_snapshot != self.base_provider_snapshot {
+            return Err(LocalLightSourceCommitError::StaleProvider {
+                expected_revision: self.base_provider_snapshot.source_revision(),
+                current_revision: current_provider_snapshot.source_revision(),
+            });
+        }
+        if registry.source_publication_revision != self.base_registry_publication_revision {
+            return Err(LocalLightSourceCommitError::StaleRegistry {
+                expected_publication_revision: self.base_registry_publication_revision,
+                current_publication_revision: registry.source_publication_revision,
+            });
+        }
+        *provider = self.provider;
+        *registry = self.registry;
+        Ok(LocalLightSourcePublication {
+            change: self.change,
+            reconcile: self.reconcile,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LocalLightSourcePublication<T> {
+    pub change: T,
+    pub reconcile: LocalLightReconcileOutcome,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LocalLightReconcileOutcome {
     pub provider: Option<ProviderId>,
@@ -223,6 +299,46 @@ impl LocalLightRegistry {
         sources.retain(|entry| entry.key != source.key);
         self.publish_authored(sources);
         Ok(())
+    }
+
+    pub(crate) fn prepare_source_publication<P, T, E>(
+        &self,
+        provider: &P,
+        publish: impl FnOnce(&mut P) -> Result<T, E>,
+    ) -> Result<PreparedLocalLightSourcePublication<P, T>, LocalLightSourcePublicationError<E>>
+    where
+        P: LocalLightSourceProvider,
+    {
+        let base_provider_snapshot = provider.local_light_snapshot();
+        let mut candidate_provider = provider.clone();
+        let change =
+            publish(&mut candidate_provider).map_err(LocalLightSourcePublicationError::Provider)?;
+        let mut candidate_registry = self.clone();
+        let reconcile = candidate_registry
+            .reconcile(candidate_provider.local_light_snapshot())
+            .map_err(LocalLightSourcePublicationError::Reconcile)?;
+        Ok(PreparedLocalLightSourcePublication {
+            base_provider_snapshot,
+            base_registry_publication_revision: self.source_publication_revision,
+            provider: candidate_provider,
+            registry: candidate_registry,
+            change,
+            reconcile,
+        })
+    }
+
+    pub(crate) fn publish_source<P, T, E>(
+        &mut self,
+        provider: &mut P,
+        publish: impl FnOnce(&mut P) -> Result<T, E>,
+    ) -> Result<LocalLightSourcePublication<T>, LocalLightSourcePublicationError<E>>
+    where
+        P: LocalLightSourceProvider,
+    {
+        let prepared = self.prepare_source_publication(provider, publish)?;
+        prepared
+            .commit(provider, self)
+            .map_err(LocalLightSourcePublicationError::Commit)
     }
 
     pub(crate) fn reconcile(
@@ -463,5 +579,210 @@ impl LocalLightRegistry {
             updated,
             removed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec3;
+
+    use super::*;
+    use crate::lighting::PointLight;
+
+    const TEST_PROVIDER_ID: ProviderId = ProviderId::new(91);
+    const TEST_SOURCE_KEY: SourceLightKey = SourceLightKey::new(7, 11);
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct TestProvider {
+        snapshot: LocalLightProviderSnapshot,
+    }
+
+    impl Default for TestProvider {
+        fn default() -> Self {
+            Self {
+                snapshot: LocalLightProviderSnapshot::new(TEST_PROVIDER_ID, 0, []).unwrap(),
+            }
+        }
+    }
+
+    impl LocalLightSourceProvider for TestProvider {
+        fn local_light_snapshot(&self) -> LocalLightProviderSnapshot {
+            self.snapshot.clone()
+        }
+    }
+
+    impl TestProvider {
+        fn replace(
+            &mut self,
+            sources: impl IntoIterator<Item = SourceLight>,
+        ) -> Result<bool, LocalLightProviderSnapshotError> {
+            let candidate = LocalLightProviderSnapshot::new(
+                TEST_PROVIDER_ID,
+                self.snapshot.source_revision().wrapping_add(1).max(1),
+                sources,
+            )?;
+            if candidate.sources() == self.snapshot.sources() {
+                return Ok(false);
+            }
+            self.snapshot = candidate;
+            Ok(true)
+        }
+    }
+
+    fn point(x: f32, intensity: f32) -> LocalLight {
+        LocalLight::Point(
+            PointLight::new(Vec3::new(x, 0.0, 0.0), Vec3::ONE, intensity, 0.01, 1.0).unwrap(),
+        )
+    }
+
+    #[test]
+    fn source_publication_is_atomic_for_add_update_remove_noop_and_drop() {
+        let mut provider = TestProvider::default();
+        let mut registry = LocalLightRegistry::default();
+        let original_provider = provider.clone();
+        let original_registry = registry.snapshot();
+
+        let dropped = registry
+            .prepare_source_publication(&provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(0.0, 1.0))])
+            })
+            .unwrap();
+        assert!(*dropped.change());
+        drop(dropped);
+        assert_eq!(provider, original_provider);
+        assert_eq!(registry.snapshot(), original_registry);
+
+        let added = registry
+            .publish_source(&mut provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(0.0, 1.0))])
+            })
+            .unwrap();
+        assert!(added.change);
+        assert_eq!((added.reconcile.added, added.reconcile.updated), (1, 0));
+        let stable_id = registry
+            .light_id(TEST_PROVIDER_ID, TEST_SOURCE_KEY)
+            .unwrap();
+        let provider_revision = provider.snapshot.source_revision();
+        let registry_revision = registry.registry_revision();
+        let publication_revision = registry.source_publication_revision();
+
+        let noop = registry
+            .publish_source(&mut provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(0.0, 1.0))])
+            })
+            .unwrap();
+        assert!(!noop.change);
+        assert_eq!(provider.snapshot.source_revision(), provider_revision);
+        assert_eq!(registry.registry_revision(), registry_revision);
+        assert_eq!(registry.source_publication_revision(), publication_revision);
+        assert_eq!(
+            registry.light_id(TEST_PROVIDER_ID, TEST_SOURCE_KEY),
+            Some(stable_id)
+        );
+
+        let updated = registry
+            .publish_source(&mut provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(1.0, 2.0))])
+            })
+            .unwrap();
+        assert_eq!(updated.reconcile.updated, 1);
+        assert_eq!(
+            registry.light_id(TEST_PROVIDER_ID, TEST_SOURCE_KEY),
+            Some(stable_id)
+        );
+
+        let removed = registry
+            .publish_source(&mut provider, |candidate| candidate.replace([]))
+            .unwrap();
+        assert_eq!(removed.reconcile.removed, 1);
+        assert!(registry
+            .light_id(TEST_PROVIDER_ID, TEST_SOURCE_KEY)
+            .is_none());
+
+        registry
+            .publish_source(&mut provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(2.0, 3.0))])
+            })
+            .unwrap();
+        assert_ne!(
+            registry.light_id(TEST_PROVIDER_ID, TEST_SOURCE_KEY),
+            Some(stable_id)
+        );
+    }
+
+    #[test]
+    fn source_publication_rejects_provider_errors_and_stale_prepared_state_without_mutation() {
+        let mut provider = TestProvider::default();
+        let mut registry = LocalLightRegistry::default();
+        let before_provider = provider.clone();
+        let before_registry = registry.snapshot();
+        let error = registry.prepare_source_publication(&provider, |_candidate| {
+            Err::<(), _>("provider rejected publication")
+        });
+        assert!(matches!(
+            error,
+            Err(LocalLightSourcePublicationError::Provider(
+                "provider rejected publication"
+            ))
+        ));
+        assert_eq!(provider, before_provider);
+        assert_eq!(registry.snapshot(), before_registry);
+
+        let stale_provider = registry
+            .prepare_source_publication(&provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(0.0, 1.0))])
+            })
+            .unwrap();
+        provider
+            .replace([SourceLight::new(TEST_SOURCE_KEY, point(3.0, 4.0))])
+            .unwrap();
+        let provider_after_interleave = provider.clone();
+        let registry_before_stale_commit = registry.snapshot();
+        assert!(matches!(
+            stale_provider.commit(&mut provider, &mut registry),
+            Err(LocalLightSourceCommitError::StaleProvider { .. })
+        ));
+        assert_eq!(provider, provider_after_interleave);
+        assert_eq!(registry.snapshot(), registry_before_stale_commit);
+
+        let mut provider = TestProvider::default();
+        let stale_registry = registry
+            .prepare_source_publication(&provider, |candidate| {
+                candidate.replace([SourceLight::new(TEST_SOURCE_KEY, point(0.0, 1.0))])
+            })
+            .unwrap();
+        registry.add(point(9.0, 1.0));
+        let provider_before_stale_commit = provider.clone();
+        let registry_after_interleave = registry.snapshot();
+        assert!(matches!(
+            stale_registry.commit(&mut provider, &mut registry),
+            Err(LocalLightSourceCommitError::StaleRegistry { .. })
+        ));
+        assert_eq!(provider, provider_before_stale_commit);
+        assert_eq!(registry.snapshot(), registry_after_interleave);
+    }
+
+    #[test]
+    fn authored_noop_and_stale_id_leave_the_registry_unchanged() {
+        let mut registry = LocalLightRegistry::default();
+        let light = point(0.0, 1.0);
+        let id = registry.add(light);
+        let revision = registry.registry_revision();
+        let publication_revision = registry.source_publication_revision();
+        registry.update(id, light).unwrap();
+        assert_eq!(registry.registry_revision(), revision);
+        assert_eq!(registry.source_publication_revision(), publication_revision);
+
+        registry.remove(id).unwrap();
+        let after_remove = registry.snapshot();
+        assert_eq!(
+            registry.update(id, point(1.0, 2.0)),
+            Err(LocalLightMutationError::StaleId(id))
+        );
+        assert_eq!(
+            registry.remove(id),
+            Err(LocalLightMutationError::StaleId(id))
+        );
+        assert_eq!(registry.snapshot(), after_remove);
     }
 }

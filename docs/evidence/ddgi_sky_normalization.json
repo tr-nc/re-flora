@@ -19,6 +19,7 @@
     ],
     "field": "pre-transport-sky-only",
     "field_reason": "These adjacent commits predate the runtime transport field scheduler and capture-target CLI; the final-view DDGI sky-seeded field was the only field available.",
+    "proof_scope": "fixed-command legacy-v2 final payload RGB and hit-mask difference only; does not prove world identity or capture-v8 reference correctness",
     "spacings_voxels": [
       32,
       16

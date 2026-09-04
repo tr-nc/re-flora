@@ -146,6 +146,15 @@ impl ReflectedDescriptorRuntime {
         FrameRetirement::new(name, generation, old)
     }
 
+    pub(super) fn validate_prepared(&self, pending: &PreparedDescriptorGeneration) -> Result<()> {
+        anyhow::ensure!(
+            pending.belongs_to(&self.identity),
+            "prepared descriptor generation belongs to another pipeline; target={}",
+            self.plan.pipeline_name(),
+        );
+        Ok(())
+    }
+
     pub(super) fn begin_transient_frame(&self, frame_slot: usize) {
         self.transient.lock().unwrap().begin_frame(frame_slot);
     }

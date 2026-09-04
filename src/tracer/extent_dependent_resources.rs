@@ -394,6 +394,7 @@ impl ExtentDependentResources {
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT
+                | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,

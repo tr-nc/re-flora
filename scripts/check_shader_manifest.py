@@ -23,6 +23,13 @@ CONFIG_RE = re.compile(
     re.DOTALL,
 )
 STAGE_EXTENSION = {"Compute": ".comp", "Vertex": ".vert", "Fragment": ".frag"}
+TEXTUAL_INCLUDE_RE = re.compile(r"^\s*#\s*include\b", re.MULTILINE)
+VARIANT_WRAPPER_RE = re.compile(
+    r"\A"
+    r"(?:#define\s+RE_FLORA_[A-Z0-9_]+\s+[01]\s*\n)+"
+    r'#include\s+"(?P<target>[A-Za-z0-9_.-]+)"\s*'
+    r"\Z"
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -32,6 +39,12 @@ def fail(message: str) -> NoReturn:
 
 def duplicates(values: list[str]) -> list[str]:
     return sorted(value for value, count in Counter(values).items() if count != 1)
+
+
+def variant_wrapper_target(source: str) -> str | None:
+    """Return the entry point wrapped by a constrained compile-time variant."""
+    match = VARIANT_WRAPPER_RE.fullmatch(source)
+    return match.group("target") if match else None
 
 
 def main() -> int:
@@ -49,6 +62,9 @@ def main() -> int:
 
     logical_paths = [logical_path for logical_path, _source, _include, _stage in configs]
     source_paths = [source_path for _logical, source_path, _include, _stage in configs]
+    stage_by_source = {
+        source_path: stage for _logical, source_path, _include, stage in configs
+    }
     duplicate_logical_paths = duplicates(logical_paths)
     duplicate_source_paths = duplicates(source_paths)
     if duplicate_logical_paths or duplicate_source_paths:
@@ -59,11 +75,16 @@ def main() -> int:
 
     module_names: list[str] = []
     imported_modules: set[str] = set()
+    variant_targets: dict[str, str] = {}
     for shader_file in production_shader_files:
         source = shader_file.read_text(encoding="utf-8")
-        if re.search(r"^\s*#\s*include\b", source, re.MULTILINE):
-            fail(f"textual include remains in {shader_file.relative_to(ROOT).as_posix()}")
         relative_path = shader_file.relative_to(ROOT).as_posix()
+        if TEXTUAL_INCLUDE_RE.search(source):
+            target_name = variant_wrapper_target(source)
+            if relative_path not in source_paths or target_name is None:
+                fail(f"textual include remains in {relative_path}")
+            target_path = shader_file.with_name(target_name)
+            variant_targets[relative_path] = target_path.relative_to(ROOT).as_posix()
         module = re.search(
             r"^\s*module\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", source, re.MULTILINE
         )
@@ -76,6 +97,18 @@ def main() -> int:
                 r"^\s*import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", source, re.MULTILINE
             )
         )
+
+    for variant_source, target_source in sorted(variant_targets.items()):
+        if target_source not in stage_by_source:
+            fail(
+                f"native shader variant target is not an entry point: "
+                f"{variant_source} -> {target_source}"
+            )
+        if stage_by_source[variant_source] != stage_by_source[target_source]:
+            fail(
+                f"native shader variant stage mismatch: "
+                f"{variant_source} -> {target_source}"
+            )
 
     duplicate_modules = duplicates(module_names)
     if duplicate_modules:
@@ -101,7 +134,8 @@ def main() -> int:
 
     print(
         f"native shader manifest matches {len(configs)} entry points "
-        f"and {len(production_shader_files) - len(configs)} shared Slang modules"
+        f"({len(variant_targets)} compile-time variants) and "
+        f"{len(production_shader_files) - len(configs)} shared Slang modules"
     )
     return 0
 

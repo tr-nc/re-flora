@@ -1,0 +1,40 @@
+schema_version = 1
+absolute_threshold = 0.0025
+relative_threshold = 0.02
+relative_floor = 0.05
+consecutive_epochs = 2
+minimum_update_epochs = 8
+maximum_update_epochs = 128
+terminal_update_epoch = 127
+
+[initialization_grid]
+world_extent_voxels = 512
+
+[atlas_texel_layout]
+interior_texels_per_valid_probe = 64
+stored_texels_per_valid_probe = 100
+
+[validation_wire]
+decimal_places = 8
+
+[validation_wire.integer_types]
+field_serial = "u64"
+geometry_revision = "u32"
+radiance_revision = "u32"
+spacing_voxels = "u32"
+update_epoch = "u32"
+nonfinite_count = "u32"
+negative_rgb_texel_count = "u32"
+valid_texel_count = "u32"
+scanned_stored_texel_count = "u32"
+consecutive_below_threshold = "u32"
+required_consecutive_epochs = "u32"
+
+[validation_wire.optional_integer_types]
+source_field_serial = "u64"
+
+[validation_wire.float_types]
+max_absolute_rgb_delta = "f32"
+max_relative_rgb_delta = "f32"
+absolute_threshold = "f32"
+relative_threshold = "f32"

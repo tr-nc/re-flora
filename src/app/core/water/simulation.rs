@@ -1,15 +1,66 @@
 use super::super::App;
-use super::runtime;
+use super::coordinator::WaterFrameRequest;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::VOXEL_TYPE_ROCK;
 use glam::{Vec2, Vec3};
-use std::time::Duration;
-
-const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::app::core) struct WaterEditSoak {
     next_step: usize,
+}
+
+pub(in crate::app::core) enum WaterEditFrameTxn {
+    Inactive,
+    Step { step: usize },
+    Complete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app::core) enum WaterEditFrameResult {
+    Applied,
+    Failed,
+}
+
+impl WaterEditSoak {
+    pub(in crate::app::core) fn begin_frame(&self) -> WaterEditFrameTxn {
+        if water_edit_soak_step(self.next_step).is_some() {
+            WaterEditFrameTxn::Step {
+                step: self.next_step,
+            }
+        } else {
+            WaterEditFrameTxn::Complete
+        }
+    }
+
+    pub(in crate::app::core) fn finish_frame(
+        &mut self,
+        transaction: WaterEditFrameTxn,
+        result: WaterEditFrameResult,
+    ) -> anyhow::Result<bool> {
+        let step = match transaction {
+            WaterEditFrameTxn::Step { step } => step,
+            WaterEditFrameTxn::Inactive => {
+                anyhow::ensure!(
+                    result == WaterEditFrameResult::Failed,
+                    "inactive water-edit frame received an applied result"
+                );
+                return Ok(false);
+            }
+            WaterEditFrameTxn::Complete => {
+                anyhow::ensure!(
+                    result == WaterEditFrameResult::Failed,
+                    "complete water-edit frame received an applied result"
+                );
+                return Ok(true);
+            }
+        };
+        anyhow::ensure!(step == self.next_step, "stale water-edit frame transaction");
+        if result == WaterEditFrameResult::Failed {
+            return Ok(false);
+        }
+        self.next_step += 1;
+        Ok(water_edit_soak_step(self.next_step).is_none())
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,68 +84,60 @@ impl App {
         frame_delta_time: f32,
         world_tick_seconds: f32,
     ) {
-        self.water_sim.apply_gui_adjustables(
+        self.water.advance_frame(
             &self.debug_settings.adjustables,
-            &self.water_runtime_overrides,
+            WaterFrameRequest {
+                frame_delta_time,
+                world_tick_seconds,
+                world_tick_multiplier: self
+                    .debug_settings
+                    .adjustables
+                    .water_world_tick_multiplier
+                    .value,
+                perf_logging: self.perf_logging,
+            },
         );
-        let max_substeps = if self.water_terrain_status().has_work() {
-            WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS
-        } else {
-            runtime::WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS
-        };
-        let water_world_tick_multiplier = self
-            .debug_settings
-            .adjustables
-            .water_world_tick_multiplier
-            .value
-            .clamp(0.0, 1.0);
-        let water_tick_seconds = crate::game_time::clamp_world_tick_seconds(
-            world_tick_seconds * water_world_tick_multiplier,
-        );
-        let snapshot_interval = Duration::from_secs_f32(water_tick_seconds);
-        self.water_sim.set_runtime_options(
-            true,
-            self.perf_logging,
-            max_substeps,
-            snapshot_interval,
-        );
-
-        self.water_sim
-            .poll_latest_particle_frame_after_frame(frame_delta_time, water_tick_seconds);
     }
 
     pub(in crate::app::core) fn process_water_edit_soak(&mut self) {
         let Some(render_start) = self.render_start_time else {
             return;
         };
-        let Some(current_step) = self.water_edit_soak.as_ref().map(|soak| soak.next_step) else {
+        let transaction = self.launch_owners.begin_water_edit_frame();
+        let super::super::launch_owners::WaterEditFrameTxn::Step { step: current_step } =
+            &transaction
+        else {
             return;
         };
-        let Some(step) = water_edit_soak_step(current_step) else {
+        let Some(step) = water_edit_soak_step(*current_step) else {
             return;
         };
 
         if render_start.elapsed().as_secs_f32() < step.delay_sec {
             return;
         }
-        if !self.water_terrain_status().is_ready() {
+        if !self.water.terrain_status().is_ready() {
             return;
         }
 
-        let next_step = current_step + 1;
-        if let Err(err) = self.apply_water_edit_soak_step(step) {
-            log::error!(
-                "[WATER][EDIT_SOAK] step {} ({}) failed: {}",
-                current_step,
-                step.label,
-                err,
-            );
-        }
-        if let Some(soak) = &mut self.water_edit_soak {
-            soak.next_step = next_step;
-            if water_edit_soak_step(soak.next_step).is_none() {
-                log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
+        let result = match self.apply_water_edit_soak_step(step) {
+            Ok(()) => super::super::launch_owners::WaterEditFrameResult::Applied,
+            Err(err) => {
+                log::error!(
+                    "[WATER][EDIT_SOAK] step {} ({}) failed: {}",
+                    current_step,
+                    step.label,
+                    err,
+                );
+                super::super::launch_owners::WaterEditFrameResult::Failed
             }
+        };
+        if self
+            .launch_owners
+            .finish_water_edit_frame(transaction, result)
+            .unwrap_or_else(|error| panic!("[WATER][EDIT_SOAK] stale owner transaction: {error:#}"))
+        {
+            log::info!("[WATER][EDIT_SOAK] completed deterministic terrain-edit sequence");
         }
     }
 

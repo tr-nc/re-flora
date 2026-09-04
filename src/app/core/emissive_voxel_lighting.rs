@@ -15,9 +15,8 @@ use crate::{
     },
     geom::UAabb3,
     lighting::{
-        EmissiveVoxelEmitter, EmissiveVoxelProvider, LocalLightProviderSnapshot,
-        LocalLightRegistry, EMISSIVE_VOXEL_CLUSTER_DIM, EMISSIVE_VOXEL_COLOR_SRGB,
-        EMISSIVE_VOXEL_SURFACE_RADIANCE,
+        EmissiveVoxelEmitter, EmissiveVoxelProvider, LocalLightRegistry,
+        EMISSIVE_VOXEL_CLUSTER_DIM, EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
     },
 };
 
@@ -287,7 +286,6 @@ pub(super) struct EmissiveVoxelLightingRuntime {
     sparse_full_scanner: Option<SparseFullChunkScanner>,
     required_sparse_full: BTreeMap<GridCoord, PendingCell>,
     local_edit_metrics: Option<LocalEditMetrics>,
-    pending_registry_snapshot: Option<LocalLightProviderSnapshot>,
 }
 
 impl EmissiveVoxelLightingRuntime {
@@ -326,7 +324,6 @@ impl EmissiveVoxelLightingRuntime {
             sparse_full_scanner: None,
             required_sparse_full: BTreeMap::new(),
             local_edit_metrics: None,
-            pending_registry_snapshot: None,
         })
     }
 
@@ -388,14 +385,7 @@ impl EmissiveVoxelLightingRuntime {
     ) -> Result<EmissiveVoxelLightingAdvance> {
         let started_at = Instant::now();
         let mut result = EmissiveVoxelLightingAdvance::default();
-        let mut provider_changed = false;
         let mut completed_full = Vec::new();
-        if let Some(snapshot) = self.pending_registry_snapshot.clone() {
-            registry
-                .reconcile(snapshot)
-                .map_err(|err| anyhow!("failed to retry emissive provider publication: {err:?}"))?;
-            self.pending_registry_snapshot = None;
-        }
         for z in 0..self.chunk_dim.z {
             for y in 0..self.chunk_dim.y {
                 for x in 0..self.chunk_dim.x {
@@ -450,17 +440,18 @@ impl EmissiveVoxelLightingRuntime {
                             self.full_staging.remove(&GridCoord::new(chunk_idx));
                             let chunk_bound =
                                 chunk_voxel_bound(chunk_idx, self.scheduler.voxel_dim_per_chunk);
-                            let change = self
-                                .provider
-                                .replace_region(chunk_bound, std::iter::empty())
+                            let change = registry
+                                .publish_source(&mut self.provider, |provider| {
+                                    provider.replace_region(chunk_bound, std::iter::empty())
+                                })
                                 .map_err(|err| {
                                     anyhow!(
                                         "failed to transactionally clear absent emissive chunk {chunk_bound:?}: {err:?}"
                                     )
-                                })?;
+                                })?
+                                .change;
                             result.full_chunk_completions += 1;
                             if change.changed {
-                                provider_changed = true;
                                 result.full_provider_publications += 1;
                             }
                             completed_full.push(CompletedFullChunk {
@@ -555,19 +546,21 @@ impl EmissiveVoxelLightingRuntime {
                                 dependency.chunk_idx,
                                 self.scheduler.voxel_dim_per_chunk,
                             );
-                            let change = self
-                                .provider
-                                .replace_region(
-                                    chunk_bound,
-                                    world_voxels
-                                        .into_iter()
-                                        .map(|world_voxel| (world_voxel, emitter)),
-                                )
+                            let change = registry
+                                .publish_source(&mut self.provider, |provider| {
+                                    provider.replace_region(
+                                        chunk_bound,
+                                        world_voxels
+                                            .into_iter()
+                                            .map(|world_voxel| (world_voxel, emitter)),
+                                    )
+                                })
                                 .map_err(|err| {
                                     anyhow!(
                                         "failed to publish sparse emissive chunk {chunk_bound:?}: {err:?}"
                                     )
-                                })?;
+                                })?
+                                .change;
                             let publication_cpu_ms =
                                 publish_started_at.elapsed().as_secs_f64() * 1_000.0;
                             result.full_publication_cpu_ms += publication_cpu_ms;
@@ -576,7 +569,6 @@ impl EmissiveVoxelLightingRuntime {
                             result.max_full_scan_frames =
                                 Some(frame.saturating_sub(worker_result.queued_frame));
                             if change.changed {
-                                provider_changed = true;
                                 result.full_provider_publications += 1;
                             }
                             self.required_sparse_full.remove(&chunk);
@@ -680,9 +672,6 @@ impl EmissiveVoxelLightingRuntime {
             let export = match source.export_cell(work.cell_bound) {
                 Ok(export) => export,
                 Err(err) => {
-                    if provider_changed {
-                        self.pending_registry_snapshot = Some(self.provider.snapshot());
-                    }
                     self.scheduler.retry(work);
                     return Err(err);
                 }
@@ -703,9 +692,6 @@ impl EmissiveVoxelLightingRuntime {
             let emitters = match emissive_emitters_from_block(&block, self.voxels_per_world_unit) {
                 Ok(emitters) => emitters,
                 Err(err) => {
-                    if provider_changed {
-                        self.pending_registry_snapshot = Some(self.provider.snapshot());
-                    }
                     self.scheduler.retry(work);
                     return Err(err);
                 }
@@ -715,12 +701,11 @@ impl EmissiveVoxelLightingRuntime {
                     let emitter_count = emitters.len();
                     result.local_scanned_cells += 1;
                     result.local_emissive_voxels += emitter_count;
-                    let change = match self.provider.replace_region(work.cell_bound, emitters) {
-                        Ok(change) => change,
+                    let change = match registry.publish_source(&mut self.provider, |provider| {
+                        provider.replace_region(work.cell_bound, emitters)
+                    }) {
+                        Ok(publication) => publication.change,
                         Err(err) => {
-                            if provider_changed {
-                                self.pending_registry_snapshot = Some(self.provider.snapshot());
-                            }
                             self.scheduler.retry(work);
                             return Err(anyhow!(
                                 "failed to transactionally publish emissive cell {:?}: {err:?}",
@@ -729,7 +714,6 @@ impl EmissiveVoxelLightingRuntime {
                         }
                     };
                     if change.changed {
-                        provider_changed = true;
                         result.local_provider_publications += 1;
                     }
                     let latency = frame.saturating_sub(work.queued_frame);
@@ -801,15 +785,16 @@ impl EmissiveVoxelLightingRuntime {
             }
             let chunk_bound = chunk_voxel_bound(chunk.get(), self.scheduler.voxel_dim_per_chunk);
             let emitter_voxels = staging.emitters.len();
-            let change = self
-                .provider
-                .replace_region(
-                    chunk_bound,
-                    staging
-                        .emitters
-                        .into_iter()
-                        .map(|(voxel, emitter)| (voxel.get(), emitter)),
-                )
+            let change = registry
+                .publish_source(&mut self.provider, |provider| {
+                    provider.replace_region(
+                        chunk_bound,
+                        staging
+                            .emitters
+                            .into_iter()
+                            .map(|(voxel, emitter)| (voxel.get(), emitter)),
+                    )
+                })
                 .map_err(|err| {
                     self.scheduler
                         .restart_full_chunk(staging.dependency, frame)
@@ -817,7 +802,8 @@ impl EmissiveVoxelLightingRuntime {
                     anyhow!(
                         "failed to transactionally publish emissive chunk {chunk_bound:?}: {err:?}"
                     )
-                })?;
+                })?
+                .change;
             result.full_chunk_completions += 1;
             result.completed_full_cpu_ms += staging.cpu_ms;
             result.max_full_scan_frames = Some(
@@ -828,7 +814,6 @@ impl EmissiveVoxelLightingRuntime {
                     }),
             );
             if change.changed {
-                provider_changed = true;
                 result.full_provider_publications += 1;
             }
             completed_full.push(CompletedFullChunk {
@@ -841,14 +826,6 @@ impl EmissiveVoxelLightingRuntime {
                 publication_cpu_ms: 0.0,
                 provider_changed: change.changed,
             });
-        }
-        if provider_changed {
-            let snapshot = self.provider.snapshot();
-            self.pending_registry_snapshot = Some(snapshot.clone());
-            registry.reconcile(snapshot).map_err(|err| {
-                anyhow!("failed to reconcile emissive provider snapshot: {err:?}")
-            })?;
-            self.pending_registry_snapshot = None;
         }
         result.backlog = self.scheduler.backlog();
         result.backlog.full_chunks += self.required_sparse_full.len();

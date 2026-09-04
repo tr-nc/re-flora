@@ -1,18 +1,18 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
-use crate::gameplay::camera::vectors::CameraVectors;
+use crate::audio::{AudioTelemetryObservations, AudioTelemetryRouter, CanopyAudioGenerationKey};
+use crate::gameplay::{CameraPose, CameraVectors};
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticDiscardReason, AcousticExtentTelemetry, AcousticSceneSnapshot,
-    AcousticTelemetryDiagnostics, AcousticTelemetryEvent, AcousticVoiceConclusionTelemetry,
-    BusParams, Emitter, EmitterDesc, EmitterSpatialState, EnvironmentalAcousticsBudget,
-    LatencyProfile, OcclusionProfile, OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld,
-    PetalSonicWorldDesc, PlayOptions, PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat,
-    ResidentClip, RuntimeDiagnostics, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
-    Vec3 as PetalVec3, VoiceTelemetryEvent,
+    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, BusParams, Emitter, EmitterDesc,
+    EmitterSpatialState, EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile,
+    OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayCommandId,
+    PlayOptions, PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip,
+    RuntimeDiagnostics, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
+    Vec3 as PetalVec3,
 };
 use rand::RngExt;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
@@ -20,6 +20,7 @@ use std::sync::{
 use uuid::Uuid;
 
 const SPATIAL_FRAME_PUBLISH_INTERVAL_SECONDS: f64 = 1.0 / 30.0;
+const AUDIO_EVENT_QUEUE_CAPACITY: usize = 1_024;
 
 struct SourceInfo {
     emitter: Emitter,
@@ -32,37 +33,6 @@ struct SourceInfo {
 struct OneShotEmitter {
     emitter: Emitter,
     volume_db: f32,
-}
-
-pub enum SpatialAcousticTelemetryEvent {
-    ExtentResponse {
-        source_uuid: Option<Uuid>,
-        response: AcousticExtentTelemetry,
-    },
-    SolveDiscarded {
-        spatial_revision: u64,
-        geometry_version: u64,
-    },
-    VoiceConclusion {
-        source_uuid: Option<Uuid>,
-        conclusion: AcousticVoiceConclusionTelemetry,
-    },
-}
-
-#[derive(Default)]
-struct AcousticTelemetryInbox {
-    canopy: Vec<SpatialAcousticTelemetryEvent>,
-    local_footsteps: Vec<AcousticVoiceConclusionTelemetry>,
-}
-
-impl AcousticTelemetryInbox {
-    fn drain_canopy(&mut self) -> Vec<SpatialAcousticTelemetryEvent> {
-        std::mem::take(&mut self.canopy)
-    }
-
-    fn drain_local_footsteps(&mut self) -> Vec<AcousticVoiceConclusionTelemetry> {
-        std::mem::take(&mut self.local_footsteps)
-    }
 }
 
 struct TransientSpatialSource {
@@ -78,6 +48,11 @@ pub(crate) struct TransientSpatialEmitter {
 impl TransientSpatialEmitter {
     pub(crate) fn matches(self, emitter: Emitter) -> bool {
         self.emitter == emitter
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_emitter(self) -> Emitter {
+        self.emitter
     }
 }
 
@@ -161,14 +136,126 @@ pub struct SpatialSoundManager {
     uuid_to_source: Arc<Mutex<HashMap<Uuid, SourceInfo>>>,
     one_shot_emitters: Arc<Mutex<HashMap<String, OneShotEmitter>>>,
     transient_spatial_emitters: Arc<Mutex<HashMap<Emitter, TransientSpatialSource>>>,
-    local_footstep_telemetry_emitters: Arc<Mutex<HashSet<Emitter>>>,
-    acoustic_telemetry_inbox: Arc<Mutex<AcousticTelemetryInbox>>,
+    audio_telemetry_router: Arc<Mutex<AudioTelemetryRouter>>,
     listener_state: Arc<Mutex<ListenerState>>,
     global_volume_gain_db: Arc<Mutex<f32>>,
     health_log_state: Arc<Mutex<AudioHealthLogState>>,
     spatial_frame_revision: Arc<AtomicU64>,
     spatial_frame_publish_cadence: Arc<Mutex<SpatialFramePublishCadence>>,
     published_acoustic_scene_version: Arc<AtomicU64>,
+    #[cfg(test)]
+    test_audio_queue_probe: Arc<Mutex<Option<Arc<SpatialAudioQueueProbe>>>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FootstepRetirementProbe {
+    pub(super) event_seq: u64,
+    pub(super) reason: &'static str,
+    pub(super) environment_response_observed: bool,
+    pub(super) acoustic_conclusion_observed: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NextAudioQueue {
+    Voice,
+    Acoustic,
+    Lifecycle,
+    Done,
+}
+
+#[cfg(test)]
+struct SpatialAudioQueueProbeState {
+    next: NextAudioQueue,
+    voice: Option<Vec<petalsonic::VoiceTelemetryEvent>>,
+    acoustic: Option<Vec<petalsonic::AcousticTelemetryEvent>>,
+    lifecycle: Option<Vec<PetalSonicEvent>>,
+    retirements: Vec<FootstepRetirementProbe>,
+}
+
+/// Test-only replacement for the three concrete PetalSonic queue reads.
+///
+/// Each queue is consumable exactly once and in its production order. This is deliberately not a
+/// production interface: it exists only so tests can drive and observe the real manager and
+/// `SpatialFrame` transaction deterministically.
+#[cfg(test)]
+pub(super) struct SpatialAudioQueueProbe {
+    state: Mutex<SpatialAudioQueueProbeState>,
+}
+
+#[cfg(test)]
+impl SpatialAudioQueueProbe {
+    pub(super) fn new(
+        voice: Vec<petalsonic::VoiceTelemetryEvent>,
+        acoustic: Vec<petalsonic::AcousticTelemetryEvent>,
+        lifecycle: Vec<PetalSonicEvent>,
+    ) -> Self {
+        Self {
+            state: Mutex::new(SpatialAudioQueueProbeState {
+                next: NextAudioQueue::Voice,
+                voice: Some(voice),
+                acoustic: Some(acoustic),
+                lifecycle: Some(lifecycle),
+                retirements: Vec::new(),
+            }),
+        }
+    }
+
+    fn drain_voice(&self) -> Vec<petalsonic::VoiceTelemetryEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Voice,
+            "Voice telemetry drained more than once or out of order"
+        );
+        state.next = NextAudioQueue::Acoustic;
+        state.voice.take().expect("Voice telemetry drained twice")
+    }
+
+    fn drain_acoustic(&self) -> Vec<petalsonic::AcousticTelemetryEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Acoustic,
+            "acoustic telemetry drained more than once or out of order"
+        );
+        state.next = NextAudioQueue::Lifecycle;
+        state
+            .acoustic
+            .take()
+            .expect("acoustic telemetry drained twice")
+    }
+
+    fn drain_lifecycle(&self) -> Vec<PetalSonicEvent> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.next,
+            NextAudioQueue::Lifecycle,
+            "lifecycle stream was cross-drained or drained more than once"
+        );
+        state.next = NextAudioQueue::Done;
+        state
+            .lifecycle
+            .take()
+            .expect("lifecycle stream drained twice")
+    }
+
+    fn observe_retirement(&self, retirement: FootstepRetirementProbe) {
+        self.state.lock().unwrap().retirements.push(retirement);
+    }
+
+    pub(super) fn retirements(&self) -> Vec<FootstepRetirementProbe> {
+        self.state.lock().unwrap().retirements.clone()
+    }
+
+    pub(super) fn assert_all_queues_drained_once(&self) {
+        let state = self.state.lock().unwrap();
+        assert_eq!(state.next, NextAudioQueue::Done);
+        assert!(state.voice.is_none());
+        assert!(state.acoustic.is_none());
+        assert!(state.lifecycle.is_none());
+    }
 }
 
 #[derive(Debug, Default)]
@@ -261,6 +348,10 @@ impl SpatialSoundManager {
             // feature that callers may disable.
             environmental_acoustics_enabled: true,
             environmental_acoustics_budget,
+            // Lifecycle, Voice, and acoustic telemetry each use an independent queue with this
+            // capacity. AudioTelemetryRouter drains the telemetry queues once into a frame-scoped
+            // observation batch and never adds a second persistent inbox.
+            event_queue_capacity: AUDIO_EVENT_QUEUE_CAPACITY,
             ..PetalSonicWorldDesc::default()
         })?;
 
@@ -270,8 +361,7 @@ impl SpatialSoundManager {
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
             one_shot_emitters: Arc::new(Mutex::new(HashMap::new())),
             transient_spatial_emitters: Arc::new(Mutex::new(HashMap::new())),
-            local_footstep_telemetry_emitters: Arc::new(Mutex::new(HashSet::new())),
-            acoustic_telemetry_inbox: Arc::new(Mutex::new(AcousticTelemetryInbox::default())),
+            audio_telemetry_router: Arc::new(Mutex::new(AudioTelemetryRouter::default())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
             health_log_state: Arc::new(Mutex::new(AudioHealthLogState::default())),
@@ -282,6 +372,8 @@ impl SpatialSoundManager {
             published_acoustic_scene_version: Arc::new(AtomicU64::new(
                 initial_acoustic_scene_version,
             )),
+            #[cfg(test)]
+            test_audio_queue_probe: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -386,8 +478,9 @@ impl SpatialSoundManager {
         )
     }
 
-    pub fn add_looping_spatial_clip_with_extent_at_phase(
+    pub(crate) fn add_canopy_looping_clip_with_extent_at_phase(
         &self,
+        generation: CanopyAudioGenerationKey,
         clip: ResidentClip,
         volume_db: f32,
         position: Vec3,
@@ -395,7 +488,7 @@ impl SpatialSoundManager {
         extent: SourceExtent,
         occlusion_profile: OcclusionProfile,
     ) -> Result<Uuid> {
-        self.add_looping_clip_source(
+        let uuid = self.add_looping_clip_source(
             clip,
             volume_db,
             Some(position),
@@ -403,7 +496,24 @@ impl SpatialSoundManager {
             false,
             extent,
             occlusion_profile,
-        )
+        )?;
+        let emitter = self
+            .uuid_to_source
+            .lock()
+            .unwrap()
+            .get(&uuid)
+            .expect("new canopy source must remain registered")
+            .emitter;
+        if let Err(error) = self
+            .audio_telemetry_router
+            .lock()
+            .unwrap()
+            .claim_canopy(emitter, generation)
+        {
+            self.remove_source(uuid);
+            return Err(error.into());
+        }
+        Ok(uuid)
     }
 
     pub fn add_non_spatial_source(&self, path: &str, volume_db: f32) -> Result<()> {
@@ -431,6 +541,7 @@ impl SpatialSoundManager {
 
     pub(crate) fn create_transient_spatial_emitter(
         &self,
+        event_seq: u64,
         path: &str,
         volume_db: f32,
         position: Vec3,
@@ -446,10 +557,20 @@ impl SpatialSoundManager {
                 position,
             },
         );
-        self.local_footstep_telemetry_emitters
+        let play_command_id = PlayCommandId(crate::audio::local_footstep_correlation_id(event_seq));
+        if let Err(error) = self
+            .audio_telemetry_router
             .lock()
             .unwrap()
-            .insert(emitter);
+            .claim_local_footstep(emitter, event_seq, play_command_id)
+        {
+            self.transient_spatial_emitters
+                .lock()
+                .unwrap()
+                .remove(&emitter);
+            let _ = self.world.destroy_emitter(emitter);
+            return Err(error.into());
+        }
         self.mark_spatial_frame_structure_changed();
         Ok(TransientSpatialEmitter { emitter })
     }
@@ -489,31 +610,61 @@ impl SpatialSoundManager {
         &self,
         emitter: TransientSpatialEmitter,
     ) {
-        self.local_footstep_telemetry_emitters
+        self.audio_telemetry_router
             .lock()
             .unwrap()
-            .remove(&emitter.emitter);
+            .release(emitter.emitter);
     }
 
     pub(crate) fn drain_events(&self) -> Vec<PetalSonicEvent> {
+        #[cfg(test)]
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            return probe.drain_lifecycle();
+        }
         self.world.drain_events()
     }
 
-    pub(crate) fn drain_voice_telemetry(&self) -> Vec<VoiceTelemetryEvent> {
-        self.world.drain_voice_telemetry()
+    #[cfg(test)]
+    pub(super) fn install_audio_queue_probe(&self, probe: Arc<SpatialAudioQueueProbe>) {
+        *self.test_audio_queue_probe.lock().unwrap() = Some(probe);
     }
 
-    pub fn update_player_pos(
+    #[cfg(test)]
+    pub(super) fn test_source_emitter(&self, uuid: Uuid) -> Emitter {
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .get(&uuid)
+            .expect("test source must remain registered")
+            .emitter
+    }
+
+    #[cfg(test)]
+    pub(super) fn observe_test_footstep_retirement(
         &self,
-        player_pos: Vec3,
-        camera_vectors: &CameraVectors,
-    ) -> Result<()> {
+        event_seq: u64,
+        reason: &'static str,
+        environment_response_observed: bool,
+        acoustic_conclusion_observed: bool,
+    ) {
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            probe.observe_retirement(FootstepRetirementProbe {
+                event_seq,
+                reason,
+                environment_response_observed,
+                acoustic_conclusion_observed,
+            });
+        }
+    }
+
+    pub(super) fn observe_listener(&self, pose: CameraPose) {
+        let mut camera_vectors = CameraVectors::new();
+        camera_vectors.update(pose.yaw_deg.to_radians(), pose.pitch_deg.to_radians());
         let mut listener = self.listener_state.lock().unwrap();
-        listener.position = player_pos;
+        listener.position = pose.position;
         listener.up = camera_vectors.up;
         listener.front = camera_vectors.front;
         listener.right = camera_vectors.right;
-        Ok(())
     }
 
     /// Publish one complete listener + spatial Emitter generation when its cadence is due.
@@ -571,7 +722,7 @@ impl SpatialSoundManager {
             sim_time_seconds,
             listener_pose,
             emitters,
-        ))?;
+        )?)?;
         cadence.mark_published(sim_time_seconds);
         drop(cadence);
 
@@ -654,77 +805,21 @@ impl SpatialSoundManager {
         self.world.diagnostics().acoustic_superseded_solve_count
     }
 
-    fn pump_acoustic_telemetry(&self) {
-        let events = self.world.drain_acoustic_telemetry();
-        if events.is_empty() {
-            return;
+    pub(crate) fn drain_audio_telemetry(&self) -> AudioTelemetryObservations {
+        #[cfg(test)]
+        if let Some(probe) = self.test_audio_queue_probe.lock().unwrap().clone() {
+            let voice = probe.drain_voice();
+            let acoustic = probe.drain_acoustic();
+            return self
+                .audio_telemetry_router
+                .lock()
+                .unwrap()
+                .route(voice, acoustic);
         }
-        let sources = self.uuid_to_source.lock().unwrap();
-        let local_footstep_emitters = self.local_footstep_telemetry_emitters.lock().unwrap();
-        let mut inbox = self.acoustic_telemetry_inbox.lock().unwrap();
-        for event in events {
-            match event {
-                AcousticTelemetryEvent::ExtentResponse(response) => {
-                    if local_footstep_emitters.contains(&response.emitter) {
-                        continue;
-                    }
-                    let source_uuid = sources.iter().find_map(|(&uuid, source)| {
-                        (source.emitter == response.emitter).then_some(uuid)
-                    });
-                    inbox
-                        .canopy
-                        .push(SpatialAcousticTelemetryEvent::ExtentResponse {
-                            source_uuid,
-                            response: *response,
-                        });
-                }
-                AcousticTelemetryEvent::VoiceConclusion(conclusion) => {
-                    if local_footstep_emitters.contains(&conclusion.emitter) {
-                        inbox.local_footsteps.push(conclusion);
-                    } else {
-                        let source_uuid = sources.iter().find_map(|(&uuid, source)| {
-                            (source.emitter == conclusion.emitter).then_some(uuid)
-                        });
-                        inbox
-                            .canopy
-                            .push(SpatialAcousticTelemetryEvent::VoiceConclusion {
-                                source_uuid,
-                                conclusion,
-                            });
-                    }
-                }
-                AcousticTelemetryEvent::SolveDiscarded {
-                    spatial_revision,
-                    geometry_version,
-                    reason,
-                } => {
-                    if reason == AcousticDiscardReason::Superseded {
-                        inbox
-                            .canopy
-                            .push(SpatialAcousticTelemetryEvent::SolveDiscarded {
-                                spatial_revision,
-                                geometry_version,
-                            })
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    pub fn drain_acoustic_telemetry(&self) -> Vec<SpatialAcousticTelemetryEvent> {
-        self.pump_acoustic_telemetry();
-        self.acoustic_telemetry_inbox.lock().unwrap().drain_canopy()
-    }
-
-    pub(crate) fn drain_local_footstep_acoustic_telemetry(
-        &self,
-    ) -> Vec<AcousticVoiceConclusionTelemetry> {
-        self.pump_acoustic_telemetry();
-        self.acoustic_telemetry_inbox
-            .lock()
-            .unwrap()
-            .drain_local_footsteps()
+        self.audio_telemetry_router.lock().unwrap().route(
+            self.world.drain_voice_telemetry(),
+            self.world.drain_acoustic_telemetry(),
+        )
     }
 
     pub fn acoustic_telemetry_diagnostics(&self) -> AcousticTelemetryDiagnostics {
@@ -827,7 +922,20 @@ impl SpatialSoundManager {
                 source.occlusion_profile,
             ),
         )?;
+        if let Err(error) = self
+            .audio_telemetry_router
+            .lock()
+            .unwrap()
+            .claim_canopy_replacement(old_emitter, new_emitter)
+        {
+            let _ = self.world.destroy_emitter(new_emitter);
+            return Err(error.into());
+        }
         if let Err(error) = self.world.play(new_emitter, PlayOptions::looping()) {
+            self.audio_telemetry_router
+                .lock()
+                .unwrap()
+                .release(new_emitter);
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());
         }
@@ -835,14 +943,26 @@ impl SpatialSoundManager {
             .world
             .seek_emitter(new_emitter, initial_phase.clamp(0.0, 1.0))
         {
+            self.audio_telemetry_router
+                .lock()
+                .unwrap()
+                .release(new_emitter);
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());
         }
         if let Err(error) = self.world.destroy_emitter(old_emitter) {
+            self.audio_telemetry_router
+                .lock()
+                .unwrap()
+                .release(new_emitter);
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());
         }
         source.emitter = new_emitter;
+        self.audio_telemetry_router
+            .lock()
+            .unwrap()
+            .release(old_emitter);
         drop(sources);
         self.mark_spatial_frame_structure_changed();
         Ok(())
@@ -868,6 +988,10 @@ impl SpatialSoundManager {
     pub fn remove_source(&self, id: Uuid) {
         let source = self.uuid_to_source.lock().unwrap().remove(&id);
         if let Some(source) = source {
+            self.audio_telemetry_router
+                .lock()
+                .unwrap()
+                .release(source.emitter);
             let _ = self.world.destroy_emitter(source.emitter);
             self.mark_spatial_frame_structure_changed();
         }
@@ -905,8 +1029,8 @@ impl SpatialSoundManager {
 #[cfg(test)]
 mod tests {
     use super::{
-        AcousticPipelineSnapshot, AcousticTelemetryInbox, SpatialAcousticTelemetryEvent,
-        SpatialFramePublication, SpatialFramePublishCadence, SpatialSoundManager,
+        AcousticPipelineSnapshot, SpatialFramePublication, SpatialFramePublishCadence,
+        SpatialSoundManager,
     };
     use glam::Vec3;
     use petalsonic::{
@@ -1021,19 +1145,5 @@ mod tests {
             45, 1, 44
         ));
         assert!(SpatialSoundManager::acoustic_response_is_current(45, 1, 45));
-    }
-
-    #[test]
-    fn draining_local_footstep_telemetry_preserves_canopy_telemetry() {
-        let mut inbox = AcousticTelemetryInbox::default();
-        inbox
-            .canopy
-            .push(SpatialAcousticTelemetryEvent::SolveDiscarded {
-                spatial_revision: 17,
-                geometry_version: 9,
-            });
-
-        assert!(inbox.drain_local_footsteps().is_empty());
-        assert_eq!(inbox.drain_canopy().len(), 1);
     }
 }

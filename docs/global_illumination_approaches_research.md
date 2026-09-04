@@ -249,7 +249,7 @@ cargo run --release -- --latest-log
 | sun/sky abrupt change | update GPU、queued/coalesced work、90% response time | old/new revision isolation、luminance response curve、flicker | direct sun 下一帧响应；GI 延迟不差于 baseline，且无跨 revision 混合 |
 | 单次 terrain edit | voxel visibility、trace/filter/publication、edit-to-first-valid、edit-to-converged | stale-light strict gate、latest revision、e0 first publish、portal/wall leak | correctness 全保留；edit-to-valid 至少不退化，优化方案应证明显著缩短 |
 | 连续 brush edits | queue depth、obsolete work、GPU p99、CPU scheduling | latest-wins、无旧 field 回写、无长时间黑场 | 无 unbounded queue；active field continuity 与当前 lifecycle 契约一致 |
-| sealed / thin wall / portal | trace/query cost | exact zero sealed；moment-vs-exact p99；halo/leak crop | 现有 committed thresholds 不得放宽 |
+| sealed / thin wall / portal | trace/query cost | sealed 最大线性亮度不超过 `1e-5`（dense 当前为 exact zero）；moment-vs-exact p99；halo/leak crop | 现有 committed thresholds 不得放宽 |
 | donor / dogleg | 每个完整 update epoch 与总睡眠时间 | e0 signal、multi-epoch dogleg、能量有限非负 | 现有 lifecycle gates 与 128-epoch sample budget 不得静默放宽 |
 | raster-only future object fixture | object cache/query cost | 在任意空中 position + normal 取得当前 terrain bounce；revision parity | 必须无需 GBuffer-visible 或 per-object ray 才能消费 GI |
 | memory stress：spacing 32/16 | atlas/cache/TLAS/SDF/surfel/history 总 bytes、allocation peak | 同质量配置 | 报总系统内存而非单 cache；Phase 1 默认不得用额外大常驻表示换取小时间收益 |

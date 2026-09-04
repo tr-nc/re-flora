@@ -803,7 +803,55 @@ mod tests {
         reflected_descriptor_access, PlainMemberType,
     };
     use crate::DescriptorAccess;
-    use spirv_reflect::{types::ReflectDecorationFlags, ShaderModule as ReflectShaderModule};
+    use spirv_reflect::{
+        types::{ReflectDecorationFlags, ReflectDescriptorType},
+        ShaderModule as ReflectShaderModule,
+    };
+
+    fn assert_descriptor_abi(
+        shader_path: &str,
+        expected: &[(&str, ReflectDescriptorType, u32, DescriptorAccess)],
+        forbidden: &[&str],
+    ) {
+        let artifact = find_precompiled_shader(shader_path)
+            .unwrap_or_else(|| panic!("missing precompiled shader {shader_path}"));
+        let decorations = parse_descriptor_access_decorations(artifact.reflection_spirv).unwrap();
+        let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
+        let bindings = module.enumerate_descriptor_bindings(None).unwrap();
+
+        for &(name, descriptor_type, descriptor_count, access) in expected {
+            let matches = bindings
+                .iter()
+                .filter(|candidate| candidate.name == name)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                matches.len(),
+                1,
+                "{shader_path} must reflect semantic descriptor {name} exactly once"
+            );
+            let reflected = matches[0];
+            assert_eq!(
+                (reflected.descriptor_type, reflected.count),
+                (descriptor_type, descriptor_count),
+                "{shader_path} descriptor {name} changed type or cardinality"
+            );
+            assert_eq!(
+                reflected_descriptor_access(reflected, &decorations),
+                access,
+                "{shader_path} descriptor {name} changed access"
+            );
+        }
+        for &name in forbidden {
+            assert_eq!(
+                bindings
+                    .iter()
+                    .filter(|candidate| candidate.name == name)
+                    .count(),
+                0,
+                "{shader_path} must not reflect live descriptor {name}"
+            );
+        }
+    }
 
     #[test]
     fn normalizes_slang_layout_wrapper_names() {
@@ -928,6 +976,88 @@ mod tests {
         assert_eq!(
             reflected_descriptor_access(&write_only, &buffer_setup_decorations),
             DescriptorAccess::WriteOnly
+        );
+    }
+
+    #[test]
+    fn ddgi_consumer_and_builder_descriptor_abi_is_reflected_semantically() {
+        assert_descriptor_abi(
+            "shader/tracer/tracer.comp",
+            &[
+                (
+                    "ddgi_global_sky_irradiance",
+                    ReflectDescriptorType::CombinedImageSampler,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_probe_metadata",
+                    ReflectDescriptorType::StorageBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_irradiance_atlas",
+                    ReflectDescriptorType::CombinedImageSampler,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_visibility_atlas",
+                    ReflectDescriptorType::CombinedImageSampler,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+            ],
+            &[],
+        );
+        assert_descriptor_abi(
+            "shader/ddgi/probe_trace.comp",
+            &[
+                (
+                    "ddgi_transport_source_irradiance_atlas",
+                    ReflectDescriptorType::CombinedImageSampler,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_radiance_sun",
+                    ReflectDescriptorType::UniformBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_radiance_voxel_palette",
+                    ReflectDescriptorType::UniformBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_transport_query_info",
+                    ReflectDescriptorType::UniformBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_transport_source_visibility_atlas",
+                    ReflectDescriptorType::CombinedImageSampler,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_local_light_info",
+                    ReflectDescriptorType::UniformBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+                (
+                    "ddgi_local_lights",
+                    ReflectDescriptorType::StorageBuffer,
+                    1,
+                    DescriptorAccess::ReadOnly,
+                ),
+            ],
+            &["sun_info", "shading_info"],
         );
     }
 

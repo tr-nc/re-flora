@@ -593,6 +593,13 @@ impl GraphicsPipeline {
             .descriptors
             .publish_prepared(name, generation, pending)
     }
+
+    pub fn validate_prepared_descriptors(
+        &self,
+        pending: &PreparedDescriptorGeneration,
+    ) -> Result<()> {
+        self.0.descriptors.validate_prepared(pending)
+    }
 }
 
 fn first_subpass_color_attachment_count(desc: &RenderPassDesc) -> usize {
