@@ -22,7 +22,16 @@ const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
+const BUTTERFLY_LIMIT_PER_WORLD_CHUNK: u64 = 2;
 const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
+
+fn butterfly_world_limit(chunk_dim: glam::UVec3) -> usize {
+    let chunk_count = u64::from(chunk_dim.x)
+        .saturating_mul(u64::from(chunk_dim.y))
+        .saturating_mul(u64::from(chunk_dim.z));
+    usize::try_from(chunk_count.saturating_mul(BUTTERFLY_LIMIT_PER_WORLD_CHUNK))
+        .unwrap_or(usize::MAX)
+}
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
     match voxel_type {
@@ -417,6 +426,7 @@ impl App {
         ButterflyEmitterDesc {
             enabled: gui_adjustables.butterflies_enabled.value,
             spawn_rate_per_source: gui_adjustables.butterfly_spawn_rate_per_source.value,
+            max_active_butterflies: butterfly_world_limit(super::CHUNK_DIM),
             height_offset_min,
             height_offset_max,
             size: gui_adjustables.butterfly_size.value,
@@ -448,7 +458,7 @@ impl App {
         }
         self.butterfly_spawn_source_refresh_elapsed = 0.0;
 
-        let ground_voxels = match self.surface_builder.flora_base_world_voxels() {
+        let ground_voxels = match self.surface_builder.non_grass_flora_base_world_voxels() {
             Ok(positions) => positions,
             Err(err) => {
                 log::warn!("Failed to refresh butterfly flora spawn sources: {err}");
@@ -481,11 +491,12 @@ impl App {
         }
         if previous_source_count != total_source_count {
             log::info!(
-                "[BUTTERFLY][SPAWN_SOURCES] ground_flora={} tree_leaves={} total={} rate_per_source_per_second={:.6}",
+                "[BUTTERFLY][SPAWN_SOURCES] non_grass_flora={} tree_leaves={} total={} rate_per_source_per_second={:.6} world_limit={}",
                 ground_source_count,
                 tree_source_count,
                 total_source_count,
                 self.butterfly_emitter_desc.spawn_rate_per_source,
+                self.butterfly_emitter_desc.max_active_butterflies,
             );
         }
     }
@@ -844,6 +855,12 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn butterfly_world_limit_counts_all_world_chunks() {
+        assert_eq!(butterfly_world_limit(glam::UVec3::new(2, 2, 2)), 16);
+        assert_eq!(butterfly_world_limit(glam::UVec3::new(3, 2, 4)), 48);
+    }
 
     fn cluster(x: f32) -> ClusterResult {
         ClusterResult {

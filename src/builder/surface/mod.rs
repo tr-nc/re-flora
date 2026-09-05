@@ -881,12 +881,14 @@ impl SurfaceBuilder {
             .collect()
     }
 
-    pub fn flora_base_world_voxels(&self) -> Result<Vec<UVec3>> {
+    pub fn non_grass_flora_base_world_voxels(&self) -> Result<Vec<UVec3>> {
         let instance_size = std::mem::size_of::<resources::Instance>() as u64;
         let mut positions = Vec::new();
 
         for (_, chunk_resources) in &self.resources.instances.chunk_flora_instances {
-            for species_index in 0..self.flora_species_count {
+            for species_index in (0..self.flora_species_count)
+                .filter(|&species_index| !species::is_grass_species_index(species_index as u32))
+            {
                 let instance_count = chunk_resources.species_len(species_index) as u64;
                 if instance_count == 0 {
                     continue;

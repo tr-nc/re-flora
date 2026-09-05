@@ -5,6 +5,8 @@ use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
 pub const MAX_FLORA_SPECIES: usize = 5;
+pub const TALL_GRASS_SPECIES_INDEX: u32 = 0;
+pub const SHORT_GRASS_SPECIES_INDEX: u32 = 1;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
 pub const KOCHIA_SPECIES_INDEX: u32 = 4;
@@ -202,6 +204,10 @@ pub fn species_count() -> usize {
     FLORA_SPECIES.len()
 }
 
+pub fn is_grass_species_index(species_idx: u32) -> bool {
+    species_idx == TALL_GRASS_SPECIES_INDEX || species_idx == SHORT_GRASS_SPECIES_INDEX
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FloraPaintSelection {
     GrassMix,
@@ -322,6 +328,15 @@ mod tests {
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));
+    }
+
+    #[test]
+    fn butterfly_source_classification_excludes_only_grass_species() {
+        assert!(is_grass_species_index(TALL_GRASS_SPECIES_INDEX));
+        assert!(is_grass_species_index(SHORT_GRASS_SPECIES_INDEX));
+        assert!(!is_grass_species_index(LAVENDER_SPECIES_INDEX));
+        assert!(!is_grass_species_index(EMBER_BLOOM_SPECIES_INDEX));
+        assert!(!is_grass_species_index(KOCHIA_SPECIES_INDEX));
     }
 
     #[test]
