@@ -50,7 +50,6 @@ pub(crate) struct DdgiVoxelPaletteSnapshot {
     pub cherry_wood_color: Vec3,
     pub oak_wood_color: Vec3,
     pub rock_color: Vec3,
-    pub hash_color_variance: f32,
     pub emissive_color: Vec3,
     pub emissive_radiance: f32,
 }
@@ -96,7 +95,6 @@ impl DdgiRadianceSnapshot {
                 .to_array()
                 .map(f32::to_bits),
             rock_color: self.voxel_palette.rock_color.to_array().map(f32::to_bits),
-            hash_color_variance: self.voxel_palette.hash_color_variance.to_bits(),
             emissive_color: self
                 .voxel_palette
                 .emissive_color
@@ -129,7 +127,6 @@ struct DdgiRadianceIdentity {
     cherry_wood_color: [u32; 3],
     oak_wood_color: [u32; 3],
     rock_color: [u32; 3],
-    hash_color_variance: u32,
     emissive_color: [u32; 3],
     emissive_radiance: u32,
     local_lights: LocalLightGpuPayload,
@@ -147,7 +144,6 @@ impl DdgiRadianceIdentity {
             && self.cherry_wood_color == other.cherry_wood_color
             && self.oak_wood_color == other.oak_wood_color
             && self.rock_color == other.rock_color
-            && self.hash_color_variance == other.hash_color_variance
             && self.emissive_color == other.emissive_color
             && self.emissive_radiance == other.emissive_radiance
     }
@@ -564,7 +560,6 @@ mod tests {
                 cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
                 oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
                 rock_color: Vec3::splat(0.4),
-                hash_color_variance: 0.5,
                 emissive_color: Vec3::new(1.0, 0.36, 0.08),
                 emissive_radiance: 4.0,
             },
@@ -693,9 +688,6 @@ mod tests {
         variants.push(value);
         value = snapshot();
         value.voxel_palette.rock_color.y += 0.1;
-        variants.push(value);
-        value = snapshot();
-        value.voxel_palette.hash_color_variance += 0.1;
         variants.push(value);
         value = snapshot();
         value.voxel_palette.emissive_color.x += 0.1;

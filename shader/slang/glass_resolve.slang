@@ -282,11 +282,7 @@ float3 glassSky(float3 direction)
 
 float3 glassVoxelFallback(SceneQueryEvent event)
 {
-    uint3 cell = uint3(max(event.to_cell, int3(0)));
-    uint hashId = (cell.x * 73856093u ^ cell.y * 19349663u ^
-                   cell.z * 83492791u) & 3u;
-    float3 albedo = voxelColorByTypeAndHash(
-        voxel_colors, event.to_voxel_type, hashId);
+    float3 albedo = voxelColorByType(voxel_colors, event.to_voxel_type);
     float cosine = max(0.0, dot(normalize(event.incident_face_normal),
                                 normalize(sun_info.sun_dir)));
     float3 ambient = albedo * 0.18;

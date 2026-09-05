@@ -209,7 +209,6 @@ impl BufferUpdater {
         cherry_wood_color: Vec3,
         oak_wood_color: Vec3,
         rock_color: Vec3,
-        hash_color_variance: f32,
         emissive_color: Vec3,
         emissive_radiance: f32,
     ) -> Result<()> {
@@ -219,7 +218,6 @@ impl BufferUpdater {
             cherry_wood_color: cherry_wood_color.to_array(),
             oak_wood_color: oak_wood_color.to_array(),
             rock_color: rock_color.to_array(),
-            hash_color_variance,
             emissive_color: emissive_color.to_array(),
             emissive_radiance,
             ..VoxelColors::zeroed()

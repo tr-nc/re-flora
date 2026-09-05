@@ -60,8 +60,9 @@ COMMAND_TEMPLATE = [
 ]
 AUTHORED_SCENE_MARKER = (
     "[ENV_LIGHT_TEST] case=portal camera position=(0.650,0.520,1.380) "
-    "target=(0.650,0.780,1.100) time_of_day=0.455705 auto_cycle=false "
-    "voxel_color_variance=0.000"
+    "target=(0.650,0.780,1.100) sky_settings_source=scene-preset "
+    "time_of_day=0.455705 latitude=-0.240 season=0.250 "
+    "sun_luminance=1.650 auto_cycle=false"
 )
 LEGACY_V2_PROOF_SCOPE = (
     "fixed-command legacy-v2 final payload RGB and hit-mask difference only; "

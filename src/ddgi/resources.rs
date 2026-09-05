@@ -2411,7 +2411,6 @@ impl DdgiVolume {
                 cherry_wood_color: snapshot.voxel_palette.cherry_wood_color.to_array(),
                 oak_wood_color: snapshot.voxel_palette.oak_wood_color.to_array(),
                 rock_color: snapshot.voxel_palette.rock_color.to_array(),
-                hash_color_variance: snapshot.voxel_palette.hash_color_variance,
                 emissive_color: snapshot.voxel_palette.emissive_color.to_array(),
                 emissive_radiance: snapshot.voxel_palette.emissive_radiance,
                 ..DdgiRadianceVoxelPalette::zeroed()

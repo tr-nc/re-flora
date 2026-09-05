@@ -6,7 +6,7 @@ Investigated revision: `1b996946` (`agent/terrain-material-research`)
 
 Scope: investigation and design only. This document does not authorize or implement a material-system refactor.
 
-Post-investigation update: the fertilizer tool, fertility state, fertilizer-granule shading, and their dedicated GPU path were removed on 2026-09-06. Bits 6-7 of the atlas byte are reserved again. References below to the removed path describe the investigated revision only; the forward material proposal retains moisture but has no fertility control.
+Post-investigation update: the fertilizer tool, fertility state, fertilizer-granule shading, and their dedicated GPU path were removed on 2026-09-06. The presentation-only two-bit terrain color hash, its derived-surface payload, GUI control, primary/Glass/DDGI consumers, and lighting identity field were also removed. Bits 6-7 of the atlas byte are reserved again, while bits 30-31 of derived surface data are now unused. References below to either removed path describe the investigated revision only; the current baseline is one stable authored base color per voxel type plus the retained moisture response.
 
 ## Recommendation
 
@@ -14,16 +14,15 @@ Re: Flora should keep the existing four-bit voxel type as the world and save-fil
 
 The suggested first visible milestone is deliberately narrower than a general-purpose engine material graph:
 
-1. Permanently remove the base-color dependency on the current two-bit per-surface hash.
-2. Add a validated `VoxelMaterialCatalog` whose stable IDs match the existing voxel type IDs.
-3. Give each opaque terrain material a tint, world-space tile size, and top/side/bottom albedo layer references.
-4. Use dominant-axis world-space projection for one albedo texture fetch at ordinary voxel surfaces. Make blended triplanar projection an opt-in quality mode for surfaces where the smooth stored normal makes hard axis changes objectionable.
-5. Let visible primary shading sample detailed textures, but let DDGI and secondary transport use a precomputed average transport albedo from the same catalog. Include the catalog content revision in DDGI radiance identity so material changes invalidate history correctly.
-6. Add normal/roughness channels only after the lighting model is ready to consume them and release-mode measurements establish a budget.
+1. Add a validated `VoxelMaterialCatalog` whose stable IDs match the existing voxel type IDs.
+2. Give each opaque terrain material a tint, world-space tile size, and top/side/bottom albedo layer references.
+3. Use dominant-axis world-space projection for one albedo texture fetch at ordinary voxel surfaces. Make blended triplanar projection an opt-in quality mode for surfaces where the smooth stored normal makes hard axis changes objectionable.
+4. Let visible primary shading sample detailed textures, but let DDGI and secondary transport use a precomputed average transport albedo from the same catalog. Include the catalog content revision in DDGI radiance identity so material changes invalidate history correctly.
+5. Add normal/roughness channels only after the lighting model is ready to consume them and release-mode measurements establish a budget.
 
 Do not add per-voxel blend weights or virtual texturing in the first implementation. Those solve different, more expensive problems that the current request does not establish.
 
-## Current Re: Flora path
+## Investigated Re: Flora path
 
 ### World authority and persistence
 
@@ -49,7 +48,7 @@ R8 chunk_atlas
   -> compute ray marcher
 ```
 
-`extractSurfaceVoxel` reads the voxel type, computes a smooth occupancy-derived normal, generates a two-bit hash bucket, and packs those into one 32-bit surface value (`shader/slang/surface_extraction.slang:201-249`, `shader/slang/voxel_data.slang:76-97`). `contree_leaf_write.slang:111-165` copies that value into compact leaf storage. `scene_marching.slang:25-40` exposes the hit position, voxel-center position, stored normal, voxel type, and hash bucket through `MarchingResult`.
+On the investigated revision, `extractSurfaceVoxel` read the voxel type, computed a smooth occupancy-derived normal, generated a two-bit hash bucket, and packed those into one 32-bit surface value (`shader/slang/surface_extraction.slang:201-249`, `shader/slang/voxel_data.slang:76-97`). `contree_leaf_write.slang:111-165` copied that value into compact leaf storage. `scene_marching.slang:25-40` exposed the hit position, voxel-center position, stored normal, voxel type, and hash bucket through `MarchingResult`. The current path no longer generates, stores, or exposes that hash; hit position, normal, and material ID remain sufficient for the proposed world-space projection.
 
 That hit payload is already sufficient for world-space projection:
 
@@ -71,7 +70,7 @@ The visual hash is deterministic and position-based, but it is not authored text
 4. On the investigated revision, the primary tracer called that function before moisture and fertility overlays (`shader/slang/tracer.slang:208-216`). DDGI repeated the same base hash color in probe ray radiance (`shader/slang/ddgi_probe_trace.slang:191-203`). The Glass fallback had a second coordinate-hash implementation (`shader/slang/glass_resolve.slang:283-294`).
 5. The shared strength originates at the Debug GUI's `voxel_color_variance`, crosses `MaterialFrameInput`, is uploaded to `U_VoxelColors`, and is also frozen into `DdgiRadianceSnapshot` identity (`config/gui.toml:2594-2603`, `src/app/core/render_frame_input.rs:52-70`, `src/tracer/buffer_updater.rs:204-226`, `src/environment_lighting.rs:46-107`).
 
-The checked-in GUI default is already `0`, so this exact tint is dormant in a default checkout. The producer, storage bits, controls, main-view consumer, Glass fallback, DDGI consumer, and history identity nevertheless remain live architecture and can be re-enabled at runtime. A future removal should delete the presentation dependency end-to-end; it does not need to reclaim the Contree bits in the same commit.
+The investigated GUI default was already `0`, so this exact tint was dormant in a default checkout. The subsequent removal deleted the producer, storage payload, controls, main-view consumer, Glass fallback, DDGI consumer, and history identity end-to-end. Procedural dirt/rock material assignment and moisture were deliberately preserved.
 
 Two other hashes are separate behaviors and should not be accidentally removed with it:
 
@@ -80,11 +79,11 @@ Two other hashes are separate behaviors and should not be accidentally removed w
 
 ### The current “material” is split across concerns
 
-`src/voxel_material.rs` and `shader/slang/voxel_material.slang` already define collision, water solidity, terrain support, DDGI visibility, soil eligibility, shadow policy, and the Glass experiment's optical parameters. They do not define textured appearance. Opaque appearance is a small per-frame uniform of five colors plus one global hash strength (`shader/slang/tracer_types.slang:167-177`). Stucco and emissive values are compiled constants.
+`src/voxel_material.rs` and `shader/slang/voxel_material.slang` already define collision, water solidity, terrain support, DDGI visibility, soil eligibility, shadow policy, and the Glass experiment's optical parameters. They do not define textured appearance. Opaque appearance is a small per-frame uniform of five stable colors. Stucco and emissive values are compiled constants.
 
 The main opaque lighting model currently multiplies albedo by direct and indirect irradiance (`shader/slang/tracer.slang:219-243`). It has no terrain roughness, metallic, or texture-normal input. A “PBR material” schema added today would therefore promise controls that the renderer cannot yet display.
 
-There is also an existing consistency boundary: the primary path reads moisture from `chunk_atlas`, while DDGI transport currently uses only base palette/hash albedo. A new catalog should make the visible-versus-transport approximation explicit rather than silently widening this mismatch.
+There is also an existing consistency boundary: the primary path reads moisture from `chunk_atlas`, while DDGI transport currently uses only stable base-palette albedo. A new catalog should make the visible-versus-transport approximation explicit rather than silently widening this mismatch.
 
 ### Texture infrastructure constraints found on this revision
 
@@ -208,12 +207,11 @@ This should be an explicit policy and test fixture. It should not emerge acciden
 
 ## Staged migration
 
-### Stage 0 — Baseline and remove the unwanted presentation hash
+### Stage 0 — Baseline and remove the unwanted presentation hash (completed 2026-09-06)
 
-- Capture fixed-camera screenshots and release-mode GPU/CPU timing at `voxel_color_variance = 0` and at a representative nonzero value.
-- Remove `hash_color_variance` and base-color hash calls from primary, DDGI, and Glass fallback paths; remove the GUI/material-frame/DDGI-identity field.
-- Leave the two derived Contree hash bits temporarily unused unless a separate surface ABI change has value.
-- Preserve procedural dirt/rock distribution and moisture behavior.
+- Removed `hash_color_variance` and base-color hash calls from primary, DDGI, and Glass fallback paths; removed the GUI/material-frame/DDGI-identity field.
+- Stopped producing and carrying the two derived Contree hash bits; bits 30-31 are unused.
+- Preserved procedural dirt/rock distribution and moisture behavior.
 
 Acceptance: fixed material color no longer changes by per-voxel hash in any renderer/transport path; moisture behavior is unchanged.
 

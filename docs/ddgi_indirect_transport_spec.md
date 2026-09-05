@@ -127,7 +127,7 @@ future refinements, not implied by the current `Threshold` reason.
 ## Lighting and energy contract
 
 - Consumers receive linear diffuse irradiance divided by pi and apply stable base albedo once.
-- A front-face probe hit uses stable voxel type/hash albedo, current exact terrain direct sun, and
+- A front-face probe hit uses stable voxel-type albedo, current exact terrain direct sun, and
   the previous field's visibility-aware diffuse irradiance when a source exists.
 - Moisture, edit-preview tint, VSM, leaf shadows, and cloud shadows are excluded from
   probe-hit transport.

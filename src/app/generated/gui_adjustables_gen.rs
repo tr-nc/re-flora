@@ -1417,12 +1417,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
-        section: "Voxel",
-        id: "voxel_color_variance",
-        kind: "float",
-        label: "Hash Color Variance",
-    },
-    GeneratedGuiParamDescriptor {
         section: "HeadBob",
         id: "headbob_vertical_amp",
         kind: "float",
@@ -1682,7 +1676,6 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
-    pub voxel_color_variance: crate::gui_adjustables::FloatParam,
     pub headbob_vertical_amp: crate::gui_adjustables::FloatParam,
     pub headbob_horizontal_amp: crate::gui_adjustables::FloatParam,
     pub headbob_roll_amp: crate::gui_adjustables::FloatParam,
@@ -1932,7 +1925,6 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut voxel_color_variance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_vertical_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_horizontal_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_roll_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3489,13 +3481,6 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "voxel_color_variance" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            voxel_color_variance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "headbob_vertical_amp" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3762,7 +3747,6 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
-            voxel_color_variance: voxel_color_variance_field.expect("Missing parameter: voxel_color_variance"),
             headbob_vertical_amp: headbob_vertical_amp_field.expect("Missing parameter: headbob_vertical_amp"),
             headbob_horizontal_amp: headbob_horizontal_amp_field.expect("Missing parameter: headbob_horizontal_amp"),
             headbob_roll_amp: headbob_roll_amp_field.expect("Missing parameter: headbob_roll_amp"),
@@ -3950,7 +3934,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_frequency" => Some(&adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
-        "voxel_color_variance" => Some(&adjustables.voxel_color_variance),
         "headbob_vertical_amp" => Some(&adjustables.headbob_vertical_amp),
         "headbob_horizontal_amp" => Some(&adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&adjustables.headbob_roll_amp),
@@ -4234,7 +4217,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_frequency" => Some(&mut adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
-        "voxel_color_variance" => Some(&mut adjustables.voxel_color_variance),
         "headbob_vertical_amp" => Some(&mut adjustables.headbob_vertical_amp),
         "headbob_horizontal_amp" => Some(&mut adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&mut adjustables.headbob_roll_amp),

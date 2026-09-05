@@ -53,17 +53,6 @@ public uint surfaceWorkgroupActiveBrickMask()
     return surface_workgroup_active_brick_mask;
 }
 
-uint voxelHashBucketFromBlueNoise(int3 worldPosition)
-{
-    uint hash = uint(worldPosition.x) * 73856093u;
-    hash ^= uint(worldPosition.y) * 19349663u;
-    hash ^= uint(worldPosition.z) * 83492791u;
-    hash ^= hash >> 16u;
-    hash *= 0x45d9f3bu;
-    hash ^= hash >> 16u;
-    return hash & 0x3u;
-}
-
 int3 sharedIndexToAtlasIndex(int3 atlasReadOffset, int3 workgroupBase, int3 sharedIndex)
 {
     return sharedIndex + workgroupBase - int3(SURFACE_NORMAL_RADIUS) +
@@ -241,10 +230,8 @@ public bool extractSurfaceVoxel(int3 workgroupBase, int3 voxelIndex,
         return false;
     }
 
-    int3 worldPosition = atlasReadOffset + voxelIndex;
     float3 normal = calculateNormal(workgroupBase, voxelIndex);
     uint normalBits = packNormalOct16(normal);
-    uint hashId = voxelHashBucketFromBlueNoise(worldPosition);
-    properties = packVoxelSurfaceData(voxelType, normalBits, hashId);
+    properties = packVoxelSurfaceData(voxelType, normalBits);
     return true;
 }

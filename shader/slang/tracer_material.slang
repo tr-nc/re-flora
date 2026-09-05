@@ -18,32 +18,9 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
     return float3(0.0);
 }
 
-float voxelHashVariance(uint voxelType)
+public float3 voxelColorByType(U_VoxelColors colors, uint voxelType)
 {
-    if (voxelType == VOXEL_TYPE_DIRT || voxelType == VOXEL_TYPE_SAND) return 1.0;
-    if (voxelType == VOXEL_TYPE_STUCCO) return 0.15;
-    if (voxelType == VOXEL_TYPE_ROCK) return 0.6;
-    return 0.0;
-}
-
-float3 voxelColorByComponentsAndHash(float3 baseColor,
-                                     float hashColorVariance,
-                                     uint voxelType, uint hashId)
-{
-    float3 hsv = rgbToHsv(baseColor);
-    float variant = float(hashId & 0x3u) - 1.5;
-    float amount = hashColorVariance * voxelHashVariance(voxelType);
-    hsv.x = frac(hsv.x + variant * 0.01 * amount);
-    hsv.y = clamp(hsv.y + variant * 0.03 * amount, 0.0, 1.0);
-    hsv.z = clamp(hsv.z + variant * 0.025 * amount, 0.0, 1.0);
-    return srgbToLinear(hsvToRgb(hsv));
-}
-
-public float3 voxelColorByTypeAndHash(U_VoxelColors colors, uint voxelType, uint hashId)
-{
-    return voxelColorByComponentsAndHash(
-        voxelColorByTypeSrgb(colors, voxelType), colors.hash_color_variance,
-        voxelType, hashId);
+    return srgbToLinear(voxelColorByTypeSrgb(colors, voxelType));
 }
 
 public float3 voxelSurfaceEmission(U_VoxelColors colors, uint voxelType)
@@ -74,12 +51,10 @@ public float3 ddgiVoxelSurfaceEmission(U_DdgiRadianceVoxelPalette colors,
         : float3(0.0);
 }
 
-public float3 ddgiVoxelColorByTypeAndHash(
-    U_DdgiRadianceVoxelPalette colors, uint voxelType, uint hashId)
+public float3 ddgiVoxelColorByType(
+    U_DdgiRadianceVoxelPalette colors, uint voxelType)
 {
-    return voxelColorByComponentsAndHash(
-        ddgiVoxelColorByTypeSrgb(colors, voxelType),
-        colors.hash_color_variance, voxelType, hashId);
+    return srgbToLinear(ddgiVoxelColorByTypeSrgb(colors, voxelType));
 }
 
 public float3 applyTerrainMoisture(float3 baseColor, uint voxelType, uint moistureLevel)

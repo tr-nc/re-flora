@@ -32,7 +32,6 @@ const TEST_SEASON: f32 = 0.25;
 const PATT_SEAM_TIME_OF_DAY: f32 = 0.49;
 const PATT_SEAM_LATITUDE: f32 = -0.07;
 const PATT_SEAM_SEASON: f32 = 0.29;
-const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const RADIANCE_R1_SUN_COLOR: Color32 = Color32::from_rgb(255, 241, 224);
 const RADIANCE_R1_SUN_LUMINANCE: f32 = 1.65;
@@ -1995,7 +1994,6 @@ impl App {
             .value = palette.cherry_wood;
         self.debug_settings.adjustables.voxel_oak_wood_color.value = palette.oak_wood;
         self.debug_settings.adjustables.voxel_rock_color.value = palette.rock;
-        self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
         self.camera_control.set_orbit_focus(camera_target);
         if self
             .tracer
@@ -2007,7 +2005,7 @@ impl App {
             let effective_sun_luminance = self.debug_settings.adjustables.sun_luminance.value;
             let effective_auto_cycle = self.debug_settings.adjustables.auto_daynight_cycle.value;
             log::info!(
-                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) sky_settings_source={} time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle={} voxel_color_variance={:.3}",
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) sky_settings_source={} time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle={}",
                 case.label(),
                 camera_position.x,
                 camera_position.y,
@@ -2021,7 +2019,6 @@ impl App {
                 effective_season,
                 effective_sun_luminance,
                 effective_auto_cycle,
-                TEST_VOXEL_COLOR_VARIANCE,
             );
             if case == EnvironmentLightingTestCase::Donor {
                 let (donor_receiver_min, donor_receiver_max) =

@@ -624,7 +624,7 @@ pub struct DdgiRadianceVoxelPalette {
     pub oak_wood_color: [f32; 3],
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
-    pub hash_color_variance: f32,
+    pub _pad4: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
 }
@@ -1071,7 +1071,7 @@ pub struct VoxelColors {
     pub oak_wood_color: [f32; 3],
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
-    pub hash_color_variance: f32,
+    pub _pad4: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
 }

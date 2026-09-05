@@ -1286,7 +1286,6 @@ pub struct MaterialFrameInput {
     pub voxel_cherry_wood_color: Vec3,
     pub voxel_oak_wood_color: Vec3,
     pub voxel_rock_color: Vec3,
-    pub voxel_color_variance: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2715,7 +2714,6 @@ impl Tracer {
                     cherry_wood_color: materials.voxel_cherry_wood_color,
                     oak_wood_color: materials.voxel_oak_wood_color,
                     rock_color: materials.voxel_rock_color,
-                    hash_color_variance: materials.voxel_color_variance,
                     emissive_color: EMISSIVE_VOXEL_COLOR_SRGB,
                     emissive_radiance: EMISSIVE_VOXEL_SURFACE_RADIANCE,
                 },
@@ -2812,7 +2810,6 @@ impl Tracer {
             materials.voxel_cherry_wood_color,
             materials.voxel_oak_wood_color,
             materials.voxel_rock_color,
-            materials.voxel_color_variance,
             EMISSIVE_VOXEL_COLOR_SRGB,
             EMISSIVE_VOXEL_SURFACE_RADIANCE,
         )?;

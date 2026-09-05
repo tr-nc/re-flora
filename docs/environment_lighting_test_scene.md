@@ -70,7 +70,7 @@ A successful run contains these log milestones:
 
 ```text
 [ENV_LIGHT_TEST] constructing roofed and open terrain bays with voxel edits
-[ENV_LIGHT_TEST] camera ... voxel_color_variance=0.000
+[ENV_LIGHT_TEST] camera ... auto_cycle=false
 [ENV_LIGHT_TEST] edits applied
 [ENV_LIGHT_TEST] terrain rebuild complete
 [ENV_LIGHT_TEST] requested deterministic environment refresh

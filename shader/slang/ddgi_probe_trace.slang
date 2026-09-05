@@ -188,8 +188,8 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
             ddgi_transport_source_visibility_atlas,
             ddgiReceiverPosition, normal, ddgiHardVisibilityPosition).irradiance;
     }
-    float3 albedo = ddgiVoxelColorByTypeAndHash(
-        ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
+    float3 albedo = ddgiVoxelColorByType(
+        ddgi_radiance_voxel_palette, result.voxel_type);
     float3 surfaceEmission = ddgiVoxelSurfaceEmission(
         ddgi_radiance_voxel_palette, result.voxel_type);
     if ((ddgi_local_light_info.flags &

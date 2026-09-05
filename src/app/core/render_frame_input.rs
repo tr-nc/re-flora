@@ -67,7 +67,6 @@ pub(super) fn freeze_render_frame_inputs(
         voxel_cherry_wood_color: color_to_vec3(gui.voxel_cherry_wood_color.value),
         voxel_oak_wood_color: color_to_vec3(gui.voxel_oak_wood_color.value),
         voxel_rock_color: color_to_vec3(gui.voxel_rock_color.value),
-        voxel_color_variance: gui.voxel_color_variance.value,
     };
     let vegetation = VegetationFrameInput {
         appearance: FloraAppearanceFrameInput {
@@ -306,7 +305,6 @@ mod tests {
         let voxel_cherry_wood_color = color!(voxel_cherry_wood_color);
         let voxel_oak_wood_color = color!(voxel_oak_wood_color);
         let voxel_rock_color = color!(voxel_rock_color);
-        let voxel_color_variance = float!(voxel_color_variance);
         let flora_growth_override = float!(flora_growth_override);
         let flora_instance_hue_offset = float!(flora_instance_hue_offset);
         let flora_instance_saturation_offset = float!(flora_instance_saturation_offset);
@@ -462,7 +460,6 @@ mod tests {
                 voxel_cherry_wood_color,
                 voxel_oak_wood_color,
                 voxel_rock_color,
-                voxel_color_variance,
             },
             vegetation: VegetationFrameInput {
                 appearance: FloraAppearanceFrameInput {

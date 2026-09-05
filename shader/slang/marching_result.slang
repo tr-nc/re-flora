@@ -9,6 +9,5 @@ public struct MarchingResult
     public float distance;
     public float3 normal;
     public uint voxel_type;
-    public uint hash_id;
     public uint voxel_address;
 };

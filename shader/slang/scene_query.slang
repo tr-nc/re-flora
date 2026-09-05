@@ -97,9 +97,6 @@ public MarchingResult sceneQueryMarchingResultFromOpaqueEvent(
     result.distance = length(event.position - rayOrigin);
     result.normal = event.incident_face_normal;
     result.voxel_type = event.to_voxel_type;
-    uint3 cell = uint3(max(event.to_cell, int3(0)));
-    result.hash_id = (cell.x * 73856093u ^ cell.y * 19349663u ^
-                      cell.z * 83492791u) & VOXEL_HASH_MASK;
     result.voxel_address = 0u;
     return result;
 }

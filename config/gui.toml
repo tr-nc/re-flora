@@ -2591,17 +2591,6 @@ type = "Color"
 [section.param.data]
 value = "#7A7D80"
 
-[[section.param]]
-id = "voxel_color_variance"
-kind = "float"
-label = "Hash Color Variance"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 2
-
 [[section]]
 name = "HeadBob"
 
