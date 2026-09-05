@@ -34,7 +34,7 @@ The current development build is an evolving prototype. It can:
 - inhabit and explore a low-resolution 3D voxel island;
 - shape and smooth terrain;
 - grow, arrange, trim, and remove flora without a visible placement grid;
-- water, fertilize, till, and inspect local soil;
+- water, till, and inspect local soil;
 - place trees, sprinklers, and irrigation pipes;
 - experience dynamic light, wind, water, particles, wildlife, and spatial sound.
 

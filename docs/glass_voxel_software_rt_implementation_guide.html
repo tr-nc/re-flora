@@ -472,7 +472,7 @@
       <p>
         实验 flag 关闭时，ID 3 保持 Sand 的现有 soil、smoothing、footstep、backpack、acoustic 和 material
         行为；开启时才由专用实验 policy 把 ID 3 解释为 dielectric。实验场景不得运行会放置 Sand 的
-        environment-lighting donor case，也不得写入正式 save。Glass voxel 的 moisture/fertility 高 nibble
+        environment-lighting donor case，也不得写入正式 save。Glass voxel 的 soil-state 高 nibble
         必须规范为 0。IOR、attenuation color/distance 与未来 roughness 属于 material table，不占 per-voxel
         soil-state bits。ID 8 的 Emissive collector 必须保持 exact-ID 行为。
       </p>

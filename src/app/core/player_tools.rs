@@ -5,10 +5,10 @@ use winit::event::{ElementState, MouseButton};
 
 use super::placeables::PlaceableKind;
 use super::ui_style::{
-    FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, PIPE_PLACEABLE_SLOT_INDEX,
-    PIPE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX,
-    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
+    HAND_SLOT_INDEX, HOE_SLOT_INDEX, PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, SHOVEL_SLOT_INDEX,
+    SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX,
+    SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX,
+    TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -21,7 +21,6 @@ pub(super) enum PlayerTool {
     Hoe,
     Watering,
     SoilInspector,
-    Fertilizer,
     Tiller,
     Placeable,
 }
@@ -36,7 +35,6 @@ impl PlayerTool {
             HOE_SLOT_INDEX => Some(Self::Hoe),
             WATERING_SLOT_INDEX => Some(Self::Watering),
             SOIL_INSPECTOR_SLOT_INDEX => Some(Self::SoilInspector),
-            FERTILIZER_SLOT_INDEX => Some(Self::Fertilizer),
             TILLER_SLOT_INDEX => Some(Self::Tiller),
             TREE_SLOT_INDEX => Some(Self::Placeable),
             _ => None,
@@ -52,7 +50,6 @@ impl PlayerTool {
             Self::Hoe => HOE_SLOT_INDEX,
             Self::Watering => WATERING_SLOT_INDEX,
             Self::SoilInspector => SOIL_INSPECTOR_SLOT_INDEX,
-            Self::Fertilizer => FERTILIZER_SLOT_INDEX,
             Self::Tiller => TILLER_SLOT_INDEX,
             Self::Placeable => TREE_SLOT_INDEX,
         }
@@ -93,7 +90,6 @@ pub(super) enum ContinuousTerrainToolAction {
     StaffRemove,
     HoeTrim,
     Water,
-    Fertilize,
     Till,
 }
 
@@ -101,7 +97,7 @@ impl ContinuousTerrainToolAction {
     fn tracks_path(self) -> bool {
         matches!(
             self,
-            Self::StaffRegenerate | Self::StaffRemove | Self::Water | Self::Fertilize | Self::Till
+            Self::StaffRegenerate | Self::StaffRemove | Self::Water | Self::Till
         )
     }
 }
@@ -147,13 +143,10 @@ struct TerrainStrokeRuntime {
     staff_remove: TerrainStroke,
     hoe_trim: TerrainStroke,
     water: TerrainStroke,
-    fertilize: TerrainStroke,
     till: TerrainStroke,
     next_flora_paint_dab_serial: u32,
     active_flora_paint_dab_serial: Option<u32>,
     last_flora_paint_release_time: Option<Instant>,
-    next_fertilizer_stroke_seed: u32,
-    active_fertilizer_stroke_seed: Option<u32>,
 }
 
 impl Default for TerrainStrokeRuntime {
@@ -166,13 +159,10 @@ impl Default for TerrainStrokeRuntime {
             staff_remove: TerrainStroke::default(),
             hoe_trim: TerrainStroke::default(),
             water: TerrainStroke::default(),
-            fertilize: TerrainStroke::default(),
             till: TerrainStroke::default(),
             next_flora_paint_dab_serial: 0,
             active_flora_paint_dab_serial: None,
             last_flora_paint_release_time: None,
-            next_fertilizer_stroke_seed: 1,
-            active_fertilizer_stroke_seed: None,
         }
     }
 }
@@ -187,7 +177,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::StaffRemove => &self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &self.hoe_trim,
             ContinuousTerrainToolAction::Water => &self.water,
-            ContinuousTerrainToolAction::Fertilize => &self.fertilize,
             ContinuousTerrainToolAction::Till => &self.till,
         }
     }
@@ -201,7 +190,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::StaffRemove => &mut self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &mut self.hoe_trim,
             ContinuousTerrainToolAction::Water => &mut self.water,
-            ContinuousTerrainToolAction::Fertilize => &mut self.fertilize,
             ContinuousTerrainToolAction::Till => &mut self.till,
         }
     }
@@ -238,7 +226,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::StaffRegenerate,
             ContinuousTerrainToolAction::StaffRemove,
             ContinuousTerrainToolAction::Water,
-            ContinuousTerrainToolAction::Fertilize,
             ContinuousTerrainToolAction::Till,
         ] {
             self.interrupt(action);
@@ -250,9 +237,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::StaffRegenerate => {
                 self.active_flora_paint_dab_serial = None;
                 self.last_flora_paint_release_time = None;
-            }
-            ContinuousTerrainToolAction::Fertilize => {
-                self.active_fertilizer_stroke_seed = None;
             }
             _ => {}
         }
@@ -282,20 +266,6 @@ impl TerrainStrokeRuntime {
         self.active_flora_paint_dab_serial = Some(serial);
         self.last_flora_paint_release_time = Some(now);
         (serial, true)
-    }
-
-    fn fertilizer_stroke_seed(&mut self) -> u32 {
-        if let Some(seed) = self.active_fertilizer_stroke_seed {
-            return seed;
-        }
-
-        let seed = self.next_fertilizer_stroke_seed.max(1);
-        self.next_fertilizer_stroke_seed = seed
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223)
-            .max(1);
-        self.active_fertilizer_stroke_seed = Some(seed);
-        seed
     }
 }
 
@@ -538,7 +508,6 @@ impl PlayerToolRuntime {
                     for action in [
                         ContinuousTerrainToolAction::StaffRegenerate,
                         ContinuousTerrainToolAction::Water,
-                        ContinuousTerrainToolAction::Fertilize,
                         ContinuousTerrainToolAction::Till,
                     ] {
                         self.strokes.interrupt(action);
@@ -638,9 +607,6 @@ impl PlayerToolRuntime {
             }
             (PlayerTool::Hoe, MouseButton::Left) => Some(ContinuousTerrainToolAction::HoeTrim),
             (PlayerTool::Watering, MouseButton::Left) => Some(ContinuousTerrainToolAction::Water),
-            (PlayerTool::Fertilizer, MouseButton::Left) => {
-                Some(ContinuousTerrainToolAction::Fertilize)
-            }
             (PlayerTool::Tiller, MouseButton::Left) => Some(ContinuousTerrainToolAction::Till),
             _ => None,
         }
@@ -692,10 +658,6 @@ impl PlayerToolRuntime {
         self.strokes
             .flora_paint_dab(now, release_interval, spaced_releases)
     }
-
-    pub(super) fn fertilizer_stroke_seed(&mut self) -> u32 {
-        self.strokes.fertilizer_stroke_seed()
-    }
 }
 
 #[cfg(test)]
@@ -730,7 +692,6 @@ mod tests {
             (super::HOE_SLOT_INDEX, PlayerTool::Hoe),
             (super::WATERING_SLOT_INDEX, PlayerTool::Watering),
             (super::SOIL_INSPECTOR_SLOT_INDEX, PlayerTool::SoilInspector),
-            (super::FERTILIZER_SLOT_INDEX, PlayerTool::Fertilizer),
             (super::TILLER_SLOT_INDEX, PlayerTool::Tiller),
         ];
         for (slot, expected) in tool_cases {
@@ -841,11 +802,6 @@ mod tests {
                 ContinuousTerrainToolAction::Water,
             ),
             (
-                PlayerTool::Fertilizer,
-                MouseButton::Left,
-                ContinuousTerrainToolAction::Fertilize,
-            ),
-            (
                 PlayerTool::Tiller,
                 MouseButton::Left,
                 ContinuousTerrainToolAction::Till,
@@ -933,18 +889,6 @@ mod tests {
     }
 
     #[test]
-    fn fertilizer_stroke_seed_is_stable_until_the_stroke_resets() {
-        let mut runtime = PlayerToolRuntime::default();
-        let first = runtime.fertilizer_stroke_seed();
-        assert_eq!(runtime.fertilizer_stroke_seed(), first);
-
-        runtime.interrupt_stroke(ContinuousTerrainToolAction::Fertilize);
-        let next = runtime.fertilizer_stroke_seed();
-        assert_ne!(next, first);
-        assert_ne!(next, 0);
-    }
-
-    #[test]
     fn stroke_runtime_owns_cooldown_and_path_lifecycle() {
         let mut runtime = PlayerToolRuntime::default();
         let action = ContinuousTerrainToolAction::Water;
@@ -977,10 +921,6 @@ mod tests {
             (
                 super::WATERING_SLOT_INDEX,
                 ContinuousTerrainToolAction::Water,
-            ),
-            (
-                super::FERTILIZER_SLOT_INDEX,
-                ContinuousTerrainToolAction::Fertilize,
             ),
             (super::TILLER_SLOT_INDEX, ContinuousTerrainToolAction::Till),
         ];

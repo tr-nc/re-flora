@@ -72,8 +72,7 @@ The player inhabits and cares for a small garden world:
 
 - They directly plant, trim, water, arrange, dig, smooth, observe, and harvest.
 - They place plants in natural compositions rather than filling visible grid slots.
-- They learn a few readable local conditions such as moisture, light, fertility, substrate, and
-  soil shape.
+- They learn a few readable local conditions such as moisture, light, substrate, and soil shape.
 - They see plants and terrain respond through growth, form, color, motion, particles, sound, yield,
   and ecological variation.
 - They harvest enough surplus to try new plants without turning money into a score or obligation.

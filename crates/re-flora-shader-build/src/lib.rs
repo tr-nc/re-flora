@@ -100,12 +100,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/builder/chunk_writer/terrain_fertility_brush.comp",
-        source_path: "shader/slang/terrain_fertility_brush.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/builder/chunk_writer/terrain_moisture_brush.comp",
         source_path: "shader/slang/terrain_moisture_brush.slang",
         module_path: "shader/slang",

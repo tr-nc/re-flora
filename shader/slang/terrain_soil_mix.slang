@@ -68,15 +68,6 @@ bool transferSoilLevel(inout uint aLevel,
     return true;
 }
 
-uint packVoxelAtlasSoilState(uint oldVoxelData,
-                             uint moisture,
-                             uint fertility)
-{
-    uint packed = packVoxelAtlasMoisturePreserveState(
-        oldVoxelData, moisture);
-    return packVoxelAtlasFertilityPreserveState(packed, fertility);
-}
-
 [shader("compute")]
 [numthreads(8, 8, 8)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -147,8 +138,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     uint aMoisture = voxelMoistureFromAtlasData(aData);
     uint bMoisture = voxelMoistureFromAtlasData(bData);
-    uint aFertility = voxelFertilityFromAtlasData(aData);
-    uint bFertility = voxelFertilityFromAtlasData(bData);
 
     float pairFalloff = min(aFalloff, bFalloff);
     uint3 pairKey = atlasPosition ^ (neighbourPosition * 1664525u);
@@ -160,21 +149,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         pairFalloff,
         pairKey,
         ditherSeed ^ phase ^ 0xA24BAED5u);
-    bool fertilityChanged = transferSoilLevel(
-        aFertility,
-        bFertility,
-        VOXEL_FERTILITY_MAX,
-        mixStrength,
-        pairFalloff,
-        pairKey,
-        ditherSeed ^ phase ^ 0x9FB21C65u);
-    if (!moistureChanged && !fertilityChanged)
+    if (!moistureChanged)
     {
         return;
     }
 
-    chunk_atlas[atlasPosition] = packVoxelAtlasSoilState(
-        aData, aMoisture, aFertility);
-    chunk_atlas[neighbourPosition] = packVoxelAtlasSoilState(
-        bData, bMoisture, bFertility);
+    chunk_atlas[atlasPosition] = packVoxelAtlasMoisturePreserveState(
+        aData, aMoisture);
+    chunk_atlas[neighbourPosition] = packVoxelAtlasMoisturePreserveState(
+        bData, bMoisture);
 }

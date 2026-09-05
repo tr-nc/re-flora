@@ -51,14 +51,10 @@ pub const VOXEL_TYPE_SAND: u32 = 3;
 pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
-// Atlas bytes store 4 bits of voxel type, 2 bits of moisture, and 2 bits of fertility.
+// Atlas bytes store 4 bits of voxel type and 2 bits of moisture. Bits 6-7 are reserved.
 pub const VOXEL_MOISTURE_MASK: u8 = 0x30;
 pub const VOXEL_MOISTURE_MAX: u8 = 0x03;
-pub const VOXEL_FERTILITY_MASK: u8 = 0xc0;
-pub const VOXEL_FERTILITY_MAX: u8 = 0x03;
-pub const VOXEL_FERTILITY_DEFAULT: u8 = 1;
 pub const VOXEL_PROPERTY_MOISTURE: u32 = 1;
-pub const VOXEL_PROPERTY_FERTILITY: u32 = 2;
 pub const VOXEL_PROPERTY_SOIL_TARGET_MASK: u32 = (1 << VOXEL_TYPE_DIRT) | (1 << VOXEL_TYPE_SAND);
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
@@ -98,31 +94,8 @@ pub(crate) fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
     voxel_data & VOXEL_TYPE_MASK
 }
 
-#[cfg(test)]
-fn voxel_fertility_from_atlas_byte(voxel_data: u8) -> u8 {
-    (voxel_data & VOXEL_FERTILITY_MASK) >> 6
-}
-
-fn default_fertility_for_voxel_type(voxel_type: u8) -> u8 {
-    if voxel_type == VOXEL_TYPE_EMPTY as u8 {
-        0
-    } else {
-        VOXEL_FERTILITY_DEFAULT
-    }
-}
-
-fn pack_voxel_atlas_byte_with_fertility(voxel_type: u8, moisture: u8, fertility: u8) -> u8 {
-    (voxel_type & VOXEL_TYPE_MASK)
-        | (((moisture & VOXEL_MOISTURE_MAX) << 4) & VOXEL_MOISTURE_MASK)
-        | (((fertility & VOXEL_FERTILITY_MAX) << 6) & VOXEL_FERTILITY_MASK)
-}
-
 fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
-    pack_voxel_atlas_byte_with_fertility(
-        voxel_type,
-        moisture,
-        default_fertility_for_voxel_type(voxel_type),
-    )
+    (voxel_type & VOXEL_TYPE_MASK) | (((moisture & VOXEL_MOISTURE_MAX) << 4) & VOXEL_MOISTURE_MASK)
 }
 
 fn pack_voxel_atlas_byte_for_fill(old_voxel_data: u8, fill_voxel_type: u8) -> u8 {
@@ -294,15 +267,6 @@ impl VoxelPropertySampleRequest {
             target_voxel_mask: VOXEL_PROPERTY_SOIL_TARGET_MASK,
         }
     }
-
-    pub fn soil_fertility(center: Vec3, radius_world: f32) -> Self {
-        Self {
-            center,
-            radius_world,
-            property_id: VOXEL_PROPERTY_FERTILITY,
-            target_voxel_mask: VOXEL_PROPERTY_SOIL_TARGET_MASK,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -341,7 +305,6 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_score_ppl: ComputePipeline,
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
     terrain_moisture_brush_ppl: ComputePipeline,
-    terrain_fertility_brush_ppl: ComputePipeline,
     terrain_soil_mix_ppl: ComputePipeline,
     terrain_moisture_dry_ppl: ComputePipeline,
     terrain_moisture_spread_ppl: ComputePipeline,
@@ -474,12 +437,6 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
-        let terrain_fertility_brush_sm = ShaderModule::from_precompiled(
-            device,
-            "shader/builder/chunk_writer/terrain_fertility_brush.comp",
-            "main",
-        )
-        .unwrap();
         let terrain_soil_mix_sm = ShaderModule::from_precompiled(
             device,
             "shader/builder/chunk_writer/terrain_soil_mix.comp",
@@ -554,8 +511,6 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_smooth_mbo_apply_sm, &pool, &[&resources]);
         let terrain_moisture_brush_ppl =
             ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
-        let terrain_fertility_brush_ppl =
-            ComputePipeline::new(device, &terrain_fertility_brush_sm, &pool, &[&resources]);
         let terrain_soil_mix_ppl =
             ComputePipeline::new(device, &terrain_soil_mix_sm, &pool, &[&resources]);
         let terrain_moisture_dry_ppl =
@@ -601,7 +556,6 @@ impl PlainBuilder {
             terrain_smooth_mbo_score_ppl,
             terrain_smooth_mbo_apply_ppl,
             terrain_moisture_brush_ppl,
-            terrain_fertility_brush_ppl,
             terrain_soil_mix_ppl,
             terrain_moisture_dry_ppl,
             terrain_moisture_spread_ppl,
@@ -954,95 +908,6 @@ impl PlainBuilder {
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
                 self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
-            },
-        );
-
-        Ok(Some(changed_bound))
-    }
-
-    fn prepare_terrain_fertility_brush(
-        &self,
-        start: Vec3,
-        end: Vec3,
-        radius_world: f32,
-        amount: f32,
-        dither_seed: u32,
-    ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
-        let atlas_dim = chunk_atlas_dim(&self.resources);
-        let start_vox = start * 256.0;
-        let end_vox = end * 256.0;
-        let radius_vox = (radius_world * 256.0).max(0.0);
-        let amount = amount.clamp(0.0, 1.0);
-        if radius_vox <= 0.0 || amount <= 0.0 || !start_vox.is_finite() || !end_vox.is_finite() {
-            return None;
-        }
-
-        let atlas_dim_i = atlas_dim.as_ivec3();
-        let min_vox = start_vox.min(end_vox);
-        let max_vox = start_vox.max(end_vox);
-        let min = IVec3::new(
-            (min_vox.x - radius_vox).floor() as i32,
-            (min_vox.y - radius_vox).floor() as i32,
-            (min_vox.z - radius_vox).floor() as i32,
-        );
-        let max_exclusive = IVec3::new(
-            (max_vox.x + radius_vox).ceil() as i32,
-            (max_vox.y + radius_vox).ceil() as i32,
-            (max_vox.z + radius_vox).ceil() as i32,
-        );
-        let clamped_min = min.clamp(IVec3::ZERO, atlas_dim_i);
-        let clamped_max = max_exclusive.clamp(IVec3::ZERO, atlas_dim_i);
-        if any_ivec3_less_equal(clamped_max, clamped_min) {
-            return None;
-        }
-
-        let offset = clamped_min.as_uvec3();
-        let dim = (clamped_max - clamped_min).as_uvec3();
-        let dither_seed = dither_seed.max(1);
-        let push_constants = TerrainSoilBrushPushConstants {
-            offset: [offset.x, offset.y, offset.z, dither_seed],
-            dim: [dim.x, dim.y, dim.z, 0],
-            start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
-            end_amount: [end_vox.x, end_vox.y, end_vox.z, amount],
-        };
-        let changed_bound = UAabb3::new(offset, offset + dim - UVec3::ONE);
-        Some((push_constants, dim, changed_bound))
-    }
-
-    fn record_prepared_terrain_fertility_brush(
-        &self,
-        cmdbuf: &CommandBuffer,
-        push_constants: &TerrainSoilBrushPushConstants,
-        dim: UVec3,
-    ) {
-        self.terrain_fertility_brush_ppl.record(
-            cmdbuf,
-            Extent3D::new(dim.x, dim.y, dim.z),
-            Some(bytemuck::bytes_of(push_constants)),
-        );
-    }
-
-    #[allow(dead_code)]
-    pub fn apply_terrain_fertility_brush(
-        &mut self,
-        start: Vec3,
-        end: Vec3,
-        radius_world: f32,
-        amount: f32,
-        dither_seed: u32,
-    ) -> Result<Option<UAabb3>> {
-        let Some((push_constants, dim, changed_bound)) =
-            self.prepare_terrain_fertility_brush(start, end, radius_world, amount, dither_seed)
-        else {
-            return Ok(None);
-        };
-
-        execute_one_time_command(
-            self.vulkan_ctx.device(),
-            self.vulkan_ctx.command_pool(),
-            &self.vulkan_ctx.get_general_queue(),
-            |cmdbuf| {
-                self.record_prepared_terrain_fertility_brush(cmdbuf, &push_constants, dim);
             },
         );
 
@@ -1434,17 +1299,6 @@ impl PlainBuilder {
         radius_world: f32,
     ) -> Result<VoxelPropertySampleStats> {
         self.sample_voxel_property_sphere(VoxelPropertySampleRequest::soil_moisture(
-            center,
-            radius_world,
-        ))
-    }
-
-    pub fn sample_soil_fertility_sphere(
-        &mut self,
-        center: Vec3,
-        radius_world: f32,
-    ) -> Result<VoxelPropertySampleStats> {
-        self.sample_voxel_property_sphere(VoxelPropertySampleRequest::soil_fertility(
             center,
             radius_world,
         ))
@@ -3164,34 +3018,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn atlas_pack_uses_moisture_and_fertility_bits() {
+    fn atlas_pack_uses_moisture_and_preserves_reserved_bits_on_soil_retype() {
         let packed = pack_voxel_atlas_byte(VOXEL_TYPE_DIRT as u8, 7);
         assert_eq!(voxel_type_from_atlas_byte(packed), VOXEL_TYPE_DIRT as u8);
         assert_eq!(packed & VOXEL_MOISTURE_MASK, 0x30);
-        assert_eq!(
-            voxel_fertility_from_atlas_byte(packed),
-            VOXEL_FERTILITY_DEFAULT
-        );
-
-        let barren = pack_voxel_atlas_byte_with_fertility(VOXEL_TYPE_DIRT as u8, 2, 0);
-        assert_eq!(voxel_fertility_from_atlas_byte(barren), 0);
+        assert_eq!(packed & 0xc0, 0);
 
         let old_with_soil_state = 0b1101_0010u8;
         let refilled = pack_voxel_atlas_byte_for_fill(old_with_soil_state, VOXEL_TYPE_SAND as u8);
         assert_eq!(refilled, 0b1101_0011u8);
 
         let filled_from_empty = pack_voxel_atlas_byte_for_fill(0, VOXEL_TYPE_DIRT as u8);
-        assert_eq!(
-            voxel_fertility_from_atlas_byte(filled_from_empty),
-            VOXEL_FERTILITY_DEFAULT
-        );
+        assert_eq!(filled_from_empty & VOXEL_ATLAS_STATE_MASK, 0);
 
         let cleared = pack_voxel_atlas_byte_for_fill(old_with_soil_state, VOXEL_TYPE_ROCK as u8);
         assert_eq!(voxel_type_from_atlas_byte(cleared), VOXEL_TYPE_ROCK as u8);
-        assert_eq!(
-            voxel_fertility_from_atlas_byte(cleared),
-            VOXEL_FERTILITY_DEFAULT
-        );
+        assert_eq!(cleared & VOXEL_ATLAS_STATE_MASK, 0);
     }
 
     #[test]

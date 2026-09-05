@@ -46,8 +46,8 @@ public struct U_DdgiRadianceSun
     public float luminance;
 };
 
-// Stable material inputs transported by DDGI. Dynamic moisture, fertility, and edit-preview
-// presentation are deliberately absent from this snapshot.
+// Stable material inputs transported by DDGI. Dynamic moisture and edit-preview presentation are
+// deliberately absent from this snapshot.
 public struct U_DdgiRadianceVoxelPalette
 {
     public float3 dirt_color;

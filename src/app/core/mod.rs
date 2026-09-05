@@ -89,8 +89,7 @@ use crate::audio::{
     TreeAudioManager, TreeRustleParams,
 };
 use crate::builder::{
-    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
-    VOXEL_MOISTURE_MAX,
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_MOISTURE_MAX,
 };
 use crate::ddgi::{
     DdgiProbeSpacing, DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS,
@@ -137,11 +136,9 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
     FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
-    CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT,
-    GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
-    ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH, ITEM_PANEL_PIPE_ICON_PATH,
-    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
+    CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX,
+    HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    ITEM_PANEL_PIPE_ICON_PATH, ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
@@ -456,7 +453,6 @@ pub struct App {
     item_panel_sprinkler_icon: Option<TextureHandle>,
     item_panel_pipe_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
-    item_panel_fertilizer_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
     voxel_backpack: VoxelBackpack,
@@ -1477,7 +1473,6 @@ impl App {
             item_panel_sprinkler_icon: None,
             item_panel_pipe_icon: None,
             item_panel_soil_inspector_icon: None,
-            item_panel_fertilizer_icon: None,
             item_panel_tiller_icon: None,
             player_tools: PlayerToolRuntime::default(),
             voxel_backpack: VoxelBackpack::default(),
@@ -1855,37 +1850,6 @@ impl App {
         );
         self.item_panel_soil_inspector_icon = Some(soil_inspector_texture);
 
-        let fertilizer_path = if std::path::Path::new(ITEM_PANEL_FERTILIZER_ICON_PATH).exists() {
-            ITEM_PANEL_FERTILIZER_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_FERTILIZER_ICON_PATH,
-                ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH
-        };
-
-        let fertilizer_bytes = std::fs::read(fertilizer_path)
-            .with_context(|| format!("Failed to read item panel icon from {fertilizer_path}"))?;
-        let fertilizer_rgba = image::load_from_memory(&fertilizer_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {fertilizer_path}"))?
-            .to_rgba8();
-        let fertilizer_size = [
-            fertilizer_rgba.width() as usize,
-            fertilizer_rgba.height() as usize,
-        ];
-        let fertilizer_pixels = fertilizer_rgba.into_raw();
-        let fertilizer_image =
-            ColorImage::from_rgba_unmultiplied(fertilizer_size, &fertilizer_pixels);
-
-        let fertilizer_texture = self.egui_renderer.context().load_texture(
-            "item_panel_fertilizer",
-            fertilizer_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_fertilizer_icon = Some(fertilizer_texture);
-
         let tiller_path = if std::path::Path::new(ITEM_PANEL_TILLER_ICON_PATH).exists() {
             ITEM_PANEL_TILLER_ICON_PATH
         } else {
@@ -2176,7 +2140,6 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
-                        PhysicalKey::Code(KeyCode::Digit9) => Some(8),
                         _ => None,
                     };
 
@@ -2405,7 +2368,6 @@ impl App {
                 let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
                 let item_panel_pipe_icon = self.item_panel_pipe_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
-                let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
@@ -2489,7 +2451,7 @@ impl App {
                     .water
                     .status_text(self.water_particle_handoff_main_thread_ms);
                 let placeable_hint = format!(
-                    "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
+                    "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Till: 8 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinklers.len()
                 );
@@ -2497,21 +2459,17 @@ impl App {
                     Some(match terrain_edit_hover {
                         Some(hover) if hover.is_editable => {
                             let radius = self.player_tools.terrain_edit_radius;
-                            match (
-                                self.plain_builder
-                                    .sample_soil_moisture_sphere(hover.center, radius),
-                                self.plain_builder
-                                    .sample_soil_fertility_sphere(hover.center, radius),
-                            ) {
-                                (Ok(moisture), Ok(fertility)) if moisture.count > 0 => format!(
-                                    "avg humidity {:.2}/{}\navg fertility {:.2}/{}",
+                            match self
+                                .plain_builder
+                                .sample_soil_moisture_sphere(hover.center, radius)
+                            {
+                                Ok(moisture) if moisture.count > 0 => format!(
+                                    "avg humidity {:.2}/{}",
                                     moisture.average().unwrap_or(0.0),
                                     VOXEL_MOISTURE_MAX,
-                                    fertility.average().unwrap_or(0.0),
-                                    VOXEL_FERTILITY_MAX
                                 ),
-                                (Ok(_), Ok(_)) => "nothing to inspect".to_string(),
-                                (Err(err), _) | (_, Err(err)) => {
+                                Ok(_) => "nothing to inspect".to_string(),
+                                Err(err) => {
                                     log::error!("Inspector sample failed: {}", err);
                                     "sample failed".to_string()
                                 }
@@ -2949,18 +2907,9 @@ impl App {
                                 enabled: true,
                             },
                             ItemPanelSlot {
-                                index: FERTILIZER_SLOT_INDEX,
-                                label: "Fert",
-                                key_hint: "8",
-                                category: Some("CARE"),
-                                icon: item_panel_fertilizer_icon.as_ref(),
-                                accent: FERTILIZER_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
                                 index: TILLER_SLOT_INDEX,
                                 label: "Till",
-                                key_hint: "9",
+                                key_hint: "8",
                                 category: Some("CARE"),
                                 icon: item_panel_tiller_icon.as_ref(),
                                 accent: TILLER_TOOL_ACCENT,

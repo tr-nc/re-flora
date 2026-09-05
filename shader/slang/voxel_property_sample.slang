@@ -2,7 +2,6 @@ import chunk_writer_types;
 import voxel_data;
 
 static const uint VOXEL_PROPERTY_MOISTURE = 1u;
-static const uint VOXEL_PROPERTY_FERTILITY = 2u;
 
 groupshared uint workgroup_count;
 groupshared uint workgroup_sum;
@@ -30,12 +29,6 @@ bool sampleVoxelProperty(uint atlasData, uint propertyId, out uint value)
         value = voxelMoistureFromAtlasData(atlasData);
         return true;
     }
-    if (propertyId == VOXEL_PROPERTY_FERTILITY)
-    {
-        value = voxelFertilityFromAtlasData(atlasData);
-        return true;
-    }
-
     value = 0u;
     return false;
 }

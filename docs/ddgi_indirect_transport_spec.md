@@ -129,7 +129,7 @@ future refinements, not implied by the current `Threshold` reason.
 - Consumers receive linear diffuse irradiance divided by pi and apply stable base albedo once.
 - A front-face probe hit uses stable voxel type/hash albedo, current exact terrain direct sun, and
   the previous field's visibility-aware diffuse irradiance when a source exists.
-- Moisture, fertility, edit-preview tint, VSM, leaf shadows, and cloud shadows are excluded from
+- Moisture, edit-preview tint, VSM, leaf shadows, and cloud shadows are excluded from
   probe-hit transport.
 - A back-face hit does not contribute radiance; misses use the latched authored sky.
 - DDGI storage is non-negative, unclamped linear HDR. Non-finite output cannot publish.

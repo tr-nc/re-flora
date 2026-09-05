@@ -211,9 +211,6 @@ void parseTraceResult(out float3 albedo, MarchingResult result)
     uint atlasData = terrainAtlasData(result.center_position);
     albedo = applyTerrainMoisture(albedo, result.voxel_type,
                                   voxelMoistureFromAtlasData(atlasData));
-    albedo = applyTerrainFertility(albedo, result.voxel_type,
-                                   voxelFertilityFromAtlasData(atlasData),
-                                   result.center_position);
 }
 
 float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,

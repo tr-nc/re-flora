@@ -84,7 +84,7 @@ infrastructure subsystem unless it directly blocks or materially improves these 
 ### Plant and Ecological Breadth
 
 - Add flora only when species differ visibly in care, form, harvest, or ecological response.
-- Explore companion planting, pollinators, shade, fertility, substrate, and local microclimates as
+- Explore companion planting, pollinators, shade, substrate, and local microclimates as
   bonus layers rather than chores.
 - Add collection or journal support only when it encourages observation without checklist pressure.
 

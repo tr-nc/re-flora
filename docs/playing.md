@@ -72,8 +72,8 @@ the most relevant garden interactions:
    button over soil to plant.
 3. Press **6** for Water and hold the left mouse button over the planted area. Watch the soil and
    growth response.
-4. Press **7** for the soil inspector and hover over terrain to compare moisture and fertility.
-5. Try **3** to dig, **4** to smooth, **5** to trim, or **9** to till.
+4. Press **7** for the soil inspector and hover over terrain to inspect moisture.
+5. Try **3** to dig, **4** to smooth, **5** to trim, or **8** to till.
 6. Press **X** to place a sprinkler or **V** to draw an irrigation pipe.
 7. Press **G** when you want to switch between editing the garden and walking through it.
 
@@ -110,8 +110,7 @@ or player onboarding described by the canonical game direction.
 | **5** | Trim | Left mouse trims flora |
 | **6** | Water | Left mouse waters soil |
 | **7** | Inspector | Hover to inspect local soil |
-| **8** | Fertilizer | Left mouse fertilizes soil |
-| **9** | Till | Left mouse tills soil |
+| **8** | Till | Left mouse tills soil |
 | **Z** | Tree | Left mouse places a tree |
 | **X** | Sprinkler | Left mouse places a sprinkler |
 | **V** | Pipe | Left mouse begins or completes a pipe; right mouse cancels |

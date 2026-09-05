@@ -382,7 +382,6 @@ impl App {
             ContinuousTerrainToolAction::StaffRemove => self.try_staff_remove_flora(now),
             ContinuousTerrainToolAction::HoeTrim => self.try_hoe_trim(now),
             ContinuousTerrainToolAction::Water => self.try_watering_brush(now),
-            ContinuousTerrainToolAction::Fertilize => self.try_fertilizer_brush(now),
             ContinuousTerrainToolAction::Till => self.try_tiller_brush(now),
         }
     }
@@ -525,10 +524,6 @@ impl App {
 
     pub(super) fn is_soil_inspector_selected(&self) -> bool {
         self.player_tools.selected_tool() == PlayerTool::SoilInspector
-    }
-
-    pub(super) fn is_fertilizer_selected(&self) -> bool {
-        self.player_tools.selected_tool() == PlayerTool::Fertilizer
     }
 
     pub(super) fn is_tiller_selected(&self) -> bool {
@@ -1100,62 +1095,6 @@ impl App {
                 self.player_tools.interrupt_stroke(action);
                 log::error!(
                     "Watering brush attempt failed during terrain query: {}",
-                    err
-                );
-            }
-        }
-    }
-
-    pub(super) fn try_fertilizer_brush(&mut self, now: Instant) {
-        let action = ContinuousTerrainToolAction::Fertilize;
-        if !self.terrain_edit_pointer_available() || !self.is_fertilizer_selected() {
-            self.stop_terrain_edit_loop_sound();
-            self.player_tools.interrupt_stroke(action);
-            return;
-        }
-
-        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
-                    self.stop_terrain_edit_loop_sound();
-                    self.player_tools.defer_stroke(action, now);
-                    return;
-                }
-                self.start_terrain_edit_loop_sound(center);
-
-                if !self
-                    .player_tools
-                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
-                {
-                    return;
-                }
-
-                let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.previous_stroke_center(action),
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
-                    self.stop_terrain_edit_loop_sound();
-                    self.player_tools.defer_stroke(action, now);
-                    return;
-                }
-                let stroke_seed = self.player_tools.fertilizer_stroke_seed();
-                if let Err(err) = self.add_fertilizer_brush_fertility(edit, stroke_seed) {
-                    log::error!("Failed to apply fertilizer brush: {}", err);
-                    self.player_tools.interrupt_stroke(action);
-                    return;
-                }
-                self.player_tools.record_stroke_dab(action, now, center);
-            }
-            Ok(None) => {
-                self.stop_terrain_edit_loop_sound();
-                self.player_tools.defer_stroke(action, now);
-            }
-            Err(err) => {
-                self.player_tools.interrupt_stroke(action);
-                log::error!(
-                    "Fertilizer brush attempt failed during terrain query: {}",
                     err
                 );
             }

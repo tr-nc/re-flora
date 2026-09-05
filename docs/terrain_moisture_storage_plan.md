@@ -40,7 +40,7 @@ contree 是派生的 ray traversal / surface hit 加速结构，不是完整 vox
 2. contree hot path 不应变胖。增加 node/leaf 大小会增加 ray traversal/命中后的带宽压力。
 3. 不应为了动态 moisture 高频重建 contree。
 4. 短期要控制显存，不引入和 `chunk_atlas` 同尺寸的 dense parallel atlas。
-5. 后续要保留扩展空间：可能继续增加 fertility、tilled、nutrients、temperature 等土壤状态。
+5. 后续要保留扩展空间：可能继续增加新的土壤状态。
 
 ## 方案比较
 
@@ -86,7 +86,7 @@ contree 是派生的 ray traversal / surface hit 加速结构，不是完整 vox
 chunk_atlas R8_UINT
 bits 0..3 = voxel type
 bits 4..5 = moisture, 0..3（0=dry，1..3=更湿）
-bits 6..7 = reserved soil state bits（后续 fertility/tilled 等）
+bits 6..7 = reserved state bits
 ```
 
 当前 voxel type 值较少，可以暂时放在低 4 bit。moisture 只用 2 bit 量化为 4 档；视觉反馈和基础植物规则短期只需要少量离散湿度档位，剩余高位保留给后续土壤状态。
@@ -116,13 +116,13 @@ chunk_atlas         = dense material atlas
 voxel_state_overlay = sparse/bricked state pages, default state implicit zero
 ```
 
-例如按 `8x8x8` 或 `16x16x16` brick 做 page table。没有分配 page 的区域代表 moisture/fertility 等状态全为默认值。
+例如按 `8x8x8` 或 `16x16x16` brick 做 page table。没有分配 page 的区域代表动态状态全为默认值。
 
 优点：
 
 - 显存随实际有状态区域增长，而不是随完整体积增长。
 - `chunk_atlas` 继续专注 material/solid。
-- 扩展 fertility、tilled、nutrients 等状态更自然。
+- 扩展更多动态状态更自然。
 - contree 仍然不变胖。
 
 缺点：
@@ -189,6 +189,6 @@ contree 保持为派生加速结构，不作为 moisture source of truth。
 考虑从 packed atlas state bits 迁移到 sparse/bricked state overlay 的信号：
 
 - voxel type 数量接近或超过 16。
-- soil state 超过 moisture 单字段，例如 fertility、tilled、nutrients、temperature 都需要持久化。
+- soil state 超过 moisture 单字段且更多动态状态需要持久化。
 - 需要高于 4 档的 moisture 精度或更复杂的 per-voxel gameplay state。
 - dense atlas bit packing 开始让 shader/Rust 写入路径难以维护。

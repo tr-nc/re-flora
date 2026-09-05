@@ -6,6 +6,8 @@ Investigated revision: `1b996946` (`agent/terrain-material-research`)
 
 Scope: investigation and design only. This document does not authorize or implement a material-system refactor.
 
+Post-investigation update: the fertilizer tool, fertility state, fertilizer-granule shading, and their dedicated GPU path were removed on 2026-09-06. Bits 6-7 of the atlas byte are reserved again. References below to the removed path describe the investigated revision only; the forward material proposal retains moisture but has no fertility control.
+
 ## Recommendation
 
 Re: Flora should keep the existing four-bit voxel type as the world and save-file truth, but replace the presentation-only color palette with an authored material catalog and small mipmapped 2D texture arrays. A ray hit already provides the material ID, world-space hit position, and surface normal, so the first textured path needs no UVs and no extra bytes per voxel.
@@ -29,7 +31,7 @@ The editable world authority is `PlainBuilderResources::chunk_atlas`, a `512 x 5
 
 - bits 0-3: voxel type/material identifier;
 - bits 4-5: moisture;
-- bits 6-7: fertility.
+- bits 6-7: reserved.
 
 The layout is defined in `shader/slang/voxel_data.slang:5-16` and mirrored by packing helpers in `src/builder/plain/mod.rs:97-136`. Terrain snapshot schema 1 persists exactly that one-byte atlas payload, including all types and soil state (`src/terrain_persistence.rs:7-13`; `docs/terrain_persistence_v1.md:145-171`). The full world payload is 128 MiB before derived structures.
 
@@ -66,7 +68,7 @@ The visual hash is deterministic and position-based, but it is not authored text
 1. `voxelHashBucketFromBlueNoise` hashes integer world voxel coordinates to one of four buckets (`shader/slang/surface_extraction.slang:56-64`). Despite its name, it does not sample the repository's blue-noise textures.
 2. The bucket is stored in bits 30-31 of each derived Contree leaf (`shader/slang/voxel_data.slang:86-97`).
 3. `voxelColorByComponentsAndHash` converts the chosen base color to HSV and applies one of four fixed hue/saturation/value offsets (`shader/slang/tracer_material.slang:21-46`). Dirt and sand receive full strength, rock 0.6, stucco 0.15, and wood/emissive no hash variation.
-4. The primary tracer calls that function before moisture and fertility overlays (`shader/slang/tracer.slang:208-216`). DDGI repeats the same base hash color in probe ray radiance (`shader/slang/ddgi_probe_trace.slang:191-203`). The Glass fallback has a second coordinate-hash implementation (`shader/slang/glass_resolve.slang:283-294`).
+4. On the investigated revision, the primary tracer called that function before moisture and fertility overlays (`shader/slang/tracer.slang:208-216`). DDGI repeated the same base hash color in probe ray radiance (`shader/slang/ddgi_probe_trace.slang:191-203`). The Glass fallback had a second coordinate-hash implementation (`shader/slang/glass_resolve.slang:283-294`).
 5. The shared strength originates at the Debug GUI's `voxel_color_variance`, crosses `MaterialFrameInput`, is uploaded to `U_VoxelColors`, and is also frozen into `DdgiRadianceSnapshot` identity (`config/gui.toml:2594-2603`, `src/app/core/render_frame_input.rs:52-70`, `src/tracer/buffer_updater.rs:204-226`, `src/environment_lighting.rs:46-107`).
 
 The checked-in GUI default is already `0`, so this exact tint is dormant in a default checkout. The producer, storage bits, controls, main-view consumer, Glass fallback, DDGI consumer, and history identity nevertheless remain live architecture and can be re-enabled at runtime. A future removal should delete the presentation dependency end-to-end; it does not need to reclaim the Contree bits in the same commit.
@@ -74,7 +76,7 @@ The checked-in GUI default is already `0`, so this exact tint is dormant in a de
 Two other hashes are separate behaviors and should not be accidentally removed with it:
 
 - `shader/slang/chunk_init.slang:21-57` uses a hash to choose dirt versus rock across the procedural subsurface transition. This changes voxel type distribution, not shading variation.
-- `shader/slang/tracer_material.slang:107-156` adds position-seeded fertilizer granules at elevated soil fertility. This represents gameplay state. Whether it should remain procedural or become an authored mask is a product decision.
+- The investigated revision also had position-seeded fertilizer granules. That feature and its state were subsequently removed rather than carried into the material proposal.
 
 ### The current “material” is split across concerns
 
@@ -82,7 +84,7 @@ Two other hashes are separate behaviors and should not be accidentally removed w
 
 The main opaque lighting model currently multiplies albedo by direct and indirect irradiance (`shader/slang/tracer.slang:219-243`). It has no terrain roughness, metallic, or texture-normal input. A “PBR material” schema added today would therefore promise controls that the renderer cannot yet display.
 
-There is also an existing consistency boundary: the primary path reads moisture and fertility from `chunk_atlas`, while DDGI transport currently uses only base palette/hash albedo. A new catalog should make the visible-versus-transport approximation explicit rather than silently widening this mismatch.
+There is also an existing consistency boundary: the primary path reads moisture from `chunk_atlas`, while DDGI transport currently uses only base palette/hash albedo. A new catalog should make the visible-versus-transport approximation explicit rather than silently widening this mismatch.
 
 ### Texture infrastructure constraints found on this revision
 
@@ -115,7 +117,7 @@ The design should preserve one meaning for each stable voxel ID while keeping wo
 
 ```text
 authoritative voxel state
-  chunk_atlas: [type_id:4 | moisture:2 | fertility:2]
+  chunk_atlas: [type_id:4 | moisture:2 | reserved:2]
                     |
                     v
 authoritative authored material catalog
@@ -211,9 +213,9 @@ This should be an explicit policy and test fixture. It should not emerge acciden
 - Capture fixed-camera screenshots and release-mode GPU/CPU timing at `voxel_color_variance = 0` and at a representative nonzero value.
 - Remove `hash_color_variance` and base-color hash calls from primary, DDGI, and Glass fallback paths; remove the GUI/material-frame/DDGI-identity field.
 - Leave the two derived Contree hash bits temporarily unused unless a separate surface ABI change has value.
-- Preserve procedural dirt/rock distribution and decide separately whether fertilizer granules remain.
+- Preserve procedural dirt/rock distribution and moisture behavior.
 
-Acceptance: fixed material color no longer changes by per-voxel hash in any renderer/transport path; moisture and fertility behavior is unchanged.
+Acceptance: fixed material color no longer changes by per-voxel hash in any renderer/transport path; moisture behavior is unchanged.
 
 ### Stage 1 — Mip-capable bounded material resources, no visual change
 
@@ -226,7 +228,7 @@ Acceptance: invalid assets fail closed; mip/layer readback or a narrow shader fi
 ### Stage 2 — One-fetch textured albedo
 
 - Replace primary-hit flat color with dominant-axis world-space albedo sampling.
-- Retain moisture/fertility as post-albedo transforms initially, and use preintegrated catalog albedo for DDGI/secondary transport.
+- Retain moisture as a post-albedo transform initially, and use preintegrated catalog albedo for DDGI/secondary transport.
 - Record an explicit analytic LOD and visualize LOD bands in a diagnostic mode.
 
 Acceptance: no chunk/world-position seams, stable scale after edits/rebuilds, no obvious distance shimmer, material revision invalidates DDGI, and release-mode budget is recorded.
@@ -261,14 +263,13 @@ Recommended defaults are listed first.
 1. **Visual character:** crisp voxel surfaces with dominant-axis projection (recommended), or softer organic surfaces with full triplanar blending?
 2. **Material scope:** textured albedo first (recommended), or commit now to a new specular/PBR lighting model so normal and ORM maps have meaning?
 3. **Transport policy:** detailed camera texture plus average DDGI/secondary albedo (recommended), or exact texture sampling in every transport ray at higher cost?
-4. **Soil gameplay overlay:** keep moisture and fertilizer effects over the authored dirt texture (recommended), replace fertilizer granules with an authored mask, or remove all procedural soil appearance?
-5. **Stable capacity:** retain schema-1's 16 IDs and one byte per voxel (recommended), or accept a save-format/world-memory migration for more materials or blend weights?
-6. **Art controls:** should dirt/rock/sand expose distinct top, side, and bottom layers (recommended), or share one layer with rotation/scale only?
-7. **Initial texture scale:** choose the authored physical target after viewing real assets. A useful prototype comparison is 16, 32, and 64 texels per voxel-sized tile, but the final value should follow the chosen pixel-art or hand-painted style rather than be hardcoded by engineering.
+4. **Stable capacity:** retain schema-1's 16 IDs and one byte per voxel (recommended), or accept a save-format/world-memory migration for more materials or blend weights?
+5. **Art controls:** should dirt/rock/sand expose distinct top, side, and bottom layers (recommended), or share one layer with rotation/scale only?
+6. **Initial texture scale:** choose the authored physical target after viewing real assets. A useful prototype comparison is 16, 32, and 64 texels per voxel-sized tile, but the final value should follow the chosen pixel-art or hand-painted style rather than be hardcoded by engineering.
 
 ## What the HTML demo proves—and does not
 
-The companion HTML is a disposable design visualization. It demonstrates control grouping, dominant-axis versus triplanar intent, texture scale, wet/fertile overlays, ownership, and migration choices using generated browser canvas patterns. It does not use Re: Flora shaders, camera, lighting, textures, Vulkan sampling, or performance data. Visual approval of the HTML therefore approves a direction and vocabulary, not the final in-game look.
+The companion HTML is a disposable design visualization. It demonstrates control grouping, dominant-axis versus triplanar intent, texture scale, moisture, ownership, and migration choices using generated browser canvas patterns. It does not use Re: Flora shaders, camera, lighting, textures, Vulkan sampling, or performance data. Visual approval of the HTML therefore approves a direction and vocabulary, not the final in-game look.
 
 ## Source quality and inference boundary
 
