@@ -1,6 +1,6 @@
 # Butterfly sprite workflow investigation
 
-Date: 2026-09-06  
+Date: 2026-09-06
 Scope: inspect the current handmade butterfly source and runtime consumer; compare low/no-cost creation workflows. No replacement art was generated, no service was purchased, and no game code was changed.
 
 ## Recommendation
