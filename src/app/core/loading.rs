@@ -426,6 +426,10 @@ impl App {
             }
         }
 
+        self.restore_startup_garden().unwrap_or_else(|err| {
+            panic!("[GARDEN_PERSISTENCE] startup vegetation restore failed: {err:#}")
+        });
+
         if self.launch_owners.is_foliage_shadow() || self.lighting_mode_acceptance.is_active() {
             self.configure_foliage_shadow_bench_receiver()
                 .unwrap_or_else(|err| {
@@ -433,6 +437,8 @@ impl App {
                 });
         }
 
+        self.seed_garden_snapshot_smoke()
+            .unwrap_or_else(|err| panic!("[GARDEN_SMOKE] seed failed: {err:#}"));
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
@@ -441,6 +447,8 @@ impl App {
         publication.complete_startup(self).unwrap_or_else(|err| {
             panic!("startup Visible Terrain Publication completion failed: {err:#}")
         });
+        self.verify_garden_snapshot_smoke()
+            .unwrap_or_else(|err| panic!("[GARDEN_SMOKE] verify failed: {err:#}"));
         self.prepare_environment_lighting_test_scene_before_probe_initialization()
             .unwrap_or_else(|err| {
                 panic!("environment-lighting test scene startup publication failed: {err:#}")

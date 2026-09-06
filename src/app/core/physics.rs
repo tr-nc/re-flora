@@ -339,6 +339,42 @@ impl TerrainPhysics {
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
+    /// Restore the fruiting season without replaying fruit drops that already happened.
+    /// Loose fruit bodies are transient; sweeping the cycle backwards will arm a new crop.
+    pub(super) fn restore_saved_tree_fruits(
+        &mut self,
+        tree_id: u32,
+        specs: Vec<TreeFruitSpec>,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.fruits_by_tree.contains_key(&tree_id),
+            "saved tree must replace old fruit first"
+        );
+        self.fruits_by_tree.insert(
+            tree_id,
+            specs
+                .iter()
+                .map(|spec| {
+                    (
+                        spec.id,
+                        RegisteredFruit {
+                            phase: if self.fruit_cycle >= spec.drop_phase {
+                                FruitSweepPhase::Dropped
+                            } else {
+                                FruitSweepPhase::Armed
+                            },
+                            spec: spec.clone(),
+                            required_bricks: Vec::new(),
+                            body: None,
+                        },
+                    )
+                })
+                .collect(),
+        );
+        self.publish_tree_fruits(tree_id, specs, tracer)
+    }
+
     pub(super) fn unpublish_tree_fruits(
         &mut self,
         tree_id: u32,

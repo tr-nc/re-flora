@@ -3,7 +3,8 @@ use crate::audio::{
     CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter,
     SpatialSoundManager, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
 };
-use crate::wind::{Wind, WindResponseCurve, WindSource};
+use crate::wind_field::WindFieldFrame;
+use crate::wind_response::WindResponseCurve;
 use anyhow::Result;
 use petalsonic::ResidentClip;
 use std::sync::Arc;
@@ -30,7 +31,6 @@ pub struct TreeAudioManager {
     rustle_clip: ResidentClip,
     lifecycle: CanopyAudioLifecycle,
     emitter_adapter: CanopyDistributedEmitterAdapter,
-    wind: Wind,
 }
 
 pub(crate) struct TreeAudioPublicationCheckpoint {
@@ -86,7 +86,6 @@ impl TreeAudioManager {
             rustle_clip,
             lifecycle: CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS),
             emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager),
-            wind: Wind::new(),
         })
     }
 
@@ -212,7 +211,7 @@ impl TreeAudioManager {
     pub fn update(
         &mut self,
         time_seconds: f32,
-        wind_sources: &[WindSource],
+        wind: &WindFieldFrame,
         wind_audio_attack_decay: f32,
         wind_audio_release_decay: f32,
     ) -> Result<()> {
@@ -226,9 +225,8 @@ impl TreeAudioManager {
             time_seconds,
         )?;
         self.emitter_adapter.update(
-            &self.wind,
+            wind,
             time_seconds,
-            wind_sources,
             wind_audio_attack_decay,
             wind_audio_release_decay,
         )

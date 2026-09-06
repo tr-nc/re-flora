@@ -3264,6 +3264,7 @@ dependencies = [
  "re-flora-water",
  "resource_container_derive",
  "serde",
+ "serde_json",
  "spirv-reflect",
  "static_assertions",
  "tempfile",

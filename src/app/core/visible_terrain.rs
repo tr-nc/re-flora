@@ -90,7 +90,9 @@ impl VisibleTerrainChange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VisibleTerrainPublicationKind {
     Edit,
-    Startup { reconcile_loaded_terrain: bool },
+    Startup {
+        discard_previous_terrain_edits: bool,
+    },
     SnapshotReplacement,
 }
 
@@ -98,7 +100,7 @@ enum VisibleTerrainPublicationKind {
 enum VisibleTerrainPublicationState {
     Physical,
     EditObservers,
-    LoadedConnectivity,
+    LoadedEditState,
     BeginWorldColliders,
     ImportWorldColliders,
     AwaitingStartupSettlement,
@@ -152,7 +154,7 @@ pub(super) trait VisibleTerrainPublicationHost {
         affected_voxels: UAabb3,
     ) -> Result<()>;
     fn commit_visible_terrain_revision(&mut self, revision: u32);
-    fn reconcile_loaded_terrain(&mut self) -> Result<()>;
+    fn discard_previous_terrain_edits(&mut self) -> Result<()>;
     fn prepare_snapshot_world_collider_import(&mut self) -> Result<()>;
     fn begin_world_collider_import(&mut self) -> Result<usize>;
     fn advance_world_collider_import(&mut self) -> Result<(usize, usize)>;
@@ -235,7 +237,7 @@ impl VisibleTerrainPublication {
         ];
         Ok(Self::new(
             VisibleTerrainPublicationKind::Startup {
-                reconcile_loaded_terrain: loaded_snapshot,
+                discard_previous_terrain_edits: loaded_snapshot,
             },
             physical,
             chunk_count,
@@ -320,10 +322,10 @@ impl VisibleTerrainPublication {
                                     VisibleTerrainPublicationState::EditObservers
                                 }
                                 VisibleTerrainPublicationKind::Startup {
-                                    reconcile_loaded_terrain: true,
-                                } => VisibleTerrainPublicationState::LoadedConnectivity,
+                                    discard_previous_terrain_edits: true,
+                                } => VisibleTerrainPublicationState::LoadedEditState,
                                 VisibleTerrainPublicationKind::Startup {
-                                    reconcile_loaded_terrain: false,
+                                    discard_previous_terrain_edits: false,
                                 } => VisibleTerrainPublicationState::BeginWorldColliders,
                             };
                         }
@@ -336,15 +338,15 @@ impl VisibleTerrainPublication {
                             VisibleTerrainPublicationState::Complete
                         }
                         VisibleTerrainPublicationKind::SnapshotReplacement => {
-                            VisibleTerrainPublicationState::LoadedConnectivity
+                            VisibleTerrainPublicationState::LoadedEditState
                         }
                         VisibleTerrainPublicationKind::Startup { .. } => {
                             unreachable!("startup publication does not run edit observers")
                         }
                     };
                 }
-                VisibleTerrainPublicationState::LoadedConnectivity => {
-                    host.reconcile_loaded_terrain()?;
+                VisibleTerrainPublicationState::LoadedEditState => {
+                    host.discard_previous_terrain_edits()?;
                     if self.kind == VisibleTerrainPublicationKind::SnapshotReplacement {
                         host.prepare_snapshot_world_collider_import()?;
                     }
@@ -534,8 +536,9 @@ impl VisibleTerrainPublicationHost for App {
         self.visible_terrain_revision = revision;
     }
 
-    fn reconcile_loaded_terrain(&mut self) -> Result<()> {
-        self.reconcile_loaded_terrain_publication()
+    fn discard_previous_terrain_edits(&mut self) -> Result<()> {
+        self.discard_terrain_edits_after_snapshot_restore();
+        Ok(())
     }
 
     fn prepare_snapshot_world_collider_import(&mut self) -> Result<()> {
@@ -658,8 +661,7 @@ mod tests {
         CollidersDirty,
         Ddgi(u32),
         Revision(u32),
-        Connectivity,
-        ChildPublicationComplete,
+        DiscardPreviousEdits,
         SnapshotCollidersReady,
         ColliderBegin,
         ColliderComplete,
@@ -671,7 +673,6 @@ mod tests {
         physical: VecDeque<physical_visible_terrain::PhysicalTerrainPublicationProgress>,
         events: Vec<Event>,
         revision: u32,
-        connectivity_child: bool,
     }
 
     impl RecordingHost {
@@ -684,13 +685,7 @@ mod tests {
                 physical: physical.into_iter().collect(),
                 events: Vec::new(),
                 revision: 7,
-                connectivity_child: false,
             }
-        }
-
-        fn with_connectivity_child(mut self) -> Self {
-            self.connectivity_child = true;
-            self
         }
     }
 
@@ -745,11 +740,8 @@ mod tests {
             self.revision = revision;
         }
 
-        fn reconcile_loaded_terrain(&mut self) -> Result<()> {
-            self.events.push(Event::Connectivity);
-            if self.connectivity_child {
-                self.events.push(Event::ChildPublicationComplete);
-            }
+        fn discard_previous_terrain_edits(&mut self) -> Result<()> {
+            self.events.push(Event::DiscardPreviousEdits);
             Ok(())
         }
 
@@ -837,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn loaded_startup_reconciles_after_physical_and_before_collider_import() {
+    fn loaded_startup_discards_stale_edits_without_mutating_saved_terrain() {
         let mut publication = VisibleTerrainPublication::startup(vec![UVec3::ZERO], true).unwrap();
         let mut host = RecordingHost::new([published(1)]);
 
@@ -852,7 +844,7 @@ mod tests {
             host.events,
             vec![
                 Event::PhysicalComplete,
-                Event::Connectivity,
+                Event::DiscardPreviousEdits,
                 Event::ColliderBegin,
             ]
         );
@@ -866,29 +858,11 @@ mod tests {
             host.events,
             vec![
                 Event::PhysicalComplete,
-                Event::Connectivity,
+                Event::DiscardPreviousEdits,
                 Event::ColliderBegin,
                 Event::ColliderComplete,
                 Event::Water,
                 Event::InitialDdgi,
-            ]
-        );
-    }
-
-    #[test]
-    fn loaded_connectivity_child_completes_before_collider_import() {
-        let mut publication = VisibleTerrainPublication::startup(vec![UVec3::ZERO], true).unwrap();
-        let mut host = RecordingHost::new([published(1)]).with_connectivity_child();
-
-        publication.advance(&mut host).unwrap();
-
-        assert_eq!(
-            host.events,
-            vec![
-                Event::PhysicalComplete,
-                Event::Connectivity,
-                Event::ChildPublicationComplete,
-                Event::ColliderBegin,
             ]
         );
     }
@@ -915,7 +889,7 @@ mod tests {
                 Event::CollidersDirty,
                 Event::Ddgi(8),
                 Event::Revision(8),
-                Event::Connectivity,
+                Event::DiscardPreviousEdits,
                 Event::SnapshotCollidersReady,
                 Event::ColliderBegin,
                 Event::ColliderComplete,

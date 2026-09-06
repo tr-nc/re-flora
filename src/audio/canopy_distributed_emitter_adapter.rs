@@ -5,7 +5,8 @@ use crate::audio::{
     CanopyAudioVoice, CanopyExtentAcousticObservation, CanopyOcclusionClassification,
     CanopyRouteAcousticObservation, CanopySampleAcousticObservation, SpatialSoundManager,
 };
-use crate::wind::{Wind, WindResponseCurve, WindSource};
+use crate::wind_field::WindFieldFrame;
+use crate::wind_response::WindResponseCurve;
 use anyhow::{Context, Result};
 use petalsonic::{
     AcousticOcclusionState, AcousticSolveStatus, AcousticTelemetryDiagnostics,
@@ -139,9 +140,8 @@ impl CanopyDistributedEmitterAdapter {
 
     pub fn update(
         &mut self,
-        wind: &Wind,
+        wind: &WindFieldFrame,
         time_seconds: f32,
-        wind_sources: &[WindSource],
         wind_audio_attack_decay: f32,
         wind_audio_release_decay: f32,
     ) -> Result<()> {
@@ -149,7 +149,6 @@ impl CanopyDistributedEmitterAdapter {
             voice.update(
                 wind,
                 time_seconds,
-                wind_sources,
                 wind_audio_attack_decay,
                 wind_audio_release_decay,
                 &self.spatial_sound_manager,

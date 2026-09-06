@@ -1,18 +1,14 @@
 //! Opt-in real-GPU acceptance using the production compute shader and live wind
 //! settings. It never mutates the game's wind buffers or response state.
 use super::*;
-use crate::{
-    generated::gpu_structs::{GuiInput, WindSources},
-    resource::Resource,
-};
+use crate::resource::Resource;
 use re_flora_vkn::{
     execute_one_time_command, BufferUse, DescriptorPool, DescriptorUpdate, ResourceContainer,
     ResourceLookup, ShaderModule, VulkanContext,
 };
 
 struct WindInputs {
-    replay_parameters: Resource<Buffer>,
-    wind_sources: Resource<Buffer>,
+    wind_field_info: Resource<Buffer>,
 }
 
 impl ResourceContainer for WindInputs {
@@ -20,11 +16,8 @@ impl ResourceContainer for WindInputs {
         // Reuse the production shader interface, but bind only independently
         // allocated replay buffers, never the game's live GUI uniform.
         match name {
-            "gui_input" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.replay_parameters))
-            }
-            "wind_sources" => {
-                ResourceLookup::Unique(DescriptorResource::Buffer(&self.wind_sources))
+            "wind_field_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.wind_field_info))
             }
             _ => ResourceLookup::Missing,
         }
@@ -42,12 +35,7 @@ struct Harness<'a> {
 }
 
 impl<'a> Harness<'a> {
-    fn new(
-        context: &'a VulkanContext,
-        allocator: Allocator,
-        count: usize,
-        source_bytes: usize,
-    ) -> Result<Self> {
+    fn new(context: &'a VulkanContext, allocator: Allocator, count: usize) -> Result<Self> {
         let device = context.device();
         let shader = ShaderModule::from_precompiled(
             device,
@@ -56,22 +44,17 @@ impl<'a> Harness<'a> {
         )
         .map_err(anyhow::Error::msg)?;
         let pool = DescriptorPool::new(device)?;
-        let wind = WindInputs {
-            replay_parameters: Resource::new(Buffer::new_uniform::<GuiInput>(
-                device.clone(),
-                allocator.clone(),
-            )),
-            wind_sources: Resource::new(Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-                MemoryLocation::CpuToGpu,
-                source_bytes.max(32) as u64,
-            )),
-        };
+        let wind =
+            WindInputs {
+                wind_field_info: Resource::new(Buffer::new_uniform::<
+                    crate::wind_field::WindFieldFrame,
+                >(device.clone(), allocator.clone())),
+            };
+        wind.wind_field_info
+            .fill_uniform(&crate::wind_field::WindFieldFrame::default())?;
         let pipeline = ComputePipeline::new_uninitialized(device, &shader, &pool);
         pipeline.initialize_descriptors(DescriptorUpdate::SetContaining {
-            anchor: "gui_input",
+            anchor: "wind_field_info",
             providers: &[&wind],
         })?;
         let buffers = FrameBuffers::new(device.clone(), allocator.clone(), count);
@@ -168,22 +151,11 @@ pub(in crate::tracer) fn validate_gpu(
     allocator: Allocator,
     resources: &crate::tracer::TracerResources,
 ) -> Result<()> {
-    let source_bytes = resources.wind.wind_sources.read_back()?;
-    let live_gui_bytes = resources.uniforms.gui_input.read_back()?;
-    let live_gui: GuiInput = bytemuck::pod_read_unaligned(&live_gui_bytes);
-    let mut harness = Harness::new(context, allocator, 2113, source_bytes.len())?;
-    let mut gui = GuiInput::zeroed();
-    gui.wind_source_count = 1;
-    gui.wind_directional_bias_fraction = 1.;
-    harness.wind.replay_parameters.fill_uniform(&gui)?;
-    let mut source = WindSources {
-        params: [0., 0., 1., 0.],
-        noise: [1., 1., 2., 0.5],
-    };
-    harness
-        .wind
-        .wind_sources
-        .fill_range_with_raw_u8(0, bytemuck::bytes_of(&source))?;
+    let live_bytes = resources.wind.wind_field_info.read_back()?;
+    let live_field: crate::wind_field::WindFieldFrame = bytemuck::pod_read_unaligned(&live_bytes);
+    let mut harness = Harness::new(context, allocator, 2113)?;
+    let mut source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
+    harness.wind.wind_field_info.fill_uniform(&source)?;
     // Same forcing and the same spatial point deliberately remove wind-field
     // variation: individual leaf mechanics must not collapse into one spray pose.
     let mut leaves: Vec<_> = [11, 23, 47, 83]
@@ -223,11 +195,8 @@ pub(in crate::tracer) fn validate_gpu(
     let mut response_samples = Vec::new();
     for frame in 0..360 {
         if frame == 120 {
-            source.params[2] = 0.;
-            harness
-                .wind
-                .wind_sources
-                .fill_range_with_raw_u8(0, bytemuck::bytes_of(&source))?;
+            source.cells.fill([0.; 4]);
+            harness.wind.wind_field_info.fill_uniform(&source)?;
         }
         last = harness.step(&inputs, frame as f32 / 60., (frame + 1) as f32 / 60., 0.05)?;
         response_samples.push(last.clone());
@@ -298,12 +267,15 @@ pub(in crate::tracer) fn validate_gpu(
         }
         let mut trajectory = Vec::new();
         for frame in 0..90 {
-            source.params[0] = if (frame / 9) % 2 == 0 { 0. } else { 180. };
-            source.params[2] = if frame < 54 { 1. } else { 0. };
-            harness
-                .wind
-                .wind_sources
-                .fill_range_with_raw_u8(0, bytemuck::bytes_of(&source))?;
+            let force = if frame >= 54 {
+                0.
+            } else if (frame / 9) % 2 == 0 {
+                1.
+            } else {
+                -1.
+            };
+            source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X * force);
+            harness.wind.wind_field_info.fill_uniform(&source)?;
             last = harness.step(&inputs, frame as f32 / 60., (frame + 1) as f32 / 60., tick)?;
             trajectory.push(last[0][0]);
             for (index, input) in inputs.iter_mut().enumerate() {
@@ -346,11 +318,8 @@ pub(in crate::tracer) fn validate_gpu(
         for input in &mut inputs {
             input.identity[0] = NO_PREVIOUS;
         }
-        source.params = [0., 0., 1., 0.];
-        harness
-            .wind
-            .wind_sources
-            .fill_range_with_raw_u8(0, bytemuck::bytes_of(&source))?;
+        source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
+        harness.wind.wind_field_info.fill_uniform(&source)?;
         let mut t90 = vec![f32::NAN; inputs.len()];
         let mut overshoot = vec![0.0_f32; inputs.len()];
         for frame in 0..180 {
@@ -391,11 +360,7 @@ pub(in crate::tracer) fn validate_gpu(
 
     // Compare a 16-voxel production grid against exact midpoint root responses
     // under the *current* wind source settings, over the actual 512-voxel world.
-    harness.wind.replay_parameters.fill_uniform(&live_gui)?;
-    harness
-        .wind
-        .wind_sources
-        .fill_range_with_raw_u8(0, &source_bytes)?;
+    harness.wind.wind_field_info.fill_uniform(&live_field)?;
     let mut grid_inputs =
         VegetationResponse::new(UAabb3::new(glam::UVec3::ZERO, glam::UVec3::splat(2))).grid_inputs;
     grid_inputs.truncate(1089);
@@ -441,7 +406,51 @@ pub(in crate::tracer) fn validate_gpu(
             }
         }
     }
-    log::info!("[VEGETATION_RESPONSE][GPU_GRID] spacing_voxels=16 roots=1024 time=2s rms_voxels={:.6} normalized_rms={:.6} max_axis_error_voxels={:.6} sources={}",
-        (squared_error / 2048.).sqrt(), (squared_error / squared_reference.max(1e-12)).sqrt(), maximum_error, live_gui.wind_source_count);
+    log::info!("[VEGETATION_RESPONSE][GPU_GRID] spacing_voxels=16 roots=1024 time=2s rms_voxels={:.6} normalized_rms={:.6} max_axis_error_voxels={:.6} shared_field=true",
+        (squared_error / 2048.).sqrt(), (squared_error / squared_reference.max(1e-12)).sqrt(), maximum_error);
+    if std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some() {
+        // Validate the transported field through the actual plant solver. Compare
+        // it with uniform fields at each CPU-sampled probe, avoiding assumptions
+        // about the plant solver's nonlinear response curve.
+        let mut field = crate::wind_field::WindField::default();
+        field.strength = 0.;
+        field.detail_strength = 0.;
+        field.advance(0.);
+        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X);
+        field.advance(1.);
+        let probe = |x, z| ResponseInput {
+            root: [x, 0., z, 0.],
+            identity: [NO_PREVIOUS, 0, 0, 0],
+        };
+        let probes = [
+            probe(1.2, 1.),
+            probe(1.2, 1.3),
+            probe(0., 0.),
+            probe(1., 1.),
+        ];
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let actual = harness.step(&probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            actual[0][0] > 0.01 && actual[2][0].abs() < 1e-6,
+            "local input failed to enter the field or changed a distant location"
+        );
+        for (index, probe) in probes.iter().enumerate() {
+            let expected = field.sample(glam::Vec2::new(probe.root[0], probe.root[2]) * 256.);
+            let mut uniform = field.frame();
+            uniform
+                .cells
+                .fill([expected.x, expected.y, expected.x, expected.y]);
+            harness.wind.wind_field_info.fill_uniform(&uniform)?;
+            let reference = harness.step(&[*probe], 0., 0.2, 0.025)?;
+            anyhow::ensure!(
+                actual[index]
+                    .iter()
+                    .zip(reference[0])
+                    .all(|(a, b)| (a - b).abs() < 1e-4),
+                "CPU/GPU transported wind sampling mismatch at probe {index}"
+            );
+        }
+        log::info!("[WIND_PROTOTYPE][GPU] shared_field=passed cpu_gpu_sampling=passed local_support=passed");
+    }
     Ok(())
 }

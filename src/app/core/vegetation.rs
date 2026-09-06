@@ -1,4 +1,5 @@
 use super::launch_owners;
+mod snapshot;
 use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
@@ -26,6 +27,7 @@ use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
+pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -1535,11 +1537,11 @@ impl GardenTrees {
         &mut self,
         particle_system: &mut ParticleSystem,
         dt: f32,
-        time: f32,
+        wind: &crate::wind_field::WindFieldFrame,
         enabled: bool,
     ) {
         self.leaf_emitters
-            .advance(particle_system, dt, time, enabled);
+            .advance(particle_system, dt, wind, enabled);
     }
 
     pub(super) fn leaf_emitter_count(&self) -> usize {

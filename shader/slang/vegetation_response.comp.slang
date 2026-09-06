@@ -35,7 +35,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         float boundary = float(publication) * tick;
         float end = min(pc.end_time, min(time + maxStep, boundary));
         float dt = max(end - time, 0.0);
-        float2 force = sampleProceduralWind(input.root.xyz, time + 0.5 * dt).xz;
+        float2 force = sampleWindField(input.root.xyz).xz;
         if (input.identity.w == 1u)
             advanceLeafResponse(state.motion, force, dt, input.identity.z, pc.controls);
         else

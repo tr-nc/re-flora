@@ -394,6 +394,7 @@ impl App {
             self.cancel_pipe_drag();
         }
         if update.active_tool_changed() {
+            self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();
         }
         self.play_item_panel_scroll_sound();

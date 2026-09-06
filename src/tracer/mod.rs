@@ -131,18 +131,15 @@ use crate::lighting::{
     LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
-use crate::resource::ResourceContainer;
 use crate::util::TimeInfo;
-use crate::wind::WindSource;
 use anyhow::{Context, Result};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, Buffer, BufferUsage, BufferUse, ClearValue,
     ColorClearValue, CommandBuffer, DepthOrStencilClearValue, DescriptorPool, DescriptorResource,
-    DescriptorUpdate, Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement,
-    FrameRetirementSink, GpuProfiler, GraphicsPipeline, MemoryLocation, PipelineBarrier,
-    PipelineStage, PreparedDrawDescriptors, PushConstantInfo, Texture, TextureLayout,
-    TextureRegion, Viewport, VulkanContext,
+    Extent2D, Extent3D, FrameExtentGeneration, FrameRetirement, FrameRetirementSink, GpuProfiler,
+    GraphicsPipeline, MemoryLocation, PipelineBarrier, PipelineStage, PreparedDrawDescriptors,
+    PushConstantInfo, Texture, TextureLayout, TextureRegion, Viewport, VulkanContext,
 };
 use std::{fmt, time::Instant};
 
@@ -865,11 +862,6 @@ const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
 const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
 const DEFAULT_CAMERA_HEIGHT: f32 = 1.0;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindGuiParams {
-    pub sources: Vec<WindSource>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TerrainEditPreviewShape {
     Sphere,
@@ -923,27 +915,6 @@ pub struct CloudGuiParams {
     pub shadow_strength: f32,
     pub shadow_min_transmittance: f32,
     pub shadow_steps: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct WindSourceGpu {
-    pub params: [f32; 4],
-    pub noise: [f32; 4],
-}
-
-impl From<WindSource> for WindSourceGpu {
-    fn from(source: WindSource) -> Self {
-        Self {
-            params: [source.direction_degrees, source.speed, source.gain, 0.0],
-            noise: [
-                source.pattern_scale,
-                source.octaves as f32,
-                source.lacunarity,
-                source.persistence,
-            ],
-        }
-    }
 }
 
 #[repr(C)]
@@ -1511,9 +1482,7 @@ pub struct VegetationFrameInput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindFrameInput {
-    pub sources: WindGuiParams,
-    pub directional_bias_fraction: f32,
-    pub turbulence_fraction: f32,
+    pub field: crate::wind_field::WindFieldFrame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1697,7 +1666,6 @@ pub struct Tracer {
     raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
-    wind_source_buffer_capacity: usize,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -1749,7 +1717,7 @@ impl Tracer {
             &*self.resources.uniforms.god_ray_info,
             &*self.resources.uniforms.post_processing_info,
             &*self.resources.shadow.shadow_camera_info,
-            &*self.resources.wind.wind_sources,
+            &*self.resources.wind.wind_field_info,
             &*self.resources.local_lighting.local_light_info,
             &*self.resources.local_lighting.local_lights,
             &*self
@@ -1979,7 +1947,6 @@ impl Tracer {
             raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
-            wind_source_buffer_capacity: 1,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -2783,49 +2750,6 @@ impl Tracer {
         &self.resources.extent_dependent_resources.screen_output_tex
     }
 
-    fn ensure_wind_source_buffer_capacity(&mut self, source_count: usize) -> Result<()> {
-        let required_capacity = source_count.max(1);
-        if required_capacity <= self.wind_source_buffer_capacity {
-            return Ok(());
-        }
-
-        let new_capacity = required_capacity.next_power_of_two();
-        *self.resources.wind.wind_sources = TracerResources::create_wind_sources_buffer(
-            self.vulkan_ctx.device().clone(),
-            self.allocator.clone(),
-            new_capacity,
-        );
-        self.wind_source_buffer_capacity = new_capacity;
-        let descriptor_generation = self.next_descriptor_generation();
-        let active_ddgi = self.ddgi_runtime.active_resources();
-        let tracer_resources: [&dyn ResourceContainer; 3] =
-            [&self.resources, &active_ddgi, &self.ddgi_voxel_visibility];
-        let descriptor_retirement = self
-            .pipeline_topology
-            .compute()
-            .wind_volume_ppl
-            .publish_descriptors(
-                "tracer.wind.descriptors",
-                descriptor_generation,
-                DescriptorUpdate::All(&tracer_resources),
-            )?;
-        self.frame_retirement_sink.retire(descriptor_retirement);
-        self.frame_retirement_sink.retire(
-            self.pipeline_topology
-                .compute()
-                .vegetation_response_ppl
-                .publish_descriptors(
-                    "tracer.vegetation_response.wind",
-                    descriptor_generation,
-                    DescriptorUpdate::SetContaining {
-                        anchor: "gui_input",
-                        providers: &tracer_resources,
-                    },
-                )?,
-        );
-        Ok(())
-    }
-
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
@@ -3008,14 +2932,13 @@ impl Tracer {
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
 
-        self.ensure_wind_source_buffer_capacity(wind.sources.sources.len())?;
+        BufferUpdater::update_wind_inputs(&self.resources, &wind)?;
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             lighting_frame,
             &terrain,
             &materials,
             &vegetation,
-            &wind,
             &environment,
         )?;
 
@@ -6068,6 +5991,10 @@ impl Tracer {
         self.camera.front()
     }
 
+    pub fn camera_view_projection(&self) -> Mat4 {
+        self.camera.get_proj_mat() * self.camera.get_view_mat()
+    }
+
     pub fn camera_ray_from_screen_position(
         &self,
         screen_pos_physical: Vec2,
@@ -6639,6 +6566,10 @@ impl Tracer {
         }
 
         Ok(())
+    }
+
+    pub fn invalidate_vegetation_response_history(&mut self) {
+        self.vegetation_response.invalidate_history();
     }
 
     pub fn remove_tree_leaves(

@@ -348,7 +348,14 @@ impl App {
         result
     }
 
-    pub(super) fn reconcile_loaded_terrain_publication(&mut self) -> anyhow::Result<()> {
+    pub(super) fn discard_terrain_edits_after_snapshot_restore(&mut self) {
+        // Restoration is not a new edit. In particular, a tree can intentionally contain
+        // disconnected voxel branches; loading must not silently turn saved wood into debris.
+        self.terrain_connectivity.pending = None;
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn reconcile_entire_terrain_for_diagnostics(&mut self) -> anyhow::Result<()> {
         let world_dim = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
         self.terrain_connectivity
             .request_loaded_world_reconciliation();

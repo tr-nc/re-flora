@@ -1435,8 +1435,8 @@ Options:
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
   --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
-  --terrain-load <path>      Load a terrain-only voxel snapshot during startup
-  --terrain-save <path>      Save a terrain-only voxel snapshot once startup is ready
+  --terrain-load <path>      Load terrain and vegetation during startup
+  --terrain-save <path>      Save terrain and vegetation once startup is ready
   --denoiser-bench <preset> <report.toml>
                               Capture a frame sequence and write temporal metrics
   --denoiser-bench-warmup-frames <N>

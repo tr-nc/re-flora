@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
-pub const TERRAIN_FORMAT_VERSION: u32 = 1;
+pub const TERRAIN_FORMAT_VERSION: u32 = 2;
 // Schema 1 stores a one-byte voxel whose low nibble is the material identifier. Assigning a
 // previously unused nibble value (such as emissive type 8) is layout-compatible and round-trips
 // through old schema-1 files without rewriting their existing 0..7 meanings.
@@ -19,6 +19,7 @@ const RECORD_HEADER_LEN: usize = 40;
 const MAX_CHUNK_COUNT: u64 = 4096;
 const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_GARDEN_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerrainSnapshotMetadata {
@@ -107,6 +108,7 @@ pub struct TerrainSnapshotWriter {
     seen: Vec<bool>,
     written_chunks: u64,
     payload_bytes: u64,
+    garden: Vec<u8>,
 }
 
 impl TerrainSnapshotWriter {
@@ -131,6 +133,7 @@ impl TerrainSnapshotWriter {
             seen: vec![false; chunk_count],
             written_chunks: 0,
             payload_bytes: 0,
+            garden: Vec::new(),
         };
         writer.write_header()?;
         Ok(writer)
@@ -182,6 +185,16 @@ impl TerrainSnapshotWriter {
         Ok(())
     }
 
+    /// Part of the same atomic transaction as the voxel atlas, never a sidecar.
+    pub fn set_garden_data(&mut self, bytes: Vec<u8>) -> Result<()> {
+        anyhow::ensure!(
+            bytes.len() as u64 <= MAX_GARDEN_BYTES,
+            "garden data is too large"
+        );
+        self.garden = bytes;
+        Ok(())
+    }
+
     pub fn finish(mut self) -> Result<TerrainSnapshotSummary> {
         anyhow::ensure!(
             self.written_chunks == self.metadata.chunk_count()?,
@@ -193,6 +206,16 @@ impl TerrainSnapshotWriter {
             self.seen.iter().all(|seen| *seen),
             "snapshot has missing terrain chunks"
         );
+
+        anyhow::ensure!(
+            self.file.as_file_mut().stream_position()? + 12 + self.garden.len() as u64
+                <= MAX_TOTAL_FILE_BYTES,
+            "combined garden snapshot is too large"
+        );
+        self.file
+            .write_all(&(self.garden.len() as u64).to_le_bytes())?;
+        self.file.write_all(&checksum(&self.garden).to_le_bytes())?;
+        self.file.write_all(&self.garden)?;
 
         self.file
             .as_file_mut()
@@ -254,6 +277,7 @@ pub struct TerrainSnapshotReader {
     payload_bytes: u64,
     file_len: u64,
     finished: bool,
+    garden: Vec<u8>,
 }
 
 impl TerrainSnapshotReader {
@@ -287,11 +311,24 @@ impl TerrainSnapshotReader {
             )
             .context("snapshot file length overflow")?;
         anyhow::ensure!(
-            file_len == expected_file_len,
-            "terrain snapshot length {} does not match expected {}",
-            file_len,
-            expected_file_len
+            file_len >= expected_file_len + 12 && file_len <= MAX_TOTAL_FILE_BYTES,
+            "terrain snapshot length is invalid or truncated"
         );
+        file.seek(SeekFrom::Start(expected_file_len))?;
+        let mut garden_header = [0u8; 12];
+        file.read_exact(&mut garden_header)?;
+        let garden_len = read_u64(&garden_header, 0);
+        anyhow::ensure!(
+            garden_len <= MAX_GARDEN_BYTES && file_len == expected_file_len + 12 + garden_len,
+            "garden data length is invalid"
+        );
+        let mut garden = vec![0; garden_len as usize];
+        file.read_exact(&mut garden)?;
+        anyhow::ensure!(
+            checksum(&garden) == read_u32(&garden_header, 8),
+            "garden data checksum failed"
+        );
+        file.seek(SeekFrom::Start(HEADER_LEN as u64))?;
 
         Ok(Self {
             file,
@@ -302,6 +339,7 @@ impl TerrainSnapshotReader {
             payload_bytes: 0,
             file_len,
             finished: false,
+            garden,
         })
     }
 
@@ -320,8 +358,32 @@ impl TerrainSnapshotReader {
         reader.summary()
     }
 
+    /// Hold the exact validated file open across publication. Reopening by pathname could
+    /// otherwise switch to a concurrently replaced snapshot after preflight validation.
+    pub fn open_validated(
+        path: impl AsRef<Path>,
+        expected: TerrainSnapshotMetadata,
+    ) -> Result<Self> {
+        let mut reader = Self::open(path)?;
+        anyhow::ensure!(
+            reader.metadata == expected,
+            "terrain snapshot metadata differs from the current world"
+        );
+        reader.drain()?;
+        reader.file.seek(SeekFrom::Start(HEADER_LEN as u64))?;
+        reader.seen.fill(false);
+        reader.read_chunks = 0;
+        reader.payload_bytes = 0;
+        reader.finished = false;
+        Ok(reader)
+    }
+
     pub fn metadata(&self) -> TerrainSnapshotMetadata {
         self.metadata
+    }
+
+    pub fn garden_data(&self) -> &[u8] {
+        &self.garden
     }
 
     pub fn read_next_chunk(&mut self) -> Result<Option<TerrainSnapshotChunk>> {
@@ -413,6 +475,11 @@ impl TerrainSnapshotReader {
     }
 
     fn ensure_end(&mut self) -> Result<()> {
+        anyhow::ensure!(
+            self.file.stream_position()? + 12 + self.garden.len() as u64 == self.file_len,
+            "terrain and garden section boundary differs"
+        );
+        self.file.seek(SeekFrom::End(0))?;
         let mut trailing = [0u8; 1];
         let count = self
             .file
@@ -749,5 +816,57 @@ mod tests {
         let path = dir.path().join("new-save/terrain.rflterrain");
         write_snapshot(&path, &[0, 1, 2, 3]).unwrap();
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn garden_section_roundtrips_and_corruption_is_rejected_before_terrain_upload() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("garden.rflterrain");
+        let mut writer = TerrainSnapshotWriter::create(&path, metadata()).unwrap();
+        writer
+            .set_garden_data(b"vegetation state".to_vec())
+            .unwrap();
+        for chunk in chunks() {
+            writer.write_chunk(chunk.coordinate, &chunk.bytes).unwrap();
+        }
+        writer.finish().unwrap();
+        let mut reader = TerrainSnapshotReader::open(&path).unwrap();
+        assert_eq!(reader.garden_data(), b"vegetation state");
+        reader.finish().unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, &bytes).unwrap();
+        assert!(TerrainSnapshotReader::open(&path).is_err());
+    }
+
+    #[test]
+    fn old_terrain_only_version_is_explicitly_rejected() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("old.rflterrain");
+        write_snapshot(&path, &[0, 1, 2, 3]).unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        put_u32(&mut bytes, 8, 1);
+        let crc = checksum(&bytes[..60]);
+        put_u32(&mut bytes, 60, crc);
+        fs::write(&path, &bytes).unwrap();
+        assert!(TerrainSnapshotReader::open(&path).is_err());
+    }
+
+    #[test]
+    fn validated_reader_retains_the_same_snapshot_after_path_replacement() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("garden.rflterrain");
+        write_snapshot(&path, &[0, 1, 2, 3]).unwrap();
+        let mut reader = TerrainSnapshotReader::open_validated(&path, metadata()).unwrap();
+        let mut replacement = TerrainSnapshotWriter::create(&path, metadata()).unwrap();
+        for chunk in chunks() {
+            replacement.write_chunk(chunk.coordinate, &[99; 8]).unwrap();
+        }
+        replacement.finish().unwrap();
+        assert_eq!(
+            reader.read_next_chunk().unwrap().unwrap().bytes,
+            chunks()[0].bytes
+        );
+        reader.finish().unwrap();
     }
 }

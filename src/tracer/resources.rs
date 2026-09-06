@@ -888,8 +888,8 @@ impl ShadowResources {
 
 #[derive(ResourceContainer)]
 pub struct WindResources {
+    pub wind_field_info: Resource<Buffer>,
     pub wind_volume_info: Resource<Buffer>,
-    pub wind_sources: Resource<Buffer>,
     pub wind_volume_tex: Resource<Texture>,
 }
 
@@ -1239,6 +1239,13 @@ impl WindResources {
         flora_vert_sm: &ShaderModule,
         chunk_bound: UAabb3,
     ) -> Self {
+        let wind_field_info = Buffer::new_uniform::<crate::wind_field::WindFieldFrame>(
+            device.clone(),
+            allocator.clone(),
+        );
+        wind_field_info
+            .fill_uniform(&crate::wind_field::WindFieldFrame::default())
+            .unwrap();
         let wind_volume_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
@@ -1249,8 +1256,6 @@ impl WindResources {
             BufferUsage::empty(),
             MemoryLocation::CpuToGpu,
         );
-        let wind_sources =
-            TracerResources::create_wind_sources_buffer(device.clone(), allocator.clone(), 1);
         let chunk_extent = chunk_bound.get_extent();
         wind_volume_info
             .fill_uniform(&WindVolumeInfoGpu {
@@ -1264,8 +1269,8 @@ impl WindResources {
             .unwrap();
 
         Self {
+            wind_field_info: Resource::new(wind_field_info),
             wind_volume_info: Resource::new(wind_volume_info),
-            wind_sources: Resource::new(wind_sources),
             wind_volume_tex: Resource::new(TracerResources::create_wind_volume_tex(
                 device,
                 allocator,
@@ -1949,22 +1954,6 @@ impl TracerResources {
             ..Default::default()
         };
         Texture::new(device, allocator, &tex_desc, &sam_desc)
-    }
-
-    pub fn create_wind_sources_buffer(
-        device: Device,
-        allocator: Allocator,
-        capacity: usize,
-    ) -> Buffer {
-        let byte_count =
-            (capacity.max(1) * std::mem::size_of::<crate::tracer::WindSourceGpu>()) as u64;
-        Buffer::new_sized(
-            device,
-            allocator,
-            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-            MemoryLocation::CpuToGpu,
-            byte_count,
-        )
     }
 
     fn create_wind_volume_tex(

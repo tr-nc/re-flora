@@ -8,7 +8,7 @@ use crate::generated::gpu_structs::{
 };
 use crate::tracer::{
     EnvironmentFrameInput, MaterialFrameInput, TerrainEditPreviewShape, TerrainFrameInput,
-    TracerResources, VegetationFrameInput, WindFrameInput, WindSourceGpu,
+    TracerResources, VegetationFrameInput, WindFrameInput,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -247,30 +247,21 @@ impl BufferUpdater {
             })
     }
 
+    pub fn update_wind_inputs(resources: &TracerResources, wind: &WindFrameInput) -> Result<()> {
+        resources.wind.wind_field_info.fill_uniform(&wind.field)
+    }
+
     pub fn update_gui_input(
         resources: &TracerResources,
         lighting_frame: &ResolvedLightingFrameInputs,
         terrain: &TerrainFrameInput,
         materials: &MaterialFrameInput,
         vegetation: &VegetationFrameInput,
-        wind: &WindFrameInput,
         environment: &EnvironmentFrameInput,
     ) -> Result<()> {
         let appearance = vegetation.appearance;
         let motion = vegetation.motion;
         let leaf_lighting = vegetation.leaf_lighting;
-        let wind_source_count = wind.sources.sources.len() as u32;
-        let mut wind_sources = wind
-            .sources
-            .sources
-            .iter()
-            .copied()
-            .map(WindSourceGpu::from)
-            .collect::<Vec<_>>();
-        if wind_sources.is_empty() {
-            wind_sources.push(WindSourceGpu::zeroed());
-        }
-        resources.wind.wind_sources.fill(&wind_sources)?;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
@@ -298,9 +289,6 @@ impl BufferUpdater {
             glass_glint_strength: materials.glass.glint_strength,
             lens_flare_intensity: environment.lens_flare_intensity,
             lens_flare_sun_pixel_scale: environment.lens_flare_sun_pixel_scale,
-            wind_source_count,
-            wind_directional_bias_fraction: wind.directional_bias_fraction,
-            wind_turbulence_fraction: wind.turbulence_fraction,
             world_tick_seconds: motion.world_tick_seconds,
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
