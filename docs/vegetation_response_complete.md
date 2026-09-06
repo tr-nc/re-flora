@@ -1,5 +1,7 @@
 # 完整附着植被惯性响应 C
 
+**当前界面：** 首个 Debug 区域已分成 Growth & Fruiting、Vegetation Wind Response、Visibility & Detail、Lighting Diagnostics、World Timing 五组。风响应滑杆位于第二组；Reset Inertia 和 Original C Rhythm 按钮及对应操作已移除。下面提到的这两个按钮仅是旧版验证记录，不再是当前操作方式。参数值、范围和保存方式未因分类而改变。
+
 **后续更新：** 用户要求树叶逐片运动后，叶片状态已从共享 map 改为逐个可见叶体素所有；移除了相对叶簇中心的径向风权重。最新设计、验证和开销见 [逐叶风响应](individual_leaf_wind_response.md)。本文下面保留上一轮共享叶片 map 的设计和九次性能数据，不能将其当作逐叶版本的性能或观感验收。
 
 2026-09-06，完整附着植被惯性响应 C。代码、GPU 回放和同条件性能验证完成；用户已运行游戏确认观感无问题，并要求将风响应及其保存的 GUI 参数一起提交推送。

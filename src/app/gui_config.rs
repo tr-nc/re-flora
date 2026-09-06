@@ -15,6 +15,7 @@ use crate::tree_gen::TreeDesc;
 use crate::wind::WindSource;
 use egui::Color32;
 use std::path::Path;
+mod debug_groups;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -1104,6 +1105,10 @@ pub fn render_gui_from_config(
 ) {
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
+            if section.name == "Debug" {
+                debug_groups::render(ui, section, adjustables);
+                return;
+            }
             if section.name == "Wind" {
                 for param in &section.param {
                     if !is_custom_wind_param(&param.id) {
@@ -1125,23 +1130,6 @@ pub fn render_gui_from_config(
 
             for param in &section.param {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
-            }
-            if section.name == "Debug" {
-                ui.label("Inertia controls affect C only; poses remain deliberately discrete.");
-                ui.horizontal(|ui| {
-                    if ui.button("Reset Inertia").clicked() {
-                        adjustables.vegetation_response_speed.value = 1.5;
-                        adjustables.vegetation_response_damping.value = 1.;
-                        adjustables.vegetation_response_gain.value = 1.;
-                        adjustables.vegetation_response_pose_hz.value = 5.;
-                    }
-                    if ui.button("Original C Rhythm").clicked() {
-                        adjustables.vegetation_response_speed.value = 1.;
-                        adjustables.vegetation_response_damping.value = 1.;
-                        adjustables.vegetation_response_gain.value = 1.;
-                        adjustables.vegetation_response_pose_hz.value = 5.;
-                    }
-                });
             }
         });
         after_section(&section.name, ui);
