@@ -414,6 +414,7 @@ pub struct App {
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
     wind_prototype: wind_prototype::WindPrototype,
+    cottage_base_y: Option<f32>,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1398,6 +1399,7 @@ impl App {
         .transpose()?;
 
         let mut app = Self {
+            cottage_base_y: None,
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,

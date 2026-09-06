@@ -97,8 +97,8 @@ pub struct EditRemovalSample {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EditStats {
-    pub removed_counts: [u32; 9],
-    pub added_counts: [u32; 9],
+    pub removed_counts: [u32; 12],
+    pub added_counts: [u32; 12],
 }
 
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).

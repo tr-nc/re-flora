@@ -1,6 +1,6 @@
 module chunk_writer_types;
 
-public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 9u;
+public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 12u;
 public static const uint EDIT_REMOVAL_SAMPLE_COUNT = 50u;
 
 public struct B_EditStats
