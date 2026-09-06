@@ -49,3 +49,30 @@ yaw_deg = -58.670998
 pitch_deg = -16.57752
 fov_deg = 55.0
 fly_mode = false
+
+[[snapshots]]
+name = "cozy-home-arrival"
+description = "Walk up to the white stone cottage; WASD enters the open arch"
+position = [0.6875, 0.53, 1.65]
+yaw_deg = 0.0
+pitch_deg = 0.0
+fov_deg = 65.0
+fly_mode = false
+
+[[snapshots]]
+name = "cozy-home-exterior"
+description = "White stone, climbing flowers, twin glass windows and living roof"
+position = [0.98, 0.93, 2.0]
+yaw_deg = -25.4
+pitch_deg = -22.5
+fov_deg = 55.0
+fly_mode = true
+
+[[snapshots]]
+name = "cozy-home-interior"
+description = "Warm lanterns, oak furniture and thick walls inside the cottage"
+position = [0.815, 0.555, 1.29]
+yaw_deg = -23.0
+pitch_deg = -2.0
+fov_deg = 76.0
+fly_mode = true

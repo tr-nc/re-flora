@@ -410,6 +410,8 @@ impl App {
                 );
             }
             launch_owners::LoadingDirective::House => {
+                self.finish_house_garden()
+                    .unwrap_or_else(|err| panic!("[HOUSE_SCENE] garden setup failed: {err:#}"));
                 log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
             }
             launch_owners::LoadingDirective::Garden => {

@@ -415,6 +415,7 @@ pub struct App {
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
     wind_prototype: wind_prototype::WindPrototype,
+    cottage_base_y: Option<f32>,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1402,6 +1403,7 @@ impl App {
         .transpose()?;
 
         let mut app = Self {
+            cottage_base_y: None,
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -2562,10 +2564,12 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture = self
+                let hide_ui_for_environment_test_capture = (self
                     .launch_owners
                     .test_scene_frame_plan()
                     .owns_capture_scene()
+                    || self.launch_owners.loading_directive()
+                        == launch_owners::LoadingDirective::House)
                     && (self.launch_owners.screenshot().is_scheduled()
                         || !matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive));
                 let hide_ui_for_frame_stability_bench =

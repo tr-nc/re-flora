@@ -794,7 +794,9 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
     let hybrid_transparency_test_scene = args
         .iter()
         .any(|arg| arg == "--hybrid-transparency-test-scene");
-    let house_scene = args.iter().any(|arg| arg == "--house-scene");
+    let house_scene = args
+        .iter()
+        .any(|arg| arg == "--house-scene" || arg == "--cozy-home");
     let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
     let foliage_shadow_bench_requested = foliage_shadow_bench.is_some();
     let canopy_audio_budget_diagnostic = args
@@ -980,6 +982,9 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         }
     };
 
+    if house_scene && camera_snapshot.is_none() {
+        camera_snapshot = Some("cozy-home-arrival".to_owned());
+    }
     let camera = match (screenshot_options, denoiser_bench, camera_snapshot) {
         (Some(capture), None, Some(snapshot)) => CameraAutomation::Screenshot { snapshot, capture },
         (Some(capture), None, None) if fixed_scene_screenshot => {
@@ -1500,7 +1505,8 @@ Options:
   --glass-coverage <percent> Select fixed target screen coverage: 0, 10, 25, or 50 (default: 50)
   --glass-debug-view <view>  Experimental view: final, glass-front, opaque-provenance, screen-validity
                               Use screenshot preset 'glass-test-scene' to retain its fixed camera
-  --house-scene               Build the terrain-integrated Hobbit hill house
+  --cozy-home                 Visit the stone cottage garden (separate, unsaved world)
+  --house-scene               Alias for --cozy-home
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
@@ -2239,6 +2245,40 @@ mod tests {
                 "unexpected error: {error}",
             );
         }
+    }
+
+    #[test]
+    fn cozy_home_is_a_player_visit_with_an_arrival_camera_and_no_save_authority() {
+        let visit = parse(&["re-flora", "--cozy-home"]);
+        assert_eq!(visit.scenario, Scenario::House);
+        assert_eq!(
+            visit.automation.camera.snapshot_name(),
+            Some("cozy-home-arrival")
+        );
+        let explicit = parse(&[
+            "re-flora",
+            "--cozy-home",
+            "--camera-snapshot",
+            "cozy-home-interior",
+        ]);
+        assert_eq!(
+            explicit.automation.camera.snapshot_name(),
+            Some("cozy-home-interior")
+        );
+        assert!(try_parse_owned(vec![
+            "re-flora".into(),
+            "--cozy-home".into(),
+            "--terrain-save".into(),
+            "target/must-not-write.rflterrain".into()
+        ])
+        .is_err());
+        assert!(try_parse_owned(vec![
+            "re-flora".into(),
+            "--cozy-home".into(),
+            "--terrain-load".into(),
+            "target/must-not-read.rflterrain".into()
+        ])
+        .is_err());
     }
 
     #[test]
