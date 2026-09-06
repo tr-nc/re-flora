@@ -6,15 +6,29 @@ use crate::{
     resource::Resource,
 };
 use re_flora_vkn::{
-    execute_one_time_command, BufferUse, DescriptorPool, DescriptorUpdate, ShaderModule,
-    VulkanContext,
+    execute_one_time_command, BufferUse, DescriptorPool, DescriptorUpdate, ResourceContainer,
+    ResourceLookup, ShaderModule, VulkanContext,
 };
-use resource_container_derive::ResourceContainer;
 
-#[derive(ResourceContainer)]
 struct WindInputs {
-    gui_input: Resource<Buffer>,
+    replay_parameters: Resource<Buffer>,
     wind_sources: Resource<Buffer>,
+}
+
+impl ResourceContainer for WindInputs {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
+        // Reuse the production shader interface, but bind only independently
+        // allocated replay buffers, never the game's live GUI uniform.
+        match name {
+            "gui_input" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.replay_parameters))
+            }
+            "wind_sources" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.wind_sources))
+            }
+            _ => ResourceLookup::Missing,
+        }
+    }
 }
 
 struct Harness<'a> {
@@ -43,7 +57,7 @@ impl<'a> Harness<'a> {
         .map_err(anyhow::Error::msg)?;
         let pool = DescriptorPool::new(device)?;
         let wind = WindInputs {
-            gui_input: Resource::new(Buffer::new_uniform::<GuiInput>(
+            replay_parameters: Resource::new(Buffer::new_uniform::<GuiInput>(
                 device.clone(),
                 allocator.clone(),
             )),
@@ -161,7 +175,7 @@ pub(in crate::tracer) fn validate_gpu(
     let mut gui = GuiInput::zeroed();
     gui.wind_source_count = 1;
     gui.wind_directional_bias_fraction = 1.;
-    harness.wind.gui_input.fill_uniform(&gui)?;
+    harness.wind.replay_parameters.fill_uniform(&gui)?;
     let mut source = WindSources {
         params: [0., 0., 1., 0.],
         noise: [1., 1., 2., 0.5],
@@ -353,7 +367,7 @@ pub(in crate::tracer) fn validate_gpu(
 
     // Compare a 16-voxel production grid against exact midpoint root responses
     // under the *current* wind source settings, over the actual 512-voxel world.
-    harness.wind.gui_input.fill_uniform(&live_gui)?;
+    harness.wind.replay_parameters.fill_uniform(&live_gui)?;
     harness
         .wind
         .wind_sources

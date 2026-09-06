@@ -453,6 +453,24 @@ impl Tracer {
                 sources["src/app/sibling.rs"] = f"fn bypass(resources: &Resources) {{ {mutation} }}"
                 self.assertNotEqual(checker.audit(sources), [])
 
+    def test_private_replay_buffer_may_receive_a_copy_of_live_gui_values(self) -> None:
+        writes = (
+            "replay.fill_uniform(&snapshot);",
+            "let result = replay.fill_uniform(&snapshot);",
+            "Buffer::fill_uniform(&replay, &snapshot);",
+            "let result = Buffer::fill_uniform(&replay, &snapshot);",
+        )
+        for write in writes:
+            with self.subTest(write=write):
+                sources = baseline_sources()
+                sources["src/diagnostics/replay.rs"] = """
+fn replay(resources: &Resources) {
+    let bytes = resources.uniforms.gui_input.read_back()?;
+    let snapshot = bytemuck::pod_read_unaligned::<GuiInput>(&bytes);
+    let replay = Buffer::new_uniform::<GuiInput>(device, allocator);
+""" + write + "\n}"
+                self.assertEqual(checker.audit(sources), [])
+
     def test_owner_resolved_fields_reject_every_pub_visibility_form(self) -> None:
         for field in ("time_of_day", "raster_lighting_mode"):
             for visibility in ("pub ", "pub(crate) ", "pub(super) ", "pub\n(crate)\n"):

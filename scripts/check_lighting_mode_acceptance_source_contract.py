@@ -431,6 +431,24 @@ def _gui_input_aliases(tokens: list[str]) -> set[str]:
     return aliases
 
 
+def _method_receiver(tokens: list[str], dot: int) -> list[str]:
+    """Keep the call receiver, excluding assignment targets and other arguments."""
+    start = dot - 1
+    stack: list[str] = []
+    pairs = {")": "(", "]": "["}
+    while start >= 0:
+        token = tokens[start]
+        if token in pairs:
+            stack.append(pairs[token])
+        elif stack:
+            if token == stack[-1]:
+                stack.pop()
+        elif token in ("=", ";", "{", "}", ",", "(", "[", "return", "let"):
+            break
+        start -= 1
+    return tokens[start + 1 : dot]
+
+
 def _gui_input_write_indices(tokens: list[str]) -> list[int]:
     aliases = _gui_input_aliases(tokens)
     writes: list[int] = []
@@ -438,10 +456,19 @@ def _gui_input_write_indices(tokens: list[str]) -> list[int]:
         if token != "fill_uniform":
             continue
         start, end = _statement_bounds(tokens, index)
-        statement = tokens[start:end]
         is_method = index > 0 and tokens[index - 1] == "."
         is_ufcs = index > 1 and tokens[index - 2 : index] == [":", ":"]
-        if (is_method or is_ufcs) and any(alias in statement for alias in aliases):
+        receiver = tokens[start:end]  # Conservative fallback for unparsed UFCS syntax.
+        if is_method:
+            receiver = _method_receiver(tokens, index - 1)
+        elif is_ufcs and tokens[index + 1 : index + 2] == ["("]:
+            closing = _closing(tokens, index + 1, "(", ")")
+            if closing is not None:
+                arguments = _split_top_level(tokens[index + 2 : closing], ",")
+                receiver = list(arguments[0]) if arguments else []
+        # A copied GUI payload is not the destination buffer. Count only writes
+        # through the GUI buffer receiver (including its aliases).
+        if (is_method or is_ufcs) and any(alias in receiver for alias in aliases):
             writes.append(index)
     return writes
 
