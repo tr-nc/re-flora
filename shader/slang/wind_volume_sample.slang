@@ -70,13 +70,14 @@ float sampleWindSourceFbm(float2 samplePosition, float2 timeOffset,
 
 public float3 sampleProceduralWind(float3 worldPosition, float time)
 {
+    float2 gusts = sampleWindGusts(worldPosition.xz * WIND_SAMPLE_SCALE);
     if (authoredWindEnabled()) {
-        float2 wind = sampleAuthoredWind(worldPosition.xz * WIND_SAMPLE_SCALE);
+        float2 wind = sampleAuthoredWind(worldPosition.xz * WIND_SAMPLE_SCALE) + gusts;
         return float3(wind.x, 0.0, wind.y);
     }
     float2 samplePosition = worldPosition.xz * WIND_SAMPLE_SCALE;
     float scrollTime = time * WIND_TIME_SCALE;
-    float2 planarWind = float2(0.0);
+    float2 planarWind = gusts;
 
     for (uint sourceIndex = 0u;
          sourceIndex < gui_input.wind_source_count;

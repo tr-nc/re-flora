@@ -16,6 +16,70 @@ pub struct WindFieldFrame {
     pub gust_shapes: [[f32; 4]; MAX_GUSTS], // half length, half width, duration, reserved
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_gusts_work_in_every_background_mode() {
+        for mode in 0..=3 {
+            let mut field = WindField {
+                mode,
+                ..WindField::default()
+            };
+            field.advance(0.);
+            assert!(field.release(Vec2::ZERO, Vec2::X, false));
+            field.advance(0.5);
+            assert_eq!(field.frame().detail[3], 1.);
+        }
+    }
+
+    #[test]
+    fn background_mode_filters_automatic_but_not_manual_events() {
+        let mut field = WindField::default();
+        field.advance(0.);
+        field.release(Vec2::ZERO, Vec2::X, false);
+        field.advance(2.1);
+        assert_eq!(field.frame().detail[3], 2.);
+        field.mode = 0;
+        assert_eq!(field.frame().detail[3], 1.);
+        assert!(field.visible_gusts().all(|gust| !gust.automatic));
+        field.advance(10.);
+        assert!(field.gusts.is_empty());
+    }
+
+    #[test]
+    fn manual_and_automatic_settings_are_independent_snapshots() {
+        let mut field = WindField::default();
+        field.manual_gust.strength = 1.;
+        field.automatic_gust.strength = 5.;
+        field.advance(0.);
+        field.release(Vec2::ZERO, Vec2::X, false);
+        field.advance(2.1);
+        field.manual_gust.strength = 2.;
+        assert_eq!(
+            field
+                .gusts
+                .iter()
+                .find(|gust| !gust.automatic)
+                .unwrap()
+                .strength,
+            1.
+        );
+        assert_eq!(
+            field
+                .gusts
+                .iter()
+                .find(|gust| gust.automatic)
+                .unwrap()
+                .strength,
+            5.
+        );
+        field.release(Vec2::ZERO, Vec2::X, false);
+        assert_eq!(field.gusts.last().unwrap().strength, 2.);
+    }
+}
+
 impl Default for WindFieldFrame {
     fn default() -> Self {
         Self::zeroed()
@@ -32,6 +96,26 @@ pub struct Gust {
     pub duration: f32,
     pub radial: bool,
     pub start: f32,
+    pub automatic: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct GustSettings {
+    pub strength: f32,
+    pub speed: f32,
+    pub radius: f32,
+    pub duration: f32,
+}
+
+impl Default for GustSettings {
+    fn default() -> Self {
+        Self {
+            strength: 3.,
+            speed: 70.,
+            radius: 30.,
+            duration: 3.,
+        }
+    }
 }
 
 impl Gust {
@@ -59,12 +143,9 @@ pub struct WindField {
     pub detail_strength: f32,
     pub detail_scale: f32,
     pub evolution_rate: f32,
-    pub auto_gusts: bool,
     pub gust_interval: f32,
-    pub gust_strength: f32,
-    pub gust_speed: f32,
-    pub gust_radius: f32,
-    pub gust_duration: f32,
+    pub manual_gust: GustSettings,
+    pub automatic_gust: GustSettings,
     pub gusts: Vec<Gust>,
     pub paused: bool,
     time: f32,
@@ -86,12 +167,9 @@ impl Default for WindField {
             detail_strength: 0.4,
             detail_scale: 60.,
             evolution_rate: 0.25,
-            auto_gusts: false,
             gust_interval: 5.,
-            gust_strength: 3.,
-            gust_speed: 70.,
-            gust_radius: 30.,
-            gust_duration: 3.,
+            manual_gust: GustSettings::default(),
+            automatic_gust: GustSettings::default(),
             gusts: Vec::new(),
             paused: false,
             time: 0.,
@@ -112,11 +190,18 @@ impl WindField {
     }
 
     pub fn release(&mut self, origin: Vec2, direction: Vec2, radial: bool) -> bool {
-        if !origin.is_finite()
-            || !direction.is_finite()
-            || self.mode < 2
-            || self.gusts.len() >= MAX_GUSTS
-        {
+        self.release_gust(origin, direction, radial, false, self.manual_gust)
+    }
+
+    fn release_gust(
+        &mut self,
+        origin: Vec2,
+        direction: Vec2,
+        radial: bool,
+        automatic: bool,
+        settings: GustSettings,
+    ) -> bool {
+        if !origin.is_finite() || !direction.is_finite() || self.gusts.len() >= MAX_GUSTS {
             return false;
         }
         let direction = direction.normalize_or_zero();
@@ -128,10 +213,11 @@ impl WindField {
             direction,
             radial,
             start: self.time,
-            strength: self.gust_strength,
-            speed: self.gust_speed,
-            radius: self.gust_radius,
-            duration: self.gust_duration,
+            automatic,
+            strength: settings.strength,
+            speed: settings.speed,
+            radius: settings.radius,
+            duration: settings.duration,
         });
         log::info!("[WIND_PROTOTYPE] release radial={radial} origin={origin:?} direction={direction:?} active={}", self.gusts.len());
         true
@@ -171,12 +257,18 @@ impl WindField {
         self.offset += (old_direction + self.direction()) * (0.5 * dt * self.propagation_speed);
         self.gusts
             .retain(|gust| self.time - gust.start < gust.duration);
-        if self.auto_gusts && self.mode >= 2 && self.time >= self.next_auto {
+        if self.mode >= 2 && self.time >= self.next_auto {
             self.next_auto = self.time + self.gust_interval;
             // Fixed sequence: replay is deterministic; no global random generator.
             let cross = Vec2::new(-self.direction().y, self.direction().x);
             let center = Vec2::splat(1.) + cross * (self.time * 1.618).sin() * 0.3;
-            self.release(center - self.direction() * 0.45, self.direction(), false);
+            self.release_gust(
+                center - self.direction() * 0.45,
+                self.direction(),
+                false,
+                true,
+                self.automatic_gust,
+            );
         }
     }
 
@@ -208,7 +300,7 @@ impl WindField {
             ],
             ..WindFieldFrame::default()
         };
-        for (i, gust) in self.gusts.iter().take(MAX_GUSTS).enumerate() {
+        for (i, gust) in self.visible_gusts().take(MAX_GUSTS).enumerate() {
             frame.gust_origins[i] = [
                 gust.origin.x * 256.,
                 gust.origin.y * 256.,
@@ -226,5 +318,11 @@ impl WindField {
             frame.detail[3] += 1.;
         }
         frame
+    }
+
+    pub fn visible_gusts(&self) -> impl Iterator<Item = &Gust> {
+        self.gusts
+            .iter()
+            .filter(|gust| !gust.automatic || self.mode >= 2)
     }
 }

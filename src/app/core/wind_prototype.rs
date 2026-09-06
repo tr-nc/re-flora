@@ -1,7 +1,7 @@
 //! PROTOTYPE adapter: pointer input and overlays only. Finite wind events and
 //! evolution belong to wind_field; deleting this demo must not rewrite that model.
-use super::App;
-use crate::wind_field::{Gust, WindField, MAX_GUSTS};
+use super::{player_tools::PlayerTool, App};
+use crate::wind_field::{Gust, GustSettings, WindField, MAX_GUSTS};
 use egui::{Color32, Pos2, Stroke};
 use glam::{Mat4, Vec2, Vec3};
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -13,11 +13,16 @@ struct Drag {
     endpoint: Vec3,
 }
 
+fn draw_gust_controls(ui: &mut egui::Ui, settings: &mut GustSettings) {
+    ui.add(egui::Slider::new(&mut settings.strength, 0. ..=8.).text("Gust strength"));
+    ui.add(egui::Slider::new(&mut settings.radius, 8. ..=100.).text("Gust size (voxels)"));
+    ui.add(egui::Slider::new(&mut settings.duration, 0.5..=8.).text("Gust lifetime (s)"));
+    ui.add(egui::Slider::new(&mut settings.speed, 10. ..=180.).text("Gust travel speed"));
+}
+
 pub(super) struct WindPrototype {
     pub field: WindField,
-    pub tool_active: bool,
     radial: bool,
-    show_settings: bool,
     drag: Option<Drag>,
     status: String,
     scripted: bool,
@@ -29,9 +34,7 @@ impl WindPrototype {
     pub fn from_environment() -> Option<Self> {
         std::env::var_os("RE_FLORA_WIND_PROTOTYPE").map(|_| Self {
             field: WindField::default(),
-            tool_active: true,
             radial: false,
-            show_settings: true,
             drag: None,
             status: "Drag on terrain, release to send a gust.".into(),
             scripted: std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some(),
@@ -54,82 +57,137 @@ impl WindPrototype {
             self.field.release(Vec2::new(1., 1.), Vec2::ZERO, true);
         }
         if self.scripted && !self.script_completed && self.field.time() > 4. {
-            assert!(self.field.gusts.is_empty(), "expired gusts leaked");
+            assert!(
+                self.field.gusts.iter().all(|gust| gust.automatic),
+                "expired manual gusts leaked"
+            );
             self.script_completed = true;
             log::info!("[WIND_PROTOTYPE] smoke=passed directional_and_radial_expired=true");
         }
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context, matrix: Mat4, extent: Vec2) {
-        egui::Area::new("wind_prototype_toolbar".into())
-            .anchor(egui::Align2::LEFT_BOTTOM, [18., -112.])
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.toggle_value(&mut self.tool_active, "WIND DEMO");
-                        ui.toggle_value(&mut self.show_settings, "Controls");
-                    });
-                    ui.label(if self.tool_active {
-                        "Left drag: gust | Right drag: camera"
-                    } else {
-                        "Normal terrain tools active"
-                    });
-                });
-            });
-        if !self.tool_active {
+    pub fn ui(&mut self, ctx: &egui::Context, matrix: Mat4, extent: Vec2, wind_selected: bool) {
+        if !wind_selected {
             self.cancel();
         }
-        if self.show_settings {
-            egui::Window::new("Wind field — PROTOTYPE")
-                .default_pos(Pos2::new(18., 70.)).default_width(290.)
-                .resizable(false).show(ctx, |ui| {
-                    ui.label("Temporary controls — never saved to GUI config");
-                    ui.horizontal_wrapped(|ui| {
-                        for (mode, name) in [(0, "A Original"), (1, "B Turning"), (2, "C Gusts"), (3, "D Local detail")] {
-                            ui.selectable_value(&mut self.field.mode, mode, name);
-                        }
-                    });
-                    if self.field.mode < 2 { self.cancel(); }
-                    if self.field.mode == 0 { ui.label("Original uses your saved wind sources; new controls apply in B/C/D."); }
-                    ui.add(egui::Slider::new(&mut self.field.heading_degrees, 0. ..=360.).text("Main direction"));
-                    ui.add(egui::Slider::new(&mut self.field.strength, 0. ..=5.).text("Mean wind strength"));
-                    ui.add(egui::Slider::new(&mut self.field.wander_degrees, 0. ..=90.).text("Direction wander"));
-                    ui.add(egui::Slider::new(&mut self.field.wander_period, 4. ..=60.).text("Wander period (s)"));
+        egui::Window::new("Background wind — PROTOTYPE")
+            .default_pos(Pos2::new(18., 70.))
+            .default_width(290.)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Temporary controls — never saved to GUI config");
+                ui.horizontal_wrapped(|ui| {
+                    for (mode, name) in [
+                        (0, "A Original"),
+                        (1, "B Turning"),
+                        (2, "C Auto gusts"),
+                        (3, "D Local detail"),
+                    ] {
+                        ui.selectable_value(&mut self.field.mode, mode, name);
+                    }
+                });
+                ui.small("Background only. The Wind item works in every mode.");
+                if self.field.mode == 0 {
+                    ui.label("Original uses your saved wind sources.");
+                }
+                ui.add_enabled_ui(self.field.mode > 0, |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut self.field.heading_degrees, 0. ..=360.)
+                            .text("Main direction"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.strength, 0. ..=5.)
+                            .text("Mean wind strength"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.wander_degrees, 0. ..=90.)
+                            .text("Direction wander"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.wander_period, 4. ..=60.)
+                            .text("Wander period (s)"),
+                    );
                     let direction = self.field.direction();
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(260., 45.), egui::Sense::hover());
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(260., 45.), egui::Sense::hover());
                     let center = rect.center();
-                    ui.painter().circle_stroke(center, 18., Stroke::new(1., Color32::GRAY));
-                    ui.painter().arrow(center, egui::vec2(direction.x, direction.y) * 22., Stroke::new(2., Color32::LIGHT_GREEN));
+                    ui.painter()
+                        .circle_stroke(center, 18., Stroke::new(1., Color32::GRAY));
+                    ui.painter().arrow(
+                        center,
+                        egui::vec2(direction.x, direction.y) * 22.,
+                        Stroke::new(2., Color32::LIGHT_GREEN),
+                    );
                     ui.label("Compass: +X right, +Z down (world plane)");
-                    ui.separator();
-                    ui.add_enabled_ui(self.field.mode >= 2, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut self.radial, false, "Directional drag");
-                            ui.selectable_value(&mut self.radial, true, "Radial click");
-                        });
-                        ui.add(egui::Slider::new(&mut self.field.gust_strength, 0. ..=8.).text("Gust strength"));
-                        ui.add(egui::Slider::new(&mut self.field.gust_radius, 8. ..=100.).text("Gust size (voxels)"));
-                        if !self.radial { ui.small("4:1 crosswind band; strongest at center, soft on both sides."); }
-                        ui.add(egui::Slider::new(&mut self.field.gust_duration, 0.5 ..=8.).text("Gust lifetime (s)"));
-                        ui.add(egui::Slider::new(&mut self.field.gust_speed, 10. ..=180.).text("Gust travel speed"));
-                        ui.checkbox(&mut self.field.auto_gusts, "Automatic gusts (fixed sequence)");
-                        ui.add(egui::Slider::new(&mut self.field.gust_interval, 1. ..=15.).text("Gust interval (s)"));
+                });
+                ui.separator();
+                ui.add_enabled_ui(self.field.mode >= 2, |ui| {
+                    ui.label("Automatic gusts — C / D only");
+                    ui.add(
+                        egui::Slider::new(&mut self.field.gust_interval, 1. ..=15.)
+                            .text("Gust interval (s)"),
+                    );
+                    ui.collapsing("Automatic gust shape / strength", |ui| {
+                        draw_gust_controls(ui, &mut self.field.automatic_gust);
                     });
-                    ui.collapsing("Local detail / transport", |ui| {
-                        ui.add(egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.).text("Pattern travel speed"));
-                        ui.add(egui::Slider::new(&mut self.field.detail_strength, 0. ..=2.).text("Local disturbance"));
-                        ui.add(egui::Slider::new(&mut self.field.detail_scale, 10. ..=180.).text("Pattern size (voxels)"));
-                        ui.add(egui::Slider::new(&mut self.field.evolution_rate, 0. ..=2.).text("Pattern evolution"));
-                    });
+                });
+                ui.collapsing("Local detail / transport", |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.)
+                            .text("Pattern travel speed"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.detail_strength, 0. ..=2.)
+                            .text("Local disturbance"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.detail_scale, 10. ..=180.)
+                            .text("Pattern size (voxels)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.evolution_rate, 0. ..=2.)
+                            .text("Pattern evolution"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.toggle_value(&mut self.field.paused, "Hold new wind");
+                    if ui.button("Clear gusts").clicked() {
+                        self.field.clear();
+                    }
+                    if ui.button("Restart wind").clicked() {
+                        self.field.restart();
+                    }
+                });
+                ui.label(format!(
+                    "Wind time {:.1}s | Active gusts {}/{}",
+                    self.field.time(),
+                    self.field.gusts.len(),
+                    MAX_GUSTS
+                ));
+                ui.small("Select Wind in the bottom toolbar (9) to release local wind.");
+                ui.small(
+                    "Wind input only; plant inertia continues. Audio / free particles unchanged.",
+                );
+            });
+        if wind_selected {
+            egui::Window::new("Wind item")
+                .anchor(egui::Align2::RIGHT_BOTTOM, [-18., -112.])
+                .resizable(false)
+                .default_width(290.)
+                .show(ctx, |ui| {
+                    ui.label("Manual local wind — works in A / B / C / D");
                     ui.horizontal(|ui| {
-                        ui.toggle_value(&mut self.field.paused, "Hold new wind");
-                        if ui.button("Clear gusts").clicked() { self.field.clear(); }
-                        if ui.button("Restart wind").clicked() { self.field.restart(); }
+                        ui.selectable_value(&mut self.radial, false, "Directional drag");
+                        ui.selectable_value(&mut self.radial, true, "Radial click");
                     });
-                    ui.label(format!("Wind time {:.1}s | Active gusts {}/{}", self.field.time(), self.field.gusts.len(), MAX_GUSTS));
+                    draw_gust_controls(ui, &mut self.field.manual_gust);
+                    if !self.radial {
+                        ui.small("4:1 crosswind band; soft edges, strongest at center.");
+                    }
+                    ui.small("These settings do not change automatic gusts.");
                     ui.label(&self.status);
-                    ui.small("Drag controls direction only. Esc cancels a drag.");
-                    ui.small("Wind input only; plant inertia continues. Audio / free particles unchanged.");
+                    ui.small("Left drag and release: wind. Right drag: camera.");
+                    ui.small("Esc cancels aiming. Choose another item to stop aiming.");
                 });
         }
         let project = |world: Vec3| -> Option<Pos2> {
@@ -178,7 +236,7 @@ impl WindPrototype {
                 draw_band(
                     drag.origin,
                     direction,
-                    Gust::band_half_extents(self.field.gust_radius),
+                    Gust::band_half_extents(self.field.manual_gust.radius),
                 );
             }
             if let (Some(start), Some(end)) = (project(drag.origin), project(drag.endpoint)) {
@@ -188,7 +246,7 @@ impl WindPrototype {
         }
         // These are event footprints on the horizontal plane, not sampled wind
         // vectors or terrain-following flow visualization.
-        for gust in &self.field.gusts {
+        for gust in self.field.visible_gusts() {
             let age = self.field.time() - gust.start;
             let center = if gust.radial {
                 gust.origin
@@ -251,7 +309,7 @@ impl App {
         ) {
             return false;
         }
-        if !prototype.tool_active {
+        if self.player_tools.selected_tool() != PlayerTool::Wind {
             return false;
         }
         if !self.is_orbit_edit_camera_mode()
@@ -303,10 +361,6 @@ impl App {
                 state,
                 ..
             } => {
-                if prototype.field.mode < 2 {
-                    prototype.status = "Choose C or D to release gusts.".into();
-                    return true;
-                }
                 if *state == ElementState::Pressed {
                     if let Some(origin) = target {
                         prototype.drag = Some(Drag {

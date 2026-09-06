@@ -457,12 +457,17 @@ pub(in crate::tracer) fn validate_gpu(
         // Production GPU solver, private replay inputs: test a traveling packet,
         // a radial front, and expiry without changing the user's live field.
         let mut field = crate::wind_field::WindField::default();
-        field.mode = 2;
+        field.mode = 1;
         field.strength = 0.;
+        field.detail_strength = 0.;
+        harness
+            .wind
+            .replay_parameters
+            .fill_uniform(&GuiInput::zeroed())?;
         field.advance(0.);
         field.release(glam::Vec2::splat(1.), glam::Vec2::X, false);
         field.advance(1.);
-        let front = 1. + field.gust_speed / 256.;
+        let front = 1. + field.manual_gust.speed / 256.;
         let probe = |x, z| ResponseInput {
             root: [x, 0., z, 0.],
             identity: [NO_PREVIOUS, 0, 0, 0],
@@ -505,6 +510,17 @@ pub(in crate::tracer) fn validate_gpu(
             "wind band lost its rectangular support or symmetric center-to-edge falloff"
         );
         log::info!("[WIND_PROTOTYPE][GPU] band_aspect=4:1 center_to_edge_falloff=passed symmetric_sides=passed rectangular_support=passed");
+        for mode in 0..=3 {
+            field.mode = mode;
+            harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+            let manual = harness.step(&probes, 0., 0.2, 0.025)?;
+            anyhow::ensure!(
+                (manual[0][0] - directional[0][0]).abs() < 1e-6,
+                "background mode {mode} changed or disabled manual wind"
+            );
+        }
+        log::info!("[WIND_PROTOTYPE][GPU] manual_wind_modes=A,B,C,D identical_force=passed");
+        field.mode = 1;
         field.clear();
         field.release(glam::Vec2::splat(1.), glam::Vec2::ZERO, true);
         field.advance(2.);

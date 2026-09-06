@@ -8,7 +8,7 @@ use super::ui_style::{
     HAND_SLOT_INDEX, HOE_SLOT_INDEX, PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, SHOVEL_SLOT_INDEX,
     SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX,
     SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX,
-    TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
+    TREE_SLOT_INDEX, WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,6 +22,7 @@ pub(super) enum PlayerTool {
     Watering,
     SoilInspector,
     Tiller,
+    Wind,
     Placeable,
 }
 
@@ -36,6 +37,7 @@ impl PlayerTool {
             WATERING_SLOT_INDEX => Some(Self::Watering),
             SOIL_INSPECTOR_SLOT_INDEX => Some(Self::SoilInspector),
             TILLER_SLOT_INDEX => Some(Self::Tiller),
+            WIND_SLOT_INDEX => Some(Self::Wind),
             TREE_SLOT_INDEX => Some(Self::Placeable),
             _ => None,
         }
@@ -51,12 +53,13 @@ impl PlayerTool {
             Self::Watering => WATERING_SLOT_INDEX,
             Self::SoilInspector => SOIL_INSPECTOR_SLOT_INDEX,
             Self::Tiller => TILLER_SLOT_INDEX,
+            Self::Wind => WIND_SLOT_INDEX,
             Self::Placeable => TREE_SLOT_INDEX,
         }
     }
 
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
-        self != Self::Hand
+        !matches!(self, Self::Hand | Self::Wind)
     }
 }
 
@@ -693,6 +696,7 @@ mod tests {
             (super::WATERING_SLOT_INDEX, PlayerTool::Watering),
             (super::SOIL_INSPECTOR_SLOT_INDEX, PlayerTool::SoilInspector),
             (super::TILLER_SLOT_INDEX, PlayerTool::Tiller),
+            (super::WIND_SLOT_INDEX, PlayerTool::Wind),
         ];
         for (slot, expected) in tool_cases {
             let mut runtime = PlayerToolRuntime::default();
@@ -732,6 +736,29 @@ mod tests {
         let mut runtime = PlayerToolRuntime::default();
         assert!(!runtime.select_item_panel_slot(usize::MAX).changed());
         assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+    }
+
+    #[test]
+    fn wind_item_replaces_terrain_tools_without_starting_terrain_actions() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(super::STAFF_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        runtime.begin_pointer_action(MouseButton::Left);
+        assert!(runtime.continuous_hold_active());
+        runtime.select_item_panel_slot(super::WIND_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Wind);
+        assert_eq!(
+            runtime.selected_item_panel_display_slot(),
+            super::WIND_SLOT_INDEX
+        );
+        assert!(!runtime.continuous_hold_active());
+        assert!(!runtime.selected_tool().uses_terrain_edit_radius());
+        assert!(runtime.begin_pointer_action(MouseButton::Left).is_none());
+        assert!(runtime.begin_pointer_action(MouseButton::Right).is_none());
+        runtime.select_item_panel_slot(super::WIND_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        runtime.select_item_panel_slot(super::STAFF_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Staff);
     }
 
     #[test]

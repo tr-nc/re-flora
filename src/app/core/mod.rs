@@ -1477,7 +1477,16 @@ impl App {
             item_panel_pipe_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
-            player_tools: PlayerToolRuntime::default(),
+            player_tools: {
+                let mut tools = PlayerToolRuntime::default();
+                // Exercise the actual selected-item UI in hidden wind smoke captures.
+                if std::env::var_os("RE_FLORA_WIND_PROTOTYPE").is_some()
+                    && std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some()
+                {
+                    tools.select_item_panel_slot(ui_style::WIND_SLOT_INDEX);
+                }
+                tools
+            },
             voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
             terrain_moisture: TerrainMoistureRuntime::default(),
@@ -2165,6 +2174,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
+                        PhysicalKey::Code(KeyCode::Digit9) => Some(ui_style::WIND_SLOT_INDEX),
                         _ => None,
                     };
 
@@ -2577,7 +2587,7 @@ impl App {
                         ctx.set_global_style(style);
 
                         if let Some(prototype) = &mut self.wind_prototype {
-                            prototype.ui(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale);
+                            prototype.ui(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
                         }
 
                         if hide_ui_for_environment_test_capture
@@ -2898,7 +2908,7 @@ impl App {
                         }
                         self.config_panel_visible = config_panel_open;
 
-                        let item_panel_slots = [
+                        let mut item_panel_slots = vec![
                             ItemPanelSlot {
                                 index: HAND_SLOT_INDEX,
                                 label: "Hand",
@@ -2999,6 +3009,17 @@ impl App {
                                 enabled: true,
                             },
                         ];
+                        if self.wind_prototype.is_some() {
+                            item_panel_slots.push(ItemPanelSlot {
+                                index: ui_style::WIND_SLOT_INDEX,
+                                label: "Wind",
+                                key_hint: "9",
+                                category: Some("ITEMS"),
+                                icon: None,
+                                accent: WATER_TOOL_ACCENT,
+                                enabled: true,
+                            });
+                        }
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,

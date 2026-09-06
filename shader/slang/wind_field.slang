@@ -38,7 +38,14 @@ public float2 sampleAuthoredWind(float2 worldVoxels)
         float detail = fieldNoise(p * 2.7 - evolution * 0.5, 1543u);
         result += (float2(-direction.y, direction.x) * side + direction * detail * 0.4) * wind_field_info.detail.y;
     }
-    if (wind_field_info.background.w < 2.0) return result;
+    return result;
+}
+
+// Local events are independent of the selected background wind model.
+public float2 sampleWindGusts(float2 worldVoxels)
+{
+    float2 result = float2(0.0);
+    float time = wind_field_info.transport.z;
     uint count = min(uint(wind_field_info.detail.w), 16u);
     for (uint i = 0u; i < count; ++i) {
         float4 origin = wind_field_info.gust_origins[i];
