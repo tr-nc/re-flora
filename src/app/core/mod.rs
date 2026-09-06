@@ -2587,7 +2587,7 @@ impl App {
                         ctx.set_global_style(style);
 
                         if let Some(prototype) = &mut self.wind_prototype {
-                            prototype.ui(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
+                            prototype.overlay(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
                         }
 
                         if hide_ui_for_environment_test_capture
@@ -2712,7 +2712,13 @@ impl App {
                                             egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
                                         )
                                         .show(ui, |ui| {
-                                            tree_desc_changed |= self.debug_settings.draw(ui);
+                                            tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
+                                                if section == "Wind" {
+                                                    if let Some(prototype) = self.wind_prototype.as_mut() {
+                                                        prototype.controls(ui);
+                                                    }
+                                                }
+                                            });
 
                                             ui.add_space(8.0);
                                             ui.separator();

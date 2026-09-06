@@ -3,6 +3,7 @@ use super::{render_gui_param_from_config, GuiAdjustables};
 use crate::app::gui_config_model::GuiSection;
 
 struct ControlGroup {
+    parent: Option<&'static str>,
     title: &'static str,
     description: &'static str,
     initially_open: bool,
@@ -11,6 +12,7 @@ struct ControlGroup {
 
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
+        parent: Some("Flora"),
         title: "Growth & Fruiting",
         description: "Plant growth, tree age and the independent fruiting cycle.",
         initially_open: true,
@@ -22,6 +24,7 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
+        parent: Some("Wind"),
         title: "Vegetation Wind Response",
         description: "How plants react to wind. Pose rate is separate from the world tick.",
         initially_open: true,
@@ -34,12 +37,14 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
+        parent: None,
         title: "Visibility & Detail",
         description: "Draw distance, level of detail and which grass species are visible.",
         initially_open: false,
         params: &["lod_distance", "flora_draw_distance", "grass_render_mode"],
     },
     ControlGroup {
+        parent: None,
         title: "Lighting Diagnostics",
         description: "Flora lighting and terrain path-tracing reference controls.",
         initially_open: false,
@@ -51,6 +56,7 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
+        parent: None,
         title: "World Timing",
         description: "The shared world update interval, not the vegetation pose rate.",
         initially_open: false,
@@ -62,8 +68,13 @@ fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
 
-pub(super) fn render(ui: &mut egui::Ui, section: &GuiSection, adjustables: &mut GuiAdjustables) {
-    for group in GROUPS {
+pub(super) fn render(
+    ui: &mut egui::Ui,
+    section: &GuiSection,
+    adjustables: &mut GuiAdjustables,
+    parent: Option<&str>,
+) {
+    for group in GROUPS.iter().filter(|group| group.parent == parent) {
         egui::CollapsingHeader::new(group.title)
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
@@ -79,7 +90,7 @@ pub(super) fn render(ui: &mut egui::Ui, section: &GuiSection, adjustables: &mut 
     }
     // New/unrecognized settings must never silently disappear. The coverage test below requires
     // intentional classification of all settings shipped in our config.
-    if section.param.iter().any(|param| !is_grouped(&param.id)) {
+    if parent.is_none() && section.param.iter().any(|param| !is_grouped(&param.id)) {
         ui.collapsing("Other Diagnostics", |ui| {
             for param in &section.param {
                 if !is_grouped(&param.id) {
@@ -134,14 +145,9 @@ mod tests {
         let before = serde_json::to_value(&settings.config).unwrap();
         let context = egui::Context::default();
         context.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let mut sections = Vec::new();
         let output = context.run_ui(egui::RawInput::default(), |ui| {
-            let debug = settings
-                .config
-                .section
-                .iter()
-                .find(|section| section.name == "Debug")
-                .unwrap();
-            render(ui, debug, &mut settings.adjustables);
+            settings.draw(ui, |section, _| sections.push(section.to_owned()));
         });
         assert!(!output.shapes.is_empty());
         fn collect_text(shape: &egui::Shape, text: &mut String) {
@@ -165,8 +171,60 @@ mod tests {
         for group in GROUPS {
             assert!(text.contains(group.title), "missing group {}", group.title);
         }
+        let expected_sections = settings
+            .config
+            .section
+            .iter()
+            .filter(|s| s.name != "Debug")
+            .map(|s| s.name.clone())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            sections.iter().cloned().collect::<BTreeSet<_>>(),
+            expected_sections
+        );
+        assert_eq!(
+            sections.len(),
+            expected_sections.len(),
+            "a section was drawn twice"
+        );
+        assert_eq!(
+            GROUPS
+                .iter()
+                .find(|g| g.title == "Vegetation Wind Response")
+                .unwrap()
+                .parent,
+            Some("Wind")
+        );
+        assert_eq!(
+            GROUPS
+                .iter()
+                .find(|g| g.title == "Growth & Fruiting")
+                .unwrap()
+                .parent,
+            Some("Flora")
+        );
         assert!(!text.contains("Reset Inertia"));
         assert!(!text.contains("Original C Rhythm"));
+        for title in [
+            "Atmos",
+            "Terrain",
+            "Camera",
+            "Tree",
+            "GodRay",
+            "Starlight",
+            "Clouds",
+        ] {
+            assert!(
+                text.lines().any(|line| line == title),
+                "missing section {title}"
+            );
+        }
+        for title in ["Debug", "Sky", "Voxel", "HeadBob"] {
+            assert!(
+                !text.lines().any(|line| line == title),
+                "obsolete section {title}"
+            );
+        }
         settings.sync_config();
         assert_eq!(before, serde_json::to_value(&settings.config).unwrap());
     }

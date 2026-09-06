@@ -80,7 +80,11 @@ impl DebugSettings {
         );
     }
 
-    pub fn draw(&mut self, ui: &mut egui::Ui) -> bool {
+    pub fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut extra_controls: impl FnMut(&str, &mut egui::Ui),
+    ) -> bool {
         let Self {
             config,
             adjustables,
@@ -90,12 +94,13 @@ impl DebugSettings {
         } = self;
         let mut tree_desc_changed = false;
         render_gui_from_config(ui, config, adjustables, wind_sources, |section_name, ui| {
-            if section_name == "Debug" {
+            if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
                     tree_desc_changed |=
                         edit_tree_desc(ui, &mut tree.desc, Some(&mut tree.render_leaves));
                 });
             }
+            extra_controls(section_name, ui);
         });
 
         tree_desc_changed
@@ -1096,6 +1101,35 @@ fn render_gui_param_control(
     }
 }
 
+// UI ownership only. Stored section names and generated parameter bindings stay unchanged.
+const SECTION_PARENTS: &[(&str, &str)] = &[
+    ("GodRay", "Sky"),
+    ("Starlight", "Sky"),
+    ("Clouds", "Sky"),
+    ("Purple Allium", "Flora"),
+    ("Kochia", "Flora"),
+    ("Flora Spawn Animation", "Flora"),
+    ("FloraVariation", "Flora"),
+    ("Leaves", "Flora"),
+    ("Terrain Harvest Particles", "Voxel"),
+];
+
+fn section_parent(name: &str) -> Option<&'static str> {
+    SECTION_PARENTS
+        .iter()
+        .find_map(|(child, parent)| (*child == name).then_some(*parent))
+}
+
+fn section_title(name: &str) -> &str {
+    match name {
+        "Sky" => "Atmos",
+        "Voxel" => "Terrain",
+        "HeadBob" => "Camera",
+        "FloraVariation" => "Flora Variation",
+        _ => name,
+    }
+}
+
 pub fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &GuiConfigFile,
@@ -1104,41 +1138,88 @@ pub fn render_gui_from_config(
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
     for section in &config.section {
-        ui.collapsing(&section.name, |ui| {
-            if section.name == "Debug" {
-                debug_groups::render(ui, section, adjustables);
-                return;
+        if section.name == "Debug" {
+            debug_groups::render(ui, section, adjustables, None);
+            continue;
+        }
+        // If a custom config lacks a parent, keep its children visible at the top level.
+        if section_parent(&section.name)
+            .is_some_and(|parent| config.section.iter().any(|s| s.name == parent))
+        {
+            continue;
+        }
+        ui.collapsing(section_title(&section.name), |ui| {
+            render_section_controls(ui, section, adjustables, wind_sources);
+            if let Some(debug) = config.section.iter().find(|s| s.name == "Debug") {
+                debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
-            if section.name == "Wind" {
-                for param in &section.param {
-                    if !is_custom_wind_param(&param.id) {
-                        render_gui_param_from_config(ui, param, &section.name, adjustables);
-                    }
+            after_section(&section.name, ui);
+            for child in &config.section {
+                if section_parent(&child.name) == Some(section.name.as_str()) {
+                    ui.collapsing(section_title(&child.name), |ui| {
+                        render_section_controls(ui, child, adjustables, wind_sources);
+                        after_section(&child.name, ui);
+                    });
                 }
-                render_wind_sources_gui(ui, adjustables, wind_sources);
-                return;
-            }
-            if section.name == "Flora" {
-                for param in &section.param {
-                    if !is_custom_flora_param(&param.id) {
-                        render_gui_param_from_config(ui, param, &section.name, adjustables);
-                    }
-                }
-                render_flora_gui(ui, adjustables);
-                return;
-            }
-
-            for param in &section.param {
-                render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
         });
-        after_section(&section.name, ui);
+    }
+}
+
+fn render_section_controls(
+    ui: &mut egui::Ui,
+    section: &crate::app::gui_config_model::GuiSection,
+    adjustables: &mut GuiAdjustables,
+    wind_sources: &mut Vec<WindSourceGuiValues>,
+) {
+    if section.name == "Wind" {
+        for param in &section.param {
+            if !is_custom_wind_param(&param.id) {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            }
+        }
+        render_wind_sources_gui(ui, adjustables, wind_sources);
+        return;
+    }
+    if section.name == "Flora" {
+        for param in &section.param {
+            if !is_custom_flora_param(&param.id) {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            }
+        }
+        render_flora_gui(ui, adjustables);
+        return;
+    }
+
+    for param in &section.param {
+        render_gui_param_from_config(ui, param, &section.name, adjustables);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn section_hierarchy_has_unique_children_and_existing_top_level_parents() {
+        let config = GuiConfigLoader::load();
+        let mut children = std::collections::BTreeSet::new();
+        for (child, parent) in SECTION_PARENTS {
+            assert!(children.insert(child), "duplicate child {child}");
+            assert!(config.section.iter().any(|s| s.name == *child));
+            assert!(config.section.iter().any(|s| s.name == *parent));
+            assert_eq!(
+                section_parent(parent),
+                None,
+                "unexpected third-level section"
+            );
+        }
+        assert_eq!(section_parent("GodRay"), Some("Sky"));
+        assert_eq!(section_parent("Leaves"), Some("Flora"));
+        assert_eq!(section_title("Sky"), "Atmos");
+        assert_eq!(section_title("Voxel"), "Terrain");
+        assert_eq!(section_title("HeadBob"), "Camera");
+    }
 
     fn assert_generic_values_match(config: &GuiConfigFile, adjustables: &GuiAdjustables) {
         for section in &config.section {

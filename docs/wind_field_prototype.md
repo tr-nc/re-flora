@@ -14,6 +14,13 @@ RE_FLORA_WIND_PROTOTYPE=1 cargo run
 
 Without the flag, the original wind sampler is active and no Wind item appears.
 Temporary wind controls are not saved into the GUI configuration.
+They now live in the main debug panel under **Wind → Background Wind** and
+**Wind → Wind Item**, alongside Vegetation Wind Response. There are no separate
+background-wind or wind-item windows. Collapsing settings does not hide the
+world-space aiming/released-gust outlines or cancel a gesture. The global Main
+direction slider and compass have been removed. This UI cleanup does not change
+the existing uniform background heading/wander model; spatially propagating
+background direction changes remain a separate model-design task.
 
 Background modes are **A Original**, **B Turning**, and **C Local detail**.
 No mode automatically releases gusts. There are no Hold, Clear, or Restart
@@ -27,7 +34,7 @@ Selecting Wind again returns to Hand; selecting another item cancels aiming.
 Escape/right-click cancels an unfinished gesture; right drag otherwise rotates
 the camera. A release over UI cancels instead of planting or emitting wind.
 
-The Wind panel directly exposes **Width**, **Depth**, **Edge softness**, strength,
+The **Wind Item** subsection directly exposes **Width**, **Depth**, **Edge softness**, strength,
 lifetime, and speed multiplier. Width/depth are full extents in voxels, not radii.
 Softness sets how much of each half-extent fades to the edge: larger values give
 a broader gradual fade; smaller values retain a wider strong center.
@@ -39,7 +46,7 @@ Settings affect aiming and subsequent emissions; existing gusts retain their
 settings. The band preview uses one unfilled outline, without shaded fill or
 nested boxes. Softness still affects the actual wind. Both aiming and released footprints retain the clicked height.
 The field itself remains horizontal and does not vary with height; this is not
-terrain-following airflow. The compass is world-oriented, not camera-oriented.
+terrain-following airflow.
 
 ## Ownership and limits
 
