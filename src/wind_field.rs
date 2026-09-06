@@ -49,7 +49,8 @@ impl GustSettings {
     pub fn half_extents(&self) -> Vec2 {
         Vec2::new(self.depth, self.width) * 0.5
     }
-    pub fn spatial_weight(&self, local: Vec2) -> f32 {
+    #[cfg(test)]
+    fn spatial_weight(&self, local: Vec2) -> f32 {
         fn edge(value: f32, softness: f32) -> f32 {
             let softness = softness.clamp(0.05, 1.);
             let t = ((value.abs() - (1. - softness)) / softness).clamp(0., 1.);

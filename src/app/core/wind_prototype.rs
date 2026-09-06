@@ -243,30 +243,6 @@ impl WindPrototype {
                 let offset = forward * uv.x + side * uv.y;
                 project(center + Vec3::new(offset.x, 0., offset.y))
             };
-            let mut mesh = egui::Mesh::default();
-            const STEPS: u32 = 16;
-            for y in 0..=STEPS {
-                for x in 0..=STEPS {
-                    let uv = Vec2::new(x as f32, y as f32) * (2. / STEPS as f32) - Vec2::ONE;
-                    let Some(point) = position(uv) else {
-                        return;
-                    };
-                    let alpha = (gust.settings.spatial_weight(uv) * 55.) as u8;
-                    mesh.colored_vertex(
-                        point,
-                        Color32::from_rgba_unmultiplied(130, 200, 240, alpha),
-                    );
-                }
-            }
-            for y in 0..STEPS {
-                for x in 0..STEPS {
-                    let a = y * (STEPS + 1) + x;
-                    let b = a + STEPS + 1;
-                    mesh.add_triangle(a, a + 1, b);
-                    mesh.add_triangle(a + 1, b + 1, b);
-                }
-            }
-            painter.add(egui::Shape::mesh(mesh));
             let corners: Option<Vec<Pos2>> = [
                 Vec2::new(-1., -1.),
                 Vec2::new(1., -1.),

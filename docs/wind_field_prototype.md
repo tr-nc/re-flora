@@ -36,8 +36,8 @@ Radial click retains its ring mode, with ring thickness and a base speed because
 a click has no drag length.
 
 Settings affect aiming and subsequent emissions; existing gusts retain their
-settings. The band preview uses one outline and a smoothly shaded mesh, not
-nested boxes. Both aiming and released footprints retain the clicked height.
+settings. The band preview uses one unfilled outline, without shaded fill or
+nested boxes. Softness still affects the actual wind. Both aiming and released footprints retain the clicked height.
 The field itself remains horizontal and does not vary with height; this is not
 terrain-following airflow. The compass is world-oriented, not camera-oriented.
 
