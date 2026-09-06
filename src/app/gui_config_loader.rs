@@ -34,7 +34,7 @@ impl GuiConfigLoader {
             );
         });
 
-        let config: GuiConfigFile = toml::from_str(&content).unwrap_or_else(|e| {
+        let mut config: GuiConfigFile = toml::from_str(&content).unwrap_or_else(|e| {
             panic!(
                 "Failed to parse GUI config at {}:\n{}",
                 config_path.display(),
@@ -43,6 +43,7 @@ impl GuiConfigLoader {
         });
 
         Self::validate(&config, config_path);
+        Self::add_missing_sky_strength(&mut config);
 
         log::info!(
             "Loaded GUI config: {} (schema v{}, {} sections, {} params)",
@@ -53,6 +54,35 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    fn add_missing_sky_strength(config: &mut GuiConfigFile) {
+        if config
+            .section
+            .iter()
+            .flat_map(|section| &section.param)
+            .any(|param| param.id == "sky_light_strength")
+        {
+            return;
+        }
+        let Some(sky) = config
+            .section
+            .iter_mut()
+            .find(|section| section.name == "Sky")
+        else {
+            return;
+        };
+        // Older saved settings predate this control. Take its schema and default from the same
+        // build-time source as the generated GUI; never overwrite an existing authored value.
+        let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
+            .expect("compiled GUI defaults must be valid");
+        let strength = defaults
+            .section
+            .into_iter()
+            .flat_map(|section| section.param)
+            .find(|param| param.id == "sky_light_strength")
+            .expect("compiled GUI defaults must define sky lighting strength");
+        sky.param.push(strength);
     }
 
     pub fn config_path() -> std::path::PathBuf {

@@ -660,6 +660,8 @@ pub struct DdgiRadianceSun {
     pub terrain_ray_origin_offset_world: f32,
     pub color: [f32; 3],
     pub luminance: f32,
+    pub sky_light_strength: f32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `U_DdgiRadianceVoxelPalette` (native Slang source of truth).
@@ -1081,7 +1083,7 @@ pub struct SunInfo {
     pub sun_display_luminance: f32,
     pub sun_altitude: f32,
     pub sun_azimuth: f32,
-    pub _pad0: [u8; 4],
+    pub sky_light_strength: f32,
 }
 
 /// Auto-generated from `U_TerrainEditPreview` (native Slang source of truth).

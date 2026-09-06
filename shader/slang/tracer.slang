@@ -322,7 +322,8 @@ float3 pathTracingIndirectIrradiance(MarchingResult primary, int3 seed,
         if (!result.is_hit)
         {
             irradiance += throughput * getAuthoredSkyRadiance(
-                indirectRay.direction, normalize(sun_info.sun_dir));
+                indirectRay.direction, normalize(sun_info.sun_dir),
+                sun_info.sky_light_strength);
             break;
         }
         if (dot(indirectRay.direction, result.normal) > 0.0) break;

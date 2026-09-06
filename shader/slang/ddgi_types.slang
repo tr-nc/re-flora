@@ -44,6 +44,7 @@ public struct U_DdgiRadianceSun
     public float terrain_ray_origin_offset_world;
     public float3 color;
     public float luminance;
+    public float sky_light_strength;
 };
 
 // Stable material inputs transported by DDGI. Dynamic moisture and edit-preview presentation are

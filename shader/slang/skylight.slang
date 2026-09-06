@@ -89,10 +89,11 @@ public float3 getSkyColor(float3 viewDirection, float3 sunDirection)
 // diffuse irradiance divided by pi and surface path tracing uses cosine-weighted
 // importance sampling.
 public float3 getAuthoredSkyRadiance(float3 viewDirection,
-                                    float3 sunDirection)
+                                    float3 sunDirection,
+                                    float skyLightStrength)
 {
     return getSkyColor(viewDirection, sunDirection) *
-        3.14159265358979323846;
+        (3.14159265358979323846 * skyLightStrength);
 }
 
 public float3 getSkyColorWithSun(float3 viewDirection, float3 sunDirection,

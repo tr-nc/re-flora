@@ -267,7 +267,8 @@ void main(uint3 groupId : SV_GroupID,
         if (!result.is_hit)
         {
             rayRecord.xyz = getAuthoredSkyRadiance(
-                direction, normalize(ddgi_radiance_sun.direction));
+                direction, normalize(ddgi_radiance_sun.direction),
+                ddgi_radiance_sun.sky_light_strength);
 #if RE_FLORA_GLASS_TRANSPORT
             rayRecord.xyz *= transportTransmittance;
 #endif

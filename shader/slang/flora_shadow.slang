@@ -173,5 +173,6 @@ public float3 applyLegacyRasterFloraLighting(
     float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
     float3 sunLight = sun.sun_color * sunLuminance;
     return baseColor *
-           (sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT);
+           (sunLight * shadowWeight +
+            LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun.sky_light_strength);
 }

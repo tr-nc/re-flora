@@ -426,7 +426,7 @@ fn snapshot_json(snapshot: Option<DdgiRadianceSnapshot>) -> String {
         return "null".to_owned();
     };
     format!(
-        "{{\"sun_direction\":[{},{},{}],\"sun_color\":[{},{},{}],\"sun_luminance\":{},\"terrain_ray_origin_offset_world\":{},\"ddgi_receiver_visibility_bias_world\":{}}}",
+        "{{\"sun_direction\":[{},{},{}],\"sun_color\":[{},{},{}],\"sun_luminance\":{},\"sky_light_strength\":{},\"terrain_ray_origin_offset_world\":{},\"ddgi_receiver_visibility_bias_world\":{}}}",
         snapshot.sun_direction.x,
         snapshot.sun_direction.y,
         snapshot.sun_direction.z,
@@ -434,6 +434,7 @@ fn snapshot_json(snapshot: Option<DdgiRadianceSnapshot>) -> String {
         snapshot.sun_color.y,
         snapshot.sun_color.z,
         snapshot.sun_luminance,
+        snapshot.sky_light_strength,
         snapshot.terrain_ray_origin_offset_world,
         snapshot.ddgi_receiver_visibility_bias_world,
     )

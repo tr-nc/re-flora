@@ -3,10 +3,8 @@ use std::time::Duration;
 
 use crate::lighting::{LocalLightGpuPayload, LocalLightInfluenceBound};
 
-// Authored sky lighting is compiled into these shaders rather than supplied through a runtime
-// uniform. Hash the authoritative sources so a capture or cached field can still name the exact
-// sky model that produced it. Adding runtime sky controls later should replace this compilation-
-// bound identity with their explicit snapshot values.
+// Hash the compiled sky model as well as snapshotting its runtime strength. A capture or cached
+// field must identify both the radiance definition and the authored values that produced it.
 pub(crate) const DDGI_AUTHORED_SKY_MODEL_IDENTITY: u64 = authored_sky_model_identity();
 const FNV1A64_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV1A64_PRIME: u64 = 0x100000001b3;
@@ -59,6 +57,7 @@ pub(crate) struct DdgiRadianceSnapshot {
     pub sun_direction: Vec3,
     pub sun_color: Vec3,
     pub sun_luminance: f32,
+    pub sky_light_strength: f32,
     pub terrain_ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub glass_experiment_enabled: bool,
@@ -78,6 +77,7 @@ impl DdgiRadianceSnapshot {
             sun_direction: self.sun_direction.to_array().map(f32::to_bits),
             sun_color: self.sun_color.to_array().map(f32::to_bits),
             sun_luminance: self.sun_luminance.to_bits(),
+            sky_light_strength: self.sky_light_strength.to_bits(),
             terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world.to_bits(),
             ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world.to_bits(),
             glass_experiment_enabled: self.glass_experiment_enabled,
@@ -118,6 +118,7 @@ struct DdgiRadianceIdentity {
     sun_direction: [u32; 3],
     sun_color: [u32; 3],
     sun_luminance: u32,
+    sky_light_strength: u32,
     terrain_ray_origin_offset_world: u32,
     ddgi_receiver_visibility_bias_world: u32,
     glass_experiment_enabled: bool,
@@ -135,6 +136,7 @@ struct DdgiRadianceIdentity {
 impl DdgiRadianceIdentity {
     fn non_solar_eq(self, other: Self) -> bool {
         self.authored_sky_model_identity == other.authored_sky_model_identity
+            && self.sky_light_strength == other.sky_light_strength
             && self.terrain_ray_origin_offset_world == other.terrain_ray_origin_offset_world
             && self.ddgi_receiver_visibility_bias_world == other.ddgi_receiver_visibility_bias_world
             && self.glass_experiment_enabled == other.glass_experiment_enabled
@@ -319,6 +321,7 @@ pub(crate) struct AuthoredEnvironmentLightingInput {
     pub sun_direction: Vec3,
     pub sun_color: Vec3,
     pub sun_luminance: f32,
+    pub sky_light_strength: f32,
     pub terrain_ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub glass_experiment_enabled: bool,
@@ -333,6 +336,7 @@ impl AuthoredEnvironmentLightingInput {
             sun_direction: self.sun_direction.normalize_or_zero(),
             sun_color: self.sun_color,
             sun_luminance: self.sun_luminance,
+            sky_light_strength: self.sky_light_strength.max(0.0),
             terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world,
             ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world,
             glass_experiment_enabled: self.glass_experiment_enabled,
@@ -550,6 +554,7 @@ mod tests {
             sun_direction: Vec3::Y,
             sun_color: Vec3::new(1.0, 0.9, 0.8),
             sun_luminance: 2.0,
+            sky_light_strength: 1.0,
             terrain_ray_origin_offset_world: 0.005,
             ddgi_receiver_visibility_bias_world: 0.001,
             glass_experiment_enabled: false,
@@ -572,6 +577,7 @@ mod tests {
             sun_direction: value.sun_direction,
             sun_color: value.sun_color,
             sun_luminance: value.sun_luminance,
+            sky_light_strength: value.sky_light_strength,
             terrain_ray_origin_offset_world: value.terrain_ray_origin_offset_world,
             ddgi_receiver_visibility_bias_world: value.ddgi_receiver_visibility_bias_world,
             glass_experiment_enabled: value.glass_experiment_enabled,
@@ -661,6 +667,9 @@ mod tests {
         variants.push(value);
         value = snapshot();
         value.sun_luminance += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.sky_light_strength = 0.5;
         variants.push(value);
         value = snapshot();
         value.terrain_ray_origin_offset_world += 0.001;
@@ -902,7 +911,7 @@ mod tests {
         assert_eq!(switch["kind"].as_str(), Some("bool"));
         assert_eq!(switch["data"]["value"].as_bool(), Some(true));
         assert!(lighting.contains("float3(24.0 / 255.0)"));
-        assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
+        assert!(lighting.contains("LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun.sky_light_strength"));
         assert!(shared.contains("applyLegacyRasterFloraLighting("));
         let flora_environment = shared
             .split_once("public float3 sampleFloraEnvironment(")

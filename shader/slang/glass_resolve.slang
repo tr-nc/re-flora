@@ -260,7 +260,7 @@ float3 glassVoxelFallback(SceneQueryEvent event)
     float3 albedo = voxelColorByType(voxel_colors, event.to_voxel_type);
     float cosine = max(0.0, dot(normalize(event.incident_face_normal),
                                 normalize(sun_info.sun_dir)));
-    float3 ambient = albedo * 0.18;
+    float3 ambient = albedo * (0.18 * sun_info.sky_light_strength);
     float3 direct = albedo * sun_info.sun_color * sun_info.sun_luminance * cosine;
     return ambient + direct + voxelSurfaceEmission(voxel_colors, event.to_voxel_type);
 }

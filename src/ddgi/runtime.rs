@@ -2465,6 +2465,7 @@ mod tests {
             sun_direction: Vec3::Y,
             sun_color: Vec3::new(1.0, 0.9, 0.8),
             sun_luminance,
+            sky_light_strength: 1.0,
             terrain_ray_origin_offset_world: 0.005,
             ddgi_receiver_visibility_bias_world: 0.001,
             glass_experiment_enabled: false,
@@ -2503,6 +2504,7 @@ mod tests {
             sun_direction: snapshot.sun_direction,
             sun_color: snapshot.sun_color,
             sun_luminance: snapshot.sun_luminance,
+            sky_light_strength: snapshot.sky_light_strength,
             terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
             ddgi_receiver_visibility_bias_world: snapshot.ddgi_receiver_visibility_bias_world,
             glass_experiment_enabled: snapshot.glass_experiment_enabled,
@@ -3182,6 +3184,33 @@ mod tests {
         assert!(!unchanged.transport_published);
         assert_eq!(unchanged.transport, initial.transport);
         assert_eq!(runtime.lighting_revision_lag(), 0);
+    }
+
+    #[test]
+    fn sky_strength_change_restarts_transport_without_mutating_the_previous_snapshot() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(16)).unwrap();
+        let mut authored = AuthoredEnvironmentLighting::default();
+        let mut runtime = DdgiRuntime::new(grid);
+        let first = authored.observe(authored_input(lighting_snapshot(2.0)), Duration::ZERO);
+        let initial = runtime.observe_authored_lighting(first);
+
+        for (elapsed_ms, strength) in [(1, 0.5), (2, 0.0), (3, 1.0)] {
+            let mut input = authored_input(first.snapshot());
+            input.sky_light_strength = strength;
+            let changed = authored.observe(input, Duration::from_millis(elapsed_ms));
+            let published = runtime.observe_authored_lighting(changed);
+            assert!(published.transport_published);
+            assert_eq!(published.transport.source_live_revision(), changed.revision);
+            assert_eq!(published.transport.snapshot().sky_light_strength, strength);
+            assert_eq!(published.transport.snapshot().sun_luminance, 2.0);
+            assert_eq!(
+                published.transport.change().reason,
+                DdgiRadianceChangeReason::TransportInputStep
+            );
+            assert!(published.transport.change().resets_irradiance_history());
+        }
+        assert_eq!(initial.transport.snapshot().sky_light_strength, 1.0);
+        assert_eq!(initial.transport.revision(), 1);
     }
 
     #[test]
