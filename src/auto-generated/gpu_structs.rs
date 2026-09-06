@@ -185,6 +185,38 @@ pub struct ManualFloraVertices {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_ManualResponseInputs` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualResponseInputs {
+    pub root: [f32; 4],
+    pub identity: [u32; 4],
+}
+
+/// Auto-generated from `B_ManualResponseOutput` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualResponseOutput {
+    pub motion: [f32; 4],
+    pub held: [u32; 16],
+}
+
+/// Auto-generated from `B_ManualResponsePrevious` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualResponsePrevious {
+    pub motion: [f32; 4],
+    pub held: [u32; 16],
+}
+
+/// Auto-generated from `B_ManualVegetationResponse` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualVegetationResponse {
+    pub motion: [f32; 4],
+    pub held: [u32; 16],
+}
+
 /// Auto-generated from `B_ModelTriangles` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -343,7 +375,8 @@ pub struct PushConstantChunkModifySample {
 pub struct PushConstantFlora {
     pub time: f32,
     pub instance_ty: u32,
-    pub _pad0: [u8; 8],
+    pub response_offset: u32,
+    pub _pad0: [u8; 4],
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -356,7 +389,8 @@ pub struct PushConstantFlora {
 pub struct PushConstantFloraLightingCache {
     pub time: f32,
     pub instance_ty: u32,
-    pub _pad0: [u8; 8],
+    pub response_offset: u32,
+    pub _pad0: [u8; 4],
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -369,7 +403,8 @@ pub struct PushConstantFloraLightingCache {
 pub struct PushConstantFloraLod {
     pub time: f32,
     pub instance_ty: u32,
-    pub _pad0: [u8; 8],
+    pub response_offset: u32,
+    pub _pad0: [u8; 4],
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -428,7 +463,8 @@ pub struct PushConstantLeafShadowTemporal {
 pub struct PushConstantLeaves {
     pub time: f32,
     pub instance_ty: u32,
-    pub _pad0: [u8; 8],
+    pub response_offset: u32,
+    pub _pad0: [u8; 4],
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -441,7 +477,8 @@ pub struct PushConstantLeaves {
 pub struct PushConstantLeavesShadow {
     pub time: f32,
     pub instance_ty: u32,
-    pub _pad0: [u8; 8],
+    pub response_offset: u32,
+    pub _pad0: [u8; 4],
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -477,6 +514,17 @@ pub struct PushConstantProbeTrace {
     pub local_refresh_enabled: [u32; 4],
     pub local_refresh_world_min: [f32; 4],
     pub local_refresh_world_max: [f32; 4],
+}
+
+/// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVegetationResponse {
+    pub start_time: f32,
+    pub end_time: f32,
+    pub tick_seconds: f32,
+    pub count: u32,
+    pub controls: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
@@ -1056,6 +1104,14 @@ pub struct TerrainEditPreview {
 pub struct TerrainQueryCount {
     pub valid_query_count: u32,
     pub _pad0: [u8; 12],
+}
+
+/// Auto-generated from `U_VegetationResponseInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VegetationResponseInfo {
+    pub grid: [f32; 4],
+    pub shape: [u32; 4],
 }
 
 /// Auto-generated from `U_VoxelColors` (native Slang source of truth).

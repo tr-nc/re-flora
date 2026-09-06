@@ -123,6 +123,8 @@ impl TreeLeavesInstance {
 }
 
 pub struct FloraInstanceResources {
+    /// Same species-major ordering as the authored draw streams. No ordinary grass state.
+    pub authored_response_instances: Vec<super::AuthoredFloraInstance>,
     #[allow(dead_code)]
     pub chunk_id: UVec3,
     pub chunk_world_offset: UVec3,
@@ -178,6 +180,7 @@ impl FloraInstanceResources {
             .expect("initialize grass growth-potential field");
         Self {
             chunk_id,
+            authored_response_instances: Vec::new(),
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
             grass_growth_potential_levels: Resource::new(grass_growth_potential_levels),

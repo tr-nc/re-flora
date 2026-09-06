@@ -2297,6 +2297,18 @@ impl App {
                     );
                 let visual_time_since_start = resolved_timing.visual_time_seconds();
                 let frame_delta_time = resolved_timing.frame_delta_seconds();
+                let response_bench_time = self
+                    .launch_owners
+                    .authored_flora_bench
+                    .as_ref()
+                    .and_then(AuthoredFloraBench::fixed_response_time);
+                let visual_time_since_start =
+                    response_bench_time.unwrap_or(visual_time_since_start);
+                let frame_delta_time = if response_bench_time.is_some() {
+                    1. / 60.
+                } else {
+                    frame_delta_time
+                };
                 if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
@@ -3912,7 +3924,9 @@ impl App {
                 let frame_timing_snapshot =
                     cpu_timings.snapshot(frame_count, total_ms, egui_ms, gpu_ms);
                 self.frame_timing_snapshot = frame_timing_snapshot;
-                if frame_perf_enabled && frame_count.is_multiple_of(30) {
+                if frame_perf_enabled
+                    && (response_bench_time.is_some() || frame_count.is_multiple_of(30))
+                {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
                         frame_count,

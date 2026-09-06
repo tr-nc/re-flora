@@ -2,6 +2,7 @@ import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
 import surface_flora_vertex;
+import vegetation_response_sample;
 
 struct B_ManualFloraInstances
 {
@@ -60,7 +61,10 @@ VertexOutput main(VertexInput input)
     PreparedFloraVertex prepared = prepareFloraVertex(
         voxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
         growthProgress, competitionFactor, environmentFactor,
-        instance.spawn_start_ms);
+        instance.spawn_start_ms, vegetationResponseEnabled(),
+        sampleVegetationResponse(instancePosition, seed, instanceType,
+            input.instance_index - instanceType * MAX_FLORA_INSTANCES_PER_SPECIES,
+            floraPushConstants().response_offset));
 
     VertexOutput output;
     if (prepared.should_trim)

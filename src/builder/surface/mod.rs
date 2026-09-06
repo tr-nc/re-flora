@@ -355,6 +355,8 @@ impl ExternalGrassGrowthInfluenceTransaction {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthoredFloraInstance {
+    /// Lifetime identity, independent of draw order, growth and terrain rebuilds.
+    pub response_id: u64,
     pub species_index: u32,
     pub base_world_vox: UVec3,
     pub growth_progress: u32,
@@ -366,6 +368,7 @@ pub struct AuthoredFloraInstance {
 #[derive(Default)]
 struct AuthoredFloraStore {
     instances_by_chunk: HashMap<UVec3, Vec<AuthoredFloraInstance>>,
+    next_response_id: u64,
 }
 
 impl AuthoredFloraStore {
@@ -939,6 +942,12 @@ impl SurfaceBuilder {
             return false;
         }
 
+        self.authored_flora.next_response_id = self
+            .authored_flora
+            .next_response_id
+            .checked_add(1)
+            .expect("authored flora lifetime id exhausted");
+        let response_id = self.authored_flora.next_response_id;
         let chunk_instances = self.authored_flora.instances_for_chunk_mut(chunk_id);
         if chunk_instances.iter().any(|instance| {
             instance.species_index == species_index && instance.base_world_vox == base_world_vox
@@ -947,6 +956,7 @@ impl SurfaceBuilder {
         }
 
         chunk_instances.push(AuthoredFloraInstance {
+            response_id,
             species_index,
             base_world_vox,
             growth_progress: growth_progress.min(0xff),
@@ -1308,6 +1318,7 @@ impl SurfaceBuilder {
         let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
         let authored_instances = self.authored_flora.instances_for_chunk(chunk_id);
         let chunk_resources = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
+        chunk_resources.authored_response_instances.clear();
 
         for species_index in species::authored_plant_species_indices() {
             let mut gpu_instances = Vec::new();
@@ -1324,6 +1335,7 @@ impl SurfaceBuilder {
                     instance.growth_progress,
                     instance.spawn_start_ms,
                 ));
+                chunk_resources.authored_response_instances.push(*instance);
             }
             chunk_resources.write_species_instances(species_index as usize, &gpu_instances)?;
         }

@@ -2,6 +2,7 @@ import flora_motion;
 import flora_types;
 import hash;
 import tracer_types;
+import vegetation_response_sample;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(3, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
@@ -201,6 +202,13 @@ VertexOutput main(VertexInput input)
     {
         windOffset += leafShadowSprayPaddling(
             gui_input, wind, windGradient, seed, pc.time);
+    }
+    if (attachedVegetationResponseEnabled())
+    {
+        float3 response = sampleVegetationResponse(
+            isTreeLeaf ? leafVoxelWorldPosition : instancePositionVoxels,
+            seed, pc.instance_ty, 0u, 0u);
+        windOffset = isApple ? appleInertialOffset(gui_input, response) : response * windGradient * windGradient;
     }
 
     float3 anchorPosition =

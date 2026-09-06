@@ -97,6 +97,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "World Tick Time (s)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "flora_inertial_response",
+        kind: "bool",
+        label: "Attached Vegetation Inertia (C)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "vegetation_response_speed",
+        kind: "float",
+        label: "Inertia: Return Speed (x)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "vegetation_response_damping",
+        kind: "float",
+        label: "Inertia: Oscillation Decay (x)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "vegetation_response_gain",
+        kind: "float",
+        label: "Inertia: Wind Deflection (x)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "vegetation_response_pose_hz",
+        kind: "float",
+        label: "Inertia: Discrete Poses / Second",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Post Processing",
         id: "dither_strength_lsb",
         kind: "float",
@@ -1456,6 +1486,11 @@ pub struct GuiAdjustables {
     pub path_tracing_ambient_light: crate::gui_adjustables::ColorParam,
     pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub flora_inertial_response: crate::gui_adjustables::BoolParam,
+    pub vegetation_response_speed: crate::gui_adjustables::FloatParam,
+    pub vegetation_response_damping: crate::gui_adjustables::FloatParam,
+    pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
+    pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
     pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
@@ -1705,6 +1740,11 @@ impl GuiAdjustables {
         let mut path_tracing_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_inertial_response_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut vegetation_response_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vegetation_response_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2007,6 +2047,39 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_inertial_response" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            flora_inertial_response_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "vegetation_response_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vegetation_response_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vegetation_response_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vegetation_response_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vegetation_response_gain" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vegetation_response_gain_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vegetation_response_pose_hz" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            vegetation_response_pose_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "dither_strength_lsb" => {
@@ -3527,6 +3600,11 @@ impl GuiAdjustables {
             path_tracing_ambient_light: path_tracing_ambient_light_field.expect("Missing parameter: path_tracing_ambient_light"),
             path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            flora_inertial_response: flora_inertial_response_field.expect("Missing parameter: flora_inertial_response"),
+            vegetation_response_speed: vegetation_response_speed_field.expect("Missing parameter: vegetation_response_speed"),
+            vegetation_response_damping: vegetation_response_damping_field.expect("Missing parameter: vegetation_response_damping"),
+            vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
+            vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
             dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
@@ -3764,6 +3842,10 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "vegetation_response_speed" => Some(&adjustables.vegetation_response_speed),
+        "vegetation_response_damping" => Some(&adjustables.vegetation_response_damping),
+        "vegetation_response_gain" => Some(&adjustables.vegetation_response_gain),
+        "vegetation_response_pose_hz" => Some(&adjustables.vegetation_response_pose_hz),
         "dither_strength_lsb" => Some(&adjustables.dither_strength_lsb),
         "wind_directional_bias_fraction" => Some(&adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&adjustables.wind_turbulence_fraction),
@@ -3996,6 +4078,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
+        "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
         "wind_source_0_muted" => Some(&adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
@@ -4047,6 +4130,10 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "vegetation_response_speed" => Some(&mut adjustables.vegetation_response_speed),
+        "vegetation_response_damping" => Some(&mut adjustables.vegetation_response_damping),
+        "vegetation_response_gain" => Some(&mut adjustables.vegetation_response_gain),
+        "vegetation_response_pose_hz" => Some(&mut adjustables.vegetation_response_pose_hz),
         "dither_strength_lsb" => Some(&mut adjustables.dither_strength_lsb),
         "wind_directional_bias_fraction" => Some(&mut adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&mut adjustables.wind_turbulence_fraction),
@@ -4279,6 +4366,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
+        "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),
         "wind_source_0_muted" => Some(&mut adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),

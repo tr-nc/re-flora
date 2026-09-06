@@ -368,6 +368,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let vegetation_response_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/vegetation_response.comp",
+            "main",
+        )
+        .unwrap();
 
         let flora_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -552,6 +558,7 @@ impl PipelineBuilder {
             player_collider_sm,
             terrain_query_sm,
             wind_volume_sm,
+            vegetation_response_sm,
             flora_vert_sm,
             flora_frag_sm,
             flora_lod_vert_sm,
@@ -778,6 +785,17 @@ impl PipelineBuilder {
 
         let wind_volume_ppl =
             ComputePipeline::new(device, &shader_modules.wind_volume_sm, pool, &[resources]);
+        let vegetation_response_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.vegetation_response_sm,
+            pool,
+        );
+        vegetation_response_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[resources],
+            })
+            .expect("vegetation response wind descriptors must resolve");
 
         let vsm_creation_ppl =
             ComputePipeline::new(device, &shader_modules.vsm_creation_sm, pool, &[resources]);
@@ -879,6 +897,7 @@ impl PipelineBuilder {
             player_collider_ppl,
             terrain_query_ppl,
             wind_volume_ppl,
+            vegetation_response_ppl,
             post_processing_ppl,
         }
     }
@@ -1659,6 +1678,14 @@ impl PipelineTopology {
 
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
+        retire_compute(
+            &self.compute.vegetation_response_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &tracer_resources,
+            },
+            "vegetation response descriptors must resolve during resize",
+        );
         for pipeline in [
             &self.compute.wind_volume_ppl,
             &self.compute.shadow_depth_copy_ppl,
@@ -2195,6 +2222,7 @@ pub struct ShaderModules {
     pub player_collider_sm: ShaderModule,
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
+    pub vegetation_response_sm: ShaderModule,
     pub flora_vert_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
@@ -2255,6 +2283,7 @@ pub struct ComputePipelines {
     pub player_collider_ppl: ComputePipeline,
     pub terrain_query_ppl: ComputePipeline,
     pub wind_volume_ppl: ComputePipeline,
+    pub vegetation_response_ppl: ComputePipeline,
     pub post_processing_ppl: ComputePipeline,
 }
 

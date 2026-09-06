@@ -264,7 +264,7 @@ impl TerrainPhysics {
         frame_delta_time: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
-        self.spawn_pending_fruits()?;
+        self.spawn_pending_fruits(tracer)?;
         let has_fruit_bodies = self
             .fruits_by_tree
             .values()
@@ -335,7 +335,7 @@ impl TerrainPhysics {
             registered.insert(fruit.spec.id, fruit);
         }
         self.fruits_by_tree.insert(tree_id, registered);
-        self.spawn_pending_fruits()?;
+        self.spawn_pending_fruits(tracer)?;
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
@@ -447,7 +447,7 @@ impl TerrainPhysics {
             self.attached_fruit_refresh_trees
                 .extend(self.fruits_by_tree.keys().copied());
         }
-        self.spawn_pending_fruits()?;
+        self.spawn_pending_fruits(tracer)?;
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
@@ -484,7 +484,7 @@ impl TerrainPhysics {
         tree_ids
     }
 
-    fn spawn_pending_fruits(&mut self) -> anyhow::Result<()> {
+    fn spawn_pending_fruits(&mut self, tracer: &Tracer) -> anyhow::Result<()> {
         let imported_terrain_bricks = &self.imported_terrain_bricks;
         let ready = self
             .fruits_by_tree
@@ -502,10 +502,20 @@ impl TerrainPhysics {
             })
             .collect::<Vec<_>>();
 
-        for (tree_id, fruit_id, spec) in ready {
+        let poses = if ready.is_empty() {
+            vec![]
+        } else {
+            tracer.attached_fruit_handoff(
+                &ready
+                    .iter()
+                    .map(|(_, _, spec)| spec.position_voxels)
+                    .collect::<Vec<_>>(),
+            )?
+        };
+        for ((tree_id, fruit_id, spec), (offset, velocity)) in ready.into_iter().zip(poses) {
             let desc = apple_dynamic_body_desc(
-                spec.position_voxels.as_vec3(),
-                spec.linear_velocity_voxels,
+                spec.position_voxels.as_vec3() + offset,
+                spec.linear_velocity_voxels + velocity,
                 spec.angular_velocity,
             );
             let body = self

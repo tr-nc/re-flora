@@ -11,6 +11,7 @@ import local_lighting;
 import sunlight;
 import terrain_edit_preview;
 import tracer_types;
+import vegetation_response_sample;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
@@ -192,7 +193,7 @@ public PreparedFloraVertex prepareFloraVertex(
     int3 voxelLocalPosition, uint voxelInfo, uint3 instancePositionVoxels,
     uint instanceType, uint seed, uint growthProgress,
     float competitionGrowthFactor, float environmentGrowthFactor,
-    uint spawnStartMs)
+    uint spawnStartMs, bool useResponse, float3 response)
 {
     PreparedFloraVertex result;
     result.is_grass = instanceType == FLORA_SPECIES_TALL_GRASS ||
@@ -245,8 +246,13 @@ public PreparedFloraVertex prepareFloraVertex(
     {
         windSeed = windVolumeVoxelSeed(seed, voxelLocalPosition);
     }
-    float3 wind = sampleWindVolume(wind_volume_info, wind_volume_tex,
+    float3 wind = useResponse ? response : sampleWindVolume(wind_volume_info, wind_volume_tex,
                                    windSamplePosition, windSeed);
+    if (useResponse)
+    {
+        wind = response;
+        windSeed = seed; // A plant publishes one coherent pose, including its tips.
+    }
     float grassRootedHeight = float(voxelLocalPosition.y) /
                               max(float(grassHeightVoxels) - 1.0, 1.0);
     float bendHeight = result.is_grass ? grassRootedHeight : windGradient;
@@ -259,8 +265,8 @@ public PreparedFloraVertex prepareFloraVertex(
         ? floraSpeciesVoxelWindAffectMultiplier(gui_input, instanceType)
         : 1.0;
     float3 windOffset = isApple
-        ? float3(0.0)
-        : wind * windBendWeight * speciesWindAffect;
+        ? (useResponse ? appleInertialOffset(gui_input, response) : float3(0.0))
+        : wind * windBendWeight * (useResponse ? 1.0 : speciesWindAffect);
     float motionTime = windVolumeBucketUpdateTime(
         gui_input, windVolumeBucketIndex(windSeed), pc.time);
 
@@ -274,24 +280,24 @@ public PreparedFloraVertex prepareFloraVertex(
         windOffset += floraNaturalRestBend(
             gui_input, restBendSeed, naturalBendValue, naturalBendHeight) *
             speciesWindAffect;
-        if (isKochia)
+        if (isKochia && !useResponse)
         {
             windOffset += kochiaBranchJellyMotion(
                 gui_input, wind, windGradient, seed, animationGroup, motionTime);
         }
-        else
+        else if (!useResponse)
         {
             windOffset += floraWindVibration(
                 gui_input, wind, bendHeight, seed, voxelLocalPosition, motionTime) *
                 speciesWindAffect;
         }
     }
-    else if (instanceType == FLORA_SPECIES_TREE_LEAF)
+    else if (instanceType == FLORA_SPECIES_TREE_LEAF && !useResponse)
     {
         windOffset += leafWindPaddling(
             gui_input, wind, windGradient, seed, voxelLocalPosition, motionTime);
     }
-    else if (isApple)
+    else if (isApple && !useResponse)
     {
         windOffset += appleWindSwing(gui_input, wind, seed, motionTime);
     }
@@ -334,6 +340,24 @@ public PreparedFloraVertex prepareFloraVertex(
     result.sun_transmittance = shadowSample.sun_transmittance;
     result.shadow_weight = shadowSample.weight;
     return result;
+}
+
+// Dense attached tissue samples its own mechanical response field. Height is
+// intentionally absent: the authoritative procedural wind is currently XZ-only.
+public PreparedFloraVertex prepareFloraVertex(
+    int3 voxelLocalPosition, uint voxelInfo, uint3 instancePositionVoxels,
+    uint instanceType, uint seed, uint growthProgress,
+    float competitionGrowthFactor, float environmentGrowthFactor, uint spawnStartMs)
+{
+    bool useResponse = attachedVegetationResponseEnabled();
+    uint3 responsePosition = instanceType == FLORA_SPECIES_TREE_LEAF
+        ? uint3(int3(instancePositionVoxels) + voxelLocalPosition)
+        : instancePositionVoxels;
+    float3 response = useResponse ? sampleVegetationResponse(
+        responsePosition, seed, instanceType, 0u, 0u) : float3(0.0);
+    return prepareFloraVertex(voxelLocalPosition, voxelInfo, instancePositionVoxels,
+        instanceType, seed, growthProgress, competitionGrowthFactor,
+        environmentGrowthFactor, spawnStartMs, useResponse, response);
 }
 
 uint floraHeightColorRow(float colorGradient)

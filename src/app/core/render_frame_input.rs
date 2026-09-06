@@ -98,6 +98,14 @@ pub(super) fn freeze_render_frame_inputs(
             },
         },
         motion: FloraMotionFrameInput {
+            inertial_response_enabled: gui.flora_inertial_response.value,
+            response_controls: [
+                gui.vegetation_response_speed.value,
+                gui.vegetation_response_damping.value,
+                gui.vegetation_response_gain.value,
+                0.,
+            ],
+            response_pose_hz: gui.vegetation_response_pose_hz.value,
             world_tick_seconds: live.world_tick_seconds,
             grass_vibration_amplitude_voxels: gui.grass_vibration_amplitude_voxels.value,
             grass_vibration_primary_speed: gui.grass_vibration_primary_speed.value,
@@ -491,6 +499,14 @@ mod tests {
                     },
                 },
                 motion: FloraMotionFrameInput {
+                    inertial_response_enabled: settings.adjustables.flora_inertial_response.value,
+                    response_controls: [
+                        settings.adjustables.vegetation_response_speed.value,
+                        settings.adjustables.vegetation_response_damping.value,
+                        settings.adjustables.vegetation_response_gain.value,
+                        0.,
+                    ],
+                    response_pose_hz: settings.adjustables.vegetation_response_pose_hz.value,
                     world_tick_seconds: live.world_tick_seconds,
                     grass_vibration_amplitude_voxels,
                     grass_vibration_primary_speed,

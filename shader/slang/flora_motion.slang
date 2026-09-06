@@ -249,6 +249,17 @@ public float3 kochiaBranchJellyMotion(U_GuiInput gui, float3 wind,
         (flutter * gui.kochia_tip_flutter_amplitude_voxels * strength * tipWeight);
 }
 
+// The common inertial solver produces a generalized wind response. Hanging
+// fruit maps it to a bounded pendulum angle, not an arbitrary mesh translation.
+public float3 appleInertialOffset(U_GuiInput gui, float3 response)
+{
+    float magnitude = length(response.xz);
+    float angle = magnitude / (1.0 + magnitude) * max(gui.fruit_swing_max_angle_radians, 0.0);
+    float lengthVoxels = max(gui.fruit_swing_length_voxels, 0.0);
+    float2 direction = magnitude > 0.000001 ? response.xz / magnitude : float2(0.0);
+    return float3(direction.x * sin(angle), 1.0 - cos(angle), direction.y * sin(angle)) * lengthVoxels;
+}
+
 public float3 appleWindSwing(U_GuiInput gui, float3 wind, uint seed, float time)
 {
     float strength = max(clamp(gui.fruit_swing_min_response, 0.0, 1.0),

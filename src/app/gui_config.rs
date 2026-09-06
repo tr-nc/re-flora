@@ -1126,6 +1126,23 @@ pub fn render_gui_from_config(
             for param in &section.param {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
+            if section.name == "Debug" {
+                ui.label("Inertia controls affect C only; poses remain deliberately discrete.");
+                ui.horizontal(|ui| {
+                    if ui.button("Reset Inertia").clicked() {
+                        adjustables.vegetation_response_speed.value = 1.5;
+                        adjustables.vegetation_response_damping.value = 1.;
+                        adjustables.vegetation_response_gain.value = 1.;
+                        adjustables.vegetation_response_pose_hz.value = 5.;
+                    }
+                    if ui.button("Original C Rhythm").clicked() {
+                        adjustables.vegetation_response_speed.value = 1.;
+                        adjustables.vegetation_response_damping.value = 1.;
+                        adjustables.vegetation_response_gain.value = 1.;
+                        adjustables.vegetation_response_pose_hz.value = 5.;
+                    }
+                });
+            }
         });
         after_section(&section.name, ui);
     }

@@ -182,6 +182,59 @@ value = 0.05
 min = 0
 max = 0.1
 
+[[section.param]]
+id = "flora_inertial_response"
+kind = "bool"
+label = "Attached Vegetation Inertia (C)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "vegetation_response_speed"
+kind = "float"
+label = "Inertia: Return Speed (x)"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0.25
+max = 3
+
+[[section.param]]
+id = "vegetation_response_damping"
+kind = "float"
+label = "Inertia: Oscillation Decay (x)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 2
+
+[[section.param]]
+id = "vegetation_response_gain"
+kind = "float"
+label = "Inertia: Wind Deflection (x)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "vegetation_response_pose_hz"
+kind = "float"
+label = "Inertia: Discrete Poses / Second"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 2.5
+max = 20
+
 [[section]]
 name = "Post Processing"
 

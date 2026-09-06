@@ -33,6 +33,8 @@ pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
+mod vegetation_response;
+use vegetation_response::VegetationResponse;
 
 mod flora_frame_plan;
 use flora_frame_plan::{
@@ -1303,6 +1305,9 @@ pub struct FloraAppearanceFrameInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraMotionFrameInput {
+    pub inertial_response_enabled: bool,
+    pub response_controls: [f32; 4],
+    pub response_pose_hz: f32,
     pub world_tick_seconds: f32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
@@ -1516,6 +1521,7 @@ pub struct Tracer {
     lens_flare_history_valid: bool,
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
+    vegetation_response: VegetationResponse,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
@@ -1795,6 +1801,7 @@ impl Tracer {
             lens_flare_history_valid: false,
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
+            vegetation_response: VegetationResponse::new(chunk_bound),
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
@@ -2649,6 +2656,19 @@ impl Tracer {
                 DescriptorUpdate::All(&tracer_resources),
             )?;
         self.frame_retirement_sink.retire(descriptor_retirement);
+        self.frame_retirement_sink.retire(
+            self.pipeline_topology
+                .compute()
+                .vegetation_response_ppl
+                .publish_descriptors(
+                    "tracer.vegetation_response.wind",
+                    descriptor_generation,
+                    DescriptorUpdate::SetContaining {
+                        anchor: "gui_input",
+                        providers: &tracer_resources,
+                    },
+                )?,
+        );
         Ok(())
     }
 
@@ -2825,6 +2845,9 @@ impl Tracer {
         vegetation.motion.world_tick_seconds =
             crate::game_time::clamp_world_tick_seconds(vegetation.motion.world_tick_seconds);
         self.world_tick_seconds = vegetation.motion.world_tick_seconds;
+        self.vegetation_response.enabled = vegetation.motion.inertial_response_enabled;
+        self.vegetation_response.controls = vegetation.motion.response_controls;
+        self.vegetation_response.pose_hz = vegetation.motion.response_pose_hz;
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
 
@@ -3300,6 +3323,30 @@ impl Tracer {
                 );
             }
         }
+
+        self.vegetation_response.validate_once(
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            &self.resources,
+        )?;
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "vegetation_response.pass",
+            || {
+                self.vegetation_response.record(
+                    self.vulkan_ctx.device().clone(),
+                    self.allocator.clone(),
+                    &self.pipeline_topology.compute().vegetation_response_ppl,
+                    cmdbuf,
+                    surface_resources,
+                    gpu_profiler_frame_slot,
+                    time,
+                    self.world_tick_seconds,
+                )
+            },
+        )?;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -4171,6 +4218,9 @@ impl Tracer {
                     instances.chunk_world_offset,
                     flora_color_tables[species_index],
                 );
+                push_constant.response_offset = self
+                    .vegetation_response
+                    .flower_offset(batch.chunk_index(), species_index);
                 push_constant.lighting_cache_location = flora_lighting_cache_location(
                     batch.lighting_cache_offset(),
                     batch.mesh_voxel_count(),
@@ -4199,6 +4249,8 @@ impl Tracer {
                                 DescriptorResource::Buffer(&cache_buffer),
                             ),
                             ("flora_vertices", DescriptorResource::Buffer(&mesh.vertices)),
+                            self.vegetation_response.descriptors()[0],
+                            self.vegetation_response.descriptors()[1],
                         ],
                         Extent3D::new(batch.mesh_voxel_count(), batch.instance_count(), 1),
                         Some(bytemuck::bytes_of(&push_constant)),
@@ -4264,6 +4316,8 @@ impl Tracer {
                                         &tree_instance.resources.instances_buf,
                                     ),
                                 ),
+                                self.vegetation_response.descriptors()[0],
+                                self.vegetation_response.descriptors()[1],
                                 (
                                     "flora_lighting_cache",
                                     DescriptorResource::Buffer(&cache_buffer),
@@ -4326,6 +4380,8 @@ impl Tracer {
                                     None => &instances.resource.instances_buf,
                                 }),
                             ),
+                            self.vegetation_response.descriptors()[0],
+                            self.vegetation_response.descriptors()[1],
                         ],
                     )
                     .expect("flora draw descriptors must match reflection")
@@ -4354,6 +4410,8 @@ impl Tracer {
                                 "tree_leaf_instances",
                                 DescriptorResource::Buffer(&instance.resources.instances_buf),
                             ),
+                            self.vegetation_response.descriptors()[0],
+                            self.vegetation_response.descriptors()[1],
                             (
                                 "flora_lighting_cache",
                                 DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
@@ -4507,6 +4565,9 @@ impl Tracer {
                         instances.chunk_world_offset,
                         flora_color_tables[species_index],
                     );
+                    push_constant.response_offset = self
+                        .vegetation_response
+                        .flower_offset(batch.chunk_index(), species_index);
                     push_constant.lighting_cache_location = flora_lighting_cache_location(
                         batch.lighting_cache_offset(),
                         batch.mesh_voxel_count(),
@@ -4531,6 +4592,7 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
+            self.vegetation_response.observe_draws(&flora_frame_plan);
             if self.raster_lighting_is_ddgi() && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
@@ -4611,6 +4673,11 @@ impl Tracer {
                             LEAF_INSTANCE_TYPE,
                             prepared.instance.chunk_world_offset,
                             leaf_color_tables,
+                        );
+                        self.vegetation_response.observe_tree_draw(
+                            false,
+                            lod_state == LodState::Lod1,
+                            batch.instance_count(),
                         );
                         leaf_push.lighting_cache_location = flora_lighting_cache_location(
                             batch
@@ -4701,6 +4768,11 @@ impl Tracer {
                         APPLE_INSTANCE_TYPE,
                         prepared.instance.chunk_world_offset,
                         solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
+                    );
+                    self.vegetation_response.observe_tree_draw(
+                        true,
+                        lod_state == LodState::Lod1,
+                        batch.instance_count(),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_prepared_descriptors(
@@ -5128,10 +5200,16 @@ impl Tracer {
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
                         cmdbuf,
-                        &[(
-                            "tree_leaf_shadow_instances",
-                            DescriptorResource::Buffer(&instance.resources.shadow_instances_buf),
-                        )],
+                        &[
+                            (
+                                "tree_leaf_shadow_instances",
+                                DescriptorResource::Buffer(
+                                    &instance.resources.shadow_instances_buf,
+                                ),
+                            ),
+                            self.vegetation_response.descriptors()[0],
+                            self.vegetation_response.descriptors()[1],
+                        ],
                     )
                     .unwrap_or_else(|error| {
                         panic!(
@@ -5855,6 +5933,21 @@ impl Tracer {
             self.direct_sun_shadows.invalidate_local_histories();
         }
         changed
+    }
+
+    pub(crate) fn validate_vegetation_response_draw_coverage(&self) -> Result<()> {
+        self.vegetation_response.validate_draw_coverage()
+    }
+
+    pub(crate) fn attached_fruit_handoff(&self, roots: &[UVec3]) -> Result<Vec<(Vec3, Vec3)>> {
+        let bytes = self.resources.uniforms.gui_input.read_back()?;
+        let gui = bytemuck::pod_read_unaligned(&bytes);
+        self.vegetation_response.fruit_handoff(
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            &gui,
+            roots,
+        )
     }
 
     pub fn project_screen_point_to_world(
