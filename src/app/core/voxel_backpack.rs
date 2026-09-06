@@ -1,6 +1,7 @@
 use crate::builder::{
-    ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE,
-    VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
+    ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_IVY,
+    VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_PETAL, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+    VOXEL_TYPE_STUCCO,
 };
 use crate::voxel_material::{material_for, VoxelMaterialMode, VoxelSurfaceClass};
 
@@ -13,10 +14,13 @@ pub(super) enum BackpackVoxel {
     OakWood,
     Rock,
     Emissive,
+    Limestone,
+    Ivy,
+    Petal,
 }
 
 impl BackpackVoxel {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 10] = [
         Self::Dirt,
         Self::Sand,
         Self::Stucco,
@@ -24,6 +28,9 @@ impl BackpackVoxel {
         Self::OakWood,
         Self::Rock,
         Self::Emissive,
+        Self::Limestone,
+        Self::Ivy,
+        Self::Petal,
     ];
 
     pub(super) fn voxel_type(self) -> u32 {
@@ -35,6 +42,9 @@ impl BackpackVoxel {
             Self::OakWood => VOXEL_TYPE_OAK_WOOD,
             Self::Rock => VOXEL_TYPE_ROCK,
             Self::Emissive => VOXEL_TYPE_EMISSIVE,
+            Self::Limestone => VOXEL_TYPE_LIMESTONE,
+            Self::Ivy => VOXEL_TYPE_IVY,
+            Self::Petal => VOXEL_TYPE_PETAL,
         }
     }
 
@@ -47,6 +57,9 @@ impl BackpackVoxel {
             Self::OakWood => "Oak wood",
             Self::Rock => "Rock",
             Self::Emissive => "Emissive",
+            Self::Limestone => "Limestone",
+            Self::Ivy => "Ivy",
+            Self::Petal => "Petals",
         }
     }
 
@@ -59,6 +72,9 @@ impl BackpackVoxel {
             Self::OakWood => [159, 110, 70],
             Self::Rock => [168, 176, 190],
             Self::Emissive => crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8,
+            Self::Limestone => [224, 222, 204],
+            Self::Ivy => [56, 117, 43],
+            Self::Petal => [235, 138, 166],
         }
     }
 
@@ -71,6 +87,9 @@ impl BackpackVoxel {
             Self::OakWood => 4,
             Self::Rock => 5,
             Self::Emissive => 6,
+            Self::Limestone => 7,
+            Self::Ivy => 8,
+            Self::Petal => 9,
         }
     }
 }
@@ -91,11 +110,23 @@ impl VoxelBackpack {
         self.counts[voxel.index()]
     }
 
-    pub(super) fn snapshot(&self) -> [VoxelBackpackEntry; BackpackVoxel::ALL.len()] {
-        BackpackVoxel::ALL.map(|voxel| VoxelBackpackEntry {
-            voxel,
-            count: self.count(voxel),
-        })
+    pub(super) fn snapshot(&self) -> Vec<VoxelBackpackEntry> {
+        BackpackVoxel::ALL
+            .into_iter()
+            .map(|voxel| VoxelBackpackEntry {
+                voxel,
+                count: self.count(voxel),
+            })
+            .filter(|entry| {
+                // Rare authored materials appear when collected; preserve the compact
+                // default garden backpack without dropping their inventory identity.
+                entry.count > 0
+                    || !matches!(
+                        entry.voxel,
+                        BackpackVoxel::Limestone | BackpackVoxel::Ivy | BackpackVoxel::Petal
+                    )
+            })
+            .collect()
     }
 
     pub(super) fn deposit(&mut self, voxel: BackpackVoxel, amount: u32) {
@@ -181,6 +212,33 @@ mod tests {
             BackpackVoxel::Emissive.color_rgb(),
             crate::lighting::EMISSIVE_VOXEL_COLOR_RGB8
         );
+    }
+
+    #[test]
+    fn cottage_materials_are_recovered_and_replaced_with_their_original_identity() {
+        let mut backpack = VoxelBackpack::default();
+        assert_eq!(backpack.snapshot().len(), 7);
+        let mut stats = ChunkModifyStats::default();
+        for voxel in [
+            BackpackVoxel::Limestone,
+            BackpackVoxel::Ivy,
+            BackpackVoxel::Petal,
+        ] {
+            stats.removed_counts[voxel.voxel_type() as usize] = 4;
+        }
+        backpack.deposit_removed(&stats, VoxelMaterialMode::GlassExperiment);
+        assert_eq!(backpack.snapshot().len(), 10);
+        for voxel in [
+            BackpackVoxel::Limestone,
+            BackpackVoxel::Ivy,
+            BackpackVoxel::Petal,
+        ] {
+            assert_eq!(backpack.first_available(), Some((voxel, 4)));
+            backpack.withdraw(voxel, 4);
+        }
+        assert_eq!(backpack.first_available(), None);
+        assert_eq!(backpack.count(BackpackVoxel::Rock), 0);
+        assert_eq!(backpack.snapshot().len(), 7);
     }
 
     #[test]

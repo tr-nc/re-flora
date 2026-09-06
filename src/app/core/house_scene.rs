@@ -631,6 +631,26 @@ impl App {
             walk.translation,
             walk.grounded
         );
+        let approach_ground = self
+            .query_terrain_ray_cpu(Vec3::new(CENTER_X / 256.0, 1.1, 420.0 / 256.0), Vec3::NEG_Y)
+            .context("missing cottage approach")?;
+        let mut approach = approach_ground.position + Vec3::Y * 0.081;
+        for _ in 0..120 {
+            let movement = self.terrain_physics.move_player_capsule(
+                crate::gameplay::camera::PlayerWalkMovementRequest {
+                    camera_position: approach,
+                    camera_height: 0.08,
+                    desired_translation: Vec3::new(0.0, -0.05 / 60.0, -1.0 / 256.0),
+                },
+                1.0 / 60.0,
+            )?;
+            approach += movement.translation;
+        }
+        anyhow::ensure!(
+            approach.z < 320.0 / 256.0,
+            "player cannot walk from the garden up the cottage steps: {approach:?}"
+        );
+        log::info!("[HOUSE_SCENE][APPROACH] from_z=420 steps=120 final_voxels={:?} production_capsule=true", approach * 256.0);
         log::info!("[HOUSE_SCENE][PASSAGE] player_eye_y={eye:.5} doorway_ray_hit_z={:.5} floor_material={} published_cpu_collision=true", hit.position.z, floor.voxel_type);
         Ok(())
     }
@@ -639,6 +659,23 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cottage_materials_keep_solid_collision_and_opaque_light_transport() {
+        use crate::voxel_material::{material_for, VoxelMaterialMode, VoxelSurfaceClass};
+        for voxel_type in [VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_IVY, VOXEL_TYPE_PETAL] {
+            let material = material_for(voxel_type, VoxelMaterialMode::GlassExperiment);
+            assert_eq!(
+                material,
+                material_for(voxel_type, VoxelMaterialMode::Standard)
+            );
+            assert_eq!(material.surface_class, VoxelSurfaceClass::Opaque);
+            assert!(material.collision_solid && material.water_solid && material.terrain_support);
+            assert!(material.blocks_ddgi_visibility && material.probe_relocation_solid);
+            assert!(!material.soil_state_allowed);
+            assert!(voxel_type < crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT as u32);
+        }
+    }
 
     #[test]
     fn cottage_keeps_two_thin_glass_panes_and_a_clear_threshold() {

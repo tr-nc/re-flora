@@ -50,6 +50,11 @@ fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
         crate::builder::VOXEL_TYPE_EMISSIVE => {
             super::voxel_backpack::BackpackVoxel::Emissive.color_rgb()
         }
+        crate::builder::VOXEL_TYPE_LIMESTONE => {
+            super::voxel_backpack::BackpackVoxel::Limestone.color_rgb()
+        }
+        crate::builder::VOXEL_TYPE_IVY => super::voxel_backpack::BackpackVoxel::Ivy.color_rgb(),
+        crate::builder::VOXEL_TYPE_PETAL => super::voxel_backpack::BackpackVoxel::Petal.color_rgb(),
         _ => [210, 190, 140],
     }
 }
