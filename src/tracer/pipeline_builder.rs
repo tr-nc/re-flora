@@ -792,7 +792,7 @@ impl PipelineBuilder {
         );
         vegetation_response_ppl
             .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
+                anchor: "wind_field_info",
                 providers: &[resources],
             })
             .expect("vegetation response wind descriptors must resolve");
@@ -1681,7 +1681,7 @@ impl PipelineTopology {
         retire_compute(
             &self.compute.vegetation_response_ppl,
             DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
+                anchor: "wind_field_info",
                 providers: &tracer_resources,
             },
             "vegetation response descriptors must resolve during resize",

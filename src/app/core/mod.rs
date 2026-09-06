@@ -116,7 +116,7 @@ use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
-use crate::wind::{WindResponseCurve, WindSource};
+use crate::wind_response::WindResponseCurve;
 use crate::{
     cli::{AudioPlan, PlatformPlan, WorldPlan},
     egui_renderer::EguiRenderer,
@@ -169,8 +169,6 @@ const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 const CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED: u64 = 122;
 const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_EXTENTS: usize = 2;
 const CANOPY_AUDIO_BUDGET_DIAGNOSTIC_MAX_RAYS: usize = 32;
-const CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES: [WindSource; 1] =
-    [WindSource::new(35.0, 1.0, 1.0, 3, 2.0, 0.5, 0.75)];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GlobalKeyboardCommand {
@@ -415,7 +413,7 @@ pub struct App {
     world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
-    wind_prototype: Option<wind_prototype::WindPrototype>,
+    wind_prototype: wind_prototype::WindPrototype,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1307,9 +1305,8 @@ impl App {
             debug_settings.tree.desc = fixed_tree_desc;
             debug_settings.adjustables.tree_age.value = 1.0;
             log::info!(
-                "[AUDIO][CANOPY][DIAGNOSTIC] fixed_tree_seed={} fixed_tree_age=1.0 fixed_wind={:?}",
+                "[AUDIO][CANOPY][DIAGNOSTIC] fixed_tree_seed={} fixed_tree_age=1.0 fixed_wind_strength=0.75 fixed_wind_heading=35",
                 CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
-                CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES,
             );
         }
         spatial_sound_manager.set_environmental_acoustics_quality(
@@ -1416,7 +1413,7 @@ impl App {
             }),
 
             cursor_position_physical: None,
-            wind_prototype: wind_prototype::WindPrototype::from_environment(),
+            wind_prototype: wind_prototype::WindPrototype::new(),
             camera_control: CameraControlRuntime::default(),
             modifiers: ModifiersState::default(),
             perf_logging: render.perf_logging,
@@ -1480,9 +1477,7 @@ impl App {
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
-                if std::env::var_os("RE_FLORA_WIND_PROTOTYPE").is_some()
-                    && std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some()
-                {
+                if std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some() {
                     tools.select_item_panel_slot(ui_style::WIND_SLOT_INDEX);
                 }
                 tools
@@ -2074,9 +2069,7 @@ impl App {
                         ..
                     }
                 ) {
-                    if let Some(prototype) = &mut self.wind_prototype {
-                        prototype.cancel();
-                    }
+                    self.wind_prototype.cancel();
                 }
                 if let WindowEvent::CursorMoved { position, .. } = &event {
                     self.sync_orbit_mouse_drag_position(Vec2::new(
@@ -2371,17 +2364,25 @@ impl App {
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let configured_wind_sources =
-                    GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                let active_wind_sources = match canopy_audio_frame.wind_policy() {
-                    launch_owners::CanopyAudioWindPolicy::Configured => &configured_wind_sources,
+                let extent = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+                self.wind_prototype
+                    .field
+                    .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
+                self.wind_prototype.advance(visual_time_since_start);
+                let wind = match canopy_audio_frame.wind_policy() {
+                    launch_owners::CanopyAudioWindPolicy::Configured => {
+                        self.wind_prototype.field.frame()
+                    }
                     launch_owners::CanopyAudioWindPolicy::Diagnostic => {
-                        &CANOPY_AUDIO_DIAGNOSTIC_WIND_SOURCES[..]
+                        let angle = 35_f32.to_radians();
+                        crate::wind_field::WindFieldFrame::uniform(
+                            Vec2::new(angle.cos(), angle.sin()) * 0.75,
+                        )
                     }
                 };
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
-                    active_wind_sources,
+                    &wind,
                     self.debug_settings
                         .adjustables
                         .wind_audio_attack_decay
@@ -2576,15 +2577,6 @@ impl App {
                 let prototype_matrix = self.tracer.camera_view_projection();
                 let prototype_extent = self.window_state.window_extent();
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
-                if let Some(prototype) = &mut self.wind_prototype {
-                    let extent = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-                    prototype
-                        .field
-                        .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
-                    prototype.field.saved_sources =
-                        GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
-                    prototype.advance(visual_time_since_start);
-                }
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -2592,9 +2584,7 @@ impl App {
                         apply_gui_style(&mut style);
                         ctx.set_global_style(style);
 
-                        if let Some(prototype) = &mut self.wind_prototype {
-                            prototype.overlay(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
-                        }
+                        self.wind_prototype.overlay(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
 
                         if hide_ui_for_environment_test_capture
                             || hide_ui_for_frame_stability_bench
@@ -2720,9 +2710,7 @@ impl App {
                                         .show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
-                                                    if let Some(prototype) = self.wind_prototype.as_mut() {
-                                                        prototype.controls(ui);
-                                                    }
+                                                    self.wind_prototype.controls(ui);
                                                 }
                                             });
 
@@ -2920,7 +2908,7 @@ impl App {
                         }
                         self.config_panel_visible = config_panel_open;
 
-                        let mut item_panel_slots = vec![
+                        let item_panel_slots = vec![
                             ItemPanelSlot {
                                 index: HAND_SLOT_INDEX,
                                 label: "Hand",
@@ -3020,9 +3008,7 @@ impl App {
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
-                        ];
-                        if self.wind_prototype.is_some() {
-                            item_panel_slots.push(ItemPanelSlot {
+                            ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
                                 label: "Wind",
                                 key_hint: "9",
@@ -3030,8 +3016,8 @@ impl App {
                                 icon: None,
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
-                            });
-                        }
+                            },
+                        ];
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
@@ -3512,9 +3498,7 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
-                if let Some(prototype) = &self.wind_prototype {
-                    frame_inputs.wind.field = prototype.field.frame();
-                }
+                frame_inputs.wind.field = self.wind_prototype.field.frame();
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture

@@ -28,9 +28,6 @@ public struct U_GuiInput
     public float glass_glint_strength;
     public float lens_flare_intensity;
     public float lens_flare_sun_pixel_scale;
-    public uint wind_source_count;
-    public float wind_directional_bias_fraction;
-    public float wind_turbulence_fraction;
     public float world_tick_seconds;
     public float grass_vibration_amplitude_voxels;
     public float grass_vibration_primary_speed;

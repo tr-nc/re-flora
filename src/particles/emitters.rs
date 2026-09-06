@@ -9,7 +9,8 @@ use super::{
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
 };
 use crate::tracer::ButterflyPalettePreset;
-use crate::wind::{Wind, WindResponseCurve};
+use crate::wind_field::WindFieldFrame;
+use crate::wind_response::WindResponseCurve;
 
 pub const WORM_STEP_LEN: f32 = 0.15;
 
@@ -140,7 +141,6 @@ pub struct FallenLeafEmitter {
     rng: SmallRng,
     spawn_accumulator: f32,
     pub enabled: bool,
-    wind: Wind,
 }
 
 impl FallenLeafEmitter {
@@ -162,7 +162,6 @@ impl FallenLeafEmitter {
             rng,
             spawn_accumulator: 0.0,
             enabled: true,
-            wind: Wind::new(),
         }
     }
 
@@ -216,25 +215,22 @@ impl FallenLeafEmitter {
         let _ = system.spawn(spawn);
     }
 
-    fn wind_spawn_multiplier(&self, time: f32) -> f32 {
-        self.wind.sample_response(
-            self.center,
-            time,
-            WindResponseCurve {
-                min_strength: self.wind_spawn_min_strength,
-                max_strength: self.wind_spawn_max_strength,
-                power: self.wind_spawn_power,
-            },
-        )
+    fn wind_spawn_multiplier(&self, wind: &WindFieldFrame) -> f32 {
+        WindResponseCurve {
+            min_strength: self.wind_spawn_min_strength,
+            max_strength: self.wind_spawn_max_strength,
+            power: self.wind_spawn_power,
+        }
+        .factor(wind.sample_world(self.center).length())
     }
 }
 
-impl ParticleEmitter for FallenLeafEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, dt: f32, time: f32) {
+impl FallenLeafEmitter {
+    pub fn update(&mut self, system: &mut ParticleSystem, dt: f32, wind: &WindFieldFrame) {
         if !self.enabled || self.spawn_rate <= 0.0 {
             return;
         }
-        let wind_multiplier = self.wind_spawn_multiplier(time) * self.fall_chance;
+        let wind_multiplier = self.wind_spawn_multiplier(wind) * self.fall_chance;
         if wind_multiplier <= 0.0 {
             return;
         }
@@ -758,8 +754,30 @@ mod tests {
         emitter.spawn_leaf(&mut system);
 
         emitter.enabled = false;
-        emitter.update(&mut system, 10.0, 0.0);
+        emitter.update(&mut system, 10.0, &WindFieldFrame::default());
 
         assert_eq!(system.alive_count(), 1);
+    }
+
+    #[test]
+    fn leaf_emission_uses_the_supplied_spatial_wind_and_stops_when_it_is_calm() {
+        let mut system = ParticleSystem::new(16);
+        let mut emitter =
+            FallenLeafEmitter::new(Vec3::ZERO, Vec::new(), 1, &LeafEmitterDesc::default());
+        emitter.spawn_rate = 2.;
+        emitter.fall_chance = 1.;
+        let mut wind = WindFieldFrame::uniform(glam::Vec2::X);
+        // Only the far X edge has wind; the tree starts outside that edge.
+        for (i, pair) in wind.cells.iter_mut().enumerate() {
+            pair[0] = if (i * 2) % 32 == 31 { 1. } else { 0. };
+            pair[2] = if (i * 2 + 1) % 32 == 31 { 1. } else { 0. };
+        }
+        emitter.update(&mut system, 1., &wind);
+        assert_eq!(system.alive_count(), 0);
+        emitter.center = Vec3::new(2., 0., 0.);
+        emitter.update(&mut system, 1., &wind);
+        assert_eq!(system.alive_count(), 2);
+        emitter.update(&mut system, 1., &WindFieldFrame::default());
+        assert_eq!(system.alive_count(), 2);
     }
 }

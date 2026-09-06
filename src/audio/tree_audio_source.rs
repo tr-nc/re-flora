@@ -1,7 +1,8 @@
 use crate::audio::{
     CanopyAcousticDescriptor, CanopyAudioGenerationKey, CanopyAudioSourceKey, SpatialSoundManager,
 };
-use crate::wind::{Wind, WindResponseCurve, WindSource};
+use crate::wind_field::WindFieldFrame;
+use crate::wind_response::WindResponseCurve;
 use anyhow::Result;
 use uuid::Uuid;
 
@@ -113,27 +114,13 @@ impl CanopyAudioVoice {
 
     pub fn update(
         &mut self,
-        wind: &Wind,
+        wind: &WindFieldFrame,
         time_seconds: f32,
-        wind_sources: &[WindSource],
         wind_audio_attack_decay: f32,
         wind_audio_release_decay: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let target_response = self
-            .descriptor
-            .samples()
-            .iter()
-            .map(|sample| {
-                let position = self.descriptor.sample_world_position(sample);
-                sample.weight()
-                    * Self::linear_sampled_wind_response(
-                        wind.sample_sources(position, time_seconds, wind_sources)
-                            .length(),
-                    )
-            })
-            .sum::<f32>()
-            .clamp(0.0, 1.0);
+        let target_response = Self::sampled_response(&self.descriptor, wind);
         let response = self.inertial_response(
             target_response,
             time_seconds,
@@ -143,6 +130,19 @@ impl CanopyAudioVoice {
         self.target_response = target_response;
         self.last_update_time_seconds = Some(time_seconds);
         self.apply_response_volume(response, spatial_sound_manager)
+    }
+
+    fn sampled_response(descriptor: &CanopyAcousticDescriptor, wind: &WindFieldFrame) -> f32 {
+        descriptor
+            .samples()
+            .iter()
+            .map(|sample| {
+                let position = descriptor.sample_world_position(sample);
+                sample.weight()
+                    * Self::linear_sampled_wind_response(wind.sample_world(position).length())
+            })
+            .sum::<f32>()
+            .clamp(0.0, 1.0)
     }
 
     fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
@@ -211,6 +211,39 @@ impl CanopyAudioVoice {
 #[cfg(test)]
 mod tests {
     use super::CanopyAudioVoice;
+
+    #[test]
+    fn canopy_response_samples_the_shared_field_at_its_weighted_leaf_positions() {
+        use crate::{
+            audio::CanopyAcousticDescriptor, tree_gen::LeafPlacement, wind_field::WindFieldFrame,
+        };
+        use glam::{Vec2, Vec3};
+        let descriptor = CanopyAcousticDescriptor::build(
+            1,
+            Vec3::new(0.75, 0.5, 1.),
+            11,
+            &[-32., 32.].map(|x| LeafPlacement {
+                position: Vec3::new(x, 4., 0.),
+                anchor: Vec3::ZERO,
+            }),
+            &[],
+        );
+        assert_eq!(descriptor.samples().len(), 2);
+        assert_eq!(
+            CanopyAudioVoice::sampled_response(&descriptor, &WindFieldFrame::default()),
+            0.
+        );
+        let mut wind = WindFieldFrame::uniform(Vec2::ZERO);
+        for (i, pair) in wind.cells.iter_mut().enumerate() {
+            pair[0] = ((i * 2) % 32) as f32 / 31. * 8.;
+            pair[2] = ((i * 2 + 1) % 32) as f32 / 31. * 8.;
+        }
+        assert!((CanopyAudioVoice::sampled_response(&descriptor, &wind) - 0.375).abs() < 1e-6);
+        assert_eq!(
+            CanopyAudioVoice::sampled_response(&descriptor, &WindFieldFrame::uniform(Vec2::X * 8.)),
+            1.
+        );
+    }
 
     #[test]
     fn generation_gain_uses_lifecycle_power_without_sample_count_gain() {

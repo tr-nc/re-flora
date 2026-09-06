@@ -130,12 +130,6 @@ impl TreeLeafEmitter {
     }
 }
 
-impl ParticleEmitter for TreeLeafEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, dt: f32, time: f32) {
-        self.emitter.update(system, dt, time);
-    }
-}
-
 pub(super) struct TreeLeafEmitterRuntime {
     emitters: Vec<TreeLeafEmitter>,
     indices_by_tree: HashMap<u32, Vec<usize>>,
@@ -203,12 +197,12 @@ impl TreeLeafEmitterRuntime {
         &mut self,
         particle_system: &mut ParticleSystem,
         dt: f32,
-        time: f32,
+        wind: &crate::wind_field::WindFieldFrame,
         enabled: bool,
     ) {
         for emitter in &mut self.emitters {
             emitter.emitter.enabled = enabled;
-            emitter.update(particle_system, dt, time);
+            emitter.emitter.update(particle_system, dt, wind);
         }
     }
 
@@ -534,7 +528,7 @@ impl App {
             self.trees.advance_leaf_emitters(
                 &mut self.particle_system,
                 dt,
-                wind_time,
+                &self.wind_prototype.field.frame(),
                 self.render_flags.enable_leaves,
             );
             let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;

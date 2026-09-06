@@ -12,7 +12,6 @@ use crate::app::gui_config_model::{
 };
 use crate::app::tree_gui::edit_tree_desc;
 use crate::tree_gen::TreeDesc;
-use crate::wind::WindSource;
 use egui::Color32;
 use std::path::Path;
 mod debug_groups;
@@ -26,7 +25,6 @@ pub use generated::GuiAdjustables;
 pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
-    pub wind_sources: Vec<WindSourceGuiValues>,
     pub tree: TreeGuiConfig,
     save_status: Option<String>,
 }
@@ -39,7 +37,6 @@ impl DebugSettings {
 
     fn from_config(config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
-        let wind_sources = wind_sources_from_config(&config);
         let tree = config.tree.clone().unwrap_or_else(|| TreeGuiConfig {
             render_leaves: true,
             desc: TreeDesc::default(),
@@ -47,7 +44,6 @@ impl DebugSettings {
         Self {
             config,
             adjustables,
-            wind_sources,
             tree,
             save_status: None,
         }
@@ -74,7 +70,6 @@ impl DebugSettings {
     fn sync_config(&mut self) {
         self.adjustables.write_to_config(
             &mut self.config,
-            &self.wind_sources,
             &self.tree.desc,
             self.tree.render_leaves,
         );
@@ -88,12 +83,11 @@ impl DebugSettings {
         let Self {
             config,
             adjustables,
-            wind_sources,
             tree,
             ..
         } = self;
         let mut tree_desc_changed = false;
-        render_gui_from_config(ui, config, adjustables, wind_sources, |section_name, ui| {
+        render_gui_from_config(ui, config, adjustables, |section_name, ui| {
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
                     tree_desc_changed |=
@@ -157,23 +151,9 @@ impl GuiAdjustables {
         }
     }
 
-    pub fn active_wind_sources(wind_sources: &[WindSourceGuiValues]) -> Vec<WindSource> {
-        wind_sources
-            .iter()
-            .map(|values| {
-                let mut source = values.source;
-                if values.muted {
-                    source.gain = 0.0;
-                }
-                source
-            })
-            .collect()
-    }
-
     fn write_to_config(
         &self,
         config: &mut GuiConfigFile,
-        wind_sources: &[WindSourceGuiValues],
         tree_desc: &TreeDesc,
         render_leaves: bool,
     ) {
@@ -184,15 +164,6 @@ impl GuiAdjustables {
 
         for section in &mut config.section {
             for param in &mut section.param {
-                if is_wind_source_param_id(&param.id) {
-                    continue;
-                }
-
-                if param.id == "wind_source_count" {
-                    param.value.set_uint(wind_sources.len() as u32);
-                    continue;
-                }
-
                 match param.kind {
                     GuiParamKind::Float => {
                         let field = Self::get_float_param(self, &param.id).unwrap_or_else(|| {
@@ -258,13 +229,6 @@ impl GuiAdjustables {
                         param.value.set_color(color_to_hex(field.value));
                     }
                 }
-            }
-
-            if section.name == "Wind" {
-                section
-                    .param
-                    .retain(|param| !is_wind_source_param_id(&param.id));
-                section.param.extend(wind_source_params(wind_sources));
             }
         }
     }
@@ -377,208 +341,6 @@ impl GuiAdjustables {
         id: &str,
     ) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
         generated::get_color_param_mut(adjustables, id)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct WindSourceGuiValues {
-    pub name: String,
-    pub muted: bool,
-    pub source: WindSource,
-}
-
-impl Default for WindSourceGuiValues {
-    fn default() -> Self {
-        Self {
-            name: "Wind Source".to_owned(),
-            muted: false,
-            source: WindSource::default(),
-        }
-    }
-}
-
-fn is_wind_source_param_id(id: &str) -> bool {
-    parse_wind_source_param_id(id).is_some()
-}
-
-fn parse_wind_source_param_id(id: &str) -> Option<(usize, &str)> {
-    let rest = id.strip_prefix("wind_source_")?;
-    let (index, field) = rest.split_once('_')?;
-    Some((index.parse().ok()?, field))
-}
-
-fn wind_source_params(
-    wind_sources: &[WindSourceGuiValues],
-) -> Vec<crate::app::gui_config_model::GuiParam> {
-    use crate::app::gui_config_model::GuiParam;
-
-    let persisted_count = wind_sources.len().max(4);
-    let mut persisted_sources = wind_sources.to_vec();
-    persisted_sources.resize_with(persisted_count, WindSourceGuiValues::default);
-
-    let mut params = Vec::new();
-    for (index, values) in persisted_sources.iter().enumerate() {
-        let prefix = format!("wind_source_{index}");
-        params.push(GuiParam {
-            id: format!("{prefix}_name"),
-            kind: GuiParamKind::String,
-            label: format!("Wind Source {} Name", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::String {
-                value: values.name.clone(),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_muted"),
-            kind: GuiParamKind::Bool,
-            label: format!("Wind Source {} Active", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Bool {
-                value: values.muted,
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_direction_deg"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Direction", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.direction_degrees,
-                min: Some(0.0),
-                max: Some(360.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_speed"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Speed", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.speed,
-                min: Some(0.0),
-                max: Some(4.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_pattern_scale"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Pattern Scale", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.pattern_scale,
-                min: Some(0.05),
-                max: Some(8.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_octaves"),
-            kind: GuiParamKind::Uint,
-            label: format!("Wind Source {} Octaves", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Uint {
-                value: values.source.octaves,
-                min: Some(1),
-                max: Some(8),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_lacunarity"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Lacunarity", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.lacunarity,
-                min: Some(1.0),
-                max: Some(4.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_persistence"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Persistence", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.persistence,
-                min: Some(0.0),
-                max: Some(1.0),
-            },
-        });
-        params.push(GuiParam {
-            id: format!("{prefix}_gain"),
-            kind: GuiParamKind::Float,
-            label: format!("Wind Source {} Gain", index + 1),
-            enabled_if: None,
-            value: GuiParamValue::Float {
-                value: values.source.gain,
-                min: Some(0.0),
-                max: Some(8.0),
-            },
-        });
-    }
-    params
-}
-
-pub fn wind_sources_from_config(config: &GuiConfigFile) -> Vec<WindSourceGuiValues> {
-    let Some(section) = config.section.iter().find(|section| section.name == "Wind") else {
-        return Vec::new();
-    };
-
-    let mut count = None;
-    let mut max_index = None;
-    let mut sources = Vec::<WindSourceGuiValues>::new();
-
-    for param in &section.param {
-        if param.id == "wind_source_count" {
-            if let GuiParamValue::Uint { value, .. } = param.value {
-                count = Some(value as usize);
-            }
-            continue;
-        }
-
-        let Some((index, field)) = parse_wind_source_param_id(&param.id) else {
-            continue;
-        };
-        max_index = Some(max_index.map_or(index, |max: usize| max.max(index)));
-        if sources.len() <= index {
-            sources.resize_with(index + 1, WindSourceGuiValues::default);
-        }
-        let values = &mut sources[index];
-        match (field, &param.value) {
-            ("name", GuiParamValue::String { value }) => values.name = value.clone(),
-            ("muted", GuiParamValue::Bool { value }) => values.muted = *value,
-            ("direction_deg", GuiParamValue::Float { value, .. }) => {
-                values.source.direction_degrees = *value
-            }
-            ("speed", GuiParamValue::Float { value, .. }) => values.source.speed = *value,
-            ("pattern_scale", GuiParamValue::Float { value, .. }) => {
-                values.source.pattern_scale = *value
-            }
-            ("octaves", GuiParamValue::Uint { value, .. }) => values.source.octaves = *value,
-            ("lacunarity", GuiParamValue::Float { value, .. }) => values.source.lacunarity = *value,
-            ("persistence", GuiParamValue::Float { value, .. }) => {
-                values.source.persistence = *value
-            }
-            ("gain", GuiParamValue::Float { value, .. }) => values.source.gain = *value,
-            _ => {}
-        }
-    }
-
-    let desired_count = count
-        .or_else(|| max_index.map(|index| index + 1))
-        .unwrap_or(0);
-    sources.resize_with(desired_count, WindSourceGuiValues::default);
-    sources.truncate(desired_count);
-    for (index, source) in sources.iter_mut().enumerate() {
-        if source.name == "Wind Source" {
-            source.name = format!("Wind Source {}", index + 1);
-        }
-    }
-    sources
-}
-
-fn delete_wind_source(wind_sources: &mut Vec<WindSourceGuiValues>, index: usize) {
-    if index < wind_sources.len() {
-        wind_sources.remove(index);
     }
 }
 
@@ -877,119 +639,6 @@ fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
     });
 }
 
-fn is_custom_wind_param(id: &str) -> bool {
-    id == "wind_source_count"
-        || is_wind_source_param_id(id)
-        || matches!(
-            id,
-            "wind_audio_attack_decay"
-                | "wind_audio_release_decay"
-                | "wind_directional_bias_fraction"
-                | "wind_turbulence_fraction"
-        )
-}
-
-fn render_wind_sources_gui(
-    ui: &mut egui::Ui,
-    adjustables: &mut GuiAdjustables,
-    wind_sources: &mut Vec<WindSourceGuiValues>,
-) {
-    adjustables.wind_source_count.value = wind_sources.len() as u32;
-
-    ui.horizontal(|ui| {
-        ui.label(format!("Wind Sources: {}", wind_sources.len()));
-        if ui.button("+ Wind Source").clicked() {
-            wind_sources.push(WindSourceGuiValues {
-                name: format!("Wind Source {}", wind_sources.len() + 1),
-                ..WindSourceGuiValues::default()
-            });
-        }
-    });
-
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_audio_attack_decay.value,
-            adjustables.wind_audio_attack_decay.range.clone(),
-        )
-        .text("Audio Attack Decay (0 slow, 1 fast)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_audio_release_decay.value,
-            adjustables.wind_audio_release_decay.range.clone(),
-        )
-        .text("Audio Release Decay (0 slow, 1 fast)"),
-    );
-
-    ui.add_space(4.0);
-    ui.label("Wind Shape");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_directional_bias_fraction.value,
-            adjustables.wind_directional_bias_fraction.range.clone(),
-        )
-        .text("Directional Bias Fraction"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_turbulence_fraction.value,
-            adjustables.wind_turbulence_fraction.range.clone(),
-        )
-        .text("Turbulence Fraction"),
-    );
-
-    if wind_sources.is_empty() {
-        ui.label("No wind sources.");
-        return;
-    }
-
-    let mut delete_index = None;
-    for (index, values) in wind_sources.iter_mut().enumerate() {
-        ui.add_space(4.0);
-        let title = if values.muted {
-            format!("{}: {} (inactive)", index + 1, values.name)
-        } else {
-            format!("{}: {}", index + 1, values.name)
-        };
-        ui.collapsing(title, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Delete").clicked() {
-                    delete_index = Some(index);
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut values.name);
-            });
-            let mut active = !values.muted;
-            if ui.checkbox(&mut active, "Active").changed() {
-                values.muted = !active;
-            }
-            ui.add(
-                egui::Slider::new(&mut values.source.direction_degrees, 0.0..=360.0)
-                    .text("Direction (deg)"),
-            );
-            ui.add(egui::Slider::new(&mut values.source.speed, 0.0..=4.0).text("Speed"));
-            ui.add(
-                egui::Slider::new(&mut values.source.pattern_scale, 0.05..=8.0)
-                    .text("Pattern Scale"),
-            );
-            ui.add(egui::Slider::new(&mut values.source.octaves, 1..=8).text("Octaves"));
-            ui.add(egui::Slider::new(&mut values.source.lacunarity, 1.0..=4.0).text("Lacunarity"));
-            ui.add(
-                egui::Slider::new(&mut values.source.persistence, 0.0..=1.0).text("Persistence"),
-            );
-            ui.add(egui::Slider::new(&mut values.source.gain, 0.0..=8.0).text("Gain"));
-        });
-    }
-
-    if let Some(index) = delete_index {
-        delete_wind_source(wind_sources, index);
-    }
-    adjustables.wind_source_count.value = wind_sources.len() as u32;
-}
-
 fn render_gui_param_from_config(
     ui: &mut egui::Ui,
     param: &GuiParam,
@@ -1134,7 +783,6 @@ pub fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &GuiConfigFile,
     adjustables: &mut GuiAdjustables,
-    wind_sources: &mut Vec<WindSourceGuiValues>,
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
     for section in &config.section {
@@ -1149,7 +797,7 @@ pub fn render_gui_from_config(
             continue;
         }
         ui.collapsing(section_title(&section.name), |ui| {
-            render_section_controls(ui, section, adjustables, wind_sources);
+            render_section_controls(ui, section, adjustables);
             if let Some(debug) = config.section.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
@@ -1157,7 +805,7 @@ pub fn render_gui_from_config(
             for child in &config.section {
                 if section_parent(&child.name) == Some(section.name.as_str()) {
                     ui.collapsing(section_title(&child.name), |ui| {
-                        render_section_controls(ui, child, adjustables, wind_sources);
+                        render_section_controls(ui, child, adjustables);
                         after_section(&child.name, ui);
                     });
                 }
@@ -1170,17 +818,7 @@ fn render_section_controls(
     ui: &mut egui::Ui,
     section: &crate::app::gui_config_model::GuiSection,
     adjustables: &mut GuiAdjustables,
-    wind_sources: &mut Vec<WindSourceGuiValues>,
 ) {
-    if section.name == "Wind" {
-        for param in &section.param {
-            if !is_custom_wind_param(&param.id) {
-                render_gui_param_from_config(ui, param, &section.name, adjustables);
-            }
-        }
-        render_wind_sources_gui(ui, adjustables, wind_sources);
-        return;
-    }
     if section.name == "Flora" {
         for param in &section.param {
             if !is_custom_flora_param(&param.id) {
@@ -1224,10 +862,6 @@ mod tests {
     fn assert_generic_values_match(config: &GuiConfigFile, adjustables: &GuiAdjustables) {
         for section in &config.section {
             for param in &section.param {
-                if param.id == "wind_source_count" || is_wind_source_param_id(&param.id) {
-                    continue;
-                }
-
                 match (&param.kind, &param.value) {
                     (GuiParamKind::Float, GuiParamValue::Float { value, .. }) => assert_eq!(
                         GuiAdjustables::get_float_param(adjustables, &param.id)
@@ -1288,9 +922,6 @@ mod tests {
     fn custom_sections_fall_back_to_generic_rendering_for_unhandled_params() {
         assert!(!is_custom_flora_param("special_flora_plants_per_release"));
         assert!(is_custom_flora_param("grass_natural_bend_min_voxels"));
-        assert!(!is_custom_wind_param("future_wind_setting"));
-        assert!(is_custom_wind_param("wind_audio_attack_decay"));
-        assert!(is_custom_wind_param("wind_source_0_gain"));
     }
 
     #[test]
@@ -1328,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn current_debug_settings_write_complete_generic_tree_and_wind_state() {
+    fn current_debug_settings_write_complete_generic_and_tree_state() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.time_of_day.value = 0.987;
         settings.adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
@@ -1336,26 +967,10 @@ mod tests {
         settings.tree.desc.size = 19.5;
         settings.tree.desc.branching.seed = 9876;
         settings.tree.desc.fruit_swing_speed = 3.25;
-        settings.wind_sources = vec![
-            WindSourceGuiValues {
-                name: "Primary".to_owned(),
-                muted: false,
-                source: WindSource::new(45.0, 1.5, 2.0, 4, 2.25, 0.6, 1.2),
-            },
-            WindSourceGuiValues {
-                name: "Muted".to_owned(),
-                muted: true,
-                source: WindSource::new(270.0, 0.75, 0.8, 2, 1.75, 0.4, 0.5),
-            },
-        ];
 
         settings.sync_config();
 
         assert_generic_values_match(&settings.config, &settings.adjustables);
-        assert_eq!(
-            wind_sources_from_config(&settings.config),
-            settings.wind_sources
-        );
         assert_eq!(settings.config.tree, Some(settings.tree.clone()));
 
         let directory = tempfile::tempdir().unwrap();
@@ -1364,7 +979,6 @@ mod tests {
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
 
         assert_generic_values_match(&reloaded.config, &reloaded.adjustables);
-        assert_eq!(reloaded.wind_sources, settings.wind_sources);
         assert_eq!(reloaded.tree, settings.tree);
         assert_eq!(
             reloaded.adjustables.voxel_dirt_color.value,

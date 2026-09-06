@@ -158,16 +158,17 @@ impl Transport {
     }
 
     pub fn sample(&self, p: Vec2) -> Vec2 {
-        let q =
-            (p / self.extent * (SIDE - 1) as f32).clamp(Vec2::ZERO, Vec2::splat((SIDE - 1) as f32));
-        let x = (q.x as usize).min(SIDE - 2);
-        let z = (q.y as usize).min(SIDE - 2);
-        let f = q - Vec2::new(x as f32, z as f32);
-        self.values[z * SIDE + x]
-            .lerp(self.values[z * SIDE + x + 1], f.x)
-            .lerp(
-                self.values[(z + 1) * SIDE + x].lerp(self.values[(z + 1) * SIDE + x + 1], f.x),
-                f.y,
-            )
+        sample_grid(self.extent, p, |i| self.values[i])
     }
+}
+
+pub(super) fn sample_grid(extent: Vec2, p: Vec2, value: impl Fn(usize) -> Vec2) -> Vec2 {
+    let q = (p / extent * (SIDE - 1) as f32).clamp(Vec2::ZERO, Vec2::splat((SIDE - 1) as f32));
+    let x = (q.x as usize).min(SIDE - 2);
+    let z = (q.y as usize).min(SIDE - 2);
+    let f = q - Vec2::new(x as f32, z as f32);
+    value(z * SIDE + x).lerp(value(z * SIDE + x + 1), f.x).lerp(
+        value((z + 1) * SIDE + x).lerp(value((z + 1) * SIDE + x + 1), f.x),
+        f.y,
+    )
 }

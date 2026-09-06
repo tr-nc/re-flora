@@ -27,8 +27,8 @@ mod tracer;
 mod tree_gen;
 mod util;
 mod voxel_material;
-mod wind;
 mod wind_field;
+mod wind_response;
 mod window;
 
 use app::AppController;

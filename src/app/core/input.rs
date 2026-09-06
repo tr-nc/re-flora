@@ -394,18 +394,13 @@ impl App {
             self.cancel_pipe_drag();
         }
         if update.active_tool_changed() {
-            if let Some(prototype) = &mut self.wind_prototype {
-                prototype.cancel();
-            }
+            self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();
         }
         self.play_item_panel_scroll_sound();
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
-        if slot_idx == super::ui_style::WIND_SLOT_INDEX && self.wind_prototype.is_none() {
-            return;
-        }
         let update = self.player_tools.select_item_panel_slot(slot_idx);
         self.apply_player_tool_selection_update(update);
     }

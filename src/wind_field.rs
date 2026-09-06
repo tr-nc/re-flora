@@ -20,6 +20,31 @@ impl Default for WindFieldFrame {
     }
 }
 
+impl WindFieldFrame {
+    pub fn uniform(velocity: Vec2) -> Self {
+        Self {
+            domain: [512., 512., SIDE as f32, 1.],
+            cells: [[velocity.x, velocity.y, velocity.x, velocity.y]; CELLS / 2],
+        }
+    }
+
+    pub fn sample_world(&self, position: Vec3) -> Vec3 {
+        if self.domain[3] == 0. {
+            return Vec3::ZERO;
+        }
+        let velocity = transport::sample_grid(
+            Vec2::new(self.domain[0], self.domain[1]),
+            Vec2::new(position.x, position.z) * 256.,
+            |i| {
+                let pair = self.cells[i / 2];
+                let offset = (i % 2) * 2;
+                Vec2::new(pair[offset], pair[offset + 1])
+            },
+        );
+        Vec3::new(velocity.x, 0., velocity.y)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GustSettings {
     pub strength: f32,
@@ -78,7 +103,7 @@ impl Gust {
 }
 
 pub struct WindField {
-    pub mode: u32, // 0 original, 1 turning, 2 local detail
+    pub background_enabled: bool,
     pub heading_degrees: f32,
     pub strength: f32,
     pub propagation_speed: f32,
@@ -93,13 +118,12 @@ pub struct WindField {
     last_wall_time: Option<f32>,
     heading: f32,
     transport: Transport,
-    pub saved_sources: Vec<crate::wind::WindSource>,
 }
 
 impl Default for WindField {
     fn default() -> Self {
         Self {
-            mode: 2,
+            background_enabled: true,
             heading_degrees: 220.,
             strength: 1.5,
             propagation_speed: 50.,
@@ -114,7 +138,6 @@ impl Default for WindField {
             last_wall_time: None,
             heading: 220_f32.to_radians(),
             transport: Transport::default(),
-            saved_sources: Vec::new(),
         }
     }
 }
@@ -178,26 +201,13 @@ impl WindField {
             let h = dt.min(1.) / steps as f32;
             let time = self.time - h * (steps - step - 1) as f32;
             let inflow = |p: Vec2| {
-                if self.mode == 0 {
-                    let mean = self.saved_sources.iter().fold(Vec2::ZERO, |sum, s| {
-                        let a = s.direction_degrees.to_radians();
-                        sum + Vec2::new(a.cos(), a.sin()) * s.gain
-                    });
-                    let detail = crate::wind::Wind::new().sample_sources(
-                        Vec3::new(p.x, 0., p.y) / 256.,
-                        time,
-                        &self.saved_sources,
-                    );
-                    return (mean + Vec2::new(detail.x, detail.z) * 0.25).clamp_length_max(5.);
+                if !self.background_enabled {
+                    return Vec2::ZERO;
                 }
                 let phase = time * self.evolution_rate;
                 let q = p * (100. / self.detail_scale.max(1.)) + Vec2::splat(phase * 20.);
                 let n = noise.get_noise_2d(q.x, q.y);
-                let side = if self.mode == 2 {
-                    self.detail_strength * n
-                } else {
-                    0.
-                };
+                let side = self.detail_strength * n;
                 direction * self.strength * (1. + n * 0.25)
                     + Vec2::new(-direction.y, direction.x) * side
             };
@@ -264,10 +274,10 @@ mod tests {
         assert_eq!(field.gusts[0].direction, Vec2::Y);
     }
     #[test]
-    fn manual_gusts_work_in_every_background_mode() {
-        for mode in 0..=2 {
+    fn manual_gusts_work_with_or_without_background() {
+        for background_enabled in [false, true] {
             let mut field = WindField {
-                mode,
+                background_enabled,
                 ..WindField::default()
             };
             field.advance(0.);
@@ -278,14 +288,73 @@ mod tests {
     }
     #[test]
     fn advancing_any_background_never_emits_a_gust() {
-        let mut field = WindField::default();
-        for mode in 0..=2 {
-            field.mode = mode;
+        for background_enabled in [false, true] {
+            let mut field = WindField {
+                background_enabled,
+                ..WindField::default()
+            };
             for step in 0..10 {
-                field.advance((mode * 100 + step * 10) as f32);
+                field.advance(step as f32);
             }
             assert!(field.gusts.is_empty());
         }
+    }
+    #[test]
+    fn disabled_background_is_calm_but_manual_wind_still_propagates() {
+        let mut field = WindField {
+            background_enabled: false,
+            ..WindField::default()
+        };
+        field.advance(0.);
+        field.advance(1.);
+        assert!(field.frame().cells.iter().flatten().all(|v| *v == 0.));
+        field.release(Vec3::new(1., 0.5, 1.), Vec2::X);
+        field.advance(2.);
+        assert!(field.sample(Vec2::new(1.2, 1.) * 256.).x > 0.01);
+    }
+
+    #[test]
+    fn published_snapshot_matches_live_sampling_in_world_coordinates() {
+        let mut field = WindField::default();
+        field.set_extent(Vec2::new(640., 384.));
+        field.advance(0.);
+        field.release(Vec3::new(1., 0.5, 0.75), Vec2::new(1., 0.3));
+        field.advance(1.);
+        let frame = field.frame();
+        for x in [-0.1, 0., 0.37, 1.1, 2.8] {
+            for z in [-0.2, 0., 0.79, 1.6] {
+                let expected = field.sample(Vec2::new(x, z) * 256.);
+                let actual = frame.sample_world(Vec3::new(x, 0.7, z));
+                assert!((actual - Vec3::new(expected.x, 0., expected.y)).length() < 1e-6);
+            }
+        }
+        assert_eq!(
+            WindFieldFrame::default().sample_world(Vec3::ONE),
+            Vec3::ZERO
+        );
+    }
+
+    #[test]
+    fn local_disturbance_alone_controls_crosswind_detail() {
+        let build = |detail_strength| {
+            let mut field = WindField {
+                heading_degrees: 0.,
+                heading: 0.,
+                wander_degrees: 0.,
+                detail_strength,
+                ..WindField::default()
+            };
+            field.advance(0.);
+            field.advance(1.);
+            field.frame()
+        };
+        let smooth = build(0.);
+        assert!(smooth.cells.iter().all(|c| c[1] == 0. && c[3] == 0.));
+        let detailed = build(1.);
+        assert!(detailed
+            .cells
+            .iter()
+            .any(|c| c[1].abs() > 0.001 || c[3].abs() > 0.001));
     }
     #[test]
     fn release_snapshots_settings_and_expires_naturally() {

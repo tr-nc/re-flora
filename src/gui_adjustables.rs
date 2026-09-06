@@ -109,6 +109,8 @@ pub struct StringParam {
 }
 
 impl StringParam {
+    // Constructors are emitted only when the current config has string controls.
+    #[allow(dead_code)]
     pub fn new(value: String) -> Self {
         Self { value }
     }

@@ -1537,11 +1537,11 @@ impl GardenTrees {
         &mut self,
         particle_system: &mut ParticleSystem,
         dt: f32,
-        time: f32,
+        wind: &crate::wind_field::WindFieldFrame,
         enabled: bool,
     ) {
         self.leaf_emitters
-            .advance(particle_system, dt, time, enabled);
+            .advance(particle_system, dt, wind, enabled);
     }
 
     pub(super) fn leaf_emitter_count(&self) -> usize {

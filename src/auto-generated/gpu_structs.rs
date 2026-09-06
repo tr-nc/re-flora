@@ -348,14 +348,6 @@ pub struct VoxelPropertySampleResult {
     pub extra: [u32; 4],
 }
 
-/// Auto-generated from `B_WindSources` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct WindSources {
-    pub params: [f32; 4],
-    pub noise: [f32; 4],
-}
-
 /// Auto-generated from `PushConstantAtlasReduce` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -815,9 +807,6 @@ pub struct GuiInput {
     pub glass_glint_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
-    pub wind_source_count: u32,
-    pub wind_directional_bias_fraction: f32,
-    pub wind_turbulence_fraction: f32,
     pub world_tick_seconds: f32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
@@ -880,7 +869,6 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

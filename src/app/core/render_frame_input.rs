@@ -1,11 +1,11 @@
 use super::{FLORA_FULL_GROWTH_TICKS, FLORA_SPROUT_DELAY_TICKS};
-use crate::app::{DebugSettings, GuiAdjustables};
+use crate::app::DebugSettings;
 use crate::tracer::{
     CloudGuiParams, EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput,
     FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput, KochiaMotionParams,
     KochiaVisualParams, LeafLightingFrameInput, MaterialFrameInput, RenderFrameInputs,
     StarlightFrameInput, SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput,
-    VegetationFrameInput, WindFrameInput, WindGuiParams,
+    VegetationFrameInput, WindFrameInput,
 };
 use egui::Color32;
 use glam::Vec3;
@@ -173,11 +173,6 @@ pub(super) fn freeze_render_frame_inputs(
     };
     let wind = WindFrameInput {
         field: crate::wind_field::WindFieldFrame::default(),
-        sources: WindGuiParams {
-            sources: GuiAdjustables::active_wind_sources(&settings.wind_sources),
-        },
-        directional_bias_fraction: gui.wind_directional_bias_fraction.value,
-        turbulence_fraction: gui.wind_turbulence_fraction.value,
     };
     let environment = EnvironmentFrameInput {
         lens_flare_intensity: gui.lens_flare_intensity.value,
@@ -250,8 +245,6 @@ pub(super) fn freeze_render_frame_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::gui_config::WindSourceGuiValues;
-    use crate::wind::WindSource;
 
     #[test]
     fn mapper_preserves_every_renderer_fact_and_conversion() {
@@ -370,8 +363,6 @@ mod tests {
         let flora_spawn_overshoot_min_voxels = float!(flora_spawn_overshoot_min_voxels);
         let flora_spawn_overshoot_max_voxels = float!(flora_spawn_overshoot_max_voxels);
         let flora_spawn_stagger_seconds = float!(flora_spawn_stagger_seconds);
-        let wind_directional_bias_fraction = float!(wind_directional_bias_fraction);
-        let wind_turbulence_fraction = float!(wind_turbulence_fraction);
         let lens_flare_intensity = float!(lens_flare_intensity);
         let lens_flare_sun_pixel_scale = float!(lens_flare_sun_pixel_scale);
         let cloud_coverage = float!(cloud_coverage);
@@ -419,12 +410,6 @@ mod tests {
         settings.tree.desc.fruit_swing_speed = 203.25;
         settings.tree.desc.fruit_swing_speed_variation = 204.25;
         settings.tree.desc.fruit_swing_min_response = 205.25;
-        let wind_source = WindSource::new(211.0, 212.0, 213.0, 214, 215.0, 216.0, 217.0);
-        settings.wind_sources = vec![WindSourceGuiValues {
-            name: "sentinel".to_owned(),
-            muted: false,
-            source: wind_source,
-        }];
 
         let live = LiveRenderFrameFacts {
             world_tick_seconds: 301.25,
@@ -563,11 +548,6 @@ mod tests {
             },
             wind: WindFrameInput {
                 field: crate::wind_field::WindFieldFrame::default(),
-                sources: WindGuiParams {
-                    sources: vec![wind_source],
-                },
-                directional_bias_fraction: wind_directional_bias_fraction,
-                turbulence_fraction: wind_turbulence_fraction,
             },
             environment: EnvironmentFrameInput {
                 lens_flare_intensity,

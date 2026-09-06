@@ -42,7 +42,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 uvw = (float3(coordinate) + float3(0.5)) /
                  float3(bucketSize);
     float3 worldPosition = uvw * wind_volume_info.world_chunk_extent;
-    float3 wind = sampleProceduralWind(worldPosition, pc.time);
+    float3 wind = sampleWindField(worldPosition);
     wind_volume_tex.Store(
         targetCoordinate, float4(wind.xz, 0.0, 0.0));
 }

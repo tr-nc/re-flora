@@ -55,8 +55,8 @@ pub(super) struct WindPrototype {
 }
 
 impl WindPrototype {
-    pub fn from_environment() -> Option<Self> {
-        std::env::var_os("RE_FLORA_WIND_PROTOTYPE").map(|_| Self {
+    pub fn new() -> Self {
+        Self {
             field: WindField::default(),
             speed_multiplier: 1.,
             drag: None,
@@ -64,7 +64,7 @@ impl WindPrototype {
             scripted: std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some(),
             script_started: false,
             script_completed: false,
-        })
+        }
     }
 
     pub fn cancel(&mut self) {
@@ -90,20 +90,9 @@ impl WindPrototype {
     pub fn controls(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("Background Wind", |ui| {
             ui.label("Temporary controls — never saved to GUI config");
-            ui.horizontal_wrapped(|ui| {
-                for (mode, name) in [
-                    (0, "Saved inflow"),
-                    (1, "Turning inflow"),
-                    (2, "Detailed inflow"),
-                ] {
-                    ui.selectable_value(&mut self.field.mode, mode, name);
-                }
-            });
+            ui.checkbox(&mut self.field.background_enabled, "Background inflow");
             ui.small("Boundary inflow and the Wind item share one transported field.");
-            if self.field.mode == 0 {
-                ui.label("Saved sources feed the scene edges, never the whole scene at once.");
-            }
-            ui.add_enabled_ui(self.field.mode > 0, |ui| {
+            ui.add_enabled_ui(self.field.background_enabled, |ui| {
                 ui.add(
                     egui::Slider::new(&mut self.field.strength, 0. ..=5.)
                         .text("Mean wind strength"),
@@ -143,7 +132,7 @@ impl WindPrototype {
                 MAX_GUSTS
             ));
             ui.small("Select Wind in the bottom toolbar (9) to release local wind.");
-            ui.small("Wind input only; plant inertia continues. Audio / free particles unchanged.");
+            ui.small("Plants, leaf rustle and fallen leaves sample the same wind field.");
         });
         ui.collapsing("Wind Item", |ui| {
             ui.label("Manual local wind — no automatic gusts");
@@ -290,6 +279,8 @@ mod tests {
             "Width (voxels)",
             "Edge softness",
             "Speed multiplier",
+            "Background inflow",
+            "Local disturbance",
         ] {
             assert_eq!(
                 labels
@@ -303,6 +294,15 @@ mod tests {
         assert!(!labels
             .iter()
             .any(|label| label.contains("Main direction") || label.contains("Compass:")));
+        for removed in [
+            "Saved inflow",
+            "Turning inflow",
+            "Detailed inflow",
+            "Gentle Wind",
+            "Strong Wind",
+        ] {
+            assert!(!labels.iter().any(|label| label.contains(removed)));
+        }
         assert!(prototype.drag.is_some());
         assert_eq!(prototype.field.frame(), original);
         assert_eq!(prototype.speed_multiplier, 1.7);
@@ -344,11 +344,9 @@ mod tests {
 
 impl App {
     pub(super) fn handle_wind_prototype_event(&mut self, event: &WindowEvent) -> bool {
-        let Some(prototype) = self.wind_prototype.as_ref() else {
-            return false;
-        };
+        let prototype = &self.wind_prototype;
         if matches!(event, WindowEvent::Focused(false)) {
-            self.wind_prototype.as_mut().unwrap().cancel();
+            self.wind_prototype.cancel();
             return false;
         }
         if let WindowEvent::KeyboardInput { event, .. } = event {
@@ -356,7 +354,7 @@ impl App {
                 && event.physical_key == PhysicalKey::Code(KeyCode::Escape)
                 && prototype.drag.is_some()
             {
-                self.wind_prototype.as_mut().unwrap().cancel();
+                self.wind_prototype.cancel();
                 return true;
             }
             if event.state == ElementState::Pressed
@@ -365,7 +363,7 @@ impl App {
                     PhysicalKey::Code(KeyCode::KeyR | KeyCode::KeyG | KeyCode::KeyC)
                 )
             {
-                self.wind_prototype.as_mut().unwrap().cancel();
+                self.wind_prototype.cancel();
             }
             return false;
         }
@@ -382,7 +380,7 @@ impl App {
             || self.config_panel_visible
             || self.card_display_visible
         {
-            self.wind_prototype.as_mut().unwrap().cancel();
+            self.wind_prototype.cancel();
             return false;
         }
         if let WindowEvent::MouseInput {
@@ -392,7 +390,7 @@ impl App {
         } = event
         {
             if prototype.drag.is_some() {
-                self.wind_prototype.as_mut().unwrap().cancel();
+                self.wind_prototype.cancel();
                 return true;
             }
         }
@@ -414,7 +412,7 @@ impl App {
                     .map(|hit| hit.position)
             })
         };
-        let prototype = self.wind_prototype.as_mut().unwrap();
+        let prototype = &mut self.wind_prototype;
         match event {
             WindowEvent::CursorMoved { .. } => {
                 if let (Some(drag), Some(target)) = (prototype.drag.as_mut(), target) {
