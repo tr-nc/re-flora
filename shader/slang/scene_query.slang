@@ -1,5 +1,7 @@
 module scene_query;
 
+import contree_node;
+import scene_marching;
 import voxel_data;
 import voxel_material;
 import marching_result;
@@ -255,7 +257,7 @@ void sceneQueryAdvanceTiedAxes(uint tiedAxes, int3 stepDirection,
 
 // Finds the next true material transition or opaque terminal. Parameters are world-space;
 // DDA parameters remain world distances even though traversal runs in atlas voxel coordinates.
-public SceneQueryEvent walkVoxelMediaToNextEvent(
+SceneQueryEvent walkDenseVoxelMediaToNextEvent(
     readonly RWTexture3D<uint> denseAtlas,
     float3 originWorld,
     float3 directionWorld,
@@ -397,21 +399,165 @@ public SceneQueryEvent walkVoxelMediaToNextEvent(
     return result;
 }
 
-public ScenePrimaryQuery tracePrimaryVoxelSurfaces(
+uint sceneQueryContreeEntryAxes(MarchingResult surface,
+                                float3 direction,
+                                float worldToVoxelScale,
+                                int3 toCell)
+{
+    float3 positionVoxel = surface.position * worldToVoxelScale;
+    int3 stepDirection = int3(sign(direction));
+    float bestError = 1.0e30;
+    uint bestAxis = 0u;
+    uint tiedAxes = 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+    {
+        if (stepDirection[axis] == 0) continue;
+        float boundary = float(toCell[axis] + (stepDirection[axis] < 0 ? 1 : 0));
+        float error = abs(positionVoxel[axis] - boundary);
+        if (error < bestError)
+        {
+            bestError = error;
+            bestAxis = axis;
+        }
+        if (error <= SCENE_QUERY_VOXEL_BIAS * 4.0)
+            tiedAxes |= 1u << axis;
+    }
+    return tiedAxes != 0u ? tiedAxes : 1u << bestAxis;
+}
+
+SceneQueryEvent sceneQueryEventFromContreeSurface(
+    MarchingResult surface,
+    float3 direction,
+    float worldToVoxelScale,
+    bool glassExperimentEnabled)
+{
+    SceneQueryEvent result = makeSceneQueryEvent();
+    if (!surface.is_hit)
+    {
+        result.kind = SCENE_QUERY_EVENT_MISS;
+        return result;
+    }
+
+    float3 rayDirection = normalize(direction);
+    int3 stepDirection = int3(sign(rayDirection));
+    int3 toCell = int3(floor(surface.center_position * worldToVoxelScale));
+    uint tiedAxes = sceneQueryContreeEntryAxes(
+        surface, rayDirection, worldToVoxelScale, toCell);
+    int3 crossedAxes = int3(
+        (tiedAxes & 1u) != 0u ? stepDirection.x : 0,
+        (tiedAxes & 2u) != 0u ? stepDirection.y : 0,
+        (tiedAxes & 4u) != 0u ? stepDirection.z : 0);
+    VoxelMaterial material = voxelMaterial(
+        surface.voxel_type, glassExperimentEnabled);
+
+    result.kind = material.surface_class == VOXEL_SURFACE_CLASS_OPAQUE
+        ? SCENE_QUERY_EVENT_OPAQUE
+        : SCENE_QUERY_EVENT_INTERFACE;
+    result.position = surface.position;
+    result.incident_face_normal = material.surface_class ==
+            VOXEL_SURFACE_CLASS_DIELECTRIC
+        ? sceneQueryIncidentNormal(tiedAxes, stepDirection)
+        : surface.normal;
+    result.from_cell = toCell - crossedAxes;
+    result.to_cell = toCell;
+    result.from_voxel_type = 0u;
+    result.to_voxel_type = surface.voxel_type;
+    result.tied_axes = tiedAxes;
+    return result;
+}
+
+// Empty-space distance is accelerated by the sparse surface Contree. Once a ray is inside any
+// material, the authoritative dense atlas owns exact cell transitions, dielectric distance, and
+// adjacent-material semantics. Callers observe one event interface regardless of the marcher used.
+public SceneQueryEvent walkVoxelMediaToNextEvent(
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
     readonly RWTexture3D<uint> denseAtlas,
     float3 originWorld,
     float3 directionWorld,
     float worldToVoxelScale,
-    bool glassExperimentEnabled)
+    bool glassExperimentEnabled,
+    uint stepBudget,
+    uint localInvocationIndex)
+{
+    uint originVoxelType = sceneQueryVoxelTypeAtWorld(
+        denseAtlas, originWorld, worldToVoxelScale);
+    VoxelMaterial originMaterial = voxelMaterial(
+        originVoxelType, glassExperimentEnabled);
+    if (originMaterial.surface_class != VOXEL_SURFACE_CLASS_EMPTY)
+    {
+        return walkDenseVoxelMediaToNextEvent(
+            denseAtlas, originWorld, directionWorld, worldToVoxelScale,
+            glassExperimentEnabled, stepBudget);
+    }
+
+    // The dense-step budget governs exact cell transitions inside occupied media. Empty space has
+    // no cell-by-cell work here: the Contree's own bounded traversal finds the next surface.
+    float directionLength = length(directionWorld);
+    if (directionLength <= SCENE_QUERY_DIRECTION_EPSILON ||
+        isnan(directionLength) || isinf(directionLength))
+    {
+        SceneQueryEvent invalid = makeSceneQueryEvent();
+        invalid.kind = SCENE_QUERY_EVENT_STEP_BUDGET;
+        return invalid;
+    }
+    float3 direction = directionWorld / directionLength;
+    MarchingResult surface = marchScene(
+        nodeData, leafData, sceneTexture, originWorld, direction,
+        1.0 / direction, localInvocationIndex);
+    return sceneQueryEventFromContreeSurface(
+        surface, direction, worldToVoxelScale, glassExperimentEnabled);
+}
+
+public ScenePrimaryQuery tracePrimaryVoxelSurfaces(
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    readonly RWTexture3D<uint> denseAtlas,
+    float3 originWorld,
+    float3 directionWorld,
+    float worldToVoxelScale,
+    bool glassExperimentEnabled,
+    MarchingResult firstSurface,
+    bool originInsideGlass,
+    uint localInvocationIndex)
 {
     ScenePrimaryQuery result = makeScenePrimaryQuery();
     float3 direction = normalize(directionWorld);
     float3 origin = originWorld;
-    for (uint queryIndex = 0u; queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES; ++queryIndex)
+    uint firstQueryIndex = 0u;
+    if (!originInsideGlass)
+    {
+        SceneQueryEvent firstEvent = sceneQueryEventFromContreeSurface(
+            firstSurface, direction, worldToVoxelScale, glassExperimentEnabled);
+        result.scene_queries = 1u;
+        if (firstEvent.kind == SCENE_QUERY_EVENT_OPAQUE)
+        {
+            result.has_opaque_hit = 1u;
+            result.opaque_hit = firstEvent;
+            return result;
+        }
+        if (firstEvent.kind != SCENE_QUERY_EVENT_INTERFACE)
+        {
+            return result;
+        }
+        result.has_glass_front = 1u;
+        result.glass_front = firstEvent;
+        origin = sceneQueryOffsetAcrossInterface(
+            firstEvent, true, worldToVoxelScale);
+        firstQueryIndex = 1u;
+    }
+
+    for (uint queryIndex = firstQueryIndex;
+         queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES;
+         ++queryIndex)
     {
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
-            denseAtlas, origin, direction, worldToVoxelScale,
-            glassExperimentEnabled, SCENE_QUERY_MAX_DDA_STEPS);
+            nodeData, leafData, sceneTexture, denseAtlas,
+            origin, direction, worldToVoxelScale, glassExperimentEnabled,
+            SCENE_QUERY_MAX_DDA_STEPS, localInvocationIndex);
         result.scene_queries += 1u;
         result.dda_steps += event.dda_steps;
         if (event.kind == SCENE_QUERY_EVENT_OPAQUE)
@@ -544,11 +690,15 @@ SceneStraightTransport makeSceneStraightTransport()
 // followed here: each true dielectric boundary contributes exact Fresnel transmission and each
 // dielectric segment contributes Beer attenuation along the authoritative world-space distance.
 public SceneStraightTransport traceVoxelStraightTransport(
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
     readonly RWTexture3D<uint> denseAtlas,
     float3 originWorld,
     float3 directionWorld,
     float maxDistanceWorld,
-    bool glassExperimentEnabled)
+    bool glassExperimentEnabled,
+    uint localInvocationIndex)
 {
     SceneStraightTransport result = makeSceneStraightTransport();
     float directionLength = length(directionWorld);
@@ -572,8 +722,9 @@ public SceneStraightTransport traceVoxelStraightTransport(
          ++queryIndex)
     {
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
-            denseAtlas, origin, direction, 256.0,
-            glassExperimentEnabled, SCENE_QUERY_MAX_DDA_STEPS);
+            nodeData, leafData, sceneTexture, denseAtlas,
+            origin, direction, 256.0, glassExperimentEnabled,
+            SCENE_QUERY_MAX_DDA_STEPS, localInvocationIndex);
         result.scene_queries += 1u;
         result.dda_steps += event.dda_steps;
         float eventDistance = max(0.0, dot(event.position - origin, direction));
@@ -637,13 +788,18 @@ public SceneStraightTransport traceVoxelStraightTransport(
 }
 
 public SceneStraightTransport traceVoxelSegmentTransmittance(
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
     readonly RWTexture3D<uint> denseAtlas,
     float3 startWorld,
     float3 endWorld,
-    bool glassExperimentEnabled)
+    bool glassExperimentEnabled,
+    uint localInvocationIndex)
 {
     float3 segment = endWorld - startWorld;
     return traceVoxelStraightTransport(
-        denseAtlas, startWorld, segment, length(segment),
-        glassExperimentEnabled);
+        nodeData, leafData, sceneTexture, denseAtlas,
+        startWorld, segment, length(segment), glassExperimentEnabled,
+        localInvocationIndex);
 }

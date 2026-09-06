@@ -291,7 +291,6 @@ impl BufferUpdater {
             glass_reflection_strength: materials.glass.reflection_strength,
             glass_ssr_strength: materials.glass.ssr_strength,
             glass_ssr_steps: materials.glass.ssr_steps,
-            glass_per_voxel_reflection: materials.glass.per_voxel_reflection as u32,
             glass_ssr_min_hit_thickness_voxels: materials.glass.ssr_min_hit_thickness_voxels,
             glass_ssr_footprint_pixels: materials.glass.ssr_footprint_pixels,
             glass_refraction_strength: materials.glass.refraction_strength,

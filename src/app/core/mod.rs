@@ -504,7 +504,7 @@ pub struct App {
 
 impl App {
     fn voxel_material_mode(&self) -> crate::voxel_material::VoxelMaterialMode {
-        if self.launch_owners.glass_experiment_settings().is_some() {
+        if self.launch_owners.glass_experiment_enabled() {
             crate::voxel_material::VoxelMaterialMode::GlassExperiment
         } else {
             crate::voxel_material::VoxelMaterialMode::Standard
@@ -1061,7 +1061,7 @@ impl App {
             TestSceneKind::None | TestSceneKind::Hybrid | TestSceneKind::Glass => None,
         };
         let glass_experiment = launch_owners.glass_experiment_settings();
-        let glass_experiment_enabled = glass_experiment.is_some();
+        let glass_experiment_enabled = launch_owners.glass_experiment_enabled();
         let glass_debug_view =
             glass_experiment.map_or(crate::cli::GlassDebugView::Final, |(_, view)| view);
         let canopy_audio_startup = launch_owners
@@ -1539,7 +1539,7 @@ impl App {
         if hybrid_transparency {
             app.configure_hybrid_transparency_test_scene()?;
         }
-        if glass_experiment_enabled {
+        if glass_experiment.is_some() {
             app.configure_glass_voxel_test_scene()?;
         }
         // Test scenes provide a useful default pose, but an explicit snapshot
@@ -3396,7 +3396,7 @@ impl App {
                     }
                 }
 
-                if self.launch_owners.glass_experiment_settings().is_none()
+                if !self.launch_owners.glass_experiment_enabled()
                     && self.terrain_moisture.has_chunks()
                 {
                     let moisture_spread_gpu_scope =
@@ -3599,7 +3599,7 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
 
-                if self.launch_owners.glass_experiment_settings().is_none()
+                if !self.launch_owners.glass_experiment_enabled()
                     && self.terrain_moisture.has_chunks()
                 {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {

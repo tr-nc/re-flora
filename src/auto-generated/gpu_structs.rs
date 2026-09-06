@@ -425,7 +425,9 @@ pub struct PushConstantFloraLod {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantGlassResolve {
     pub pass: u32,
-    pub _pad0: [u8; 12],
+    pub enable_refraction: u32,
+    pub enable_unrefracted_raster_fallback: u32,
+    pub use_stored_voxel_normal: u32,
 }
 
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).
@@ -807,7 +809,6 @@ pub struct GuiInput {
     pub glass_reflection_strength: f32,
     pub glass_ssr_strength: f32,
     pub glass_ssr_steps: u32,
-    pub glass_per_voxel_reflection: u32,
     pub glass_ssr_min_hit_thickness_voxels: f32,
     pub glass_ssr_footprint_pixels: f32,
     pub glass_refraction_strength: f32,
@@ -880,7 +881,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 4],
+    pub _pad8: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

@@ -999,15 +999,6 @@ min = 1
 max = 64
 
 [[section.param]]
-id = "glass_per_voxel_reflection"
-kind = "bool"
-label = "Per-Voxel Glass"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "glass_ssr_min_hit_thickness_voxels"
 kind = "float"
 label = "SSR Min Hit Thickness (Voxels)"
@@ -1039,6 +1030,37 @@ type = "Float"
 value = 1
 min = 0
 max = 3
+
+[[section.param]]
+id = "glass_refraction_enabled"
+kind = "bool"
+label = "Refraction"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "glass_unrefracted_raster_fallback"
+kind = "bool"
+label = "Unrefracted Raster Fallback"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "glass_refraction_enabled"
+equals = true
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "glass_stored_voxel_normal"
+kind = "bool"
+label = "Stored Voxel Normal"
+type = "Bool"
+
+[section.param.data]
+value = true
 
 [[section.param]]
 id = "glass_alpha"

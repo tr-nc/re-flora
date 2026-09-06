@@ -76,7 +76,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     if (query.origin.w >= 1.5)
     {
         SceneStraightTransport transport = traceVoxelStraightTransport(
-            chunk_atlas, rayOrigin, rayDirection, query.direction.w, true);
+            contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+            rayOrigin, rayDirection, query.direction.w, true,
+            localInvocationIndex);
         uint packed = (transport.terminal.kind & 0x0fu) |
             ((transport.interfaces & 0xffu) << 4u) |
             ((transport.scene_queries & 0xffu) << 12u) |
@@ -90,8 +92,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     if (query.origin.w >= 0.5)
     {
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
-            chunk_atlas, rayOrigin, rayDirection, 256.0, true,
-            SCENE_QUERY_MAX_DDA_STEPS);
+            contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+            rayOrigin, rayDirection, 256.0, true,
+            SCENE_QUERY_MAX_DDA_STEPS, localInvocationIndex);
         uint packed = (event.kind & 0x0fu) |
             ((event.from_voxel_type & 0x0fu) << 4u) |
             ((event.to_voxel_type & 0x0fu) << 8u) |

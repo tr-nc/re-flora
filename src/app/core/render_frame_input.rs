@@ -55,10 +55,12 @@ pub(super) fn freeze_render_frame_inputs(
             reflection_strength: gui.glass_reflection_strength.value,
             ssr_strength: gui.glass_ssr_strength.value,
             ssr_steps: gui.glass_ssr_steps.value,
-            per_voxel_reflection: gui.glass_per_voxel_reflection.value,
             ssr_min_hit_thickness_voxels: gui.glass_ssr_min_hit_thickness_voxels.value,
             ssr_footprint_pixels: gui.glass_ssr_footprint_pixels.value,
             refraction_strength: gui.glass_refraction_strength.value,
+            refraction_enabled: gui.glass_refraction_enabled.value,
+            unrefracted_raster_fallback: gui.glass_unrefracted_raster_fallback.value,
+            stored_voxel_normal: gui.glass_stored_voxel_normal.value,
             alpha: gui.glass_alpha.value,
             glint_strength: gui.glass_glint_strength.value,
         },
@@ -293,7 +295,9 @@ mod tests {
         }
 
         gui.flora_growth_override_enabled.value = true;
-        gui.glass_per_voxel_reflection.value = true;
+        gui.glass_refraction_enabled.value = false;
+        gui.glass_unrefracted_raster_fallback.value = true;
+        gui.glass_stored_voxel_normal.value = false;
 
         let terrain_ray_origin_offset_world = float!(terrain_ray_origin_offset_world);
         let ddgi_receiver_visibility_bias_world = float!(ddgi_receiver_visibility_bias_world);
@@ -456,10 +460,12 @@ mod tests {
                     reflection_strength: glass_reflection_strength,
                     ssr_strength: glass_ssr_strength,
                     ssr_steps: glass_ssr_steps,
-                    per_voxel_reflection: true,
                     ssr_min_hit_thickness_voxels: glass_ssr_min_hit_thickness_voxels,
                     ssr_footprint_pixels: glass_ssr_footprint_pixels,
                     refraction_strength: glass_refraction_strength,
+                    refraction_enabled: false,
+                    unrefracted_raster_fallback: true,
+                    stored_voxel_normal: false,
                     alpha: glass_alpha,
                     glint_strength: glass_glint_strength,
                 },

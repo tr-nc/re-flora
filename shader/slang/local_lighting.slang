@@ -295,7 +295,9 @@ public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
         float3 shadowDirection = shadowToLight / segmentLength;
         float endpointStart = max(0.0, segmentLength - light.source_radius);
         SceneStraightTransport transport = traceVoxelStraightTransport(
-            chunkAtlas, shadowOrigin, shadowDirection, endpointStart, true);
+            nodeData, leafData, sceneTexture, chunkAtlas,
+            shadowOrigin, shadowDirection, endpointStart, true,
+            localInvocationIndex);
         float3 transmittance = transport.exhausted != 0u ||
             transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
             ? float3(0.0) : transport.transmittance;

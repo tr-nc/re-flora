@@ -267,6 +267,13 @@ impl LaunchOwners {
         }
     }
 
+    pub(super) fn glass_experiment_enabled(&self) -> bool {
+        matches!(
+            self.loading_directive(),
+            LoadingDirective::House | LoadingDirective::Glass
+        )
+    }
+
     pub(super) fn glass_scene_phase(&self) -> Option<GlassTestScenePhase> {
         match &self.mode {
             LaunchMode::General {
@@ -980,6 +987,23 @@ mod tests {
             assert_eq!(owner_kind(launch_for(scenario)), expected);
         }
         assert_eq!(owner_kind(launch_for(Scenario::Garden)), OwnerKind::Garden);
+    }
+
+    #[test]
+    fn house_and_glass_scene_share_material_mode_but_not_test_scene_settings() {
+        let house = launch_for(Scenario::House);
+        assert!(house.glass_experiment_enabled());
+        assert!(house.glass_experiment_settings().is_none());
+
+        let glass = launch_for(Scenario::GlassVoxel(crate::cli::GlassVoxelOptions {
+            coverage: crate::cli::GlassCoverage::TwentyFive,
+            debug_view: crate::cli::GlassDebugView::Final,
+            validate_fixed_camera_frame: true,
+        }));
+        assert!(glass.glass_experiment_enabled());
+        assert!(glass.glass_experiment_settings().is_some());
+
+        assert!(!launch_for(Scenario::Garden).glass_experiment_enabled());
     }
 
     #[test]

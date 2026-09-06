@@ -35,6 +35,8 @@ const REBUILD_MAX: UVec3 = UVec3::new(456, 360, 456);
 const GPU_CAPTURE_ORIGIN: Vec3 = Vec3::new(1.0, 0.75, 1.5);
 const GPU_CAPTURE_DIRECTION: Vec3 = Vec3::NEG_Z;
 const GPU_CAPTURE_GLASS_CELL: UVec3 = UVec3::new(256, 192, 278);
+const GPU_CORNER_CAPTURE_ORIGIN: Vec3 = Vec3::new(220.0 / 256.0, 92.0 / 256.0, 286.0 / 256.0);
+const GPU_CORNER_CAPTURE_DIRECTION: Vec3 = Vec3::new(1.0, 1.0, -1.0);
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 1.72);
 
@@ -221,8 +223,16 @@ impl App {
             .upload_debug_geometry_preview(&sentinel_mesh(), Vec3::ZERO, Vec4::ONE)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
-            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 target_coverage_percent={} camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
+            "[GLASS_VOXEL_TEST] configured mode=experimental-sand-id-3 target_coverage_percent={} refraction_enabled={} unrefracted_raster_fallback={} camera=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) persistence=disabled",
             coverage.percent(),
+            self.debug_settings
+                .adjustables
+                .glass_refraction_enabled
+                .value,
+            self.debug_settings
+                .adjustables
+                .glass_unrefracted_raster_fallback
+                .value,
             CAMERA_POSITION.x,
             CAMERA_POSITION.y,
             CAMERA_POSITION.z,
@@ -302,10 +312,30 @@ impl App {
                 "GPU SceneQuery differs from the deterministic reference: {event:?} expected kind={kind:?} from={from_voxel_type} to={to_voxel_type} z={position_z}",
             );
         }
+
+        let corner_events = self
+            .tracer
+            .capture_glass_scene_query_events(TerrainRayQuery {
+                origin: GPU_CORNER_CAPTURE_ORIGIN,
+                direction: GPU_CORNER_CAPTURE_DIRECTION,
+            })?;
+        let corner = corner_events
+            .first()
+            .context("corner capture returned no Glass entry")?;
+        let expected_corner = Vec3::new(224.0 / 256.0, 96.0 / 256.0, 282.0 / 256.0);
+        anyhow::ensure!(
+            corner.kind == GlassSceneQueryEventKind::Interface
+                && corner.from_voxel_type == VOXEL_TYPE_EMPTY
+                && corner.to_voxel_type == VOXEL_TYPE_SAND
+                && corner.tied_axes == 0b111
+                && corner.position.abs_diff_eq(expected_corner, 1.0e-6),
+            "GPU hybrid SceneQuery lost the three-axis Contree entry tie: {corner:?} expected_position={expected_corner:?}",
+        );
         log::info!(
-            "[GLASS_VOXEL_TEST][SCENE_QUERY] gpu_reference_match=true events={} dda_steps={:?} sequence=air-glass,glass-air,air-opaque",
+            "[GLASS_VOXEL_TEST][SCENE_QUERY] gpu_reference_match=true events={} dda_steps={:?} sequence=air-glass,glass-air,air-opaque contree_corner_tied_axes={:#05b}",
             events.len(),
             events.iter().map(|event| event.dda_steps).collect::<Vec<_>>(),
+            corner.tied_axes,
         );
         Ok(())
     }

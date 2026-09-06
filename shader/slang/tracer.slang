@@ -267,8 +267,9 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
 #if RE_FLORA_GLASS_PRIMARY
             {
                 SceneStraightTransport transport = traceVoxelStraightTransport(
-                    chunk_atlas, shadowRay.origin, shadowRay.direction,
-                    256.0, true);
+                    contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+                    shadowRay.origin, shadowRay.direction, 256.0, true,
+                    localInvocationIndex);
                 visibility = transport.exhausted != 0u ||
                     transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
                     ? 0.0
@@ -361,17 +362,26 @@ float depthFromWorldPosition(float3 worldPosition)
 }
 
 #if RE_FLORA_GLASS_PRIMARY
-uint packGlassFrontData(ScenePrimaryQuery query)
+int3 glassEventVoxelCell(SceneQueryEvent event)
 {
-    if (query.has_glass_front == 0u) return query.exhausted << 16u;
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    return toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
+        ? event.to_cell
+        : event.from_cell;
+}
+
+uint packGlassFrontData(ScenePrimaryQuery query, float3 storedVoxelNormal)
+{
+    if (query.has_glass_front == 0u) return query.exhausted << 5u;
     SceneQueryEvent event = query.glass_front;
     uint normalPositive = any(event.incident_face_normal > 0.5) ? 1u : 0u;
     return 1u |
         ((event.tied_axes & 0x07u) << 1u) |
         (normalPositive << 4u) |
+        ((query.exhausted & 1u) << 5u) |
         ((event.from_voxel_type & 0x0fu) << 8u) |
         ((event.to_voxel_type & 0x0fu) << 12u) |
-        ((query.exhausted & 1u) << 16u);
+        ((packNormalOct16(storedVoxelNormal) & 0xffffu) << 16u);
 }
 #endif
 
@@ -645,14 +655,26 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         if (cameraInsideGlass || acceleratedHitGlass)
         {
             glassPrimary = tracePrimaryVoxelSurfaces(
-                chunk_atlas, ray.origin, ray.direction, 256.0, true);
+                contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+                ray.origin, ray.direction, 256.0, true, acceleratedPrimary,
+                cameraInsideGlass, localInvocationIndex);
             primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
                 glassPrimary.opaque_hit, ray.origin);
             glass_front_depth_tex[dispatchThreadId.xy] =
                 glassPrimary.has_glass_front != 0u
                     ? depthFromWorldPosition(glassPrimary.glass_front.position)
                     : 1.0;
-            glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(glassPrimary);
+            float3 storedVoxelNormal = glassPrimary.glass_front.incident_face_normal;
+            if (acceleratedHitGlass && glassPrimary.has_glass_front != 0u)
+            {
+                int3 acceleratedCell = int3(floor(
+                    acceleratedPrimary.center_position * 256.0));
+                if (all(acceleratedCell == glassEventVoxelCell(
+                        glassPrimary.glass_front)))
+                    storedVoxelNormal = acceleratedPrimary.normal;
+            }
+            glass_front_data_tex[dispatchThreadId.xy] = packGlassFrontData(
+                glassPrimary, storedVoxelNormal);
         }
         else
         {

@@ -710,10 +710,154 @@ struct GlassPushConstants {
 
 const GLASS_VOXEL_CACHE_BUILD_PASS: u32 = 0;
 const GLASS_VOXEL_CACHE_SHADE_PASS: u32 = 1;
-const GLASS_VOXEL_CACHE_CLASSIFY_PASS: u32 = 2;
-const GLASS_EXACT_PIXEL_BUILD_PASS: u32 = 3;
-const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 4;
-const GLASS_EXACT_PIXEL_RESOLVE_PASS: u32 = 5;
+const GLASS_VOXEL_CACHE_RESOLVE_PASS: u32 = 2;
+
+#[cfg(test)]
+mod glass_voxel_cache_contract_tests {
+    #[test]
+    fn visible_glass_voxel_owns_final_pixel_color_without_alpha_overlay() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+        let cell_shading = shader
+            .split_once("GlassResolveResult traceGlassVoxelCellRadiance")
+            .expect("Glass cell shading function")
+            .1
+            .split_once("void shadeGlassVoxelCache")
+            .expect("end of Glass cell shading function")
+            .0;
+        let pixel_resolve = shader
+            .split_once("void resolveGlassVoxelPixel")
+            .expect("Glass pixel resolve function")
+            .1
+            .split_once("[shader(\"compute\")]")
+            .expect("end of Glass pixel resolve function")
+            .0;
+
+        assert!(shader.contains("traceGlassVoxelCellRadiance"));
+        assert!(shader.contains("glass_voxel_cache_radiance[slot].rgb"));
+        assert!(
+            cell_shading.contains(
+                "result.radiance = applyGlassCameraEffects(result.radiance, canonicalScreenUv);"
+            ),
+            "camera effects on visible Glass must be owned by the canonical cell color"
+        );
+        assert!(
+            pixel_resolve.contains("else if (!resolvedGlassCell)\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
+            "pixel resolve may apply camera effects only when it did not resolve a Glass cell"
+        );
+        assert!(
+            !pixel_resolve.contains("lerp("),
+            "Glass pixel resolve must not blend the opaque pixel back over the cell color"
+        );
+        assert!(pixel_resolve.contains("composited_tex[coordinate] = float4(resolvedColor, 1.0);"));
+        for forbidden in [
+            "GLASS_EXACT_PIXEL",
+            "forceExact",
+            "primary_screen_contribution",
+            "traceGlassPrimaryScreenContributionFromFrontEvent",
+        ] {
+            assert!(
+                !shader.contains(forbidden),
+                "per-pixel Glass output override `{forbidden}` breaks one-color-per-voxel",
+            );
+        }
+    }
+
+    #[test]
+    fn cached_glass_cell_uses_canonical_surface_without_retracing_world_visibility() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+        let cell_shading = shader
+            .split_once("GlassResolveResult traceGlassVoxelCellRadiance")
+            .expect("Glass cell shading function")
+            .1
+            .split_once("void shadeGlassVoxelCache")
+            .expect("end of Glass cell shading function")
+            .0;
+
+        assert!(
+            cell_shading.contains("canonicalGlassFrontEvent"),
+            "Glass cell shading must construct its canonical surface directly"
+        );
+        assert!(
+            !cell_shading.contains("walkVoxelMediaToNextEvent"),
+            "a visible Glass cell must not reacquire visibility through the world DDA"
+        );
+    }
+
+    #[test]
+    fn glass_normal_source_is_cell_owned_and_shared_by_cached_and_uncached_shading() {
+        let primary = include_str!("../../shader/slang/tracer.slang");
+        let resolve = include_str!("../../shader/slang/glass_resolve.slang");
+
+        assert!(primary.contains("packNormalOct16(storedVoxelNormal)"));
+        assert!(resolve.contains("unpackNormalOct16(packedStoredVoxelNormal)"));
+        assert!(resolve.contains("glass_voxel_cache_metadata[slot].y"));
+        assert!(resolve.contains("use_stored_voxel_normal"));
+        assert!(resolve.contains("glassCell, frontData >> 16u"));
+    }
+
+    #[test]
+    fn raster_secondary_visibility_keeps_reflections_and_switches_only_refraction_fallback() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+
+        for required in [
+            "enable_refraction",
+            "enable_unrefracted_raster_fallback",
+            "GLASS_SCREEN_QUERY_REFRACTION",
+            "GLASS_SCREEN_QUERY_UNREFRACTED",
+            "GLASS_SCREEN_QUERY_REFLECTION",
+            "glassRefractionEnabled",
+            "glassUnrefractedRasterFallbackEnabled",
+        ] {
+            assert!(
+                shader.contains(required),
+                "Glass raster secondary visibility is missing `{required}`",
+            );
+        }
+        assert!(
+            shader.contains("reflected.screen_query_mode = GLASS_SCREEN_QUERY_REFLECTION;"),
+            "Fresnel reflection must always retain raster visibility",
+        );
+        assert!(
+            shader.contains("transmittedDirection = path.direction;"),
+            "disabled refraction must keep transmission straight",
+        );
+        assert!(
+            shader.contains("GLASS_SCREEN_QUERY_UNREFRACTED")
+                && shader.contains("sampleGlassUnrefractedRaster"),
+            "straight transmission must use same-screen raster visibility as a first-class mode",
+        );
+        assert!(
+            shader.contains("spawnGlassThinSheetFront")
+                && shader.contains("2.0 * fresnel / (1.0 + fresnel)"),
+            "disabled refraction must collapse the front pane into an energy-conserving thin sheet",
+        );
+        assert!(
+            !shader.contains("enable_raster_reflections"),
+            "mandatory raster reflections must not retain a runtime switch",
+        );
+    }
+
+    #[test]
+    fn legacy_terrarium_reflection_is_fixed_to_per_voxel_shading() {
+        let shader = include_str!("../../shader/slang/composition_terrarium_glass.slang");
+
+        for required in [
+            "float3 reflectionOriginWorld = voxelCenterWorld;",
+            "float3 reflectionNormal = voxelReflectionNormal;",
+            "float reflectionVoxelLens = pane * (0.12 + cellNoiseC * 0.08);",
+        ] {
+            assert!(
+                shader.contains(required),
+                "fixed legacy per-voxel Glass path is missing `{required}`",
+            );
+        }
+        assert!(
+            !shader.contains("glass_per_voxel_reflection")
+                && !shader.contains("usePerVoxelReflection"),
+            "legacy per-voxel Glass must not retain a runtime switch",
+        );
+    }
+}
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
@@ -747,10 +891,12 @@ pub struct GlassGuiParams {
     pub reflection_strength: f32,
     pub ssr_strength: f32,
     pub ssr_steps: u32,
-    pub per_voxel_reflection: bool,
     pub ssr_min_hit_thickness_voxels: f32,
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,
+    pub refraction_enabled: bool,
+    pub unrefracted_raster_fallback: bool,
+    pub stored_voxel_normal: bool,
     pub alpha: f32,
     pub glint_strength: f32,
 }
@@ -1521,6 +1667,9 @@ pub struct Tracer {
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
+    glass_refraction_enabled: bool,
+    glass_unrefracted_raster_fallback: bool,
+    glass_stored_voxel_normal: bool,
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     vegetation_response: VegetationResponse,
@@ -1801,6 +1950,9 @@ impl Tracer {
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
+            glass_refraction_enabled: true,
+            glass_unrefracted_raster_fallback: false,
+            glass_stored_voxel_normal: true,
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
@@ -2852,6 +3004,9 @@ impl Tracer {
         self.vegetation_response.pose_hz = vegetation.motion.response_pose_hz;
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
+        self.glass_refraction_enabled = materials.glass.refraction_enabled;
+        self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
+        self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
 
         self.ensure_wind_source_buffer_capacity(wind.sources.sources.len())?;
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
@@ -5777,45 +5932,24 @@ impl Tracer {
             0,
         );
         let extent = resources.composited_tex.get_image().get_desc().extent;
-        // Build a cell-key table from visible Glass pixels, then shade and classify its dense
-        // unique-cell list once. Reflected resource tracking inserts barriers between these
-        // ordered dispatches.
+        // Build a cell-key table from visible Glass pixels, shade its dense unique-cell list
+        // once, then resolve every visible pixel from that one stored color. Reflected resource
+        // tracking inserts barriers between these ordered dispatches.
         for (pass, dispatch_extent) in [
             (GLASS_VOXEL_CACHE_BUILD_PASS, extent),
             (
                 GLASS_VOXEL_CACHE_SHADE_PASS,
                 Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
             ),
-            (
-                GLASS_VOXEL_CACHE_CLASSIFY_PASS,
-                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
-            ),
-        ] {
-            let push = PushConstantGlassResolve {
-                pass,
-                ..bytemuck::Zeroable::zeroed()
-            };
-            pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
-        }
-
-        // The cell list is no longer needed. Reuse it to compact sparse exact-boundary pixels,
-        // keeping the normal cached resolve free of divergent software-ray-tracing branches.
-        resources.glass_voxel_cache_active_count.record_fill(
-            cmdbuf,
-            0,
-            GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
-            0,
-        );
-        for (pass, dispatch_extent) in [
-            (GLASS_EXACT_PIXEL_BUILD_PASS, extent),
             (GLASS_VOXEL_CACHE_RESOLVE_PASS, extent),
-            (
-                GLASS_EXACT_PIXEL_RESOLVE_PASS,
-                Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
-            ),
         ] {
             let push = PushConstantGlassResolve {
                 pass,
+                enable_refraction: u32::from(self.glass_refraction_enabled),
+                enable_unrefracted_raster_fallback: u32::from(
+                    self.glass_unrefracted_raster_fallback,
+                ),
+                use_stored_voxel_normal: u32::from(self.glass_stored_voxel_normal),
                 ..bytemuck::Zeroable::zeroed()
             };
             pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));

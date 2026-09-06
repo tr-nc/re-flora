@@ -31,6 +31,9 @@ const ROUND_WINDOW_RADIUS: f32 = 7.0;
 const WINDOW_FRAME_MAJOR_RADIUS: f32 = 9.0;
 const WINDOW_FRAME_TUBE_RADIUS: f32 = 2.0;
 const WINDOW_FRAME_OUTWARD_OFFSET: f32 = 1.0;
+const WINDOW_PANE_THICKNESS: f32 = 2.0;
+const WINDOW_PANE_MAX_Z: f32 = HOUSE_MAX_Z;
+const WINDOW_PANE_MIN_Z: f32 = WINDOW_PANE_MAX_Z - WINDOW_PANE_THICKNESS;
 const HILL_CENTER_Z: f32 = 220.0;
 const HILL_RADIUS_X: f32 = 165.0;
 const HILL_RADIUS_Z: f32 = 215.0;
@@ -248,10 +251,28 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditTransaction> {
             HOUSE_MAX_Z + 1.0,
         ));
     }
+    let panes = [
+        center_x - WINDOW_CENTER_X_OFFSET,
+        center_x + WINDOW_CENTER_X_OFFSET,
+    ]
+    .into_iter()
+    .flat_map(|window_center_x| {
+        round_opening(
+            window_center_x,
+            base_y + WINDOW_CENTER_HEIGHT - FACADE_OPENING_DROP - ROUND_WINDOW_RADIUS,
+            ROUND_WINDOW_RADIUS,
+            WINDOW_PANE_MIN_Z,
+            WINDOW_PANE_MAX_Z,
+        )
+    })
+    .collect();
 
     Ok(WorldEditTransaction::during_loading(vec![
         stamp_toruses(frames, VOXEL_TYPE_OAK_WOOD)?,
         stamp_cuboids(openings, VOXEL_TYPE_EMPTY)?,
+        // In --house-scene, Sand ID 3 is the isolated experimental Glass encoding.
+        // Stamp after carving so the door stays open and only the two window panes refill.
+        stamp_cuboids(panes, VOXEL_TYPE_SAND)?,
         // Loading publishes every chunk after applying this plan.
     ]))
 }
@@ -269,7 +290,7 @@ impl App {
         self.execute_world_edit(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
-            "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} opening_drop={} window_frame_outward_offset={} hill_rise={} shell_thickness={} maximum_inflation={}",
+            "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two experimental Glass window panes base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} opening_drop={} window_frame_outward_offset={} hill_rise={} shell_thickness={} maximum_inflation={}",
             house_base_y(surface),
             surface.min_y,
             surface.max_y,
@@ -338,7 +359,7 @@ mod tests {
     fn house_uses_cut_hill_with_round_door_windows_and_oak_frames() {
         let plan = house_plan(test_surface()).unwrap();
 
-        assert_eq!(plan.voxel_edits().len(), 2);
+        assert_eq!(plan.voxel_edits().len(), 3);
 
         let VoxelEdit::StampToruses {
             toruses: frames,
@@ -386,6 +407,24 @@ mod tests {
         assert!(opening_slices
             .iter()
             .all(|slice| slice.max().z == HOUSE_MAX_Z + 1.0));
+
+        let VoxelEdit::StampCuboids {
+            cuboids: panes,
+            voxel_type: pane_type,
+            atlas_state_write,
+            ..
+        } = &plan.voxel_edits()[2]
+        else {
+            panic!("expected round Glass panes");
+        };
+        assert_eq!(*pane_type, VOXEL_TYPE_SAND);
+        assert_eq!(*atlas_state_write, Default::default());
+        assert_eq!(panes.len(), (ROUND_WINDOW_RADIUS * 4.0) as usize);
+        assert!(panes.iter().all(|pane| {
+            pane.min().z == HOUSE_MAX_Z - WINDOW_PANE_THICKNESS
+                && pane.max().z == HOUSE_MAX_Z
+                && pane.max().z - pane.min().z == WINDOW_PANE_THICKNESS
+        }));
 
         assert!(plan.voxel_edits().iter().all(|edit| !matches!(
             edit,

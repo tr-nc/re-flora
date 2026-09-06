@@ -362,7 +362,6 @@ float3 shadeTerrariumGlassHit(
     float refractionStrength = max(inputs.gui.glass_refraction_strength, 0.0);
     float alphaMultiplier = max(inputs.gui.glass_alpha, 0.0);
     float glintStrength = max(inputs.gui.glass_glint_strength, 0.0);
-    bool usePerVoxelReflection = inputs.gui.glass_per_voxel_reflection != 0u;
 
     float2 uv = hit.face_uv;
     float2 faceWorldExtent = abs(hit.normal.y) > 0.5
@@ -432,17 +431,12 @@ float3 shadeTerrariumGlassHit(
                                   TERRARIUM_GLASS_BOX_MAX.y, voxelCenterUv.y);
     }
 
-    float3 reflectionOriginWorld = usePerVoxelReflection
-                                       ? voxelCenterWorld : hit.position;
-    float3 reflectionViewDirection = usePerVoxelReflection
-        ? normalize(inputs.camera.pos.xyz - voxelCenterWorld) : viewDirection;
-    float3 reflectionNormal = usePerVoxelReflection
-                                  ? voxelReflectionNormal : normal;
+    float3 reflectionOriginWorld = voxelCenterWorld;
+    float3 reflectionViewDirection = normalize(inputs.camera.pos.xyz - voxelCenterWorld);
+    float3 reflectionNormal = voxelReflectionNormal;
     float mirrorFresnel = pow(1.0 - clamp(dot(reflectionNormal,
                                               reflectionViewDirection), 0.0, 1.0), 5.0);
-    float reflectionVoxelLens = usePerVoxelReflection
-                                    ? pane * (0.12 + cellNoiseC * 0.08)
-                                    : mirrorFresnel;
+    float reflectionVoxelLens = pane * (0.12 + cellNoiseC * 0.08);
 
     float normalView = clamp(dot(microNormal, viewDirection), 0.0, 1.0);
     float fresnel = pow(1.0 - normalView, 5.0);

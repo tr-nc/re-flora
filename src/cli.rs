@@ -851,12 +851,13 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         );
     }
     if house_scene
-        && (environment_lighting_test_scene.is_some()
+        && (terrain_save_path.is_some()
+            || environment_lighting_test_scene.is_some()
             || hybrid_transparency_test_scene
             || water_edit_soak)
     {
         return Err(
-            "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
+            "Do not combine --house-scene with terrain persistence, another terrain-stamping scene, or --water-edit-soak"
                 .to_owned(),
         );
     }
@@ -2241,23 +2242,28 @@ mod tests {
     }
 
     #[test]
-    fn parses_house_scene_and_rejects_snapshot_input() {
+    fn parses_house_scene_and_rejects_persistence() {
         let options = parse(&["re-flora", "--house-scene"]);
         assert_eq!(options.scenario, Scenario::House);
 
-        let incompatible = try_parse_owned(
-            [
-                "re-flora",
-                "--terrain-load",
-                "target/input.rflterrain",
-                "--house-scene",
-            ]
-            .iter()
-            .map(|arg| (*arg).to_owned())
-            .collect(),
-        )
-        .unwrap_err();
-        assert!(incompatible.contains("Do not combine --terrain-load"));
+        for persistence_args in [
+            ["--terrain-load", "target/input.rflterrain"],
+            ["--terrain-save", "target/output.rflterrain"],
+        ] {
+            let incompatible = try_parse_owned(
+                [
+                    "re-flora",
+                    persistence_args[0],
+                    persistence_args[1],
+                    "--house-scene",
+                ]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+            )
+            .unwrap_err();
+            assert!(incompatible.contains("Do not combine"));
+        }
     }
 
     #[test]

@@ -20,7 +20,6 @@ public struct U_GuiInput
     public float glass_reflection_strength;
     public float glass_ssr_strength;
     public uint glass_ssr_steps;
-    public uint glass_per_voxel_reflection;
     public float glass_ssr_min_hit_thickness_voxels;
     public float glass_ssr_footprint_pixels;
     public float glass_refraction_strength;

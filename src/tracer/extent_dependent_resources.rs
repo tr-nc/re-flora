@@ -11,7 +11,7 @@ const LENS_FLARE_DOWNSAMPLE_FACTOR: u32 = 2;
 const GLASS_RESOURCE_BYTES_PER_PIXEL: u64 = 32;
 pub(crate) const GLASS_VOXEL_CACHE_CAPACITY: u32 = 1 << 18;
 pub(crate) const GLASS_VOXEL_CACHE_METADATA_BYTES_PER_ENTRY: u64 = 16;
-const GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY: u64 = 32;
+const GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY: u64 = 16;
 const GLASS_VOXEL_CACHE_ACTIVE_SLOT_BYTES_PER_ENTRY: u64 = 4;
 pub(crate) const GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES: u64 = 4;
 
@@ -576,5 +576,10 @@ mod tests {
         assert_eq!(glass_voxel_cache_capacity(true), GLASS_VOXEL_CACHE_CAPACITY);
         assert_eq!(glass_voxel_cache_capacity(false), 1);
         assert!(GLASS_VOXEL_CACHE_CAPACITY.is_power_of_two());
+        assert_eq!(
+            GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY,
+            std::mem::size_of::<[f32; 4]>() as u64,
+            "each visible Glass voxel owns exactly one cached output color",
+        );
     }
 }
