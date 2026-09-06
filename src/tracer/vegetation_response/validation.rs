@@ -465,7 +465,7 @@ pub(in crate::tracer) fn validate_gpu(
             .replay_parameters
             .fill_uniform(&GuiInput::zeroed())?;
         field.advance(0.);
-        field.release(glam::Vec2::splat(1.), glam::Vec2::X, false);
+        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X, false);
         field.advance(1.);
         let front = 1. + field.manual_gust.speed / 256.;
         let probe = |x, z| ResponseInput {
@@ -510,7 +510,24 @@ pub(in crate::tracer) fn validate_gpu(
             "wind band lost its rectangular support or symmetric center-to-edge falloff"
         );
         log::info!("[WIND_PROTOTYPE][GPU] band_aspect=4:1 center_to_edge_falloff=passed symmetric_sides=passed rectangular_support=passed");
-        for mode in 0..=3 {
+        field.gusts[0].settings.softness = 0.2;
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let sharper = harness.step(&band_probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            sharper[2][0] > band[2][0] && sharper[4][0].abs() < 1e-6,
+            "edge softness did not affect force independently of the bounds"
+        );
+        field.gusts[0].settings.softness = 1.;
+        field.gusts[0].settings.width *= 2.;
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let wider = harness.step(&band_probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            wider[4][0] > 0. && wider[5][0].abs() < 1e-6,
+            "width adjustment changed depth or failed to expand sideways"
+        );
+        field.gusts[0].settings.width *= 0.5;
+        log::info!("[WIND_PROTOTYPE][GPU] adjustable_softness=passed independent_width=passed");
+        for mode in 0..=2 {
             field.mode = mode;
             harness.wind.wind_field_info.fill_uniform(&field.frame())?;
             let manual = harness.step(&probes, 0., 0.2, 0.025)?;
@@ -519,11 +536,11 @@ pub(in crate::tracer) fn validate_gpu(
                 "background mode {mode} changed or disabled manual wind"
             );
         }
-        log::info!("[WIND_PROTOTYPE][GPU] manual_wind_modes=A,B,C,D identical_force=passed");
+        log::info!("[WIND_PROTOTYPE][GPU] manual_wind_modes=A,B,C identical_force=passed");
         field.mode = 1;
-        field.clear();
-        field.release(glam::Vec2::splat(1.), glam::Vec2::ZERO, true);
-        field.advance(2.);
+        field.advance(6.);
+        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::ZERO, true);
+        field.advance(7.);
         harness.wind.wind_field_info.fill_uniform(&field.frame())?;
         let radial = harness.step(&probes, 0., 0.2, 0.025)?;
         anyhow::ensure!(
@@ -533,7 +550,7 @@ pub(in crate::tracer) fn validate_gpu(
                 && radial[3][1].abs() < 1e-6,
             "radial gust failed outward directions or center singularity"
         );
-        field.advance(6.);
+        field.advance(12.);
         harness.wind.wind_field_info.fill_uniform(&field.frame())?;
         let expired = harness.step(&probes, 0., 0.2, 0.025)?;
         anyhow::ensure!(

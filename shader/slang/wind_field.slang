@@ -29,7 +29,7 @@ public float2 sampleAuthoredWind(float2 worldVoxels)
     float2 p = (worldVoxels - wind_field_info.transport.xy) / max(wind_field_info.detail.x, 1.0);
     float along = fieldNoise(p, 3181u);
     float2 result = direction * wind_field_info.background.z * max(0.0, 1.0 + along * 0.25);
-    if (wind_field_info.background.w >= 3.0) {
+    if (wind_field_info.background.w >= 2.0) {
         // Smooth time evolution in addition to advection. This is an art-directed
         // vector disturbance, not a divergence-free fluid or terrain-flow solve.
         float phase = time * wind_field_info.detail.z;
@@ -58,11 +58,12 @@ public float2 sampleWindGusts(float2 worldVoxels)
         float2 delta = worldVoxels - origin.xy;
         float2 push;
         float spatial;
+        float innerEdge = 1.0 - clamp(shape.w, 0.05, 1.0);
         if (origin.w >= 0.5) {
             float radius = length(delta);
             push = radius > 0.0001 ? delta / radius : float2(0.0);
             float distance = abs(radius - age * motion.w) / max(shape.x, 1.0);
-            spatial = 1.0 - smoothstep(0.0, 1.0, distance);
+            spatial = 1.0 - smoothstep(innerEdge, 1.0, distance);
         } else {
             push = motion.xy;
             float2 local = delta - push * age * motion.w;
@@ -71,8 +72,8 @@ public float2 sampleWindGusts(float2 worldVoxels)
             // A crosswind band: strongest at its center, fading smoothly to
             // both side edges and to the front/back. Zero slope at the bounds
             // prevents a hard force edge as the band sweeps over a plant.
-            spatial = (1.0 - smoothstep(0.0, 1.0, abs(forward)))
-                    * (1.0 - smoothstep(0.0, 1.0, abs(side)));
+            spatial = (1.0 - smoothstep(innerEdge, 1.0, abs(forward)))
+                    * (1.0 - smoothstep(innerEdge, 1.0, abs(side)));
         }
         result += push * motion.z * envelope * spatial;
     }
