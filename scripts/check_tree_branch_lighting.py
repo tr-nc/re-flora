@@ -69,7 +69,7 @@ def measure(path: Path) -> dict:
     )
 
 
-def run(output: Path, screenshot: bool) -> Path:
+def run(output: Path, screenshot: bool, binary: Path | None = None) -> Path:
     output.mkdir(parents=True, exist_ok=True)
     gui = ROOT / "config/gui.toml"
     camera = ROOT / "config/camera_snapshots.toml"
@@ -77,7 +77,7 @@ def run(output: Path, screenshot: bool) -> Path:
     capture = output / "light.rfirr"
     capture.unlink(missing_ok=True)
     command = [
-        "flock", "/tmp/re-flora-summer-gpu.lock", str(ROOT / "target/release/re-flora"),
+        "flock", "/tmp/re-flora-summer-gpu.lock", str(binary or ROOT / "target/release/re-flora"),
         "--hidden", "--mute", "--windowed", "--no-flora", "--no-particles",
         "--no-clouds", "--no-god-rays", "--no-lens-flare", "--auto-exit", "12",
     ]
@@ -85,7 +85,8 @@ def run(output: Path, screenshot: bool) -> Path:
         command += ["--screenshot", "tree-branch-regression", str(output / "final.png"),
                     "--screenshot-delay", "3"]
     else:
-        command += ["--camera-snapshot", "tree-branch-regression",
+        command += ["--screenshot", "tree-branch-regression", str(output / "final.png"),
+                    "--screenshot-delay", "0",
                     "--environment-irradiance-capture", str(capture),
                     "--environment-irradiance-capture-target", "published"]
     try:
@@ -115,11 +116,12 @@ def run(output: Path, screenshot: bool) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--binary", type=Path, help="explicit release binary for baseline comparisons")
     parser.add_argument("--capture", type=Path, help="analyze an existing capture")
     parser.add_argument("--output", type=Path, default=ROOT / "target/summer-evidence/tree-branch")
     parser.add_argument("--screenshot", action="store_true", help="separate real-game image run")
     args = parser.parse_args()
-    path = args.capture or run(args.output.resolve(), args.screenshot)
+    path = args.capture or run(args.output.resolve(), args.screenshot, args.binary.resolve() if args.binary else None)
     if args.screenshot:
         return 0
     result = measure(path)
