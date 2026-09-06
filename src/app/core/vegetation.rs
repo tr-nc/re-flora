@@ -1,4 +1,5 @@
 use super::launch_owners;
+mod snapshot;
 use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
@@ -26,6 +27,7 @@ use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
+pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 

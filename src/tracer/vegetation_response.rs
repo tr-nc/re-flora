@@ -108,6 +108,11 @@ pub(super) struct VegetationResponse {
 }
 
 impl VegetationResponse {
+    pub fn invalidate_history(&mut self) {
+        // Reuse allocations, but do not attach old-world motion to restored identities.
+        self.last_time = None;
+    }
+
     pub fn new(bounds: UAabb3) -> Self {
         let origin = bounds.min();
         let extent = bounds.max() - origin;

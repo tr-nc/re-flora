@@ -1,9 +1,39 @@
+use super::vegetation::{PreparedTreeSnapshot, TreeSnapshot};
 use super::*;
+use crate::builder::FloraSnapshot;
 use crate::terrain_persistence::{
     TerrainSnapshotMetadata, TerrainSnapshotReader, TerrainSnapshotWriter,
     DEFAULT_TERRAIN_SNAPSHOT_PATH,
 };
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+mod smoke;
+
+#[derive(Serialize, Deserialize)]
+pub(super) struct GardenSnapshot {
+    flora: FloraSnapshot,
+    trees: TreeSnapshot,
+    growth_override_enabled: bool,
+    growth_override: f32,
+}
+
+impl GardenSnapshot {
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        let snapshot: Self = serde_json::from_slice(bytes).context("decode garden vegetation")?;
+        snapshot.validate()?;
+        Ok(snapshot)
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.flora.validate(CHUNK_DIM, VOXEL_DIM_PER_CHUNK)?;
+        self.trees.validate()?;
+        anyhow::ensure!(
+            (0.0..=1.0).contains(&self.growth_override),
+            "invalid flora growth override"
+        );
+        Ok(())
+    }
+}
 
 const GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON: &str =
     "Glass voxel experiment cannot be persisted";
@@ -29,6 +59,7 @@ enum TerrainSimulationGate {
 /// water-resumption bookkeeping that make up the implementation.
 pub(super) struct TerrainPersistenceRuntime {
     startup_reader: Option<TerrainSnapshotReader>,
+    startup_garden: Option<GardenSnapshot>,
     startup_load_requested: bool,
     startup_save_path: Option<String>,
     snapshot_path: String,
@@ -47,10 +78,8 @@ impl TerrainPersistenceRuntime {
             .load_path
             .as_deref()
             .map(|path| -> Result<TerrainSnapshotReader> {
-                TerrainSnapshotReader::validate(path, metadata)
+                let reader = TerrainSnapshotReader::open_validated(path, metadata)
                     .with_context(|| format!("validate terrain snapshot {path}"))?;
-                let reader = TerrainSnapshotReader::open(path)
-                    .with_context(|| format!("open terrain snapshot {path}"))?;
                 log::info!(
                     "[TERRAIN_PERSISTENCE] startup load validated path={} chunks={} bytes={}",
                     path,
@@ -61,8 +90,13 @@ impl TerrainPersistenceRuntime {
             })
             .transpose()?;
 
+        let startup_garden = startup_reader
+            .as_ref()
+            .map(|reader| GardenSnapshot::decode(reader.garden_data()))
+            .transpose()?;
         Ok(Self {
             startup_reader,
+            startup_garden,
             startup_load_requested: options.load_path.is_some(),
             startup_save_path: options.save_path.clone(),
             snapshot_path: options
@@ -79,6 +113,10 @@ impl TerrainPersistenceRuntime {
 
     pub(super) fn take_startup_reader(&mut self) -> Option<TerrainSnapshotReader> {
         self.startup_reader.take()
+    }
+
+    pub(super) fn take_startup_garden(&mut self) -> Option<GardenSnapshot> {
+        self.startup_garden.take()
     }
 
     pub(super) fn startup_load_requested(&self) -> bool {
@@ -181,6 +219,7 @@ impl TerrainPersistenceRuntime {
     pub(in crate::app::core) fn published_awaiting_dependents_for_test() -> Self {
         Self {
             startup_reader: None,
+            startup_garden: None,
             startup_load_requested: false,
             startup_save_path: None,
             snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
@@ -291,6 +330,27 @@ impl App {
             metadata.chunk_count()? * metadata.chunk_byte_len()?
         );
         let mut writer = TerrainSnapshotWriter::create(path, metadata)?;
+        let garden = GardenSnapshot {
+            flora: self.surface_builder.capture_flora_snapshot(
+                self.time_info.time_since_start_duration().as_millis() as u32,
+            )?,
+            trees: self.capture_tree_snapshot(),
+            growth_override_enabled: self
+                .debug_settings
+                .adjustables
+                .flora_growth_override_enabled
+                .value,
+            growth_override: self.debug_settings.adjustables.flora_growth_override.value,
+        };
+        garden.validate()?;
+        let (flora_count, authored_count) = garden.flora.counts();
+        log::info!(
+            "[GARDEN_PERSISTENCE] capture flora={} authored={} trees={}",
+            flora_count,
+            authored_count,
+            garden.trees.count()
+        );
+        writer.set_garden_data(serde_json::to_vec(&garden)?)?;
         for x in 0..CHUNK_DIM.x {
             for y in 0..CHUNK_DIM.y {
                 for z in 0..CHUNK_DIM.z {
@@ -316,10 +376,13 @@ impl App {
 
     fn run_terrain_load(&mut self, path: &Path) -> Result<(), TerrainLoadFailure> {
         let metadata = terrain_snapshot_metadata();
-        TerrainSnapshotReader::validate(path, metadata)
+        let mut reader = TerrainSnapshotReader::open_validated(path, metadata)
             .map_err(TerrainLoadFailure::before_mutation)?;
-        let mut reader =
-            TerrainSnapshotReader::open(path).map_err(TerrainLoadFailure::before_mutation)?;
+        let garden = GardenSnapshot::decode(reader.garden_data())
+            .map_err(TerrainLoadFailure::before_mutation)?;
+        let prepared_trees = self
+            .prepare_tree_snapshot(&garden.trees)
+            .map_err(TerrainLoadFailure::before_mutation)?;
         if let Err(error) = self.quiesce_terrain_for_snapshot() {
             self.water.resume_after_snapshot_read();
             return Err(TerrainLoadFailure::before_mutation(error));
@@ -354,10 +417,46 @@ impl App {
             return Err(TerrainLoadFailure { mutated, error });
         }
 
-        self.publish_snapshot_replacement().map_err(|error| {
-            self.water.retain_quiescence_after_publication_failure();
-            TerrainLoadFailure::after_mutation(error)
-        })
+        self.publish_snapshot_replacement()
+            .and_then(|()| self.restore_garden_snapshot(garden, prepared_trees))
+            .map_err(|error| {
+                self.water.retain_quiescence_after_publication_failure();
+                TerrainLoadFailure::after_mutation(error)
+            })
+    }
+
+    pub(super) fn restore_startup_garden(&mut self) -> Result<()> {
+        if let Some(garden) = self.terrain_persistence.take_startup_garden() {
+            let prepared = self.prepare_tree_snapshot(&garden.trees)?;
+            self.restore_garden_snapshot(garden, prepared)?;
+        }
+        Ok(())
+    }
+
+    fn restore_garden_snapshot(
+        &mut self,
+        garden: GardenSnapshot,
+        trees: PreparedTreeSnapshot,
+    ) -> Result<()> {
+        self.restore_tree_snapshot(trees)?;
+        self.surface_builder.restore_flora_snapshot(
+            &garden.flora,
+            self.time_info.time_since_start_duration().as_millis() as u32,
+        )?;
+        self.tracer.invalidate_vegetation_response_history();
+        self.debug_settings
+            .adjustables
+            .flora_growth_override_enabled
+            .value = garden.growth_override_enabled;
+        self.debug_settings.adjustables.flora_growth_override.value = garden.growth_override;
+        self.growing_flora_chunks = GrowingFloraQueue::default();
+        for chunk in terrain_chunk_ids() {
+            self.track_growing_flora_chunk(chunk);
+        }
+        let (flora_count, authored_count) = garden.flora.counts();
+        log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3}; no trunk restamp",
+            flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
+        Ok(())
     }
 
     fn quiesce_terrain_for_snapshot(&mut self) -> Result<()> {
@@ -420,6 +519,7 @@ mod tests {
     fn runtime() -> TerrainPersistenceRuntime {
         TerrainPersistenceRuntime {
             startup_reader: None,
+            startup_garden: None,
             startup_load_requested: false,
             startup_save_path: None,
             snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
@@ -477,7 +577,26 @@ mod tests {
         let chunk_ids = vec![UVec3::ZERO, UVec3::X];
         match snapshot_replacement_build_edit(chunk_ids.clone()) {
             BuildEdit::RebuildChunksWithoutFlora(actual) => assert_eq!(actual, chunk_ids),
-            _ => panic!("runtime snapshot replacement must retain the current flora state"),
+            _ => panic!("runtime snapshot replacement must not procedurally regenerate flora"),
         }
+    }
+
+    #[test]
+    fn empty_garden_is_valid_but_missing_vegetation_is_not() {
+        let chunks = terrain_chunk_ids().into_iter().map(|chunk| serde_json::json!({
+            "coordinate": chunk.to_array(),
+            "species": crate::flora::species::FLORA_SPECIES.iter().map(|species| serde_json::json!({
+                "key": species.key, "instances": [], "authored": [],
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>();
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "flora": { "chunks": chunks }, "trees": { "age": 1.0, "fruit_cycle": 0.4, "trees": [] },
+            "growth_override_enabled": false, "growth_override": 1.0,
+        }))
+        .unwrap();
+        let garden = GardenSnapshot::decode(&bytes).unwrap();
+        assert_eq!(garden.flora.counts(), (0, 0));
+        assert_eq!(garden.trees.count(), 0);
+        assert!(GardenSnapshot::decode(b"{}").is_err());
     }
 }

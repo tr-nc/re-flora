@@ -1,4 +1,5 @@
 mod resources;
+mod snapshot;
 use super::PlainBuilderResources;
 use crate::{
     flora::species,
@@ -17,6 +18,7 @@ use re_flora_vkn::{
     PipelineStage, QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
 };
 pub use resources::*;
+pub use snapshot::FloraSnapshot;
 use std::{
     cell::Cell,
     collections::HashMap,

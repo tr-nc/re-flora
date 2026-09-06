@@ -2673,11 +2673,11 @@ impl App {
                                     ui.separator();
                                     ui.add_space(8.0);
                                     ui.heading(
-                                        RichText::new("Terrain Snapshot")
+                                        RichText::new("Terrain & Plants")
                                             .size(16.0)
                                             .color(GOLD_ACCENT),
                                     );
-                                    ui.label("Terrain-only; trees, entities, water, and time are retained.");
+                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
                                     ui.horizontal(|ui| {
                                         ui.label("Path");
                                         ui.text_edit_singleline(

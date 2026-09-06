@@ -1,6 +1,7 @@
 # Terrain Persistence and Reload v1
 
-Status: implemented; schema 1 remains current (re-audited 2026-08-28)
+Status: historical terrain-only format. Superseded by [terrain and vegetation snapshots](garden_snapshots.md).
+The packed voxel schema remains 1; the file format is now 2, without v1 compatibility.
 
 Tracking issue: [#65](https://github.com/tr-nc/re-flora/issues/65)
 

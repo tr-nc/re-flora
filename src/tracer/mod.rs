@@ -6514,6 +6514,10 @@ impl Tracer {
         Ok(())
     }
 
+    pub fn invalidate_vegetation_response_history(&mut self) {
+        self.vegetation_response.invalidate_history();
+    }
+
     pub fn remove_tree_leaves(
         &mut self,
         surface_resources: &mut SurfaceResources,
