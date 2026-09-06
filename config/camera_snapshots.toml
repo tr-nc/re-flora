@@ -62,17 +62,17 @@ fly_mode = false
 [[snapshots]]
 name = "cozy-home-exterior"
 description = "White stone, climbing flowers, twin glass windows and living roof"
-position = [0.95, 0.87, 1.98]
-yaw_deg = 21.0
-pitch_deg = -19.0
-fov_deg = 53.0
+position = [0.98, 0.93, 2.0]
+yaw_deg = -25.4
+pitch_deg = -22.5
+fov_deg = 55.0
 fly_mode = true
 
 [[snapshots]]
 name = "cozy-home-interior"
 description = "Warm lanterns, oak furniture and thick walls inside the cottage"
-position = [0.815, 0.51, 1.29]
-yaw_deg = 23.0
-pitch_deg = 2.0
+position = [0.815, 0.555, 1.29]
+yaw_deg = -23.0
+pitch_deg = -2.0
 fov_deg = 76.0
 fly_mode = true

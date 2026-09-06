@@ -378,8 +378,8 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditTransaction> {
             Vec3::new(x + 5.0, base + 39.0, z + 5.0),
         ));
         lamps.push(box_at(
-            Vec3::new(x - 1.0, base + 32.0, z - 1.0),
-            Vec3::new(x + 1.0, base + 35.0, z + 1.0),
+            Vec3::new(x - 2.0, base + 31.0, z - 2.0),
+            Vec3::new(x + 2.0, base + 37.0, z + 2.0),
         ));
     }
     edits.push(stamp_cuboids(wood, VOXEL_TYPE_OAK_WOOD)?);
@@ -488,6 +488,8 @@ fn add_ivy(edits: &mut Vec<VoxelEdit>, base: f32) -> Result<()> {
 
 impl App {
     pub(super) fn apply_house_scene(&mut self) -> Result<()> {
+        // Morning light falls onto the facade; this only authors the isolated visit.
+        self.set_manual_time_of_day(0.36);
         let surface = sample_house_surface(&mut self.plain_builder)?;
         self.execute_world_edit(house_plan(surface)?)?;
         self.cottage_base_y = Some(house_base_y(surface));
@@ -497,6 +499,37 @@ impl App {
     }
 
     pub(super) fn finish_house_garden(&mut self) -> Result<()> {
+        let base = self.cottage_base_y.context("missing cottage roof")?;
+        let roof_bound = crate::geom::UAabb3::new(
+            UVec3::new(82, (base + 48.0) as u32, 198),
+            UVec3::new(271, (base + 108.0) as u32, 369),
+        );
+        for (index, x) in [CENTER_X - 57.0, CENTER_X, CENTER_X + 57.0]
+            .into_iter()
+            .enumerate()
+        {
+            crate::app::world_ops::mesh_regenerate_flora_for_brush_edit(
+                &mut self.surface_builder,
+                super::VOXEL_DIM_PER_CHUNK,
+                roof_bound,
+                crate::app::world_ops::FloraBrushEdit {
+                    start: Vec3::new(x, roof_y(x, base) + 7.0, 210.0) / 256.0,
+                    end: Vec3::new(x, roof_y(x, base) + 7.0, 358.0) / 256.0,
+                    radius: 35.0 / 256.0,
+                    tick: self
+                        .world_clock
+                        .flora_tick()
+                        .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                    spawn_time_ms: 0,
+                },
+                crate::flora::species::FloraPaintSelection::Species(
+                    crate::flora::species::SHORT_GRASS_SPECIES_INDEX,
+                ),
+                index as u32,
+                crate::flora::species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+            )?;
+        }
+        log::info!("[HOUSE_SCENE][ROOF] living_grass=true brushes=3 surface_pipeline=occupancy");
         let mut batch = AuthoredFloraPlacementBatch::new();
         let mut planted = 0;
         let mut seed = 0;
@@ -506,7 +539,10 @@ impl App {
                 if seed % 3 == 0 {
                     continue;
                 }
-                let Ok(anchor) = self.resolve_plantable_surface_column(UVec2::new(x, z)) else {
+                let Ok(anchor) = self.resolve_plantable_surface_column(UVec2::new(
+                    x + seed % 5 - 2,
+                    z + seed % 7 - 3,
+                )) else {
                     continue;
                 };
                 let species = if seed % 4 == 0 {
