@@ -39,8 +39,8 @@ lifetime, and speed multiplier. Width/depth are full extents in voxels, not radi
 Softness sets how much of each half-extent fades to the edge: larger values give
 a broader gradual fade; smaller values retain a wider strong center.
 Defaults are 192 voxels wide and 48 deep; dimensions can be adjusted independently.
-Radial click retains its ring mode, with ring thickness and a base speed because
-a click has no drag length.
+Only directional drag is supported. A click without dragging emits nothing;
+the radial mode, ring preview and ring-force calculation have been removed.
 
 Settings affect aiming and subsequent emissions; existing gusts retain their
 settings. The band preview uses one unfilled outline, without shaded fill or
@@ -63,7 +63,7 @@ terrain-following airflow.
 
 ## Validation
 
-The production-path GPU guard checks directional/radial force, expiration,
+The production-path GPU guard checks directional force, expiration,
 background-mode independence, shape bounds, symmetric falloff, adjustable
 softness, and independently adjustable width:
 

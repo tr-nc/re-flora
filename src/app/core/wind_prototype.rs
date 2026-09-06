@@ -18,51 +18,34 @@ fn gust_display_center(gust: &Gust, time: f32) -> Vec3 {
 }
 
 impl Drag {
-    fn preview(&self, settings: GustSettings, multiplier: f32, radial: bool, time: f32) -> Gust {
+    fn preview(&self, settings: GustSettings, multiplier: f32, time: f32) -> Gust {
         let delta = self.endpoint - self.origin;
         let planar = Vec2::new(delta.x, delta.z);
-        let speed = if radial {
-            settings.speed
-        } else {
-            planar.length() * 256.
-        } * multiplier;
+        let speed = planar.length() * 256. * multiplier;
         Gust {
             origin: self.origin,
             direction: planar.normalize_or_zero(),
             settings: GustSettings { speed, ..settings },
-            radial,
             start: time,
         }
     }
 
-    fn release(&self, field: &mut WindField, multiplier: f32, radial: bool) -> bool {
-        let preview = self.preview(field.manual_gust, multiplier, radial, field.time());
-        field.release_with_settings(preview.origin, preview.direction, radial, preview.settings)
+    fn release(&self, field: &mut WindField, multiplier: f32) -> bool {
+        let preview = self.preview(field.manual_gust, multiplier, field.time());
+        field.release_with_settings(preview.origin, preview.direction, preview.settings)
     }
 }
 
-fn draw_gust_controls(ui: &mut egui::Ui, settings: &mut GustSettings, radial: bool) {
+fn draw_gust_controls(ui: &mut egui::Ui, settings: &mut GustSettings) {
     ui.add(egui::Slider::new(&mut settings.strength, 0. ..=8.).text("Gust strength"));
-    if !radial {
-        ui.add(egui::Slider::new(&mut settings.width, 8. ..=512.).text("Width (voxels)"));
-    }
-    ui.add(
-        egui::Slider::new(&mut settings.depth, 4. ..=256.).text(if radial {
-            "Ring thickness"
-        } else {
-            "Depth (voxels)"
-        }),
-    );
+    ui.add(egui::Slider::new(&mut settings.width, 8. ..=512.).text("Width (voxels)"));
+    ui.add(egui::Slider::new(&mut settings.depth, 4. ..=256.).text("Depth (voxels)"));
     ui.add(egui::Slider::new(&mut settings.softness, 0.05..=1.).text("Edge softness"));
     ui.add(egui::Slider::new(&mut settings.duration, 0.5..=8.).text("Gust lifetime (s)"));
-    if radial {
-        ui.add(egui::Slider::new(&mut settings.speed, 10. ..=180.).text("Ring base speed"));
-    }
 }
 
 pub(super) struct WindPrototype {
     pub field: WindField,
-    radial: bool,
     speed_multiplier: f32,
     drag: Option<Drag>,
     status: String,
@@ -75,7 +58,6 @@ impl WindPrototype {
     pub fn from_environment() -> Option<Self> {
         std::env::var_os("RE_FLORA_WIND_PROTOTYPE").map(|_| Self {
             field: WindField::default(),
-            radial: false,
             speed_multiplier: 1.,
             drag: None,
             status: "Drag on terrain, release to send a gust.".into(),
@@ -95,13 +77,13 @@ impl WindPrototype {
         self.field.advance(time);
         if self.scripted && !self.script_started {
             self.script_started = true;
-            self.field.release(Vec3::new(0.7, 0.5, 1.), Vec2::X, false);
-            self.field.release(Vec3::new(1., 0.5, 1.), Vec2::ZERO, true);
+            self.field.release(Vec3::new(0.7, 0.5, 1.), Vec2::X);
+            self.field.release(Vec3::new(1., 0.5, 1.), Vec2::Y);
         }
         if self.scripted && !self.script_completed && self.field.time() > 4. {
             assert!(self.field.gusts.is_empty(), "expired manual gusts leaked");
             self.script_completed = true;
-            log::info!("[WIND_PROTOTYPE] smoke=passed directional_and_radial_expired=true");
+            log::info!("[WIND_PROTOTYPE] smoke=passed directional_gusts_expired=true");
         }
     }
 
@@ -161,11 +143,7 @@ impl WindPrototype {
         });
         ui.collapsing("Wind Item", |ui| {
             ui.label("Manual local wind — no automatic gusts");
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.radial, false, "Directional drag");
-                ui.selectable_value(&mut self.radial, true, "Radial click");
-            });
-            draw_gust_controls(ui, &mut self.field.manual_gust, self.radial);
+            draw_gust_controls(ui, &mut self.field.manual_gust);
             ui.add(
                 egui::Slider::new(&mut self.speed_multiplier, 0.1..=4.).text("Speed multiplier"),
             );
@@ -174,7 +152,6 @@ impl WindPrototype {
                 let preview = drag.preview(
                     self.field.manual_gust,
                     self.speed_multiplier,
-                    self.radial,
                     self.field.time(),
                 );
                 ui.label(format!(
@@ -243,10 +220,9 @@ impl WindPrototype {
             let preview = drag.preview(
                 self.field.manual_gust,
                 self.speed_multiplier,
-                self.radial,
                 self.field.time(),
             );
-            if !self.radial && preview.direction != Vec2::ZERO {
+            if preview.direction != Vec2::ZERO {
                 draw_band(&preview, self.field.time());
             }
             if let (Some(start), Some(end)) = (
@@ -258,22 +234,7 @@ impl WindPrototype {
             }
         }
         for gust in &self.field.gusts {
-            if !gust.radial {
-                draw_band(gust, self.field.time());
-                continue;
-            }
-            let center = gust_display_center(gust, self.field.time());
-            let radius = gust.settings.speed * (self.field.time() - gust.start) / 256.;
-            let mut last = None;
-            for segment in 0..=48 {
-                let angle = segment as f32 * std::f32::consts::TAU / 48.;
-                let point = center + Vec3::new(angle.cos(), 0., angle.sin()) * radius;
-                let current = project(point);
-                if let (Some(a), Some(b)) = (last, current) {
-                    painter.line_segment([a, b], Stroke::new(1., Color32::from_rgb(130, 200, 240)));
-                }
-                last = current;
-            }
+            draw_band(gust, self.field.time());
         }
     }
 }
@@ -286,7 +247,6 @@ mod tests {
     fn embedded_controls_preserve_aiming_and_have_no_global_direction_widget() {
         let mut prototype = WindPrototype {
             field: WindField::default(),
-            radial: false,
             speed_multiplier: 1.7,
             drag: Some(Drag {
                 origin: Vec3::ZERO,
@@ -353,7 +313,7 @@ mod tests {
             endpoint: clicked + Vec3::X * 0.4,
             start_screen: Vec2::ZERO,
         };
-        assert!(drag.release(&mut field, 1., false));
+        assert!(drag.release(&mut field, 1.));
         assert_eq!(gust_display_center(&field.gusts[0], field.time()), clicked);
     }
 
@@ -365,9 +325,9 @@ mod tests {
             start_screen: Vec2::ZERO,
         };
         let mut field = WindField::default();
-        let preview = drag.preview(field.manual_gust, 2., false, field.time());
+        let preview = drag.preview(field.manual_gust, 2., field.time());
         assert!((preview.settings.speed - 256.).abs() < 1e-4);
-        assert!(drag.release(&mut field, 2., false));
+        assert!(drag.release(&mut field, 2.));
         let released = &field.gusts[0];
         assert_eq!(released.settings, preview.settings);
         assert_eq!(released.origin, preview.origin);
@@ -476,12 +436,8 @@ impl App {
                     }
                 } else if let Some(drag) = prototype.drag.take() {
                     let threshold = 6. * self.window_state.window().scale_factor() as f32;
-                    if prototype.radial || (cursor - drag.start_screen).length() >= threshold {
-                        let sent = drag.release(
-                            &mut prototype.field,
-                            prototype.speed_multiplier,
-                            prototype.radial,
-                        );
+                    if (cursor - drag.start_screen).length() >= threshold {
+                        let sent = drag.release(&mut prototype.field, prototype.speed_multiplier);
                         prototype.status = if sent {
                             "Gust released; drag again to add another."
                         } else {
@@ -489,7 +445,7 @@ impl App {
                         }
                         .into();
                     } else {
-                        prototype.status = "Drag to aim, or select Radial click.".into();
+                        prototype.status = "Drag to choose direction and speed.".into();
                     }
                 }
                 true // Never also dig/paint with the same left-button gesture.

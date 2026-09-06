@@ -455,7 +455,7 @@ pub(in crate::tracer) fn validate_gpu(
         (squared_error / 2048.).sqrt(), (squared_error / squared_reference.max(1e-12)).sqrt(), maximum_error, live_gui.wind_source_count);
     if std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some() {
         // Production GPU solver, private replay inputs: test a traveling packet,
-        // a radial front, and expiry without changing the user's live field.
+        // its spatial falloff, and expiry without changing the user's live field.
         let mut field = crate::wind_field::WindField::default();
         field.mode = 1;
         field.strength = 0.;
@@ -465,7 +465,7 @@ pub(in crate::tracer) fn validate_gpu(
             .replay_parameters
             .fill_uniform(&GuiInput::zeroed())?;
         field.advance(0.);
-        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X, false);
+        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X);
         field.advance(1.);
         let front = 1. + field.manual_gust.speed / 256.;
         let probe = |x, z| ResponseInput {
@@ -539,18 +539,6 @@ pub(in crate::tracer) fn validate_gpu(
         log::info!("[WIND_PROTOTYPE][GPU] manual_wind_modes=A,B,C identical_force=passed");
         field.mode = 1;
         field.advance(6.);
-        field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::ZERO, true);
-        field.advance(7.);
-        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-        let radial = harness.step(&probes, 0., 0.2, 0.025)?;
-        anyhow::ensure!(
-            radial[0][0] > 0.1
-                && radial[1][1] > 0.1
-                && radial[3][0].abs() < 1e-6
-                && radial[3][1].abs() < 1e-6,
-            "radial gust failed outward directions or center singularity"
-        );
-        field.advance(12.);
         harness.wind.wind_field_info.fill_uniform(&field.frame())?;
         let expired = harness.step(&probes, 0., 0.2, 0.025)?;
         anyhow::ensure!(
@@ -559,7 +547,7 @@ pub(in crate::tracer) fn validate_gpu(
                 .all(|state| state.iter().all(|value| value.abs() < 1e-6)),
             "expired gust still applies force"
         );
-        log::info!("[WIND_PROTOTYPE][GPU] directional_support=passed radial_directions=passed finite_center=passed expired_force=zero");
+        log::info!("[WIND_PROTOTYPE][GPU] directional_support=passed expired_force=zero");
     }
     Ok(())
 }

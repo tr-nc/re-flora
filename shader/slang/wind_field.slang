@@ -56,25 +56,16 @@ public float2 sampleWindGusts(float2 worldVoxels)
         float life = age / max(shape.z, 0.001);
         float envelope = smoothstep(0.0, 0.15, life) * (1.0 - smoothstep(0.65, 1.0, life));
         float2 delta = worldVoxels - origin.xy;
-        float2 push;
-        float spatial;
+        float2 push = motion.xy;
         float innerEdge = 1.0 - clamp(shape.w, 0.05, 1.0);
-        if (origin.w >= 0.5) {
-            float radius = length(delta);
-            push = radius > 0.0001 ? delta / radius : float2(0.0);
-            float distance = abs(radius - age * motion.w) / max(shape.x, 1.0);
-            spatial = 1.0 - smoothstep(innerEdge, 1.0, distance);
-        } else {
-            push = motion.xy;
-            float2 local = delta - push * age * motion.w;
-            float forward = dot(local, push) / max(shape.x, 1.0);
-            float side = dot(local, float2(-push.y, push.x)) / max(shape.y, 1.0);
-            // A crosswind band: strongest at its center, fading smoothly to
-            // both side edges and to the front/back. Zero slope at the bounds
-            // prevents a hard force edge as the band sweeps over a plant.
-            spatial = (1.0 - smoothstep(innerEdge, 1.0, abs(forward)))
-                    * (1.0 - smoothstep(innerEdge, 1.0, abs(side)));
-        }
+        float2 local = delta - push * age * motion.w;
+        float forward = dot(local, push) / max(shape.x, 1.0);
+        float side = dot(local, float2(-push.y, push.x)) / max(shape.y, 1.0);
+        // A crosswind band: strongest at its center, fading smoothly to
+        // both side edges and to the front/back. Zero slope at the bounds
+        // prevents a hard force edge as the band sweeps over a plant.
+        float spatial = (1.0 - smoothstep(innerEdge, 1.0, abs(forward)))
+                      * (1.0 - smoothstep(innerEdge, 1.0, abs(side)));
         result += push * motion.z * envelope * spatial;
     }
     return result;

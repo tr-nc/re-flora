@@ -27,7 +27,7 @@ pub struct GustSettings {
     pub strength: f32,
     pub speed: f32, // voxels/s, resolved from the gesture before emission
     pub width: f32, // full crosswind span in voxels
-    pub depth: f32, // full forward depth / radial ring thickness in voxels
+    pub depth: f32, // full forward depth in voxels
     pub duration: f32,
     pub softness: f32,
 }
@@ -66,15 +66,11 @@ pub struct Gust {
     pub origin: Vec3,
     pub direction: Vec2,
     pub settings: GustSettings,
-    pub radial: bool,
     pub start: f32,
 }
 
 impl Gust {
     pub fn center(&self, time: f32) -> Vec3 {
-        if self.radial {
-            return self.origin;
-        }
         self.origin
             + Vec3::new(self.direction.x, 0., self.direction.y)
                 * (self.settings.speed * (time - self.start).max(0.) / 256.)
@@ -131,14 +127,13 @@ impl WindField {
     pub fn direction(&self) -> Vec2 {
         Vec2::new(self.heading.cos(), self.heading.sin())
     }
-    pub fn release(&mut self, origin: Vec3, direction: Vec2, radial: bool) -> bool {
-        self.release_with_settings(origin, direction, radial, self.manual_gust)
+    pub fn release(&mut self, origin: Vec3, direction: Vec2) -> bool {
+        self.release_with_settings(origin, direction, self.manual_gust)
     }
     pub fn release_with_settings(
         &mut self,
         origin: Vec3,
         direction: Vec2,
-        radial: bool,
         settings: GustSettings,
     ) -> bool {
         if !origin.is_finite()
@@ -149,17 +144,16 @@ impl WindField {
             return false;
         }
         let direction = direction.normalize_or_zero();
-        if !radial && direction == Vec2::ZERO {
+        if direction == Vec2::ZERO {
             return false;
         }
         self.gusts.push(Gust {
             origin,
             direction,
             settings,
-            radial,
             start: self.time,
         });
-        log::info!("[WIND_PROTOTYPE] release radial={radial} origin={origin:?} direction={direction:?} speed_voxels_s={} active={}", settings.speed, self.gusts.len());
+        log::info!("[WIND_PROTOTYPE] release origin={origin:?} direction={direction:?} speed_voxels_s={} active={}", settings.speed, self.gusts.len());
         true
     }
     pub fn advance(&mut self, wall_time: f32) {
@@ -208,7 +202,7 @@ impl WindField {
                 gust.origin.x * 256.,
                 gust.origin.z * 256.,
                 gust.start,
-                u32::from(gust.radial) as f32,
+                0., // alignment padding
             ];
             frame.gust_directions[i] = [
                 gust.direction.x,
@@ -233,6 +227,15 @@ impl WindField {
 mod tests {
     use super::*;
     #[test]
+    fn wind_requires_a_finite_nonzero_direction() {
+        let mut field = WindField::default();
+        assert!(!field.release(Vec3::ZERO, Vec2::ZERO));
+        assert!(!field.release(Vec3::ZERO, Vec2::splat(f32::NAN)));
+        assert!(field.gusts.is_empty());
+        assert!(field.release(Vec3::ZERO, Vec2::Y));
+        assert_eq!(field.gusts[0].direction, Vec2::Y);
+    }
+    #[test]
     fn manual_gusts_work_in_every_background_mode() {
         for mode in 0..=2 {
             let mut field = WindField {
@@ -240,7 +243,7 @@ mod tests {
                 ..WindField::default()
             };
             field.advance(0.);
-            assert!(field.release(Vec3::ZERO, Vec2::X, false));
+            assert!(field.release(Vec3::ZERO, Vec2::X));
             field.advance(0.5);
             assert_eq!(field.frame().detail[3], 1.);
         }
@@ -261,7 +264,7 @@ mod tests {
         let mut field = WindField::default();
         field.manual_gust.strength = 1.;
         field.advance(0.);
-        field.release(Vec3::ZERO, Vec2::X, false);
+        field.release(Vec3::ZERO, Vec2::X);
         field.manual_gust.strength = 2.;
         assert_eq!(field.gusts[0].settings.strength, 1.);
         field.advance(10.);
