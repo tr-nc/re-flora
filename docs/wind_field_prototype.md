@@ -17,7 +17,7 @@ controls are temporary and are not serialized into the saved GUI configuration.
 
 - **A Original:** existing saved wind layers, without automatic turning.
 - **B Turning:** mean wind, smooth direction wandering, and transported noise.
-- **C Gusts:** B plus finite directional packets or outward-moving radial rings.
+- **C Gusts:** B plus finite directional wind bands or outward-moving radial rings.
 - **D Local detail:** C plus evolving, spatially correlated vector noise.
 
 In orbit/edit camera mode, enable **WIND DEMO**. Press on terrain, drag to aim,
@@ -27,9 +27,16 @@ Escape cancels an unfinished drag; ordinary camera rotation remains available.
 Choosing a normal placement tool disables the demo tool. Releases consumed by
 the settings UI cancel the preview instead of editing terrain or emitting wind.
 
-The compass is world-plane oriented, not camera oriented. Blue circles are
-approximate event footprints on a fixed horizontal reference plane, not a
-terrain-following visualization or sampled vector field.
+Directional gusts are rectangular wind bands, four times wider across the wind
+than along it. Strength falls smoothly from the center toward both side edges,
+and toward the front/back. The size control scales both dimensions together;
+there is no shape menu. Radial gusts retain their outward-moving ring behavior.
+
+The compass is world-plane oriented, not camera oriented. Blue bands and circles
+show event footprints on a fixed horizontal reference plane, not terrain-following
+flow. Nested band fills indicate stronger wind near the center; they are not
+separate gusts or an exact sampled vector-field visualization. During aiming, the
+band preview is drawn at the initial terrain-hit height.
 
 **Hold new wind** pauses this field's clock only; vegetation inertia can continue
 settling. **Restart wind** resets the field, not the vegetation solver. The original
@@ -67,6 +74,9 @@ Validated on this branch:
   enabled screenshot was visually inspected for panel placement and rendering.
 - GPU directional/radial/expiration checks passed; runtime event-expiry smoke
   passed. Run logs reported successful shutdown without errors.
+- The directional-band revision additionally passed GPU checks for the 4:1
+  aspect ratio, monotonic center-to-side falloff, matching left/right response,
+  zero force beyond either edge, and nonzero force inside rectangular corners.
 - Saved GUI and camera files retained their pre-run checksums.
 
 The GPU validation path exercises directional support, radial directions, a finite

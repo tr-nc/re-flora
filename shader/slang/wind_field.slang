@@ -50,19 +50,23 @@ public float2 sampleAuthoredWind(float2 worldVoxels)
         float envelope = smoothstep(0.0, 0.15, life) * (1.0 - smoothstep(0.65, 1.0, life));
         float2 delta = worldVoxels - origin.xy;
         float2 push;
-        float distance;
+        float spatial;
         if (origin.w >= 0.5) {
             float radius = length(delta);
             push = radius > 0.0001 ? delta / radius : float2(0.0);
-            distance = abs(radius - age * motion.w) / max(shape.x, 1.0);
+            float distance = abs(radius - age * motion.w) / max(shape.x, 1.0);
+            spatial = 1.0 - smoothstep(0.0, 1.0, distance);
         } else {
             push = motion.xy;
             float2 local = delta - push * age * motion.w;
             float forward = dot(local, push) / max(shape.x, 1.0);
             float side = dot(local, float2(-push.y, push.x)) / max(shape.y, 1.0);
-            distance = length(float2(forward, side));
+            // A crosswind band: strongest at its center, fading smoothly to
+            // both side edges and to the front/back. Zero slope at the bounds
+            // prevents a hard force edge as the band sweeps over a plant.
+            spatial = (1.0 - smoothstep(0.0, 1.0, abs(forward)))
+                    * (1.0 - smoothstep(0.0, 1.0, abs(side)));
         }
-        float spatial = 1.0 - smoothstep(0.0, 1.0, distance);
         result += push * motion.z * envelope * spatial;
     }
     return result;

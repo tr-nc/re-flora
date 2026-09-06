@@ -1,7 +1,7 @@
 //! PROTOTYPE adapter: pointer input and overlays only. Finite wind events and
 //! evolution belong to wind_field; deleting this demo must not rewrite that model.
 use super::App;
-use crate::wind_field::{WindField, MAX_GUSTS};
+use crate::wind_field::{Gust, WindField, MAX_GUSTS};
 use egui::{Color32, Pos2, Stroke};
 use glam::{Mat4, Vec2, Vec3};
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -109,6 +109,7 @@ impl WindPrototype {
                         });
                         ui.add(egui::Slider::new(&mut self.field.gust_strength, 0. ..=8.).text("Gust strength"));
                         ui.add(egui::Slider::new(&mut self.field.gust_radius, 8. ..=100.).text("Gust size (voxels)"));
+                        if !self.radial { ui.small("4:1 crosswind band; strongest at center, soft on both sides."); }
                         ui.add(egui::Slider::new(&mut self.field.gust_duration, 0.5 ..=8.).text("Gust lifetime (s)"));
                         ui.add(egui::Slider::new(&mut self.field.gust_speed, 10. ..=180.).text("Gust travel speed"));
                         ui.checkbox(&mut self.field.auto_gusts, "Automatic gusts (fixed sequence)");
@@ -146,7 +147,40 @@ impl WindPrototype {
             egui::Order::Background,
             "wind_demo_overlay".into(),
         ));
+        let draw_band = |center: Vec3, direction: Vec2, half_extents: Vec2| {
+            let forward = direction * half_extents.x / 256.;
+            let side = Vec2::new(-direction.y, direction.x) * half_extents.y / 256.;
+            // Nested soft fills indicate central strength, not separate gusts.
+            for scale in [1., 0.65, 0.3] {
+                let corners = [
+                    forward + side,
+                    forward - side,
+                    -forward - side,
+                    -forward + side,
+                ];
+                let points: Option<Vec<Pos2>> = corners
+                    .into_iter()
+                    .map(|offset| project(center + Vec3::new(offset.x, 0., offset.y) * scale))
+                    .collect();
+                if let Some(points) = points {
+                    painter.add(egui::Shape::convex_polygon(
+                        points,
+                        Color32::from_rgba_unmultiplied(130, 200, 240, 12),
+                        Stroke::new(1., Color32::from_rgba_unmultiplied(130, 200, 240, 100)),
+                    ));
+                }
+            }
+        };
         if let Some(drag) = &self.drag {
+            let delta = drag.endpoint - drag.origin;
+            let direction = Vec2::new(delta.x, delta.z).normalize_or_zero();
+            if !self.radial && direction != Vec2::ZERO {
+                draw_band(
+                    drag.origin,
+                    direction,
+                    Gust::band_half_extents(self.field.gust_radius),
+                );
+            }
             if let (Some(start), Some(end)) = (project(drag.origin), project(drag.endpoint)) {
                 painter.circle_stroke(start, 7., Stroke::new(2., Color32::LIGHT_GREEN));
                 painter.arrow(start, end - start, Stroke::new(3., Color32::LIGHT_GREEN));
@@ -161,11 +195,15 @@ impl WindPrototype {
             } else {
                 gust.origin + gust.direction * gust.speed * age / 256.
             };
-            let radius = if gust.radial {
-                gust.speed * age / 256.
-            } else {
-                gust.radius / 256.
-            };
+            if !gust.radial {
+                draw_band(
+                    Vec3::new(center.x, 0.5, center.y),
+                    gust.direction,
+                    gust.half_extents(),
+                );
+                continue;
+            }
+            let radius = gust.speed * age / 256.;
             let mut last = None;
             for segment in 0..=32 {
                 let angle = segment as f32 * std::f32::consts::TAU / 32.;

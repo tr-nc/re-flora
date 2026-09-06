@@ -482,6 +482,29 @@ pub(in crate::tracer) fn validate_gpu(
                 && directional[2][0].abs() < 1e-6,
             "directional gust escaped its support or lost direction"
         );
+        let extent = field.gusts[0].half_extents() / 256.;
+        let band_probes = [
+            probe(front, 1.),
+            probe(front, 1. + extent.y * 0.25),
+            probe(front, 1. + extent.y * 0.75),
+            probe(front, 1. - extent.y * 0.75),
+            probe(front, 1. + extent.y * 1.01),
+            probe(front + extent.x * 1.01, 1.),
+            probe(front + extent.x * 0.75, 1. + extent.y * 0.75),
+        ];
+        let band = harness.step(&band_probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            (extent.y / extent.x - 4.).abs() < 1e-6
+                && band[0][0] > band[1][0]
+                && band[1][0] > band[2][0]
+                && band[2][0] > 0.
+                && (band[2][0] - band[3][0]).abs() < 1e-5
+                && band[4][0].abs() < 1e-6
+                && band[5][0].abs() < 1e-6
+                && band[6][0] > 0.,
+            "wind band lost its rectangular support or symmetric center-to-edge falloff"
+        );
+        log::info!("[WIND_PROTOTYPE][GPU] band_aspect=4:1 center_to_edge_falloff=passed symmetric_sides=passed rectangular_support=passed");
         field.clear();
         field.release(glam::Vec2::splat(1.), glam::Vec2::ZERO, true);
         field.advance(2.);

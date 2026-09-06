@@ -34,6 +34,21 @@ pub struct Gust {
     pub start: f32,
 }
 
+impl Gust {
+    pub fn band_half_extents(radius: f32) -> Vec2 {
+        Vec2::new(radius * 0.25, radius)
+    }
+
+    /// Forward depth and crosswind span; directional gusts form a 4:1 wind band.
+    pub fn half_extents(&self) -> Vec2 {
+        if self.radial {
+            Vec2::splat(self.radius)
+        } else {
+            Self::band_half_extents(self.radius)
+        }
+    }
+}
+
 pub struct WindField {
     pub mode: u32,
     pub heading_degrees: f32,
@@ -206,7 +221,8 @@ impl WindField {
                 gust.strength,
                 gust.speed,
             ];
-            frame.gust_shapes[i] = [gust.radius, gust.radius * 0.8, gust.duration, 0.];
+            let extent = gust.half_extents();
+            frame.gust_shapes[i] = [extent.x, extent.y, gust.duration, 0.];
             frame.detail[3] += 1.;
         }
         frame
