@@ -12,6 +12,13 @@
 - Validate Rust/rendering changes with hidden muted mode (`cargo run --release -- --hidden --mute --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
+## Visual Iteration Priorities
+
+- Prioritize visible results and fast user feedback during visual exploration and iteration. Present the actual effect and iterate on its appearance before pursuing performance optimization.
+- Do not block visual review solely because of a small measured performance regression or an unmet hard performance threshold. Record the measurements and known issues honestly; showing a candidate does not mean its performance or release acceptance has passed.
+- Once the user approves the visual result, treat performance optimization and performance acceptance as a separate stage, using release-mode measurements and the applicable budgets. This sequencing does not introduce a new universal threshold or erase previous failed measurements.
+- Basic correctness and safety remain mandatory throughout: do not waive crashes, data corruption, invalid resource use, or other correctness failures in the name of visual iteration. Distinguish existing baseline problems from new regressions, and state any blocked validation explicitly.
+
 ## Release Versioning
 
 Use the main worktree (`/home/terence/code/re-flora`) on a clean, up-to-date `main` branch for releases. Do not release from worker worktrees.
