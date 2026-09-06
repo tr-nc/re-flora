@@ -1524,6 +1524,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub clouds: CloudGuiParams,
@@ -2798,6 +2799,7 @@ impl Tracer {
                 sun_direction: environment.sun.direction,
                 sun_color: environment.sun.color,
                 sun_luminance: environment.sun.luminance,
+                sky_light_strength: environment.sky_light_strength,
                 terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 glass_experiment_enabled: self.desc.glass_experiment_enabled,
@@ -2961,6 +2963,7 @@ impl Tracer {
             environment.sun.size,
             sun_color,
             sun_luminance,
+            authored_snapshot.sky_light_strength,
             environment.sun.display_luminance,
             environment.sun.altitude,
             environment.sun.azimuth,
@@ -2971,7 +2974,7 @@ impl Tracer {
             .observe_authored_lighting(authored_environment_lighting);
         if ddgi_lighting.transport_published {
             log::info!(
-                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4}",
+                "[DDGI][LIGHTING] transport_published=true live_revision={} transport_revision={} source_live_revision={} revision_lag={} coalesced_live_revisions={} published_at_ms={} transport_age_ms={} change_reason={:?} sun_angle_degrees={:.4} sun_color_relative={:.5} sun_luminance_relative={:.5} non_solar_changed={} local_lights_changed={} local_light_source_revision={} local_light_count={} sun_direction={:?} sun_color={:?} sun_luminance={:.4} sky_light_strength={:.4}",
                 authored_environment_lighting.revision,
                 ddgi_lighting.transport.revision(),
                 ddgi_lighting.transport.source_live_revision(),
@@ -3017,6 +3020,7 @@ impl Tracer {
                 ddgi_lighting.transport.snapshot().sun_direction,
                 ddgi_lighting.transport.snapshot().sun_color,
                 ddgi_lighting.transport.snapshot().sun_luminance,
+                ddgi_lighting.transport.snapshot().sky_light_strength,
             );
             if ddgi_lighting.transport.change().delta.local_lights_changed {
                 let impact = ddgi_lighting

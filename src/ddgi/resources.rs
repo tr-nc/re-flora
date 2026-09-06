@@ -2402,6 +2402,8 @@ impl DdgiVolume {
                 terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
                 color: snapshot.sun_color.to_array(),
                 luminance: snapshot.sun_luminance,
+                sky_light_strength: snapshot.sky_light_strength,
+                ..DdgiRadianceSun::zeroed()
             })?;
         self.resources()
             .ddgi_radiance_voxel_palette
@@ -3489,7 +3491,7 @@ mod tests {
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
-        assert_eq!(bytes.radiance_sun, 32);
+        assert_eq!(bytes.radiance_sun, 48);
         assert_eq!(bytes.radiance_voxel_palette, 96);
         assert_eq!(bytes.transport_query_info, 64);
     }

@@ -100,6 +100,7 @@ public struct U_SunInfo
     public float sun_display_luminance;
     public float sun_altitude;
     public float sun_azimuth;
+    public float sky_light_strength;
 };
 
 public struct U_ShadingInfo

@@ -238,25 +238,31 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Sky",
         id: "sun_size",
         kind: "float",
-        label: "Size (relative)",
+        label: "Sun Disk Size (appearance)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
         id: "sun_color",
         kind: "color",
-        label: "Sun Color",
+        label: "Sun Color (lighting + disk)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
         id: "sun_luminance",
         kind: "float",
-        label: "Sun Luminance",
+        label: "Sun Lighting Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Sky",
+        id: "sky_light_strength",
+        kind: "float",
+        label: "Sky Lighting Strength (1 = original)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
         id: "sun_display_luminance",
         kind: "float",
-        label: "Sun Display Luminance",
+        label: "Sun Disk Brightness (appearance)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
@@ -1290,6 +1296,7 @@ pub struct GuiAdjustables {
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
+    pub sky_light_strength: crate::gui_adjustables::FloatParam,
     pub sun_display_luminance: crate::gui_adjustables::FloatParam,
     pub auto_daynight_cycle: crate::gui_adjustables::BoolParam,
     pub time_of_day: crate::gui_adjustables::FloatParam,
@@ -1507,6 +1514,7 @@ impl GuiAdjustables {
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut sky_light_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_display_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut auto_daynight_cycle_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut time_of_day_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1929,6 +1937,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             sun_luminance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "sky_light_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sky_light_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sun_display_luminance" => {
@@ -3083,6 +3098,7 @@ impl GuiAdjustables {
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
+            sky_light_strength: sky_light_strength_field.expect("Missing parameter: sky_light_strength"),
             sun_display_luminance: sun_display_luminance_field.expect("Missing parameter: sun_display_luminance"),
             auto_daynight_cycle: auto_daynight_cycle_field.expect("Missing parameter: auto_daynight_cycle"),
             time_of_day: time_of_day_field.expect("Missing parameter: time_of_day"),
@@ -3285,6 +3301,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_rustle_brightness" => Some(&adjustables.tree_rustle_brightness),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
+        "sky_light_strength" => Some(&adjustables.sky_light_strength),
         "sun_display_luminance" => Some(&adjustables.sun_display_luminance),
         "time_of_day" => Some(&adjustables.time_of_day),
         "latitude" => Some(&adjustables.latitude),
@@ -3534,6 +3551,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_rustle_brightness" => Some(&mut adjustables.tree_rustle_brightness),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
+        "sky_light_strength" => Some(&mut adjustables.sky_light_strength),
         "sun_display_luminance" => Some(&mut adjustables.sun_display_luminance),
         "time_of_day" => Some(&mut adjustables.time_of_day),
         "latitude" => Some(&mut adjustables.latitude),

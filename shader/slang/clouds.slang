@@ -310,7 +310,7 @@ float3 cloudSampleLighting(CloudInputs inputs, float3 worldPosition,
         normalize(float3(viewDirection.x, abs(viewDirection.y) + 0.25, viewDirection.z)),
         inputs.sun.sun_dir);
     float twilight = smoothstep(-0.08, 0.22, inputs.sun.sun_dir.y);
-    float3 ambient = ambientSky * lerp(0.38, 0.62, twilight) *
+    float3 ambient = ambientSky * inputs.sun.sky_light_strength * lerp(0.38, 0.62, twilight) *
                      lerp(0.55, 1.0, clamp(directVisibility, 0.0, 1.0));
 
     float3 incidentSun = inputs.sun.sun_color * atmosphereTransmittance * directVisibility;

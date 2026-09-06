@@ -61,7 +61,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         float3 direction = fibonacciDirection(sampleIndex);
         float cosineWeight = max(0.0, dot(normal, direction));
         irradiance += getAuthoredSkyRadiance(
-                          direction, normalize(ddgi_radiance_sun.direction)) *
+                          direction, normalize(ddgi_radiance_sun.direction),
+                          ddgi_radiance_sun.sky_light_strength) *
                       cosineWeight;
     }
     // Store diffuse irradiance divided by pi. The shared authored-sky

@@ -177,6 +177,7 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
         clouds: CloudGuiParams {
@@ -390,6 +391,7 @@ mod tests {
         let sun_size = float!(sun_size);
         let sun_color = color!(sun_color);
         let sun_luminance = float!(sun_luminance);
+        let sky_light_strength = float!(sky_light_strength);
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -556,6 +558,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,
                 clouds: CloudGuiParams {
