@@ -1,0 +1,26 @@
+{
+  "source_package": "~/Downloads/SA_SF_CricketsCicadas_96k_v1.0",
+  "source_format": "96 kHz mono 24-bit WAV; filenames identify synthesized cicadas",
+  "target_format": "48 kHz mono signed 16-bit PCM WAV",
+  "permission": "User authorized selecting and copying these local assets into this game repo. No license text found in package; no redistribution license inferred.",
+  "files": [
+    {
+      "original": "Audio/Dog Day Cicada/ANMLInsc_Cicada, Synthesized, Dog Day Cicada 01_SARM_SFCricketsCicadas.wav",
+      "sha256_original": "c1e182f6c3b7c84de8f7b924d666fd76d343db4d0fd44b9cba02b82444d669ca",
+      "target": "dog_day_01.wav",
+      "sha256_target": "bb566f50a49e169f4eecb71966e43b8abf0f2fd8ff4c1d49ce8286aeb9406397",
+      "start_seconds": 0,
+      "duration_seconds": 10.029552,
+      "filters": "highpass=f=600,lowpass=f=11000,volume=-3dB,afade=t=in:d=0.6,afade=t=out:st=9.029552:d=1"
+    },
+    {
+      "original": "Audio/Linne's Cicada/ANMLInsc_Cicada, Synthesized, Linne's Cicada 01_SARM_SFCricketsCicadas.wav",
+      "sha256_original": "78433c8e5694c3272972fbbe990d4d4a300d68c3ad60269af4bdd11f31fdc845",
+      "target": "linne_01.wav",
+      "sha256_target": "6e9dd5dff0af03c9dbc6be2b4ff0b93bcbf62f46a88c1942e107d02cd0846dcb",
+      "start_seconds": 3,
+      "duration_seconds": 8,
+      "filters": "highpass=f=600,lowpass=f=11000,volume=-3dB,afade=t=in:d=0.6,afade=t=out:st=7:d=1"
+    }
+  ]
+}
