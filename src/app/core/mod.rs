@@ -33,6 +33,7 @@ mod planting;
 mod player_tools;
 mod render_frame_input;
 mod screenshot;
+mod summer_cicadas;
 mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
@@ -495,6 +496,8 @@ pub struct App {
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
 
+    summer_cicadas: crate::audio::SummerCicadas,
+    cicada_smoke: Option<summer_cicadas::CicadaSmoke>,
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
@@ -1357,6 +1360,7 @@ impl App {
         tree_audio_manager
             .set_canopy_telemetry_enabled(audio.canopy_telemetry || canopy_audio_diagnostic);
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
+        let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1520,6 +1524,8 @@ impl App {
             visible_terrain_revision: 0,
             shutdown_lifecycle: lifecycle::AppShutdownLifecycle::default(),
 
+            summer_cicadas,
+            cicada_smoke: summer_cicadas::CicadaSmoke::from_environment(),
             spatial_sound_manager,
             spatial_frame,
             tree_audio_manager,
@@ -3959,6 +3965,9 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
+                if let Err(error) = self.update_summer_cicadas(f64::from(time_since_start)) {
+                    log::warn!("[AUDIO][CICADAS] update failed: {error:#}");
+                }
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),

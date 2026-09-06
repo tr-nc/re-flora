@@ -1526,6 +1526,31 @@ impl GardenTrees {
             .map(|record| record.canopy_acoustic_descriptor.generation())
     }
 
+    /// Observe only committed foliage; failed tree publications never become insect habitats.
+    pub(super) fn cicada_canopy_habitats(&self) -> Vec<crate::audio::CicadaHabitat> {
+        self.records
+            .iter()
+            .flat_map(|(&tree_id, record)| {
+                let descriptor = &record.canopy_acoustic_descriptor;
+                descriptor
+                    .samples()
+                    .iter()
+                    .filter(|sample| {
+                        sample.provenance()
+                            == crate::audio::CanopyAcousticSampleProvenance::LeafPlacement
+                    })
+                    .map(move |sample| crate::audio::CicadaHabitat {
+                        key: crate::audio::CicadaHabitatKey::Canopy(
+                            tree_id,
+                            descriptor.generation(),
+                            sample.id().value(),
+                        ),
+                        position: descriptor.sample_world_position(sample),
+                    })
+            })
+            .collect()
+    }
+
     pub(super) fn butterfly_spawn_positions(&self) -> Vec<Vec3> {
         self.records
             .values()

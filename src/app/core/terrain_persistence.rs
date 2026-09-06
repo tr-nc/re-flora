@@ -137,6 +137,10 @@ impl TerrainPersistenceRuntime {
             && self.simulation_gate == TerrainSimulationGate::Running
     }
 
+    pub(super) fn awaits_dependents(&self) -> bool {
+        self.status == TerrainPersistenceStatus::PublishedAwaitingDependents
+    }
+
     pub(super) fn status_label(&self) -> String {
         if let Some(reason) = self.disabled_reason {
             return format!("Disabled: {reason}");
@@ -397,6 +401,7 @@ impl App {
                         self.water.resume_after_snapshot_read();
                         return Err(error);
                     }
+                    self.summer_cicadas.clear("world_replacement")?;
                     mutated = true;
                 }
                 self.plain_builder.write_chunk_atlas_region(

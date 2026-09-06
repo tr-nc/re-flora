@@ -207,9 +207,11 @@ impl ShutdownActions for App {
     }
 
     fn shutdown_audio(&mut self) -> Result<()> {
+        let cicadas = self.summer_cicadas.clear("shutdown");
         self.spatial_sound_manager
             .stop()
-            .context("shut down audio runtime")
+            .context("shut down audio runtime")?;
+        cicadas.context("retire summer cicadas")
     }
 
     fn wait_device_idle(&mut self) {

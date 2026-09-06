@@ -411,9 +411,10 @@ impl SpatialSoundManager {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn add_looping_clip_source(
+    fn add_clip_source(
         &self,
         clip: ResidentClip,
+        play_options: PlayOptions,
         volume_db: f32,
         position: Option<Vec3>,
         initial_phase: Option<f32>,
@@ -425,7 +426,7 @@ impl SpatialSoundManager {
             clip,
             Self::emitter_desc(position, volume_db, extent.clone(), occlusion_profile),
         )?;
-        if let Err(error) = self.world.play(emitter, PlayOptions::looping()) {
+        if let Err(error) = self.world.play(emitter, play_options) {
             let _ = self.world.destroy_emitter(emitter);
             return Err(error.into());
         }
@@ -467,12 +468,32 @@ impl SpatialSoundManager {
         position: Vec3,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        self.add_looping_clip_source(
+        self.add_clip_source(
             self.cached_clip(path)?,
+            PlayOptions::looping(),
             volume_db,
             Some(position),
             None,
             shuffle_phase,
+            SourceExtent::Point,
+            OcclusionProfile::PointExact,
+        )
+    }
+
+    /// One registered point source, one finite Voice. The caller owns retirement.
+    pub(crate) fn add_spatial_one_shot(
+        &self,
+        path: &str,
+        volume_db: f32,
+        position: Vec3,
+    ) -> Result<Uuid> {
+        self.add_clip_source(
+            self.cached_clip(path)?,
+            PlayOptions::once(),
+            volume_db,
+            Some(position),
+            None,
+            false,
             SourceExtent::Point,
             OcclusionProfile::PointExact,
         )
@@ -488,8 +509,9 @@ impl SpatialSoundManager {
         extent: SourceExtent,
         occlusion_profile: OcclusionProfile,
     ) -> Result<Uuid> {
-        let uuid = self.add_looping_clip_source(
+        let uuid = self.add_clip_source(
             clip,
+            PlayOptions::looping(),
             volume_db,
             Some(position),
             Some(initial_phase),
@@ -995,6 +1017,20 @@ impl SpatialSoundManager {
             let _ = self.world.destroy_emitter(source.emitter);
             self.mark_spatial_frame_structure_changed();
         }
+    }
+
+    pub(crate) fn try_remove_source(&self, id: Uuid) -> Result<()> {
+        let mut sources = self.uuid_to_source.lock().unwrap();
+        if let Some(source) = sources.get(&id) {
+            self.world.destroy_emitter(source.emitter)?;
+            self.audio_telemetry_router
+                .lock()
+                .unwrap()
+                .release(source.emitter);
+            sources.remove(&id);
+            self.mark_spatial_frame_structure_changed();
+        }
+        Ok(())
     }
 
     fn mark_spatial_frame_structure_changed(&self) {
