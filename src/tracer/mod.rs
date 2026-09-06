@@ -1862,7 +1862,7 @@ impl Tracer {
             desc.ddgi_terrain_hard_origin.label()
         );
         log::info!(
-            "[DDGI][VISIBILITY] runtime_consumers=moment transport_and_reference=moment+exact"
+            "[DDGI][VISIBILITY] runtime_consumers=moment terrain_false_occlusion_recovery=exact-visible transport_and_reference=moment+exact"
         );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
             &vulkan_ctx,
