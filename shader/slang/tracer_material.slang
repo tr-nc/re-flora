@@ -3,6 +3,7 @@ module tracer_material;
 import color;
 import ddgi_types;
 import tracer_types;
+import terrain_material;
 import voxel_data;
 import voxel_types;
 
@@ -21,6 +22,14 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
 public float3 voxelColorByType(U_VoxelColors colors, uint voxelType)
 {
     return srgbToLinear(voxelColorByTypeSrgb(colors, voxelType));
+}
+
+public float3 terrainColorAtVoxel(U_VoxelColors colors, uint voxelType,
+                                  float3 voxelCenterWorld)
+{
+    return applyTerrainMaterial(voxelColorByType(colors, voxelType), voxelType,
+        voxelCenterWorld, colors.terrain_soil, colors.terrain_rock,
+        colors.terrain_seed, colors.terrain_enabled);
 }
 
 public float3 voxelSurfaceEmission(U_VoxelColors colors, uint voxelType)
@@ -55,6 +64,14 @@ public float3 ddgiVoxelColorByType(
     U_DdgiRadianceVoxelPalette colors, uint voxelType)
 {
     return srgbToLinear(ddgiVoxelColorByTypeSrgb(colors, voxelType));
+}
+
+public float3 ddgiTerrainColorAtVoxel(U_DdgiRadianceVoxelPalette colors,
+                                      uint voxelType, float3 voxelCenterWorld)
+{
+    return applyTerrainMaterial(ddgiVoxelColorByType(colors, voxelType), voxelType,
+        voxelCenterWorld, colors.terrain_soil, colors.terrain_rock,
+        colors.terrain_seed, colors.terrain_enabled);
 }
 
 public float3 applyTerrainMoisture(float3 baseColor, uint voxelType, uint moistureLevel)

@@ -1285,6 +1285,7 @@ pub struct TerrainFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MaterialFrameInput {
     pub glass: GlassGuiParams,
+    pub terrain_material: crate::terrain_material::TerrainMaterialParams,
     pub voxel_dirt_color: Vec3,
     pub voxel_sand_color: Vec3,
     pub voxel_cherry_wood_color: Vec3,
@@ -2731,6 +2732,7 @@ impl Tracer {
                     0
                 },
                 voxel_palette: DdgiVoxelPaletteSnapshot {
+                    terrain_material: materials.terrain_material.normalized(),
                     dirt_color: materials.voxel_dirt_color,
                     sand_color: materials.voxel_sand_color,
                     cherry_wood_color: materials.voxel_cherry_wood_color,
@@ -2825,16 +2827,7 @@ impl Tracer {
             dither_strength_lsb,
         )?;
 
-        BufferUpdater::update_voxel_colors(
-            &self.resources,
-            materials.voxel_dirt_color,
-            materials.voxel_sand_color,
-            materials.voxel_cherry_wood_color,
-            materials.voxel_oak_wood_color,
-            materials.voxel_rock_color,
-            EMISSIVE_VOXEL_COLOR_SRGB,
-            EMISSIVE_VOXEL_SURFACE_RADIANCE,
-        )?;
+        BufferUpdater::update_voxel_colors(&self.resources, &authored_snapshot.voxel_palette)?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,
             terrain.edit_preview_center,

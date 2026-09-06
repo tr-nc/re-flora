@@ -207,7 +207,8 @@ uint terrainAtlasData(float3 centerPosition)
 
 void parseTraceResult(out float3 albedo, MarchingResult result)
 {
-    albedo = voxelColorByType(voxel_colors, result.voxel_type);
+    albedo = terrainColorAtVoxel(voxel_colors, result.voxel_type,
+                                result.center_position);
     uint atlasData = terrainAtlasData(result.center_position);
     albedo = applyTerrainMoisture(albedo, result.voxel_type,
                                   voxelMoistureFromAtlasData(atlasData));

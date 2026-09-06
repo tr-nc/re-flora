@@ -2470,6 +2470,7 @@ mod tests {
             glass_experiment_enabled: false,
             glass_material_revision: 0,
             voxel_palette: DdgiVoxelPaletteSnapshot {
+                terrain_material: crate::terrain_material::TerrainMaterialParams::default(),
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
                 cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
