@@ -184,6 +184,30 @@ pub(in crate::tracer) fn validate_gpu(
         .wind
         .wind_sources
         .fill_range_with_raw_u8(0, bytemuck::bytes_of(&source))?;
+    // Same forcing and the same spatial point deliberately remove wind-field
+    // variation: individual leaf mechanics must not collapse into one spray pose.
+    let mut leaves: Vec<_> = [11, 23, 47, 83]
+        .into_iter()
+        .map(|seed| ResponseInput {
+            root: [1., 1., 1., 0.],
+            identity: [NO_PREVIOUS, 5, seed, 1],
+        })
+        .collect();
+    let mut leaf_difference = 0.0_f32;
+    for frame in 0..30 {
+        let states = harness.step(&leaves, frame as f32 / 60., (frame + 1) as f32 / 60., 0.025)?;
+        for state in &states[1..] {
+            leaf_difference = leaf_difference.max((states[0][0] - state[0]).abs());
+        }
+        for (index, leaf) in leaves.iter_mut().enumerate() {
+            leaf.identity[0] = index as u32;
+        }
+    }
+    anyhow::ensure!(
+        leaf_difference > 0.02,
+        "individual leaves collapse into one mechanical response: difference={leaf_difference}"
+    );
+    log::info!("[VEGETATION_RESPONSE][INDIVIDUAL_LEAVES] same_force_max_difference={leaf_difference:.6} independent_mechanics=passed");
     let mut inputs: Vec<_> = [0, 2, 3, 4, 5, 6]
         .into_iter()
         .map(|species| ResponseInput {

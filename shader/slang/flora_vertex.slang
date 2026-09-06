@@ -260,7 +260,8 @@ public PreparedFloraVertex prepareFloraVertex(
                            max(gui_input.flora_bend_height_power, 0.05));
     float windBendWeight = isSurfaceFlora
         ? bendWeight
-        : windGradient * windGradient;
+        : ((useResponse && instanceType == FLORA_SPECIES_TREE_LEAF)
+            ? 1.0 : windGradient * windGradient);
     float speciesWindAffect = isSurfaceFlora
         ? floraSpeciesVoxelWindAffectMultiplier(gui_input, instanceType)
         : 1.0;
@@ -347,14 +348,16 @@ public PreparedFloraVertex prepareFloraVertex(
 public PreparedFloraVertex prepareFloraVertex(
     int3 voxelLocalPosition, uint voxelInfo, uint3 instancePositionVoxels,
     uint instanceType, uint seed, uint growthProgress,
-    float competitionGrowthFactor, float environmentGrowthFactor, uint spawnStartMs)
+    float competitionGrowthFactor, float environmentGrowthFactor, uint spawnStartMs,
+    uint responseLocalIndex)
 {
     bool useResponse = attachedVegetationResponseEnabled();
     uint3 responsePosition = instanceType == FLORA_SPECIES_TREE_LEAF
         ? uint3(int3(instancePositionVoxels) + voxelLocalPosition)
         : instancePositionVoxels;
     float3 response = useResponse ? sampleVegetationResponse(
-        responsePosition, seed, instanceType, 0u, 0u) : float3(0.0);
+        responsePosition, instanceType == FLORA_SPECIES_TREE_LEAF ? instanceSeed(responsePosition) : seed,
+        instanceType, responseLocalIndex, pc.response_offset) : float3(0.0);
     return prepareFloraVertex(voxelLocalPosition, voxelInfo, instancePositionVoxels,
         instanceType, seed, growthProgress, competitionGrowthFactor,
         environmentGrowthFactor, spawnStartMs, useResponse, response);

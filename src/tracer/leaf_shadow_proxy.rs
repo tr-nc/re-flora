@@ -10,8 +10,8 @@ const MIN_COARSE_OPTICAL_LAYER_DENSITY: f32 = 0.30;
 const MIN_COARSE_OCCUPIED_FINE_CELLS: usize = 3;
 
 // The visible leaf stream stays one instance per generated leaf voxel. The shadow stream instead
-// bins leaves in stable, spray-local cells: the spray anchor is the object-space frame used by the
-// leaf wind shader, so neither camera motion nor per-frame wind changes cluster membership. Dense
+// bins leaves in stable, spray-local cells. Neither camera motion nor per-frame
+// individual leaf motion changes cluster membership. Dense
 // interiors remain four-voxel proxies; low-density or spatially partial cells split into two-voxel
 // children. This preserves readable boundaries without returning to one moving caster per leaf.
 
@@ -96,6 +96,57 @@ pub(super) fn build_leaf_shadow_proxies(
         }
     }
     Ok(proxies)
+}
+
+/// Return exact visible-stream members in proxy order. This is rebuilt only when
+/// leaf geometry changes; a proxy samples its members' held motion, not a new solver.
+pub(super) fn leaf_shadow_response_members(
+    instances: &[TreeRenderInstanceData],
+    proxies: &[LeafShadowProxy],
+) -> Result<Vec<Vec<u32>>> {
+    let key = |anchor: IVec3, local: IVec3, size: i32| {
+        (
+            anchor.to_array(),
+            size,
+            [
+                local.x.div_euclid(size),
+                local.y.div_euclid(size),
+                local.z.div_euclid(size),
+            ],
+        )
+    };
+    let mut lookup = BTreeMap::new();
+    for (index, proxy) in proxies.iter().enumerate() {
+        let anchor = proxy.world_pos.as_ivec3() - proxy.leaf_local_pos;
+        lookup.insert(
+            key(
+                anchor,
+                proxy.leaf_local_pos,
+                proxy.billboard_size_voxels as i32,
+            ),
+            index,
+        );
+    }
+    let mut members = vec![Vec::new(); proxies.len()];
+    for (index, leaf) in instances.iter().enumerate() {
+        let anchor = leaf_spray_anchor(leaf)?;
+        let proxy = [
+            LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
+            LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
+        ]
+        .into_iter()
+        .find_map(|size| lookup.get(&key(anchor, leaf.leaf_local_pos, size)))
+        .ok_or_else(|| anyhow::anyhow!("visible leaf has no shadow response proxy"))?;
+        members[*proxy].push(index as u32);
+    }
+    anyhow::ensure!(
+        members
+            .iter()
+            .zip(proxies)
+            .all(|(members, proxy)| members.len() == proxy.source_count as usize),
+        "leaf shadow response membership does not match proxy optical area"
+    );
+    Ok(members)
 }
 
 fn group_local_positions(
@@ -296,5 +347,29 @@ mod tests {
 
         assert_eq!(proxies.len(), 2);
         assert!(proxies.iter().all(|proxy| proxy.source_count == 1));
+    }
+
+    #[test]
+    fn shadow_response_members_cover_each_visible_leaf_exactly_once() {
+        let leaves = (0..128)
+            .map(|i| {
+                leaf(
+                    IVec3::splat(100 + i / 64),
+                    IVec3::new(i % 8 - 4, (i / 8) % 4 - 2, (i / 32) % 2),
+                )
+            })
+            .collect::<Vec<_>>();
+        let proxies = build_leaf_shadow_proxies(&leaves).unwrap();
+        let members = leaf_shadow_response_members(&leaves, &proxies).unwrap();
+        let mut flattened = members.iter().flatten().copied().collect::<Vec<_>>();
+        flattened.sort_unstable();
+        assert_eq!(flattened, (0..leaves.len() as u32).collect::<Vec<_>>());
+        for (proxy, members) in proxies.iter().zip(&members) {
+            assert_eq!(members.len(), proxy.source_count as usize);
+            let anchor = proxy.world_pos.as_ivec3() - proxy.leaf_local_pos;
+            assert!(members
+                .iter()
+                .all(|&index| leaf_spray_anchor(&leaves[index as usize]).unwrap() == anchor));
+        }
     }
 }

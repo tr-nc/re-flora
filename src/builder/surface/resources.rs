@@ -28,8 +28,11 @@ pub struct TreeLeafInstanceResource {
     // bandwidth must not change visible foliage geometry, LOD, or its compact instance stride.
     pub instances_buf: Resource<Buffer>,
     pub instances_len: u32,
+    // CPU mirror of the compact draw stream for lifetime-keyed response remapping.
+    pub response_instances: Vec<TreeLeafInstance>,
     pub shadow_instances_buf: Resource<Buffer>,
     pub shadow_instances_len: u32,
+    pub shadow_response_sources: Resource<Buffer>,
 }
 
 impl InstanceResource {
@@ -74,20 +77,29 @@ impl TreeLeafInstanceResource {
         );
         let shadow_instance_size = std::mem::size_of::<TreeLeafShadowInstance>();
         let shadow_instances_buf = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
             MemoryLocation::CpuToGpu,
             shadow_instance_size as u64 * max_shadow_instances,
         );
+        let shadow_response_sources = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            max_instances.max(1) * 8,
+        );
 
         Self {
             instances_buf: Resource::new(instances_buf),
             instances_len: 0,
+            response_instances: Vec::new(),
             shadow_instances_buf: Resource::new(shadow_instances_buf),
             shadow_instances_len: 0,
+            shadow_response_sources: Resource::new(shadow_response_sources),
         }
     }
 }

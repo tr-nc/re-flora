@@ -9,7 +9,7 @@ public struct VegetationResponseState
 public struct VegetationResponseInput
 {
     public float4 root;
-    public uint4 identity; // previous dense index, species, reserved, reserved
+    public uint4 identity; // previous dense index, species, stable motion seed, individual-leaf flag
 };
 
 public struct U_VegetationResponseInfo

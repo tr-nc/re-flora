@@ -1216,6 +1216,8 @@ struct TreeShadowRenderInstanceData {
     leaf_local_pos: IVec3,
     billboard_size_voxels: f32,
     opacity_layer_count: f32,
+    response_source_offset: u32,
+    response_source_count: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -4304,6 +4306,8 @@ impl Tracer {
                     );
                     push_constant.instance_ty =
                         flora_lighting_cache_instance_ty(LEAF_INSTANCE_TYPE, instance_count);
+                    push_constant.response_offset =
+                        self.vegetation_response.leaf_offset(batch.tree_id());
                     self.pipeline_topology
                         .compute()
                         .tree_leaf_lighting_cache_ppl
@@ -4674,6 +4678,8 @@ impl Tracer {
                             prepared.instance.chunk_world_offset,
                             leaf_color_tables,
                         );
+                        leaf_push.response_offset =
+                            self.vegetation_response.leaf_offset(batch.tree_id());
                         self.vegetation_response.observe_tree_draw(
                             false,
                             lod_state == LodState::Lod1,
@@ -5207,6 +5213,12 @@ impl Tracer {
                                     &instance.resources.shadow_instances_buf,
                                 ),
                             ),
+                            (
+                                "leaf_shadow_response_sources",
+                                DescriptorResource::Buffer(
+                                    &instance.resources.shadow_response_sources,
+                                ),
+                            ),
                             self.vegetation_response.descriptors()[0],
                             self.vegetation_response.descriptors()[1],
                         ],
@@ -5293,12 +5305,16 @@ impl Tracer {
                     batch.kind(),
                     batch.tree_id(),
                 );
-                let push_constant = flora_push_constant(
+                let mut push_constant = flora_push_constant(
                     time,
                     instance_type,
                     prepared.instance.chunk_world_offset,
                     color_tables,
                 );
+                if batch.kind() == TreeFoliageKind::Leaves {
+                    push_constant.response_offset =
+                        self.vegetation_response.leaf_offset(batch.tree_id());
+                }
 
                 cmdbuf.bind_vertex_buffers(0, &[vertices]);
                 pipeline.record_indexed_with_prepared_descriptors(
@@ -6300,6 +6316,8 @@ impl Tracer {
                     )?,
                     billboard_size_voxels: instance.billboard_size_voxels,
                     opacity_layer_count: instance.opacity_layer_count,
+                    response_source_offset: instance.response_source_offset,
+                    response_source_count: instance.response_source_count,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -6347,6 +6365,7 @@ impl Tracer {
             tree_instance.resources.shadow_instances_len = 0;
         }
 
+        tree_instance.resources.response_instances = instances_data;
         Ok(tree_instance)
     }
 
@@ -6371,6 +6390,11 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
         let leaf_shadow_proxies = build_leaf_shadow_proxies(&leaf_voxel_instances)?;
+        let members = leaf_shadow_proxy::leaf_shadow_response_members(
+            &leaf_voxel_instances,
+            &leaf_shadow_proxies,
+        )?;
+        let mut response_sources = Vec::<[u32; 2]>::with_capacity(leaf_positions.len());
         let coarse_proxy_count = leaf_shadow_proxies
             .iter()
             .filter(|proxy| {
@@ -6381,11 +6405,23 @@ impl Tracer {
         let refined_proxy_count = leaf_shadow_proxies.len() - coarse_proxy_count;
         let shadow_instances = leaf_shadow_proxies
             .iter()
-            .map(|proxy| TreeShadowRenderInstanceData {
-                world_pos: proxy.world_pos,
-                leaf_local_pos: proxy.leaf_local_pos,
-                billboard_size_voxels: proxy.billboard_size_voxels,
-                opacity_layer_count: proxy.opacity_layer_count,
+            .zip(&members)
+            .map(|(proxy, members)| {
+                let response_source_offset = response_sources.len() as u32;
+                response_sources.extend(members.iter().map(|&index| {
+                    [
+                        index,
+                        vegetation_response::instance_seed(leaf_positions[index as usize]),
+                    ]
+                }));
+                TreeShadowRenderInstanceData {
+                    world_pos: proxy.world_pos,
+                    leaf_local_pos: proxy.leaf_local_pos,
+                    billboard_size_voxels: proxy.billboard_size_voxels,
+                    opacity_layer_count: proxy.opacity_layer_count,
+                    response_source_offset,
+                    response_source_count: members.len() as u32,
+                }
             })
             .collect::<Vec<_>>();
         log::info!(
@@ -6406,6 +6442,12 @@ impl Tracer {
             0.2,
             "tree leaf",
         )?;
+        if !response_sources.is_empty() {
+            tree_leaves_instance
+                .resources
+                .shadow_response_sources
+                .fill(&response_sources)?;
+        }
         let retired = surface_resources
             .instances
             .leaves_instances
@@ -6443,6 +6485,8 @@ impl Tracer {
                 leaf_local_pos: instance.leaf_local_pos,
                 billboard_size_voxels: leaf_shadow_proxy::SOURCE_LEAF_SHADOW_BILLBOARD_SIZE_VOXELS,
                 opacity_layer_count: 1.0,
+                response_source_offset: 0,
+                response_source_count: 0,
             })
             .collect::<Vec<_>>();
         let tree_apple_instance = self.build_tree_render_instances(

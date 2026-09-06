@@ -16,7 +16,7 @@ impl VegetationResponse {
         if roots.is_empty()
             || !self.enabled
             || self.comparison == "legacy"
-            || self.grid.grid[3] < 3.
+            || self.grid.grid[3] < 2.
             || self.previous_output.is_none()
         {
             return Ok(zero());
@@ -37,7 +37,7 @@ impl VegetationResponse {
             context.command_pool(),
             &context.get_general_queue(),
             |cmd| -> Result<()> {
-                source.record_copy_to_buffer(cmd, &readback, bytes, bytes * 2, 0);
+                source.record_copy_to_buffer(cmd, &readback, bytes, bytes, 0);
                 cmd.use_buffer(&readback, BufferUse::HostRead);
                 Ok(())
             },
@@ -72,10 +72,7 @@ impl VegetationResponse {
 }
 
 fn sample_held_field(info: ResponseInfo, states: &[[f32; 20]], root: UVec3) -> [f32; 4] {
-    let mut seed = root.x ^ (root.y << 10) ^ (root.z << 20);
-    seed ^= seed >> 16;
-    seed ^= seed << 5;
-    seed ^= seed >> 11;
+    let seed = instance_seed(root);
     let bucket_offset = 4 + (seed % 4) as usize * 4;
     let width = info.shape[0] as usize;
     let depth = info.shape[1] as usize;

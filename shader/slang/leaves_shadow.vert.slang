@@ -36,6 +36,12 @@ struct B_TreeLeafShadowInstances
 readonly GLSLShaderStorageBuffer<B_TreeLeafShadowInstances, Std430DataLayout>
     tree_leaf_shadow_instances;
 
+// Each proxy retains its actual visible members, with their individual pose buckets.
+struct B_ManualLeafShadowResponseSources { uint2 data[]; };
+[[vk::binding(1, 1)]]
+readonly GLSLShaderStorageBuffer<B_ManualLeafShadowResponseSources, Std430DataLayout>
+    leaf_shadow_response_sources;
+
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
 
@@ -185,9 +191,8 @@ VertexOutput main(VertexInput input)
     float3 windSamplePosition = isApple
         ? instancePosition
         : instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
-    // Tree proxy leaves move coherently with their spray anchor. The visible leaf path retains its
-    // per-leaf wind seed and paddling; the shadow path uses one phase-continuous paddle per spray so
-    // cluster motion remains readable without restoring sub-shadow-texel phase noise.
+    // Legacy comparison only: the C branch below replaces this spray motion
+    // with the average of the actual members' independently published poses.
     uint windSeed = seed;
     float3 wind = sampleWindVolume(
         wind_volume_info, wind_volume_tex, windSamplePosition, windSeed);
@@ -205,10 +210,23 @@ VertexOutput main(VertexInput input)
     }
     if (attachedVegetationResponseEnabled())
     {
-        float3 response = sampleVegetationResponse(
-            isTreeLeaf ? leafVoxelWorldPosition : instancePositionVoxels,
-            seed, pc.instance_ty, 0u, 0u);
-        windOffset = isApple ? appleInertialOffset(gui_input, response) : response * windGradient * windGradient;
+        if (isTreeLeaf)
+        {
+            float3 response = float3(0.0);
+            for (uint member = 0u; member < leafInstance.response_source_count; ++member)
+            {
+                uint2 source = leaf_shadow_response_sources.data[leafInstance.response_source_offset + member];
+                response += sampleVegetationResponse(uint3(0u), source.y,
+                    FLORA_SPECIES_TREE_LEAF, source.x, pc.response_offset);
+            }
+            windOffset = response / float(max(leafInstance.response_source_count, 1u));
+        }
+        else
+        {
+            float3 response = sampleVegetationResponse(instancePositionVoxels,
+                seed, pc.instance_ty, 0u, 0u);
+            windOffset = appleInertialOffset(gui_input, response);
+        }
     }
 
     float3 anchorPosition =

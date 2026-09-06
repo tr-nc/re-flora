@@ -63,7 +63,7 @@ VertexOutput main(VertexInput input)
     PreparedFloraVertex prepared = prepareFloraVertex(
         leafVoxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
         INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
-        INSTANCE_SPAWN_INACTIVE);
+        INSTANCE_SPAWN_INACTIVE, input.instance_index);
 
     VertexOutput output;
     if (prepared.should_trim || fruitVoxelHidden)

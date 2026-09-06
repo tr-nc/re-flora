@@ -185,6 +185,13 @@ pub struct ManualFloraVertices {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_ManualLeafShadowResponseSources` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualLeafShadowResponseSources {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_ManualResponseInputs` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -329,6 +336,8 @@ pub struct TreeLeafShadowInstances {
     pub packed_leaf_local_pos: u32,
     pub billboard_size_voxels: f32,
     pub opacity_layer_count: f32,
+    pub response_source_offset: u32,
+    pub response_source_count: u32,
 }
 
 /// Auto-generated from `B_VoxelPropertySampleResult` (native Slang source of truth).

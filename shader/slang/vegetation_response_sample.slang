@@ -9,7 +9,7 @@ struct B_ManualVegetationResponse { VegetationResponseState data[]; };
 
 public bool vegetationResponseEnabled() { return vegetation_response_info.shape.z != 0u; }
 public bool attachedVegetationResponseEnabled() {
-    return vegetationResponseEnabled() && vegetation_response_info.grid.w >= 3.0;
+    return vegetationResponseEnabled() && vegetation_response_info.grid.w >= 2.0;
 }
 
 float2 responseAt(uint index, uint bucket)
@@ -23,9 +23,9 @@ public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species
     if (!vegetationResponseEnabled()) return float3(0.0);
     uint bucket = windVolumeBucketIndex(seed);
     float2 response;
-    if (species < 2u || species >= FLORA_SPECIES_TREE_LEAF)
+    if (species < 2u || species == FLORA_SPECIES_APPLE)
     {
-        uint field = species < 2u ? 0u : (species == FLORA_SPECIES_TREE_LEAF ? 1u : 2u);
+        uint field = species < 2u ? 0u : 1u;
         uint offset = field * vegetation_response_info.shape.x * vegetation_response_info.shape.y;
         float2 cell = (float2(rootVoxels.xz) / 256.0 - vegetation_response_info.grid.xy) /
                      vegetation_response_info.grid.z;

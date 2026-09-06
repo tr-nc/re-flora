@@ -1,5 +1,5 @@
-//! Stateful surface vegetation motion. Ordinary grass shares one world-space
-//! response grid; authored plants have lifetime-keyed state. Rendering only sees
+//! Stateful vegetation motion. Grass and fruit share world-space response grids;
+//! authored plants and individual leaf voxels have lifetime-keyed state. Rendering only sees
 //! four held poses, never the continuous integrator velocity.
 use crate::{builder::SurfaceResources, geom::UAabb3};
 use anyhow::Result;
@@ -11,7 +11,9 @@ use re_flora_vkn::{
 use std::collections::HashMap;
 
 mod fruit_handoff;
+mod leaves;
 mod validation;
+pub(super) use leaves::instance_seed;
 pub(super) use validation::validate_gpu;
 
 const GRID_SPACING_VOXELS: u32 = 16;
@@ -91,6 +93,7 @@ pub(super) struct VegetationResponse {
     grid: ResponseInfo,
     grid_inputs: Vec<ResponseInput>,
     previous_plants: HashMap<u64, u32>,
+    leaves: leaves::LeafResponses,
     flower_offsets: Vec<[u32; 5]>,
     frames: Vec<Option<FrameBuffers>>,
     previous_output: Option<Buffer>,
@@ -112,7 +115,7 @@ impl VegetationResponse {
         let depth = (extent.z * 256).div_ceil(GRID_SPACING_VOXELS) + 1;
         let spacing = GRID_SPACING_VOXELS as f32 / 256.0;
         let grid = ResponseInfo {
-            grid: [origin.x as f32, origin.z as f32, spacing, 3.0],
+            grid: [origin.x as f32, origin.z as f32, spacing, 2.0],
             shape: [width, depth, 1, width * depth],
         };
         let mut grid_inputs = Vec::with_capacity((width * depth) as usize);
@@ -120,7 +123,7 @@ impl VegetationResponse {
         let field_species: &[u32] = match comparison.as_str() {
             "legacy" => &[],
             "surface" => &[0],
-            _ => &[0, 5, 6],
+            _ => &[0, 6],
         };
         let mut grid = grid;
         grid.grid[3] = field_species.len() as f32;
@@ -149,6 +152,7 @@ impl VegetationResponse {
             grid,
             grid_inputs,
             previous_plants: HashMap::new(),
+            leaves: leaves::LeafResponses::default(),
             flower_offsets: Vec::new(),
             frames: Vec::new(),
             previous_output: None,
@@ -255,6 +259,10 @@ impl VegetationResponse {
             );
         }
         self.previous_plants = next_plants;
+        if self.grid.grid[3] >= 2. {
+            self.leaves
+                .append(&mut inputs, &surface.instances.leaves_instances, reset)?;
+        }
         if self.frames.len() <= frame_slot {
             self.frames.resize_with(frame_slot + 1, || None);
         }
@@ -348,6 +356,14 @@ impl VegetationResponse {
 
     pub fn flower_offset(&self, chunk: usize, species: usize) -> u32 {
         self.flower_offsets[chunk][species]
+    }
+
+    pub fn leaf_offset(&self, tree_id: u32) -> u32 {
+        if self.grid.grid[3] < 2. {
+            0 // Legacy and surface-only comparisons never sample leaf states.
+        } else {
+            self.leaves.offset(tree_id)
+        }
     }
 
     pub fn observe_draws(&mut self, plan: &super::flora_frame_plan::FloraFramePlan) {
@@ -447,7 +463,7 @@ mod tests {
         let response =
             VegetationResponse::new(UAabb3::new(UVec3::new(3, 0, 4), UVec3::new(5, 2, 6)));
         assert_eq!(response.grid.shape[..2], [33, 33]);
-        assert_eq!(response.grid_inputs.len(), 1089 * 3);
+        assert_eq!(response.grid_inputs.len(), 1089 * 2);
         assert_eq!(response.grid_inputs.first().unwrap().root, [3., 0., 4., 0.]);
         assert_eq!(response.grid_inputs.last().unwrap().root, [5., 0., 6., 0.]);
         assert_eq!(response.grid_inputs[16].root[0], 4.);
@@ -477,6 +493,11 @@ mod tests {
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlora>(),
             128
+        );
+        assert_eq!(std::mem::size_of::<crate::builder::TreeLeafInstance>(), 8);
+        assert_eq!(
+            std::mem::size_of::<crate::builder::TreeLeafShadowInstance>(),
+            24
         );
     }
 

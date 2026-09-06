@@ -101,6 +101,8 @@ public struct TreeLeafShadowInstance
     // TreeLeafInstance ABI above.
     public float billboard_size_voxels;
     public float opacity_layer_count;
+    public uint response_source_offset;
+    public uint response_source_count;
 };
 
 public uint3 unpackTreeLeafLocalPosition(uint packedLocalPosition)
