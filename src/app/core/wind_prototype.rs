@@ -91,13 +91,17 @@ impl WindPrototype {
         ui.collapsing("Background Wind", |ui| {
             ui.label("Temporary controls — never saved to GUI config");
             ui.horizontal_wrapped(|ui| {
-                for (mode, name) in [(0, "A Original"), (1, "B Turning"), (2, "C Local detail")] {
+                for (mode, name) in [
+                    (0, "Saved inflow"),
+                    (1, "Turning inflow"),
+                    (2, "Detailed inflow"),
+                ] {
                     ui.selectable_value(&mut self.field.mode, mode, name);
                 }
             });
-            ui.small("Background only. The Wind item works in every mode.");
+            ui.small("Boundary inflow and the Wind item share one transported field.");
             if self.field.mode == 0 {
-                ui.label("Original uses your saved wind sources.");
+                ui.label("Saved sources feed the scene edges, never the whole scene at once.");
             }
             ui.add_enabled_ui(self.field.mode > 0, |ui| {
                 ui.add(
@@ -117,7 +121,7 @@ impl WindPrototype {
             ui.collapsing("Local detail / transport", |ui| {
                 ui.add(
                     egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.)
-                        .text("Pattern travel speed"),
+                        .text("Transport speed"),
                 );
                 ui.add(
                     egui::Slider::new(&mut self.field.detail_strength, 0. ..=2.)

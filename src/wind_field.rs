@@ -2,18 +2,16 @@
 //! No window, terrain editor, serialization, or vegetation-response dependencies.
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec2, Vec3};
+mod transport;
+use transport::{Transport, CELLS, SIDE};
 
 pub const MAX_GUSTS: usize = 16;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct WindFieldFrame {
-    pub background: [f32; 4],
-    pub transport: [f32; 4],
-    pub detail: [f32; 4],
-    pub gust_origins: [[f32; 4]; MAX_GUSTS],
-    pub gust_directions: [[f32; 4]; MAX_GUSTS],
-    pub gust_shapes: [[f32; 4]; MAX_GUSTS], // half depth, half width, lifetime, softness
+    pub domain: [f32; 4],             // extent x/z, side, enabled
+    pub cells: [[f32; 4]; CELLS / 2], // two horizontal vectors per aligned element
 }
 
 impl Default for WindFieldFrame {
@@ -49,7 +47,6 @@ impl GustSettings {
     pub fn half_extents(&self) -> Vec2 {
         Vec2::new(self.depth, self.width) * 0.5
     }
-    #[cfg(test)]
     fn spatial_weight(&self, local: Vec2) -> f32 {
         fn edge(value: f32, softness: f32) -> f32 {
             let softness = softness.clamp(0.05, 1.);
@@ -95,7 +92,8 @@ pub struct WindField {
     time: f32,
     last_wall_time: Option<f32>,
     heading: f32,
-    offset: Vec2,
+    transport: Transport,
+    pub saved_sources: Vec<crate::wind::WindSource>,
 }
 
 impl Default for WindField {
@@ -115,7 +113,8 @@ impl Default for WindField {
             time: 0.,
             last_wall_time: None,
             heading: 220_f32.to_radians(),
-            offset: Vec2::ZERO,
+            transport: Transport::default(),
+            saved_sources: Vec::new(),
         }
     }
 }
@@ -162,7 +161,6 @@ impl WindField {
             .map_or(0., |previous| (wall_time - previous).max(0.));
         self.last_wall_time = Some(wall_time);
         self.time += dt;
-        let old_direction = self.direction();
         let phase = self.time * std::f32::consts::TAU / self.wander_period.max(1.);
         let wander =
             (phase.sin() * 0.7 + (phase * 0.617).sin() * 0.3) * self.wander_degrees.to_radians();
@@ -171,53 +169,83 @@ impl WindField {
             .sin()
             .atan2((target - self.heading).cos());
         self.heading += delta * (1. - (-dt / 0.6).exp());
-        self.offset += (old_direction + self.direction()) * (0.5 * dt * self.propagation_speed);
         self.gusts
             .retain(|gust| self.time - gust.start < gust.settings.duration);
+        let direction = self.direction();
+        let noise = fastnoise_lite::FastNoiseLite::with_seed(3181);
+        let steps = (dt.min(1.) * 60.).ceil() as usize;
+        for step in 0..steps {
+            let h = dt.min(1.) / steps as f32;
+            let time = self.time - h * (steps - step - 1) as f32;
+            let inflow = |p: Vec2| {
+                if self.mode == 0 {
+                    let mean = self.saved_sources.iter().fold(Vec2::ZERO, |sum, s| {
+                        let a = s.direction_degrees.to_radians();
+                        sum + Vec2::new(a.cos(), a.sin()) * s.gain
+                    });
+                    let detail = crate::wind::Wind::new().sample_sources(
+                        Vec3::new(p.x, 0., p.y) / 256.,
+                        time,
+                        &self.saved_sources,
+                    );
+                    return (mean + Vec2::new(detail.x, detail.z) * 0.25).clamp_length_max(5.);
+                }
+                let phase = time * self.evolution_rate;
+                let q = p * (100. / self.detail_scale.max(1.)) + Vec2::splat(phase * 20.);
+                let n = noise.get_noise_2d(q.x, q.y);
+                let side = if self.mode == 2 {
+                    self.detail_strength * n
+                } else {
+                    0.
+                };
+                direction * self.strength * (1. + n * 0.25)
+                    + Vec2::new(-direction.y, direction.x) * side
+            };
+            let local = |p: Vec2| {
+                self.gusts.iter().fold(Vec2::ZERO, |sum, gust| {
+                    let age = time - gust.start;
+                    if age < 0. || age >= gust.settings.duration {
+                        return sum;
+                    }
+                    let center = gust.center(time) * 256.;
+                    let delta = p - Vec2::new(center.x, center.z);
+                    let side = Vec2::new(-gust.direction.y, gust.direction.x);
+                    let q =
+                        Vec2::new(delta.dot(gust.direction), delta.dot(side)) / gust.half_extents();
+                    let life = age / gust.settings.duration;
+                    let smooth = |v: f32| {
+                        let t = v.clamp(0., 1.);
+                        t * t * (3. - 2. * t)
+                    };
+                    let envelope = smooth(life / 0.15) * smooth((1. - life) / 0.35);
+                    sum + gust.direction
+                        * gust.settings.strength
+                        * gust.settings.spatial_weight(q)
+                        * envelope
+                })
+            };
+            self.transport
+                .step(h, self.propagation_speed.max(0.), inflow, local);
+        }
+    }
+    pub fn set_extent(&mut self, extent: Vec2) {
+        self.transport.extent = extent.max(Vec2::ONE);
+    }
+    pub fn sample(&self, world_voxels: Vec2) -> Vec2 {
+        self.transport.sample(world_voxels)
     }
     pub fn frame(&self) -> WindFieldFrame {
         let mut frame = WindFieldFrame {
-            background: [
-                self.direction().x,
-                self.direction().y,
-                self.strength,
-                self.mode as f32,
-            ],
-            transport: [
-                self.offset.x,
-                self.offset.y,
-                self.time,
-                self.propagation_speed,
-            ],
-            detail: [
-                self.detail_scale,
-                self.detail_strength,
-                self.evolution_rate,
-                0.,
+            domain: [
+                self.transport.extent.x,
+                self.transport.extent.y,
+                SIDE as f32,
+                1.,
             ],
             ..WindFieldFrame::default()
         };
-        for (i, gust) in self.gusts.iter().take(MAX_GUSTS).enumerate() {
-            frame.gust_origins[i] = [
-                gust.origin.x * 256.,
-                gust.origin.z * 256.,
-                gust.start,
-                0., // alignment padding
-            ];
-            frame.gust_directions[i] = [
-                gust.direction.x,
-                gust.direction.y,
-                gust.settings.strength,
-                gust.settings.speed,
-            ];
-            let extent = gust.half_extents();
-            frame.gust_shapes[i] = [
-                extent.x,
-                extent.y,
-                gust.settings.duration,
-                gust.settings.softness,
-            ];
-            frame.detail[3] += 1.;
+        for (i, pair) in self.transport.values().chunks_exact(2).enumerate() {
+            frame.cells[i] = [pair[0].x, pair[0].y, pair[1].x, pair[1].y];
         }
         frame
     }
@@ -245,7 +273,7 @@ mod tests {
             field.advance(0.);
             assert!(field.release(Vec3::ZERO, Vec2::X));
             field.advance(0.5);
-            assert_eq!(field.frame().detail[3], 1.);
+            assert_eq!(field.gusts.len(), 1);
         }
     }
     #[test]

@@ -454,8 +454,9 @@ pub(in crate::tracer) fn validate_gpu(
     log::info!("[VEGETATION_RESPONSE][GPU_GRID] spacing_voxels=16 roots=1024 time=2s rms_voxels={:.6} normalized_rms={:.6} max_axis_error_voxels={:.6} sources={}",
         (squared_error / 2048.).sqrt(), (squared_error / squared_reference.max(1e-12)).sqrt(), maximum_error, live_gui.wind_source_count);
     if std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some() {
-        // Production GPU solver, private replay inputs: test a traveling packet,
-        // its spatial falloff, and expiry without changing the user's live field.
+        // Validate the transported field through the actual plant solver. Compare
+        // it with uniform fields at each CPU-sampled probe, avoiding assumptions
+        // about the plant solver's nonlinear response curve.
         let mut field = crate::wind_field::WindField::default();
         field.mode = 1;
         field.strength = 0.;
@@ -467,87 +468,39 @@ pub(in crate::tracer) fn validate_gpu(
         field.advance(0.);
         field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X);
         field.advance(1.);
-        let front = 1. + field.manual_gust.speed / 256.;
         let probe = |x, z| ResponseInput {
             root: [x, 0., z, 0.],
             identity: [NO_PREVIOUS, 0, 0, 0],
         };
         let probes = [
-            probe(front, 1.),
-            probe(1., front),
+            probe(1.2, 1.),
+            probe(1.2, 1.3),
             probe(0., 0.),
             probe(1., 1.),
         ];
         harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-        let directional = harness.step(&probes, 0., 0.2, 0.025)?;
+        let actual = harness.step(&probes, 0., 0.2, 0.025)?;
         anyhow::ensure!(
-            directional[0][0] > 0.1
-                && directional[0][1].abs() < 1e-6
-                && directional[1][0].abs() < 1e-6
-                && directional[2][0].abs() < 1e-6,
-            "directional gust escaped its support or lost direction"
+            actual[0][0] > 0.01 && actual[2][0].abs() < 1e-6,
+            "local input failed to enter the field or changed a distant location"
         );
-        let extent = field.gusts[0].half_extents() / 256.;
-        let band_probes = [
-            probe(front, 1.),
-            probe(front, 1. + extent.y * 0.25),
-            probe(front, 1. + extent.y * 0.75),
-            probe(front, 1. - extent.y * 0.75),
-            probe(front, 1. + extent.y * 1.01),
-            probe(front + extent.x * 1.01, 1.),
-            probe(front + extent.x * 0.75, 1. + extent.y * 0.75),
-        ];
-        let band = harness.step(&band_probes, 0., 0.2, 0.025)?;
-        anyhow::ensure!(
-            (extent.y / extent.x - 4.).abs() < 1e-6
-                && band[0][0] > band[1][0]
-                && band[1][0] > band[2][0]
-                && band[2][0] > 0.
-                && (band[2][0] - band[3][0]).abs() < 1e-5
-                && band[4][0].abs() < 1e-6
-                && band[5][0].abs() < 1e-6
-                && band[6][0] > 0.,
-            "wind band lost its rectangular support or symmetric center-to-edge falloff"
-        );
-        log::info!("[WIND_PROTOTYPE][GPU] band_aspect=4:1 center_to_edge_falloff=passed symmetric_sides=passed rectangular_support=passed");
-        field.gusts[0].settings.softness = 0.2;
-        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-        let sharper = harness.step(&band_probes, 0., 0.2, 0.025)?;
-        anyhow::ensure!(
-            sharper[2][0] > band[2][0] && sharper[4][0].abs() < 1e-6,
-            "edge softness did not affect force independently of the bounds"
-        );
-        field.gusts[0].settings.softness = 1.;
-        field.gusts[0].settings.width *= 2.;
-        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-        let wider = harness.step(&band_probes, 0., 0.2, 0.025)?;
-        anyhow::ensure!(
-            wider[4][0] > 0. && wider[5][0].abs() < 1e-6,
-            "width adjustment changed depth or failed to expand sideways"
-        );
-        field.gusts[0].settings.width *= 0.5;
-        log::info!("[WIND_PROTOTYPE][GPU] adjustable_softness=passed independent_width=passed");
-        for mode in 0..=2 {
-            field.mode = mode;
-            harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-            let manual = harness.step(&probes, 0., 0.2, 0.025)?;
+        for (index, probe) in probes.iter().enumerate() {
+            let expected = field.sample(glam::Vec2::new(probe.root[0], probe.root[2]) * 256.);
+            let mut uniform = field.frame();
+            uniform
+                .cells
+                .fill([expected.x, expected.y, expected.x, expected.y]);
+            harness.wind.wind_field_info.fill_uniform(&uniform)?;
+            let reference = harness.step(&[*probe], 0., 0.2, 0.025)?;
             anyhow::ensure!(
-                (manual[0][0] - directional[0][0]).abs() < 1e-6,
-                "background mode {mode} changed or disabled manual wind"
+                actual[index]
+                    .iter()
+                    .zip(reference[0])
+                    .all(|(a, b)| (a - b).abs() < 1e-4),
+                "CPU/GPU transported wind sampling mismatch at probe {index}"
             );
         }
-        log::info!("[WIND_PROTOTYPE][GPU] manual_wind_modes=A,B,C identical_force=passed");
-        field.mode = 1;
-        field.advance(6.);
-        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
-        let expired = harness.step(&probes, 0., 0.2, 0.025)?;
-        anyhow::ensure!(
-            expired
-                .iter()
-                .all(|state| state.iter().all(|value| value.abs() < 1e-6)),
-            "expired gust still applies force"
-        );
-        log::info!("[WIND_PROTOTYPE][GPU] directional_support=passed expired_force=zero");
+        log::info!("[WIND_PROTOTYPE][GPU] shared_field=passed cpu_gpu_sampling=passed local_support=passed");
     }
     Ok(())
 }

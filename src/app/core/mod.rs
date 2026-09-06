@@ -2577,6 +2577,12 @@ impl App {
                 let prototype_extent = self.window_state.window_extent();
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 if let Some(prototype) = &mut self.wind_prototype {
+                    let extent = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+                    prototype
+                        .field
+                        .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
+                    prototype.field.saved_sources =
+                        GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
                     prototype.advance(visual_time_since_start);
                 }
                 let egui_start = Instant::now();

@@ -1155,12 +1155,8 @@ pub struct VoxelPropertySampleInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WindFieldInfo {
-    pub background: [f32; 4],
-    pub transport: [f32; 4],
-    pub detail: [f32; 4],
-    pub gust_origins: [u32; 64],
-    pub gust_directions: [u32; 64],
-    pub gust_shapes: [u32; 64],
+    pub domain: [f32; 4],
+    pub cells: [u32; 2048],
 }
 
 /// Auto-generated from `U_WindVolumeInfo` (native Slang source of truth).

@@ -18,11 +18,11 @@ They now live in the main debug panel under **Wind → Background Wind** and
 **Wind → Wind Item**, alongside Vegetation Wind Response. There are no separate
 background-wind or wind-item windows. Collapsing settings does not hide the
 world-space aiming/released-gust outlines or cancel a gesture. The global Main
-direction slider and compass have been removed. This UI cleanup does not change
-the existing uniform background heading/wander model; spatially propagating
-background direction changes remain a separate model-design task.
+direction slider and compass have been removed.
 
-Background modes are **A Original**, **B Turning**, and **C Local detail**.
+Inflow modes are **Saved inflow**, **Turning inflow**, and **Detailed inflow**.
+They choose the inputs at scene edges, not different global samplers. Saved
+sources no longer overwrite direction throughout the scene when adjusted.
 No mode automatically releases gusts. There are no Hold, Clear, or Restart
 operations. Explicitly released gusts expire naturally.
 
@@ -45,6 +45,7 @@ the radial mode, ring preview and ring-force calculation have been removed.
 Settings affect aiming and subsequent emissions; existing gusts retain their
 settings. The band preview uses one unfilled outline, without shaded fill or
 nested boxes. Softness still affects the actual wind. Both aiming and released footprints retain the clicked height.
+The preview outlines the moving input region, not the entire downstream wake.
 The field itself remains horizontal and does not vary with height; this is not
 terrain-following airflow.
 
@@ -52,8 +53,19 @@ terrain-following airflow.
 
 - The player-tool runtime owns mutually exclusive Wind selection.
 - The demo adapter owns gestures, speed mapping, controls, and preview.
-- The wind field owns evolution, bounded event snapshots, and expiration.
-- The shared GPU sampler combines background wind and explicitly released gusts.
+- The wind field owns a persistent 32 by 32 horizontal vector grid, bounded
+  event snapshots, and expiration. Scene dimensions come from the live world.
+- Global inflow enters through edge fluxes; local emitters inject momentum only
+  inside their moving band. Both evolve through the same finite-volume transport.
+- The shared GPU sampler bilinearly reads that grid; it never separately adds
+  global direction or manual wind. CPU and GPU share packed grid coordinates.
+- Rusanov fluxes and CFL-bounded substeps provide local transport. Drag and a
+  velocity cap keep this pressureless, art-directed model bounded. This is not
+  a physically calibrated air simulation or a pressure/incompressibility solve.
+- The grid is deliberately coarse (about 16.5 voxels per sample in this world).
+  It smooths fine source details; the preview describes the emitter, not exact
+  instantaneous force bounds. Residual wind advects and decays after an emitter
+  expires, rather than being deleted everywhere at once.
 - At most 16 gusts exist at once. No pause/reset/automatic-emission lifecycle exists.
 - No CFD, terrain obstruction, or divergence-free guarantee is claimed.
 - Audio and free-particle motion are not newly integrated.
@@ -63,9 +75,13 @@ terrain-following airflow.
 
 ## Validation
 
-The production-path GPU guard checks directional force, expiration,
-background-mode independence, shape bounds, symmetric falloff, adjustable
-softness, and independently adjustable width:
+The production-path GPU guard checks that local input enters the unified field,
+leaves distant positions unchanged initially, and that GPU plant responses match
+uniform reference fields populated from CPU grid samples. Deterministic tests
+check near-before-far boundary propagation, no instant interior turn, finite
+values, local injection and decay. Source geometry tests retain width/softness
+coverage; strict zero force immediately outside an emitter is no longer the
+contract because the shared field carries a wake.
 
 ```sh
 RUST_LOG=info RE_FLORA_WIND_PROTOTYPE=1 RE_FLORA_WIND_PROTOTYPE_SMOKE=1 \
