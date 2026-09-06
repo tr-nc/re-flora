@@ -11,6 +11,7 @@ use re_flora_vkn::{
 };
 
 struct WindInputs {
+    wind_field_info: Resource<Buffer>,
     replay_parameters: Resource<Buffer>,
     wind_sources: Resource<Buffer>,
 }
@@ -20,6 +21,9 @@ impl ResourceContainer for WindInputs {
         // Reuse the production shader interface, but bind only independently
         // allocated replay buffers, never the game's live GUI uniform.
         match name {
+            "wind_field_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.wind_field_info))
+            }
             "gui_input" => {
                 ResourceLookup::Unique(DescriptorResource::Buffer(&self.replay_parameters))
             }
@@ -56,19 +60,25 @@ impl<'a> Harness<'a> {
         )
         .map_err(anyhow::Error::msg)?;
         let pool = DescriptorPool::new(device)?;
-        let wind = WindInputs {
-            replay_parameters: Resource::new(Buffer::new_uniform::<GuiInput>(
-                device.clone(),
-                allocator.clone(),
-            )),
-            wind_sources: Resource::new(Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-                MemoryLocation::CpuToGpu,
-                source_bytes.max(32) as u64,
-            )),
-        };
+        let wind =
+            WindInputs {
+                wind_field_info: Resource::new(Buffer::new_uniform::<
+                    crate::wind_field::WindFieldFrame,
+                >(device.clone(), allocator.clone())),
+                replay_parameters: Resource::new(Buffer::new_uniform::<GuiInput>(
+                    device.clone(),
+                    allocator.clone(),
+                )),
+                wind_sources: Resource::new(Buffer::new_sized(
+                    device.clone(),
+                    allocator.clone(),
+                    BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                    MemoryLocation::CpuToGpu,
+                    source_bytes.max(32) as u64,
+                )),
+            };
+        wind.wind_field_info
+            .fill_uniform(&crate::wind_field::WindFieldFrame::default())?;
         let pipeline = ComputePipeline::new_uninitialized(device, &shader, &pool);
         pipeline.initialize_descriptors(DescriptorUpdate::SetContaining {
             anchor: "gui_input",
@@ -443,5 +453,57 @@ pub(in crate::tracer) fn validate_gpu(
     }
     log::info!("[VEGETATION_RESPONSE][GPU_GRID] spacing_voxels=16 roots=1024 time=2s rms_voxels={:.6} normalized_rms={:.6} max_axis_error_voxels={:.6} sources={}",
         (squared_error / 2048.).sqrt(), (squared_error / squared_reference.max(1e-12)).sqrt(), maximum_error, live_gui.wind_source_count);
+    if std::env::var_os("RE_FLORA_WIND_PROTOTYPE_SMOKE").is_some() {
+        // Production GPU solver, private replay inputs: test a traveling packet,
+        // a radial front, and expiry without changing the user's live field.
+        let mut field = crate::wind_field::WindField::default();
+        field.mode = 2;
+        field.strength = 0.;
+        field.advance(0.);
+        field.release(glam::Vec2::splat(1.), glam::Vec2::X, false);
+        field.advance(1.);
+        let front = 1. + field.gust_speed / 256.;
+        let probe = |x, z| ResponseInput {
+            root: [x, 0., z, 0.],
+            identity: [NO_PREVIOUS, 0, 0, 0],
+        };
+        let probes = [
+            probe(front, 1.),
+            probe(1., front),
+            probe(0., 0.),
+            probe(1., 1.),
+        ];
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let directional = harness.step(&probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            directional[0][0] > 0.1
+                && directional[0][1].abs() < 1e-6
+                && directional[1][0].abs() < 1e-6
+                && directional[2][0].abs() < 1e-6,
+            "directional gust escaped its support or lost direction"
+        );
+        field.clear();
+        field.release(glam::Vec2::splat(1.), glam::Vec2::ZERO, true);
+        field.advance(2.);
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let radial = harness.step(&probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            radial[0][0] > 0.1
+                && radial[1][1] > 0.1
+                && radial[3][0].abs() < 1e-6
+                && radial[3][1].abs() < 1e-6,
+            "radial gust failed outward directions or center singularity"
+        );
+        field.advance(6.);
+        harness.wind.wind_field_info.fill_uniform(&field.frame())?;
+        let expired = harness.step(&probes, 0., 0.2, 0.025)?;
+        anyhow::ensure!(
+            expired
+                .iter()
+                .all(|state| state.iter().all(|value| value.abs() < 1e-6)),
+            "expired gust still applies force"
+        );
+        log::info!("[WIND_PROTOTYPE][GPU] directional_support=passed radial_directions=passed finite_center=passed expired_force=zero");
+    }
     Ok(())
 }

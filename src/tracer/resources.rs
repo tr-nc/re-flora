@@ -888,6 +888,7 @@ impl ShadowResources {
 
 #[derive(ResourceContainer)]
 pub struct WindResources {
+    pub wind_field_info: Resource<Buffer>,
     pub wind_volume_info: Resource<Buffer>,
     pub wind_sources: Resource<Buffer>,
     pub wind_volume_tex: Resource<Texture>,
@@ -1239,6 +1240,13 @@ impl WindResources {
         flora_vert_sm: &ShaderModule,
         chunk_bound: UAabb3,
     ) -> Self {
+        let wind_field_info = Buffer::new_uniform::<crate::wind_field::WindFieldFrame>(
+            device.clone(),
+            allocator.clone(),
+        );
+        wind_field_info
+            .fill_uniform(&crate::wind_field::WindFieldFrame::default())
+            .unwrap();
         let wind_volume_info = Buffer::from_buffer_layout(
             device.clone(),
             allocator.clone(),
@@ -1264,6 +1272,7 @@ impl WindResources {
             .unwrap();
 
         Self {
+            wind_field_info: Resource::new(wind_field_info),
             wind_volume_info: Resource::new(wind_volume_info),
             wind_sources: Resource::new(wind_sources),
             wind_volume_tex: Resource::new(TracerResources::create_wind_volume_tex(

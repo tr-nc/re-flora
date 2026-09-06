@@ -172,6 +172,7 @@ pub(super) fn freeze_render_frame_inputs(
         },
     };
     let wind = WindFrameInput {
+        field: crate::wind_field::WindFieldFrame::default(),
         sources: WindGuiParams {
             sources: GuiAdjustables::active_wind_sources(&settings.wind_sources),
         },
@@ -561,6 +562,7 @@ mod tests {
                 },
             },
             wind: WindFrameInput {
+                field: crate::wind_field::WindFieldFrame::default(),
                 sources: WindGuiParams {
                     sources: vec![wind_source],
                 },

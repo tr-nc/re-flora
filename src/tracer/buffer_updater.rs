@@ -247,6 +247,21 @@ impl BufferUpdater {
             })
     }
 
+    pub fn update_wind_inputs(resources: &TracerResources, wind: &WindFrameInput) -> Result<()> {
+        let mut wind_sources = wind
+            .sources
+            .sources
+            .iter()
+            .copied()
+            .map(WindSourceGpu::from)
+            .collect::<Vec<_>>();
+        if wind_sources.is_empty() {
+            wind_sources.push(WindSourceGpu::zeroed());
+        }
+        resources.wind.wind_sources.fill(&wind_sources)?;
+        resources.wind.wind_field_info.fill_uniform(&wind.field)
+    }
+
     pub fn update_gui_input(
         resources: &TracerResources,
         lighting_frame: &ResolvedLightingFrameInputs,
@@ -260,17 +275,6 @@ impl BufferUpdater {
         let motion = vegetation.motion;
         let leaf_lighting = vegetation.leaf_lighting;
         let wind_source_count = wind.sources.sources.len() as u32;
-        let mut wind_sources = wind
-            .sources
-            .sources
-            .iter()
-            .copied()
-            .map(WindSourceGpu::from)
-            .collect::<Vec<_>>();
-        if wind_sources.is_empty() {
-            wind_sources.push(WindSourceGpu::zeroed());
-        }
-        resources.wind.wind_sources.fill(&wind_sources)?;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,

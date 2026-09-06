@@ -400,11 +400,19 @@ impl App {
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
+        if let Some(prototype) = &mut self.wind_prototype {
+            prototype.tool_active = false;
+            prototype.cancel();
+        }
         let update = self.player_tools.select_item_panel_slot(slot_idx);
         self.apply_player_tool_selection_update(update);
     }
 
     pub(super) fn select_placeable_tool(&mut self, slot_idx: usize) {
+        if let Some(prototype) = &mut self.wind_prototype {
+            prototype.tool_active = false;
+            prototype.cancel();
+        }
         let update = self.player_tools.select_placeable_tool(slot_idx);
         self.apply_player_tool_selection_update(update);
     }

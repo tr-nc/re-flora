@@ -1365,6 +1365,7 @@ pub struct VegetationFrameInput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindFrameInput {
+    pub field: crate::wind_field::WindFieldFrame,
     pub sources: WindGuiParams,
     pub directional_bias_fraction: f32,
     pub turbulence_fraction: f32,
@@ -1601,6 +1602,7 @@ impl Tracer {
             &*self.resources.uniforms.post_processing_info,
             &*self.resources.shadow.shadow_camera_info,
             &*self.resources.wind.wind_sources,
+            &*self.resources.wind.wind_field_info,
             &*self.resources.local_lighting.local_light_info,
             &*self.resources.local_lighting.local_lights,
             &*self
@@ -2854,6 +2856,7 @@ impl Tracer {
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind.sources.sources.len())?;
+        BufferUpdater::update_wind_inputs(&self.resources, &wind)?;
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             lighting_frame,
@@ -5932,6 +5935,10 @@ impl Tracer {
 
     pub fn camera_front(&self) -> Vec3 {
         self.camera.front()
+    }
+
+    pub fn camera_view_projection(&self) -> Mat4 {
+        self.camera.get_proj_mat() * self.camera.get_view_mat()
     }
 
     pub fn camera_ray_from_screen_position(

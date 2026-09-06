@@ -42,6 +42,7 @@ mod visible_terrain;
 mod voxel_backpack;
 mod water;
 mod water_experience_scene;
+mod wind_prototype;
 
 use self::authored_flora_bench::AuthoredFloraBench;
 use self::camera_control::{CameraControlRuntime, ORBIT_CAMERA_DEFAULT_FOCUS};
@@ -414,6 +415,7 @@ pub struct App {
     world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
+    wind_prototype: Option<wind_prototype::WindPrototype>,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1414,6 +1416,7 @@ impl App {
             }),
 
             cursor_position_physical: None,
+            wind_prototype: wind_prototype::WindPrototype::from_environment(),
             camera_control: CameraControlRuntime::default(),
             modifiers: ModifiersState::default(),
             perf_logging: render.perf_logging,
@@ -1988,6 +1991,13 @@ impl App {
         if self.shutdown_lifecycle.is_started() {
             return;
         }
+        if matches!(
+            &event,
+            WindowEvent::KeyboardInput { .. } | WindowEvent::Focused(false)
+        ) && self.handle_wind_prototype_event(&event)
+        {
+            return;
+        }
         let is_keyboard_event = matches!(&event, WindowEvent::KeyboardInput { .. });
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
@@ -2048,6 +2058,17 @@ impl App {
             }
 
             if consumed && !is_keyboard_event {
+                if matches!(
+                    &event,
+                    WindowEvent::MouseInput {
+                        state: ElementState::Released,
+                        ..
+                    }
+                ) {
+                    if let Some(prototype) = &mut self.wind_prototype {
+                        prototype.cancel();
+                    }
+                }
                 if let WindowEvent::CursorMoved { position, .. } = &event {
                     self.sync_orbit_mouse_drag_position(Vec2::new(
                         position.x as f32,
@@ -2065,6 +2086,10 @@ impl App {
                 }
                 return;
             }
+        }
+
+        if !is_keyboard_event && self.handle_wind_prototype_event(&event) {
+            return;
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
@@ -2538,12 +2563,22 @@ impl App {
                     .as_ref()
                     .and_then(|test| test.handle.as_ref())
                     .map(|handle| (handle.id(), handle.size_vec2()));
+                let prototype_matrix = self.tracer.camera_view_projection();
+                let prototype_extent = self.window_state.window_extent();
+                let prototype_scale = self.window_state.window().scale_factor() as f32;
+                if let Some(prototype) = &mut self.wind_prototype {
+                    prototype.advance(visual_time_since_start);
+                }
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
                         ctx.set_global_style(style);
+
+                        if let Some(prototype) = &mut self.wind_prototype {
+                            prototype.ui(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale);
+                        }
 
                         if hide_ui_for_environment_test_capture
                             || hide_ui_for_frame_stability_bench
@@ -3428,7 +3463,7 @@ impl App {
                 self.render_flags.enable_leaves =
                     self.render_flags.enable_flora && self.debug_settings.tree.render_leaves;
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let frame_inputs = freeze_render_frame_inputs(
+                let mut frame_inputs = freeze_render_frame_inputs(
                     &self.debug_settings,
                     LiveRenderFrameFacts {
                         world_tick_seconds,
@@ -3444,6 +3479,9 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
+                if let Some(prototype) = &self.wind_prototype {
+                    frame_inputs.wind.field = prototype.field.frame();
+                }
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture

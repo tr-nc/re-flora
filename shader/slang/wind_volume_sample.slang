@@ -3,6 +3,7 @@ module wind_volume_sample;
 import definitions;
 import gradient_noise;
 import tracer_types;
+import wind_field;
 
 static const uint WIND_FBM_SEED = 3181u;
 static const float WIND_SAMPLE_SCALE = 256.0;
@@ -69,6 +70,10 @@ float sampleWindSourceFbm(float2 samplePosition, float2 timeOffset,
 
 public float3 sampleProceduralWind(float3 worldPosition, float time)
 {
+    if (authoredWindEnabled()) {
+        float2 wind = sampleAuthoredWind(worldPosition.xz * WIND_SAMPLE_SCALE);
+        return float3(wind.x, 0.0, wind.y);
+    }
     float2 samplePosition = worldPosition.xz * WIND_SAMPLE_SCALE;
     float scrollTime = time * WIND_TIME_SCALE;
     float2 planarWind = float2(0.0);
