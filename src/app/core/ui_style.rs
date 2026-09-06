@@ -1188,7 +1188,9 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
         Color32::from_rgb(65, 75, 75),
         FLOWER_ACCENT,
         GOLD_ACCENT,
-        1.5,
+        // Button frame margins are integer-rounded by egui. A fractional stroke
+        // changes the rounded padding sum on hover and shifts the entire row.
+        1.0,
     );
 
     style.visuals.widgets.active = widget_visuals(
@@ -1217,5 +1219,52 @@ fn widget_visuals(
         corner_radius: egui::CornerRadius::same(4),
         fg_stroke: egui::Stroke::new(1.5, text_color),
         expansion: 0.0,
+    }
+}
+
+#[cfg(test)]
+mod hover_layout_tests {
+    use super::*;
+
+    #[test]
+    fn button_hover_keeps_its_rect_and_following_controls_fixed() {
+        let context = egui::Context::default();
+        let mut style = (*context.global_style()).clone();
+        apply_gui_style(&mut style);
+        context.set_global_style(style);
+        let mut selected = false;
+        let mut rects = [egui::Rect::NOTHING; 3];
+        let mut draw = |events: Vec<egui::Event>| {
+            let _ = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400., 300.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        rects[0] = ui
+                            .selectable_value(&mut selected, true, "Saved inflow")
+                            .rect;
+                        rects[1] = ui.button("Another control").rect;
+                    });
+                    rects[2] = ui.label("Following settings").rect;
+                },
+            );
+            rects
+        };
+        draw(Vec::new());
+        let idle = draw(Vec::new());
+        for _ in 0..3 {
+            let hover = draw(vec![egui::Event::PointerMoved(idle[0].center())]);
+            assert_eq!(hover, idle, "hover changed button/row geometry");
+        }
+        for _ in 0..3 {
+            let hover = draw(vec![egui::Event::PointerMoved(idle[1].center())]);
+            assert_eq!(hover, idle, "button hover moved following controls");
+        }
     }
 }
