@@ -39,6 +39,12 @@ pitch_deg = 12.935698
 fov_deg = 60.0
 fly_mode = true
 """
+BLACKY_PATCH_VOXELS = (
+    (265, 169, 230), (275, 183, 225), (268, 176, 223), (268, 175, 224),
+    (265, 170, 229), (265, 170, 230), (265, 169, 229), (265, 168, 230),
+    (264, 165, 230), (264, 164, 230),
+)
+BLACKY_NEIGHBOR_VOXEL = (264, 169, 231)
 
 
 def measure_blacky(path: Path) -> dict:
@@ -49,7 +55,7 @@ def measure_blacky(path: Path) -> dict:
     its neighboring trunk voxel through the production irradiance capture.
     """
     capture = load_capture(path)
-    samples = {(265, 169, 230): [], (264, 169, 231): []}
+    samples = {voxel: [] for voxel in (*BLACKY_PATCH_VOXELS, BLACKY_NEIGHBOR_VOXEL)}
     nonfinite = 0
     for environment, receiver in zip(
         PIXEL.iter_unpack(capture.payload),
@@ -63,18 +69,26 @@ def measure_blacky(path: Path) -> dict:
         voxel = tuple(round(v * 256 - .5) for v in receiver[:3])
         if voxel in samples:
             samples[voxel].append(sum(environment[:3]))
-    patch, neighbor = samples.values()
+    patch = samples[BLACKY_PATCH_VOXELS[0]]
+    neighbor = samples[BLACKY_NEIGHBOR_VOXEL]
     patch_energy = statistics.median(patch) if patch else 0.0
     neighbor_energy = statistics.median(neighbor) if neighbor else 0.0
     ratio = patch_energy / neighbor_energy if neighbor_energy > 0 else 0.0
-    valid = capture.plane_count == 5 and min(len(patch), len(neighbor)) >= 10
+    patch_energies = {
+        str(voxel): statistics.median(samples[voxel]) if samples[voxel] else 0.0
+        for voxel in BLACKY_PATCH_VOXELS
+    }
+    dark_patches = sum(energy < neighbor_energy * .25 for energy in patch_energies.values())
+    valid = capture.plane_count == 5 and min(map(len, samples.values())) >= 3
+    valid = valid and min(len(patch), len(neighbor)) >= 10
     valid = valid and neighbor_energy > .2 and not nonfinite
     return dict(
-        verdict="INVALID" if not valid else "RED" if ratio < .05 else "GREEN",
+        verdict="INVALID" if not valid else "RED" if dark_patches else "GREEN",
         scene="blacky", capture=str(path), width=capture.width, height=capture.height,
         patch_samples=len(patch), neighbor_samples=len(neighbor),
         patch_median_rgb_sum=patch_energy, neighbor_median_rgb_sum=neighbor_energy,
         patch_to_neighbor_ratio=ratio, nonfinite=nonfinite,
+        dark_patch_count=dark_patches, patch_median_rgb_sums=patch_energies,
     )
 
 
@@ -137,8 +151,7 @@ def run(output: Path, screenshot: bool, binary: Path | None = None,
         command += ["--screenshot", camera_name, str(output / "final.png"),
                     "--screenshot-delay", "3"]
     else:
-        command += ["--screenshot", camera_name, str(output / "final.png"),
-                    "--screenshot-delay", "0",
+        command += ["--camera-snapshot", camera_name,
                     "--environment-irradiance-capture", str(capture),
                     "--environment-irradiance-capture-target", "published"]
     try:
