@@ -240,3 +240,29 @@ walls/32 有 7,118 个像素满足：当前环境光为零、候选亮度大于 
 截图与浮点捕获是分别运行，不能当成同一物理帧；路径为
 `verification/image-{portal,walls}-{current,moments}/final.png`。
 截图入口 `visuals.py`；每个截图目录保存实际命令与 latest/tail 日志。
+
+### 重复性与本轮交接
+
+portal/32 和 sealed/32 的 moments 失败均各重复一次；两次捕获的环境光
+payload SHA-256 分别完全一致，分析器返回同一失败。可运行的红灯入口是
+`python3 target/summer-evidence/blacky/verification/repeat.py`，结果见
+`{portal,sealed}-32-moments-repeat/analysis.json`。这锁定了候选实际路径的
+退化，未仅依赖截图肉眼判断。
+
+本轮结论：**简单地用距离统计替代精确验证，虽然解决 Blacky 且明显更快，
+但尚不能替换生产修复。** 已证实门洞新增偏暗、密闭空间的极小非零光；薄墙
+存在缺少精确支持时的大幅局部差异，但起点有效性未进一步诊断，不能将它
+直接定性为物理漏光。没有证明每个像素都必须进行完整精确遍历，也没有
+实现新的优化方案。
+
+本轮重新执行 `CARGO_BUILD_JOBS=2 cargo fmt --check`、`cargo check`，均通过；
+`cargo test -- --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`
+为 915 passed / 0 failed / 1 ignored / 1 filtered out；跳过同一已知相机 fixture
+基线失败。正式 release 的 `--hidden --mute --auto-exit 0.5` smoke 通过，
+同 worktree latest/tail200 无 ERROR/panic/VUID/device-lost，shutdown failures=0。
+上述日志在 `verification/{fmt,check,test,hidden-smoke,hidden-smoke-tail}.log`。
+没有重新测性能，本轮不改变此前 release 消融结论，也不宣称性能验收通过。
+
+仅修改本报告；生产源码、默认 release 二进制 SHA-256、generated 文件均未改变。
+GUI 已恢复，用户预存的 camera snapshots 改动保留且未提交。所有 app 均 hidden、
+mute、flock 串行，没有打开可见游戏。完整收敛状态、编辑过程、其它 GPU 仍未验证。
