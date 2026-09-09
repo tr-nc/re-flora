@@ -83,6 +83,7 @@ public void blackyProbeTraversalStats(U_ShadingInfo lighting, float3 receiver,
 {
     counts = float3(0.0);
     extra = float4(0.0);
+    normal = ddgiNormalizedSurfaceNormal(normal);
     DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
     if (ddgiQueryDomain(query, receiver) != DDGI_QUERY_DOMAIN_LOCAL) return;
     float3 origin = receiver + normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
