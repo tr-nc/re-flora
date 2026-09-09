@@ -294,3 +294,11 @@ GUI 鼠标切换由用户接下来手动体验；自动捕获验证的是两种�
 共享文件改动限于开关与必要传递；没有编辑 gui_adjustables.rs 或环境光权威结构。
 `src/auto-generated/gpu_structs.rs` 由 cargo check 更新一个模式字段及相应 padding，
 未手改 generated 文件。用户的 camera snapshots 预存改动未提交。
+
+开关实现提交 `2aa7fb90`。随后标准
+`flock --close /tmp/re-flora-summer-gpu.lock env CARGO_BUILD_JOBS=2 cargo run --release -- --hidden --mute --auto-exit 0.5`
+smoke 通过；latest/tail200 确认正常退出、shutdown failures=0，无错误。
+两模式的 RFIRR 环境光与 world 平面分别与旧独立候选逐字节一致。
+证据在 `gui-toggle/{smoke,tail}.log`、`gui-toggle/latest.txt`。
+接下来用户手动试用从当前 worktree 以 `cargo run -- --camera-snapshot blacky --ddgi-terrain-moments`
+启动；这是手动视觉/交互验收，不以调试运行 FPS 代替 release 性能测量。
