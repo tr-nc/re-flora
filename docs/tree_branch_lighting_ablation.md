@@ -217,3 +217,26 @@ moments 为 0.399618；宽松的全图 P99 阈值不能排除这种局部差异�
 各组差分在 `verification/{scene}-{spacing}-difference.json`，入口 `compare.py`。
 portal/sealed 的 direct-light planes 字节一致；walls 不一致，因此这里只比较
 环境光，未把完整最终颜色视为严格逐像素对照。
+
+### 局部精确支持与截图复核
+
+独立 stats 捕获与当前/候选的 receiver XYZ、hit mask、geometry/radiance/field
+身份及 update_epoch 一致。前两平面是计数，不是光照与世界坐标；接收平面的
+第四分量有 79 个值不同，因此只以不变的 XYZ 对齐，未误当成全平面字节一致。
+
+walls/32 有 7,118 个像素满足：当前环境光为零、候选亮度大于 0.1，且当前
+精确查询没有可见支持。0.1 仅用于描述范围，不是新增放行阈值。上述峰值点
+执行四条线段、合计四次 DDA 迭代，四条可见性均为零。即全部在第一轮退出；
+这也提示起点落入实体等接收点问题需要检查。**没有可见 probe 支持不等于
+物理光照必然为零**，不能以这个统计把该处候选变亮直接定性成真实漏光。
+具体原因尚未通过起点坐标/占据证据区分，本轮没有扩展修改偏移策略。
+
+记录在 `verification/walls-32-exact-support.json`；计数来自
+`walls-32-stats/light.rfirr`，专用分析入口 `support.py`。
+
+实际截图来自 hidden 游戏的固定环境测试场景，间距32、FOV60、同相机，
+3秒延迟；我已逐张检查，门洞有局部亮度差，薄墙的部分黑线在候选中消失。
+没有对图片后期提亮，也没有把这些变化直接称为正确修复。
+截图与浮点捕获是分别运行，不能当成同一物理帧；路径为
+`verification/image-{portal,walls}-{current,moments}/final.png`。
+截图入口 `visuals.py`；每个截图目录保存实际命令与 latest/tail 日志。
