@@ -108,66 +108,10 @@ public float3 sampleWindVolume(U_WindVolumeInfo windInfo, Sampler3D windTexture,
 
 public uint floraSpeciesWindMotionTopology(uint instanceType)
 {
-    if (instanceType == FLORA_SPECIES_KOCHIA) return 1u;
     if (instanceType == FLORA_SPECIES_TALL_GRASS ||
         instanceType == FLORA_SPECIES_SHORT_GRASS ||
         instanceType == FLORA_SPECIES_APPLE) return 0u;
     return 2u;
-}
-
-public uint floraGroupedStemWindSeed(uint seed, uint animationGroup)
-{
-    return seed + (animationGroup > 0u ? animationGroup - 1u : 0u);
-}
-
-public float kochiaProfileRadius(float height, float bottomDiameter,
-                                 float waistDiameter, float topDiameter,
-                                 float waistHeight)
-{
-    float waist = clamp(waistHeight, 0.05, 0.95);
-    float radius;
-    if (height <= waist)
-    {
-        float lower = floraSmootherstep(height / waist);
-        radius = lerp(bottomDiameter, waistDiameter, lower) * 0.5;
-    }
-    else
-    {
-        float upper = floraSmootherstep((height - waist) / (1.0 - waist));
-        radius = lerp(waistDiameter, topDiameter, upper) * 0.5;
-    }
-    return max(radius, 0.05);
-}
-
-public float3 kochiaProfiledVoxelPosition(U_GuiInput gui, int3 voxelLocalPosition)
-{
-    static const float CANONICAL_BOTTOM_DIAMETER = 5.6;
-    static const float CANONICAL_WAIST_DIAMETER = 11.6;
-    static const float CANONICAL_TOP_DIAMETER = 3.8;
-    static const float CANONICAL_WAIST_HEIGHT = 0.65;
-    static const float MAX_HEIGHT_INDEX = 13.0;
-
-    float height = clamp(float(voxelLocalPosition.y) / MAX_HEIGHT_INDEX, 0.0, 1.0);
-    float canonicalRadius = kochiaProfileRadius(
-        height, CANONICAL_BOTTOM_DIAMETER, CANONICAL_WAIST_DIAMETER,
-        CANONICAL_TOP_DIAMETER, CANONICAL_WAIST_HEIGHT);
-    float targetRadius = kochiaProfileRadius(
-        height, gui.kochia_bottom_diameter_voxels,
-        gui.kochia_waist_diameter_voxels, gui.kochia_top_diameter_voxels,
-        gui.kochia_waist_height);
-    float radialScale = targetRadius / canonicalRadius;
-    float3 profiledPosition = float3(voxelLocalPosition);
-    profiledPosition.x *= radialScale;
-    profiledPosition.z *= radialScale;
-    return profiledPosition;
-}
-
-public float floraSpeciesVoxelWindAffectMultiplier(U_GuiInput gui,
-                                                    uint instanceType)
-{
-    return instanceType == FLORA_SPECIES_KOCHIA
-        ? max(gui.kochia_body_wind_response, 0.0)
-        : 1.0;
 }
 
 public float3 floraNaturalRestBend(U_GuiInput gui, uint seed,
@@ -212,41 +156,6 @@ public float3 floraWindVibration(U_GuiInput gui, float3 wind, float windGradient
                             phase * 1.37 - heightPhase * 0.6);
     return crossWindDirection *
            (vibration * gui.grass_vibration_amplitude_voxels * strength * tipWeight);
-}
-
-public float3 kochiaBranchJellyMotion(U_GuiInput gui, float3 wind,
-                                      float branchHeight, uint seed,
-                                      uint animationGroup, float time)
-{
-    float strength = floraWindPlanarStrength(wind);
-    float branchWeight = floraSmootherstep(branchHeight);
-    if (strength <= 0.0 || branchWeight <= 0.0) return float3(0.0);
-
-    float2 windDirection = floraWindPlanarDirection(wind);
-    float3 alongWindDirection = float3(windDirection.x, 0.0, windDirection.y);
-    float3 crossWindDirection = float3(-windDirection.y, 0.0, windDirection.x);
-    uint groupSeed = wellonsHash(seed ^ (animationGroup * 0x9E3779B9u));
-    float instancePhase = constructFloat01(wellonsHash(seed ^ 0xA511E9B3u));
-    float groupPhase = frac(instancePhase + float(animationGroup) * 0.61803398875 *
-                                             gui.kochia_branch_phase_spread) *
-                       FLORA_TWO_PI;
-    float directionJitter = constructFloat01(groupSeed) * 2.0 - 1.0;
-    float3 branchDirection = normalize(
-        alongWindDirection + crossWindDirection * directionJitter * 0.7);
-    float speedJitter = lerp(0.85, 1.15,
-        constructFloat01(wellonsHash(groupSeed ^ 0xB5297A4Du)));
-    float jellySpeed = max(gui.kochia_branch_jelly_speed, 0.0) * speedJitter;
-    float jelly = sin(time * jellySpeed + groupPhase);
-    jelly += 0.35 * sin(time * jellySpeed * 1.67 + groupPhase * 1.31);
-    jelly *= 1.0 / 1.35;
-
-    float3 offset = branchDirection *
-        (jelly * gui.kochia_branch_jelly_amplitude_voxels * strength * branchWeight);
-    float flutter = sin(time * max(gui.kochia_tip_flutter_speed, 0.0) +
-                        groupPhase * 1.73 + float(animationGroup) * 0.41);
-    float tipWeight = branchWeight * branchWeight * branchWeight;
-    return offset + crossWindDirection *
-        (flutter * gui.kochia_tip_flutter_amplitude_voxels * strength * tipWeight);
 }
 
 // The common inertial solver produces a generalized wind response. Hanging

@@ -2,10 +2,10 @@ use super::{FLORA_FULL_GROWTH_TICKS, FLORA_SPROUT_DELAY_TICKS};
 use crate::app::DebugSettings;
 use crate::tracer::{
     CloudGuiParams, EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput,
-    FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput, KochiaMotionParams,
-    KochiaVisualParams, LeafLightingFrameInput, MaterialFrameInput, RenderFrameInputs,
-    StarlightFrameInput, SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput,
-    VegetationFrameInput, WindFrameInput,
+    FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput,
+    LeafLightingFrameInput, MaterialFrameInput, RenderFrameInputs, StarlightFrameInput,
+    SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput, VegetationFrameInput,
+    WindFrameInput,
 };
 use egui::Color32;
 use glam::Vec3;
@@ -88,16 +88,6 @@ pub(super) fn freeze_render_frame_inputs(
             grass_bottom_light: color_to_vec3(gui.grass_bottom_light_color.value),
             grass_tip_dark: color_to_vec3(gui.grass_tip_dark_color.value),
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
-            kochia: KochiaVisualParams {
-                bottom_darkening: gui.kochia_bottom_darkening.value,
-                branch_value_variation: gui.kochia_branch_value_variation.value,
-                voxel_value_variation: gui.kochia_voxel_value_variation.value,
-                branch_count: gui.kochia_branch_count.value,
-                bottom_diameter_voxels: gui.kochia_bottom_diameter_voxels.value,
-                waist_diameter_voxels: gui.kochia_waist_diameter_voxels.value,
-                top_diameter_voxels: gui.kochia_top_diameter_voxels.value,
-                waist_height: gui.kochia_waist_height.value,
-            },
         },
         motion: FloraMotionFrameInput {
             inertial_response_enabled: gui.flora_inertial_response.value,
@@ -115,14 +105,7 @@ pub(super) fn freeze_render_frame_inputs(
             grass_natural_bend_min_voxels: gui.grass_natural_bend_min_voxels.value,
             grass_natural_bend_max_voxels: gui.grass_natural_bend_max_voxels.value,
             bend_height_power: gui.flora_bend_height_power.value,
-            kochia: KochiaMotionParams {
-                body_wind_response: gui.kochia_body_wind_response.value,
-                branch_jelly_amplitude_voxels: gui.kochia_branch_jelly_amplitude_voxels.value,
-                branch_jelly_speed: gui.kochia_branch_jelly_speed.value,
-                branch_phase_spread: gui.kochia_branch_phase_spread.value,
-                tip_flutter_amplitude_voxels: gui.kochia_tip_flutter_amplitude_voxels.value,
-                tip_flutter_speed: gui.kochia_tip_flutter_speed.value,
-            },
+
             leaf_paddle_amplitude_voxels: gui.leaf_paddle_amplitude_voxels.value,
             leaf_paddle_primary_speed: gui.leaf_paddle_primary_speed.value,
             leaf_paddle_secondary_speed: gui.leaf_paddle_secondary_speed.value,
@@ -323,26 +306,12 @@ mod tests {
         let grass_bottom_light = color!(grass_bottom_light_color);
         let grass_tip_dark = color!(grass_tip_dark_color);
         let grass_tip_light = color!(grass_tip_light_color);
-        let kochia_bottom_darkening = float!(kochia_bottom_darkening);
-        let kochia_branch_value_variation = float!(kochia_branch_value_variation);
-        let kochia_voxel_value_variation = float!(kochia_voxel_value_variation);
-        let kochia_branch_count = uint!(kochia_branch_count);
-        let kochia_bottom_diameter_voxels = float!(kochia_bottom_diameter_voxels);
-        let kochia_waist_diameter_voxels = float!(kochia_waist_diameter_voxels);
-        let kochia_top_diameter_voxels = float!(kochia_top_diameter_voxels);
-        let kochia_waist_height = float!(kochia_waist_height);
         let grass_vibration_amplitude_voxels = float!(grass_vibration_amplitude_voxels);
         let grass_vibration_primary_speed = float!(grass_vibration_primary_speed);
         let grass_vibration_secondary_speed = float!(grass_vibration_secondary_speed);
         let grass_natural_bend_min_voxels = float!(grass_natural_bend_min_voxels);
         let grass_natural_bend_max_voxels = float!(grass_natural_bend_max_voxels);
         let flora_bend_height_power = float!(flora_bend_height_power);
-        let kochia_body_wind_response = float!(kochia_body_wind_response);
-        let kochia_branch_jelly_amplitude_voxels = float!(kochia_branch_jelly_amplitude_voxels);
-        let kochia_branch_jelly_speed = float!(kochia_branch_jelly_speed);
-        let kochia_branch_phase_spread = float!(kochia_branch_phase_spread);
-        let kochia_tip_flutter_amplitude_voxels = float!(kochia_tip_flutter_amplitude_voxels);
-        let kochia_tip_flutter_speed = float!(kochia_tip_flutter_speed);
         let leaf_paddle_amplitude_voxels = float!(leaf_paddle_amplitude_voxels);
         let leaf_paddle_primary_speed = float!(leaf_paddle_primary_speed);
         let leaf_paddle_secondary_speed = float!(leaf_paddle_secondary_speed);
@@ -481,16 +450,6 @@ mod tests {
                     grass_bottom_light,
                     grass_tip_dark,
                     grass_tip_light,
-                    kochia: KochiaVisualParams {
-                        bottom_darkening: kochia_bottom_darkening,
-                        branch_value_variation: kochia_branch_value_variation,
-                        voxel_value_variation: kochia_voxel_value_variation,
-                        branch_count: kochia_branch_count,
-                        bottom_diameter_voxels: kochia_bottom_diameter_voxels,
-                        waist_diameter_voxels: kochia_waist_diameter_voxels,
-                        top_diameter_voxels: kochia_top_diameter_voxels,
-                        waist_height: kochia_waist_height,
-                    },
                 },
                 motion: FloraMotionFrameInput {
                     inertial_response_enabled: settings.adjustables.flora_inertial_response.value,
@@ -508,14 +467,7 @@ mod tests {
                     grass_natural_bend_min_voxels,
                     grass_natural_bend_max_voxels,
                     bend_height_power: flora_bend_height_power,
-                    kochia: KochiaMotionParams {
-                        body_wind_response: kochia_body_wind_response,
-                        branch_jelly_amplitude_voxels: kochia_branch_jelly_amplitude_voxels,
-                        branch_jelly_speed: kochia_branch_jelly_speed,
-                        branch_phase_spread: kochia_branch_phase_spread,
-                        tip_flutter_amplitude_voxels: kochia_tip_flutter_amplitude_voxels,
-                        tip_flutter_speed: kochia_tip_flutter_speed,
-                    },
+
                     leaf_paddle_amplitude_voxels,
                     leaf_paddle_primary_speed,
                     leaf_paddle_secondary_speed,

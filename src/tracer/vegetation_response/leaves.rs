@@ -92,7 +92,7 @@ fn append_tree(
             root: [root.x, root.y, root.z, 0.],
             identity: [
                 previous.get(&key).copied().unwrap_or(NO_PREVIOUS),
-                5,
+                crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX,
                 instance_seed(world),
                 1,
             ],

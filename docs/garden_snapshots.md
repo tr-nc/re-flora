@@ -4,11 +4,13 @@
 selected path (default `saves/terrain_snapshot.rflterrain`). The CLI flags remain `--terrain-save`
 and `--terrain-load`. This format replaces the terrain-only v1 format; no migration is provided.
 
+Old vegetation snapshots containing the retired last species `kochia` remain readable: loading drops only that species and preserves the other plants and terrain. The original file is not rewritten until the player saves.
+
 ## Persistent state
 
 - The exact packed terrain atlas, including hand-edited tree wood.
 - Both painted grass species: roots and current per-instance growth, read from their live GPU streams.
-- Lavender, ember bloom and kochia: roots, species, growth, seed and stable response identity.
+- Lavender and purple allium (legacy key `ember_bloom`): roots, species, growth, seed and stable response identity.
 - Every tree: identity, position, mature authoring description and global age. Leaves and their
   anchors, tree ownership, fruit specifications and canopy audio are rebuilt from that description.
 - The fruiting cycle and global flora growth override. Loading a completed crop does not replay

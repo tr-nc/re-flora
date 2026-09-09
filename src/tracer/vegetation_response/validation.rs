@@ -162,7 +162,12 @@ pub(in crate::tracer) fn validate_gpu(
         .into_iter()
         .map(|seed| ResponseInput {
             root: [1., 1., 1., 0.],
-            identity: [NO_PREVIOUS, 5, seed, 1],
+            identity: [
+                NO_PREVIOUS,
+                species::TREE_LEAF_RENDER_SPECIES_INDEX,
+                seed,
+                1,
+            ],
         })
         .collect();
     let mut leaf_difference = 0.0_f32;
@@ -180,7 +185,14 @@ pub(in crate::tracer) fn validate_gpu(
         "individual leaves collapse into one mechanical response: difference={leaf_difference}"
     );
     log::info!("[VEGETATION_RESPONSE][INDIVIDUAL_LEAVES] same_force_max_difference={leaf_difference:.6} independent_mechanics=passed");
-    let mut inputs: Vec<_> = [0, 2, 3, 4, 5, 6]
+    let validation_species = [
+        species::TALL_GRASS_SPECIES_INDEX,
+        species::LAVENDER_SPECIES_INDEX,
+        species::EMBER_BLOOM_SPECIES_INDEX,
+        species::TREE_LEAF_RENDER_SPECIES_INDEX,
+        species::APPLE_RENDER_SPECIES_INDEX,
+    ];
+    let mut inputs: Vec<_> = validation_species
         .into_iter()
         .map(|species| ResponseInput {
             root: [1., 1., 1., 0.],
@@ -221,7 +233,7 @@ pub(in crate::tracer) fn validate_gpu(
         }
     }
     // Production-state measurements, not a verdict on the deliberately discrete art style.
-    for (index, species) in [0, 2, 3, 4, 5, 6].into_iter().enumerate() {
+    for (index, species) in validation_species.into_iter().enumerate() {
         let reach = response_samples[..120]
             .iter()
             .position(|s| s[index][0] >= 0.9)
@@ -339,7 +351,7 @@ pub(in crate::tracer) fn validate_gpu(
             old == changed,
             "live controls or cadence change reset state"
         );
-        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species=0,2,3,4,5,6 t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
+        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species={validation_species:?} t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
         control_results.push((t90, overshoot, last.clone()));
     }
     for index in 0..inputs.len() {

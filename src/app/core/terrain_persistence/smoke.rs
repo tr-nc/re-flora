@@ -8,7 +8,7 @@ impl App {
             return Ok(());
         }
         let previous_selection = self.player_tools.flora_paint_selection_index;
-        for index in 0..4 {
+        for index in 0..species::PLAYER_FLORA_PAINT_SELECTIONS.len() as u32 {
             let xz = Vec2::new((50 + index * 40) as f32 / 256.0, 70.0 / 256.0);
             let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
             self.player_tools.flora_paint_selection_index = index as usize;
@@ -26,7 +26,7 @@ impl App {
         self.debug_settings.adjustables.tree_age.value = 0.43;
         self.update_all_tree_ages_from_gui()?;
         self.add_snapshot_smoke_tree()?;
-        log::info!("[GARDEN_SMOKE] seeded painted grass, all three authored species, tuned and additional tree at age 0.43");
+        log::info!("[GARDEN_SMOKE] seeded painted grass, all registered authored species, tuned and additional tree at age 0.43");
         Ok(())
     }
 

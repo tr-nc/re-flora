@@ -756,7 +756,6 @@ const SECTION_PARENTS: &[(&str, &str)] = &[
     ("Starlight", "Sky"),
     ("Clouds", "Sky"),
     ("Purple Allium", "Flora"),
-    ("Kochia", "Flora"),
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
     ("Leaves", "Flora"),

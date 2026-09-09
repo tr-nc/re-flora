@@ -1,14 +1,15 @@
 module vegetation_response_solver;
 
+import flora_types;
+
 // One solver for field nodes and lifetime-owned plants. State ownership is not
 // a solver concern: all callers use world seconds, voxel displacement and velocity.
 public float2 vegetationMechanicalProfile(uint species)
 {
     if (species < 2u) return float2(1.0, 0.24);
-    if (species == 2u) return float2(0.65, 0.30);
-    if (species == 3u) return float2(0.52, 0.34);
-    if (species == 4u) return float2(0.85, 0.40);
-    if (species == 5u) return float2(1.4, 0.28); // attached leaf tissue
+    if (species == FLORA_SPECIES_LAVENDER) return float2(0.65, 0.30);
+    if (species == FLORA_SPECIES_EMBER_BLOOM) return float2(0.52, 0.34);
+    if (species == FLORA_SPECIES_TREE_LEAF) return float2(1.4, 0.28); // attached leaf tissue
     return float2(0.75, 0.45); // heavier hanging fruit
 }
 
@@ -45,6 +46,6 @@ public void advanceLeafResponse(inout float4 motion, float2 force,
     hash = ((hash >> ((hash >> 28u) + 4u)) ^ hash) * 277803737u;
     hash = (hash >> 22u) ^ hash;
     float3 variation = float3(hash & 255u, (hash >> 8u) & 255u, (hash >> 16u) & 255u) / 255.0;
-    float2 profile = vegetationMechanicalProfile(5u) * lerp(float2(0.75, 0.8), float2(1.25, 1.2), variation.xy);
+    float2 profile = vegetationMechanicalProfile(FLORA_SPECIES_TREE_LEAF) * lerp(float2(0.75, 0.8), float2(1.25, 1.2), variation.xy);
     advanceMechanicalResponse(motion, force * lerp(0.85, 1.15, variation.z), dt, profile, controls);
 }

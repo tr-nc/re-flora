@@ -199,7 +199,6 @@ public PreparedFloraVertex prepareFloraVertex(
     result.is_grass = instanceType == FLORA_SPECIES_TALL_GRASS ||
                       instanceType == FLORA_SPECIES_SHORT_GRASS;
     bool isSurfaceFlora = instanceType < FLORA_SPECIES_COUNT;
-    bool isKochia = instanceType == FLORA_SPECIES_KOCHIA;
     bool isApple = instanceType == FLORA_SPECIES_APPLE;
 
     float windGradient = isApple ? 1.0 : floraVoxelWindGradient(voxelInfo);
@@ -227,22 +226,14 @@ public PreparedFloraVertex prepareFloraVertex(
     }
 
     float3 instancePosition = float3(instancePositionVoxels) * FLORA_SCALING_FACTOR;
-    uint animationGroup = floraVoxelAnimationGroup(voxelInfo);
-    if (isKochia && animationGroup > max(gui_input.kochia_branch_count, 1u))
-    {
-        result.should_trim = true;
-    }
 
     uint windTopology = floraSpeciesWindMotionTopology(instanceType);
     float3 windSamplePosition = windTopology != 2u
         ? instancePosition
         : instancePosition + float3(voxelLocalPosition) * FLORA_SCALING_FACTOR;
     uint windSeed = seed;
-    if (windTopology == 1u)
-    {
-        windSeed = floraGroupedStemWindSeed(seed, animationGroup);
-    }
-    else if (windTopology == 2u)
+
+    if (windTopology == 2u)
     {
         windSeed = windVolumeVoxelSeed(seed, voxelLocalPosition);
     }
@@ -262,12 +253,9 @@ public PreparedFloraVertex prepareFloraVertex(
         ? bendWeight
         : ((useResponse && instanceType == FLORA_SPECIES_TREE_LEAF)
             ? 1.0 : windGradient * windGradient);
-    float speciesWindAffect = isSurfaceFlora
-        ? floraSpeciesVoxelWindAffectMultiplier(gui_input, instanceType)
-        : 1.0;
     float3 windOffset = isApple
         ? (useResponse ? appleInertialOffset(gui_input, response) : float3(0.0))
-        : wind * windBendWeight * (useResponse ? 1.0 : speciesWindAffect);
+        : wind * windBendWeight;
     float motionTime = windVolumeBucketUpdateTime(
         gui_input, windVolumeBucketIndex(windSeed), pc.time);
 
@@ -277,20 +265,13 @@ public PreparedFloraVertex prepareFloraVertex(
             ? float(grassHeightVoxels)
             : floraVoxelLookupMaxLength(instanceType);
         float naturalBendValue = result.is_grass ? grassRootedHeight : windGradient;
-        uint restBendSeed = windTopology == 1u ? windSeed : seed;
         windOffset += floraNaturalRestBend(
-            gui_input, restBendSeed, naturalBendValue, naturalBendHeight) *
-            speciesWindAffect;
-        if (isKochia && !useResponse)
-        {
-            windOffset += kochiaBranchJellyMotion(
-                gui_input, wind, windGradient, seed, animationGroup, motionTime);
-        }
-        else if (!useResponse)
+            gui_input, seed, naturalBendValue, naturalBendHeight);
+
+        if (!useResponse)
         {
             windOffset += floraWindVibration(
-                gui_input, wind, bendHeight, seed, voxelLocalPosition, motionTime) *
-                speciesWindAffect;
+                gui_input, wind, bendHeight, seed, voxelLocalPosition, motionTime);
         }
     }
     else if (instanceType == FLORA_SPECIES_TREE_LEAF && !useResponse)
@@ -319,9 +300,7 @@ public PreparedFloraVertex prepareFloraVertex(
         spawnPose.visibility = 1.0;
     }
 
-    float3 posedVoxelLocalPosition = isKochia
-        ? kochiaProfiledVoxelPosition(gui_input, voxelLocalPosition)
-        : float3(voxelLocalPosition);
+    float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
@@ -388,30 +367,6 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
         darkPackedColor = sampleLavenderHeightPaletteRgb10(seed, colorRow);
     }
     float3 darkHeightColor = unpackLinearRgb10(darkPackedColor);
-
-    if (instanceType == FLORA_SPECIES_KOCHIA)
-    {
-        float3 colorB = unpackLinearRgb10(pc.height_light_color_rgb10[colorRow]);
-        uint animationGroup = floraVoxelAnimationGroup(voxelInfo);
-        uint branchSeed = wellonsHash(seed ^ (animationGroup * 0x9E3779B9u));
-        float branchPalette = constructFloat01(branchSeed ^ 0xD1B54A32u);
-        float voxelPalette = signedUnitNoise(
-            float4(float3(voxelLocalPosition) * 0.35, float(seed ^ branchSeed))).x *
-            0.5 + 0.5;
-        float paletteValue = floraSmootherstep(
-            clamp(branchPalette * 0.72 + voxelPalette * 0.28, 0.0, 1.0));
-        float3 kochiaColor = lerp(darkHeightColor, colorB, paletteValue);
-        float branchNoise = constructFloat01(branchSeed) * 2.0 - 1.0;
-        float voxelNoise = signedUnitNoise(
-            float4(float3(voxelLocalPosition), float(seed ^ branchSeed))).z;
-        float branchHeight = floraSmootherstep(floraVoxelWindGradient(voxelInfo));
-        float verticalOffset = -max(gui_input.kochia_bottom_darkening, 0.0) *
-                               (1.0 - branchHeight);
-        float valueOffset = verticalOffset +
-            branchNoise * max(gui_input.kochia_branch_value_variation, 0.0) +
-            voxelNoise * max(gui_input.kochia_voxel_value_variation, 0.0);
-        return applyHsvOffset(kochiaColor, float3(0.0, 0.0, valueOffset));
-    }
 
     if (instanceType == FLORA_SPECIES_EMBER_BLOOM &&
         materialId == FLORA_VOXEL_MATERIAL_ALLIUM_CORE)

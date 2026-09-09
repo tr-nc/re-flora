@@ -1050,15 +1050,6 @@ pub fn solid_flora_height_color_tables(
     [table, table]
 }
 
-pub fn kochia_color_tables(color_a_srgb: Vec3, color_b_srgb: Vec3) -> FloraHeightColorTables {
-    let color_a = pack_linear_rgb10(srgb_to_linear_color(color_a_srgb));
-    let color_b = pack_linear_rgb10(srgb_to_linear_color(color_b_srgb));
-    [
-        [color_a; FLORA_HEIGHT_COLOR_TABLE_LEN],
-        [color_b; FLORA_HEIGHT_COLOR_TABLE_LEN],
-    ]
-}
-
 pub fn allium_height_color_tables(
     stem_bottom_srgb: Vec3,
     stem_top_srgb: Vec3,
@@ -1085,20 +1076,6 @@ pub fn allium_height_color_tables(
     }
 
     [table_a, table_b]
-}
-
-#[cfg(test)]
-mod flora_color_tests {
-    use super::*;
-
-    #[test]
-    fn kochia_palette_contains_two_height_independent_colors() {
-        let tables = kochia_color_tables(Vec3::new(0.84, 0.72, 0.30), Vec3::new(0.85, 0.32, 0.37));
-
-        assert_ne!(tables[0][0], tables[1][0]);
-        assert!(tables[0].iter().all(|color| *color == tables[0][0]));
-        assert!(tables[1].iter().all(|color| *color == tables[1][0]));
-    }
 }
 
 #[cfg(test)]
@@ -1363,28 +1340,6 @@ pub struct FruitMotionParams {
     pub min_response: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct KochiaMotionParams {
-    pub body_wind_response: f32,
-    pub branch_jelly_amplitude_voxels: f32,
-    pub branch_jelly_speed: f32,
-    pub branch_phase_spread: f32,
-    pub tip_flutter_amplitude_voxels: f32,
-    pub tip_flutter_speed: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct KochiaVisualParams {
-    pub bottom_darkening: f32,
-    pub branch_value_variation: f32,
-    pub voxel_value_variation: f32,
-    pub branch_count: u32,
-    pub bottom_diameter_voxels: f32,
-    pub waist_diameter_voxels: f32,
-    pub top_diameter_voxels: f32,
-    pub waist_height: f32,
-}
-
 /// Terrain state frozen by the application for one renderer update.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainFrameInput {
@@ -1420,7 +1375,6 @@ pub struct FloraAppearanceFrameInput {
     pub grass_bottom_light: Vec3,
     pub grass_tip_dark: Vec3,
     pub grass_tip_light: Vec3,
-    pub kochia: KochiaVisualParams,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1435,7 +1389,6 @@ pub struct FloraMotionFrameInput {
     pub grass_natural_bend_min_voxels: f32,
     pub grass_natural_bend_max_voxels: f32,
     pub bend_height_power: f32,
-    pub kochia: KochiaMotionParams,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
