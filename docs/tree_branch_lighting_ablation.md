@@ -198,3 +198,22 @@ portal 的原有误差 P99 上限是 0.01；current 在 spacing16 也超限，�
 运行脚本为同目录 `run-published.py`；原收敛失败保存在
 `converged-sealed-32-current/`。所有 app hidden/mute、flock 串行，GUI 与用户
 快照恢复原字节。生产 shader 和 generated 文件没有修改。
+
+原版基线补查：`29cbeff9` 的 portal/16/published 参考误差 P99 为
+0.0113067，也超过 0.01；当前为 0.0118721，候选为 0.0150043。因此这项超限
+有基线成分，候选进一步变差。原版 sealed/32/published 精确为零。
+原版 sealed/32/converged 也在 120 秒后返回 0 而没有捕获文件，与当前相同；
+收敛捕获阻塞不能归因于本次消费查询修复，完整收敛验证仍未完成。
+命令与日志在 `verification/{portal-16-original,sealed-32-original,converged-sealed-32-original}/`。
+
+逐像素差分（同一 world XYZ、环境光场身份）显示 portal/32 有 23,403 个地形
+像素比当前暗超过 0.01，只有 950 个亮超过 0.01；候选主要新增偏暗区域，
+不是整体抬亮。一个峰值点 world=(0.562562,0.855198,1.054687) 的参考亮度
+0.142374、current 0.149623、moments 0.052630。portal/16 也以偏暗为主。
+
+walls/32 有点 world=(1.554158,0.746742,1.187500)，current 与参考均为零，
+moments 为 0.399618；宽松的全图 P99 阈值不能排除这种局部差异。
+还需核查这些点的精确支持，不能仅以差异断言真实物理光照应当为零。
+各组差分在 `verification/{scene}-{spacing}-difference.json`，入口 `compare.py`。
+portal/sealed 的 direct-light planes 字节一致；walls 不一致，因此这里只比较
+环境光，未把完整最终颜色视为严格逐像素对照。
