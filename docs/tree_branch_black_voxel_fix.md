@@ -1,6 +1,6 @@
 # 树枝近黑体素：Blacky 复现与修复
 
-分支 `agent/tree-branch-lighting`，基线 `29cbeff9`。更新于 2026-09-09。
+分支 `agent/tree-branch-lighting`，基线 `29cbeff9`。更新于 2026-09-10。
 
 ## 当前结论
 
@@ -130,10 +130,47 @@ GPU 逐 probe 读回在 `blacky/diagnostic-probes/probes.json`；CPU 使用实�
 
 ## 运行成本与交接
 
-当前算法每个接收点只执行一轮最多 8 个 probe 的精确验证。替代了先前 canonical /
-平滑两轮验证；没有增加缓存、异步模块或改变 probe 密度。当前候选的 release 成本
-对照单独补充，09-07 的 1.447 → 2.448 ms 属于旧镜头、旧分辨率、旧修复，不能用于
-描述本次候选。
+当前算法每个接收点只执行一轮最多 8 个 probe 的精确验证，替代了先前 canonical /
+平滑两轮验证；没有增加缓存、异步模块或改变 probe 密度。
+
+对照分别使用保存的最初查询 release 程序（`29cbeff9`）、旧修复（`191c8f9f`）和
+本次实现（`40e906a6`）。三者均使用同一 Blacky 镜头、原 GUI 字节、树、太阳参数，
+RTX 3060 Ti、物理 `1920×1080`、tracer `960×540`、自动 MAILBOX。
+
+```bash
+# binary 分别是保存的 original / previous / candidate release 程序。
+flock /tmp/re-flora-summer-gpu.lock "$binary" \
+  --hidden --mute --windowed --perf --camera-snapshot blacky \
+  --no-flora --no-particles --no-clouds --no-god-rays --no-lens-flare \
+  --auto-exit 55
+```
+
+为隔离地形查询成本，此性能场景隐藏叶片及上述特效；完整视觉截图仍保留它们。
+每个程序运行 55 秒，最终统一使用 frame `3300..6300`，每 30 帧一个样本，
+**每项每组均为 101 个样本**。这一区间没有 `ddgi.probe_trace` 更新，所有预期帧
+齐全，计时 scopes `dropped=0`；每 0.5 秒检查 rustc，观察到的编译进程最大值为 0。
+早先的 `1200..4200` 窗口包含初始化更新，因此从已有完整日志重新分析更晚的
+共同窗口；没有使用启动耗时或截图 FPS。
+
+| 原生计时项中位数 (ms) | 最初查询 | 旧修复 | 本次实现 | 本次相对最初 | 本次相对旧修复 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GPU 总帧 `frame.render` | 1.803 | 3.438 | 3.087 | +71.2% | -10.2% |
+| GPU 地形主 pass `tracer.pass` | 0.708 | 2.339 | 2.000 | +182.5% | -14.5% |
+| GPU tracer 合计 `tracer.render` | 0.866 | 2.502 | 2.159 | +149.3% | -13.7% |
+| App 帧耗时 `frame.cpu_total` | 3.905 | 5.856 | 5.405 | +38.4% | -7.7% |
+
+GPU scope 有嵌套，不能相加；app 帧耗时包含 acquire/present 等等待，不是纯 CPU
+运算时间。当前相对最初查询仍有明显成本，**不宣称性能验收通过**。这是一组
+顺序运行的场景测量，存在帧尖峰，未测跨运行方差、跨 GPU 或完整特效负载。
+按本任务范围记录成本，没有继续扩展优化或引入新的放行阈值。
+
+可复查入口为 `target/summer-evidence/blacky/benchmark.py` 和 `reanalyze-cost.py`。
+原始日志、二进制 SHA-256、配置 hash、场景标记和每个 scope 的样本数/中位数/
+最小最大值保存在 `blacky/cost/{original,previous,candidate}.{log,json}` 及
+`blacky/cost/comparison.json`；每次运行都另存同 worktree 的 latest/tail 日志。
+三次退出成功、shutdown failures=0，无 ERROR/panic/VUID/device-lost。
+
+09-07 的 1.447 → 2.448 ms 属于旧镜头、旧分辨率和旧修复，不能直接与本表相减。
 
 生产改动限于 `shader/slang/ddgi_query.slang` 和共享文件 `src/tracer/mod.rs` 的一条
 能力日志，另更新回归脚本及本报告。没有修改 `src/gui_adjustables.rs`、环境光权威
