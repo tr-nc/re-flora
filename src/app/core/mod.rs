@@ -2724,14 +2724,11 @@ impl App {
                                                     .color(GOLD_ACCENT),
                                             );
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
-                                            if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting (experimental)")
-                                                .on_hover_text("Off: exact voxel visibility. On: distance statistics. Changes immediately; resets on restart.")
+                                            if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
+                                                .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")
                                                 .changed()
                                             {
                                                 self.tracer.set_ddgi_terrain_moments(terrain_moments);
-                                            }
-                                            if terrain_moments {
-                                                ui.label("Comparison candidate: occlusion checks not yet passed.");
                                             }
                                             egui::ComboBox::from_label("Spacing (voxels)")
                                                 .selected_text(

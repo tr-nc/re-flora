@@ -302,3 +302,24 @@ smoke 通过；latest/tail200 确认正常退出、shutdown failures=0，无错�
 证据在 `gui-toggle/{smoke,tail}.log`、`gui-toggle/latest.txt`。
 接下来用户手动试用从当前 worktree 以 `cargo run -- --camera-snapshot blacky --ddgi-terrain-moments`
 启动；这是手动视觉/交互验收，不以调试运行 FPS 代替 release 性能测量。
+
+## 用户体验后的默认选择：Cheap
+
+用户体验 Blacky 与门洞后明确选择性能，授权 Cheap 为默认并接受观察到的视觉差异。
+因此普通启动现在使用 moments 路径，R / Environment Probes 的
+`Cheap terrain lighting` 默认勾选；取消勾选仍即时切回精确验证。
+本次会话的手动切换不保存，下一次普通启动恢复 Cheap。
+
+CLI `--ddgi-terrain-exact` 提供明确的精确模式覆盖；`--ddgi-terrain-moments`
+保留为显式 Cheap 选择，同时指定两者报参数冲突。GUI 不再把已选择的默认
+模式展示为待决定候选；此前的数值差异、基线限制和验证证据保持记录，
+用户接受取舍不意味着那些数值门槛现在通过。没有新增性能测量或放行阈值。
+
+仅修改 `src/cli.rs`、`src/app/core/mod.rs` 和本报告；shader、generated 文件
+没有进一步变化。fmt/check 通过；同一已知 fixture 跳过后的 cargo test 为
+917 passed / 0 failed / 1 ignored / 1 filtered out。
+默认启动和显式 exact 的 Blacky 实际 GPU 捕获均 GREEN，十个目标无失败；
+主点 RGB 和分别 1.604452 / 1.759727，证明默认路径已改变且精确路径仍可选。
+证据位于 `target/summer-evidence/blacky/cheap-default/{default,exact}/`，
+含实际命令、捕获、结果、latest/tail 日志；相邻 `cheap-default-{fmt,check,test,build}.log`
+记录构建验证。GUI 已恢复，用户相机快照预存改动保留未提交。
