@@ -13,6 +13,7 @@ import json
 import math
 import os
 from pathlib import Path
+import statistics
 import subprocess
 
 from analyze_environment_irradiance_capture import PIXEL, load_capture
@@ -28,6 +29,53 @@ pitch_deg = 0.0
 fov_deg = 55.0
 fly_mode = true
 """
+BLACKY_CAMERA = """
+[[snapshots]]
+name = "tree-blacky-regression"
+description = "User Blacky snapshot: near-black trunk side despite nonzero irradiance"
+position = [0.816733, 0.6137017, 0.8741581]
+yaw_deg = 101.928986
+pitch_deg = 12.935698
+fov_deg = 60.0
+fly_mode = true
+"""
+
+
+def measure_blacky(path: Path) -> dict:
+    """Track the actual central black patch, not unrelated exact-zero pixels.
+
+    This fixed-scene contrast guard is deliberately not a general rule that
+    shadowed pixels must be bright. It observes the user's identified patch and
+    its neighboring trunk voxel through the production irradiance capture.
+    """
+    capture = load_capture(path)
+    samples = {(265, 169, 230): [], (264, 169, 231): []}
+    nonfinite = 0
+    for environment, receiver in zip(
+        PIXEL.iter_unpack(capture.payload),
+        PIXEL.iter_unpack(capture.terrain_shadow_receiver_payload), strict=True,
+    ):
+        if not environment[3]:
+            continue
+        if not all(math.isfinite(v) for v in (*environment, *receiver)):
+            nonfinite += 1
+            continue
+        voxel = tuple(round(v * 256 - .5) for v in receiver[:3])
+        if voxel in samples:
+            samples[voxel].append(sum(environment[:3]))
+    patch, neighbor = samples.values()
+    patch_energy = statistics.median(patch) if patch else 0.0
+    neighbor_energy = statistics.median(neighbor) if neighbor else 0.0
+    ratio = patch_energy / neighbor_energy if neighbor_energy > 0 else 0.0
+    valid = capture.plane_count == 5 and min(len(patch), len(neighbor)) >= 10
+    valid = valid and neighbor_energy > .2 and not nonfinite
+    return dict(
+        verdict="INVALID" if not valid else "RED" if ratio < .05 else "GREEN",
+        scene="blacky", capture=str(path), width=capture.width, height=capture.height,
+        patch_samples=len(patch), neighbor_samples=len(neighbor),
+        patch_median_rgb_sum=patch_energy, neighbor_median_rgb_sum=neighbor_energy,
+        patch_to_neighbor_ratio=ratio, nonfinite=nonfinite,
+    )
 
 
 def measure(path: Path) -> dict:
@@ -69,7 +117,8 @@ def measure(path: Path) -> dict:
     )
 
 
-def run(output: Path, screenshot: bool, binary: Path | None = None) -> Path:
+def run(output: Path, screenshot: bool, binary: Path | None = None,
+        scene: str = "startup") -> Path:
     output.mkdir(parents=True, exist_ok=True)
     gui = ROOT / "config/gui.toml"
     camera = ROOT / "config/camera_snapshots.toml"
@@ -78,19 +127,23 @@ def run(output: Path, screenshot: bool, binary: Path | None = None) -> Path:
     capture.unlink(missing_ok=True)
     command = [
         "flock", "/tmp/re-flora-summer-gpu.lock", str(binary or ROOT / "target/release/re-flora"),
-        "--hidden", "--mute", "--windowed", "--no-flora", "--no-particles",
+        "--hidden", "--mute", "--windowed", "--no-particles",
         "--no-clouds", "--no-god-rays", "--no-lens-flare", "--auto-exit", "12",
     ]
+    if scene == "startup":
+        command.append("--no-flora")
+    camera_name = "tree-blacky-regression" if scene == "blacky" else "tree-branch-regression"
     if screenshot:
-        command += ["--screenshot", "tree-branch-regression", str(output / "final.png"),
+        command += ["--screenshot", camera_name, str(output / "final.png"),
                     "--screenshot-delay", "3"]
     else:
-        command += ["--screenshot", "tree-branch-regression", str(output / "final.png"),
+        command += ["--screenshot", camera_name, str(output / "final.png"),
                     "--screenshot-delay", "0",
                     "--environment-irradiance-capture", str(capture),
                     "--environment-irradiance-capture-target", "published"]
     try:
-        camera.write_bytes(originals[camera] + CAMERA.encode())
+        preset = BLACKY_CAMERA if scene == "blacky" else CAMERA
+        camera.write_bytes(originals[camera] + preset.encode())
         (output / "gui.toml").write_bytes(originals[gui])
         (output / "command.json").write_text(json.dumps(command, indent=2) + "\n")
         with (output / "stdout.log").open("w") as log:
@@ -120,11 +173,13 @@ def main() -> int:
     parser.add_argument("--capture", type=Path, help="analyze an existing capture")
     parser.add_argument("--output", type=Path, default=ROOT / "target/summer-evidence/tree-branch")
     parser.add_argument("--screenshot", action="store_true", help="separate real-game image run")
+    parser.add_argument("--scene", choices=("startup", "blacky"), default="startup")
     args = parser.parse_args()
-    path = args.capture or run(args.output.resolve(), args.screenshot, args.binary.resolve() if args.binary else None)
+    path = args.capture or run(args.output.resolve(), args.screenshot,
+                              args.binary.resolve() if args.binary else None, args.scene)
     if args.screenshot:
         return 0
-    result = measure(path)
+    result = measure_blacky(path) if args.scene == "blacky" else measure(path)
     print("[TREE_BRANCH_LIGHTING] " + json.dumps(result, sort_keys=True))
     if not args.capture:
         (args.output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
