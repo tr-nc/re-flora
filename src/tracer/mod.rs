@@ -1348,6 +1348,7 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
+    pub ddgi_terrain_moments: bool,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
     pub glass_experiment_enabled: bool,
     pub glass_debug_view: u32,
@@ -1862,7 +1863,8 @@ impl Tracer {
             desc.ddgi_terrain_hard_origin.label()
         );
         log::info!(
-            "[DDGI][VISIBILITY] runtime_consumers=moment terrain_false_occlusion_recovery=exact-visible transport_and_reference=moment+exact"
+            "[DDGI][VISIBILITY] terrain_consumers={} fallback=moment raster_consumers=moment transport_and_reference=moment+exact",
+            if desc.ddgi_terrain_moments { "experimental-moments" } else { "exact-supported-interpolation" }
         );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
             &vulkan_ctx,
@@ -2442,6 +2444,18 @@ impl Tracer {
 
     pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {
         self.ddgi_runtime.capture_target()
+    }
+
+    pub fn ddgi_terrain_moments(&self) -> bool {
+        self.desc.ddgi_terrain_moments
+    }
+
+    /// Session-only consumer comparison; does not rebuild or alter the probe field.
+    pub fn set_ddgi_terrain_moments(&mut self, enabled: bool) {
+        if self.desc.ddgi_terrain_moments != enabled {
+            self.desc.ddgi_terrain_moments = enabled;
+            log::info!("[DDGI][TERRAIN_QUERY] moments={enabled} experimental=true");
+        }
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -3069,6 +3083,7 @@ impl Tracer {
                 ddgi_visibility_tile_columns,
                 view.as_u32(),
                 self.desc.ddgi_terrain_hard_origin.as_u32(),
+                self.desc.ddgi_terrain_moments,
                 self.desc.glass_experiment_enabled,
                 self.desc.glass_debug_view,
                 ddgi_receiver_visibility_bias_world,

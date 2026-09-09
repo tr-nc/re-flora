@@ -384,6 +384,7 @@ pub struct EnvironmentLightingPlan {
     pub batch_order: DdgiBatchOrder,
     pub debug_view: DdgiDebugView,
     pub terrain_hard_origin: DdgiTerrainHardOrigin,
+    pub terrain_moments: bool,
     pub probe_spacing_voxels: u32,
     pub rebuild_probe_spacing_voxels: Option<u32>,
     pub visualize_probes: bool,
@@ -698,6 +699,14 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                 .to_owned(),
         );
     }
+    let terrain_moments_requested = args.iter().any(|a| a == "--ddgi-terrain-moments");
+    let terrain_exact_requested = args.iter().any(|a| a == "--ddgi-terrain-exact");
+    if terrain_moments_requested && terrain_exact_requested {
+        return Err(
+            "Choose only one of --ddgi-terrain-moments and --ddgi-terrain-exact".to_owned(),
+        );
+    }
+    let ddgi_terrain_moments = !terrain_exact_requested;
     let ddgi_terrain_hard_origin = match parse_required_string_after(
             "--ddgi-terrain-hard-origin",
             "one of: surface-quarter, center-fixed, surface-fixed",
@@ -1079,6 +1088,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                 batch_order: ddgi_batch_order,
                 debug_view: ddgi_debug_view,
                 terrain_hard_origin: ddgi_terrain_hard_origin,
+                terrain_moments: ddgi_terrain_moments,
                 probe_spacing_voxels: environment_probe_spacing_voxels,
                 rebuild_probe_spacing_voxels: environment_probe_rebuild_spacing_voxels,
                 visualize_probes: args
@@ -1496,6 +1506,10 @@ Options:
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight/support, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
+  --ddgi-terrain-moments
+      Use cheaper terrain distance statistics (default; switchable in the R panel).
+  --ddgi-terrain-exact
+      Use exact terrain voxel visibility instead of the cheaper default.
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
                               for terrain receiver experiments (default: {})
@@ -2081,6 +2095,34 @@ mod tests {
             };
             assert_eq!(options.world.lighting.debug_view, expected);
         }
+    }
+
+    #[test]
+    fn terrain_moments_are_default_with_an_explicit_exact_override() {
+        assert!(parse(&["re-flora"]).world.lighting.terrain_moments);
+        assert!(
+            parse(&["re-flora", "--ddgi-terrain-moments"])
+                .world
+                .lighting
+                .terrain_moments
+        );
+    }
+
+    #[test]
+    fn terrain_exact_override_and_conflicting_modes() {
+        assert!(
+            !parse(&["re-flora", "--ddgi-terrain-exact"])
+                .world
+                .lighting
+                .terrain_moments
+        );
+        assert!(try_parse_owned(
+            ["re-flora", "--ddgi-terrain-exact", "--ddgi-terrain-moments"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        )
+        .is_err());
     }
 
     #[test]

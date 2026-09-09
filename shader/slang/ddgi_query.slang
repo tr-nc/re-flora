@@ -995,29 +995,9 @@ public void writeDdgiSpatialWeightDiagnostics(
         float(consumerResult.dominant_probe_index));
 }
 
-// Distance moments can falsely occlude an open direction beside thin geometry:
-// several nearby surfaces share one angular texel. A current, unobstructed voxel
-// segment is stronger evidence than that statistical attenuation. Retain the
-// moment estimate when the segment is blocked or unavailable; never add a light
-// floor, an unoccluded-sky fallback, or a larger origin offset.
-void resolveTerrainProbeVisibility(DdgiQueryInfo query,
-    float3 receiverWorldPosition, float3 normal,
-    inout DdgiProbeContribution contribution)
-{
-    if (!contribution.trustworthy || contribution.moment_visibility >= 1.0)
-        return;
-    float3 visibilityOrigin = receiverWorldPosition +
-        normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
-    float exactVisibility = ddgiVoxelSegmentVisibility(
-        visibilityOrigin, contribution.actual_position, query.geometry_revision);
-    contribution.moment_visibility = max(
-        contribution.moment_visibility, exactVisibility);
-}
-
 DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
-    float3 worldPosition, float3 surfaceNormal,
-    bool resolveTerrainVisibility = false)
+    float3 worldPosition, float3 surfaceNormal)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
@@ -1045,9 +1025,6 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
                     getDdgiMomentProbeContribution(
                         query, worldPosition, normal, uint3(x, y, z),
                         irradianceAtlas);
-                if (resolveTerrainVisibility)
-                    resolveTerrainProbeVisibility(query, worldPosition, normal,
-                                                  contribution);
                 accumulateDdgiContribution(
                     result, contribution,
                     ddgiQueryVisibilityWeight(
@@ -1064,7 +1041,7 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
 DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
     float3 receiverWorldPosition, float3 positionWeightWorldPosition,
-    float3 surfaceNormal)
+    float3 surfaceNormal, bool useMoments)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
@@ -1077,8 +1054,60 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
         return result;
     }
 
+    // A probe stores directional irradiance, not a point light. The smooth
+    // shading normal must not reject a probe that current voxel geometry proves
+    // reachable (e.g. across an exposed stair-step face on a thin branch).
+    // Exact visibility is certain support, so normalize these samples by their
+    // visible weights instead of attenuating them as uncertain distance moments.
+    // The experimental moment toggle keeps that normalization only for comparison;
+    // it does not make statistical visibility certain.
+    DdgiQueryResult visibleResult = makeEmptyDdgiQueryResult();
+    float3 visibilityOrigin = receiverWorldPosition +
+        normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                // Session-only comparison of visibility estimators. Both modes
+                // retain the same spatial weights, normalization and fallback.
+                DdgiProbeContribution contribution;
+                if (useMoments)
+                    contribution = getDdgiMomentSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition, positionWeightWorldPosition,
+                        normal, uint3(x, y, z),
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP, irradianceAtlas);
+                else
+                    contribution = getDdgiUnoccludedSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition, positionWeightWorldPosition,
+                        normal, uint3(x, y, z),
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP, irradianceAtlas);
+                if (!contribution.trustworthy) continue;
+                float visibility;
+                if (useMoments)
+                    visibility = contribution.moment_visibility;
+                else
+                    visibility = ddgiVoxelSegmentVisibility(
+                        visibilityOrigin, contribution.actual_position,
+                        query.geometry_revision);
+                accumulateDdgiContribution(visibleResult, contribution, visibility);
+            }
+        }
+    }
+    if (visibleResult.accumulated_weight > DDGI_QUERY_WEIGHT_EPSILON)
+    {
+        finalizeDdgiQueryResult(visibleResult);
+        return visibleResult;
+    }
+
+    // No exact support: retain the established conservative moment query,
+    // including its canonical zero gate. Never substitute unoccluded sky.
     DdgiQueryResult canonicalResult = sampleDdgiDiffuseEnvironmentFromAtlas(
-        query, irradianceAtlas, receiverWorldPosition, normal, true);
+        query, irradianceAtlas, receiverWorldPosition, normal);
     if (all(canonicalResult.irradiance <=
             float3(DDGI_QUERY_WEIGHT_EPSILON)))
         return canonicalResult;
@@ -1098,8 +1127,6 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
                         positionWeightWorldPosition, normal,
                         uint3(x, y, z), DDGI_SPATIAL_WEIGHT_NOMINAL_HARD,
                         irradianceAtlas);
-                resolveTerrainProbeVisibility(query, receiverWorldPosition, normal,
-                                              contribution);
                 accumulateDdgiContribution(
                     result, contribution,
                     ddgiQueryVisibilityWeight(
@@ -1129,7 +1156,7 @@ public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(
     return sampleDdgiTerrainSmoothEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
         receiverWorldPosition, positionWeightWorldPosition,
-        surfaceNormal);
+        surfaceNormal, lighting.ddgi_terrain_moments != 0u);
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(

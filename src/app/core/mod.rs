@@ -1234,6 +1234,7 @@ impl App {
                 environment_irradiance_capture_target: lighting.capture_target,
                 ddgi_batch_order: lighting.batch_order,
                 ddgi_terrain_hard_origin: lighting.terrain_hard_origin,
+                ddgi_terrain_moments: lighting.terrain_moments,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
                     environment_lighting_test,
                     Some(
@@ -2732,6 +2733,13 @@ impl App {
                                                     .size(16.0)
                                                     .color(GOLD_ACCENT),
                                             );
+                                            let mut terrain_moments = self.tracer.ddgi_terrain_moments();
+                                            if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
+                                                .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")
+                                                .changed()
+                                            {
+                                                self.tracer.set_ddgi_terrain_moments(terrain_moments);
+                                            }
                                             egui::ComboBox::from_label("Spacing (voxels)")
                                                 .selected_text(
                                                     self.environment_probe_spacing_draft.to_string(),

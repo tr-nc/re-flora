@@ -76,3 +76,16 @@ yaw_deg = -23.0
 pitch_deg = -2.0
 fov_deg = 76.0
 fly_mode = true
+
+[[snapshots]]
+name = "blacky"
+description = ""
+position = [
+    0.816733,
+    0.6137017,
+    0.8741581,
+]
+yaw_deg = 101.928986
+pitch_deg = 12.935698
+fov_deg = 60.0
+fly_mode = true

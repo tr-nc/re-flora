@@ -1,156 +1,180 @@
-# 树枝纯黑体素：复现、根因与修复
+# 树枝近黑体素：Blacky 复现与修复
 
-基线：`29cbeff9cda43582ec1d091fc63f6ed7f94ab3be`；独占分支：
-`agent/tree-branch-lighting`。2026-09-07。
+分支 `agent/tree-branch-lighting`，基线 `29cbeff9`。更新于 2026-09-10。
 
-## 结论
+## 当前结论
 
-固定启动树上已确认的错误黑体素来自 DDGI 距离矩的遮挡误判。树枝附近多个
-不同距离的表面落入同一方向纹素；实际畅通的 probe 线段被距离矩估计衰减到
-极小概率，再被贡献权重阈值清零。它们背向太阳，失去环境光后呈纯黑。
+用户在 `blacky` 镜头否决了第一次视觉验收。`191c8f9f` 只恢复了原启动镜头中
+数学上完全为零的三个体素，不能覆盖 Blacky 中非零但接近黑色的树干斑块。
+当前实现替代该次修复，不能沿用其“问题已解决”或性能结论。
 
-修复在地形接收端用当前体素几何验证受到距离矩衰减的 probe 线段。只有精确
-线段畅通才恢复该 probe 的贡献；否则保留原来的距离矩估计。probe 状态、空间
-范围、法线权重、几何 revision 检验以及原有的四分之一体素 visibility bias 均保留。
-没有增加环境光底值、调整材质/太阳/天空参数、扩大原点偏移或关闭阴影。
-Raster 消费者和光照传输仍采用各自原有查询。
+Blacky 的主要问题有两层：
 
-## 可运行复现
+1. 平滑着色法线的硬半球筛选提前剔除了有光、几何可见的探针。探针存储的是
+   按表面法线查询的方向辐照度，不是来自探针位置的点光源；平滑法线背侧并不
+   等同于它位于实体内部或不可用于插值。
+2. 原低置信度归一化会把孤立探针的贡献衰减至很暗。这适用于不确定的距离矩
+   估计，不能继续用来压暗已由当前体素几何证实可见的样本。
+
+当前地形接收端先检查同一插值单元的 8 个探针。保留 probe 状态、空间范围、
+几何 revision 和已有接收点约束，以平滑的 wrap 权重代替硬半球资格筛选；只有
+精确体素线段畅通的样本参与该次插值，并用它们的可见权重归一化。如果没有
+精确可见样本，则保留原保守距离矩查询及 canonical 零值规则。
+
+没有环境光底值、材质增亮、天空回退或关闭阴影；没有改变太阳/天空权威参数。
+wrap 项属于插值权重，不能在没有可见、有能量的探针时制造光照。Raster 消费者、
+probe 传输和原诊断 reference 路径保持不变。
+
+**偏移说明修正：** 旧报告把生产默认偏移写成“四分之一体素”有误。当前及先前
+保存的 GUI 配置均为 `0.00390625`（一个体素），函数消费配置值。本次保持原值，
+没有扩大偏移。`blacky/exact-segments.json` 是使用 quarter-voxel 假设的对照实验，
+实际配置的 CPU 交叉检查见 `configured-bias-exact-segments.json`。
+
+## 复现命令与场景
 
 ```bash
 CARGO_BUILD_JOBS=2 cargo build --release
-python3 scripts/check_tree_branch_lighting.py --output target/summer-evidence/repro
+python3 scripts/check_tree_branch_lighting.py --scene blacky \
+  --output target/summer-evidence/blacky/repro
+python3 scripts/check_tree_branch_lighting.py --scene blacky --screenshot \
+  --output target/summer-evidence/blacky/image
+# 兼顾第一次报告的精确零值症状：
+python3 scripts/check_tree_branch_lighting.py --output target/summer-evidence/startup-repro
 ```
 
-脚本使用当前 worktree 的 release 程序，内部以
-`flock /tmp/re-flora-summer-gpu.lock` 保护实际运行，临时添加固定镜头并恢复配置。
-它同时保存第一份已发布 DDGI 场的真实截图、浮点捕获、命令与原始 GUI 配置，
-通过本 worktree 的 `--latest-log` / `--tail-latest-log` 保存日志。`--binary` 可选取
-独立保存的 release 对照程序。`--screenshot` 单独保存运行 3 秒后的实际画面。
+脚本从当前 worktree 运行 release app，内部使用 GPU flock、hidden、mute，保存并
+逐字节恢复 GUI/相机配置。Blacky 使用用户镜头数值的独立临时 preset，不覆盖
+用户保存的 `blacky`：位置 `(0.816733, 0.6137017, 0.8741581)`，yaw `101.928986°`，
+pitch `12.935698°`，FOV `60°`，fly mode。树 seed `122`、size `20`、age `1`，
+时间 `0.47`、自动昼夜关闭，使用保存的原 GUI 参数。
 
-本次场景前提是基线 GUI 配置：树 seed `122`、size `20`、树龄 `1.0`、
-时间 `0.47`、自动昼夜关闭。镜头 `(1.0, 0.64, 1.55)`，yaw/pitch `0/0`，
-FOV `55°`，窗口 `1600×900`，tracer `800×450`。暂时隐藏叶片、粒子和云以暴露
-树枝；没有禁用地形阴影。光照判定取生产浮点输出，不使用显示 RGB 的亮度阈值。
+2026-09-09 的物理输出为 `1920×1080`，tracer `960×540`（与 09-07 的显示缩放不同）。
+浮点回归采集首份已发布的 DDGI 场；截图是独立运行 3 秒后的真实稳定画面。
+两者不能冒充同一物理帧。最初 `screenshot-delay=0` 的截图早于稳定光照，不能
+作为 Blacky 视觉验收依据，回归脚本现已取消这类自动截图。
 
-| 运行 | 树木采样 | 完全无能量且太阳线段畅通的采样 | 体素坐标 |
-| --- | ---: | ---: | --- |
-| 原查询，两次重复 | 34,429 | 103 | `(257,174,317)`、`(257,176,315)`、`(257,177,316)` |
-| 修复后 | 34,429 | 0 | 无 |
+`--scene blacky` 跟踪用户画面中 10 个实际近黑斑块，不再只找精确零值。固定场景
+用邻近正常树干体素 `(264,169,231)` 作对照，若任一指定斑块的环境光 RGB 和中位数
+不足对照的 25%，则判红；缺样本、暗对照或非有限数据判 INVALID。这个阈值只约束
+此固定场景，不是“所有阴影必须亮”的通用规则，也不进入生产 shader。
 
-原查询的 107 个 combined-zero 采样中，103 个满足上述无遮挡筛选。这里不把
-太阳线段畅通等同于必须有直射光：三个表面法线背向太阳，直射光为零是正确的。
+第一轮仅放宽半球筛选的诊断实验把主斑块比值提高至 5.84%，但真实截图仍有黑块，
+因此未采用；同步收紧了原来不足以代表视觉改善的 5% 回归界限。
 
-## 排除与定点证据
+## 定点根因证据
 
-1. 真实截图先复现了枝条上的黑块，随后建立能返回 `RED` 的 app 命令，
-   复现入口提交为 `0afacfe9`。
-2. GPU 临时读回的三个法线分别约为 `(-.752,.373,.543)`、
-   `(-.831,.532,.161)`、`(-.600,.479,.641)`；与真实地形快照的 5³ 邻域
-   计算一致，仅有正常的 Oct16 量化差异。材质均为 `5`，albedo 为
-   `(.590619,.434154,.107023)`。排除了零法线、黑材质和命中身份错误。
-3. 唯一有有效正面几何权重的 probe `3000` 位于
-   `(.998046875,.748046875,1.248046875)`。它的 RGB 辐照度之和约为
-   `2.23–2.33`，但距离矩可见度为 `1.08e-12`、`1.28e-8`、`2.54e-11`。
-4. 对保存的真实地形字节进行精确 voxel-AABB 线段检查：从原有 quarter-voxel
-   bias 接收点到 probe 的三个线段均没有遮挡。实际 GPU 精确线段对照同样恢复
-   了这三个体素。
-5. 完全替换为硬可见性的诊断实验产生了其它黑块，未采用。最终方案保留原有
-   软可见性，只用精确畅通证据纠正错误衰减。
+主斑块体素 `(265,169,230)`，GPU 法线约 `(-.757,.106,-.645)`；与真实保存体素
+邻域计算一致，仅有正常 Oct16 量化差异。木材 albedo 为
+`(.590619,.434154,.107023)`，材质及法线均非异常零值。
 
-临时 shader 捕获改写已经全部移除。原始诊断捕获在 `target/summer-evidence/`
-下保留，并与正常辐照度捕获分开命名；`probe-normal` / `probe-cage` 是诊断数据，
-不能作为最终画面或正常光照验收输入。
+| Probe | 环境光 RGB 和 | 原半球判定 | 当前配置精确线段 |
+| --- | ---: | --- | --- |
+| 2405 | 1.759727 | 拒绝，alignment = -0.35478 | 畅通，CPU/GPU 一致 |
+| 2116 | 1.772503 | 接受 | 被树枝遮挡，CPU/GPU 一致 |
+| 2133 | 1.671560 | 接受 | 被树枝遮挡，CPU/GPU 一致 |
+
+2405 位于 `(.998046875,.623046875,.998046875)`。旧修复对不可信 contribution
+提前返回，根本到不了这颗 probe 的可见性恢复。保留的正面 probe 距离矩可见度仅
+`2.45e-5` 和 `0.01044`，再经低置信度归一化，导致目标几乎无光。
+
+GPU 逐 probe 读回在 `blacky/diagnostic-probes/probes.json`；CPU 使用实际游戏保存的
+`target/summer-evidence/tree.rflterrain`，其树编译统计、边界与本次一致。法线读回
+在 `blacky/diagnostic-normal/`。这些 RFIRR 平面被诊断性改写，**不是正常辐照度验收**。
+所有 `[BLACKY_DIAG]` shader 插桩已移除。
+
+## 结果与边界
+
+| 实际生产路径 | 修改前 | 当前候选 |
+| --- | ---: | ---: |
+| Blacky 指定近黑斑块 | 10 / 10 判红 | 0 / 10 判红 |
+| 主斑块 RGB 和中位数（65 样本） | 0.004667 | 1.759727 |
+| 邻近正常体素（80 样本） | 1.602070 | 1.597947 |
+| 主斑块 / 邻近体素 | 0.002913 | 1.101243 |
+| 原启动镜头精确零值回归 | 旧基线曾有 103 样本 | 当前 0（49,625 个树区域采样） |
+
+额外检查中央区域原来很暗的 15 个体素，14 个恢复到有明确光照的范围；
+`(256,163,239)` 没有精确可见探针，仍保持原来的 0.005748，没有强行补光。
+`central-patch-comparison.json` 保存逐体素前后值。真实画面仍保留叶片投影、
+背光面和局部暗缝。用户对当前候选的再次视觉验收仍需单独记录。
 
 ## 验证
 
-- `CARGO_BUILD_JOBS=2 cargo fmt --check`、`cargo check`：通过。
+- `CARGO_BUILD_JOBS=2 cargo fmt --check`、`cargo check`：通过，生成文件无 diff。
 - `python3 scripts/run_slang_tests.py`：8/8 通过。
 - `python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture`：63/63 通过。
 - `CARGO_BUILD_JOBS=2 cargo test`：915 passed、1 failed、1 ignored。唯一失败为已有
-  PATT 相机 fixture 假设：测试要求一个名为 `snapshot` 的镜头，基线配置实际有
-  四个不同镜头；失败是 `left: 4, right: 1`，相关 Rust/相机配置均未改动。
-- `CARGO_BUILD_JOBS=2 cargo test -- --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`：
-  915 passed、0 failed、1 ignored、1 filtered out。
-- 同镜头生产回归 `recovery` / `recovery-paired`：GREEN，无非有限数。
-- `recovery-sealed`：360,000 个接收采样的环境辐照度全部精确为零，
-  `--require-zero-rgb --require-nonnegative-rgb` 通过。
-- `recovery-walls`：生产薄墙场景捕获有效、非负且无非有限数；尚不把这次基础
-  检查宣称为整个 DDGI correctness suite 的通过证据。
-- `flock /tmp/re-flora-summer-gpu.lock env CARGO_BUILD_JOBS=2 cargo run --release -- --hidden --mute --auto-exit 0.5`：
-  通过；本 worktree 的 `--latest-log` / `--tail-latest-log` 确认
-  `phase=complete failures=0`、`Application exited successfully`，无 ERROR、panic、
-  Vulkan VUID 或 device-lost。日志见 `target/summer-evidence/hidden-smoke*`。
+  `app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`，
+  其断言仅有一个 `snapshot`，用户配置现在有 5 个镜头（包含 blacky），`left:5/right:1`。
+  不修改或丢弃用户镜头来规避这个既有 fixture 假设。
+- `CARGO_BUILD_JOBS=2 cargo test -- --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`：915 passed、0 failed、1 ignored、1 filtered out。
+- `flock --close /tmp/re-flora-summer-gpu.lock env CARGO_BUILD_JOBS=2 cargo run --release -- --hidden --mute --auto-exit 0.5`：通过；`--latest-log` / `--tail-latest-log 200` 确认 shutdown failures=0、正常退出，无 ERROR/panic/VUID/device-lost。
+- `sealed`、`portal`、`walls` 的生产 published 捕获均通过非负/有限检查；sealed 的
+  518,400 个环境光采样全部精确为零，portal 的 p99 亮度高于 0.1。命令和分析结果
+  分别在 `blacky/guard-{sealed,portal,walls}/`。这是基础遮挡回归，不等同于完整
+  DDGI 多密度、多 epoch correctness/reference 矩阵通过。
 
-## Release 运行成本对照
+所有 app/GPU 运行都使用 `/tmp/re-flora-summer-gpu.lock` 串行保护。背景验证均 hidden，
+没有再次打开可见游戏。`cargo` 统一 `CARGO_BUILD_JOBS=2`，target 仅用当前 worktree。
+标准 smoke 使用 `flock --close` 避免 cargo 启动的 sccache 服务继承 GPU 锁。
 
-按控制器追加要求，仅量化当前修复成本，没有扩展优化或设立新的放行阈值。
-原查询和候选分别独立 release 构建，保存为
-`target/summer-evidence/bin/re-flora-{reference,candidate}`。原查询采用基线 shader
-和能力日志，候选采用 `191c8f9f`；当前默认 `target/release/re-flora` 已恢复为候选，
-SHA-256 与保存的候选一致。构建均使用 `CARGO_BUILD_JOBS=2` 和本 worktree 的默认 target。
+## 实际证据路径
 
-两者依次运行同一固定树、镜头、GUI 字节、分辨率及参数：RTX 3060 Ti，物理输出
-`1600×900`、tracer `800×450`，自动选择 MAILBOX。树编译几何统计、太阳方向/颜色/
-亮度、首次 DDGI 发布 revision 均一致。GUI SHA-256 为
-`0e592f7c770b8f754ced628dfb7310a3310e8ea5a2c5f053bb28f7d3dfc62217`。
-测量使用上述暴露枝条的场景，不代表所有叶片与特效开启的完整场景成本。
+以下均相对当前 worktree，未提交的大体积运行证据保留在 target：
+
+- `target/summer-evidence/blacky/before-image/final.png`：旧修复在 Blacky 的稳定黑块截图。
+- `target/summer-evidence/blacky/exact-supported-image-full/final.png`：新候选，同镜头、完整叶片和特效。
+- `target/summer-evidence/blacky/final-repro-{red,green}/`：同一回归入口的实际生产浮点捕获与日志。
+- `target/summer-evidence/blacky/final-startup-green/`：原启动镜头回归。
+- `target/summer-evidence/blacky/{final-fmt,final-check,cargo-test,cargo-test-filtered,slang-tests,capture-tests,hidden-smoke}.log`。
+- `target/summer-evidence/blacky/hidden-smoke-{latest.txt,tail.log}`：当前 worktree 的日志助手输出。
+
+## 运行成本与交接
+
+当前算法每个接收点只执行一轮最多 8 个 probe 的精确验证，替代了先前 canonical /
+平滑两轮验证；没有增加缓存、异步模块或改变 probe 密度。
+
+对照分别使用保存的最初查询 release 程序（`29cbeff9`）、旧修复（`191c8f9f`）和
+本次实现（`40e906a6`）。三者均使用同一 Blacky 镜头、原 GUI 字节、树、太阳参数，
+RTX 3060 Ti、物理 `1920×1080`、tracer `960×540`、自动 MAILBOX。
 
 ```bash
-# binary 分别取当前 worktree 中保存的 reference / candidate release 程序；
-# 临时镜头与 GUI 的保存/恢复由 target/summer-evidence/benchmark.py 完成。
+# binary 分别是保存的 original / previous / candidate release 程序。
 flock /tmp/re-flora-summer-gpu.lock "$binary" \
-  --hidden --mute --windowed --perf \
-  --camera-snapshot tree-branch-regression \
+  --hidden --mute --windowed --perf --camera-snapshot blacky \
   --no-flora --no-particles --no-clouds --no-god-rays --no-lens-flare \
   --auto-exit 55
 ```
 
-每个程序运行 55 秒，取共同预热后 frame `3300..6900`（含两端），每 30 帧的
-原生 profiler 日志取一个样本，每项均为 **121 个 GPU / 121 个 app 样本**。
-所有预期帧齐全，GPU scopes `dropped=0`。两个完整运行分别记录了 533 / 399 个
-GPU 帧样本，最后记录帧号为 16020 / 12000；下表仅比较共同窗口。
-每 0.5 秒检查一次 `rustc`，两次运行观察到的最大编译进程数均为 0。
-启动耗时和截图 FPS 均未进入统计。
+为隔离地形查询成本，此性能场景隐藏叶片及上述特效；完整视觉截图仍保留它们。
+每个程序运行 55 秒，最终统一使用 frame `3300..6300`，每 30 帧一个样本，
+**每项每组均为 101 个样本**。这一区间没有 `ddgi.probe_trace` 更新，所有预期帧
+齐全，计时 scopes `dropped=0`；每 0.5 秒检查 rustc，观察到的编译进程最大值为 0。
+早先的 `1200..4200` 窗口包含初始化更新，因此从已有完整日志重新分析更晚的
+共同窗口；没有使用启动耗时或截图 FPS。
 
-| 原生计时项 | 原查询中位数 (ms) | 候选中位数 (ms) | 增量 (ms) | 变化 | 样本数（原/候选） |
+| 原生计时项中位数 (ms) | 最初查询 | 旧修复 | 本次实现 | 本次相对最初 | 本次相对旧修复 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| GPU 总帧 `frame.render` | 1.447 | 2.448 | +1.001 | +69.2% | 121 / 121 |
-| GPU 地形主 pass `tracer.pass` | 0.425 | 1.443 | +1.018 | +239.5% | 121 / 121 |
-| GPU tracer 合计 `tracer.render` | 0.547 | 1.564 | +1.017 | +185.9% | 121 / 121 |
-| GPU 阴影预处理 `tracer.shadow_prepass` | 0.531 | 0.497 | -0.034 | -6.4% | 121 / 121 |
-| App 帧耗时 `frame.cpu_total` | 3.333 | 4.434 | +1.101 | +33.0% | 121 / 121 |
+| GPU 总帧 `frame.render` | 1.803 | 3.438 | 3.087 | +71.2% | -10.2% |
+| GPU 地形主 pass `tracer.pass` | 0.708 | 2.339 | 2.000 | +182.5% | -14.5% |
+| GPU tracer 合计 `tracer.render` | 0.866 | 2.502 | 2.159 | +149.3% | -13.7% |
+| App 帧耗时 `frame.cpu_total` | 3.905 | 5.856 | 5.405 | +38.4% | -7.7% |
 
-GPU pass 是嵌套 scope，不能相加；app 帧耗时是主线程该帧的实际 elapsed time，
-包括 swapchain acquire/present 等等待，不是纯 CPU 算术成本。主要新增 GPU 时间
-落在消费修复查询的 `tracer.pass`。此场景成本明显，不能据此宣称性能验收通过；
-这是一组顺序对照，没有跨运行方差/置信区间，也没有推广到其它 GPU、分辨率或
-probe 密度。视觉候选与测量结果一并交付。
+GPU scope 有嵌套，不能相加；app 帧耗时包含 acquire/present 等等待，不是纯 CPU
+运算时间。当前相对最初查询仍有明显成本，**不宣称性能验收通过**。这是一组
+顺序运行的场景测量，存在帧尖峰，未测跨运行方差、跨 GPU 或完整特效负载。
+按本任务范围记录成本，没有继续扩展优化或引入新的放行阈值。
 
-原始日志、每项中位数/样本数、二进制 hash、命令、场景标记和一致性检查保存在
-`target/summer-evidence/cost/{reference,candidate}.{log,json}`、`comparison.json`、
-`validation.json`。每次运行另存同 worktree 的 `*-latest-log.txt` / `*-tail.log`；
-两次均正常退出、shutdown failures=0，无 ERROR/panic/VUID/device-lost。
+可复查入口为 `target/summer-evidence/blacky/benchmark.py` 和 `reanalyze-cost.py`。
+原始日志、二进制 SHA-256、配置 hash、场景标记和每个 scope 的样本数/中位数/
+最小最大值保存在 `blacky/cost/{original,previous,candidate}.{log,json}` 及
+`blacky/cost/comparison.json`；每次运行都另存同 worktree 的 latest/tail 日志。
+三次退出成功、shutdown failures=0，无 ERROR/panic/VUID/device-lost。
 
-## 真实证据位置
+09-07 的 1.447 → 2.448 ms 属于旧镜头、旧分辨率和旧修复，不能直接与本表相减。
 
-以下路径均相对当前 worktree：
+生产改动限于 `shader/slang/ddgi_query.slang` 和共享文件 `src/tracer/mod.rs` 的一条
+能力日志，另更新回归脚本及本报告。没有修改 `src/gui_adjustables.rs`、环境光权威
+结构或生成文件。用户新增 `blacky` 的相机配置改动保持原样、未混入实现提交。
 
-- `target/summer-evidence/close-bare-image/final.png`：修复前，3 秒近景。
-- `target/summer-evidence/recovery-image/final.png`：修复后，同场景同镜头，3 秒近景。
-- `target/summer-evidence/reference-paired/final.png` 和 `light.rfirr`：原查询第一份已发布场的成对捕获，RED 103。
-- `target/summer-evidence/recovery-paired/final.png` 和 `light.rfirr`：修复后的成对捕获。
-- `target/summer-evidence/repro-red{,-repeat}/result.json`：原查询重复判红结果。
-- `target/summer-evidence/probe-cage/probes.json`：逐 probe 的 GPU 诊断读回。
-- `target/summer-evidence/tree.rflterrain`：真实游戏保存的地形与树木快照。
-- `target/summer-evidence/{final-check,cargo-test,slang-tests,capture-tests}.log`：检查日志。
-
-## 范围与交接
-
-生产修改只有 `shader/slang/ddgi_query.slang` 和 `src/tracer/mod.rs` 的一条能力日志。
-`src/tracer/mod.rs` 是共享文件，集成时仅保留该条日志变化。没有修改
-`src/gui_adjustables.rs`、环境光权威结构、相机/GUI 默认配置；没有生成文件 diff。
-
-固定场景确认的错误黑体素已恢复，实际遮挡的暗处保留。尚未覆盖所有树 seed、
-镜头、probe 密度、可编辑场景以及其它 GPU。精确线段的额外 release 成本如上，
-不为本次视觉候选设新性能放行阈值，也不宣称性能验收通过。
+尚未覆盖所有树 seed、镜头、编辑操作、probe 密度、其它 GPU，以及完整 DDGI
+correctness suite。几何证据使用现有配置的偏移起点；本次没有重新设计偏移策略。
