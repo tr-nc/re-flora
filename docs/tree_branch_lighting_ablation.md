@@ -164,3 +164,37 @@ DDA 循环包含空块跳过和体素步进，迭代数不等于逐个体素读�
 未验证项：moments 候选完整遮挡正确性、其它 seed/镜头/probe 密度、编辑过程、
 其它 GPU；计数只有一个发布帧，性能只有两个顺序相反的轮次。未实现后续优化，
 未将候选变体认定为发布或性能验收通过。
+
+
+## 后续遮挡验证：已发布字段
+
+继续验证 moments 候选，未更改生产 shader。当前正式版本首先尝试
+`--environment-irradiance-capture-target converged --auto-exit 120` 的 sealed/32
+捕获：程序返回 0，但没有捕获文件，现有过程验证器报缺少 capture saved event。
+因此没有把它记为通过，也没有把下面的 published 测量冒充收敛矩阵。
+
+随后以原有 `ddgi_evidence.plan._correctness_body` 的场景、两种密度、精确参考及
+数值判据进行 published 对照。所有捕获实际为 e0 / converging / published，
+不是 converged；1440×810，同组 world/hit/metadata 通过参考兼容性检查。
+以下只是该阶段的诊断门槛结果，不等于完整 correctness suite。
+
+| 场景 / 间距 | current 参考误差 P99 | moments 参考误差 P99 | current | moments |
+| --- | ---: | ---: | --- | --- |
+| sealed / 32 | 0 | 1.0395384e-06 | PASS | FAIL |
+| sealed / 16 | 0 | 0 | PASS | PASS |
+| portal / 32 | 0.0072104897 | 0.021794469 | PASS | FAIL |
+| portal / 16 | 0.011872097 | 0.01500428 | FAIL | FAIL |
+| walls / 32 | 0.39802872 | 0.39186829 | PASS | PASS |
+| walls / 16 | 0.36226754 | 0.35986843 | PASS | PASS |
+
+sealed/32 的候选失败来自最大亮度 1.0511453e-5，略超过原有 1e-5 上限；
+current 两种密度均精确为零。这个量级不能描述成肉眼明显漏光。
+portal 的原有误差 P99 上限是 0.01；current 在 spacing16 也超限，不能只报告
+候选的问题。墙体场景包含 1 体素墙、2 体素墙及阶梯薄墙，两者均通过该阶段
+原有阈值；并不表示误差为零。下一步对原版基线与误差位置进行核查。
+
+完整命令、浮点数据、分析器失败原因、latest/tail 日志位于
+`target/summer-evidence/blacky/verification/{scene}-{spacing}-{label}/`。
+运行脚本为同目录 `run-published.py`；原收敛失败保存在
+`converged-sealed-32-current/`。所有 app hidden/mute、flock 串行，GUI 与用户
+快照恢复原字节。生产 shader 和 generated 文件没有修改。
