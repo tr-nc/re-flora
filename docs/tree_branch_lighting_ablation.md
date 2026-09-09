@@ -323,3 +323,8 @@ CLI `--ddgi-terrain-exact` 提供明确的精确模式覆盖；`--ddgi-terrain-m
 证据位于 `target/summer-evidence/blacky/cheap-default/{default,exact}/`，
 含实际命令、捕获、结果、latest/tail 日志；相邻 `cheap-default-{fmt,check,test,build}.log`
 记录构建验证。GUI 已恢复，用户相机快照预存改动保留未提交。
+
+默认切换提交 `74eb5986`。随后标准 release hidden/mute/auto-exit0.5 smoke 通过，
+启动日志确认默认 `terrain_consumers=experimental-moments`（保留原诊断日志标识），
+shutdown failures=0，latest/tail200 无 ERROR/panic/VUID/device-lost；见
+`cheap-default/{smoke,tail}.log`、`cheap-default/latest.txt`。本轮未自动打开可见游戏。
