@@ -384,6 +384,7 @@ pub struct EnvironmentLightingPlan {
     pub batch_order: DdgiBatchOrder,
     pub debug_view: DdgiDebugView,
     pub terrain_hard_origin: DdgiTerrainHardOrigin,
+    pub terrain_moments: bool,
     pub probe_spacing_voxels: u32,
     pub rebuild_probe_spacing_voxels: Option<u32>,
     pub visualize_probes: bool,
@@ -1074,6 +1075,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                 batch_order: ddgi_batch_order,
                 debug_view: ddgi_debug_view,
                 terrain_hard_origin: ddgi_terrain_hard_origin,
+                terrain_moments: args.iter().any(|a| a == "--ddgi-terrain-moments"),
                 probe_spacing_voxels: environment_probe_spacing_voxels,
                 rebuild_probe_spacing_voxels: environment_probe_rebuild_spacing_voxels,
                 visualize_probes: args
@@ -1491,6 +1493,8 @@ Options:
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight/support, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
+  --ddgi-terrain-moments
+      Start with experimental cheaper terrain lighting (also switchable in the R panel).
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
                               for terrain receiver experiments (default: {})
@@ -2075,6 +2079,17 @@ mod tests {
             };
             assert_eq!(options.world.lighting.debug_view, expected);
         }
+    }
+
+    #[test]
+    fn terrain_moment_comparison_is_explicit_opt_in() {
+        assert!(!parse(&["re-flora"]).world.lighting.terrain_moments);
+        assert!(
+            parse(&["re-flora", "--ddgi-terrain-moments"])
+                .world
+                .lighting
+                .terrain_moments
+        );
     }
 
     #[test]

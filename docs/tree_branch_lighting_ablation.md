@@ -266,3 +266,31 @@ payload SHA-256 分别完全一致，分析器返回同一失败。可运行的�
 仅修改本报告；生产源码、默认 release 二进制 SHA-256、generated 文件均未改变。
 GUI 已恢复，用户预存的 camera snapshots 改动保留且未提交。所有 app 均 hidden、
 mute、flock 串行，没有打开可见游戏。完整收敛状态、编辑过程、其它 GPU 仍未验证。
+
+## GUI 对比开关（用户授权体验）
+
+现在提供同一个程序内的即时切换：R 配置面板底部的 **Environment Probes**
+区，`Cheap terrain lighting (experimental)` 复选框。
+关闭使用当前精确验证；打开使用此前 moments 候选的同一权重与归一化算法。
+默认关闭，仅在本次进程有效，不写 GUI 参数、不修改环境光权威事实，也不重建
+probe 场。勾选时显示尚未通过遮挡验证的候选说明。
+`--ddgi-terrain-moments` 可令同一个开关以勾选状态启动，用于自动验证和此次体验。
+
+运行路径：UI 调用 Tracer 的会话模式 setter，下一帧写入 ShadingInfo 的
+`ddgi_terrain_moments`，仅地形消费查询选择 visibility estimator。probe transport、
+栅格查询、光源与已有 fallback 保持原路径。启动和切换都有 `[DDGI]` 模式日志。
+
+验证：fmt/check 通过；cargo test 跳过同一已知相机 fixture 后 916 passed、
+0 failed、1 ignored、1 filtered out。新增 CLI 测试确认普通启动必须默认关闭。
+同一 release 程序两种启动状态的 Blacky 实际捕获均为 GREEN，十处黑块均通过。
+主点环境光 RGB 和分别为 1.759727、1.604452，与此前两独立候选一致。
+证据在 `target/summer-evidence/blacky/gui-toggle/{exact,moments}/`，有实际命令、
+浮点数据、判据结果和 latest/tail；`moments.sh` 只是为旧回归 runner 传递新增旗标。
+GUI 鼠标切换由用户接下来手动体验；自动捕获验证的是两种模式的完整 GPU 路径。
+
+本次新增动态分支未重测 release 性能，不能直接套用旧独立程序的毫秒值。
+历史 `build_tree_lighting_ablation.py` 针对之前的固定源码接缝；新程序的两模式
+比较直接使用 CLI/GUI 开关，不再需要生成那两个临时 shader 变体。
+共享文件改动限于开关与必要传递；没有编辑 gui_adjustables.rs 或环境光权威结构。
+`src/auto-generated/gpu_structs.rs` 由 cargo check 更新一个模式字段及相应 padding，
+未手改 generated 文件。用户的 camera snapshots 预存改动未提交。

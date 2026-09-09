@@ -1041,7 +1041,7 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
 DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
     float3 receiverWorldPosition, float3 positionWeightWorldPosition,
-    float3 surfaceNormal)
+    float3 surfaceNormal, bool useMoments)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
@@ -1059,6 +1059,8 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
     // reachable (e.g. across an exposed stair-step face on a thin branch).
     // Exact visibility is certain support, so normalize these samples by their
     // visible weights instead of attenuating them as uncertain distance moments.
+    // The experimental moment toggle keeps that normalization only for comparison;
+    // it does not make statistical visibility certain.
     DdgiQueryResult visibleResult = makeEmptyDdgiQueryResult();
     float3 visibilityOrigin = receiverWorldPosition +
         normal * ddgiVisibilityBiasWorld(query.visibility_bias_world);
@@ -1071,15 +1073,27 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
             [unroll]
             for (uint x = 0u; x < 2u; ++x)
             {
-                DdgiProbeContribution contribution =
-                    getDdgiUnoccludedSpatialWeightProbeContributionAt(
-                        query, receiverWorldPosition,
-                        positionWeightWorldPosition, normal, uint3(x, y, z),
+                // Session-only comparison of visibility estimators. Both modes
+                // retain the same spatial weights, normalization and fallback.
+                DdgiProbeContribution contribution;
+                if (useMoments)
+                    contribution = getDdgiMomentSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition, positionWeightWorldPosition,
+                        normal, uint3(x, y, z),
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP, irradianceAtlas);
+                else
+                    contribution = getDdgiUnoccludedSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition, positionWeightWorldPosition,
+                        normal, uint3(x, y, z),
                         DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP, irradianceAtlas);
                 if (!contribution.trustworthy) continue;
-                float visibility = ddgiVoxelSegmentVisibility(
-                    visibilityOrigin, contribution.actual_position,
-                    query.geometry_revision);
+                float visibility;
+                if (useMoments)
+                    visibility = contribution.moment_visibility;
+                else
+                    visibility = ddgiVoxelSegmentVisibility(
+                        visibilityOrigin, contribution.actual_position,
+                        query.geometry_revision);
                 accumulateDdgiContribution(visibleResult, contribution, visibility);
             }
         }
@@ -1142,7 +1156,7 @@ public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(
     return sampleDdgiTerrainSmoothEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
         receiverWorldPosition, positionWeightWorldPosition,
-        surfaceNormal);
+        surfaceNormal, lighting.ddgi_terrain_moments != 0u);
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(
