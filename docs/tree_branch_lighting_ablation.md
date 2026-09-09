@@ -136,3 +136,31 @@ DDA 循环包含空块跳过和体素步进，迭代数不等于逐个体素读�
 若后续继续优化，优先验证便宜候选的遮挡正确性；如果某些情况仍需精确验证，
 再考虑复用相同接收点到 probe 的可见性。重复接收位置提供了调查方向，但
 连续插值权重并不相同，不能据此直接缓存整份最终光照。本轮未实现这些优化。
+
+## 验证与交接
+
+- `python3 scripts/build_tree_lighting_ablation.py`：current、precull、moments、stats、
+  restored 均执行 `CARGO_BUILD_JOBS=2 cargo check` 与 `cargo build --release` 成功。
+- `CARGO_BUILD_JOBS=2 cargo fmt --check`：通过。
+- `CARGO_BUILD_JOBS=2 cargo test -- --skip app::core::environment_lighting_test_scene::tests::patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`：
+  915 passed、0 failed、1 ignored、1 filtered out。跳过的是此前已确认的相机快照
+  fixture 基线失败；用户的五个快照没有为迁就测试被删改。
+  曾误用 `cargo test --lib`，该 package 没有 library target，命令拒绝执行；
+  随后改用上述实际测试目标通过，日志保留。
+- `flock --close /tmp/re-flora-summer-gpu.lock env CARGO_BUILD_JOBS=2 cargo run --release -- --hidden --mute --auto-exit 0.5`：
+  正式恢复版本 smoke 通过；实际脚本通过 subprocess env 设置同一环境变量。
+  同 worktree `--latest-log` / `--tail-latest-log 200` 检查成功退出、shutdown
+  failures=0，无 ERROR/panic/VUID/device-lost，见 `ablation/hidden-smoke*.log`。
+- Python 构建脚本及本轮 artifact runner 通过 `python3 -m py_compile`。
+- GUI 和 camera snapshots 与本轮实验开始时的 SHA-256 完全一致；仅用户预存的
+  `config/camera_snapshots.toml` 改动仍未提交。
+
+本轮改动文件只有 `scripts/build_tree_lighting_ablation.py` 和本报告。
+构建脚本提交 `5603c1c2`、诊断法线补全 `05a1cf9e`；性能记录 `c3436828`；
+视觉与计数记录 `937ae44a`。正式修复仍为 `40e906a6`，shader 与 Rust 没有
+留下消融代码；生成文件无最终变化，默认 release 的 SHA-256 与 current 一致。
+没有修改其它 worktree、全局配置或环境光权威结构，没有打开可见游戏。
+
+未验证项：moments 候选完整遮挡正确性、其它 seed/镜头/probe 密度、编辑过程、
+其它 GPU；计数只有一个发布帧，性能只有两个顺序相反的轮次。未实现后续优化，
+未将候选变体认定为发布或性能验收通过。
