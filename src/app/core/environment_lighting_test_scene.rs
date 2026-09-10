@@ -6566,16 +6566,10 @@ mod tests {
     }
 
     #[test]
-    fn patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof() {
-        let snapshots = crate::app::camera_snapshots::CameraSnapshotLibrary::load(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/camera_snapshots.toml"),
-        )
-        .unwrap();
-        assert_eq!(snapshots.snapshots().len(), 1);
-        let snapshot = snapshots
-            .find("snapshot")
-            .expect("saved snapshot must exist");
-        let camera_position = Vec3::from_array(snapshot.position);
+    fn patt_seam_replay_only_punches_the_roof_from_fixed_viewpoint() {
+        // Preserve the replay viewpoint from 1fc89d75. Personal camera presets
+        // are mutable and do not belong to this procedural geometry fixture.
+        let camera_position = Vec3::new(0.64095235, 0.52771884, 1.0284802);
         assert_eq!(
             PATT_SEAM_DIG_CENTERS,
             [
