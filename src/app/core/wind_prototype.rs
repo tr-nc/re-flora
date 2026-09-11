@@ -56,8 +56,12 @@ pub(super) struct WindPrototype {
 
 impl WindPrototype {
     pub fn new() -> Self {
+        let mut field = WindField::default();
+        if std::env::var_os("RE_FLORA_WIND_AB_SMOKE").is_some() {
+            field.set_natural_background(true);
+        }
         Self {
-            field: WindField::default(),
+            field,
             speed_multiplier: 1.,
             drag: None,
             status: "Drag on terrain, release to send a gust.".into(),
@@ -90,21 +94,54 @@ impl WindPrototype {
     pub fn controls(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("Background Wind", |ui| {
             ui.label("Temporary controls — never saved to GUI config");
+            let mut natural = self.field.natural_background();
+            if ui
+                .checkbox(&mut natural, "B: Natural wind (A/B experiment)")
+                .changed()
+            {
+                self.field.set_natural_background(natural);
+            }
+            ui.small(if natural {
+                "B — continuous breeze with occasional strengthening"
+            } else {
+                "A — original background wind"
+            });
+            ui.small("Switch changes incoming wind. Allow time for it to cross the garden.");
             ui.checkbox(&mut self.field.background_enabled, "Background inflow");
             ui.small("Boundary inflow and the Wind item share one transported field.");
             ui.add_enabled_ui(self.field.background_enabled, |ui| {
-                ui.add(
-                    egui::Slider::new(&mut self.field.strength, 0. ..=5.)
-                        .text("Mean wind strength"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.field.wander_degrees, 0. ..=90.)
-                        .text("Direction wander"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.field.wander_period, 4. ..=60.)
-                        .text("Wander period (s)"),
-                );
+                if natural {
+                    let settings = &mut self.field.natural_inflow;
+                    ui.add(
+                        egui::Slider::new(&mut settings.strength, 0. ..=3.)
+                            .text("B: Breeze strength"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut settings.variation, 0. ..=0.55)
+                            .text("B: Small variations"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut settings.surge, 0. ..=0.9)
+                            .text("B: Occasional strengthening"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut settings.range_voxels, 48. ..=216.)
+                            .text("B: Variation range (voxels)"),
+                    );
+                } else {
+                    ui.add(
+                        egui::Slider::new(&mut self.field.strength, 0. ..=5.)
+                            .text("Mean wind strength"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.wander_degrees, 0. ..=90.)
+                            .text("Direction wander"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.wander_period, 4. ..=60.)
+                            .text("Wander period (s)"),
+                    );
+                }
             });
             ui.separator();
             ui.collapsing("Local detail / transport", |ui| {
@@ -112,18 +149,20 @@ impl WindPrototype {
                     egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.)
                         .text("Transport speed"),
                 );
-                ui.add(
-                    egui::Slider::new(&mut self.field.detail_strength, 0. ..=2.)
-                        .text("Local disturbance"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.field.detail_scale, 10. ..=180.)
-                        .text("Pattern size (voxels)"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.field.evolution_rate, 0. ..=2.)
-                        .text("Pattern evolution"),
-                );
+                ui.add_enabled_ui(!natural, |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut self.field.detail_strength, 0. ..=2.)
+                            .text("Local disturbance"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.detail_scale, 10. ..=180.)
+                            .text("Pattern size (voxels)"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut self.field.evolution_rate, 0. ..=2.)
+                            .text("Pattern evolution"),
+                    );
+                });
             });
             ui.label(format!(
                 "Wind time {:.1}s | Active gusts {}/{}",

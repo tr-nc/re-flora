@@ -2,6 +2,8 @@
 //! No window, terrain editor, serialization, or vegetation-response dependencies.
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec2, Vec3};
+mod natural_inflow;
+pub use natural_inflow::NaturalInflow;
 mod transport;
 use transport::{Transport, CELLS, SIDE};
 
@@ -104,6 +106,8 @@ impl Gust {
 
 pub struct WindField {
     pub background_enabled: bool,
+    natural_background: bool,
+    pub natural_inflow: NaturalInflow,
     pub heading_degrees: f32,
     pub strength: f32,
     pub propagation_speed: f32,
@@ -124,6 +128,8 @@ impl Default for WindField {
     fn default() -> Self {
         Self {
             background_enabled: true,
+            natural_background: false,
+            natural_inflow: NaturalInflow::default(),
             heading_degrees: 220.,
             strength: 1.5,
             propagation_speed: 50.,
@@ -143,6 +149,19 @@ impl Default for WindField {
 }
 
 impl WindField {
+    pub fn natural_background(&self) -> bool {
+        self.natural_background
+    }
+    pub fn set_natural_background(&mut self, enabled: bool) {
+        if self.natural_background != enabled {
+            self.natural_background = enabled;
+            log::info!(
+                "[WIND_AB] variant={} time={} existing_field_retained=true",
+                if enabled { "B-natural" } else { "A-original" },
+                self.time
+            );
+        }
+    }
     pub fn time(&self) -> f32 {
         self.time
     }
@@ -204,6 +223,9 @@ impl WindField {
                 if !self.background_enabled {
                     return Vec2::ZERO;
                 }
+                if self.natural_background {
+                    return self.natural_inflow.sample(p, time, self.heading_degrees);
+                }
                 let phase = time * self.evolution_rate;
                 let q = p * (100. / self.detail_scale.max(1.)) + Vec2::splat(phase * 20.);
                 let n = noise.get_noise_2d(q.x, q.y);
@@ -264,6 +286,45 @@ impl WindField {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ab_switch_retains_field_time_and_manual_events() {
+        let mut field = WindField::default();
+        assert!(!field.natural_background());
+        field.advance(0.);
+        field.release(Vec3::ONE, Vec2::X);
+        field.advance(0.5);
+        let snapshot = field.frame();
+        for enabled in [true, false] {
+            field.set_natural_background(enabled);
+            assert_eq!(field.frame(), snapshot);
+            assert_eq!(field.time(), 0.5);
+            assert_eq!(field.gusts.len(), 1);
+        }
+    }
+
+    #[test]
+    fn natural_background_enters_the_shared_field_without_emitting_events() {
+        let mut a = WindField::default();
+        let mut b = WindField::default();
+        b.set_natural_background(true);
+        for i in 0..60 {
+            a.advance(i as f32 / 60.);
+            b.advance(i as f32 / 60.);
+        }
+        assert_ne!(a.frame(), b.frame());
+        assert!(b.gusts.is_empty());
+        assert!(b.frame().cells.iter().flatten().all(|v| v.is_finite()));
+        let mut calm = WindField::default();
+        calm.set_natural_background(true);
+        calm.background_enabled = false;
+        calm.advance(0.);
+        calm.advance(0.5);
+        assert!(calm.frame().cells.iter().flatten().all(|v| *v == 0.));
+        assert!(calm.release(Vec3::ONE, Vec2::X));
+        calm.advance(1.);
+        assert!(calm.frame().cells.iter().flatten().any(|v| *v != 0.));
+    }
+
     #[test]
     fn wind_requires_a_finite_nonzero_direction() {
         let mut field = WindField::default();

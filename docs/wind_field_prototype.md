@@ -21,14 +21,36 @@ background-wind or wind-item windows. Collapsing settings does not hide the
 world-space aiming/released-gust outlines or cancel a gesture. The global Main
 direction slider and compass have been removed.
 
-There is one background model. **Background inflow** enables its edge input;
-**Local disturbance** continuously controls crosswind detail (zero disables it).
+There is one transported field with an inlet A/B experiment. **Background inflow**
+enables its edge input. For A, **Local disturbance** continuously controls
+crosswind detail (zero disables it).
 The old Saved/Turning/Detailed selector, Gentle/Strong sources, source config,
 source buffers and CPU/GPU procedural sampler have been removed.
 Disabling background inflow stops new boundary input, not existing wind: the
 field still transports and decays, and the Wind item can still inject local wind.
-No automatic gusts, Hold, Clear, or Restart operations exist. Explicitly released
+No automatic gust event objects, Hold, Clear, or Restart operations exist. Explicitly released
 gusts expire naturally.
+
+### Inlet A/B experiment
+
+Under **Wind → Background Wind**, toggle **B: Natural wind (A/B experiment)**.
+Unchecked A is the original inlet and remains the startup default. B ports the
+HTML v4/v5 inlet recipe: continuous small variations with occasional smooth,
+spatially varying strengthening and direction changes. These are variations of
+one inlet, not independently spawned gust objects.
+
+B starts with strength `0.9`, small variations `0.32`, occasional strengthening
+`0.4`, and variation range `108` voxels. The mapping is 24 game voxels per HTML
+demo unit, an artistic starting point rather than a physical calibration.
+A and B keep their own inlet settings during the run. Transport speed is shared.
+Switching retains the grid, simulation time, manual gusts, and plant state;
+allow new inflow time to cross the garden before comparing. Settings are not saved.
+
+This experiment changes only the inlet. It keeps the game's Rusanov transport,
+drag, grid resolution, and vegetation response, rather than porting the HTML's
+kinematic carrier. The game may therefore smooth or attenuate the variations
+differently. The defaults still need visual comparison on actual plants; this
+is not a performance acceptance or a claim of physical airflow accuracy.
 
 Select the bottom **Wind** item or press **9**. Press on terrain to set the origin,
 drag to set direction and speed, and release once. In world units, the horizontal
@@ -109,6 +131,19 @@ emission, published CPU/GPU coordinate agreement, background-off manual input,
 and the disturbance slider's zero/nonzero behavior. The UI test checks that the
 retired mode/source controls are absent.
 
-For the Rust suite, skip only the pre-existing unrelated fixture
-`patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof`.
+For a hidden B startup and manual-gust lifecycle check:
+
+```sh
+RE_FLORA_WIND_AB_SMOKE=1 RE_FLORA_WIND_PROTOTYPE_SMOKE=1 \
+  cargo run --release -- --hidden --mute --auto-exit 6
+```
+
+The B override logs `[WIND_AB] variant=B-natural`; it does not exercise clicking
+the checkbox. Unit tests check state retention across A/B switches and continuous,
+nonuniform B inlet variation, plus the shared field and background-off behavior.
+The A/B implementation passed `cargo fmt --check`, `cargo check`, and
+`cargo test --bin re-flora` (929 passed, 1 ignored). Release hidden runs completed
+for default A (0.5 seconds) and B (6 seconds), with the B manual-gust smoke passing
+and no logged errors. Both runs reported the existing multiple-butterfly-atlas
+warning. These short runs are correctness checks, not performance measurements.
 Manual aiming/camera/appearance acceptance still requires a user try-out.
