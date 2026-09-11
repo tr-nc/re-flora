@@ -287,6 +287,54 @@ impl WindField {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "spatial wind diagnostic; run explicitly with --ignored --nocapture"]
+    fn natural_wind_spatial_contrast() {
+        let mut minimum = 1_f32;
+        for case in 0..4 {
+            let maximum = case != 0;
+            let mut field = WindField::default();
+            field.set_natural_background(true);
+            if maximum {
+                field.natural_inflow.strength = 3.;
+                field.natural_inflow.variation = 0.55;
+                field.natural_inflow.surge = 0.9;
+                field.natural_inflow.strengthening_range_voxels = 216.;
+                field.propagation_speed = 150.;
+            }
+            if case == 2 {
+                field.natural_inflow.strengthening_range_voxels = 48.;
+            }
+            if case == 3 {
+                field.propagation_speed = 50.;
+            }
+            let side = Vec2::from_angle(220_f32.to_radians()).perp();
+            let mut contrast = Vec::new();
+            for i in 0..=600 {
+                field.advance(i as f32 * 0.1);
+                if i >= 200 && i % 10 == 0 {
+                    let speeds: Vec<_> = (-2..=2)
+                        .map(|j| {
+                            field
+                                .sample(Vec2::splat(256.) + side * j as f32 * 32.)
+                                .length()
+                        })
+                        .collect();
+                    let lo = speeds.iter().copied().fold(f32::MAX, f32::min);
+                    let hi = speeds.iter().copied().fold(0_f32, f32::max);
+                    contrast.push((hi - lo) / hi.max(0.001));
+                }
+            }
+            contrast.sort_by(f32::total_cmp);
+            let median = contrast[contrast.len() / 2];
+            eprintln!("case={case} median crosswind contrast over 128 voxels={median:.4}");
+            minimum = minimum.min(median);
+        }
+        assert!(
+            minimum > 0.15,
+            "nearby patches should retain noticeable strength differences"
+        );
+    }
+    #[test]
     fn ab_switch_retains_field_time_and_manual_events() {
         let mut field = WindField::default();
         assert!(!field.natural_background());

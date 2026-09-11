@@ -125,8 +125,11 @@ impl WindPrototype {
                             .text("B: Occasional strengthening"),
                     );
                     ui.add(
-                        egui::Slider::new(&mut settings.range_voxels, 48. ..=216.)
-                            .text("B: Variation range (voxels)"),
+                        egui::Slider::new(&mut settings.strengthening_range_voxels, 48. ..=216.)
+                            .text("B: Strengthening area size (voxels)"),
+                    );
+                    ui.small(
+                        "Area size affects strengthening; small breeze variations stay local.",
                     );
                 } else {
                     ui.add(

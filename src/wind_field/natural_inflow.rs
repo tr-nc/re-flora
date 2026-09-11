@@ -1,4 +1,5 @@
-//! Experimental HTML v4/v5 inlet recipe. Outputs game wind strength, not SI velocity.
+//! Experimental inlet derived from HTML v4/v5, with independently sized breeze detail.
+//! Outputs game wind strength, not SI velocity.
 //! One fixed mapping keeps the pattern anchored as the garden extent changes.
 use glam::Vec2;
 
@@ -9,16 +10,16 @@ pub struct NaturalInflow {
     pub strength: f32,
     pub variation: f32,
     pub surge: f32,
-    pub range_voxels: f32,
+    pub strengthening_range_voxels: f32,
 }
 
 impl Default for NaturalInflow {
     fn default() -> Self {
         Self {
             strength: 0.9,
-            variation: 0.32,
+            variation: 0.4,
             surge: 0.4,
-            range_voxels: 108.,
+            strengthening_range_voxels: 108.,
         }
     }
 }
@@ -47,22 +48,31 @@ impl NaturalInflow {
     pub fn sample(&self, position_voxels: Vec2, time: f32, heading_degrees: f32) -> Vec2 {
         let p = position_voxels.as_dvec2() / VOXELS_PER_DEMO_UNIT;
         let q = p.y + 0.17 * p.x;
-        let s = self.range_voxels.max(24.) as f64 / VOXELS_PER_DEMO_UNIT;
+        let s = self.strengthening_range_voxels.max(24.) as f64 / VOXELS_PER_DEMO_UNIT;
         let t = time as f64;
-        let broad = noise(q / s, t / (s * 1.5) + 4.);
-        let fine = noise(q / (s * 0.42) + 21., t / (s * 0.52) - 7.);
-        let slow = noise(q / (s * 2.4) - 3., t / (s * 4.2) + 17.);
+        // Breeze structure must survive increasing the size of strengthening regions.
+        // 48 voxels is about three transport cells: smaller input is quickly diffused.
+        let breeze_scale = 48. / VOXELS_PER_DEMO_UNIT;
+        let broad = noise(q / breeze_scale, t / (breeze_scale * 1.5) + 4.);
+        let fine = noise(
+            q / (breeze_scale * 0.75) + 21.,
+            t / (breeze_scale * 0.8) - 7.,
+        );
+        let slow = noise(
+            q / (breeze_scale * 2.4) - 3.,
+            t / (breeze_scale * 4.2) + 17.,
+        );
         let organization =
             0.8 * noise(q / (s * 2.5) + 61., t / 10. + 8.) + 0.2 * noise(q / s - 31., t / 4. + 19.);
         let crest = smooth((organization - 0.05) / 0.45);
         let variation = self.variation.clamp(0., 0.55) as f64;
-        let quiet = 1. + variation * (0.8 * broad + 0.3 * fine + 0.28 * slow);
+        let quiet = 1. + variation * (1.1 * broad + 0.5 * fine + 0.18 * slow);
         let strength = self.strength.max(0.) as f64
             * quiet
             * (1. + self.surge.clamp(0., 0.9) as f64 * (1.9 * crest - 0.18));
         let angle = (heading_degrees as f64
             + 5. * noise(t / 26., 4.)
-            + variation * 27. * noise(q / (s * 0.8) + 43., t / (s * 1.2)))
+            + variation * 27. * noise(q / (breeze_scale * 0.8) + 43., t / (breeze_scale * 1.2)))
         .to_radians();
         Vec2::new(angle.cos() as f32, angle.sin() as f32) * strength as f32
     }
@@ -104,5 +114,20 @@ mod tests {
         assert!((a + b).length() < 1e-5);
         inlet.strength = 0.;
         assert_eq!(inlet.sample(p, 13., 0.), Vec2::ZERO);
+    }
+
+    #[test]
+    fn larger_strengthening_regions_do_not_enlarge_the_continuous_breeze() {
+        let mut small = NaturalInflow::default();
+        small.surge = 0.;
+        small.strengthening_range_voxels = 48.;
+        let mut large = small;
+        large.strengthening_range_voxels = 216.;
+        for t in [0., 7., 19., 43.] {
+            for y in [32., 96., 256., 480.] {
+                let p = Vec2::new(512., y);
+                assert_eq!(small.sample(p, t, 220.), large.sample(p, t, 220.));
+            }
+        }
     }
 }

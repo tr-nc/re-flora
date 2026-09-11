@@ -34,13 +34,13 @@ gusts expire naturally.
 ### Inlet A/B experiment
 
 Under **Wind → Background Wind**, toggle **B: Natural wind (A/B experiment)**.
-Unchecked A is the original inlet and remains the startup default. B ports the
+Unchecked A is the original inlet and remains the startup default. B adapts the
 HTML v4/v5 inlet recipe: continuous small variations with occasional smooth,
 spatially varying strengthening and direction changes. These are variations of
 one inlet, not independently spawned gust objects.
 
-B starts with strength `0.9`, small variations `0.32`, occasional strengthening
-`0.4`, and variation range `108` voxels. The mapping is 24 game voxels per HTML
+B starts with strength `0.9`, small variations `0.4`, occasional strengthening
+`0.4`, and strengthening area size `108` voxels. The mapping is 24 game voxels per HTML
 demo unit, an artistic starting point rather than a physical calibration.
 A and B keep their own inlet settings during the run. Transport speed is shared.
 Switching retains the grid, simulation time, manual gusts, and plant state;
@@ -51,6 +51,36 @@ drag, grid resolution, and vegetation response, rather than porting the HTML's
 kinematic carrier. The game may therefore smooth or attenuate the variations
 differently. The defaults still need visual comparison on actual plants; this
 is not a performance acceptance or a claim of physical airflow accuracy.
+
+### Spatial contrast follow-up
+
+The original port scaled continuous breeze detail along with strengthening area
+size. Increasing every slider made neighboring locations more alike. The B inlet
+now keeps breeze detail at a 48-voxel base scale (about three transport cells in
+the default world) independently of the **Strengthening area size** slider, with
+more weight on continuous variations. The field still transports all input from
+the boundary; there is no per-plant random wind or instantaneous interior rewrite.
+
+An explicit deterministic diagnostic samples five points over a 128-voxel
+crosswind span at the center of a 512-voxel field, once per second from 20–60
+seconds. Its contrast is `(max speed - min speed) / max speed`, then the median
+over those snapshots. Before the fix: default B 17.8%, all B sliders and transport
+at maximum 14.0%. Reducing only area size to 48 raised the latter to 35.3%; reducing
+only transport speed to 50 yielded 15.2%. After the fix: default B 24.2%, all-max
+23.4%. This isolates inlet scale coupling as a contributor; it does not prove
+perceptual improvement on plants or cover every camera, location, or world size.
+
+```sh
+cargo test --bin re-flora natural_wind_spatial_contrast -- --ignored --nocapture
+```
+
+This multi-second diagnostic stays outside the normal unit suite. A fast unit
+guard checks that, with strengthening disabled, changing area size leaves the
+continuous breeze unchanged. A remains unchanged for visual comparison.
+Follow-up validation passed formatting, `cargo check`, the normal binary suite
+(930 passed, 2 ignored), and the explicit spatial diagnostic. A six-second release
+hidden B run passed the manual-gust lifecycle smoke and exited with zero shutdown
+failures and no logged errors; the existing butterfly-atlas warning remains.
 
 Select the bottom **Wind** item or press **9**. Press on terrain to set the origin,
 drag to set direction and speed, and release once. In world units, the horizontal
