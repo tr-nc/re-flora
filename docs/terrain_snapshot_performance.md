@@ -45,3 +45,32 @@ handwritten eight-iterations-per-byte loop. First optimize that shared primitive
 the exact-open-file/pre-mutation validation contract must remain intact.
 
 Local evidence: `target/terrain-bench/evidence/baseline.log` and `fixture.log`.
+
+## Optimized CRC32
+
+The existing transitive dependency `crc32fast 1.5.0` is now used directly instead
+of the bit-at-a-time implementation. The standard polynomial, on-disk format,
+checksums, both validation passes, retained file handle, and atomic fsync/rename
+publication are unchanged. This removes custom checksum code rather than adding
+an I/O cache, alternate format, or asynchronous state machine.
+
+| Pass | Save (ms) | Load ready (ms) |
+|---|---:|---:|
+| 1 | 229.45 | 1100.12 |
+| 2 | 225.07 | 1082.19 |
+| 3 | 238.33 | 1072.69 |
+| Median | 229.45 | 1082.19 |
+
+Median save time fell 68.5% (3.18× faster); load-ready time fell 47.5% (1.91×).
+Save checksum/write is now 47–50 ms; load preflight is about 31 ms and the second
+read/checksum pass about 28 ms. Remaining publication/restoration is about
+838–864 ms, with GPU transfers about 142–158 ms per operation. Avoid treating
+this remaining rebuild cost as file I/O, or removing pre-mutation validation to
+hide it. Further work should instrument publication stages before changing them.
+
+`cargo check`, formatting, and 925 application tests passed (2 opt-in tests
+ignored). The release benchmark completed all four passes, each with exact
+terrain bytes, flora layout/growth/identities, and tree/leaf publication checks.
+It successfully reads the fixture produced by the old checksum implementation.
+No runtime errors were logged; the existing multiple-butterfly-atlas warning
+remains. Local evidence: `target/terrain-bench/evidence/optimized.log`.

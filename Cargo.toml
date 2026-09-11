@@ -5,6 +5,7 @@ edition = "2021"
 default-run = "re-flora"
 
 [dependencies]
+crc32fast = "1.5.0"
 resource_container_derive = { path = "./resource_container_derive" }
 re-flora-vkn = { path = "crates/re-flora-vkn", default-features = false }
 re-flora-water = { path = "crates/re-flora-water" }

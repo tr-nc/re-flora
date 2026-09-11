@@ -510,15 +510,7 @@ impl TerrainSnapshotReader {
 }
 
 pub fn checksum(bytes: &[u8]) -> u32 {
-    let mut crc = 0xffff_ffffu32;
-    for &byte in bytes {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            let mask = 0u32.wrapping_sub(crc & 1);
-            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
-        }
-    }
-    !crc
+    crc32fast::hash(bytes)
 }
 
 fn parse_header(header: &[u8; HEADER_LEN]) -> Result<TerrainSnapshotMetadata> {
