@@ -3,6 +3,7 @@ module flora_vertex;
 import color;
 import environment_lighting;
 import flora_motion;
+import leaf_flutter;
 import flora_noise;
 import flora_shadow;
 import flora_types;
@@ -183,6 +184,7 @@ public struct PreparedFloraVertex
     public float color_gradient;
     public float3 voxel_position;
     public float3 shading_normal;
+    public float3 optical_normal;
     public float3 anchor_position;
     public float sun_transmittance;
     public float shadow_weight;
@@ -193,7 +195,7 @@ public PreparedFloraVertex prepareFloraVertex(
     int3 voxelLocalPosition, uint voxelInfo, uint3 instancePositionVoxels,
     uint instanceType, uint seed, uint growthProgress,
     float competitionGrowthFactor, float environmentGrowthFactor,
-    uint spawnStartMs, bool useResponse, float3 response)
+    uint spawnStartMs, bool useResponse, float3 response, float leafAngle)
 {
     PreparedFloraVertex result;
     result.is_grass = instanceType == FLORA_SPECIES_TALL_GRASS ||
@@ -298,6 +300,10 @@ public PreparedFloraVertex prepareFloraVertex(
         spawnPose.visibility = 1.0;
     }
 
+    uint leafSeed = instanceSeed(uint3(int3(instancePositionVoxels) + voxelLocalPosition));
+    result.optical_normal = leafOpticalNormal(leafSeed, leafAngle);
+    if (useResponse && instanceType == FLORA_SPECIES_TREE_LEAF && gui_input.leaf_flutter_strength > 0.0)
+        windOffset += leafLocalOffset(leafSeed, leafAngle);
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
@@ -335,9 +341,11 @@ public PreparedFloraVertex prepareFloraVertex(
     float3 response = useResponse ? sampleVegetationResponse(
         responsePosition, instanceType == FLORA_SPECIES_TREE_LEAF ? instanceSeed(responsePosition) : seed,
         instanceType, responseLocalIndex, pc.response_offset) : float3(0.0);
+    float leafAngle = useResponse && instanceType == FLORA_SPECIES_TREE_LEAF
+        ? sampleLeafAngle(instanceSeed(responsePosition), responseLocalIndex, pc.response_offset) : 0.0;
     return prepareFloraVertex(voxelLocalPosition, voxelInfo, instancePositionVoxels,
         instanceType, seed, growthProgress, competitionGrowthFactor,
-        environmentGrowthFactor, spawnStartMs, useResponse, response);
+        environmentGrowthFactor, spawnStartMs, useResponse, response, leafAngle);
 }
 
 uint floraHeightColorRow(float colorGradient)
@@ -556,10 +564,24 @@ float3 finishTreeLeafShading(float3 litColor, float3 baseColor,
         terrain_edit_preview, litColor, voxelPosition);
 }
 
+float3 shadeOrientedLeaf(float3 baseColor, float3 environmentLight,
+    float sunTransmittance, float3 voxelPosition, float3 opticalNormal)
+{
+    float3 toCamera = camera_info.pos.xyz - voxelPosition;
+    float3 view = toCamera / max(length(toCamera), 0.00001);
+    float3 sunRadiance = sun_info.sun_color * sunLuminanceFromDirection(sun_info.sun_dir, sun_info.sun_luminance);
+    float3 color = leafOpticalColor(baseColor, environmentLight, sunRadiance,
+        sunTransmittance, view, normalize(sun_info.sun_dir), opticalNormal,
+        gui_input.leaf_transmission_strength);
+    return applyTerrainEditPreviewTint(terrain_edit_preview, color, voxelPosition);
+}
+
 public float3 shadeTreeLeafVertexWithEnvironment(
     float3 baseColor, float shadowWeight, float3 environmentLight,
-    float sunTransmittance, float canopyGradient, float3 voxelPosition)
+    float sunTransmittance, float canopyGradient, float3 voxelPosition, float3 opticalNormal)
 {
+    if (attachedVegetationResponseEnabled() && gui_input.leaf_flutter_strength > 0.0)
+        return shadeOrientedLeaf(baseColor, environmentLight, sunTransmittance, voxelPosition, opticalNormal);
     float3 litColor = applyStylizedVoxelLightingWithEnvironment(
         sun_info, baseColor, shadowWeight, environmentLight);
     return finishTreeLeafShading(
@@ -569,8 +591,11 @@ public float3 shadeTreeLeafVertexWithEnvironment(
 
 public float3 shadeLegacyTreeLeafVertex(
     float3 baseColor, float shadowWeight, float sunTransmittance,
-    float canopyGradient, float3 voxelPosition)
+    float canopyGradient, float3 voxelPosition, float3 opticalNormal)
 {
+    if (attachedVegetationResponseEnabled() && gui_input.leaf_flutter_strength > 0.0)
+        return shadeOrientedLeaf(baseColor, LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength,
+            sunTransmittance, voxelPosition, opticalNormal);
     float3 litColor = applyLegacyRasterFloraLighting(
         sun_info, baseColor, shadowWeight);
     return finishTreeLeafShading(

@@ -1,5 +1,6 @@
 module vegetation_response_solver;
 import flora_types;
+import leaf_flutter;
 
 // One solver for field nodes and lifetime-owned plants. State ownership is not
 // a solver concern: all callers use world seconds, voxel displacement and velocity.
@@ -47,4 +48,12 @@ public void advanceLeafResponse(inout float4 motion, float2 force,
     float3 variation = float3(hash & 255u, (hash >> 8u) & 255u, (hash >> 16u) & 255u) / 255.0;
     float2 profile = vegetationMechanicalProfile(FLORA_SPECIES_TREE_LEAF) * lerp(float2(0.75, 0.8), float2(1.25, 1.2), variation.xy);
     advanceMechanicalResponse(motion, force * lerp(0.85, 1.15, variation.z), dt, profile, controls);
+}
+
+public void advanceLeafTorsion(inout float4 torsion, float2 wind, float dt,
+                              float time, uint seed, float gain)
+{
+    float target = leafTorqueTarget(wind, torsion.x, time, seed, gain);
+    advanceMechanicalResponse(torsion, float2(target, 0.0), dt,
+        float2(1.8, 0.32), float4(1.0, 1.0, 1.0, 0.0));
 }

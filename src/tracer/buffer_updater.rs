@@ -300,6 +300,7 @@ impl BufferUpdater {
             grass_natural_bend_min_voxels: motion.grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels: motion.grass_natural_bend_max_voxels,
             flora_bend_height_power: motion.bend_height_power,
+            leaf_flutter_strength: motion.response_controls[3],
             leaf_paddle_amplitude_voxels: motion.leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed: motion.leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed: motion.leaf_paddle_secondary_speed,

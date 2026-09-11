@@ -82,7 +82,7 @@ impl<'a> Harness<'a> {
         start: f32,
         end: f32,
         tick: f32,
-    ) -> Result<Vec<[f32; 20]>> {
+    ) -> Result<Vec<[f32; STATE_FLOATS]>> {
         self.buffers
             .inputs
             .fill_range_with_raw_u8(0, bytemuck::cast_slice(inputs))?;
@@ -135,7 +135,7 @@ impl<'a> Harness<'a> {
         let bytes = self
             .readback
             .read_back_range(0, inputs.len() as u64 * STATE_BYTES)?;
-        let states = bytemuck::try_cast_slice::<u8, [f32; 20]>(&bytes)
+        let states = bytemuck::try_cast_slice::<u8, [f32; STATE_FLOATS]>(&bytes)
             .map_err(|err| anyhow::anyhow!("response readback ABI: {err}"))?
             .to_vec();
         anyhow::ensure!(
@@ -185,6 +185,43 @@ pub(in crate::tracer) fn validate_gpu(
         "individual leaves collapse into one mechanical response: difference={leaf_difference}"
     );
     log::info!("[VEGETATION_RESPONSE][INDIVIDUAL_LEAVES] same_force_max_difference={leaf_difference:.6} independent_mechanics=passed");
+    // The production GPU state owns local angle and all held publication buckets.
+    harness.controls[3] = 1.;
+    for leaf in &mut leaves {
+        leaf.identity[0] = NO_PREVIOUS;
+    }
+    source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X * 0.3);
+    harness.wind.wind_field_info.fill_uniform(&source)?;
+    let mut angle_peak = 0_f32;
+    let mut angle_difference = 0_f32;
+    let mut quiet_angle = 0_f32;
+    for frame in 0..480 {
+        if frame == 240 {
+            source.cells.fill([0.; 4]);
+            harness.wind.wind_field_info.fill_uniform(&source)?;
+        }
+        let states = harness.step(&leaves, frame as f32 / 60., (frame + 1) as f32 / 60., 0.05)?;
+        angle_peak = angle_peak.max(states[0][20].abs());
+        angle_difference = angle_difference.max((states[0][20] - states[1][20]).abs());
+        quiet_angle = states[0][20].abs();
+        anyhow::ensure!(
+            states
+                .iter()
+                .all(|s| s[24..28].iter().all(|a| a.abs() <= 1.)),
+            "unbounded leaf publication"
+        );
+        for (index, leaf) in leaves.iter_mut().enumerate() {
+            leaf.identity[0] = index as u32;
+        }
+    }
+    anyhow::ensure!(
+        angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.02 && quiet_angle < 0.001,
+        "leaf torsion invalid peak={angle_peak} independent={angle_difference} quiet={quiet_angle}"
+    );
+    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} held_bounds=passed");
+    harness.controls[3] = 0.;
+    source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
+    harness.wind.wind_field_info.fill_uniform(&source)?;
     let mut inputs: Vec<_> = [0, 2, 3, 4, 5]
         .into_iter()
         .map(|species| ResponseInput {
@@ -216,11 +253,11 @@ pub(in crate::tracer) fn validate_gpu(
             late_peak = late_peak.max(last[0][0].abs());
         }
         if frame == 0 {
-            previous_held = Some(last[0][4..].to_vec());
+            previous_held = Some(last[0][4..20].to_vec());
         }
         if frame == 1 {
             anyhow::ensure!(
-                previous_held.as_ref().unwrap() == &last[0][4..],
+                previous_held.as_ref().unwrap() == &last[0][4..20],
                 "pose changed between publication ticks"
             );
         }

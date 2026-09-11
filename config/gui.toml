@@ -1879,6 +1879,17 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
+id = "leaf_flutter_strength"
+kind = "float"
+label = "Local Flutter (0 = original)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 2
+
+[[section.param]]
 id = "leaf_transmission_strength"
 kind = "float"
 label = "Sunlight Transmission Strength"

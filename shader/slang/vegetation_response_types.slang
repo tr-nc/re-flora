@@ -4,6 +4,8 @@ public struct VegetationResponseState
 {
     public float4 motion; // displacement xz, velocity xz, in wind/voxel units
     public float4 held[4]; // published displacement + velocity; no temporal interpolation
+    public float4 torsion; // angle x, unused y, angular velocity z, unused w
+    public float4 held_angles; // same four publication buckets as held motion
 };
 
 public struct VegetationResponseInput
@@ -24,5 +26,5 @@ public struct VegetationResponsePushConstants
     public float end_time;
     public float tick_seconds;
     public uint count;
-    public float4 controls; // mechanical frequency, damping, force gain multipliers, reserved
+    public float4 controls; // mechanical frequency, damping, force gain multipliers, leaf flutter gain
 };

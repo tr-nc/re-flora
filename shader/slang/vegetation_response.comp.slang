@@ -37,13 +37,17 @@ void main(uint3 tid : SV_DispatchThreadID)
         float dt = max(end - time, 0.0);
         float2 force = sampleWindField(input.root.xyz).xz;
         if (input.identity.w == 1u)
+        {
             advanceLeafResponse(state.motion, force, dt, input.identity.z, pc.controls);
+            advanceLeafTorsion(state.torsion, force, dt, end, input.identity.z, pc.controls.w);
+        }
         else
             advanceVegetationResponse(state.motion, force, dt, input.identity.y, pc.controls);
         time = end;
         if (time >= boundary - 0.000001)
         {
             state.held[publication % 4u] = state.motion;
+            state.held_angles[publication % 4u] = clamp(state.torsion.x, -1.0, 1.0);
             ++publication;
         }
     }

@@ -64,7 +64,7 @@ VertexOutput main(VertexInput input)
         instance.spawn_start_ms, vegetationResponseEnabled(),
         sampleVegetationResponse(instancePosition, seed, instanceType,
             input.instance_index - instanceType * MAX_FLORA_INSTANCES_PER_SPECIES,
-            floraPushConstants().response_offset));
+            floraPushConstants().response_offset), 0.0);
 
     VertexOutput output;
     if (prepared.should_trim)

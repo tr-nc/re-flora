@@ -43,7 +43,7 @@ impl VegetationResponse {
             },
         )?;
         let bytes = readback.read_back_range(0, bytes)?;
-        let states: &[[f32; 20]] = bytemuck::try_cast_slice(&bytes)
+        let states: &[[f32; STATE_FLOATS]] = bytemuck::try_cast_slice(&bytes)
             .map_err(|e| anyhow::anyhow!("fruit response readback: {e}"))?;
         let result = roots
             .iter()
@@ -71,7 +71,7 @@ impl VegetationResponse {
     }
 }
 
-fn sample_held_field(info: ResponseInfo, states: &[[f32; 20]], root: UVec3) -> [f32; 4] {
+fn sample_held_field(info: ResponseInfo, states: &[[f32; STATE_FLOATS]], root: UVec3) -> [f32; 4] {
     let seed = instance_seed(root);
     let bucket_offset = 4 + (seed % 4) as usize * 4;
     let width = info.shape[0] as usize;
@@ -118,7 +118,9 @@ mod tests {
             grid: [0., 0., 1., 3.],
             shape: [2, 2, 1, 12],
         };
-        let states = (0..4).map(|index| [index as f32; 20]).collect::<Vec<_>>();
+        let states = (0..4)
+            .map(|index| [index as f32; STATE_FLOATS])
+            .collect::<Vec<_>>();
         assert_eq!(
             sample_held_field(info, &states, UVec3::new(128, 37, 128)),
             [1.5; 4]

@@ -206,6 +206,8 @@ pub struct ManualResponseInputs {
 pub struct ManualResponseOutput {
     pub motion: [f32; 4],
     pub held: [u32; 16],
+    pub torsion: [f32; 4],
+    pub held_angles: [f32; 4],
 }
 
 /// Auto-generated from `B_ManualResponsePrevious` (native Slang source of truth).
@@ -214,6 +216,8 @@ pub struct ManualResponseOutput {
 pub struct ManualResponsePrevious {
     pub motion: [f32; 4],
     pub held: [u32; 16],
+    pub torsion: [f32; 4],
+    pub held_angles: [f32; 4],
 }
 
 /// Auto-generated from `B_ManualVegetationResponse` (native Slang source of truth).
@@ -222,6 +226,8 @@ pub struct ManualResponsePrevious {
 pub struct ManualVegetationResponse {
     pub motion: [f32; 4],
     pub held: [u32; 16],
+    pub torsion: [f32; 4],
+    pub held_angles: [f32; 4],
 }
 
 /// Auto-generated from `B_ModelTriangles` (native Slang source of truth).
@@ -817,6 +823,7 @@ pub struct GuiInput {
     pub grass_natural_bend_min_voxels: f32,
     pub grass_natural_bend_max_voxels: f32,
     pub flora_bend_height_power: f32,
+    pub leaf_flutter_strength: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -858,7 +865,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 12],
+    pub _pad8: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

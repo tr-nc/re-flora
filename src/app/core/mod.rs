@@ -1300,6 +1300,14 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
+        // Opt-in visual review: reuse the normal camera capture and GUI parameter.
+        if let Ok(value) = std::env::var("RE_FLORA_LEAF_REVIEW") {
+            let gain: f32 = value
+                .parse()
+                .context("RE_FLORA_LEAF_REVIEW must be a gain in 0..=2")?;
+            anyhow::ensure!((0.0..=2.0).contains(&gain), "invalid leaf review gain");
+            debug_settings.adjustables.leaf_flutter_strength.value = gain;
+        }
         if foliage_shadow_bench || lighting_mode_acceptance_requested {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
         }

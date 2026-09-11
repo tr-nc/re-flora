@@ -90,14 +90,14 @@ VertexOutput main(VertexInput input)
             output.color = shadeTreeLeafVertexWithEnvironment(
                 baseColor, prepared.shadow_weight, environmentLight,
                 prepared.sun_transmittance, prepared.color_gradient,
-                prepared.voxel_position);
+                prepared.voxel_position, prepared.optical_normal);
         }
         else
         {
             output.color = shadeLegacyTreeLeafVertex(
                 baseColor, prepared.shadow_weight,
                 prepared.sun_transmittance, prepared.color_gradient,
-                prepared.voxel_position);
+                prepared.voxel_position, prepared.optical_normal);
         }
     }
     else

@@ -19,7 +19,8 @@ pub(super) use validation::validate_gpu;
 
 const GRID_SPACING_VOXELS: u32 = 16;
 const NO_PREVIOUS: u32 = u32::MAX;
-const STATE_BYTES: u64 = 80;
+const STATE_BYTES: u64 = 112;
+const STATE_FLOATS: usize = STATE_BYTES as usize / 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]

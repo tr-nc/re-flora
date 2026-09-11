@@ -76,7 +76,7 @@ struct DenoiserBenchReport<'a> {
 }
 
 struct CapturedKeyframe {
-    label: &'static str,
+    label: String,
     width: u32,
     height: u32,
     rgba: Vec<u8>,
@@ -668,18 +668,23 @@ impl DenoiserBench {
             );
         }
 
-        let keyframe = if self.mode.has_scripted_camera_motion() || self.mode.is_foliage_shadow() {
-            keyframe_label(self.captured_frames, self.capture.capture_frames).map(|label| {
-                CapturedKeyframe {
-                    label,
-                    width,
-                    height,
-                    rgba: rgba.to_vec(),
-                }
-            })
+        let label = if std::env::var_os("RE_FLORA_LEAF_REVIEW").is_some() {
+            // Dense color frames for local motion review, using the existing atomic
+            // capture publication. Normal denoiser captures retain sparse keyframes.
+            self.captured_frames
+                .is_multiple_of(3)
+                .then(|| format!("{:04}", self.captured_frames))
+        } else if self.mode.has_scripted_camera_motion() || self.mode.is_foliage_shadow() {
+            keyframe_label(self.captured_frames, self.capture.capture_frames).map(str::to_owned)
         } else {
             None
         };
+        let keyframe = label.map(|label| CapturedKeyframe {
+            label,
+            width,
+            height,
+            rgba: rgba.to_vec(),
+        });
 
         let current_luma = rgba_region_to_luma(rgba, width, analysis_region);
         let structure_luma = if self.mode.is_foliage_shadow() {
