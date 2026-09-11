@@ -332,9 +332,6 @@ pub struct ButterflyEmitter {
     pub worm_noise_detail: FastNoiseLite,
     pub worm_noise_detail_weight: f32,
     rng: SmallRng,
-    spawn_sources: Vec<ButterflySpawnSource>,
-    spawn_hazard: f32,
-    next_spawn_hazard: f32,
     active_butterflies: Vec<ActiveButterfly>,
 }
 
@@ -348,7 +345,7 @@ impl ButterflyEmitter {
         desc: &ButterflyEmitterDesc,
         render_kind: ParticleRenderKind,
     ) -> Self {
-        let mut emitter = Self {
+        Self {
             height_offset: desc.height_offset_min.min(desc.height_offset_max)
                 ..=desc.height_offset_max.max(desc.height_offset_min),
             size: desc.size.max(0.001),
@@ -367,13 +364,8 @@ impl ButterflyEmitter {
             ),
             worm_noise_detail_weight: desc.worm_noise_detail_weight,
             rng: SmallRng::seed_from_u64(seed),
-            spawn_sources: Vec::new(),
-            spawn_hazard: 0.0,
-            next_spawn_hazard: 1.0,
             active_butterflies: Vec::new(),
-        };
-        emitter.next_spawn_hazard = emitter.sample_next_spawn_hazard();
-        emitter
+        }
     }
 
     #[allow(dead_code)]
@@ -414,24 +406,37 @@ impl ButterflyEmitter {
         }
     }
 
-    fn sample_next_spawn_hazard(&mut self) -> f32 {
-        let unit = 1.0 - self.rng.random_range(0.0..1.0_f32);
-        -unit.ln()
+    pub fn has_capacity(&mut self, system: &ParticleSystem) -> bool {
+        self.prune_handles(system);
+        self.enabled && self.active_butterflies.len() < self.max_active_butterflies
     }
 
-    pub fn set_spawn_sources(&mut self, spawn_sources: Vec<ButterflySpawnSource>) {
-        self.spawn_sources = spawn_sources;
+    pub fn clear(&mut self, system: &mut ParticleSystem) {
+        self.trim_active_to_count(system, 0);
     }
 
-    pub fn spawn_source_count(&self) -> usize {
-        self.spawn_sources.len()
-    }
-
-    fn spawn_butterfly(&mut self, system: &mut ParticleSystem) -> Option<ParticleHandle> {
-        if self.spawn_sources.is_empty() {
+    pub fn spawn_at(
+        &mut self,
+        system: &mut ParticleSystem,
+        source: ButterflySpawnSource,
+    ) -> Option<ParticleHandle> {
+        if !self.has_capacity(system) || !source.position_ws.is_finite() {
             return None;
         }
-        let source = self.spawn_sources[self.rng.random_range(0..self.spawn_sources.len())];
+        // Bound local density independently of total supply and the world cap.
+        if self
+            .active_butterflies
+            .iter()
+            .filter(|b| {
+                system
+                    .position(b.handle)
+                    .is_some_and(|p| p.distance_squared(source.position_ws) < 0.22 * 0.22)
+            })
+            .count()
+            >= 2
+        {
+            return None;
+        }
         let height_offset = random_in_range(&mut self.rng, &self.height_offset);
         let emergence_target_y = (source.kind == ButterflySpawnSourceKind::GroundFlora)
             .then_some(source.position_ws.y + STANDARD_PARTICLE_SIZE * 0.5 + height_offset);
@@ -555,7 +560,7 @@ impl ButterflyEmitter {
 }
 
 impl ParticleEmitter for ButterflyEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, dt: f32, _time: f32) {
+    fn update(&mut self, system: &mut ParticleSystem, _dt: f32, _time: f32) {
         self.prune_handles(system);
         if !self.enabled {
             self.trim_active_to_count(system, 0);
@@ -565,25 +570,6 @@ impl ParticleEmitter for ButterflyEmitter {
         self.trim_active_to_count(system, self.max_active_butterflies);
 
         self.enforce_size_on_active(system);
-        if self.spawn_sources.is_empty()
-            || self.spawn_rate_per_source <= 0.0
-            || self.active_butterflies.len() >= self.max_active_butterflies
-        {
-            return;
-        }
-
-        self.spawn_hazard +=
-            self.spawn_rate_per_source * self.spawn_sources.len() as f32 * dt.max(0.0);
-        while self.spawn_hazard >= self.next_spawn_hazard
-            && self.active_butterflies.len() < self.max_active_butterflies
-        {
-            self.spawn_hazard -= self.next_spawn_hazard;
-            self.next_spawn_hazard = self.sample_next_spawn_hazard();
-            if self.spawn_butterfly(system).is_none() {
-                self.spawn_hazard = 0.0;
-                break;
-            }
-        }
     }
 }
 
@@ -605,96 +591,32 @@ mod tests {
     }
 
     #[test]
-    fn butterfly_spawn_hazard_scales_with_source_count() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-
-        let mut one_source_system = ParticleSystem::new(4);
-        let mut one_source = ButterflyEmitter::new(7, &butterfly_test_desc());
-        one_source.set_spawn_sources(vec![source]);
-        one_source.next_spawn_hazard = 0.5;
-        one_source.update(&mut one_source_system, 0.25, 0.0);
-
-        let mut two_source_system = ParticleSystem::new(4);
-        let mut two_sources = ButterflyEmitter::new(7, &butterfly_test_desc());
-        two_sources.set_spawn_sources(vec![source, source]);
-        two_sources.next_spawn_hazard = 0.5;
-        two_sources.update(&mut two_source_system, 0.25, 0.0);
-
-        assert_eq!(one_source_system.alive_count(), 0);
-        assert_eq!(two_source_system.alive_count(), 1);
-    }
-
-    #[test]
-    fn butterfly_hard_limit_stops_many_same_frame_spawn_attempts() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 3;
-        let mut system = ParticleSystem::new(32);
-        let mut emitter = ButterflyEmitter::new(17, &desc);
-        emitter.set_spawn_sources(vec![source; 20]);
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-
-        assert_eq!(system.alive_count(), 3);
-    }
-
-    #[test]
-    fn existing_butterflies_count_toward_limit_and_death_reopens_one_slot() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 2;
-        let mut system = ParticleSystem::new(8);
-        let mut emitter = ButterflyEmitter::new(19, &desc);
-        emitter.set_spawn_sources(vec![source; 4]);
-        let first = emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-        assert_eq!(system.alive_count(), 2);
-
-        assert!(system.despawn(first));
-        emitter.update(&mut system, 1.0, 0.0);
-        assert_eq!(system.alive_count(), 2);
-    }
-
-    #[test]
-    fn shared_particle_capacity_stops_butterfly_spawning_without_exceeding_the_limit() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 2;
-        let mut system = ParticleSystem::new(1);
-        let mut emitter = ButterflyEmitter::new(29, &desc);
-        emitter.set_spawn_sources(vec![source; 4]);
-        emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-
-        assert_eq!(system.alive_count(), 1);
-    }
-
-    #[test]
-    fn lowering_butterfly_limit_removes_existing_excess_immediately() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
+    fn births_obey_world_local_and_particle_capacity_and_death_reopens_slots() {
         let mut desc = butterfly_test_desc();
         desc.max_active_butterflies = 3;
+        let mut e = ButterflyEmitter::new(17, &desc);
         let mut system = ParticleSystem::new(8);
-        let mut emitter = ButterflyEmitter::new(23, &desc);
-        emitter.set_spawn_sources(vec![source]);
-        for _ in 0..3 {
-            emitter.spawn_butterfly(&mut system).unwrap();
+        let source = ButterflySpawnSource::tree_leaf(Vec3::ZERO);
+        let first = e.spawn_at(&mut system, source).unwrap();
+        assert!(e.spawn_at(&mut system, source).is_some());
+        assert!(e.spawn_at(&mut system, source).is_none()); // local cap
+        let far = ButterflySpawnSource::tree_leaf(Vec3::ONE);
+        assert!(e.spawn_at(&mut system, far).is_some());
+        for _ in 0..100 {
+            assert!(e.spawn_at(&mut system, far).is_none());
         }
-
+        assert_eq!(system.alive_count(), 3);
+        system.despawn(first);
+        assert!(e.spawn_at(&mut system, source).is_some());
         desc.max_active_butterflies = 1;
-        emitter.apply_desc(&desc);
-        emitter.update(&mut system, 0.0, 0.0);
-
+        e.apply_desc(&desc);
+        e.update(&mut system, 0., 0.);
         assert_eq!(system.alive_count(), 1);
+        e.clear(&mut system);
+        assert_eq!(system.alive_count(), 0);
+        let mut tiny = ParticleSystem::new(1);
+        assert!(e.spawn_at(&mut tiny, source).is_some());
+        assert!(e.spawn_at(&mut tiny, far).is_none());
     }
 
     #[test]
@@ -702,8 +624,12 @@ mod tests {
         let source_position = Vec3::new(0.5, 0.4, 0.5);
         let mut system = ParticleSystem::new(4);
         let mut emitter = ButterflyEmitter::new(11, &butterfly_test_desc());
-        emitter.set_spawn_sources(vec![ButterflySpawnSource::ground_flora(source_position)]);
-        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+        let handle = emitter
+            .spawn_at(
+                &mut system,
+                ButterflySpawnSource::ground_flora(source_position),
+            )
+            .unwrap();
 
         let mut handles = Vec::new();
         let mut positions = Vec::new();
@@ -727,8 +653,12 @@ mod tests {
         let source_position = Vec3::new(0.8, 0.9, 1.1);
         let mut system = ParticleSystem::new(4);
         let mut emitter = ButterflyEmitter::new(13, &butterfly_test_desc());
-        emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(source_position)]);
-        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+        let handle = emitter
+            .spawn_at(
+                &mut system,
+                ButterflySpawnSource::tree_leaf(source_position),
+            )
+            .unwrap();
 
         let mut handles = Vec::new();
         let mut positions = Vec::new();

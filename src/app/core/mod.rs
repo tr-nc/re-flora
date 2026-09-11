@@ -23,6 +23,7 @@ mod lighting_mode_acceptance;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
+mod ambient_ecology;
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -33,7 +34,6 @@ mod planting;
 mod player_tools;
 mod render_frame_input;
 mod screenshot;
-mod summer_cicadas;
 mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
@@ -472,7 +472,7 @@ pub struct App {
     particle_system: ParticleSystem,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
-    butterfly_spawn_source_refresh_elapsed: f32,
+    ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
     particle_animation_time_sec: f32,
@@ -497,7 +497,7 @@ pub struct App {
     vulkan_ctx: VulkanContext,
 
     summer_cicadas: crate::audio::SummerCicadas,
-    cicada_smoke: Option<summer_cicadas::CicadaSmoke>,
+    cicada_smoke: Option<ambient_ecology::CicadaSmoke>,
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
@@ -1497,7 +1497,7 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
-            butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
+            ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
             particle_animation_time_sec: 0.0,
@@ -1527,7 +1527,7 @@ impl App {
             shutdown_lifecycle: lifecycle::AppShutdownLifecycle::default(),
 
             summer_cicadas,
-            cicada_smoke: summer_cicadas::CicadaSmoke::from_environment(),
+            cicada_smoke: ambient_ecology::CicadaSmoke::from_environment(),
             spatial_sound_manager,
             spatial_frame,
             tree_audio_manager,
@@ -3344,6 +3344,9 @@ impl App {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
+                    log::warn!("[ECOLOGY] update failed: {error:#}");
+                }
                 if self.render_flags.enable_particles {
                     if self.water.is_running() {
                         let water_handoff_start = Instant::now();
@@ -3972,9 +3975,6 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
-                if let Err(error) = self.update_summer_cicadas(f64::from(time_since_start)) {
-                    log::warn!("[AUDIO][CICADAS] update failed: {error:#}");
-                }
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),

@@ -1054,7 +1054,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_spawn_rate_per_source",
         kind: "float",
-        label: "Spawn Rate Per Flora Voxel",
+        label: "Habitat Spawn Rate (0.00002 = Normal)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",

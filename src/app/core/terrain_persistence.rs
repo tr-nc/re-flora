@@ -407,6 +407,10 @@ impl App {
                         return Err(error);
                     }
                     self.summer_cicadas.clear("world_replacement")?;
+                    self.ecology.clear();
+                    for emitter in &mut self.butterfly_emitters {
+                        emitter.clear(&mut self.particle_system);
+                    }
                     mutated = true;
                 }
                 self.plain_builder.write_chunk_atlas_region(
