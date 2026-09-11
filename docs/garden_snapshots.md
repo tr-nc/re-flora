@@ -4,6 +4,13 @@
 selected path (default `saves/terrain_snapshot.rflterrain`). The CLI flags remain `--terrain-save`
 and `--terrain-load`. This format replaces the terrain-only v1 format; no migration is provided.
 
+The **Saved terrains** dropdown lists `.rflterrain` files in the current save path's
+directory. **Refresh** picks up external file changes; saving refreshes the list.
+Enter another **Save path** to create a separate snapshot. **Delete terrain** removes
+only the selected file and retains the live garden. An empty directory is supported;
+unrelated files, directories, and symbolic links are not listed. Failed operations
+before world mutation can be retried; failures after mutation still require restart.
+
 ## Persistent state
 
 - The exact packed terrain atlas, including hand-edited tree wood.

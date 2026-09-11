@@ -7,7 +7,9 @@ use crate::terrain_persistence::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+mod selector;
 mod smoke;
+pub(super) use selector::SnapshotAction;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct GardenSnapshot {
@@ -63,6 +65,7 @@ pub(super) struct TerrainPersistenceRuntime {
     startup_load_requested: bool,
     startup_save_path: Option<String>,
     snapshot_path: String,
+    selector: selector::SnapshotSelector,
     disabled_reason: Option<&'static str>,
     status: TerrainPersistenceStatus,
     simulation_gate: TerrainSimulationGate,
@@ -104,6 +107,7 @@ impl TerrainPersistenceRuntime {
                 .clone()
                 .or_else(|| options.save_path.clone())
                 .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
+            selector: selector::SnapshotSelector::default(),
             disabled_reason: glass_experiment_enabled
                 .then_some(GLASS_EXPERIMENT_PERSISTENCE_DISABLED_REASON),
             status: TerrainPersistenceStatus::Ready,
@@ -133,7 +137,10 @@ impl TerrainPersistenceRuntime {
 
     pub(super) fn can_start_operation(&self) -> bool {
         self.disabled_reason.is_none()
-            && self.status == TerrainPersistenceStatus::Ready
+            && matches!(
+                self.status,
+                TerrainPersistenceStatus::Ready | TerrainPersistenceStatus::Error(_)
+            )
             && self.simulation_gate == TerrainSimulationGate::Running
     }
 
@@ -176,6 +183,7 @@ impl TerrainPersistenceRuntime {
     }
 
     fn finish_save(&mut self, error: Option<String>) {
+        self.selector = selector::SnapshotSelector::default();
         self.status = error.map_or(
             TerrainPersistenceStatus::Ready,
             TerrainPersistenceStatus::Error,
@@ -227,6 +235,7 @@ impl TerrainPersistenceRuntime {
             startup_load_requested: false,
             startup_save_path: None,
             snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
+            selector: selector::SnapshotSelector::default(),
             disabled_reason: None,
             status: TerrainPersistenceStatus::PublishedAwaitingDependents,
             simulation_gate: TerrainSimulationGate::Running,
@@ -528,6 +537,7 @@ mod tests {
             startup_load_requested: false,
             startup_save_path: None,
             snapshot_path: DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned(),
+            selector: selector::SnapshotSelector::default(),
             disabled_reason: None,
             status: TerrainPersistenceStatus::Ready,
             simulation_gate: TerrainSimulationGate::Running,

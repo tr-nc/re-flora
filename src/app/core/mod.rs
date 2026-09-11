@@ -2464,8 +2464,7 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
-                let mut terrain_save_requested = false;
-                let mut terrain_load_requested = false;
+                let mut terrain_snapshot_action = None;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
@@ -2684,29 +2683,7 @@ impl App {
                                             .color(GOLD_ACCENT),
                                     );
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Path");
-                                        ui.text_edit_singleline(
-                                            self.terrain_persistence.snapshot_path_mut(),
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        let ready =
-                                            self.terrain_persistence.can_start_operation();
-                                        if ui
-                                            .add_enabled(ready, egui::Button::new("Save terrain"))
-                                            .clicked()
-                                        {
-                                            terrain_save_requested = true;
-                                        }
-                                        if ui
-                                            .add_enabled(ready, egui::Button::new("Load terrain"))
-                                            .clicked()
-                                        {
-                                            terrain_load_requested = true;
-                                        }
-                                        ui.label(self.terrain_persistence.status_label());
-                                    });
+                                    terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
 
                                     ui.add_space(4.0);
                                     ui.separator();
@@ -3197,11 +3174,17 @@ impl App {
                         draw_center_cross_mark(ctx);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
-                if terrain_load_requested || terrain_save_requested {
-                    if terrain_load_requested {
-                        self.perform_runtime_terrain_load();
-                    } else {
-                        self.perform_runtime_terrain_save();
+                if let Some(action) = terrain_snapshot_action {
+                    match action {
+                        terrain_persistence::SnapshotAction::Save => {
+                            self.perform_runtime_terrain_save()
+                        }
+                        terrain_persistence::SnapshotAction::Load => {
+                            self.perform_runtime_terrain_load()
+                        }
+                        terrain_persistence::SnapshotAction::Delete => {
+                            self.terrain_persistence.delete_selected_snapshot()
+                        }
                     }
                     self.sync_cursor_with_panels();
                     return;
