@@ -46,6 +46,9 @@ impl App {
     }
 
     pub(in crate::app::core) fn verify_garden_snapshot_smoke(&mut self) -> Result<()> {
+        if let Some(output) = std::env::var_os("RE_FLORA_TERRAIN_BENCH") {
+            return self.benchmark_garden_snapshots(Path::new(&output));
+        }
         if std::env::var("RE_FLORA_GARDEN_SNAPSHOT_SMOKE").as_deref() != Ok("verify") {
             return Ok(());
         }
@@ -78,6 +81,49 @@ impl App {
             log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain=exact flora=exact trees=exact no_duplicates=true", pass + 1);
         }
         log::info!("[GARDEN_SMOKE] passed startup_and_repeated_runtime_load=true");
+        Ok(())
+    }
+
+    fn benchmark_garden_snapshots(&mut self, output: &Path) -> Result<()> {
+        anyhow::ensure!(
+            self.terrain_persistence.startup_load_requested(),
+            "terrain benchmark requires --terrain-load"
+        );
+        let source = self.terrain_persistence.selected_path().to_owned();
+        anyhow::ensure!(
+            Path::new(&source) != output,
+            "benchmark output must differ from fixture"
+        );
+        for pass in 0..4 {
+            *self.terrain_persistence.snapshot_path_mut() = output.to_string_lossy().into_owned();
+            let start = Instant::now();
+            self.perform_runtime_terrain_save();
+            let save_ms = start.elapsed().as_secs_f64() * 1000.;
+            anyhow::ensure!(
+                self.terrain_persistence.status == TerrainPersistenceStatus::Ready,
+                "benchmark save failed"
+            );
+            self.verify_live_garden_file(output)?;
+            *self.terrain_persistence.snapshot_path_mut() = source.clone();
+            let start = Instant::now();
+            self.perform_runtime_terrain_load();
+            anyhow::ensure!(
+                self.terrain_persistence.awaits_dependents(),
+                "benchmark load failed"
+            );
+            let deadline = Instant::now() + std::time::Duration::from_secs(60);
+            while !self.terrain_persistence.can_start_operation() {
+                self.advance_water_terrain(false);
+                anyhow::ensure!(
+                    Instant::now() < deadline,
+                    "benchmark water publication did not settle"
+                );
+                std::thread::yield_now();
+            }
+            let load_ms = start.elapsed().as_secs_f64() * 1000.;
+            self.verify_live_garden_file(Path::new(&source))?;
+            log::info!("[TERRAIN_BENCH] pass={pass} warmup={} save_ms={save_ms:.2} load_ready_ms={load_ms:.2} terrain=exact flora=exact trees=exact", pass == 0);
+        }
         Ok(())
     }
 

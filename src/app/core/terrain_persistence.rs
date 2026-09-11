@@ -321,9 +321,16 @@ impl App {
     }
 
     fn run_terrain_save(&mut self, path: &Path) -> Result<()> {
+        let start = Instant::now();
         let result = (|| {
             self.quiesce_terrain_for_snapshot()?;
-            self.write_terrain_snapshot(path)
+            let quiesce_ms = start.elapsed().as_secs_f64() * 1000.;
+            let result = self.write_terrain_snapshot(path);
+            log::info!(
+                "[TERRAIN_TIMING] operation=save quiesce_ms={quiesce_ms:.2} total_ms={:.2}",
+                start.elapsed().as_secs_f64() * 1000.
+            );
+            result
         })();
         if self.water.phase() == water::WaterPhase::Quiesced {
             let resumed = self.water.resume_after_snapshot_read();
@@ -364,19 +371,28 @@ impl App {
             garden.trees.count()
         );
         writer.set_garden_data(serde_json::to_vec(&garden)?)?;
+        let garden_ms = start.elapsed().as_secs_f64() * 1000.;
+        let mut readback_ms = 0.;
+        let mut encode_write_ms = 0.;
         for x in 0..CHUNK_DIM.x {
             for y in 0..CHUNK_DIM.y {
                 for z in 0..CHUNK_DIM.z {
                     let coordinate = UVec3::new(x, y, z);
+                    let stage = Instant::now();
                     let bytes = self.plain_builder.read_chunk_atlas_region(
                         coordinate * VOXEL_DIM_PER_CHUNK,
                         VOXEL_DIM_PER_CHUNK,
                     )?;
+                    readback_ms += stage.elapsed().as_secs_f64() * 1000.;
+                    let stage = Instant::now();
                     writer.write_chunk(coordinate.to_array(), &bytes)?;
+                    encode_write_ms += stage.elapsed().as_secs_f64() * 1000.;
                 }
             }
         }
+        let stage = Instant::now();
         let summary = writer.finish()?;
+        log::info!("[TERRAIN_TIMING] operation=save garden_ms={garden_ms:.2} gpu_readback_ms={readback_ms:.2} encode_write_ms={encode_write_ms:.2} sync_ms={:.2}", stage.elapsed().as_secs_f64() * 1000.);
         log::info!(
             "[TERRAIN_PERSISTENCE] Save complete path={} chunks={} payload_bytes={} elapsed_ms={:.2}",
             path.display(),
@@ -388,22 +404,36 @@ impl App {
     }
 
     fn run_terrain_load(&mut self, path: &Path) -> Result<(), TerrainLoadFailure> {
+        let start = Instant::now();
         let metadata = terrain_snapshot_metadata();
         let mut reader = TerrainSnapshotReader::open_validated(path, metadata)
             .map_err(TerrainLoadFailure::before_mutation)?;
+        let preflight_ms = start.elapsed().as_secs_f64() * 1000.;
+        let stage = Instant::now();
         let garden = GardenSnapshot::decode(reader.garden_data())
             .map_err(TerrainLoadFailure::before_mutation)?;
         let prepared_trees = self
             .prepare_tree_snapshot(&garden.trees)
             .map_err(TerrainLoadFailure::before_mutation)?;
+        let prepare_ms = stage.elapsed().as_secs_f64() * 1000.;
+        let stage = Instant::now();
         if let Err(error) = self.quiesce_terrain_for_snapshot() {
             self.water.resume_after_snapshot_read();
             return Err(TerrainLoadFailure::before_mutation(error));
         }
 
+        let quiesce_ms = stage.elapsed().as_secs_f64() * 1000.;
+        let mut decode_ms = 0.;
+        let mut upload_ms = 0.;
         let mut mutated = false;
         let upload_result = (|| -> Result<()> {
-            while let Some(chunk) = reader.read_next_chunk()? {
+            loop {
+                let stage = Instant::now();
+                let chunk = reader.read_next_chunk()?;
+                decode_ms += stage.elapsed().as_secs_f64() * 1000.;
+                let Some(chunk) = chunk else {
+                    break;
+                };
                 let chunk_id = UVec3::from_array(chunk.coordinate);
                 if !mutated {
                     if let Err(error) = self.water.snapshot_mutation_started() {
@@ -413,11 +443,13 @@ impl App {
                     self.summer_cicadas.clear("world_replacement")?;
                     mutated = true;
                 }
+                let stage = Instant::now();
                 self.plain_builder.write_chunk_atlas_region(
                     chunk_id * VOXEL_DIM_PER_CHUNK,
                     VOXEL_DIM_PER_CHUNK,
                     &chunk.bytes,
                 )?;
+                upload_ms += stage.elapsed().as_secs_f64() * 1000.;
             }
             reader.finish()?;
             Ok(())
@@ -431,12 +463,16 @@ impl App {
             return Err(TerrainLoadFailure { mutated, error });
         }
 
-        self.publish_snapshot_replacement()
+        let stage = Instant::now();
+        let result = self
+            .publish_snapshot_replacement()
             .and_then(|()| self.restore_garden_snapshot(garden, prepared_trees))
             .map_err(|error| {
                 self.water.retain_quiescence_after_publication_failure();
                 TerrainLoadFailure::after_mutation(error)
-            })
+            });
+        log::info!("[TERRAIN_TIMING] operation=load preflight_ms={preflight_ms:.2} garden_prepare_ms={prepare_ms:.2} quiesce_ms={quiesce_ms:.2} decode_ms={decode_ms:.2} gpu_upload_ms={upload_ms:.2} publish_ms={:.2} total_ms={:.2}", stage.elapsed().as_secs_f64() * 1000., start.elapsed().as_secs_f64() * 1000.);
+        result
     }
 
     pub(super) fn restore_startup_garden(&mut self) -> Result<()> {
