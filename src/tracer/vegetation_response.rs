@@ -1,6 +1,7 @@
 //! Stateful vegetation motion. Grass and fruit share world-space response grids;
 //! authored plants and individual leaf voxels have lifetime-keyed state. Rendering only sees
 //! four held poses, never the continuous integrator velocity.
+use crate::flora::species::MAX_FLORA_SPECIES;
 use crate::{builder::SurfaceResources, geom::UAabb3};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
@@ -94,7 +95,7 @@ pub(super) struct VegetationResponse {
     grid_inputs: Vec<ResponseInput>,
     previous_plants: HashMap<u64, u32>,
     leaves: leaves::LeafResponses,
-    flower_offsets: Vec<[u32; 5]>,
+    flower_offsets: Vec<[u32; MAX_FLORA_SPECIES]>,
     frames: Vec<Option<FrameBuffers>>,
     previous_output: Option<Buffer>,
     current_frame: Option<usize>,
@@ -218,8 +219,10 @@ impl VegetationResponse {
                 .info
                 .fill_uniform(&info)?;
             self.current_frame = Some(frame_slot);
-            self.flower_offsets
-                .resize(surface.instances.chunk_flora_instances.len(), [0; 5]);
+            self.flower_offsets.resize(
+                surface.instances.chunk_flora_instances.len(),
+                [0; MAX_FLORA_SPECIES],
+            );
             return Ok(());
         }
         let (start, reset) = response_interval(self.last_time, time);
@@ -240,7 +243,7 @@ impl VegetationResponse {
                 &self.previous_plants,
                 &mut next_plants,
             );
-            for species in 2..5 {
+            for species in 2..MAX_FLORA_SPECIES {
                 let count = chunk
                     .authored_response_instances
                     .iter()
@@ -377,7 +380,7 @@ impl VegetationResponse {
         }
         for batch in plan.batches() {
             let lod = u32::from(batch.lod_state() == super::LodState::Lod1);
-            let bit = 1 << (batch.species_index() as u32 + lod * 5);
+            let bit = 1 << (batch.species_index() as u32 + lod * MAX_FLORA_SPECIES as u32);
             if self.validation_draw_mask & bit == 0 {
                 self.validation_draw_mask |= bit;
                 log::info!(
@@ -398,7 +401,7 @@ impl VegetationResponse {
             self.validation_tree_mask
         );
         anyhow::ensure!(
-            self.validation_draw_mask == 0x3ff,
+            self.validation_draw_mask == (1 << (2 * MAX_FLORA_SPECIES)) - 1,
             "incomplete grass/flower C draw coverage: 0x{:03x}",
             self.validation_draw_mask
         );
@@ -435,9 +438,9 @@ fn append_chunk_plants(
     plants: &[crate::builder::AuthoredFloraInstance],
     previous: &HashMap<u64, u32>,
     next: &mut HashMap<u64, u32>,
-) -> [u32; 5] {
-    let mut offsets = [0; 5];
-    for species in 2..5 {
+) -> [u32; MAX_FLORA_SPECIES] {
+    let mut offsets = [0; MAX_FLORA_SPECIES];
+    for species in 2..MAX_FLORA_SPECIES {
         offsets[species] = inputs.len() as u32;
         for plant in plants
             .iter()
@@ -520,11 +523,11 @@ mod tests {
         let mut previous = HashMap::new();
         let offsets = append_chunk_plants(
             &mut inputs,
-            &[plant(1, 2), plant(2, 2), plant(3, 4)],
+            &[plant(1, 2), plant(2, 2), plant(3, 3)],
             &HashMap::new(),
             &mut previous,
         );
-        assert_eq!(offsets[2..], [0, 2, 2]);
+        assert_eq!(offsets[2..], [0, 2]);
         assert!(inputs.iter().all(|input| input.identity[0] == NO_PREVIOUS));
         inputs.clear();
         let mut next = HashMap::new();
@@ -532,7 +535,7 @@ mod tests {
         retained.growth_progress = 20;
         append_chunk_plants(
             &mut inputs,
-            &[plant(3, 4), retained, plant(4, 2)],
+            &[plant(3, 3), retained, plant(4, 2)],
             &previous,
             &mut next,
         );

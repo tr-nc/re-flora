@@ -8,7 +8,7 @@ and `--terrain-load`. This format replaces the terrain-only v1 format; no migrat
 
 - The exact packed terrain atlas, including hand-edited tree wood.
 - Both painted grass species: roots and current per-instance growth, read from their live GPU streams.
-- Lavender, ember bloom and kochia: roots, species, growth, seed and stable response identity.
+- Lavender and ember bloom: roots, species, growth, seed and stable response identity.
 - Every tree: identity, position, mature authoring description and global age. Leaves and their
   anchors, tree ownership, fruit specifications and canopy audio are rebuilt from that description.
 - The fruiting cycle and global flora growth override. Loading a completed crop does not replay
@@ -54,7 +54,7 @@ RUST_LOG=info RE_FLORA_GARDEN_SNAPSHOT_SMOKE=verify cargo run --release -- \
   --terrain-save target/garden-fixture-roundtrip.rflterrain
 ```
 
-The first run paints all five flora species and creates two trees at age 0.43. The second checks
+The first run paints all four flora species and creates two trees at age 0.43. The second checks
 startup restoration, then makes intervening tree edits and loads twice through the GUI's runtime
 entry point. It compares every terrain byte, flora root/growth/identity and tree/leaf publication,
 and waits for the actual water publication to settle. Success logs `[GARDEN_SMOKE] passed`.
@@ -65,3 +65,6 @@ one pre-existing PATT fixture-dependent test remained explicitly skipped, and on
 The 332 script tests passed. Release runs passed both the five-species/two-tree fixture above and
 an empty-vegetation snapshot, including two intervening-edit/runtime-load cycles for each. The
 saved GUI and camera configuration files were unchanged by these runs.
+
+Kochia has been removed from the current species schema. Snapshots containing it
+are rejected; no legacy migration is provided.

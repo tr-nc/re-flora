@@ -109,9 +109,8 @@ use crate::particles::{
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
-    allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
-    solid_flora_height_color_tables, RenderFramePlan, TerrainRayQuery, Tracer, TracerDesc,
-    DIRECT_SUN_SHADOW_SOURCE_ALL,
+    allium_height_color_tables, grass_flora_height_color_tables, solid_flora_height_color_tables,
+    RenderFramePlan, TerrainRayQuery, Tracer, TracerDesc, DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
@@ -3594,10 +3593,6 @@ impl App {
                                     .ember_bloom_flower_secondary_color
                                     .value,
                             ),
-                        ),
-                        "kochia" => kochia_color_tables(
-                            color_to_vec3(self.debug_settings.adjustables.kochia_color_a.value),
-                            color_to_vec3(self.debug_settings.adjustables.kochia_color_b.value),
                         ),
                         _ => {
                             let bottom = Color32::from_rgb(

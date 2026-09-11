@@ -112,7 +112,7 @@ pub struct FloraVoxelInfos {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
-    pub descs: [u32; 28],
+    pub descs: [u32; 24],
 }
 
 /// Auto-generated from `B_GrassGrowthPotentialLevels` (native Slang source of truth).
@@ -242,7 +242,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 5],
+    pub flora_instance_len: [u32; 4],
     pub has_growing_flora: u32,
 }
 
@@ -758,7 +758,7 @@ pub struct FloraGrowthInfo {
     pub spawn_overshoot_max_voxels: f32,
     pub spawn_stagger_seconds: f32,
     pub _pad0: [u8; 12],
-    pub moisture_growth_factors: [u32; 20],
+    pub moisture_growth_factors: [u32; 16],
 }
 
 /// Auto-generated from `U_GodRayInfo` (native Slang source of truth).
@@ -817,20 +817,6 @@ pub struct GuiInput {
     pub grass_natural_bend_min_voxels: f32,
     pub grass_natural_bend_max_voxels: f32,
     pub flora_bend_height_power: f32,
-    pub kochia_body_wind_response: f32,
-    pub kochia_branch_jelly_amplitude_voxels: f32,
-    pub kochia_branch_jelly_speed: f32,
-    pub kochia_branch_phase_spread: f32,
-    pub kochia_tip_flutter_amplitude_voxels: f32,
-    pub kochia_tip_flutter_speed: f32,
-    pub kochia_bottom_darkening: f32,
-    pub kochia_branch_value_variation: f32,
-    pub kochia_voxel_value_variation: f32,
-    pub kochia_branch_count: u32,
-    pub kochia_bottom_diameter_voxels: f32,
-    pub kochia_waist_diameter_voxels: f32,
-    pub kochia_top_diameter_voxels: f32,
-    pub kochia_waist_height: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -872,7 +858,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 4],
+    pub _pad8: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

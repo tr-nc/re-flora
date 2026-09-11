@@ -199,7 +199,6 @@ struct ResponseCheck {
     frame: u32,
     original: Option<(bool, bool, f32)>,
     edits: Vec<TerrainBrushEdit>,
-    original_appearance: Option<(u32, f32)>,
     original_motion: Option<([f32; 4], f32, f32)>,
 }
 
@@ -224,16 +223,9 @@ impl ResponseCheck {
                 app.render_flags.enable_flora,
                 app.debug_settings.adjustables.lod_distance.value,
             ));
-            self.original_appearance = Some((
-                app.debug_settings.adjustables.kochia_branch_count.value,
-                app.debug_settings
-                    .adjustables
-                    .kochia_top_diameter_voxels
-                    .value,
-            ));
         }
         match frame {
-            0..=2 => {
+            0..=1 => {
                 app.player_tools.flora_paint_selection_index = frame as usize + 1;
                 let xz = authored_flora_bench_center(frame * 8);
                 let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
@@ -325,12 +317,6 @@ impl ResponseCheck {
                     .adjustables
                     .vegetation_response_pose_hz
                     .value = 8.;
-                app.debug_settings.adjustables.kochia_branch_count.value = 3;
-                app.debug_settings
-                    .adjustables
-                    .kochia_top_diameter_voxels
-                    .value = 9.;
-                log::info!("[VEGETATION_RESPONSE][SCENE] action=change-kochia-profile");
             }
             20 => {
                 let before = app
@@ -395,12 +381,6 @@ impl ResponseCheck {
                 app.debug_settings.adjustables.flora_inertial_response.value = true;
                 app.render_flags.enable_flora = visible;
                 app.debug_settings.adjustables.lod_distance.value = lod;
-                let (branches, diameter) = self.original_appearance.unwrap();
-                app.debug_settings.adjustables.kochia_branch_count.value = branches;
-                app.debug_settings
-                    .adjustables
-                    .kochia_top_diameter_voxels
-                    .value = diameter;
                 log::info!("[VEGETATION_RESPONSE][SCENE] lifecycle_replay=completed frames=100 legacy_toggle=exercised visibility_toggle=exercised lod_toggle=exercised");
                 log::info!(
                     "[VEGETATION_RESPONSE][TIMING] phase=c-first app_frame={}",

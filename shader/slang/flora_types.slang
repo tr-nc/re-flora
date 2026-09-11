@@ -1,15 +1,14 @@
 module flora_types;
 
 public static const int FLORA_HEIGHT_COLOR_TABLE_LEN = 12;
-public static const uint MAX_FLORA_SPECIES = 5u;
-public static const uint FLORA_SPECIES_COUNT = 5u;
+public static const uint MAX_FLORA_SPECIES = 4u;
+public static const uint FLORA_SPECIES_COUNT = 4u;
 public static const uint FLORA_SPECIES_TALL_GRASS = 0u;
 public static const uint FLORA_SPECIES_SHORT_GRASS = 1u;
 public static const uint FLORA_SPECIES_LAVENDER = 2u;
 public static const uint FLORA_SPECIES_EMBER_BLOOM = 3u;
-public static const uint FLORA_SPECIES_KOCHIA = 4u;
-public static const uint FLORA_SPECIES_TREE_LEAF = 5u;
-public static const uint FLORA_SPECIES_APPLE = 6u;
+public static const uint FLORA_SPECIES_TREE_LEAF = 4u;
+public static const uint FLORA_SPECIES_APPLE = 5u;
 public static const uint MAX_FLORA_INSTANCES_PER_SPECIES = 40000u;
 
 public static const uint INSTANCE_SPAWN_INACTIVE = 0xffffffffu;
