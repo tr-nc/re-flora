@@ -1,4 +1,6 @@
 import flora_shadow;
+import environment_lighting;
+import leaf_lighting;
 import tracer_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -21,6 +23,7 @@ struct VertexInput
     [[vk::location(3)]] float instance_size : TEXCOORD2;
     [[vk::location(4)]] float4 instance_color : COLOR0;
     [[vk::location(5)]] uint instance_texture_index : TEXCOORD3;
+    [[vk::location(6)]] float4 leaf_optics : TEXCOORD4;
 };
 
 struct VertexOutput
@@ -93,7 +96,7 @@ VertexOutput main(VertexInput input)
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
 
-    float shadowWeight = stylizedVoxelShadowWeight(
+    StylizedVoxelShadowSample shadow = sampleStylizedVoxelShadow(
         gui_input,
         sun_info,
         shadow_camera_info,
@@ -103,11 +106,26 @@ VertexOutput main(VertexInput input)
         cloud_shadow_tex,
         input.instance_position,
         float3(voxelLocalPosition));
-    output.color = float4(
-        applyStylizedVoxelLighting(
+    output.color.a = input.instance_color.a;
+
+    if (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0)
+    {
+        float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
+            ? sampleDiffuseEnvironment(gui_input, shading_info,
+                input.instance_position, float3(0.0, 1.0, 0.0))
+            : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
+        output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
+            environmentLight, shadow.sun_transmittance, input.instance_position,
+            input.leaf_optics.xyz, camera_info.pos.xyz, sun_info,
+            gui_input.leaf_transmission_strength);
+    }
+
+    else
+    {
+        output.color.rgb = applyStylizedVoxelLighting(
             gui_input, sun_info, shading_info, input.instance_color.rgb,
-            shadowWeight, input.instance_position, float3(voxelLocalPosition)),
-        input.instance_color.a);
+            shadow.weight, input.instance_position, float3(voxelLocalPosition));
+    }
 
     output.uv = float2(float(vertexOffset.x), 1.0 - float(vertexOffset.y));
     if ((input.instance_texture_index & SPRITE_FLIP_BIT) != 0u)

@@ -4,6 +4,7 @@ import color;
 import environment_lighting;
 import flora_motion;
 import leaf_flutter;
+import leaf_lighting;
 import flora_noise;
 import flora_shadow;
 import flora_types;
@@ -567,12 +568,9 @@ float3 finishTreeLeafShading(float3 litColor, float3 baseColor,
 float3 shadeOrientedLeaf(float3 baseColor, float3 environmentLight,
     float sunTransmittance, float3 voxelPosition, float3 opticalNormal)
 {
-    float3 toCamera = camera_info.pos.xyz - voxelPosition;
-    float3 view = toCamera / max(length(toCamera), 0.00001);
-    float3 sunRadiance = sun_info.sun_color * sunLuminanceFromDirection(sun_info.sun_dir, sun_info.sun_luminance);
-    float3 color = leafOpticalColor(baseColor, environmentLight, sunRadiance,
-        sunTransmittance, view, normalize(sun_info.sun_dir), opticalNormal,
-        gui_input.leaf_transmission_strength);
+    float3 color = shadeLeafWithEnvironment(baseColor, environmentLight,
+        sunTransmittance, voxelPosition, opticalNormal, camera_info.pos.xyz,
+        sun_info, gui_input.leaf_transmission_strength);
     return applyTerrainEditPreviewTint(terrain_edit_preview, color, voxelPosition);
 }
 

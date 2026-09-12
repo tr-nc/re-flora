@@ -6210,7 +6210,22 @@ impl Tracer {
                 );
                 tex_index
             };
+            // Free leaves have no angular state. Their motion direction is a
+            // broadside-flight optical proxy, not a rotation of the billboard.
+            // A vertical bias keeps this continuous through zero velocity.
+            let leaf_optics = if snap.kind == crate::particles::ParticleRenderKind::Leaf {
+                let optical_normal = Vec3::new(
+                    -snap.velocity.x,
+                    snap.velocity.y.abs() + 0.05,
+                    -snap.velocity.z,
+                )
+                .normalize();
+                optical_normal.extend(1.0).to_array()
+            } else {
+                [0.0; 4]
+            };
             let instance = ParticleInstanceGpu {
+                leaf_optics,
                 position: snap.position_ws.to_array(),
                 size: snap.size,
                 color: snap.color.to_array(),

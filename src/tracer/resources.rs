@@ -398,6 +398,8 @@ pub struct ParticleInstanceGpu {
     pub size: f32,
     pub color: [f32; 4],
     pub tex_index: u32,
+    /// Optical proxy normal; w enables leaf shading independently of atlas layer.
+    pub leaf_optics: [f32; 4],
 }
 
 pub struct ParticleRendererResources {
