@@ -3,7 +3,7 @@
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
-更新：用户试玩后要求更自然的分步/顿挫和自行调参，已增加第二轮控件；最新默认与验证见本文末尾。前面的首轮证据保持原记录。
+更新：用户试玩后增加第二轮分步/顿挫控件，第三轮明确改为启动默认 B，并加入独立风漂移和较慢自主飞行；最新默认与验证见本文末尾。前面的历史证据保持原记录。
 
 ## 入口与实际效果
 
@@ -114,3 +114,31 @@ env -u WAYLAND_DISPLAY RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1 RE_FLORA_BUTTERFL
 第二次运行在 726/816/906 simulation frame 后切为连续、160 ms（同时增强机动）、恢复 60 ms。排除实际速度近零与数量改变的帧间样本，显示位置保持次数分别为初始 60 ms 的 41/178、连续的 0/190、160 ms 的 157/232、恢复后的 157/396。不同段个体与运动状态不同，不作严格性能或主观自然度比较；只确认控件切换实际生效。最高 6 只，状态有限；两次退出码均 0、shutdown failures=0，日志无 ERROR/panic/VUID。
 
 本轮仅改 `src/particles/{butterfly_flight,emitters,mod,system}.rs`、`src/app/core/{mod,particles}.rs` 和本报告。没有生成文件/config/shader/GPU ABI 的改动，也没有扩大与主工作区落叶着色的重叠。动态效果由用户继续调参验收。
+
+## 默认 B 与独立风漂移（第三轮）
+
+用户明确“more option”指 B 作为默认，而不是增加另一套菜单。现在普通启动即勾选 **R → Debug Panel → Butterflies → B: Darting color blocks (A/B experiment)**；取消勾选仍立即恢复原 A 的素材和运动（不添加风漂移）。这些临时选项仍不写配置，重启回到 B。
+
+- 原 `Flight speed (x)` 改名 `Self-flight speed (x)`，范围仍 0.25–2.5，默认从 1 降为 **0.65**。只缩放自主巡航、机动力及相对空气的速度限制。
+- 新增 `Wind drift (x)`，范围 **0–3、默认 1**。0 会让已有漂移平顺衰减；不改变全局风强度、植物或其他粒子。
+- 其余四个控件及默认值不变。Reset 恢复自主速度 0.65、风漂移 1 和其余默认值。
+
+此前 B 完全由自主速度积分，没有读取现有风场。现在每个 120 Hz 子步在个体实际物理位置调用同一个 `WindFieldFrame::sample_world`；该快照来自现有 `WindPrototype`，同时包含自然背景风与 Wind 工具释放的局部风。没有新增风生成器、蝴蝶生成器或改变 World Tick/数量/栖息地权威。现有风场只有水平分量，不虚构垂直阵风。
+
+模型将自主空速与风漂移速度分开：先对自主分量施加速度限制，再叠加风分量，避免降低自主速度也把随风位移一起截小。风场强度是工程单位，映射系数为 `0.06 world/s/strength`，漂移速度上限 0.45 world/s、响应时间常数 0.25 s、加速度上限 0.60 world/s²；强风变化不会直接传送位置。世界/地形接触同时裁剪两部分速度，原栖息地恢复仍作用于实际位置，因此遇障/离巢后最终轨迹会自然耦合，不宣称任意场景下两条轨迹数学独立。这些参数是可玩候选调校，不是新的生物学定律。
+
+验证通过 `cargo fmt --check`、`cargo check`、`cargo test` 和 release 构建：**939 passed / 0 failed / 2 ignored**。新增三个确定性风测试覆盖局部采样、零风倍率等价于静风且不消耗出生 RNG、自主速度不截断风速、独立倍率、强风反转/非有限输入/衰减/世界边界；更新六个滑条与 reset 指针点击测试，以及默认 B → A → B checkbox 点击测试。完整测试输出 `target/butterfly-wind-all-tests.log`。仍有既有编译警告及测试 ALSA 枚举告警，未作音频验收。
+
+所有 GPU 运行均使用 `env -u WAYLAND_DISPLAY ... flock --close /tmp/re-flora-summer-gpu.lock cargo run --release -- --hidden --mute ...`，本轮未启动可见游戏、未结束其他进程：
+
+| 运行 | 日志（位于 `target/re-flora-logs/`） |
+| --- | --- |
+| 普通启动 B，`--auto-exit 0.5` | `re-flora-20260912-135520.866-339125.log` |
+| 原 A，`RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE=1`、`--auto-exit 0.5` | `re-flora-20260912-135538.396-339226.log` |
+| 自然主体与风调参，`RE_FLORA_BUTTERFLY_REVIEW=wind` | `re-flora-20260912-135547.388-339302.log` |
+
+前两次日志分别确认 `startup_variant=DartingBlock` / `OriginalSprite`。第三次参数为 `--windowed --denoiser-bench blacky target/butterfly-review/wind.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`；自然主体在 simulation frame 655 选定，745/835/925 帧之后风倍率依次 0/2/1，自主速度保持 0.65。771 个逐帧记录中最高 6 只；各段记录到非零局部风样本。滑杆生效的因果隔离由确定性测试证明，不能从不同时间段的自然飞行截图推出定量倍率关系。
+
+`wind.toml` 枚举 120 张 2560×1440 原始 PNG，目录 `target/butterfly-review/wind.artifacts-O5Q0wQ/`；检查了 `frame-0210/0213/0216.png` 连续采样，能见紫/蓝/白方块位移，没有蝴蝶纹理帧动画。三次运行均退出 0、shutdown failures=0，无 ERROR/panic/VUID。保留既有多蝴蝶 atlas 告警；采集运行另记录一次 `[COLLISION][FRUIT] physics hitch dropped 19.655 ms`，未隔离其原因，不把截图运行视为性能通过。
+
+本轮功能提交 **`250e01cd`**；仅改 `src/particles/{butterfly_flight,emitters}.rs`、`src/app/core/{mod,particles}.rs` 四个源文件，另提交本报告。没有生成文件、配置、shader、素材或 GPU ABI 差异；本地截图/日志仍在忽略的 `target/`。前述与主工作区 `upload_particles` 落叶共享着色的集成提醒不变。本轮未 merge/push、未管理 Worker；用户手动 Wind 工具操作、最新动态自然度、满负载性能与长期复杂地形仍待验收。
