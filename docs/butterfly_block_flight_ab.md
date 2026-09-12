@@ -3,7 +3,7 @@
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
-更新：用户试玩后增加第二轮分步/顿挫控件，第三轮明确改为启动默认 B，并加入独立风漂移和较慢自主飞行；最新默认与验证见本文末尾。前面的历史证据保持原记录。
+更新：用户试玩后增加第二轮分步/顿挫控件，第三轮改为启动默认 B、独立风漂移和较慢自主飞行，第四轮增加独立上下机动频率；最新默认与验证见本文末尾。前面的历史证据保持原记录。
 
 ## 入口与实际效果
 
@@ -142,3 +142,18 @@ env -u WAYLAND_DISPLAY RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1 RE_FLORA_BUTTERFL
 `wind.toml` 枚举 120 张 2560×1440 原始 PNG，目录 `target/butterfly-review/wind.artifacts-O5Q0wQ/`；检查了 `frame-0210/0213/0216.png` 连续采样，能见紫/蓝/白方块位移，没有蝴蝶纹理帧动画。三次运行均退出 0、shutdown failures=0，无 ERROR/panic/VUID。保留既有多蝴蝶 atlas 告警；采集运行另记录一次 `[COLLISION][FRUIT] physics hitch dropped 19.655 ms`，未隔离其原因，不把截图运行视为性能通过。
 
 本轮功能提交 **`250e01cd`**；仅改 `src/particles/{butterfly_flight,emitters}.rs`、`src/app/core/{mod,particles}.rs` 四个源文件，另提交本报告。没有生成文件、配置、shader、素材或 GPU ABI 差异；本地截图/日志仍在忽略的 `target/`。前述与主工作区 `upload_particles` 落叶共享着色的集成提醒不变。本轮未 merge/push、未管理 Worker；用户手动 Wind 工具操作、最新动态自然度、满负载性能与长期复杂地形仍待验收。
+
+## 独立上下机动频率（第四轮）
+
+入口仍是 B checkbox 下方。新增 **`Vertical maneuver frequency (x)`：0–4，默认 1**；调高仅缩短两次上下脉冲之间的不规则休息，0 停止发起新脉冲，当前脉冲和已有速度自然结束/衰减。它不是固定 Hz，也不使用正弦位置或改变显示步进。`Vertical movement (x)` 仍控制强度，原 `Maneuver tempo (x)` 更名 `Horizontal maneuver tempo (x)`，现在只控制水平机动。所有七个控件实时应用且支持 Reset，默认 B、自主速度 0.65、风漂移 1 和临时不持久化规则不变。
+
+根因：之前上下与横向分量在同一个事件中抽样，只有共享 tempo 和上下强度，无法单独调整“多久上下蹿一下”。现在同一飞行状态内部拆出独立种子化垂直事件时钟/RNG，仍驱动同一个粒子积分器；没有新个体生成器。频率只缩放休息时间，脉冲的随机力度和 0.07–0.20 s 持续时间不随频率缩短；保持原上下抽样范围/偏态休息范围。垂直机动不再把持续上升/下降方向写进横向巡航方向：事件间自主垂直目标回到零速，已有竖直速度通过有界加速度收敛。该拆分会改变原默认轨迹，不能说默认 1 与第三轮逐帧相同；需要用户重新判断动态手感。
+
+确定性验证：`cargo fmt --check`、`cargo check`、`cargo test butterfly`（23 项）、`cargo test`（**942 passed / 0 failed / 2 ignored**）、release 构建通过。新增三项测试覆盖频率对事件数量的影响/非周期间隔/相同脉冲序列力度和时长、0 倍停发但不截断当前脉冲、水平与垂直事件时钟及 RNG 独立；更新七滑杆点击/Reset 和极端值测试。原有固定步进、风漂移、人口/寿命/配色、边界与连续性断言仍通过。输出在 `target/butterfly-vertical-{check,tests,all-tests,build}.log`。
+
+两次真实 GPU 运行使用 `env -u WAYLAND_DISPLAY ... flock --close /tmp/re-flora-summer-gpu.lock cargo run --release -- --hidden --mute ...`，并通过本 worktree `--latest-log` 核对日志：
+
+- 普通启动 B，`--auto-exit 0.5`：`target/re-flora-logs/re-flora-20260912-140656.259-369438.log`。
+- `RE_FLORA_BUTTERFLY_REVIEW=vertical`，`--windowed --denoiser-bench blacky target/butterfly-review/vertical.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`：`re-flora-20260912-140724.762-371280.log`。第 653 simulation frame 锁定自然主体，743/833/923 帧后频率 0/4/1，日志确认其余六项不变。771 个状态样本中最高 6 只。120 张原始 2560×1440 PNG 在 `target/butterfly-review/vertical.artifacts-pwFypi/`，已检查连续采样 `frame-0210/0213/0216.png`；截图不能代替主观动态或性能验收。
+
+两次退出 0、shutdown failures=0，无 ERROR/panic/VUID；只记录既有多 atlas 运行警告。未自动重开可见游戏、未结束其他进程。功能提交 **`9e2097be`**；本轮仅改 `src/particles/butterfly_flight.rs`、`src/app/core/particles.rs` 及本报告，没有生成文件/config/shader/素材/GPU ABI 的差异，也未扩大落叶共享着色的集成重叠。
