@@ -3,7 +3,7 @@
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
-更新：用户试玩后增加第二轮分步/顿挫控件，第三轮改为启动默认 B、独立风漂移和较慢自主飞行，第四轮增加独立上下机动频率；最新默认与验证见本文末尾。前面的历史证据保持原记录。
+更新：最新第五轮把上下频率上限扩至 40，并按用户确认保存自主速度 0.25、上下强度 4、上下频率 4 为启动/Reset 默认；最新模型与验证见本文末尾。前面的历史证据保持原记录。
 
 ## 入口与实际效果
 
@@ -157,3 +157,22 @@ env -u WAYLAND_DISPLAY RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1 RE_FLORA_BUTTERFL
 - `RE_FLORA_BUTTERFLY_REVIEW=vertical`，`--windowed --denoiser-bench blacky target/butterfly-review/vertical.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`：`re-flora-20260912-140724.762-371280.log`。第 653 simulation frame 锁定自然主体，743/833/923 帧后频率 0/4/1，日志确认其余六项不变。771 个状态样本中最高 6 只。120 张原始 2560×1440 PNG 在 `target/butterfly-review/vertical.artifacts-pwFypi/`，已检查连续采样 `frame-0210/0213/0216.png`；截图不能代替主观动态或性能验收。
 
 两次退出 0、shutdown failures=0，无 ERROR/panic/VUID；只记录既有多 atlas 运行警告。未自动重开可见游戏、未结束其他进程。功能提交 **`9e2097be`**；本轮仅改 `src/particles/butterfly_flight.rs`、`src/app/core/particles.rs` 及本报告，没有生成文件/config/shader/素材/GPU ABI 的差异，也未扩大落叶共享着色的集成重叠。
+
+## 高频范围与用户默认值（第五轮）
+
+用户要求上下频率的潜在最大值至少扩大 10 倍，并明确确认保存最新试玩设置。`Vertical maneuver frequency (x)` 范围现为 **0–40**（原 0–4），使用对数滑杆保留低频精调空间。启动和 Reset 默认：**自主速度 0.25、上下强度 4、上下频率 4**；位置步进 60 ms、横向 tempo 1、转向响应 1、风漂移 1、默认 B 不变。这是源代码中的新默认；后续运行时随手调整仍不自动持久化。用户设置依据为 `re-flora-20260912-153926.901-424453.log` 最后一个 `[BUTTERFLY_AB][TUNING]`，并已得到用户明确确认。
+
+旧上限不仅是 GUI 的 4：频率只缩短休息、脉冲仍固定 70–200 ms，继续加大数字会趋于饱和。现在 0–4 保持原休息缩放关系，超过 4 同时按 `frequency/4` 压缩脉冲时钟，40 的同种子事件时序相对 4 压缩 10 倍。跨物理子步的脉冲按实际覆盖时间积分为平均加速度，避免短脉冲漏采或把子步边界量化当作频率上限；仍由原 120 Hz 有界运动积分器处理，没有改写位置。力度抽样、横向/风/数量权威不变。相位边界积分更精确，低频轨迹不承诺与第四轮逐位相同。
+
+确定性证据：同种子 60 s，4 倍 **268** 个事件，40 倍 **2666** 个事件；对应序号事件时间符合 10:1（允许一个 120 Hz 观测子步误差），力度序列相同。新增高频冲量跨 30/120/1200 Hz 输入分块守恒检查与用户默认值/范围保护；极端参数测试扩至 40，水平时钟独立测试亦覆盖 40。GUI 测试继续检查七滑杆与 Reset；自主速度默认现在位于最小端点，测试点击改为轨道内部以验证实际变化，没有删除断言。
+
+`cargo fmt --check`、`cargo check`、`cargo test`、release 构建通过，**944 passed / 0 failed / 2 ignored**；输出 `target/butterfly-frequency-range-{check,all-tests,counts,build}.log`。既有编译/ALSA 枚举告警不作音频验收。
+
+真实 GPU 验证均以 `env -u WAYLAND_DISPLAY ... flock --close /tmp/re-flora-summer-gpu.lock cargo run --release -- --hidden --mute ...` 运行，未启动可见游戏、未结束其他进程：
+
+- 默认启动 `--auto-exit 0.5`：`target/re-flora-logs/re-flora-20260912-154804.980-461348.log`。
+- `RE_FLORA_BUTTERFLY_REVIEW=vertical-range`，`--windowed --denoiser-bench blacky target/butterfly-review/frequency-range.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`：`re-flora-20260912-154832.515-461848.log`。自然主体 frame 654；744/834/924 后频率 4/40/4，日志确认上下强度 4、自主速度 0.25 及其余设置不变。771 个状态样本最高 6 只。120 张 2560×1440 原 PNG 在 `target/butterfly-review/frequency-range.artifacts-nQqHKe/`，检查了 `frame-0210/0213/0216.png` 连续采样。
+
+两次退出码 0、shutdown failures=0，无 ERROR/panic/VUID，只有既有多 atlas 运行警告。事件变快不等于画面中出现十倍位移：自主速度/加速度/jerk 限制、60 ms 显示采样与渲染帧率仍会限制高频可见性；没有偷偷增大这些值。高频下是否够明显、是否自然，仍待用户试玩，不宣称视觉或性能最终验收。
+
+功能提交 **`49b52aa7`**；仅改 `src/particles/butterfly_flight.rs`、`src/app/core/particles.rs`，另提交本报告。没有生成文件、`config/gui.toml`、shader、素材、GPU ABI 差异；与主工作区落叶共享着色的既有集成提醒不变，未 merge/push 或管理 Worker。
