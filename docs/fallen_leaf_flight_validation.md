@@ -2,6 +2,34 @@
 
 2026-09-12；独立 worktree `/home/terence/code/re-flora-agent-fallen-leaf-flight`，分支 `agent/fallen-leaf-flight`，确认起点为 `74bf8b049c1f2f7000868af10d5f82d022f4770f`。未 merge、cherry-pick、push，也未操作其他 Worker 或主工作区的游戏进程。
 
+## 后续整理：Flora 显示层级
+
+按用户要求，Flora 本层只保留五个折叠入口，不再混排裸露参数、文字标题和子分类。分类层只包含分类，参数放在末级：
+
+```text
+Flora
+├─ Growth & Fruiting
+├─ Planting
+│  ├─ Distribution
+│  └─ Spawn Animation
+├─ Ground Plants
+│  ├─ Shape & Motion
+│  ├─ Grass Colors
+│  ├─ Color Variation
+│  └─ Purple Allium
+├─ Tree
+└─ Leaves
+   ├─ Flight & Lighting
+   ├─ Wind Motion
+   └─ Wind Response Curves
+```
+
+落叶 A/B checkbox 因此移至 **Debug Panel → Flora → Leaves → Flight & Lighting**。这是显示分类变更，不迁移 TOML section/参数 ID，不调整任何值、模拟或显示时钟，也不修改树编辑器。参数控件改为复用配置驱动渲染，不再重复手写滑块定义；保留曲线预览及区间顺序约束。未分类的未来参数仍有独立的 Other Flora Settings 入口，不静默丢弃。
+
+`cargo fmt --check`、`cargo check`、相关 GUI 测试 23 项、完整测试 **941 + 4 通过、2 忽略**，日志 `target/fallen-leaf-flight/flora-gui-tests.log`。实际 egui 输出测试验证 Flora 初展只显示五个分类；全展开验证各存储 section 恰好渲染一次且所有保存值不变；26 个 Flora 参数各有唯一分类。release build 和持锁 X11 hidden/mute `--auto-exit 0.5` 成功，运行日志 `target/re-flora-logs/re-flora-20260912-135640.836-340081.log` 无 ERROR/VUID/panic、`failures=0`，用同 worktree 的 `--tail-latest-log 8` 复核。GUI/相机配置哈希与下文一致，生成文件无变化。尚未做新版层级的用户可见窗口手动验收，也未自动启动可见游戏。
+
+本步骤文件：`src/app/gui_config.rs`、新增 `src/app/gui_config/flora_groups.rs`、`src/app/gui_config/debug_groups.rs` 与本文。后续“B 默认启用、绘制形式独立开关”属于另一步，本文这一节的验证不代表其已实现。
+
 ## 后续修正：只约束上屏频率，绝不降低物理频率
 
 用户试玩后指出初版 B 过于流畅，并明确只要求显示遵守 World Tick，不允许改物理模拟频率。`05a52df1` 修复了 `write_snapshots` 直接透传实时物理姿态的问题：新增一份 CPU `LeafDisplayPose`，由既有 `ParticleTickStep` 两桶时钟发布，A/B 共用，不增加独立计时器。默认 `World Tick=0.05 s`，每桶/每片约 `10 Hz`；发布之间位置、速度代理和四元数保持，几何及姿态驱动颜色一致，不插值。相机和环境光仍实时观察这份姿态。
