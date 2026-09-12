@@ -52,10 +52,10 @@ impl Default for ButterflyFlightTuning {
         Self {
             position_step_ms: 60.0,
             maneuver_tempo: 1.0,
-            vertical_frequency: 1.0,
-            vertical_strength: 1.0,
+            vertical_frequency: 4.0,
+            vertical_strength: 4.0,
             turn_sharpness: 1.0,
-            speed: 0.65,
+            speed: 0.25,
             wind_drift: 1.0,
         }
     }
@@ -64,18 +64,19 @@ impl Default for ButterflyFlightTuning {
 impl ButterflyFlightTuning {
     pub const POSITION_STEP_RANGE: std::ops::RangeInclusive<f32> = 0.0..=160.0;
     pub const TEMPO_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
-    pub const VERTICAL_FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
+    pub const VERTICAL_FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=40.0;
     pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
     pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.25..=2.5;
     pub const WIND_DRIFT_RANGE: std::ops::RangeInclusive<f32> = 0.0..=3.0;
 
     pub fn sanitized(self) -> Self {
-        let bounded = |value: f32, range: std::ops::RangeInclusive<f32>| {
+        let defaults = Self::default();
+        let bounded = |value: f32, range: std::ops::RangeInclusive<f32>, fallback: f32| {
             if value.is_finite() {
                 value.clamp(*range.start(), *range.end())
             } else {
-                1.0
+                fallback
             }
         };
         Self {
@@ -84,22 +85,38 @@ impl ButterflyFlightTuning {
             } else {
                 Self::default().position_step_ms
             },
-            maneuver_tempo: bounded(self.maneuver_tempo, Self::TEMPO_RANGE),
-            vertical_frequency: bounded(self.vertical_frequency, Self::VERTICAL_FREQUENCY_RANGE),
-            vertical_strength: bounded(self.vertical_strength, Self::VERTICAL_RANGE),
-            turn_sharpness: bounded(self.turn_sharpness, Self::SHARPNESS_RANGE),
+            maneuver_tempo: bounded(
+                self.maneuver_tempo,
+                Self::TEMPO_RANGE,
+                defaults.maneuver_tempo,
+            ),
+            vertical_frequency: bounded(
+                self.vertical_frequency,
+                Self::VERTICAL_FREQUENCY_RANGE,
+                defaults.vertical_frequency,
+            ),
+            vertical_strength: bounded(
+                self.vertical_strength,
+                Self::VERTICAL_RANGE,
+                defaults.vertical_strength,
+            ),
+            turn_sharpness: bounded(
+                self.turn_sharpness,
+                Self::SHARPNESS_RANGE,
+                defaults.turn_sharpness,
+            ),
             speed: if self.speed.is_finite() {
-                bounded(self.speed, Self::SPEED_RANGE)
+                bounded(self.speed, Self::SPEED_RANGE, defaults.speed)
             } else {
                 Self::default().speed
             },
-            wind_drift: bounded(self.wind_drift, Self::WIND_DRIFT_RANGE),
+            wind_drift: bounded(self.wind_drift, Self::WIND_DRIFT_RANGE, defaults.wind_drift),
         }
     }
 }
 
-/// A separate event clock, not a separate particle simulation. Frequency scales only
-/// the irregular rest periods; pulse duration/force and horizontal timing stay unchanged.
+/// A separate event clock, not a separate particle simulation. Up to 4x only rests
+/// shrink; above 4x pulses also compress, so their duration cannot impose a rate ceiling.
 #[derive(Debug)]
 struct VerticalManeuvers {
     acceleration: f32,
@@ -120,20 +137,49 @@ impl VerticalManeuvers {
     }
 
     fn advance(&mut self, dt: f32, frequency: f32) -> f32 {
-        let resting_dt = (dt - self.active_remaining).max(0.0);
-        self.active_remaining = (self.active_remaining - dt).max(0.0);
-        if self.active_remaining > 0.0 {
-            return self.acceleration;
-        }
-        // Zero stops new voluntary pulses; the current pulse and physical velocity
-        // finish/settle normally. Re-enabling resumes the remaining irregular wait.
-        if frequency <= 0.0 {
+        if dt <= 0.0 {
             return 0.0;
         }
-        self.rest_remaining -= resting_dt * frequency;
-        if self.rest_remaining > 0.0 {
-            return 0.0;
+        let pulse_rate = (frequency / 4.0).max(1.0);
+        let mut remaining = dt;
+        let mut impulse = 0.0;
+        // Integrate through event boundaries, including pulses shorter than a physics
+        // step. Return their time-averaged force to the existing bounded integrator.
+        // At the sanitized maximum the minimum cycle is 10 ms (> the 120 Hz step),
+        // so this cannot turn into an unbounded high-frequency event loop.
+        while remaining > 0.0 {
+            if self.active_remaining > 0.0 {
+                let until_end = self.active_remaining / pulse_rate;
+                let active_dt = remaining.min(until_end);
+                impulse += self.acceleration * active_dt;
+                self.active_remaining = if remaining >= until_end {
+                    0.0
+                } else {
+                    self.active_remaining - active_dt * pulse_rate
+                };
+                remaining = (remaining - active_dt).max(0.0);
+            } else {
+                // Zero stops new pulses, without cutting existing physical motion.
+                if frequency <= 0.0 {
+                    break;
+                }
+                let until_end = self.rest_remaining / frequency;
+                let rest_dt = remaining.min(until_end);
+                self.rest_remaining = if remaining >= until_end {
+                    0.0
+                } else {
+                    self.rest_remaining - rest_dt * frequency
+                };
+                remaining = (remaining - rest_dt).max(0.0);
+                if self.rest_remaining <= 0.0 {
+                    self.start_pulse();
+                }
+            }
         }
+        impulse / dt
+    }
+
+    fn start_pulse(&mut self) {
         let roll = self.rng.random_range(0.0..1.0_f32);
         let vertical = if roll < 0.13 {
             self.rng.random_range(0.55..=0.95)
@@ -147,7 +193,6 @@ impl VerticalManeuvers {
             .rng
             .random_range(BUTTERFLY_BLOCK_EVENT_DURATION_MIN..=BUTTERFLY_BLOCK_EVENT_DURATION_MAX);
         self.rest_remaining = sample_event_wait(&mut self.rng);
-        self.acceleration
     }
 }
 
@@ -432,15 +477,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn butterfly_vertical_frequency_changes_irregular_rests_not_pulse_strength_or_duration() {
+    fn butterfly_vertical_frequency_changes_irregular_rests_not_pulse_force_sequence() {
         let run = |frequency| {
             let mut pulses = VerticalManeuvers::new(17.0);
             let mut events = Vec::new();
             for tick in 0..7200 {
-                let previous_remaining = pulses.active_remaining;
+                let previous_rng = pulses.rng.clone().random::<u64>();
                 pulses.advance(FLIGHT_STEP_SECONDS as f32, frequency);
-                if pulses.active_remaining > previous_remaining {
-                    events.push((tick, pulses.acceleration, pulses.active_remaining));
+                if pulses.rng.clone().random::<u64>() != previous_rng {
+                    events.push((tick, pulses.acceleration));
                 }
             }
             events
@@ -448,15 +493,25 @@ mod tests {
         let slow = run(0.25);
         let normal = run(1.0);
         let fast = run(4.0);
+        let extended = run(*ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE.end());
         assert!(slow.len() > 10);
         assert!(normal.len() > slow.len() * 2);
         assert!(fast.len() > normal.len());
-        for ((_, slow_force, slow_duration), (_, fast_force, fast_duration)) in
-            slow.iter().zip(&fast)
-        {
+        for ((_, slow_force), (_, fast_force)) in slow.iter().zip(&fast) {
             assert_eq!(slow_force, fast_force);
-            assert_eq!(slow_duration, fast_duration);
         }
+        assert_eq!(*ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE.end(), 40.0);
+        // The same seed's event times above 4x compress by the exact frequency ratio,
+        // within one fixed-step observation interval, rather than hitting a pulse ceiling.
+        for ((old_tick, old_force), (new_tick, new_force)) in fast.iter().zip(&extended) {
+            assert_eq!(old_force, new_force);
+            assert!((*new_tick as f32 - *old_tick as f32 / 10.0).abs() <= 1.1);
+        }
+        eprintln!(
+            "vertical events in 60s: 4x={} 40x={}",
+            fast.len(),
+            extended.len()
+        );
         let intervals = fast
             .windows(2)
             .map(|pair| pair[1].0 - pair[0].0)
@@ -465,8 +520,45 @@ mod tests {
             intervals.len() >= 12,
             "vertical pulses must not become periodic"
         );
-        assert!(fast.iter().any(|(_, force, _)| *force > 0.4));
-        assert!(fast.iter().any(|(_, force, _)| *force < -0.2));
+        assert!(fast.iter().any(|(_, force)| *force > 0.4));
+        assert!(fast.iter().any(|(_, force)| *force < -0.2));
+    }
+
+    #[test]
+    fn butterfly_fast_vertical_pulses_conserve_impulse_across_step_boundaries() {
+        let run = |dt: f32, steps| {
+            let mut pulses = VerticalManeuvers::new(17.0);
+            let mut impulse = 0.0;
+            for _ in 0..steps {
+                let force = pulses.advance(dt, 40.0);
+                assert!(force.is_finite() && force.abs() <= 0.95 * 1.55 + 1e-6);
+                impulse += force * dt;
+            }
+            (impulse, pulses.rng.random::<u64>())
+        };
+        let fine = run(1.0 / 1200.0, 12000);
+        for (dt, steps) in [(1.0 / 120.0, 1200), (1.0 / 30.0, 300)] {
+            let actual = run(dt, steps);
+            assert_eq!(actual.1, fine.1);
+            assert!((actual.0 - fine.0).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn butterfly_user_tuning_is_the_startup_and_sanitization_default() {
+        let defaults = ButterflyFlightTuning::default();
+        assert_eq!(defaults.speed, 0.25);
+        assert_eq!(defaults.vertical_strength, 4.0);
+        assert_eq!(defaults.vertical_frequency, 4.0);
+        assert_eq!(
+            ButterflyFlightTuning {
+                vertical_frequency: 400.0,
+                ..defaults
+            }
+            .sanitized()
+            .vertical_frequency,
+            40.0
+        );
     }
 
     #[test]
@@ -512,7 +604,7 @@ mod tests {
             state
         };
         let mut low = run(0.25, 1.0);
-        let mut high = run(4.0, 1.0);
+        let mut high = run(40.0, 1.0);
         assert_eq!(low.time_until_event, high.time_until_event);
         assert_eq!(low.event_time_remaining, high.event_time_remaining);
         assert_eq!(low.event_acceleration, high.event_acceleration);
@@ -659,7 +751,10 @@ mod tests {
             );
             (velocity, state.time_until_event)
         };
-        let baseline = ButterflyFlightTuning::default();
+        let baseline = ButterflyFlightTuning {
+            vertical_strength: 1.0,
+            ..Default::default()
+        };
         let (velocity, remaining) = run(baseline);
         assert!(
             run(ButterflyFlightTuning {
@@ -721,7 +816,7 @@ mod tests {
                     ButterflyFlightTuning {
                         position_step_ms: 160.0,
                         maneuver_tempo: 4.0,
-                        vertical_frequency: 4.0,
+                        vertical_frequency: 40.0,
                         vertical_strength: 4.0,
                         turn_sharpness: 4.0,
                         speed: 2.5,
@@ -788,7 +883,7 @@ mod tests {
             let center = Vec3::splat(1.0);
             let mut flight = DartingFlightState::new(seed as f32, center, Vec3::X);
             let mut position = center;
-            let mut velocity = Vec3::X * 0.15;
+            let mut velocity = Vec3::X * (0.15 * ButterflyFlightTuning::default().speed);
             let mut intervals = std::collections::BTreeSet::new();
             let mut last_event = 0;
             let mut max_offset = 0.0_f32;

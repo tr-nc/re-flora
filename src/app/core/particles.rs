@@ -103,8 +103,8 @@ fn draw_butterfly_flight_tuning(
             "Higher = more frequent, shorter horizontal maneuvers. Vertical timing, wind, physics tick and lifetime are unchanged.",
         );
     let vertical_frequency = ui.add(egui::Slider::new(&mut tuning.vertical_frequency, ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE)
-        .text("Vertical maneuver frequency (x)").step_by(0.05))
-        .on_hover_text("Higher = shorter irregular rests between up/down pulses, not a fixed Hz or sine wave. Pulse strength/duration and horizontal timing stay unchanged. 0 stops new pulses; existing motion settles and terrain/habitat recovery still works.");
+        .text("Vertical maneuver frequency (x)").logarithmic(true).step_by(0.05))
+        .on_hover_text("0-4 shortens irregular rests; above 4 also compresses pulses, up to 40. Not fixed Hz or a sine wave. Force, horizontal timing and wind are unchanged; speed/acceleration limits still apply. 0 stops new pulses.");
     let vertical = ui.add(egui::Slider::new(&mut tuning.vertical_strength, ButterflyFlightTuning::VERTICAL_RANGE)
         .text("Vertical movement (x)").step_by(0.05))
         .on_hover_text("Higher = stronger up/down steering. 0 removes voluntary vertical motion, but terrain/habitat recovery still works.");
@@ -884,11 +884,13 @@ impl App {
                 log::info!("[BUTTERFLY_REVIEW] scripted_wind_gain={gain} frame={frame}");
             }
         }
-        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("vertical") {
+        let review_mode = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").unwrap_or_default();
+        if matches!(review_mode.as_str(), "vertical" | "vertical-range") {
+            let extended_range = review_mode == "vertical-range";
             let next_frequency = match review.subject_frame.map(|start| frame - start) {
-                Some(90) => Some(0.0),
-                Some(180) => Some(4.0),
-                Some(270) => Some(1.0),
+                Some(90) => Some(if extended_range { 4.0 } else { 0.0 }),
+                Some(180) => Some(if extended_range { 40.0 } else { 4.0 }),
+                Some(270) => Some(if extended_range { 4.0 } else { 1.0 }),
                 _ => None,
             };
             if let Some(frequency) = next_frequency {
@@ -1158,7 +1160,12 @@ mod tests {
             ]
         };
         for rect in rects {
-            let pos = egui::pos2(rect.left() + 4.0, rect.center().y);
+            // Self-speed now starts at its minimum. Click inside the track, not the
+            // minimum endpoint (which would correctly leave that setting unchanged).
+            let pos = egui::pos2(
+                rect.left() + context.style().spacing.slider_width * 0.5,
+                rect.center().y,
+            );
             draw(click_events(pos, true));
             draw(click_events(pos, false));
         }
