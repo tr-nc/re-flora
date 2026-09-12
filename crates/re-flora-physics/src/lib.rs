@@ -4,13 +4,14 @@ use rapier3d::parry::query::ShapeCastOptions;
 #[cfg(test)]
 use rapier3d::prelude::{AxisMask, VoxelState};
 use rapier3d::prelude::{
-    BroadPhaseBvh, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
-    IVector, PhysicsWorld, Pose, QueryFilter, QueryPipeline, RigidBodyBuilder, RigidBodyHandle,
-    Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels,
+    BroadPhaseBvh, ColliderBuilder, ColliderHandle, Group, IVector, InteractionGroups,
+    InteractionTestMode, PhysicsWorld, Pose, QueryFilter, QueryPipeline, RigidBodyBuilder,
+    RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels,
 };
 use std::collections::{HashMap, HashSet};
 
 mod character_step;
+mod contact_prediction;
 
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
@@ -32,11 +33,7 @@ const OCCUPANCY_WORD_COUNT: usize = STATIC_VOXEL_BRICK_VOLUME.div_ceil(u64::BITS
 // The query-only player has no Rapier collider group. Its dedicated broad phase contains only
 // static terrain, while simulated dynamic bodies use the matrix below for terrain and peer contact.
 fn static_terrain_collision_groups() -> InteractionGroups {
-    InteractionGroups::new(
-        Group::GROUP_1,
-        Group::GROUP_2,
-        InteractionTestMode::And,
-    )
+    InteractionGroups::new(Group::GROUP_1, Group::GROUP_2, InteractionTestMode::And)
 }
 
 fn dynamic_body_collision_groups() -> InteractionGroups {
@@ -80,6 +77,8 @@ pub struct DynamicBodyDesc {
     pub angular_damping: f32,
     pub ccd_enabled: bool,
     pub can_sleep: bool,
+    /// Extra Rapier iterations for this body's contact island; zero keeps the library default.
+    pub additional_solver_iterations: usize,
 }
 
 impl DynamicBodyDesc {
@@ -98,6 +97,7 @@ impl DynamicBodyDesc {
             angular_damping: 0.1,
             ccd_enabled: true,
             can_sleep: true,
+            additional_solver_iterations: 0,
         }
     }
 }
@@ -109,6 +109,20 @@ pub struct DynamicBodyState {
     pub linear_velocity: Vec3,
     pub angular_velocity: Vec3,
     pub sleeping: bool,
+}
+
+/// Read-only contact evidence for opt-in physics diagnostics. Distances exclude contact skin.
+#[derive(Clone, Debug, Default)]
+pub struct DynamicBodyDiagnostics {
+    pub contact_pairs: usize,
+    pub manifolds: usize,
+    pub solver_contacts: usize,
+    pub contact_distances: Vec<f32>,
+    pub contact_normals: Vec<Vec3>,
+    pub impulse: f32,
+    pub time_since_can_sleep: f32,
+    pub user_force: Vec3,
+    pub user_torque: Vec3,
 }
 
 /// A single collision encountered while resolving a capsule character movement.
@@ -367,6 +381,9 @@ impl Default for CollisionWorld {
 impl CollisionWorld {
     pub fn new() -> Self {
         let mut physics = PhysicsWorld::new();
+        physics.narrow_phase = rapier3d::prelude::NarrowPhase::with_query_dispatcher(
+            contact_prediction::ContactPrediction,
+        );
         physics.integration_parameters.dt = DEFAULT_FIXED_STEP_SECONDS;
         Self {
             physics,
@@ -433,6 +450,7 @@ impl CollisionWorld {
             .ok_or(DynamicBodyError::IdExhausted)?;
 
         let body = RigidBodyBuilder::dynamic()
+            .additional_solver_iterations(desc.additional_solver_iterations)
             .pose(Pose::from_parts(to_rapier_vec(desc.position), rotation))
             .linvel(to_rapier_vec(desc.linear_velocity))
             .angvel(to_rapier_vec(desc.angular_velocity))
@@ -469,6 +487,33 @@ impl CollisionWorld {
             angular_velocity: from_rapier_vec(body.angvel()),
             sleeping: body.is_sleeping(),
         })
+    }
+
+    pub fn dynamic_body_diagnostics(&self, id: DynamicBodyId) -> Option<DynamicBodyDiagnostics> {
+        let body = &self.physics.bodies[*self.dynamic_bodies.get(&id)?];
+        let mut result = DynamicBodyDiagnostics {
+            time_since_can_sleep: body.activation().time_since_can_sleep,
+            user_force: from_rapier_vec(body.user_force()),
+            user_torque: from_rapier_vec(body.user_torque()),
+            ..Default::default()
+        };
+        for &collider in body.colliders() {
+            for pair in self.physics.contact_pairs_with(collider) {
+                result.contact_pairs += 1;
+                result.impulse += pair.total_impulse_magnitude();
+                result.manifolds += pair.manifolds.len();
+                for manifold in &pair.manifolds {
+                    result.solver_contacts += manifold.data.solver_contacts.len();
+                    result
+                        .contact_normals
+                        .push(from_rapier_vec(manifold.data.normal));
+                    result
+                        .contact_distances
+                        .extend(manifold.points.iter().map(|p| p.dist));
+                }
+            }
+        }
+        Some(result)
     }
 
     pub fn advance(&mut self, elapsed_seconds: f32) -> FixedStepResult {
@@ -638,6 +683,11 @@ impl CollisionWorld {
 
     pub fn static_brick_count(&self) -> usize {
         self.static_bricks.len()
+    }
+
+    /// Authoritative occupancy for diagnostic replay; does not expose Rapier's mutable shapes.
+    pub fn static_voxel_brick_occupancy(&self, id: StaticVoxelBrickId) -> Option<&BrickOccupancy> {
+        self.static_bricks.get(&id).map(|brick| &brick.occupancy)
     }
 
     pub fn static_brick_revision(&self, id: StaticVoxelBrickId) -> Option<u64> {
@@ -1471,7 +1521,10 @@ mod tests {
 
         let left = world.dynamic_body_state(left).unwrap();
         let right = world.dynamic_body_state(right).unwrap();
-        assert!(left.linear_velocity.x < 0.0, "left body did not bounce: {left:?}");
+        assert!(
+            left.linear_velocity.x < 0.0,
+            "left body did not bounce: {left:?}"
+        );
         assert!(
             right.linear_velocity.x > 0.0,
             "right body did not bounce: {right:?}"

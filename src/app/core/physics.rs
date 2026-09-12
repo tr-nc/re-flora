@@ -13,6 +13,9 @@ use re_flora_physics::{
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+mod fruit_ground_trace;
+use fruit_ground_trace::FruitGroundTrace;
+
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = 4.0;
 const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
@@ -22,6 +25,9 @@ const APPLE_FRICTION: f32 = 0.82;
 const APPLE_RESTITUTION: f32 = 0.12;
 const APPLE_LINEAR_DAMPING: f32 = 0.06;
 const APPLE_ANGULAR_DAMPING: f32 = 0.10;
+// The tilted replay needs extra convergence; the full terrain scene still jitters with 2.
+// Spend the extra solve work on fruit contact islands without changing global query/step settings.
+const APPLE_ADDITIONAL_SOLVER_ITERATIONS: usize = 4;
 // Release measurements put a 32-cubed Contree export plus Rapier update below 0.75 ms. Use a time
 // budget for prompt local edits while retaining a hard cap for unusually cheap or deferred work.
 const TERRAIN_COLLIDER_UPDATE_BUDGET: Duration = Duration::from_millis(1);
@@ -204,6 +210,7 @@ pub(super) struct TerrainPhysics {
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
     fruit_cycle: f32,
+    ground_trace: Option<FruitGroundTrace>,
 }
 
 impl TerrainPhysics {
@@ -232,6 +239,7 @@ impl TerrainPhysics {
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
+            ground_trace: FruitGroundTrace::from_env(),
         }
     }
 
@@ -264,6 +272,10 @@ impl TerrainPhysics {
         frame_delta_time: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
+        if let Some(mut trace) = self.ground_trace.take() {
+            trace.prepare(self, tracer)?;
+            self.ground_trace = Some(trace);
+        }
         self.spawn_pending_fruits(tracer)?;
         let has_fruit_bodies = self
             .fruits_by_tree
@@ -274,6 +286,9 @@ impl TerrainPhysics {
             return self.sync_dynamic_fruit_rendering(tracer);
         }
         let step = self.collision_world.advance(frame_delta_time);
+        if let Some(trace) = &mut self.ground_trace {
+            trace.stepped(frame_delta_time, step);
+        }
         if step.dropped_seconds > 0.0 {
             log::warn!(
                 "[COLLISION][FRUIT] physics hitch dropped {:.3} ms",
@@ -578,7 +593,7 @@ impl TerrainPhysics {
         Ok(())
     }
 
-    fn sync_dynamic_fruit_rendering(&self, tracer: &mut Tracer) -> anyhow::Result<()> {
+    fn sync_dynamic_fruit_rendering(&mut self, tracer: &mut Tracer) -> anyhow::Result<()> {
         let mut instances = Vec::new();
         for fruit in self.fruits_by_tree.values().flat_map(BTreeMap::values) {
             if let Some(state) = fruit
@@ -591,6 +606,10 @@ impl TerrainPhysics {
                     1.0,
                 ));
             }
+        }
+        if let Some(mut trace) = self.ground_trace.take() {
+            trace.record(self, &instances)?;
+            self.ground_trace = Some(trace);
         }
         if instances.is_empty() {
             tracer.clear_dynamic_fruit_geometry();
@@ -908,6 +927,7 @@ fn apple_dynamic_body_desc(
     desc.linear_damping = APPLE_LINEAR_DAMPING;
     desc.angular_damping = APPLE_ANGULAR_DAMPING;
     desc.ccd_enabled = true;
+    desc.additional_solver_iterations = APPLE_ADDITIONAL_SOLVER_ITERATIONS;
     desc
 }
 
@@ -1036,6 +1056,10 @@ mod tests {
 
         let state = world.dynamic_body_state(body).unwrap();
         assert!(
+            state.sleeping,
+            "resting apple did not naturally sleep: {state:?}"
+        );
+        assert!(
             state.linear_velocity.x.hypot(state.linear_velocity.z) < 0.01,
             "apple still translating across the floor after five seconds: {state:?}",
         );
@@ -1043,6 +1067,14 @@ mod tests {
             state.angular_velocity.length() < 0.01,
             "apple still visibly rotating after five seconds: {state:?}",
         );
+        for _ in 0..120 {
+            world.advance(1.0 / 120.0);
+            assert_eq!(
+                world.dynamic_body_state(body).unwrap(),
+                state,
+                "resting apple position or rotation keeps changing"
+            );
+        }
     }
 
     #[test]

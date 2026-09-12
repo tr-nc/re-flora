@@ -100,6 +100,16 @@ All runs had zero escapes and no contact deeper than 0.01 voxel. A single convex
 
 For the intended art direction, use the convex hull for apples. It visibly tumbles but naturally settles within about 1.8 degrees of a grid-aligned orientation in the horizontal probe. Do not lock orientation while moving and do not use the exact 32-box compound. A sphere remains a possible later physics LOD if a measured high-fruit-count workload requires it.
 
+The historical probe above did not cover the shipped 0.15-voxel contact skin and prolonged
+rest at game gravity. The [ground-jitter regression](fruit_ground_jitter.md) identified two
+prediction-contract defects in Parry 0.29.0 / Rapier 0.34.0. `CollisionWorld` now backports
+the native voxel candidate-AABB expansion and performs Rapier's original four-point
+manifold reduction using the full prediction distance including skin. Apples request four
+additional solver iterations for measured tilted-face convergence. There is still one Rapier
+world and one solver; character queries, voxel topology, geometry ownership, materials and
+natural sleep/edit wake-up remain unchanged. Source provenance and upgrade removal steps
+are in the [compatibility module](../crates/re-flora-physics/src/contact_prediction/README.md).
+
 ## Runtime ownership
 
 `CollisionWorld` owns Rapier and exposes project types rather than leaking Rapier handles throughout the app. The initial API should cover:
