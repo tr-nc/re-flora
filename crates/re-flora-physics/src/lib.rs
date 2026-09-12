@@ -10,6 +10,8 @@ use rapier3d::prelude::{
 };
 use std::collections::{HashMap, HashSet};
 
+mod character_step;
+
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
 pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
@@ -574,10 +576,35 @@ impl CollisionWorld {
         );
 
         let mut translation = effective.translation;
+        let mut stepped = false;
+        let mut is_sliding_down_slope = effective.is_sliding_down_slope;
         let landed_during_move = collisions
             .iter()
             .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
-        let mut grounded = effective.grounded || landed_during_move;
+        if (grounded_at_start || effective.grounded || landed_during_move)
+            && movement.desired_translation.y <= 0.0
+        {
+            let requested_horizontal =
+                Vector::new(desired_translation.x, 0.0, desired_translation.z);
+            let applied_horizontal = Vector::new(translation.x, 0.0, translation.z);
+            // A rounded corner can project a forward input both upward AND sideways. Try a
+            // collision-checked step from the original pose before accepting that slide.
+            if requested_horizontal.distance_squared(applied_horizontal) > 1.0e-6 {
+                if let Some(step) = character_step::try_step(
+                    &query_pipeline,
+                    shape.as_ref(),
+                    &pose,
+                    requested_horizontal,
+                ) {
+                    translation = step;
+                    stepped = true;
+                    is_sliding_down_slope = false;
+                    // These contacts belong to the discarded slide, not to the accepted step.
+                    collisions.clear();
+                }
+            }
+        }
+        let mut grounded = effective.grounded || stepped || landed_during_move;
         if movement.desired_translation.y <= 0.0 && (grounded_at_start || grounded) {
             let final_pose = Pose::from_translation(translation) * pose;
             if let Some(hit) = capsule_ground_hit(
@@ -596,7 +623,7 @@ impl CollisionWorld {
         Ok(CapsuleCharacterMoveResult {
             translation: from_rapier_vec(translation),
             grounded,
-            is_sliding_down_slope: effective.is_sliding_down_slope,
+            is_sliding_down_slope,
             collisions,
         })
     }

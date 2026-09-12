@@ -8,6 +8,8 @@ use re_flora_physics::{
 const DT: f32 = 1.0 / 60.0;
 const RADIUS: f32 = 0.5;
 const HALF_HEIGHT: f32 = 1.0;
+const PLAYER_RADIUS: f32 = 4.0;
+const PLAYER_HALF_HEIGHT: f32 = 8.0;
 
 fn occupancy_where(mut filled: impl FnMut(UVec3) -> bool) -> BrickOccupancy {
     let mut voxels = Vec::new();
@@ -40,6 +42,20 @@ fn capsule_move(center: Vec3, desired_translation: Vec3) -> CapsuleCharacterMove
 
 fn standing_center_y(surface_y: f32) -> f32 {
     surface_y + HALF_HEIGHT + RADIUS + CAPSULE_CHARACTER_COLLISION_OFFSET
+}
+
+fn player_capsule_move(center: Vec3, desired_translation: Vec3) -> CapsuleCharacterMove {
+    CapsuleCharacterMove {
+        center,
+        radius: PLAYER_RADIUS,
+        half_height: PLAYER_HALF_HEIGHT,
+        desired_translation,
+        dt: DT,
+    }
+}
+
+fn player_standing_center_y(surface_y: f32) -> f32 {
+    surface_y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS + CAPSULE_CHARACTER_COLLISION_OFFSET
 }
 
 #[test]
@@ -239,6 +255,354 @@ fn capsule_climbs_a_voxel_stair_slope() {
         (center.y - standing_center_y(4.0)).abs() < 1.0e-3,
         "center={center:?}"
     );
+}
+
+#[test]
+fn player_scale_capsule_keeps_horizontal_progress_over_voxel_stair_slope() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| {
+            voxel.y == 0
+                || (voxel.x >= 8 && voxel.y == 1)
+                || (voxel.x >= 12 && voxel.y == 2)
+                || (voxel.x >= 16 && voxel.y == 3)
+                || (voxel.x >= 20 && voxel.y == 4)
+        }),
+    );
+
+    let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+    for _ in 0..20 {
+        let result = world
+            .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
+            .unwrap();
+        assert!(result.grounded, "center={center:?} result={result:?}");
+        assert!(result.translation.x > 0.98, "result={result:?}");
+        center += result.translation;
+    }
+
+    assert!(center.x > 23.5, "center={center:?}");
+    assert!(
+        (center.y - player_standing_center_y(5.0)).abs() < 1.0e-3,
+        "center={center:?}"
+    );
+}
+
+#[test]
+fn smooth_player_scale_capsule_still_stops_at_a_tall_wall() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 12 && voxel.y < 28)),
+    );
+
+    let start = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+    let result = world
+        .move_capsule_character(player_capsule_move(start, Vec3::new(10.0, -0.1, 0.0)))
+        .unwrap();
+    let final_center = start + result.translation;
+
+    assert!(result.grounded, "result={result:?}");
+    assert!(final_center.x + PLAYER_RADIUS < 12.0, "result={result:?}");
+}
+
+#[test]
+fn smooth_walk_preserves_heading_past_a_left_front_step() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|v| v.y == 0 || (v.x < 16 && v.z >= 12 && v.y <= 4)),
+    );
+    let start = Vec3::new(17.0, player_standing_center_y(1.0), 4.0);
+    let mut center = start;
+    for _ in 0..20 {
+        let result = world
+            .move_capsule_character(player_capsule_move(center, Vec3::new(0.0, -0.1, 1.0)))
+            .unwrap();
+        center += result.translation;
+    }
+    assert!(
+        (center.x - start.x).abs() < 0.05,
+        "forward input was pushed sideways: start={start:?}, end={center:?}"
+    );
+    assert!(center.z > 23.5, "forward input stalled: {center:?}");
+}
+
+// Exact capsule-vs-box distance for test-owned voxel boxes; checks the returned trajectory,
+// independently of the shape casts used to choose it.
+fn assert_player_clear_of_box(center: Vec3, min: Vec3, max: Vec3) {
+    let nearest = center.clamp(min, max);
+    let mut gap = (center - nearest).abs();
+    gap.y = (gap.y - PLAYER_HALF_HEIGHT).max(0.0);
+    assert!(
+        gap.length_squared() >= PLAYER_RADIUS * PLAYER_RADIUS - 1.0e-3,
+        "capsule penetrated box {min:?}..{max:?}: center={center:?}, gap={gap:?}"
+    );
+}
+
+#[test]
+fn smooth_walk_keeps_straight_and_diagonal_headings_at_different_frame_rates() {
+    for hz in [30, 60, 120] {
+        for height in [1, 2, 4] {
+            for mirrored in [false, true] {
+                for diagonal in [false, true] {
+                    let mut world = CollisionWorld::new();
+                    world.upsert_static_voxel_brick(
+                        StaticVoxelBrickId(IVec3::ZERO),
+                        1,
+                        occupancy_where(|v| {
+                            let on_side = if mirrored { v.x >= 16 } else { v.x < 16 };
+                            v.y == 0 || (on_side && v.z >= 12 && v.y <= height)
+                        }),
+                    );
+                    let start = Vec3::new(
+                        if mirrored { 15.0 } else { 17.0 },
+                        player_standing_center_y(1.0),
+                        4.0,
+                    );
+                    let direction = Vec3::new(
+                        if diagonal {
+                            if mirrored {
+                                1.0
+                            } else {
+                                -1.0
+                            }
+                        } else {
+                            0.0
+                        },
+                        0.0,
+                        1.0,
+                    )
+                    .normalize();
+                    let side = direction.cross(Vec3::Y);
+                    let mut center = start;
+                    let dt = 1.0 / hz as f32;
+                    let (step_min, step_max) = if mirrored {
+                        (
+                            Vec3::new(16.0, 1.0, 12.0),
+                            Vec3::new(32.0, height as f32 + 1.0, 32.0),
+                        )
+                    } else {
+                        (
+                            Vec3::new(0.0, 1.0, 12.0),
+                            Vec3::new(16.0, height as f32 + 1.0, 32.0),
+                        )
+                    };
+                    for frame in 0..hz / 3 {
+                        let mut request = player_capsule_move(
+                            center,
+                            direction * (60.0 * dt) - Vec3::Y * (12.8 * dt),
+                        );
+                        request.dt = dt;
+                        let movement = world.move_capsule_character(request).unwrap();
+                        center += movement.translation;
+                        let expected = start + direction * (60.0 * dt * (frame + 1) as f32);
+                        assert!(
+                            (center - expected).dot(side).abs() < 0.01,
+                            "heading drift: hz={hz} height={height} mirrored={mirrored} diagonal={diagonal} frame={frame} result={movement:?}"
+                        );
+                        assert!(
+                            (center - expected).dot(direction).abs() < 0.05,
+                            "forward loss: hz={hz} height={height} frame={frame} center={center:?} expected={expected:?}"
+                        );
+                        assert!(
+                            movement.grounded,
+                            "unexpected loss of support: {movement:?}"
+                        );
+                        assert_player_clear_of_box(center, Vec3::ZERO, Vec3::new(32.0, 1.0, 32.0));
+                        assert_player_clear_of_box(center, step_min, step_max);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn smooth_walk_handles_limited_headroom_without_penetrating_the_ceiling() {
+    // A 1-voxel step fits under y=28, but not y=26 (player total height=24).
+    for ceiling in [26, 28] {
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::ZERO),
+            1,
+            occupancy_where(|v| v.y == 0 || (v.x >= 12 && v.y == 1) || v.y == ceiling),
+        );
+        let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+        for _ in 0..20 {
+            let result = world
+                .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
+                .unwrap();
+            center += result.translation;
+            assert_player_clear_of_box(
+                center,
+                Vec3::new(12.0, 1.0, 0.0),
+                Vec3::new(32.0, 2.0, 32.0),
+            );
+            assert_player_clear_of_box(
+                center,
+                Vec3::new(0.0, ceiling as f32, 0.0),
+                Vec3::new(32.0, ceiling as f32 + 1.0, 32.0),
+            );
+        }
+        if ceiling == 28 {
+            assert!(center.x > 23.9, "fitting step blocked: {center:?}");
+        } else {
+            assert!(
+                center.x < 12.0,
+                "squeezed into impossible headroom: {center:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn smooth_walk_does_not_accelerate_sliding_along_a_tall_wall() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|v| v.y == 0 || (v.x >= 12 && v.y < 28)),
+    );
+    let start = Vec3::new(7.9, player_standing_center_y(1.0), 8.0);
+    let desired = Vec3::new(1.0, -0.1, 1.0);
+    let result = world
+        .move_capsule_character(player_capsule_move(start, desired))
+        .unwrap();
+    assert!(
+        result.grounded && result.is_sliding_down_slope,
+        "{result:?}"
+    );
+    assert!(result.translation.x.abs() < 0.001, "{result:?}");
+    assert!(result.translation.y.abs() < 0.001, "{result:?}");
+    assert!(
+        result.translation.z > 0.99 && result.translation.z <= 1.001,
+        "{result:?}"
+    );
+    assert_player_clear_of_box(
+        start + result.translation,
+        Vec3::new(12.0, 1.0, 0.0),
+        Vec3::new(32.0, 28.0, 32.0),
+    );
+}
+
+#[test]
+fn smooth_walk_preserves_accepted_jump_fall_and_cliff_behavior() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|v| (v.z < 12 && v.y == 0) || (v.x < 16 && v.z >= 12 && v.y <= 4)),
+    );
+    // Fixed results recorded from the accepted controller before removing the experiment.
+    // Jumping into the corner; falling beside it; leaving a cliff on the other side.
+    for (start, desired, expected_translation, expected_grounded) in [
+        (
+            Vec3::new(17.0, player_standing_center_y(1.0), 8.0),
+            Vec3::new(0.0, 0.5, 1.0),
+            Vec3::new(0.102851145, 2.002953, 0.6560878),
+            true,
+        ),
+        (
+            Vec3::new(17.0, 20.0, 8.0),
+            Vec3::new(0.0, -1.0, 1.0),
+            Vec3::new(0.0, -1.0, 1.0),
+            false,
+        ),
+        (
+            Vec3::new(26.0, player_standing_center_y(1.0), 10.0),
+            Vec3::new(0.0, -0.1, 10.0),
+            Vec3::new(0.0, 0.0, 10.0),
+            false,
+        ),
+    ] {
+        let result = world
+            .move_capsule_character(player_capsule_move(start, desired))
+            .unwrap();
+        assert!(
+            result.translation.abs_diff_eq(expected_translation, 1.0e-3),
+            "unexpected airborne/cliff change at {start:?}: {result:?}"
+        );
+        assert_eq!(result.grounded, expected_grounded, "{result:?}");
+        assert!(!result.is_sliding_down_slope, "{result:?}");
+    }
+}
+
+#[test]
+fn smooth_walk_preserves_player_scale_large_step_traversability() {
+    for height in [16, 17] {
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::ZERO),
+            1,
+            occupancy_where(|v| v.y == 0 || (v.x >= 12 && v.y <= height)),
+        );
+        let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+        for _ in 0..20 {
+            let movement = world
+                .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
+                .unwrap();
+            center += movement.translation;
+            assert_player_clear_of_box(
+                center,
+                Vec3::new(12.0, 1.0, 0.0),
+                Vec3::new(32.0, height as f32 + 1.0, 32.0),
+            );
+        }
+        println!("step height={height}: end={center:?}");
+        // Continuous player-scale movement already traversed both heights before smoothing.
+        // The small-capsule single-move limit above is not a player-scale reachability limit.
+        assert!(
+            center.x > 23.8,
+            "previously traversable step blocked: {center:?}"
+        );
+    }
+}
+
+#[test]
+fn smooth_walk_preserves_heading_at_a_brick_seam_and_after_collider_edits() {
+    let mut world = CollisionWorld::new();
+    // Use a translated scene to exercise world-space hit positions, with the step at z=64.
+    let approach = StaticVoxelBrickId(IVec3::new(1, 2, 1));
+    let ahead = StaticVoxelBrickId(IVec3::new(1, 2, 2));
+    world.upsert_static_voxel_brick(approach, 1, layer_floor(1));
+    let start = Vec3::new(49.0, 64.0 + player_standing_center_y(1.0), 56.0);
+    for (revision, height) in [(1, 4), (2, 0), (3, 2)] {
+        world.upsert_static_voxel_brick(
+            ahead,
+            revision,
+            occupancy_where(|v| v.y == 0 || (v.x < 16 && v.y <= height)),
+        );
+        let mut center = start;
+        for _ in 0..20 {
+            let result = world
+                .move_capsule_character(player_capsule_move(center, Vec3::new(0.0, -0.1, 1.0)))
+                .unwrap();
+            center += result.translation;
+            assert!(
+                (center.x - start.x).abs() < 0.01,
+                "seam drift at revision={revision}: {center:?}"
+            );
+        }
+        assert!(
+            (center.z - start.z - 20.0).abs() < 0.05,
+            "seam blocked at revision={revision}: {center:?}"
+        );
+        if height == 0 {
+            assert!(
+                (center.y - start.y).abs() < 0.01,
+                "stale step support after removal: {center:?}"
+            );
+        } else {
+            assert!(
+                center.y > start.y + 0.5,
+                "replacement step support missing: {center:?}"
+            );
+        }
+    }
 }
 
 #[test]
