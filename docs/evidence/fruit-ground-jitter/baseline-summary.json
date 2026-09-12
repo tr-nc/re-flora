@@ -1,0 +1,158 @@
+{
+  "passed": false,
+  "simulated_seconds": 44.76877212524414,
+  "bodies": [
+    {
+      "body": 18,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.05450439453125,
+        0.12546539306640625,
+        0.047698974609375
+      ],
+      "angle_range_radians": 0.010683868355901283,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 245,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 21.151630772268724,
+      "max_angular_speed": 0.528157274451927,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 19,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.0408935546875,
+        0.12590789794921875,
+        0.01812744140625
+      ],
+      "angle_range_radians": 0.008686740696789886,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 233,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 20.997721126546235,
+      "max_angular_speed": 0.4700725060668237,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 20,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.05792236328125,
+        0.092529296875,
+        0.11920166015625
+      ],
+      "angle_range_radians": 0.05492212758447991,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 0,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 13.642938617356211,
+      "max_angular_speed": 5.292999390169855,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 21,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.02593994140625,
+        0.1210479736328125,
+        0.037139892578125
+      ],
+      "angle_range_radians": 0.008621224923876012,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 281,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 21.18942159300184,
+      "max_angular_speed": 0.6964845907193649,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 22,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.2493133544921875,
+        0.1655426025390625,
+        0.141998291015625
+      ],
+      "angle_range_radians": 0.0467350795521322,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 205,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 21.205482303540066,
+      "max_angular_speed": 2.3846275487449926,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 23,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.053802490234375,
+        0.12786102294921875,
+        0.040496826171875
+      ],
+      "angle_range_radians": 0.006438636223792102,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 266,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 21.1376262183984,
+      "max_angular_speed": 0.6938424701806296,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 24,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.032928466796875,
+        0.118377685546875,
+        0.04058837890625
+      ],
+      "angle_range_radians": 0.008274537219651198,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 267,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 21.08588014339736,
+      "max_angular_speed": 0.6147987171993088,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    },
+    {
+      "body": 25,
+      "samples": 1349,
+      "position_range_voxels": [
+        0.007232666015625,
+        0.11933135986328125,
+        0.0145111083984375
+      ],
+      "angle_range_radians": 0.0026894216368050826,
+      "sleeping_samples": 0,
+      "first_sleep_seconds": null,
+      "missing_solver_contacts": 246,
+      "render_position_error": 0.0,
+      "render_rotation_error": 0.0,
+      "max_linear_speed": 20.810674895529992,
+      "max_angular_speed": 0.34667904817982814,
+      "pending_terrain_bricks": 0,
+      "passed": false
+    }
+  ]
+}

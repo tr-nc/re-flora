@@ -13,6 +13,9 @@ use re_flora_physics::{
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+mod fruit_ground_trace;
+use fruit_ground_trace::FruitGroundTrace;
+
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = 4.0;
 const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
@@ -204,6 +207,7 @@ pub(super) struct TerrainPhysics {
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
     fruit_cycle: f32,
+    ground_trace: Option<FruitGroundTrace>,
 }
 
 impl TerrainPhysics {
@@ -232,6 +236,7 @@ impl TerrainPhysics {
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
+            ground_trace: FruitGroundTrace::from_env(),
         }
     }
 
@@ -264,6 +269,10 @@ impl TerrainPhysics {
         frame_delta_time: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
+        if let Some(mut trace) = self.ground_trace.take() {
+            trace.prepare(self, tracer)?;
+            self.ground_trace = Some(trace);
+        }
         self.spawn_pending_fruits(tracer)?;
         let has_fruit_bodies = self
             .fruits_by_tree
@@ -274,6 +283,9 @@ impl TerrainPhysics {
             return self.sync_dynamic_fruit_rendering(tracer);
         }
         let step = self.collision_world.advance(frame_delta_time);
+        if let Some(trace) = &mut self.ground_trace {
+            trace.stepped(frame_delta_time, step);
+        }
         if step.dropped_seconds > 0.0 {
             log::warn!(
                 "[COLLISION][FRUIT] physics hitch dropped {:.3} ms",
@@ -578,7 +590,7 @@ impl TerrainPhysics {
         Ok(())
     }
 
-    fn sync_dynamic_fruit_rendering(&self, tracer: &mut Tracer) -> anyhow::Result<()> {
+    fn sync_dynamic_fruit_rendering(&mut self, tracer: &mut Tracer) -> anyhow::Result<()> {
         let mut instances = Vec::new();
         for fruit in self.fruits_by_tree.values().flat_map(BTreeMap::values) {
             if let Some(state) = fruit
@@ -591,6 +603,10 @@ impl TerrainPhysics {
                     1.0,
                 ));
             }
+        }
+        if let Some(mut trace) = self.ground_trace.take() {
+            trace.record(self, &instances)?;
+            self.ground_trace = Some(trace);
         }
         if instances.is_empty() {
             tracer.clear_dynamic_fruit_geometry();

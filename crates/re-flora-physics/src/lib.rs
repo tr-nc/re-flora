@@ -111,6 +111,20 @@ pub struct DynamicBodyState {
     pub sleeping: bool,
 }
 
+/// Read-only contact evidence for opt-in physics diagnostics. Distances exclude contact skin.
+#[derive(Clone, Debug, Default)]
+pub struct DynamicBodyDiagnostics {
+    pub contact_pairs: usize,
+    pub manifolds: usize,
+    pub solver_contacts: usize,
+    pub contact_distances: Vec<f32>,
+    pub contact_normals: Vec<Vec3>,
+    pub impulse: f32,
+    pub time_since_can_sleep: f32,
+    pub user_force: Vec3,
+    pub user_torque: Vec3,
+}
+
 /// A single collision encountered while resolving a capsule character movement.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CapsuleCharacterCollision {
@@ -469,6 +483,29 @@ impl CollisionWorld {
             angular_velocity: from_rapier_vec(body.angvel()),
             sleeping: body.is_sleeping(),
         })
+    }
+
+    pub fn dynamic_body_diagnostics(&self, id: DynamicBodyId) -> Option<DynamicBodyDiagnostics> {
+        let body = &self.physics.bodies[*self.dynamic_bodies.get(&id)?];
+        let mut result = DynamicBodyDiagnostics {
+            time_since_can_sleep: body.activation().time_since_can_sleep,
+            user_force: from_rapier_vec(body.user_force()),
+            user_torque: from_rapier_vec(body.user_torque()),
+            ..Default::default()
+        };
+        for &collider in body.colliders() {
+            for pair in self.physics.contact_pairs_with(collider) {
+                result.contact_pairs += 1;
+                result.impulse += pair.total_impulse_magnitude();
+                result.manifolds += pair.manifolds.len();
+                for manifold in &pair.manifolds {
+                    result.solver_contacts += manifold.data.solver_contacts.len();
+                    result.contact_normals.push(from_rapier_vec(manifold.data.normal));
+                    result.contact_distances.extend(manifold.points.iter().map(|p| p.dist));
+                }
+            }
+        }
+        Some(result)
     }
 
     pub fn advance(&mut self, elapsed_seconds: f32) -> FixedStepResult {
