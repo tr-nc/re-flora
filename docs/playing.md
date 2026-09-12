@@ -74,7 +74,7 @@ the most relevant garden interactions:
    growth response.
 4. Press **7** for the soil inspector and hover over terrain to inspect moisture.
 5. Try **3** to dig, **4** to smooth, **5** to trim, or **8** to till.
-6. Press **X** to place a sprinkler or **V** to draw an irrigation pipe.
+6. Press **X** to place a sprinkler.
 7. Press **G** when you want to switch between editing the garden and walking through it.
 
 The current prototype does not yet provide the complete harvest, Seed Circulation, automatic return,
@@ -113,7 +113,6 @@ or player onboarding described by the canonical game direction.
 | **8** | Till | Left mouse tills soil |
 | **Z** | Tree | Left mouse places a tree |
 | **X** | Sprinkler | Left mouse places a sprinkler |
-| **V** | Pipe | Left mouse begins or completes a pipe; right mouse cancels |
 
 ## Problems and Feedback
 

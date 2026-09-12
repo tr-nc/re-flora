@@ -252,7 +252,7 @@ The game uses two complementary world layers:
 
 1. **Editable collidable terrain**: voxel terrain is the physical ground for digging, filling,
    smoothing, collision, water basins, soil edits, and terrain-derived simulation fields.
-2. **Surface objects and rasterized detail**: plants, water tools, pipes, decor, and other props may
+2. **Surface objects and rasterized detail**: plants, water tools, decor, and other props may
    use flora instances, meshes, particles, impostors, or other non-voxel representations.
 
 Important rules:
@@ -277,7 +277,7 @@ Prioritize for the First Garden Moment:
 
 Consider only after the core moment is proven:
 
-- optional sprinklers, pipes, sensors, and gentle automation;
+- optional sprinklers, sensors, and gentle automation;
 - more plants and ecological relationships;
 - collection or journal support without checklist pressure;
 - decorative and home-base expansion;

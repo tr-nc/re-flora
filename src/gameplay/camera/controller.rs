@@ -11,7 +11,7 @@ use winit::event::KeyEvent;
 
 const GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED: f32 = 14.0;
 const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 16.5 / 256.0;
-const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 8.0 / 256.0;
+const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 16.5 / 256.0;
 
 fn smoothed_grounded_camera_y(
     current_y: f32,
@@ -529,6 +529,11 @@ mod tests {
 
         assert!(smoothed > current_y);
         assert!(smoothed < target_y);
+        assert!(
+            smoothed - current_y <= 4.0 / 256.0,
+            "first-frame rise was {} voxels",
+            (smoothed - current_y) * 256.0
+        );
     }
 
     #[test]
@@ -557,6 +562,46 @@ mod tests {
         let smoothed = smoothed_grounded_camera_y(0.0, target_y, 1.0 / 256.0, 1.0 / 60.0);
 
         assert!((target_y - smoothed).abs() <= MAX_GROUNDED_CAMERA_VERTICAL_LAG);
+    }
+
+    #[test]
+    fn walk_camera_smooths_steps_without_moving_the_collision_anchor() {
+        let initial = Vec3::new(2.0, 1.0, 3.0);
+        let mut camera = Camera::new(initial, 0.0, 0.0, CameraDesc::default());
+        let dt = 1.0 / 60.0;
+        let step = Vec3::new(1.0 / 256.0, 16.0 / 256.0, 2.0 / 256.0);
+        let request = camera.prepare_walk_movement(dt, 0.0);
+        camera.apply_walk_movement(
+            dt,
+            0.0,
+            request,
+            PlayerWalkMovementResult {
+                translation: step,
+                grounded: true,
+            },
+        );
+        let anchor = initial + step;
+        assert_eq!(camera.walk_collision_position, Some(anchor));
+        assert_eq!(camera.position.x, anchor.x);
+        assert_eq!(camera.position.z, anchor.z);
+        assert!(camera.position.y > initial.y);
+        assert!(camera.position.y - initial.y < 4.0 / 256.0);
+
+        for frame in 1..120 {
+            let request = camera.prepare_walk_movement(dt, frame as f64 * dt as f64);
+            assert_eq!(request.camera_position, anchor);
+            camera.apply_walk_movement(
+                dt,
+                frame as f64 * dt as f64,
+                request,
+                PlayerWalkMovementResult {
+                    translation: Vec3::ZERO,
+                    grounded: true,
+                },
+            );
+            assert_eq!(camera.walk_collision_position, Some(anchor));
+        }
+        assert!(camera.position.abs_diff_eq(anchor, 1.0e-6));
     }
 
     #[test]

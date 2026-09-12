@@ -340,8 +340,26 @@ impl DenoiserFrameRun {
         realtime_frame_delta: f32,
         time_since_start: f32,
     ) -> FixedVisualFrame {
+        self.timeline_with_leaf_review(
+            realtime_frame_delta,
+            time_since_start,
+            std::env::var_os("RE_FLORA_FALLEN_LEAF_REVIEW").is_some(),
+        )
+    }
+
+    fn timeline_with_leaf_review(
+        &self,
+        realtime_frame_delta: f32,
+        time_since_start: f32,
+        leaf_review: bool,
+    ) -> FixedVisualFrame {
         match self {
             Self::Foliage(FoliageDenoiserRun { presentation, .. }) => presentation.timeline,
+            Self::Camera(CameraDenoiserRun { permit, .. }) if leaf_review => FixedVisualFrame {
+                frame_delta_seconds: FOLIAGE_SHADOW_BENCH_FRAME_SECONDS,
+                visual_time_seconds: permit.presented_frame as f32
+                    * FOLIAGE_SHADOW_BENCH_FRAME_SECONDS,
+            },
             Self::Inactive | Self::Camera(_) => FixedVisualFrame {
                 frame_delta_seconds: realtime_frame_delta,
                 visual_time_seconds: time_since_start,
@@ -499,8 +517,7 @@ impl DenoiserBench {
     }
 
     pub(super) fn fixed_frame_delta_seconds(&self) -> Option<f32> {
-        self.mode
-            .is_foliage_shadow()
+        (self.mode.is_foliage_shadow() || std::env::var_os("RE_FLORA_FALLEN_LEAF_REVIEW").is_some())
             .then_some(FOLIAGE_SHADOW_BENCH_FRAME_SECONDS)
     }
 
@@ -668,7 +685,9 @@ impl DenoiserBench {
             );
         }
 
-        let label = if std::env::var_os("RE_FLORA_LEAF_REVIEW").is_some()
+        let label = if std::env::var_os("RE_FLORA_FALLEN_LEAF_REVIEW").is_some() {
+            Some(format!("{:04}", self.captured_frames))
+        } else if std::env::var_os("RE_FLORA_LEAF_REVIEW").is_some()
             || std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW").is_some()
         {
             // Dense color frames for local motion review, using the existing atomic
@@ -1344,6 +1363,40 @@ mod tests {
         rgba_region_to_luma, rgba_to_luma, AnalysisRegion, DenoiserBench, DenoiserMode,
     };
     use crate::{DenoiserCaptureOptions, FoliageDenoiserOptions};
+
+    #[test]
+    fn leaf_review_camera_capture_advances_simulation_on_the_reported_clock() {
+        use super::{
+            CameraDenoiserPresentation, CameraDenoiserRun, DenoiserCaptureStep,
+            DenoiserFramePermit, DenoiserFrameRun, FixedVisualFrame,
+            FOLIAGE_SHADOW_BENCH_FRAME_SECONDS,
+        };
+        let run = DenoiserFrameRun::Camera(CameraDenoiserRun {
+            presentation: CameraDenoiserPresentation::Fixed {
+                capture: DenoiserCaptureStep::Record { frame: 30 },
+            },
+            permit: DenoiserFramePermit {
+                presented_frame: 30,
+                captured_frame: 30,
+            },
+        });
+        assert_eq!(
+            run.timeline_with_leaf_review(0.2, 97., true),
+            FixedVisualFrame {
+                frame_delta_seconds: FOLIAGE_SHADOW_BENCH_FRAME_SECONDS,
+                visual_time_seconds: 30. * FOLIAGE_SHADOW_BENCH_FRAME_SECONDS,
+            },
+        );
+        let realtime = FixedVisualFrame {
+            frame_delta_seconds: 0.2,
+            visual_time_seconds: 97.,
+        };
+        assert_eq!(run.timeline_with_leaf_review(0.2, 97., false), realtime);
+        assert_eq!(
+            DenoiserFrameRun::Inactive.timeline_with_leaf_review(0.2, 97., true),
+            realtime,
+        );
+    }
 
     #[test]
     fn report_publication_failure_leaves_no_partial_files_or_owner_progress() {

@@ -5,10 +5,10 @@ use winit::event::{ElementState, MouseButton};
 
 use super::placeables::PlaceableKind;
 use super::ui_style::{
-    HAND_SLOT_INDEX, HOE_SLOT_INDEX, PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, SHOVEL_SLOT_INDEX,
-    SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX,
-    SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX,
-    TREE_SLOT_INDEX, WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
+    HAND_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
+    SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
+    STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
+    WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -67,7 +67,6 @@ impl PlayerTool {
 pub(super) struct PlayerToolSelectionUpdate {
     active_tool_changed: bool,
     placeable_changed: bool,
-    cancel_placeable_interaction: bool,
 }
 
 impl PlayerToolSelectionUpdate {
@@ -77,10 +76,6 @@ impl PlayerToolSelectionUpdate {
 
     pub(super) fn active_tool_changed(self) -> bool {
         self.active_tool_changed
-    }
-
-    pub(super) fn cancel_placeable_interaction(self) -> bool {
-        self.cancel_placeable_interaction
     }
 }
 
@@ -276,7 +271,6 @@ impl TerrainStrokeRuntime {
 pub(super) enum PlayerToolPointerAction {
     Continuous(ContinuousTerrainToolAction),
     PlaceablePlacement,
-    CancelPlaceable,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -410,7 +404,6 @@ impl PlayerToolRuntime {
         match self.selected_placeable {
             PlaceableKind::Tree => TREE_SLOT_INDEX,
             PlaceableKind::Sprinkler => SPRINKLER_SLOT_INDEX,
-            PlaceableKind::Pipe => PIPE_SLOT_INDEX,
         }
     }
 
@@ -422,7 +415,6 @@ impl PlayerToolRuntime {
         let requested_placeable = match slot_idx {
             TREE_SLOT_INDEX => Some(PlaceableKind::Tree),
             SPRINKLER_SLOT_INDEX => Some(PlaceableKind::Sprinkler),
-            PIPE_SLOT_INDEX => Some(PlaceableKind::Pipe),
             _ => None,
         };
         if let Some(placeable) = requested_placeable {
@@ -453,8 +445,6 @@ impl PlayerToolRuntime {
 
         let active_tool_changed = self.selected_tool != PlayerTool::Placeable;
         let placeable_changed = self.selected_placeable != placeable;
-        let cancel_placeable_interaction =
-            self.selected_tool == PlayerTool::Placeable || placeable_changed;
         self.selected_tool = PlayerTool::Placeable;
         self.selected_placeable = placeable;
         if active_tool_changed {
@@ -463,7 +453,6 @@ impl PlayerToolRuntime {
         PlayerToolSelectionUpdate {
             active_tool_changed,
             placeable_changed,
-            cancel_placeable_interaction,
         }
     }
 
@@ -471,12 +460,10 @@ impl PlayerToolRuntime {
         if self.selected_tool == selected_tool {
             return PlayerToolSelectionUpdate::default();
         }
-        let cancel_placeable_interaction = self.selected_tool == PlayerTool::Placeable;
         self.selected_tool = selected_tool;
         self.reset_for_active_tool_change();
         PlayerToolSelectionUpdate {
             active_tool_changed: true,
-            cancel_placeable_interaction,
             ..PlayerToolSelectionUpdate::default()
         }
     }
@@ -485,7 +472,6 @@ impl PlayerToolRuntime {
         match slot_idx {
             TREE_PLACEABLE_SLOT_INDEX => Some(PlaceableKind::Tree),
             SPRINKLER_PLACEABLE_SLOT_INDEX => Some(PlaceableKind::Sprinkler),
-            PIPE_PLACEABLE_SLOT_INDEX => Some(PlaceableKind::Pipe),
             _ => None,
         }
     }
@@ -585,9 +571,7 @@ impl PlayerToolRuntime {
             (PlayerTool::Placeable, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::PlaceablePlacement)
             }
-            (PlayerTool::Placeable, MouseButton::Right) => {
-                Some(PlayerToolPointerAction::CancelPlaceable)
-            }
+
             _ => None,
         }
     }
@@ -716,11 +700,6 @@ mod tests {
                 PlaceableKind::Sprinkler,
                 super::SPRINKLER_SLOT_INDEX,
             ),
-            (
-                super::PIPE_SLOT_INDEX,
-                PlaceableKind::Pipe,
-                super::PIPE_SLOT_INDEX,
-            ),
         ];
         for (slot, expected_placeable, expected_display_slot) in placeable_cases {
             let mut runtime = PlayerToolRuntime::default();
@@ -774,17 +753,15 @@ mod tests {
     }
 
     #[test]
-    fn placeable_selection_is_atomic_and_reports_external_cleanup() {
+    fn placeable_selection_is_atomic_and_toggles_off() {
         let mut runtime = PlayerToolRuntime::default();
         let selected = runtime.select_placeable_tool(super::SPRINKLER_PLACEABLE_SLOT_INDEX);
         assert!(selected.active_tool_changed());
-        assert!(selected.cancel_placeable_interaction());
         assert_eq!(runtime.selected_tool(), PlayerTool::Placeable);
         assert_eq!(runtime.selected_placeable(), PlaceableKind::Sprinkler);
 
         let cleared = runtime.select_placeable_tool(super::SPRINKLER_PLACEABLE_SLOT_INDEX);
         assert!(cleared.active_tool_changed());
-        assert!(cleared.cancel_placeable_interaction());
         assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
 
         assert!(!runtime.select_placeable_tool(usize::MAX).changed());
@@ -861,10 +838,7 @@ mod tests {
         );
         assert!(!runtime.continuous_hold_active());
         runtime.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);
-        assert_eq!(
-            runtime.begin_pointer_action(MouseButton::Right),
-            Some(PlayerToolPointerAction::CancelPlaceable)
-        );
+        assert_eq!(runtime.begin_pointer_action(MouseButton::Right), None);
         assert!(!runtime.continuous_hold_active());
     }
 

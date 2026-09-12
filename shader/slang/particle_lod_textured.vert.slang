@@ -1,4 +1,7 @@
 import flora_shadow;
+import environment_lighting;
+import leaf_lighting;
+import leaf_particle_pose;
 import tracer_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -16,11 +19,11 @@ static const uint SPRITE_FLIP_BIT = 0x80000000u;
 struct VertexInput
 {
     [[vk::location(0)]] uint packed_data : TEXCOORD0;
-    [[vk::location(1)]] uint voxel_index : TEXCOORD1;
     [[vk::location(2)]] float3 instance_position : POSITION0;
     [[vk::location(3)]] float instance_size : TEXCOORD2;
     [[vk::location(4)]] float4 instance_color : COLOR0;
     [[vk::location(5)]] uint instance_texture_index : TEXCOORD3;
+    [[vk::location(6)]] float4 leaf_optics : TEXCOORD4;
 };
 
 struct VertexOutput
@@ -48,8 +51,7 @@ void unpackVertexData(uint packedData, out int3 voxelLocalPosition,
         (packedOffset >> 2u) & 1u);
 }
 
-float3 billboardVertexPosition(float3 instancePosition, uint3 vertexOffset,
-                               float scale)
+float3 billboardVertexOffset(uint3 vertexOffset, float scale)
 {
     float2 mappedOffset = (float2(vertexOffset.xy) - 0.5) * scale * 1.225;
     float3 right = normalize(float3(
@@ -60,7 +62,7 @@ float3 billboardVertexPosition(float3 instancePosition, uint3 vertexOffset,
         camera_info.view_mat[1][0],
         camera_info.view_mat[1][1],
         camera_info.view_mat[1][2]));
-    return instancePosition + right * mappedOffset.x + up * mappedOffset.y;
+    return screenFacingParticleOffset(mappedOffset, right, up);
 }
 
 uint instanceHash(float3 instancePosition)
@@ -87,13 +89,13 @@ VertexOutput main(VertexInput input)
     unpackVertexData(input.packed_data, voxelLocalPosition, vertexOffset);
 
     float scale = max(input.instance_size, 0.001) * 1.25;
-    float3 vertexPosition = billboardVertexPosition(
-        input.instance_position, vertexOffset, scale);
+    float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
+    bool hasFlightPose = (input.instance_texture_index & LEAF_FLIGHT_BIT) != 0u;
 
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
 
-    float shadowWeight = stylizedVoxelShadowWeight(
+    StylizedVoxelShadowSample shadow = sampleStylizedVoxelShadow(
         gui_input,
         sun_info,
         shadow_camera_info,
@@ -103,17 +105,34 @@ VertexOutput main(VertexInput input)
         cloud_shadow_tex,
         input.instance_position,
         float3(voxelLocalPosition));
-    output.color = float4(
-        applyStylizedVoxelLighting(
+    output.color.a = input.instance_color.a;
+
+    if (hasFlightPose || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
+    {
+        float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
+            ? sampleDiffuseEnvironment(gui_input, shading_info,
+                input.instance_position, float3(0.0, 1.0, 0.0))
+            : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
+        output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
+            environmentLight, shadow.sun_transmittance, input.instance_position,
+            leafParticleOpticalNormal(input.leaf_optics, input.instance_texture_index),
+            camera_info.pos.xyz, sun_info,
+            gui_input.leaf_transmission_strength);
+    }
+
+    else
+    {
+        output.color.rgb = applyStylizedVoxelLighting(
             gui_input, sun_info, shading_info, input.instance_color.rgb,
-            shadowWeight, input.instance_position, float3(voxelLocalPosition)),
-        input.instance_color.a);
+            shadow.weight, input.instance_position, float3(voxelLocalPosition));
+    }
 
     output.uv = float2(float(vertexOffset.x), 1.0 - float(vertexOffset.y));
     if ((input.instance_texture_index & SPRITE_FLIP_BIT) != 0u)
     {
         output.uv.x = 1.0 - output.uv.x;
     }
-    output.texture_index = input.instance_texture_index & ~SPRITE_FLIP_BIT;
+    output.texture_index = input.instance_texture_index
+        & ~(SPRITE_FLIP_BIT | LEAF_FLIGHT_BIT);
     return output;
 }

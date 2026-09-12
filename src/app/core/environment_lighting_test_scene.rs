@@ -1,4 +1,4 @@
-use super::placeables::{SprinklerPlacementTarget, SPRINKLER_HEAD_EMITTER_PART};
+use super::placeables::SPRINKLER_HEAD_EMITTER_PART;
 use super::{
     launch_owners::{LaunchMode, LaunchOwners},
     App,
@@ -2189,7 +2189,7 @@ impl App {
                 let authored_id = self.local_lights.add(multi_source_authored_light());
                 let (raster_entity, raster_id) = self
                     .apply_emissive_sprinkler_placement(
-                        SprinklerPlacementTarget::Terrain(RASTER_EMITTER_MOVED_BASE_POSITION),
+                        RASTER_EMITTER_MOVED_BASE_POSITION,
                         multi_source_raster_component(),
                     )
                     .expect("multi-source raster emitter spawn must succeed");
@@ -4804,7 +4804,7 @@ impl App {
                     );
                     let (entity, light_id) = self
                         .apply_emissive_sprinkler_placement(
-                            SprinklerPlacementTarget::Terrain(RASTER_EMITTER_ADD_BASE_POSITION),
+                            RASTER_EMITTER_ADD_BASE_POSITION,
                             component,
                         )
                         .expect("production raster-emitter spawn must succeed");

@@ -1,6 +1,7 @@
 pub mod animation;
 mod butterfly_flight;
 pub mod emitters;
+mod leaf_flight;
 pub mod system;
 
 pub use animation::{

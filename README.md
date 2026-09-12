@@ -35,7 +35,7 @@ The current development build is an evolving prototype. It can:
 - shape and smooth terrain;
 - grow, arrange, trim, and remove flora without a visible placement grid;
 - water, till, and inspect local soil;
-- place trees, sprinklers, and irrigation pipes;
+- place trees and sprinklers;
 - experience dynamic light, wind, water, particles, wildlife, and spatial sound.
 
 The complete care, harvest, and seed-circulation loop is the current product milestone, not a claim

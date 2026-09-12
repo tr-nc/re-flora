@@ -15,7 +15,7 @@ const GROUPS: &[ControlGroup] = &[
         parent: Some("Flora"),
         title: "Growth & Fruiting",
         description: "Plant growth, tree age and the independent fruiting cycle.",
-        initially_open: true,
+        initially_open: false,
         params: &[
             "flora_growth_override_enabled",
             "flora_growth_override",
@@ -213,6 +213,18 @@ mod tests {
             "GodRay",
             "Starlight",
             "Clouds",
+            "Planting",
+            "Distribution",
+            "Spawn Animation",
+            "Ground Plants",
+            "Shape & Motion",
+            "Grass Colors",
+            "Color Variation",
+            "Purple Allium",
+            "Leaves",
+            "Flight & Lighting",
+            "Wind Motion",
+            "Wind Response Curves",
         ] {
             assert!(
                 text.lines().any(|line| line == title),

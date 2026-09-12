@@ -1077,8 +1077,12 @@ mod tests {
 
         assert_eq!(
             inputs.iter().map(|input| input.location).collect::<Vec<_>>(),
-            vec![0, 2, 3, 4, 5],
+            vec![0, 2, 3, 4, 5, 6],
             "{shader_path} must expose one compact mesh input followed by instance inputs"
+        );
+        assert_eq!(
+            inputs[5].format,
+            spirv_reflect::types::ReflectFormat::R32G32B32A32_SFLOAT
         );
     }
 }
