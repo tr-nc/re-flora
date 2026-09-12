@@ -1073,7 +1073,7 @@ mod tests {
     #[test]
     fn butterfly_tuning_sliders_respond_to_pointer_input_without_reset() {
         let context = egui::Context::default();
-        let mut tuning = ButterflyFlightTuning::default();
+        let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
         let mut draw = |events| {
             let mut rects = [egui::Rect::NOTHING; 6];
             let _ = context.run_ui(
@@ -1086,11 +1086,15 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    let sliders = draw_butterfly_flight_tuning(ui, &mut tuning);
+                    let sliders = draw_butterfly_flight_tuning(
+                        &mut crate::app::gui_config::saved_controls::SavedControls::for_test(
+                            ui, &mut saved,
+                        ),
+                    );
                     rects = sliders.map(|response| response.rect);
                 },
             );
-            (rects, tuning)
+            (rects, saved.butterfly_flight.tuning)
         };
         draw(Vec::new());
         let (_, initial) = draw(Vec::new());
@@ -1137,8 +1141,7 @@ mod tests {
             param: Vec::new(),
         }];
         let original_config = serde_json::to_value(&settings.config).unwrap();
-        let mut variant = ButterflyFlightVariant::default();
-        let mut tuning = ButterflyFlightTuning::default();
+        let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
         let mut rect = egui::Rect::NOTHING;
         let mut draw = |events: Vec<egui::Event>| {
             let _ = context.run_ui(
@@ -1151,10 +1154,15 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    rect = draw_butterfly_flight_ab_controls(ui, &mut variant, &mut tuning).rect;
+                    rect = draw_butterfly_flight_ab_controls(
+                        &mut crate::app::gui_config::saved_controls::SavedControls::for_test(
+                            ui, &mut saved,
+                        ),
+                    )
+                    .rect;
                 },
             );
-            (variant, rect)
+            (saved.butterfly_flight.variant, rect)
         };
         draw(Vec::new());
         let (initial, rect) = draw(Vec::new());

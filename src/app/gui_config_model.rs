@@ -4,11 +4,35 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GuiConfigFile {
     pub schema_version: u32,
+    #[serde(flatten)]
+    pub custom: SavedCustomSettings,
+    pub section: Vec<GuiSection>,
+}
+
+/// Add typed custom settings here. Serde saves the live object directly; no save hook.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SavedCustomSettings {
+    // Simulates a newly added custom setting in every test build. There is no
+    // matching entry in DebugSettings::save, load, or synchronization code.
+    #[cfg(test)]
+    #[serde(default)]
+    pub future_control_fixture: f32,
     #[serde(default)]
     pub butterfly_flight: crate::particles::ButterflyFlightSettings,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tree: Option<TreeGuiConfig>,
-    pub section: Vec<GuiSection>,
+    #[serde(default)]
+    pub tree: TreeGuiConfig,
+}
+
+impl std::ops::Deref for GuiConfigFile {
+    type Target = SavedCustomSettings;
+    fn deref(&self) -> &Self::Target {
+        &self.custom
+    }
+}
+impl std::ops::DerefMut for GuiConfigFile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.custom
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -17,6 +41,15 @@ pub struct TreeGuiConfig {
     pub render_leaves: bool,
     #[serde(default)]
     pub desc: TreeDesc,
+}
+
+impl Default for TreeGuiConfig {
+    fn default() -> Self {
+        Self {
+            render_leaves: true,
+            desc: TreeDesc::default(),
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -223,17 +256,20 @@ mod tests {
         desc.subdivision_count_max = 8;
         let config = GuiConfigFile {
             schema_version: 1,
-            butterfly_flight: Default::default(),
-            tree: Some(TreeGuiConfig {
-                render_leaves: false,
-                desc: desc.clone(),
-            }),
+            custom: SavedCustomSettings {
+                butterfly_flight: Default::default(),
+                tree: TreeGuiConfig {
+                    render_leaves: false,
+                    desc: desc.clone(),
+                },
+                ..Default::default()
+            },
             section: Vec::new(),
         };
 
         let serialized = toml::to_string_pretty(&config).unwrap();
         let parsed: GuiConfigFile = toml::from_str(&serialized).unwrap();
-        let parsed_tree = parsed.tree.unwrap();
+        let parsed_tree = &parsed.tree;
 
         assert!(!parsed_tree.render_leaves);
         assert_eq!(parsed_tree.desc, desc);
@@ -243,7 +279,7 @@ mod tests {
     fn legacy_gui_config_without_tree_still_loads() {
         let parsed: GuiConfigFile = toml::from_str("schema_version = 1\nsection = []\n").unwrap();
 
-        assert!(parsed.tree.is_none());
+        assert_eq!(parsed.tree, TreeGuiConfig::default());
     }
 
     #[test]

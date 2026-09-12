@@ -2,7 +2,7 @@
 //! Branches contain only categories; controls live in the terminal categories.
 use super::{
     debug_groups, draw_leaf_curve_previews, enforce_flora_natural_bend_order,
-    enforce_leaf_curve_order, render_gui_param_from_config, GuiAdjustables, GuiConfigFile,
+    enforce_leaf_curve_order, render_gui_param_from_config, GuiAdjustables,
 };
 use crate::app::gui_config_model::GuiSection;
 
@@ -76,13 +76,13 @@ fn controls(
 
 fn stored_section(
     ui: &mut egui::Ui,
-    config: &GuiConfigFile,
+    config: &[GuiSection],
     name: &str,
     title: &str,
     adjustables: &mut GuiAdjustables,
     after_section: &mut impl FnMut(&str, &mut egui::Ui),
 ) {
-    if let Some(section) = config.section.iter().find(|section| section.name == name) {
+    if let Some(section) = config.iter().find(|section| section.name == name) {
         category(ui, title, |ui| {
             for param in &section.param {
                 render_gui_param_from_config(ui, param, name, adjustables);
@@ -94,16 +94,12 @@ fn stored_section(
 
 pub(super) fn render(
     ui: &mut egui::Ui,
-    config: &GuiConfigFile,
+    config: &[GuiSection],
     flora: &GuiSection,
     adjustables: &mut GuiAdjustables,
     after_section: &mut impl FnMut(&str, &mut egui::Ui),
 ) {
-    if let Some(debug) = config
-        .section
-        .iter()
-        .find(|section| section.name == "Debug")
-    {
+    if let Some(debug) = config.iter().find(|section| section.name == "Debug") {
         debug_groups::render(ui, debug, adjustables, Some("Flora"));
     }
     category(ui, "Planting", |ui| {
@@ -216,10 +212,16 @@ mod tests {
         let mut adjustables = GuiAdjustables::from_config(&config);
         let context = egui::Context::default();
         let output = context.run_ui(egui::RawInput::default(), |ui| {
-            render(ui, &config, flora, &mut adjustables, &mut |name, ui| {
-                assert_eq!(name, "Flora", "closed children must not draw controls");
-                ui.collapsing("Tree", |_| {});
-            });
+            render(
+                ui,
+                &config.section,
+                flora,
+                &mut adjustables,
+                &mut |name, ui| {
+                    assert_eq!(name, "Flora", "closed children must not draw controls");
+                    ui.collapsing("Tree", |_| {});
+                },
+            );
         });
         let mut text = Vec::new();
         for shape in output.shapes {

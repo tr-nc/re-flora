@@ -7,16 +7,15 @@ use crate::app::curve_preview::{
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{
-    GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind,
-    GuiParamValue, TreeGuiConfig,
+    GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind, GuiParamValue,
 };
 use crate::app::tree_gui::edit_tree_desc;
-use crate::tree_gen::TreeDesc;
 use egui::Color32;
 use std::path::Path;
 pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
+pub(crate) mod saved_controls;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -27,9 +26,20 @@ pub use generated::GuiAdjustables;
 pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
-    pub tree: TreeGuiConfig,
-    pub butterfly_flight: crate::particles::ButterflyFlightSettings,
     save_status: Option<String>,
+}
+
+// Custom live values ARE the serializable document, never copies requiring save hooks.
+impl std::ops::Deref for DebugSettings {
+    type Target = GuiConfigFile;
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+impl std::ops::DerefMut for DebugSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.config
+    }
 }
 
 impl DebugSettings {
@@ -38,20 +48,12 @@ impl DebugSettings {
         Self::from_config(config)
     }
 
-    fn from_config(config: GuiConfigFile) -> Self {
+    fn from_config(mut config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
-        let tree = config.tree.clone().unwrap_or_else(|| TreeGuiConfig {
-            render_leaves: true,
-            desc: TreeDesc::default(),
-        });
+        config.butterfly_flight.tuning = config.butterfly_flight.tuning.sanitized();
         Self {
-            butterfly_flight: crate::particles::ButterflyFlightSettings {
-                tuning: config.butterfly_flight.tuning.sanitized(),
-                ..config.butterfly_flight
-            },
             config,
             adjustables,
-            tree,
             save_status: None,
         }
     }
@@ -75,42 +77,40 @@ impl DebugSettings {
     }
 
     fn sync_config(&mut self) {
-        self.config.butterfly_flight = self.butterfly_flight;
-        self.adjustables.write_to_config(
-            &mut self.config,
-            &self.tree.desc,
-            self.tree.render_leaves,
-        );
+        self.adjustables.write_to_config(&mut self.config);
     }
 
     pub fn draw(
         &mut self,
         ui: &mut egui::Ui,
-        mut extra_controls: impl FnMut(&str, &mut egui::Ui),
+        mut temporary_controls: impl FnMut(&str, &mut saved_controls::TemporaryControls<'_>),
     ) -> bool {
         let Self {
             config,
             adjustables,
-            tree,
-            butterfly_flight,
             ..
         } = self;
+        let custom = &mut config.custom;
         let mut tree_desc_changed = false;
-        render_gui_from_config(ui, config, adjustables, |section_name, ui| {
+        render_gui_from_config(ui, &config.section, adjustables, |section_name, ui| {
             if section_name == "Butterflies" {
                 self::butterfly_flight::draw_butterfly_flight_ab_controls(
-                    ui,
-                    &mut butterfly_flight.variant,
-                    &mut butterfly_flight.tuning,
+                    &mut saved_controls::SavedControls::new(ui, custom),
                 );
             }
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
-                    tree_desc_changed |=
-                        edit_tree_desc(ui, &mut tree.desc, Some(&mut tree.render_leaves));
+                    tree_desc_changed |= edit_tree_desc(
+                        ui,
+                        &mut custom.tree.desc,
+                        Some(&mut custom.tree.render_leaves),
+                    );
                 });
             }
-            extra_controls(section_name, ui);
+            temporary_controls(
+                section_name,
+                &mut saved_controls::TemporaryControls::new(ui),
+            );
         });
 
         tree_desc_changed
@@ -167,17 +167,7 @@ impl GuiAdjustables {
         }
     }
 
-    fn write_to_config(
-        &self,
-        config: &mut GuiConfigFile,
-        tree_desc: &TreeDesc,
-        render_leaves: bool,
-    ) {
-        config.tree = Some(TreeGuiConfig {
-            render_leaves,
-            desc: tree_desc.clone(),
-        });
-
+    fn write_to_config(&self, config: &mut GuiConfigFile) {
         for section in &mut config.section {
             for param in &mut section.param {
                 match param.kind {
@@ -590,20 +580,20 @@ fn section_title(name: &str) -> &str {
     }
 }
 
-pub fn render_gui_from_config(
+fn render_gui_from_config(
     ui: &mut egui::Ui,
-    config: &GuiConfigFile,
+    config: &[crate::app::gui_config_model::GuiSection],
     adjustables: &mut GuiAdjustables,
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
-    for section in &config.section {
+    for section in config {
         if section.name == "Debug" {
             debug_groups::render(ui, section, adjustables, None);
             continue;
         }
         // If a custom config lacks a parent, keep its children visible at the top level.
         if section_parent(&section.name)
-            .is_some_and(|parent| config.section.iter().any(|s| s.name == parent))
+            .is_some_and(|parent| config.iter().any(|s| s.name == parent))
         {
             continue;
         }
@@ -613,11 +603,11 @@ pub fn render_gui_from_config(
                 return;
             }
             render_section_controls(ui, section, adjustables);
-            if let Some(debug) = config.section.iter().find(|s| s.name == "Debug") {
+            if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
             after_section(&section.name, ui);
-            for child in &config.section {
+            for child in config {
                 if section_parent(&child.name) == Some(section.name.as_str()) {
                     ui.collapsing(section_title(&child.name), |ui| {
                         render_section_controls(ui, child, adjustables);
@@ -660,6 +650,123 @@ fn render_section_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_declared_generic_setting_saves_its_live_value() {
+        let mut settings = DebugSettings::load();
+        // Iterate the declaration, not a manually maintained list of controls.
+        for param in settings.config.section.iter().flat_map(|s| &s.param) {
+            let id = &param.id;
+            let a = &mut settings.adjustables;
+            match param.kind {
+                GuiParamKind::Float => {
+                    let f = GuiAdjustables::get_float_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Int => {
+                    let f = GuiAdjustables::get_int_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Uint => {
+                    let f = GuiAdjustables::get_uint_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Choice => {
+                    let f = GuiAdjustables::get_choice_param_mut(a, id).unwrap();
+                    f.value ^= 1;
+                }
+                GuiParamKind::String => {
+                    let f = GuiAdjustables::get_string_param_mut(a, id).unwrap();
+                    f.value.push_str("_roundtrip");
+                }
+                GuiParamKind::Bool => {
+                    let f = GuiAdjustables::get_bool_param_mut(a, id).unwrap();
+                    f.value = !f.value;
+                }
+                GuiParamKind::Color => {
+                    let f = GuiAdjustables::get_color_param_mut(a, id).unwrap();
+                    f.value = if f.value == Color32::RED {
+                        Color32::BLUE
+                    } else {
+                        Color32::RED
+                    };
+                }
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_generic_values_match(&loaded.config, &settings.adjustables);
+        assert_generic_values_match(&loaded.config, &loaded.adjustables);
+    }
+
+    #[test]
+    fn every_serialized_custom_leaf_survives_live_edit_save_reload() {
+        use serde_json::Value;
+        fn leaves(value: &Value, path: String, output: &mut Vec<String>) {
+            match value {
+                Value::Object(fields) => {
+                    for (key, v) in fields {
+                        leaves(v, format!("{path}/{key}"), output);
+                    }
+                }
+                Value::Array(values) => {
+                    for (i, v) in values.iter().enumerate() {
+                        leaves(v, format!("{path}/{i}"), output);
+                    }
+                }
+                _ => output.push(path),
+            }
+        }
+        let original = serde_json::to_value(&DebugSettings::load().config.custom).unwrap();
+        let mut paths = Vec::new();
+        leaves(&original, String::new(), &mut paths);
+        assert!(paths.len() > 20);
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("gui.toml");
+        for path in paths {
+            let mut edited = original.clone();
+            let value = edited.pointer_mut(&path).unwrap();
+            *value = match value {
+                Value::Bool(v) => Value::Bool(!*v),
+                Value::Number(_) if path.ends_with("/height_above_ground") => Value::from(0.125),
+                Value::Number(v) if v.is_f64() => {
+                    Value::from(if v.as_f64() == Some(0.5) { 0.75 } else { 0.5 })
+                }
+                Value::Number(v) => {
+                    Value::from(v.as_u64().expect("add a signed-value test policy") ^ 1)
+                }
+                Value::String(v) if v == "DartingBlock" => Value::from("OriginalSprite"),
+                Value::String(v) if v == "OriginalSprite" => Value::from("DartingBlock"),
+                _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
+            };
+            let mut settings = DebugSettings::load();
+            // Modify the live saved object AFTER construction: a stale load/save
+            // roundtrip would not detect a missing synchronization hook.
+            settings.config.custom = serde_json::from_value(edited).unwrap();
+            let expected = serde_json::to_value(&settings.config.custom).unwrap();
+            settings.save_to_path(&file).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&file));
+            assert_eq!(
+                serde_json::to_value(&loaded.config.custom).unwrap(),
+                expected,
+                "{path}"
+            );
+        }
+    }
 
     #[test]
     fn fallen_leaf_experiment_controls_are_removed() {
@@ -977,7 +1084,7 @@ wind_drift = 1.0
         settings.sync_config();
 
         assert_generic_values_match(&settings.config, &settings.adjustables);
-        assert_eq!(settings.config.tree, Some(settings.tree.clone()));
+        assert_eq!(settings.config.tree, settings.tree.clone());
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");

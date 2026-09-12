@@ -508,12 +508,12 @@ mod tests {
         let path = directory.path().join("gui.toml");
         std::fs::write(&path, "incomplete previous contents").unwrap();
         let mut config = GuiConfigLoader::load();
-        config.tree.as_mut().unwrap().desc.size = 17.5;
+        config.tree.desc.size = 17.5;
 
         GuiConfigLoader::save_to_path(&config, &path).unwrap();
 
         let loaded = GuiConfigLoader::load_from_path(&path);
-        assert_eq!(loaded.tree.unwrap().desc.size, 17.5);
+        assert_eq!(loaded.tree.desc.size, 17.5);
         let files = std::fs::read_dir(directory.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name())

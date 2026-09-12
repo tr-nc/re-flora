@@ -2689,7 +2689,7 @@ impl App {
                                         .show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
-                                                    self.wind_prototype.controls(ui);
+                                                    ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
                                             });
 
@@ -2701,6 +2701,7 @@ impl App {
                                                     .size(16.0)
                                                     .color(GOLD_ACCENT),
                                             );
+                                            ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
                                                 .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")

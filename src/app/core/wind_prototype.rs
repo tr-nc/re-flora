@@ -300,7 +300,7 @@ mod tests {
         let output = context.run_ui(egui::RawInput::default(), |ui| {
             settings.draw(ui, |section, ui| {
                 if section == "Wind" {
-                    prototype.controls(ui);
+                    ui.not_saved("Wind prototype experiment", |ui| prototype.controls(ui));
                 }
             });
         });
