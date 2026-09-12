@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GuiConfigFile {
     pub schema_version: u32,
+    #[serde(default)]
+    pub butterfly_flight: crate::particles::ButterflyFlightSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<TreeGuiConfig>,
     pub section: Vec<GuiSection>,
@@ -221,6 +223,7 @@ mod tests {
         desc.subdivision_count_max = 8;
         let config = GuiConfigFile {
             schema_version: 1,
+            butterfly_flight: Default::default(),
             tree: Some(TreeGuiConfig {
                 render_leaves: false,
                 desc: desc.clone(),

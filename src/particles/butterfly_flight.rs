@@ -22,7 +22,7 @@ const WIND_DRIFT_WORLD_SPEED_PER_STRENGTH: f32 = 0.06;
 const MAX_WIND_DRIFT_SPEED: f32 = 0.45;
 const MAX_WIND_DRIFT_ACCELERATION: f32 = 0.60;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ButterflyFlightVariant {
     OriginalSprite,
     #[default]
@@ -35,8 +35,9 @@ impl ButterflyFlightVariant {
     }
 }
 
-/// Live B-only art controls. Self propulsion and environmental drift are independent.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Saved B-only art controls. Self propulsion and environmental drift are independent.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ButterflyFlightTuning {
     pub flight_frequency_hz: f32,
     pub maneuver_tempo: f32,
@@ -44,6 +45,13 @@ pub struct ButterflyFlightTuning {
     pub turn_sharpness: f32,
     pub speed: f32,
     pub wind_drift: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ButterflyFlightSettings {
+    pub variant: ButterflyFlightVariant,
+    pub tuning: ButterflyFlightTuning,
 }
 
 impl Default for ButterflyFlightTuning {

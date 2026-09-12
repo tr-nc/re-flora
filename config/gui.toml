@@ -1,5 +1,16 @@
 schema_version = 1
 
+[butterfly_flight]
+variant = "DartingBlock"
+
+[butterfly_flight.tuning]
+flight_frequency_hz = 5.5
+maneuver_tempo = 2.75
+vertical_strength = 2.0
+turn_sharpness = 1.0
+speed = 0.35
+wind_drift = 1.0
+
 [tree]
 render_leaves = true
 

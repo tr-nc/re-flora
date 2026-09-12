@@ -14,6 +14,7 @@ use crate::app::tree_gui::edit_tree_desc;
 use crate::tree_gen::TreeDesc;
 use egui::Color32;
 use std::path::Path;
+pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
 
@@ -27,6 +28,7 @@ pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
     pub tree: TreeGuiConfig,
+    pub butterfly_flight: crate::particles::ButterflyFlightSettings,
     save_status: Option<String>,
 }
 
@@ -43,6 +45,10 @@ impl DebugSettings {
             desc: TreeDesc::default(),
         });
         Self {
+            butterfly_flight: crate::particles::ButterflyFlightSettings {
+                tuning: config.butterfly_flight.tuning.sanitized(),
+                ..config.butterfly_flight
+            },
             config,
             adjustables,
             tree,
@@ -69,6 +75,7 @@ impl DebugSettings {
     }
 
     fn sync_config(&mut self) {
+        self.config.butterfly_flight = self.butterfly_flight;
         self.adjustables.write_to_config(
             &mut self.config,
             &self.tree.desc,
@@ -85,10 +92,18 @@ impl DebugSettings {
             config,
             adjustables,
             tree,
+            butterfly_flight,
             ..
         } = self;
         let mut tree_desc_changed = false;
         render_gui_from_config(ui, config, adjustables, |section_name, ui| {
+            if section_name == "Butterflies" {
+                self::butterfly_flight::draw_butterfly_flight_ab_controls(
+                    ui,
+                    &mut butterfly_flight.variant,
+                    &mut butterfly_flight.tuning,
+                );
+            }
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
                     tree_desc_changed |=
@@ -856,6 +871,91 @@ mod tests {
         reloaded.save_to_path(&path).unwrap();
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(reloaded.adjustables.sky_light_strength.value, 0.0);
+    }
+
+    #[test]
+    fn butterfly_flight_controls_survive_debug_settings_save_and_reload() {
+        let mut document: toml::Value =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let flight: toml::Value = toml::from_str(
+            r#"
+variant = "DartingBlock"
+[tuning]
+flight_frequency_hz = 5.5
+maneuver_tempo = 2.75
+vertical_strength = 2.0
+turn_sharpness = 1.0
+speed = 0.35
+wind_drift = 1.0
+"#,
+        )
+        .unwrap();
+        document
+            .as_table_mut()
+            .unwrap()
+            .insert("butterfly_flight".to_owned(), flight);
+        let config = document.try_into().unwrap();
+        let mut settings = DebugSettings::from_config(config);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        let saved = toml::Value::try_from(reloaded).unwrap();
+        assert_eq!(
+            saved
+                .get("butterfly_flight")
+                .and_then(|f| f.get("tuning"))
+                .and_then(|t| t.get("flight_frequency_hz"))
+                .and_then(toml::Value::as_float),
+            Some(5.5),
+            "Debug Settings Save must preserve butterfly flight controls",
+        );
+    }
+
+    #[test]
+    fn live_butterfly_settings_and_disabled_b_controls_persist_without_reset_button() {
+        let mut settings = DebugSettings::load();
+        let context = egui::Context::default();
+        context.memory_mut(|m| m.set_everything_is_visible(true));
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            settings.draw(ui, |_, _| {});
+        });
+        let text = format!("{:?}", output.shapes);
+        assert!(text.contains("Shared flight frequency"));
+        assert!(!text.contains("Reset B flight controls"));
+        settings.butterfly_flight.variant =
+            crate::particles::ButterflyFlightVariant::OriginalSprite;
+        settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
+            flight_frequency_hz: 0.0,
+            maneuver_tempo: 3.25,
+            vertical_strength: 1.25,
+            turn_sharpness: 2.5,
+            speed: 0.75,
+            wind_drift: 0.5,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        assert_eq!(settings.save_status(), Some("Settings saved"));
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
+        settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::DartingBlock;
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
+        assert!(settings.save_to_path(directory.path()).is_err());
+        assert!(settings.save_status().unwrap().starts_with("Save failed:"));
+    }
+
+    #[test]
+    fn older_gui_files_without_butterfly_controls_load_legacy_flight_defaults() {
+        let mut config = toml::Value::try_from(GuiConfigLoader::load()).unwrap();
+        config.as_table_mut().unwrap().remove("butterfly_flight");
+        let settings = DebugSettings::from_config(config.try_into().unwrap());
+        assert_eq!(
+            settings.butterfly_flight,
+            crate::particles::ButterflyFlightSettings::default()
+        );
     }
 
     #[test]

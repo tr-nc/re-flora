@@ -105,9 +105,8 @@ use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
 use crate::lighting::LocalLightRegistry;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightTuning, ButterflyFlightVariant,
-    LeafEmitterDesc, ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem,
-    PARTICLE_CAPACITY,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, LeafEmitterDesc,
+    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -472,8 +471,6 @@ pub struct App {
     particle_system: ParticleSystem,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
-    butterfly_flight_variant: ButterflyFlightVariant,
-    butterfly_flight_tuning: ButterflyFlightTuning,
     butterfly_review: Option<particles::ButterflyReview>,
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
@@ -1374,14 +1371,12 @@ impl App {
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
-        let butterfly_flight_variant =
-            if std::env::var_os("RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE").is_some() {
-                ButterflyFlightVariant::OriginalSprite
-            } else {
-                ButterflyFlightVariant::default()
-            };
-        log::info!("[BUTTERFLY_AB] startup_variant={butterfly_flight_variant:?}");
-        let butterfly_flight_tuning = ButterflyFlightTuning::default();
+        if std::env::var_os("RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE").is_some() {
+            debug_settings.butterfly_flight.variant = ButterflyFlightVariant::OriginalSprite;
+        }
+        let butterfly_flight_variant = debug_settings.butterfly_flight.variant;
+        let butterfly_flight_tuning = debug_settings.butterfly_flight.tuning;
+        log::info!("[BUTTERFLY_AB] startup_variant={butterfly_flight_variant:?} tuning={butterfly_flight_tuning:?}");
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
             &debug_settings.adjustables,
             butterfly_flight_variant,
@@ -1518,8 +1513,6 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
-            butterfly_flight_variant,
-            butterfly_flight_tuning,
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
                 .map(|_| particles::ButterflyReview::default()),
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
@@ -2697,13 +2690,6 @@ impl App {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     self.wind_prototype.controls(ui);
-                                                }
-                                                if section == "Butterflies" {
-                                                    particles::draw_butterfly_flight_ab_controls(
-                                                        ui,
-                                                        &mut self.butterfly_flight_variant,
-                                                        &mut self.butterfly_flight_tuning,
-                                                    );
                                                 }
                                             });
 
