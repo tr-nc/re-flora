@@ -1,10 +1,10 @@
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,
-    LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind, ParticleSnapshot,
-    ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig, PARTICLE_CAPACITY,
-    STANDARD_PARTICLE_SIZE,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, ButterflySpawnSource,
+    FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind,
+    ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig,
+    PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -31,6 +31,42 @@ fn butterfly_world_limit(chunk_dim: glam::UVec3) -> usize {
         .saturating_mul(u64::from(chunk_dim.z));
     usize::try_from(chunk_count.saturating_mul(BUTTERFLY_LIMIT_PER_WORLD_CHUNK))
         .unwrap_or(usize::MAX)
+}
+
+pub(super) fn draw_butterfly_flight_ab_controls(
+    ui: &mut egui::Ui,
+    variant: &mut ButterflyFlightVariant,
+) -> egui::Response {
+    ui.separator();
+    ui.label("Flight appearance A/B");
+    ui.small("Temporary comparison control — not saved to GUI config");
+    let mut darting_block = variant.is_darting_block();
+    let response = ui.checkbox(
+        &mut darting_block,
+        "B: Darting color blocks (A/B experiment)",
+    );
+    if response.changed() {
+        *variant = if darting_block {
+            ButterflyFlightVariant::DartingBlock
+        } else {
+            ButterflyFlightVariant::OriginalSprite
+        };
+        log::info!(
+            "[BUTTERFLY_AB] variant={}",
+            if darting_block {
+                "B-darting-block"
+            } else {
+                "A-original-sprite"
+            }
+        );
+    }
+    ui.small(if darting_block {
+        "B — single-color particle blocks with irregular acceleration bursts"
+    } else {
+        "A — original butterfly sprites and worm-noise flight"
+    });
+    ui.small("Switching keeps the same live butterflies, habitats, colors and hard count limit.");
+    response
 }
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
@@ -410,6 +446,7 @@ impl App {
 
     pub(super) fn butterfly_desc_from_gui_adjustables(
         gui_adjustables: &crate::app::GuiAdjustables,
+        flight_variant: ButterflyFlightVariant,
     ) -> ButterflyEmitterDesc {
         let (height_offset_min, height_offset_max) = {
             let min = gui_adjustables.butterfly_height_offset_min.value;
@@ -438,6 +475,7 @@ impl App {
                 .butterfly_worm_noise_detail_frequency
                 .value,
             worm_noise_detail_weight: gui_adjustables.butterfly_worm_noise_detail_weight.value,
+            flight_variant,
         }
     }
 
@@ -509,8 +547,10 @@ impl App {
         let setup_start = Instant::now();
         let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
         if allows_ambient_emitters {
-            self.butterfly_emitter_desc =
-                Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
+            self.butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
+                &self.debug_settings.adjustables,
+                self.butterfly_flight_variant,
+            );
             for emitter in &mut self.butterfly_emitters {
                 emitter.apply_desc(&self.butterfly_emitter_desc);
             }
@@ -549,6 +589,20 @@ impl App {
 
         let sim_start = Instant::now();
         self.particle_system.update(dt, self.particle_forces);
+        let world_max =
+            super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        for emitter in &mut self.butterfly_emitters {
+            emitter.advance_block_flight(
+                &mut self.particle_system,
+                dt,
+                world_max,
+                |origin, direction| {
+                    self.contree_builder
+                        .query_terrain_ray_cpu(origin, direction)
+                        .map(|hit| hit.position.distance(origin))
+                },
+            );
+        }
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
 
         let collect_start = Instant::now();
@@ -566,6 +620,7 @@ impl App {
         let snapshot_start = Instant::now();
         self.particle_system
             .write_snapshots(&mut self.particle_snapshots);
+        self.review_butterfly_frame(dt);
         let sim_snapshot_count = self.particle_snapshots.len();
         self.append_water_debug_snapshots();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
@@ -639,6 +694,60 @@ impl App {
         }
     }
 
+    /// Opt-in capture observer. Uses natural spawns; never places or creates butterflies.
+    fn review_butterfly_frame(&mut self, dt: f32) {
+        let Some(frame) = self.butterfly_review_frame.as_mut() else {
+            return;
+        };
+        *frame += 1;
+        let frame = *frame;
+        let butterflies = self
+            .particle_snapshots
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.kind,
+                    ParticleRenderKind::Butterfly | ParticleRenderKind::ButterflyBlock
+                )
+            })
+            .collect::<Vec<_>>();
+        if frame == 240 {
+            if let Some(subject) = butterflies.iter().find(|s| s.color.w >= 0.99) {
+                let target = subject.position_ws;
+                self.tracer
+                    .set_camera_pose_looking_at(target + Vec3::new(0.0, 0.30, 0.95), target);
+                log::info!("[BUTTERFLY_REVIEW] camera=fixed-natural-subject target={target:?}");
+            }
+        }
+        if frame >= 240 {
+            log::info!(
+                "[BUTTERFLY_REVIEW] frame={frame} dt={dt:.6} variant={:?} count={} particles={:?}",
+                self.butterfly_flight_variant,
+                butterflies.len(),
+                butterflies
+                    .iter()
+                    .map(|s| (
+                        s.position_ws.to_array(),
+                        s.velocity.to_array(),
+                        s.texture_variant,
+                        s.color.w
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("switch") {
+            let next = match frame {
+                420 => Some(ButterflyFlightVariant::DartingBlock),
+                540 => Some(ButterflyFlightVariant::OriginalSprite),
+                _ => None,
+            };
+            if let Some(next) = next {
+                self.butterfly_flight_variant = next;
+                log::info!("[BUTTERFLY_REVIEW] scripted_switch={next:?} frame={frame}");
+            }
+        }
+    }
+
     pub(super) fn plan_butterflies(&mut self, tick_step: ParticleTickStep) {
         const MAX_RETRIES: usize = 3;
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
@@ -654,6 +763,12 @@ impl App {
         let mut all_emitter_indices: Vec<usize> = Vec::new();
 
         for emitter_idx in 0..self.butterfly_emitters.len() {
+            if self.butterfly_emitters[emitter_idx]
+                .flight_variant()
+                .is_darting_block()
+            {
+                continue;
+            }
             let (mut handles, mut positions, mut directions, mut emerging) = {
                 let emitter = &mut self.butterfly_emitters[emitter_idx];
                 let mut handles = Vec::new();
@@ -854,6 +969,70 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn butterfly_debug_checkbox_clicks_switch_a_b_a_without_config_changes() {
+        let context = egui::Context::default();
+        context.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let mut settings = crate::app::DebugSettings::load();
+        settings
+            .config
+            .section
+            .retain(|section| section.name == "Butterflies");
+        let original_config = serde_json::to_value(&settings.config).unwrap();
+        let mut variant = ButterflyFlightVariant::default();
+        let mut rect = egui::Rect::NOTHING;
+        let mut draw = |events: Vec<egui::Event>| {
+            let _ = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 1200.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |section, ui| {
+                        if section == "Butterflies" {
+                            rect = draw_butterfly_flight_ab_controls(ui, &mut variant).rect;
+                        }
+                    });
+                },
+            );
+            (variant, rect)
+        };
+        draw(Vec::new());
+        let (initial, rect) = draw(Vec::new());
+        assert_eq!(initial, ButterflyFlightVariant::OriginalSprite);
+        assert!(rect.is_positive());
+        for expected in [
+            ButterflyFlightVariant::DartingBlock,
+            ButterflyFlightVariant::OriginalSprite,
+        ] {
+            let pos = rect.center();
+            draw(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+            let (actual, _) = draw(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            assert_eq!(actual, expected);
+        }
+        assert_eq!(
+            serde_json::to_value(&settings.config).unwrap(),
+            original_config
+        );
+    }
 
     #[test]
     fn butterfly_world_limit_counts_all_world_chunks() {

@@ -64,6 +64,8 @@ pub enum MotionMode {
     Falling,
     /// Free-flight particles that keep their velocity, only damped over time.
     Free,
+    /// Butterfly B: an emitter guides fixed substeps; the shared lifecycle still owns the slot.
+    GuidedFlight,
 }
 
 /// Parameters used when spawning a new particle.
@@ -185,6 +187,7 @@ pub struct ParticleSnapshot {
 pub enum ParticleRenderKind {
     Leaf,
     Butterfly,
+    ButterflyBlock,
     WaterDroplet,
     TerrainVoxel,
 }
@@ -506,6 +509,10 @@ impl ParticleSystem {
         while alive_cursor < self.alive_indices.len() {
             let slot = self.alive_indices[alive_cursor];
             let mode = self.motion_modes[slot];
+            if mode == MotionMode::GuidedFlight {
+                alive_cursor += 1;
+                continue;
+            }
             self.pending_sim_dt[slot] += dt;
             self.update_elapsed[slot] += dt;
             let update_interval = self.update_intervals[slot];
@@ -575,6 +582,7 @@ impl ParticleSystem {
                             *vel *= max_speed / speed;
                         }
                     }
+                    MotionMode::GuidedFlight => unreachable!("guided flight advances separately"),
                 }
             }
 
@@ -592,6 +600,7 @@ impl ParticleSystem {
                     );
                 }
                 ParticleRenderKind::Leaf
+                | ParticleRenderKind::ButterflyBlock
                 | ParticleRenderKind::WaterDroplet
                 | ParticleRenderKind::TerrainVoxel => {}
             }
@@ -624,7 +633,7 @@ impl ParticleSystem {
         out.clear();
         out.reserve(self.alive_indices.len());
         for slot in &self.alive_indices {
-            let kind = self.render_kinds[*slot];
+            let mut kind = self.render_kinds[*slot];
             let mut color = self.colors[*slot];
 
             if kind == ParticleRenderKind::Butterfly {
@@ -634,13 +643,34 @@ impl ParticleSystem {
 
                 // fade butterflies by modulating alpha
                 color.w *= fade;
+                if self.motion_modes[*slot] == MotionMode::GuidedFlight {
+                    kind = ParticleRenderKind::ButterflyBlock;
+                    let rgb = crate::tracer::ButterflyPalettePreset::from_index(
+                        self.texture_variants[*slot],
+                    )
+                    .config()
+                    .mid_shade;
+                    // The sprite LUT is sRGB; vertex colors are linear.
+                    for axis in 0..3 {
+                        let srgb = rgb[axis] as f32 / 255.0;
+                        color[axis] = if srgb <= 0.04045 {
+                            srgb / 12.92
+                        } else {
+                            ((srgb + 0.055) / 1.055).powf(2.4)
+                        };
+                    }
+                }
             }
 
             out.push(ParticleSnapshot {
                 position_ws: self.positions[*slot],
                 velocity: self.velocities[*slot],
                 color,
-                size: self.sizes[*slot],
+                size: if kind == ParticleRenderKind::ButterflyBlock {
+                    STANDARD_PARTICLE_SIZE
+                } else {
+                    self.sizes[*slot]
+                },
                 kind,
                 texture_variant: self.texture_variants[*slot],
                 animation_frame_offset: self.animation_frame_offsets[*slot],
@@ -666,6 +696,53 @@ impl ParticleSystem {
             (lifetime - clamped_age) / fade_duration
         } else {
             1.0
+        }
+    }
+
+    /// Changes style on the same slot without resetting position, age, palette or animation.
+    pub fn set_butterfly_block_mode(&mut self, handle: ParticleHandle, enabled: bool) -> bool {
+        let Some(idx) = self.validate_handle(handle) else {
+            return false;
+        };
+        if self.render_kinds[idx] != ParticleRenderKind::Butterfly {
+            return false;
+        }
+        let mode = if enabled {
+            MotionMode::GuidedFlight
+        } else {
+            MotionMode::Free
+        };
+        if mode == self.motion_modes[idx] {
+            return false;
+        }
+        self.motion_modes[idx] = mode;
+        // Account for time accumulated by A, but do not move during a checkbox change.
+        self.ages[idx] += self.pending_sim_dt[idx];
+        self.pending_sim_dt[idx] = 0.0;
+        self.update_elapsed[idx] = 0.0;
+        true
+    }
+
+    pub fn advance_guided_flight(&mut self, handle: ParticleHandle, velocity: Vec3, dt: f32) {
+        let Some(idx) = self.validate_handle(handle) else {
+            return;
+        };
+        debug_assert_eq!(self.motion_modes[idx], MotionMode::GuidedFlight);
+        debug_assert!(velocity.is_finite() && dt.is_finite() && dt >= 0.0);
+        self.velocities[idx] = velocity;
+        self.positions[idx] += velocity * dt;
+        self.ages[idx] += dt;
+        Self::step_animation_frame(
+            &mut self.animation_elapsed[idx],
+            &mut self.animation_frame_offsets[idx],
+            dt,
+            BUTTERFLY_ANIM_FRAME_DURATION_SEC,
+            BUTTERFLY_FRAMES_PER_VARIANT,
+        );
+        if (self.despawn_on_lifetime[idx] && self.ages[idx] >= self.lifetimes[idx])
+            || (self.despawn_below_ground[idx] && self.positions[idx].y < 0.0)
+        {
+            self.despawn(handle);
         }
     }
 

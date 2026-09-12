@@ -6216,6 +6216,9 @@ impl Tracer {
                 color: snap.color.to_array(),
                 tex_index: match snap.kind {
                     crate::particles::ParticleRenderKind::Leaf => texture_layout.leaf_layer(),
+                    crate::particles::ParticleRenderKind::ButterflyBlock => {
+                        texture_layout.leaf_layer()
+                    }
                     crate::particles::ParticleRenderKind::Butterfly => pack_particle_tex_index(
                         butterfly_tex_index,
                         is_moving_right_relative_to_player(snap.velocity),
@@ -6233,6 +6236,7 @@ impl Tracer {
                     self.translucent_particle_instance_scratch.push(instance)
                 }
                 crate::particles::ParticleRenderKind::Leaf
+                | crate::particles::ParticleRenderKind::ButterflyBlock
                 | crate::particles::ParticleRenderKind::Butterfly
                 | crate::particles::ParticleRenderKind::TerrainVoxel => {
                     self.particle_instance_scratch.push(instance)

@@ -104,8 +104,8 @@ use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
 use crate::lighting::LocalLightRegistry;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
-    ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, LeafEmitterDesc,
+    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -472,6 +472,8 @@ pub struct App {
     particle_system: ParticleSystem,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
+    butterfly_flight_variant: ButterflyFlightVariant,
+    butterfly_review_frame: Option<u32>,
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
@@ -1371,8 +1373,17 @@ impl App {
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
-        let butterfly_emitter_desc =
-            Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
+        let butterfly_flight_variant =
+            if std::env::var_os("RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE").is_some() {
+                log::info!("[BUTTERFLY_AB] variant=B-darting-block source=smoke-override");
+                ButterflyFlightVariant::DartingBlock
+            } else {
+                ButterflyFlightVariant::OriginalSprite
+            };
+        let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
+            &debug_settings.adjustables,
+            butterfly_flight_variant,
+        );
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
@@ -1505,6 +1516,8 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
+            butterfly_flight_variant,
+            butterfly_review_frame: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW").map(|_| 0),
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
             sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
@@ -2706,6 +2719,12 @@ impl App {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     self.wind_prototype.controls(ui);
+                                                }
+                                                if section == "Butterflies" {
+                                                    particles::draw_butterfly_flight_ab_controls(
+                                                        ui,
+                                                        &mut self.butterfly_flight_variant,
+                                                    );
                                                 }
                                             });
 

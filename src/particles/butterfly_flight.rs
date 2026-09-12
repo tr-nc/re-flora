@@ -1,0 +1,317 @@
+//! Art-directed, seeded acceleration events. See docs/research/butterfly_block_flight_motion_research.md.
+use glam::Vec3;
+use rand::{rngs::SmallRng, RngExt, SeedableRng};
+
+pub(super) const FLIGHT_STEP_SECONDS: f64 = 1.0 / 120.0;
+const BUTTERFLY_BLOCK_CRUISE_SPEED_MIN: f32 = 0.10;
+const BUTTERFLY_BLOCK_CRUISE_SPEED_MAX: f32 = 0.16;
+const BUTTERFLY_BLOCK_MAX_SPEED: f32 = 0.30;
+const BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED: f32 = 0.20;
+const BUTTERFLY_BLOCK_MAX_ACCELERATION: f32 = 1.8;
+const BUTTERFLY_BLOCK_MAX_JERK: f32 = 14.0;
+const BUTTERFLY_BLOCK_EVENT_DURATION_MIN: f32 = 0.07;
+const BUTTERFLY_BLOCK_EVENT_DURATION_MAX: f32 = 0.20;
+const BUTTERFLY_BLOCK_EVENT_WAIT_MIN: f32 = 0.12;
+const BUTTERFLY_BLOCK_EVENT_WAIT_MAX: f32 = 0.85;
+const BUTTERFLY_BLOCK_RAPID_GAP_MIN: f32 = 0.035;
+const BUTTERFLY_BLOCK_RAPID_GAP_MAX: f32 = 0.11;
+const BUTTERFLY_BLOCK_HABITAT_RADIUS: f32 = 0.32;
+const BUTTERFLY_BLOCK_HABITAT_HEIGHT: f32 = 0.20;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ButterflyFlightVariant {
+    #[default]
+    OriginalSprite,
+    DartingBlock,
+}
+
+impl ButterflyFlightVariant {
+    pub const fn is_darting_block(self) -> bool {
+        matches!(self, Self::DartingBlock)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct DartingFlightState {
+    habitat_center: Vec3,
+    cruise_direction: Vec3,
+    cruise_speed: f32,
+    acceleration: Vec3,
+    event_acceleration: Vec3,
+    event_time_remaining: f32,
+    time_until_event: f32,
+    rapid_pulses_remaining: u8,
+    turn_sign: f32,
+    rng: SmallRng,
+}
+
+impl DartingFlightState {
+    pub(super) fn new(seed: f32, habitat_center: Vec3, initial_direction: Vec3) -> Self {
+        let mut rng =
+            SmallRng::seed_from_u64(u64::from(seed.to_bits()).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let cruise_direction = initial_direction.normalize_or(Vec3::Y);
+        Self {
+            habitat_center,
+            cruise_direction,
+            cruise_speed: rng
+                .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
+            acceleration: Vec3::ZERO,
+            event_acceleration: Vec3::ZERO,
+            event_time_remaining: 0.0,
+            time_until_event: rng.random_range(0.04..=0.30),
+            rapid_pulses_remaining: 0,
+            turn_sign: if rng.random_bool(0.5) { 1.0 } else { -1.0 },
+            rng,
+        }
+    }
+
+    fn sample_event_wait(&mut self) -> f32 {
+        let unit = self.rng.random_range(0.0..=1.0_f32);
+        BUTTERFLY_BLOCK_EVENT_WAIT_MIN
+            + (BUTTERFLY_BLOCK_EVENT_WAIT_MAX - BUTTERFLY_BLOCK_EVENT_WAIT_MIN) * unit * unit
+    }
+
+    fn start_maneuver(&mut self, velocity: Vec3) {
+        let continuing_cluster = self.rapid_pulses_remaining > 0;
+        if continuing_cluster {
+            self.rapid_pulses_remaining -= 1;
+            self.turn_sign = -self.turn_sign;
+        } else {
+            self.turn_sign = if self.rng.random_bool(0.5) { 1.0 } else { -1.0 };
+            if self.rng.random_bool(0.28) {
+                self.rapid_pulses_remaining = self.rng.random_range(1..=2);
+            }
+        }
+
+        let current_direction = velocity
+            .normalize_or_zero()
+            .lerp(self.cruise_direction, 0.35)
+            .normalize_or(self.cruise_direction);
+        let current_planar =
+            Vec3::new(current_direction.x, 0.0, current_direction.z).normalize_or(Vec3::X);
+        let turn_radians = self.turn_sign * self.rng.random_range(0.35..=1.75);
+        let (sin_turn, cos_turn) = turn_radians.sin_cos();
+        let turned_planar = Vec3::new(
+            current_planar.x * cos_turn - current_planar.z * sin_turn,
+            0.0,
+            current_planar.x * sin_turn + current_planar.z * cos_turn,
+        );
+        let vertical_roll = self.rng.random_range(0.0..1.0_f32);
+        let vertical = if vertical_roll < 0.13 {
+            self.rng.random_range(0.55..=0.95)
+        } else if vertical_roll < 0.21 {
+            -self.rng.random_range(0.35..=0.70)
+        } else {
+            self.rng.random_range(-0.18..=0.22)
+        };
+        let maneuver_direction = (turned_planar + Vec3::Y * vertical).normalize_or(current_planar);
+        self.event_acceleration = maneuver_direction * self.rng.random_range(0.75..=1.55);
+        self.event_time_remaining = self
+            .rng
+            .random_range(BUTTERFLY_BLOCK_EVENT_DURATION_MIN..=BUTTERFLY_BLOCK_EVENT_DURATION_MAX);
+        self.cruise_direction = current_direction
+            .lerp(maneuver_direction, 0.65)
+            .normalize_or(maneuver_direction);
+
+        let gap = if self.rapid_pulses_remaining > 0 {
+            self.rng
+                .random_range(BUTTERFLY_BLOCK_RAPID_GAP_MIN..=BUTTERFLY_BLOCK_RAPID_GAP_MAX)
+        } else {
+            self.sample_event_wait()
+        };
+        self.time_until_event = self.event_time_remaining + gap;
+    }
+
+    fn habitat_recovery_acceleration(&self, position: Vec3, velocity: Vec3) -> Vec3 {
+        let offset = position - self.habitat_center;
+        let planar_offset = Vec3::new(offset.x, 0.0, offset.z);
+        let planar_distance = planar_offset.length();
+        let mut recovery = Vec3::ZERO;
+        if planar_distance > BUTTERFLY_BLOCK_HABITAT_RADIUS {
+            let overshoot = planar_distance - BUTTERFLY_BLOCK_HABITAT_RADIUS;
+            recovery -= planar_offset.normalize_or_zero() * (0.35 + overshoot * 3.0);
+            recovery -= Vec3::new(velocity.x, 0.0, velocity.z) * 0.8;
+        }
+        if offset.y.abs() > BUTTERFLY_BLOCK_HABITAT_HEIGHT {
+            let overshoot = offset.y.abs() - BUTTERFLY_BLOCK_HABITAT_HEIGHT;
+            recovery.y -= offset.y.signum() * (0.30 + overshoot * 3.5);
+            recovery.y -= velocity.y * 0.8;
+        }
+        recovery
+    }
+
+    pub(super) fn resume(&mut self, velocity: Vec3) {
+        self.acceleration = Vec3::ZERO;
+        self.cruise_direction = velocity.normalize_or(self.cruise_direction);
+    }
+
+    pub(super) fn advance(
+        &mut self,
+        position: Vec3,
+        velocity: Vec3,
+        dt: f32,
+        world_max: Vec3,
+        emerging: bool,
+        terrain_distance: &mut impl FnMut(Vec3, Vec3) -> Option<f32>,
+    ) -> Vec3 {
+        let dt = dt.clamp(0.0, 0.1);
+        if dt <= 0.0 {
+            return velocity.clamp_length_max(BUTTERFLY_BLOCK_MAX_SPEED);
+        }
+
+        if !emerging {
+            self.time_until_event -= dt;
+            self.event_time_remaining = (self.event_time_remaining - dt).max(0.0);
+            if self.time_until_event <= 0.0 {
+                self.start_maneuver(velocity);
+            }
+        }
+
+        let cruise_velocity = if emerging {
+            Vec3::Y * self.cruise_speed
+        } else {
+            self.cruise_direction * self.cruise_speed
+        };
+        let cruise_acceleration = (cruise_velocity - velocity) * 2.4;
+        let maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
+            self.event_acceleration
+        } else {
+            Vec3::ZERO
+        };
+        let mut recovery = self.habitat_recovery_acceleration(position, velocity);
+        for axis in 0..3 {
+            let near_low = ((0.10 - position[axis]) / 0.10).clamp(0.0, 1.0);
+            let near_high = ((position[axis] - world_max[axis] + 0.10) / 0.10).clamp(0.0, 1.0);
+            recovery[axis] += (near_low - near_high) * 2.5;
+        }
+        if !emerging && velocity.length_squared() > 1e-6 {
+            if terrain_distance(position, velocity.normalize())
+                .is_some_and(|distance| distance < 0.07)
+            {
+                // Brake and climb before contact. Terrain remains the existing CPU authority.
+                recovery += Vec3::Y * 1.5 - velocity * 8.0;
+            }
+        }
+        let target_acceleration = (cruise_acceleration + maneuver_acceleration + recovery)
+            .clamp_length_max(BUTTERFLY_BLOCK_MAX_ACCELERATION);
+        self.acceleration = approach_vec3(
+            self.acceleration,
+            target_acceleration,
+            BUTTERFLY_BLOCK_MAX_JERK * dt,
+        );
+
+        let mut next_velocity =
+            (velocity + self.acceleration * dt).clamp_length_max(BUTTERFLY_BLOCK_MAX_SPEED);
+        next_velocity.y = next_velocity.y.clamp(
+            -BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED,
+            BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED,
+        );
+        // Contact constraints bound the next displacement, never relocate the particle.
+        // A hard contact may interrupt acceleration continuity, as in an ordinary collision.
+        for axis in 0..3 {
+            next_velocity[axis] = next_velocity[axis].clamp(
+                -position[axis].max(0.0) / dt,
+                (world_max[axis] - position[axis]).max(0.0) / dt,
+            );
+        }
+        let distance = next_velocity.length() * dt;
+        if !emerging && distance > 1e-7 {
+            if let Some(hit_distance) = terrain_distance(position, next_velocity.normalize()) {
+                let allowed = (hit_distance - 0.001).max(0.0);
+                if allowed < distance {
+                    next_velocity *= allowed / distance;
+                }
+            }
+        }
+        next_velocity
+    }
+}
+
+fn approach_vec3(current: Vec3, target: Vec3, max_delta: f32) -> Vec3 {
+    let delta = target - current;
+    let distance = delta.length();
+    if distance <= max_delta || distance <= f32::EPSILON {
+        target
+    } else {
+        current + delta * (max_delta / distance)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seeded_flight_is_continuous_bounded_and_has_irregular_events() {
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        for seed in 0..12 {
+            let center = Vec3::splat(1.0);
+            let mut flight = DartingFlightState::new(seed as f32, center, Vec3::X);
+            let mut position = center;
+            let mut velocity = Vec3::X * 0.15;
+            let mut intervals = std::collections::BTreeSet::new();
+            let mut last_event = 0;
+            let mut max_offset = 0.0_f32;
+            for tick in 0..3600 {
+                let old_acceleration = flight.acceleration;
+                let event_due = flight.time_until_event <= dt;
+                let next = flight.advance(
+                    position,
+                    velocity,
+                    dt,
+                    Vec3::splat(2.0),
+                    false,
+                    &mut |_, _| None,
+                );
+                assert!(next.is_finite());
+                assert!(next.length() <= BUTTERFLY_BLOCK_MAX_SPEED + 1e-6);
+                assert!(next.y.abs() <= BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED + 1e-6);
+                assert!(flight.acceleration.length() <= BUTTERFLY_BLOCK_MAX_ACCELERATION + 1e-5);
+                assert!(
+                    (flight.acceleration - old_acceleration).length()
+                        <= BUTTERFLY_BLOCK_MAX_JERK * dt + 1e-5
+                );
+                assert!((next - velocity).length() <= BUTTERFLY_BLOCK_MAX_ACCELERATION * dt + 1e-5);
+                position += next * dt;
+                velocity = next;
+                max_offset = max_offset.max(position.distance(center));
+                assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());
+                if event_due {
+                    intervals.insert(tick - last_event);
+                    last_event = tick;
+                }
+            }
+            assert!(intervals.len() >= 12, "seed {seed}: periodic event spacing");
+            assert!(
+                max_offset < 0.65,
+                "seed {seed}: escaped habitat by {max_offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn world_and_terrain_contacts_never_teleport_or_cross_the_swept_segment() {
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        let mut state = DartingFlightState::new(5.0, Vec3::ONE, Vec3::X);
+        let position = Vec3::new(1.9999, 1.0, 1.0);
+        let velocity = state.advance(
+            position,
+            Vec3::X * 0.3,
+            dt,
+            Vec3::splat(2.0),
+            false,
+            &mut |_, _| None,
+        );
+        assert!((position + velocity * dt).x <= 2.0);
+        let position = Vec3::ONE;
+        let velocity = state.advance(
+            position,
+            Vec3::X * 0.3,
+            dt,
+            Vec3::splat(2.0),
+            false,
+            &mut |_, _| Some(0.0011),
+        );
+        assert!((velocity * dt).length() <= 0.000101);
+    }
+}
