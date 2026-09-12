@@ -2,6 +2,21 @@
 
 2026-09-12；独立 worktree `/home/terence/code/re-flora-agent-fallen-leaf-flight`，分支 `agent/fallen-leaf-flight`，确认起点为 `74bf8b049c1f2f7000868af10d5f82d022f4770f`。未 merge、cherry-pick、push，也未操作其他 Worker 或主工作区的游戏进程。
 
+## 后续修正：只约束上屏频率，绝不降低物理频率
+
+用户试玩后指出初版 B 过于流畅，并明确只要求显示遵守 World Tick，不允许改物理模拟频率。`05a52df1` 修复了 `write_snapshots` 直接透传实时物理姿态的问题：新增一份 CPU `LeafDisplayPose`，由既有 `ParticleTickStep` 两桶时钟发布，A/B 共用，不增加独立计时器。默认 `World Tick=0.05 s`，每桶/每片约 `10 Hz`；发布之间位置、速度代理和四元数保持，几何及姿态驱动颜色一致，不插值。相机和环境光仍实时观察这份姿态。
+
+本次只改 `src/particles/system.rs` 的显示缓存、snapshot 选择及回归测试；`src/particles/leaf_flight.rs`、物理积分循环、shader、GUI 配置和 GPU 布局未改。B 每帧推进内部 120 Hz 固定步积分，A 原物理节奏、粒子年龄、寿命/数量权威不变。出生时初始化显示缓存，死亡立即移除；槽位复用不继承旧显示姿态；checkbox 只即时改变模式，不提前发布或回写物理状态。
+
+验证：
+
+- 修复前 `cargo test --quiet leaf_display_holds_between_world_ticks_while_physics_advances` 明确失败：未到 tick 的首个 1/120 秒，显示位置已由 `(0,1,0)` 变为约 `(0.0004967,0.9999965,-0.0002472)`；修复后通过，且内部位置/四元数仍已变化。
+- `cargo fmt --check`、`cargo check`、release build 通过；`cargo test --quiet particles::` **31 通过**；完整测试 **940 + 4 通过、2 忽略**，日志 `target/fallen-leaf-flight/cadence-tests.log`。新增用例对相同来流、World Tick `0.025/0.05/0.1 s` 的 A、B 分别逐帧比对，物理位置/速度/年龄/四元数完全一致，只有发布次数改变；同时检查切换、运行时 tick 设置和槽位复用。
+- 使用 X11 hidden/mute/release、同一 `flock --close /tmp/re-flora-summer-gpu.lock` 完成 `--auto-exit 0.5` 和 B 的 180 个连续帧捕获。日志分别为 `target/re-flora-logs/re-flora-20260912-134030.456-332732.log`、`re-flora-20260912-134033.255-332785.log`；退出 0、`failures=0`，未发现 ERROR/VUID/panic，并用 `--tail-latest-log 8` 复核。
+- 新捕获报告 `target/fallen-leaf-flight/b-world-tick.toml`，原帧目录 `b-world-tick.artifacts-CksgHu`，便捷视频 [b-world-tick.mp4](../target/fallen-leaf-flight/b-world-tick.mp4)。仍以 60 Hz 逐帧捕获，没有把录像本身降帧率。检查帧 60/61/62 可见先保持再更新；对帧 60–77 的固定中央 ROI（x=200..1799, y=100..1149）按 `G>1.25R && G>1.05B` 提取叶片轮廓，旧连续 B 为 18 个不同掩码，新版为 7 个，多数组内连续 3 帧完全一致，符合两个显示桶交错更新。
+
+以下为初版研究与验收历史；旧回放展示初版连续上屏，不代表修正后的显示节奏。本次未自动启动或重启可见游戏，未宣称新节奏已获得用户认可，未重新做性能验收。没有新的已跟踪生成文件差异；GUI/相机配置哈希仍与下文一致。
+
 ## 可玩入口与边界
 
 Debug Panel → Flora → Leaves → **B: Fallen leaf plate flight (A/B experiment)**，默认不勾选。未勾选是 A：基线 billboard、原噪声下落和运动方向代理光学法线；勾选是 B：世界空间正方形，模拟姿态同时驱动几何、气动力和共享叶光学。切换不重新发射，不重置位置/速度/年龄/句柄，故不是同轨迹倒带。没有新增游戏 CLI 模式代替 checkbox。
