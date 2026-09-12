@@ -10,6 +10,8 @@ use rapier3d::prelude::{
 };
 use std::collections::{HashMap, HashSet};
 
+mod character_step;
+
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
 pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
@@ -22,7 +24,6 @@ pub const CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE: f32 = std::f32::consts::FRAC_
 pub const CAPSULE_CHARACTER_MIN_SLOPE_SLIDE_ANGLE: f32 = std::f32::consts::FRAC_PI_3;
 pub const CAPSULE_CHARACTER_NORMAL_NUDGE_FACTOR: f32 = 1.0e-4;
 pub const CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT: f32 = 0.5;
-const CAPSULE_CHARACTER_MAX_HORIZONTAL_CORRECTIONS: usize = 2;
 const STATIC_VOXEL_BRICK_VOLUME: usize = STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize;
@@ -577,57 +578,36 @@ impl CollisionWorld {
         );
 
         let mut translation = effective.translation;
-        let mut correction_grounded = false;
+        let mut stepped = false;
         let mut is_sliding_down_slope = effective.is_sliding_down_slope;
-        if movement.smooth_microvoxel_walk && effective.is_sliding_down_slope {
-            let requested_horizontal = Vector::new(desired_translation.x, 0.0, desired_translation.z);
-            if let Some(requested_direction) = requested_horizontal.try_normalize() {
-                // Rapier preserves motion-vector length while following the rounded capsule over
-                // voxel edges. Re-submit only the lost horizontal component through the same KCC
-                // so climbing a tiny edge doesn't reduce the player's intended XZ speed. Every
-                // correction remains a collision-checked shape cast; walls still stop it.
-                for _ in 0..CAPSULE_CHARACTER_MAX_HORIZONTAL_CORRECTIONS {
-                    let applied_horizontal = Vector::new(translation.x, 0.0, translation.z);
-                    let horizontal_shortfall = requested_horizontal.length()
-                        - applied_horizontal.dot(requested_direction);
-                    if horizontal_shortfall <= 1.0e-3 {
-                        break;
-                    }
-
-                    let correction_pose = Pose::from_translation(translation) * pose;
-                    let correction = controller.move_shape(
-                        movement.dt,
-                        &query_pipeline,
-                        shape.as_ref(),
-                        &correction_pose,
-                        requested_direction * horizontal_shortfall,
-                        |collision| {
-                            collisions.push(CapsuleCharacterCollision {
-                                normal: from_rapier_vec(collision.hit.normal1),
-                                translation_applied: from_rapier_vec(
-                                    translation + collision.translation_applied,
-                                ),
-                                translation_remaining: from_rapier_vec(
-                                    collision.translation_remaining,
-                                ),
-                                time_of_impact: collision.hit.time_of_impact,
-                            });
-                        },
-                    );
-                    let forward_progress = correction.translation.dot(requested_direction);
-                    if forward_progress <= 1.0e-4 {
-                        break;
-                    }
-                    translation += correction.translation;
-                    correction_grounded |= correction.grounded;
-                    is_sliding_down_slope |= correction.is_sliding_down_slope;
-                }
-            }
-        }
         let landed_during_move = collisions
             .iter()
             .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
-        let mut grounded = effective.grounded || correction_grounded || landed_during_move;
+        if movement.smooth_microvoxel_walk
+            && (grounded_at_start || effective.grounded || landed_during_move)
+            && movement.desired_translation.y <= 0.0
+        {
+            let requested_horizontal =
+                Vector::new(desired_translation.x, 0.0, desired_translation.z);
+            let applied_horizontal = Vector::new(translation.x, 0.0, translation.z);
+            // A rounded corner can project a forward input both upward AND sideways. Try a
+            // collision-checked step from the original pose before accepting that slide.
+            if requested_horizontal.distance_squared(applied_horizontal) > 1.0e-6 {
+                if let Some(step) = character_step::try_step(
+                    &query_pipeline,
+                    shape.as_ref(),
+                    &pose,
+                    requested_horizontal,
+                ) {
+                    translation = step;
+                    stepped = true;
+                    is_sliding_down_slope = false;
+                    // These contacts belong to the discarded slide, not to the accepted step.
+                    collisions.clear();
+                }
+            }
+        }
+        let mut grounded = effective.grounded || stepped || landed_during_move;
         if movement.desired_translation.y <= 0.0 && (grounded_at_start || grounded) {
             let final_pose = Pose::from_translation(translation) * pose;
             if let Some(hit) = capsule_ground_hit(
