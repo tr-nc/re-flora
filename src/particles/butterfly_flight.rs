@@ -40,6 +40,9 @@ impl ButterflyFlightVariant {
 #[serde(default)]
 pub struct ButterflyFlightTuning {
     pub flight_frequency_hz: f32,
+    /// World units above local terrain; the walking camera's default eye height is 0.08.
+    pub height_above_ground: f32,
+    /// Retained for saved settings compatibility, no longer exposed as a misleading GUI tempo.
     pub maneuver_tempo: f32,
     pub vertical_strength: f32,
     pub turn_sharpness: f32,
@@ -58,6 +61,7 @@ impl Default for ButterflyFlightTuning {
     fn default() -> Self {
         Self {
             flight_frequency_hz: 10.0,
+            height_above_ground: 0.08,
             maneuver_tempo: 1.0,
             vertical_strength: 4.0,
             turn_sharpness: 1.0,
@@ -69,6 +73,7 @@ impl Default for ButterflyFlightTuning {
 
 impl ButterflyFlightTuning {
     pub const FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=40.0;
+    pub const HEIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.03..=0.24;
     pub const TEMPO_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
     pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
@@ -85,6 +90,11 @@ impl ButterflyFlightTuning {
             }
         };
         Self {
+            height_above_ground: bounded(
+                self.height_above_ground,
+                Self::HEIGHT_RANGE,
+                defaults.height_above_ground,
+            ),
             flight_frequency_hz: bounded(
                 self.flight_frequency_hz,
                 Self::FREQUENCY_RANGE,
@@ -171,12 +181,12 @@ impl SharedFlightRhythm {
 
     fn sample_vertical_intent(&mut self) {
         let roll = self.rng.random_range(0.0..1.0_f32);
-        let vertical = if roll < 0.13 {
-            self.rng.random_range(0.55..=0.95)
-        } else if roll < 0.21 {
-            -self.rng.random_range(0.35..=0.70)
+        // Symmetric signed bursts have zero expected vertical impulse. A biased
+        // random walk otherwise spends long flights against the upper habitat edge.
+        let vertical = if roll < 0.21 {
+            self.rng.random_range(0.35..=0.95) * if self.rng.random_bool(0.5) { 1.0 } else { -1.0 }
         } else {
-            self.rng.random_range(-0.18..=0.22)
+            self.rng.random_range(-0.20..=0.20)
         };
         self.acceleration = vertical * self.rng.random_range(0.75..=1.55);
     }
@@ -205,6 +215,7 @@ fn sample_event_wait(rng: &mut SmallRng) -> f32 {
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
     habitat_center: Vec3,
+    ground_height: Option<f32>,
     cruise_direction: Vec3,
     cruise_speed: f32,
     acceleration: Vec3,
@@ -226,6 +237,7 @@ impl DartingFlightState {
             Vec3::new(initial_direction.x, 0.0, initial_direction.z).normalize_or(Vec3::X);
         Self {
             habitat_center,
+            ground_height: None,
             cruise_direction,
             cruise_speed: rng
                 .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
@@ -284,7 +296,12 @@ impl DartingFlightState {
         self.time_until_event = self.event_time_remaining + gap;
     }
 
-    fn habitat_recovery_acceleration(&self, position: Vec3, velocity: Vec3) -> Vec3 {
+    fn habitat_recovery_acceleration(
+        &self,
+        position: Vec3,
+        velocity: Vec3,
+        emerging: bool,
+    ) -> Vec3 {
         let offset = position - self.habitat_center;
         let planar_offset = Vec3::new(offset.x, 0.0, offset.z);
         let planar_distance = planar_offset.length();
@@ -294,7 +311,11 @@ impl DartingFlightState {
             recovery -= planar_offset.normalize_or_zero() * (0.35 + overshoot * 3.0);
             recovery -= Vec3::new(velocity.x, 0.0, velocity.z) * 0.8;
         }
-        if offset.y.abs() > BUTTERFLY_BLOCK_HABITAT_HEIGHT {
+        if self.ground_height.is_some() && !emerging {
+            // Soft terrain-relative attraction, not a position clamp. Birth can
+            // still emerge through its plant before joining this flight band.
+            recovery.y -= offset.y * 4.0 + velocity.y * 1.5;
+        } else if offset.y.abs() > BUTTERFLY_BLOCK_HABITAT_HEIGHT {
             let overshoot = offset.y.abs() - BUTTERFLY_BLOCK_HABITAT_HEIGHT;
             recovery.y -= offset.y.signum() * (0.30 + overshoot * 3.5);
             recovery.y -= velocity.y * 0.8;
@@ -342,6 +363,19 @@ impl DartingFlightState {
         let vertical_acceleration = self
             .rhythm
             .advance(position, dt, tuning.flight_frequency_hz);
+        if self.rhythm.publish_due {
+            // Reuse the shared beat rather than adding a terrain or display clock.
+            // The top-down CPU query sees terrain only, not the birth leaf/canopy.
+            let origin = Vec3::new(position.x, world_max.y, position.z);
+            if let Some(distance) = terrain_distance(origin, -Vec3::Y)
+                .filter(|d| d.is_finite() && *d >= 0.0 && *d <= world_max.y)
+            {
+                self.ground_height = Some(world_max.y - distance);
+            }
+        }
+        if let Some(ground) = self.ground_height {
+            self.habitat_center.y = (ground + tuning.height_above_ground).min(world_max.y - 0.01);
+        }
 
         // Self-speed acts on air-relative steering, never on wind advection.
         let air_velocity = velocity - self.wind_velocity;
@@ -382,7 +416,7 @@ impl DartingFlightState {
         }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
-        let mut recovery = self.habitat_recovery_acceleration(position, velocity);
+        let mut recovery = self.habitat_recovery_acceleration(position, velocity, emerging);
         for axis in 0..3 {
             let near_low = ((0.10 - position[axis]) / 0.10).clamp(0.0, 1.0);
             let near_high = ((position[axis] - world_max[axis] + 0.10) / 0.10).clamp(0.0, 1.0);
@@ -448,6 +482,123 @@ fn approach_vec3(current: Vec3, target: Vec3, max_delta: f32) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn butterfly_long_flights_return_to_player_height_over_local_terrain() {
+        let ground = 0.25;
+        for initial_y in [ground + 0.08, ground + 0.65] {
+            for seed in 0..8 {
+                let mut position = Vec3::new(1., initial_y, 1.);
+                let mut velocity = Vec3::ZERO;
+                let mut flight = DartingFlightState::new(seed as f32, position, Vec3::X);
+                let tuning = ButterflyFlightTuning {
+                    flight_frequency_hz: 5.5,
+                    maneuver_tempo: 2.75,
+                    vertical_strength: 2.,
+                    ..Default::default()
+                };
+                let mut sum_height = 0.;
+                let mut peak_height = 0.0_f32;
+                for tick in 0..7200 {
+                    velocity = flight.advance(
+                        position,
+                        velocity,
+                        1. / 120.,
+                        Vec3::splat(2.),
+                        false,
+                        tuning,
+                        Vec3::ZERO,
+                        &mut |origin, direction| {
+                            (direction.y < -1e-6 && origin.y >= ground)
+                                .then(|| (ground - origin.y) / direction.y)
+                        },
+                    );
+                    let previous = position;
+                    position += velocity / 120.;
+                    flight.publish_render_pose(position);
+                    assert!(position.y >= ground, "terrain containment");
+                    assert!(position.distance(previous) < 0.003, "no height teleport");
+                    if tick >= 3600 {
+                        let height = position.y - ground;
+                        sum_height += height;
+                        peak_height = peak_height.max(height);
+                    }
+                }
+                let mean_height = sum_height / 3600.;
+                println!(
+                    "height initial={initial_y} seed={seed} mean={mean_height} peak={peak_height}"
+                );
+                assert!(
+                    (0.03..0.14).contains(&mean_height),
+                    "must return near the 0.08-world-unit player eye height, got {mean_height}"
+                );
+                assert!(peak_height < 0.22, "must not remain in the canopy");
+            }
+        }
+    }
+
+    #[test]
+    fn butterfly_height_control_tracks_sloped_terrain_and_live_edits_without_teleporting() {
+        let mut position = Vec3::new(1., 0.31, 1.);
+        let mut velocity = Vec3::ZERO;
+        let mut flight = DartingFlightState::new(31., position, Vec3::X);
+        let mut means = [0.; 3];
+        for phase in 0..3 {
+            let requested_height = [0.04, 0.18, 0.08][phase];
+            for tick in 0..3600 {
+                velocity = flight.advance(
+                    position,
+                    velocity,
+                    1. / 120.,
+                    Vec3::splat(2.),
+                    false,
+                    ButterflyFlightTuning {
+                        height_above_ground: requested_height,
+                        vertical_strength: 0.,
+                        ..Default::default()
+                    },
+                    Vec3::new(0.4, 0., 0.),
+                    &mut |origin, direction| {
+                        let denominator = direction.y - direction.x * 0.03;
+                        (denominator < -1e-6)
+                            .then(|| (0.2 + 0.03 * origin.x - origin.y) / denominator)
+                            .filter(|d| *d >= 0.)
+                    },
+                );
+                let previous = position;
+                position += velocity / 120.;
+                flight.publish_render_pose(position);
+                let height = position.y - (0.2 + 0.03 * position.x);
+                assert!(height >= 0.);
+                assert!(position.distance(previous) < 0.003);
+                if tick >= 2400 {
+                    means[phase] += height / 1200.;
+                }
+            }
+            assert!(
+                (means[phase] - requested_height).abs() < 0.02,
+                "phase {phase}, heights {means:?}"
+            );
+        }
+        assert!(
+            means[1] - means[0] > 0.10,
+            "the replacement height slider must change the actual trajectory"
+        );
+    }
+
+    #[test]
+    fn butterfly_vertical_intent_has_no_systematic_upward_bias() {
+        let mut rhythm = SharedFlightRhythm::new(19., Vec3::ZERO);
+        let mut sum = 0.;
+        for _ in 0..100_000 {
+            rhythm.sample_vertical_intent();
+            sum += rhythm.acceleration;
+        }
+        assert!(
+            (sum / 100_000.).abs() < 0.004,
+            "signed bursts must not push long flights upward"
+        );
+    }
 
     #[test]
     fn butterfly_shared_frequency_publishes_pose_and_vertical_intent_on_the_same_beat() {
@@ -759,6 +910,7 @@ mod tests {
         assert_eq!(
             ButterflyFlightTuning {
                 flight_frequency_hz: f32::NAN,
+                height_above_ground: f32::NAN,
                 maneuver_tempo: f32::INFINITY,
                 vertical_strength: f32::NAN,
                 turn_sharpness: f32::NEG_INFINITY,
@@ -777,6 +929,7 @@ mod tests {
                 let tuning = if (tick / 240) % 2 == 0 {
                     ButterflyFlightTuning {
                         flight_frequency_hz: 40.0,
+                        height_above_ground: 0.24,
                         maneuver_tempo: 4.0,
                         vertical_strength: 4.0,
                         turn_sharpness: 4.0,
@@ -786,6 +939,7 @@ mod tests {
                 } else {
                     ButterflyFlightTuning {
                         flight_frequency_hz: 0.0,
+                        height_above_ground: 0.03,
                         maneuver_tempo: 0.25,
                         vertical_strength: 0.0,
                         turn_sharpness: 0.25,

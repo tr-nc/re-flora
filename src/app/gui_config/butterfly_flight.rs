@@ -60,17 +60,17 @@ pub(crate) fn draw_butterfly_flight_tuning(
     } else {
         ui.small("Shared stepping off — continuous display, no vertical intent");
     }
-    let tempo = ui
+    let height = ui
         .add(
             egui::Slider::new(
-                &mut tuning.maneuver_tempo,
-                ButterflyFlightTuning::TEMPO_RANGE,
+                &mut tuning.height_above_ground,
+                ButterflyFlightTuning::HEIGHT_RANGE,
             )
-            .text("Horizontal maneuver tempo (x)")
-            .step_by(0.05),
+            .text("Flight height above ground")
+            .step_by(0.005),
         )
         .on_hover_text(
-            "Higher = more frequent, shorter horizontal maneuvers. Vertical timing, wind, physics tick and lifetime are unchanged.",
+            "World units above the terrain below each butterfly. 0.08 matches the walking player's default eye height. Changes attract flight gradually, never teleport it. Tree-born butterflies descend naturally. Horizontal tempo is kept at its saved value.",
         );
     let vertical = ui.add(egui::Slider::new(&mut tuning.vertical_strength, ButterflyFlightTuning::VERTICAL_RANGE)
         .text("Vertical movement (x)").step_by(0.05))
@@ -84,11 +84,11 @@ pub(crate) fn draw_butterfly_flight_tuning(
     let wind = ui.add(egui::Slider::new(&mut tuning.wind_drift, ButterflyFlightTuning::WIND_DRIFT_RANGE)
         .text("Wind drift (x)").step_by(0.05))
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
-    let changed = [&frequency, &tempo, &vertical, &sharpness, &speed, &wind]
+    let changed = [&frequency, &height, &vertical, &sharpness, &speed, &wind]
         .iter()
         .any(|r| r.changed());
     if changed {
         log::info!("[BUTTERFLY_AB][TUNING] {tuning:?}");
     }
-    [frequency, tempo, vertical, sharpness, speed, wind]
+    [frequency, height, vertical, sharpness, speed, wind]
 }

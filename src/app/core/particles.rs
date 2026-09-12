@@ -23,6 +23,11 @@ const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
 const BUTTERFLY_LIMIT_PER_WORLD_CHUNK: u64 = 2;
+// Leaf-born visual particles may start inside branch voxels. B treats the canopy
+// as permeable, while soil, rocks and constructed surfaces remain solid.
+const BUTTERFLY_FLIGHT_SURFACE_MASK: u32 = u32::MAX
+    & !(1 << crate::builder::VOXEL_TYPE_CHERRY_WOOD)
+    & !(1 << crate::builder::VOXEL_TYPE_OAK_WOOD);
 const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
 
 fn butterfly_world_limit(chunk_dim: glam::UVec3) -> usize {
@@ -575,7 +580,11 @@ impl App {
                 &wind,
                 |origin, direction| {
                     self.contree_builder
-                        .query_terrain_ray_cpu(origin, direction)
+                        .query_terrain_ray_cpu_filtered(
+                            origin,
+                            direction,
+                            BUTTERFLY_FLIGHT_SURFACE_MASK,
+                        )
                         .map(|hit| hit.position.distance(origin))
                 },
             );
@@ -687,6 +696,17 @@ impl App {
         };
         review.frame += 1;
         let frame = review.frame;
+        let height_review = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("height");
+        let terrain_y = |position: Vec3| {
+            let origin = Vec3::new(
+                position.x,
+                super::CHUNK_DIM.y as f32 + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD,
+                position.z,
+            );
+            self.contree_builder
+                .query_terrain_ray_cpu_filtered(origin, -Vec3::Y, BUTTERFLY_FLIGHT_SURFACE_MASK)
+                .map(|hit| hit.position.y)
+        };
         let butterflies = self
             .particle_snapshots
             .iter()
@@ -698,15 +718,45 @@ impl App {
             })
             .collect::<Vec<_>>();
         if frame >= 240 && review.subject_frame.is_none() {
-            if let Some(subject) = butterflies.iter().find(|s| s.color.w >= 0.99) {
+            if let Some(subject) = butterflies.iter().find(|s| {
+                s.color.w >= 0.99
+                    && (!height_review
+                        || terrain_y(s.position_ws).is_some_and(|ground| {
+                            (0.03..0.15).contains(&(s.position_ws.y - ground))
+                        }))
+            }) {
                 let target = subject.position_ws;
-                self.tracer
-                    .set_camera_pose_looking_at(target + Vec3::new(0.0, 0.30, 0.95), target);
+                let camera = if height_review {
+                    let mut camera = target + Vec3::new(0., 0., 0.45);
+                    camera.z = camera.z.clamp(0.1, super::CHUNK_DIM.z as f32 - 0.1);
+                    camera.y = terrain_y(camera).unwrap_or(target.y - 0.08) + 0.08;
+                    camera
+                } else {
+                    target + Vec3::new(0.0, 0.30, 0.95)
+                };
+                self.tracer.set_camera_pose_looking_at(camera, target);
                 review.subject_frame = Some(frame);
                 log::info!("[BUTTERFLY_REVIEW] camera=fixed-natural-subject frame={frame} target={target:?}");
             }
         }
         if frame >= 240 {
+            if height_review && frame.is_multiple_of(30) {
+                log::info!(
+                    "[BUTTERFLY_HEIGHT_REVIEW] frame={frame} requested={} samples={:?}",
+                    self.debug_settings
+                        .butterfly_flight
+                        .tuning
+                        .height_above_ground,
+                    butterflies
+                        .iter()
+                        .map(|s| (
+                            s.position_ws.to_array(),
+                            terrain_y(s.position_ws).map(|ground| s.position_ws.y - ground),
+                            s.color.w
+                        ))
+                        .collect::<Vec<_>>()
+                );
+            }
             log::info!(
                 "[BUTTERFLY_REVIEW] frame={frame} dt={dt:.6} variant={:?} count={} particles={:?}",
                 self.debug_settings.butterfly_flight.variant,
@@ -741,6 +791,7 @@ impl App {
                 }),
                 Some(180) => Some(ButterflyFlightTuning {
                     flight_frequency_hz: 6.25,
+                    height_above_ground: 0.08,
                     maneuver_tempo: 2.0,
                     vertical_strength: 3.0,
                     turn_sharpness: 2.0,
@@ -1067,7 +1118,8 @@ mod tests {
         }
         let (_, edited) = draw(Vec::new());
         assert_ne!(edited.flight_frequency_hz, initial.flight_frequency_hz);
-        assert_ne!(edited.maneuver_tempo, initial.maneuver_tempo);
+        assert_ne!(edited.height_above_ground, initial.height_above_ground);
+        assert_eq!(edited.maneuver_tempo, initial.maneuver_tempo);
         assert_ne!(edited.vertical_strength, initial.vertical_strength);
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);

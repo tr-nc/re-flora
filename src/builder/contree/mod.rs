@@ -253,6 +253,24 @@ impl ContreeCpuRayQuerySnapshot {
         )
     }
 
+    /// Ray query with an explicit material policy; other CPU ray callers retain all solids.
+    #[cfg(test)]
+    pub fn query_terrain_ray_cpu_filtered(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        material_mask: u32,
+    ) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_against_state_filtered(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            origin,
+            direction,
+            material_mask,
+        )
+    }
+
     pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
         query_terrain_occupancy_against_state(
             self.chunk_dim,
@@ -1382,6 +1400,23 @@ impl ContreeBuilder {
         )
     }
 
+    /// Filter materials without changing the shared all-solid query used by gameplay/audio.
+    pub fn query_terrain_ray_cpu_filtered(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        material_mask: u32,
+    ) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_against_state_filtered(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            origin,
+            direction,
+            material_mask,
+        )
+    }
+
     fn ensure_contree_cmdbuf(&mut self) -> CommandBuffer {
         if self.contree_cmdbuf.is_none() {
             let total_levels = get_level(self.voxel_dim_per_chunk);
@@ -2176,6 +2211,37 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
 mod tests {
     use super::*;
 
+    #[test]
+    fn filtered_flight_ray_sees_ground_through_branches_and_from_inside_wood() {
+        let ground = leaf_cache(
+            UVec3::ZERO,
+            &[(UVec3::new(1, 0, 1), 2), (UVec3::new(1, 2, 1), 5)],
+        );
+        let canopy = leaf_cache(UVec3::Y, &[(UVec3::new(1, 1, 1), 6)]);
+        let snapshot = voxel_snapshot(
+            UVec3::new(1, 2, 1),
+            UVec3::splat(4),
+            &[UVec3::ZERO, UVec3::Y],
+            &[(UVec3::ZERO, ground), (UVec3::Y, canopy)],
+            &[],
+            &[],
+        );
+        let mask = u32::MAX & !(1 << 5) & !(1 << 6);
+        for y in [1.9, 1.4, 0.9, 0.6] {
+            let origin = Vec3::new(0.375, y, 0.375);
+            let original = snapshot.query_terrain_ray_cpu(origin, -Vec3::Y).unwrap();
+            assert!(matches!(original.voxel_type, 5 | 6));
+            let filtered = snapshot
+                .query_terrain_ray_cpu_filtered(origin, -Vec3::Y, mask)
+                .unwrap();
+            assert_eq!(filtered.voxel_type, 2);
+            assert!((filtered.position.y - 0.25).abs() < 0.0001, "{filtered:?}");
+            assert!(snapshot
+                .query_terrain_ray_cpu_filtered(origin, -Vec3::Y, 0)
+                .is_none());
+        }
+    }
+
     fn leaf_cache(chunk_idx: UVec3, entries: &[(UVec3, u32)]) -> Arc<CpuChunkCache> {
         let mut entries = entries.to_vec();
         entries.sort_by_key(|(voxel, _)| voxel.x + voxel.z * 4 + voxel.y * 16);
@@ -2870,6 +2936,24 @@ fn query_terrain_ray_against_state(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<ContreeCpuRayHit> {
+    query_terrain_ray_against_state_filtered(
+        chunk_dim,
+        cpu_scene_chunks,
+        cpu_chunk_caches,
+        origin,
+        direction,
+        u32::MAX,
+    )
+}
+
+fn query_terrain_ray_against_state_filtered(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
+    origin: Vec3,
+    direction: Vec3,
+    material_mask: u32,
+) -> Option<ContreeCpuRayHit> {
     if direction.length_squared() <= f32::EPSILON {
         return None;
     }
@@ -2912,9 +2996,12 @@ fn query_terrain_ray_against_state(
         let chunk_idx = map_pos.as_uvec3();
         if scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx) {
             if let Some(cache) = cpu_chunk_caches.get(&chunk_idx) {
-                if let Some(hit) =
-                    query_cached_chunk_cpu_ray(cache.as_ref(), marched_origin, marched_dir)
-                {
+                if let Some(hit) = query_cached_chunk_cpu_ray(
+                    cache.as_ref(),
+                    marched_origin,
+                    marched_dir,
+                    material_mask,
+                ) {
                     return Some(hit);
                 }
             }
@@ -2967,14 +3054,20 @@ fn query_cached_chunk_cpu_ray(
     cache: &CpuChunkCache,
     origin: Vec3,
     direction: Vec3,
+    material_mask: u32,
 ) -> Option<ContreeCpuRayHit> {
     if direction.length_squared() <= f32::EPSILON || cache.nodes.is_empty() {
         return None;
     }
 
     let local_origin = origin - cache.chunk_idx.as_vec3() + Vec3::ONE;
-    let (local_position, voxel_data) =
-        march_contree_cpu(local_origin, direction, &cache.nodes, &cache.leaves)?;
+    let (local_position, voxel_data) = march_contree_cpu(
+        local_origin,
+        direction,
+        &cache.nodes,
+        &cache.leaves,
+        material_mask,
+    )?;
     Some(ContreeCpuRayHit {
         position: local_position + cache.chunk_idx.as_vec3() - Vec3::ONE,
         voxel_type: voxel_data & crate::builder::VOXEL_TYPE_MASK as u32,
@@ -3050,6 +3143,7 @@ fn march_contree_cpu(
     dir: Vec3,
     nodes: &[CpuContreeNode],
     leaves: &[u32],
+    material_mask: u32,
 ) -> Option<(Vec3, u32)> {
     if nodes.is_empty() {
         return None;
@@ -3100,10 +3194,10 @@ fn march_contree_cpu(
             let child_idx = get_node_cell_index(pos, scale_exp)? as u32;
             let bits = child_mask_bitcount_below(node, child_idx);
             let voxel_addr = ((node.packed_0 >> 1) + bits) as usize;
-            if let Some(&voxel_data) = leaves.get(voxel_addr) {
+            let &voxel_data = leaves.get(voxel_addr)?;
+            if material_mask & (1 << (voxel_data & crate::builder::VOXEL_TYPE_MASK as u32)) != 0 {
                 return Some((pos, voxel_data));
             }
-            return None;
         }
 
         let mut adv_scale_exp = scale_exp;
