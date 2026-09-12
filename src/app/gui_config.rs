@@ -647,6 +647,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fallen_leaf_defaults_to_b_billboard_and_retains_disabled_geometry_preference() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        assert!(settings.adjustables.fallen_leaf_flight.value);
+        assert!(!settings.adjustables.fallen_leaf_rotating_plate.value);
+        let geometry = settings
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "fallen_leaf_rotating_plate")
+            .unwrap();
+        let condition = geometry.enabled_if.as_ref().unwrap();
+        assert_eq!(condition.param, "fallen_leaf_flight");
+        assert_eq!(condition.equals, GuiParamConditionValue::Bool(true));
+        settings.adjustables.fallen_leaf_rotating_plate.value = true;
+        settings.adjustables.fallen_leaf_flight.value = false;
+        assert!(!settings.adjustables.matches_condition(condition));
+        assert!(settings.adjustables.fallen_leaf_rotating_plate.value);
+        settings.adjustables.fallen_leaf_flight.value = true;
+        assert!(settings.adjustables.matches_condition(condition));
+    }
+
+    #[test]
     fn section_hierarchy_has_unique_children_and_existing_top_level_parents() {
         let config = GuiConfigLoader::load();
         let mut children = std::collections::BTreeSet::new();

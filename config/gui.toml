@@ -1881,8 +1881,21 @@ name = "Leaves"
 [[section.param]]
 id = "fallen_leaf_flight"
 kind = "bool"
-label = "B: Fallen leaf plate flight (A/B experiment)"
+label = "B: Fallen leaf flight & lighting (A/B)"
 type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "fallen_leaf_rotating_plate"
+kind = "bool"
+label = "Draw rotating plates (off = camera-facing squares)"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "fallen_leaf_flight"
+equals = true
 
 [section.param.data]
 value = false

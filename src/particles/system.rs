@@ -181,7 +181,8 @@ pub struct ParticleSnapshot {
     pub kind: ParticleRenderKind,
     pub texture_variant: u32,
     pub animation_frame_offset: u32,
-    /// B-mode detached leaf pose. None preserves the original billboard path.
+    /// Held B-mode optical pose, also used by optional rotating geometry.
+    /// None preserves the original A motion-derived optics and billboard.
     pub leaf_orientation: Option<Quat>,
 }
 
@@ -499,8 +500,8 @@ impl ParticleSystem {
         if self.leaf_flight_enabled != enabled {
             self.leaf_flight_enabled = enabled;
             log::info!(
-                "[LEAF_FLIGHT_AB] variant={} particles_retained={} geometry_and_optics_share_pose=true",
-                if enabled { "B-world-plate" } else { "A-billboard" },
+                "[LEAF_FLIGHT_AB] variant={} particles_retained={} geometry_selected_by_renderer=true",
+                if enabled { "B-coupled-flight" } else { "A-billboard" },
                 self.alive_count(),
             );
         }

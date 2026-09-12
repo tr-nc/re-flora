@@ -15,8 +15,11 @@ impl FallenLeafReview {
         let Ok(mode) = std::env::var("RE_FLORA_FALLEN_LEAF_REVIEW") else {
             return Ok(None);
         };
-        if !matches!(mode.as_str(), "a" | "b" | "switch" | "natural-b") {
-            bail!("RE_FLORA_FALLEN_LEAF_REVIEW must be a, b, switch or natural-b");
+        if !matches!(
+            mode.as_str(),
+            "a" | "b" | "b-billboard" | "switch" | "geometry-switch" | "natural-b"
+        ) {
+            bail!("RE_FLORA_FALLEN_LEAF_REVIEW must be a, b, b-billboard, switch, geometry-switch or natural-b");
         }
         Ok(Some(Self { mode, frame: 0 }))
     }
@@ -35,6 +38,17 @@ impl App {
             _ => true,
         };
         self.debug_settings.adjustables.fallen_leaf_flight.value = enabled;
+        // Keep historical b/switch captures explicitly on the rotating plate.
+        // New default and geometry-switch captures keep the same B mechanics.
+        self.debug_settings
+            .adjustables
+            .fallen_leaf_rotating_plate
+            .value = match review.mode.as_str() {
+            "b" | "switch" => true,
+            // Both transitions must happen before the leaves fall out of view.
+            "geometry-switch" => (60..120).contains(&frame),
+            _ => false,
+        };
         review.frame += 1;
         if frame == 0 && fixture {
             let camera = Vec3::new(1., 1.55, 1.8);
@@ -92,8 +106,9 @@ impl App {
             .take(8)
             .enumerate()
         {
-            log::info!("[LEAF_FLIGHT_REVIEW] frame={} variant={} leaves={} sample={} position={:?} velocity={:?} normal={:?}",
+            log::info!("[LEAF_FLIGHT_REVIEW] frame={} variant={} rotating_geometry={} leaves={} sample={} position={:?} velocity={:?} normal={:?}",
                 review.frame, if leaf.leaf_orientation.is_some() { "B" } else { "A" },
+                self.debug_settings.adjustables.fallen_leaf_rotating_plate.value,
                 leaves, index, leaf.position_ws, leaf.velocity,
                 leaf.leaf_orientation.map(|q| q * Vec3::Z));
         }

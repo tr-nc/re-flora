@@ -399,6 +399,7 @@ pub struct ParticleInstanceGpu {
     pub color: [f32; 4],
     pub tex_index: u32,
     /// A: optical normal + enable; B (texture bit 30): XY-plane orientation quaternion.
+    /// Bit 29 requests rotating geometry; B otherwise keeps the original billboard.
     /// Packing both variants here preserves the existing reflected 52-byte instance ABI.
     pub leaf_optics: [f32; 4],
 }

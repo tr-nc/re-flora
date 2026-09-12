@@ -579,7 +579,13 @@ impl App {
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
-        if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
+        if let Err(err) = self.tracer.upload_particles(
+            &self.particle_snapshots,
+            self.debug_settings
+                .adjustables
+                .fallen_leaf_rotating_plate
+                .value,
+        ) {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;

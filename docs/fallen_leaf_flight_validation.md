@@ -2,6 +2,40 @@
 
 2026-09-12；独立 worktree `/home/terence/code/re-flora-agent-fallen-leaf-flight`，分支 `agent/fallen-leaf-flight`，确认起点为 `74bf8b049c1f2f7000868af10d5f82d022f4770f`。未 merge、cherry-pick、push，也未操作其他 Worker 或主工作区的游戏进程。
 
+## 最新默认：B 物理与光学，镜头朝向正方形
+
+用户明确选择“恢复旧落叶始终朝向镜头的正方形”，不是世界轴对齐 cube。现在 Debug Panel → Flora → Leaves → Flight & Lighting 有两个 checkbox：
+
+- **B: Fallen leaf flight & lighting (A/B)**，默认 true；关闭仍回到 A 的旧物理、速度代理光学及 billboard。
+- **Draw rotating plates (off = camera-facing squares)**，默认 false；仅 B 开启时可操作。关闭为旧落叶的镜头朝向正方形，开启为可旋转世界空间正方形薄板。A 忽略并保留这项绘制偏好。
+
+`src/tracer/leaf_particle_pose.rs` 将发布姿态编码与几何选择拆开，绘制 bool 只沿 `App → Tracer::upload_particles` 传递，没有进入 ParticleSystem。B 的两种画法始终上传同一个 held quaternion，用于同一个 `shadeLeafWithEnvironment` → `leafOpticalColor`，仍是整叶单一 RGB。只有选中薄板时，四元数才用于几何旋转。未改飞行积分、风场、数量/寿命、World Tick 两桶上屏、attached 叶几何或共享光学公式。默认 billboard 是明确的风格化几何代理，其轮廓不反映物理迎角，不宣称为真实薄板投影。
+
+纹理索引 bit 30 表示 B 光学/模拟姿态，bit 29 独立表示旋转绘制；bit 31 原 sprite flip 保留。新 Slang `evaluateLeafParticlePose` 是顶点生产路径与测试共用的姿态选择器；实例仍 52 字节、光学字段 offset 36。一次反射回归检查发现，辅助函数接收 VertexInput 后，原声明但未使用的 location 1 重新出现在反射结果。已直接移除这个不存在于紧凑 LeafVertex 中的多余输入，不放宽测试、不修改网格 stride。修正前 `b-billboard.toml` / `draw-switch.toml` / `a-render-choice.toml` 不作为验收证据；最终捕获使用 `*-verified.toml` 和补充的 `draw-switch-visible.toml`。
+
+CPU 检查：`cargo fmt --check`、`cargo check`、完整测试 **944 + 4 通过、2 忽略**；Slang **10/10**；紧凑顶点输入反射测试 **1 通过**。增加默认值/依赖项、运行中切换只改变渲染 flag、A 与其他粒子隔离测试；81 个姿态的生产 Slang 测试验证 billboard 不随 q 旋转、plate 几何法线匹配 q、两种画法所有顶点的 RGB 完全相同且颜色确实随 q 变化。原下降/漂移/稳定性、跨 FPS 和 World Tick 不改物理的测试仍保留并通过。日志为 `target/fallen-leaf-flight/render-choice-{check,final-tests,slang-tests,reflection}.log`。
+
+复验曾有一次未修改的 `emissive_voxel_lighting::tests::sparse_worker_not_ready_waits_without_busy_duplicates_then_publishes_once` 失败（只等待 1000 次 yield 后仍未收到结果），保留于 `render-choice-tests.log`。该测试单独重跑、随后完整重跑均通过，分别见 `render-choice-unrelated-retry.log`、`render-choice-final-tests.log`；未修改灯光模块或放宽断言，保留这次间歇性测试边界。
+
+真实 GPU 验证均通过 `flock --close --wait 60 /tmp/re-flora-summer-gpu.lock`，release、X11 hidden、mute；未启动可见游戏。最终有效捕获：
+
+| 报告（`target/fallen-leaf-flight/`） | 连续帧 | 用途 | 正常退出日志（`target/re-flora-logs/`） |
+| --- | --- | --- | --- |
+| `b-billboard-verified.toml` | 300 | B 默认方块，5 秒固定时间 | `re-flora-20260912-140627.018-368874.log` |
+| `draw-switch-verified.toml` | 300 | B 内切换画法，80 条状态记录与默认运行逐项一致 | `re-flora-20260912-140659.107-369483.log` |
+| `a-render-choice-verified.toml` | 60 | A 原路径仍可用 | `re-flora-20260912-140755.963-371467.log` |
+| `draw-switch-visible.toml` | 180 | 切换提前到第 60/120 帧，使两个过渡都在镜头内 | `re-flora-20260912-141013.495-376345.log` |
+
+逐条比较日志中的位置、速度、光学法线、存活数：300 帧对照的 80 条记录完全一致，补充 180 帧与基准对应的 48 条也完全一致，只有绘制 bool 不同。实看原始相邻帧 59/60/61、119/120/121，确认同一叶片方块→斜投影薄板→方块，World Tick 之间仍保持显示姿态。薄片阶段边缘投影可变为亚像素，但没有背面剔除。默认方块在帧 60、180 等时点仍为正方形，位置和姿态颜色持续演变；5 秒序列末段部分叶片落出镜头，所以回切可见性另用 3 秒捕获验证。未把逐位光学函数相等夸大为整幅截图逐位相同（HUD、环境和遮挡覆盖不在该断言内）。
+
+以上退出均为 0、`failures=0`，检查无 ERROR/VUID/Validation Error/panic；还执行标准 hidden/mute `--auto-exit 0.5` 及同 worktree 的 `--tail-latest-log 8`。视频来自原始 60 FPS 连续帧，无补帧：本地 [回放页](../target/fallen-leaf-flight/review.html) 首部为新默认方块和镜头内切换。捕获成本不作性能证据，未自动启动可见游戏；新版 checkbox 的用户手动点击、主观观感及性能专项仍待验收。
+
+GUI/相机配置在全部运行前后保持：`gui.toml` SHA-256 `2fc651b52dbcdcba0b7f5db3b188104ecb2cbea589e423302a42c7cb09c07f31`，相机仍为 `2e81cc790ed2e02a9b881aac670cda93f5de428951da626638f8e8ff4d2a5b40`。新增的子 crate 测试构建缓存及其 Cargo.lock 已移至 ignored 的 `target/fallen-leaf-flight/reflection-*` 留档，不进入提交。
+
+收尾澄清模式日志后又通过 fmt/check、粒子测试 31 项、release build 与持锁隐藏静音烟测：`re-flora-20260912-141256.207-379394.log`，正常默认日志为 `variant=B-coupled-flight`，不再误报所有 B 都是旋转几何。退出 0、`failures=0`，无上述渲染错误，并再次检查 `--tail-latest-log 8`。
+
+本步骤文件：`config/gui.toml`、`src/app/gui_config.rs`、`src/app/core/{particles,fallen_leaf_review}.rs`、`src/tracer/{mod,resources,leaf_particle_pose}.rs`、`shader/slang/{leaf_particle_pose,particle_lod_textured.vert}.slang`、`shader/tests/leaf_particle_pose_contract.slang`、本文与 `docs/leaf_flutter.md`；`src/particles/system.rs` 仅注释和模式日志澄清，不再将所有 B 称为旋转几何。唯一已跟踪生成文件 `src/app/generated/gui_adjustables_gen.rs` 由 `cargo check` 更新；`gpu_structs.rs` 无变化。GUI 配置只改本次授权的 B 默认值/标签并新增旋转开关，其余配置不变。与蝴蝶分支的重叠点仍是粒子 upload、实例打包和共享顶点 shader，整合时尤其要协调 bits 29/30/31；未管理或整合其他 Worker。
+
 ## 后续整理：Flora 显示层级
 
 按用户要求，Flora 本层只保留五个折叠入口，不再混排裸露参数、文字标题和子分类。分类层只包含分类，参数放在末级：
@@ -47,7 +81,7 @@ Flora
 
 ## 可玩入口与边界
 
-Debug Panel → Flora → Leaves → **B: Fallen leaf plate flight (A/B experiment)**，默认不勾选。未勾选是 A：基线 billboard、原噪声下落和运动方向代理光学法线；勾选是 B：世界空间正方形，模拟姿态同时驱动几何、气动力和共享叶光学。切换不重新发射，不重置位置/速度/年龄/句柄，故不是同轨迹倒带。没有新增游戏 CLI 模式代替 checkbox。
+最新入口与默认值见本文首节。以下主要记录初版验收历史：初版只有一个 A/B checkbox，默认 A，B 强制旋转薄板；现已改为 B 默认开启且其绘制形式独立可选。切换不重新发射，不重置位置/速度/年龄/句柄，故不是同轨迹倒带。没有新增游戏 CLI 模式代替 checkbox。
 
 只有 `Leaf + Falling` 使用新模型。挂树叶子几何与着色公式均未改动，cube 继续 axis-aligned。水、采集、地形和蝴蝶没有采用新运动；主粒子管线改为双面可见，原 billboard 的正面覆盖不变。精确侧视的零厚度薄片会细到亚像素，并可能出现像素覆盖闪断，这不等同于背面剔除。
 
