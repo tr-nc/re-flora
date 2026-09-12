@@ -3,7 +3,7 @@
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
-更新：最新第五轮把上下频率上限扩至 40，并按用户确认保存自主速度 0.25、上下强度 4、上下频率 4 为启动/Reset 默认；最新模型与验证见本文末尾。前面的历史证据保持原记录。
+更新：最新第六轮把上下机动与显示采样合并为同一频率，默认 10 Hz（100 ms）；自主速度采用最新试玩的 0.35，上下强度 4。最新模型与验证见本文末尾，前面的历史证据保持原记录。
 
 ## 入口与实际效果
 
@@ -176,3 +176,22 @@ env -u WAYLAND_DISPLAY RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1 RE_FLORA_BUTTERFL
 两次退出码 0、shutdown failures=0，无 ERROR/panic/VUID，只有既有多 atlas 运行警告。事件变快不等于画面中出现十倍位移：自主速度/加速度/jerk 限制、60 ms 显示采样与渲染帧率仍会限制高频可见性；没有偷偷增大这些值。高频下是否够明显、是否自然，仍待用户试玩，不宣称视觉或性能最终验收。
 
 功能提交 **`49b52aa7`**；仅改 `src/particles/butterfly_flight.rs`、`src/app/core/particles.rs`，另提交本报告。没有生成文件、`config/gui.toml`、shader、素材、GPU ABI 差异；与主工作区落叶共享着色的既有集成提醒不变，未 merge/push 或管理 Worker。
+
+## 上下机动与显示共用节拍（第六轮）
+
+用户最新试玩日志 `re-flora-20260912-155216.709-463836.log` 最后一组值为显示步进 91 ms、上下频率 0.7 倍、自主速度 0.35、上下强度 4，其余为 1。用户随后明确：合并后保持可调即可，采用 **100 ms 更新一次**。因此旧的两个不同单位不作直接数值等同迁移；新的启动/Reset 默认是 **10 Hz、自主速度 0.35、上下强度 4、横向 tempo/转向响应/风漂移均 1**，默认 B 不变。
+
+Debug → Butterflies → B checkbox 下只留一个 **`Shared flight frequency (Hz)`，范围 0–40，默认 10**，旁边显示对应毫秒数。删除独立 `Position step interval` 和 `Vertical maneuver frequency` 控件。0 表示关闭共同分步：连续显示真实位置、不再施加自主竖直意图，原物理速度通过有界积分收敛；出生上升、地形/栖息地恢复仍有效。运行时后续调值仍是临时状态，未新增配置持久化。
+
+根因审计确认两个独立计时器：原显示保持有 ±20% 随机间隔，上下机动另有脉冲/休息时钟，所以二者的相位会独立变化。这能解释错拍机制，不等于证明所有主观快慢感都来自这一处。现在同一个 `SharedFlightRhythm` 的节拍同时重新选择竖直意图并标记显示发布；emitter 完成原 ParticleSystem 的实际积分后，仅在该标记为真时发布真实位置。移除了独立显示计时器/RNG、脉冲计时器和显示间隔抖动，不是让两只计时器碰巧用相同数字。每个体的竖直方向/力度仍随机，横向短促事件仍有不规则间隔；没有固定周期位置正弦、随机位置偏移或新生成器。按用户新要求，竖直决策的发布节拍本身现在固定。
+
+120 Hz 物理/World Tick/人口上限/配色/寿命权威不变；调频保留同一归一化相位。原 0.025 world 位移保护保留，但触发时也同时提前更新竖直意图和显示位置，不产生另一套显示节拍。极低频或强风会触发这种共同提前发布；屏幕可见更新仍受渲染 FPS 限制，低帧率可合并多个物理节拍，不能把 40 Hz 控件当作保证屏幕达到 40 FPS。
+
+验证：`cargo fmt --check`、`cargo check`、`cargo test butterfly`（26 项）、`cargo test`（**945 passed / 0 failed / 2 ignored**）、release 构建通过。纯逻辑检查 60 s 中 10/40 Hz 分别 600/2400 次同步意图与位置发布，间隔严格为 12/3 个 120 Hz 子步；新增 emitter 集成测试逐子步检查 100 ms 发布真实位置。20/30/60/120 FPS 与不同 world tick 的最终物理位置、速度和显示位置一致；另覆盖调频相位、0/重新开启、位移保护同步、六滑杆/Reset、A/B 切换、人口/配色与有界轨迹。旧“显示频率不影响物理”的测试契约按用户耦合要求改为“共同节奏影响运动，但不影响人口与 palette”；旧脉冲时长测试由新共同节拍测试替代。完整输出在 `target/butterfly-shared-rhythm-{check,tests,all-tests,build}.log`。
+
+真实 GPU 运行均用 `env -u WAYLAND_DISPLAY ... flock --close /tmp/re-flora-summer-gpu.lock cargo run --release -- --hidden --mute ...`，等待共享锁，没有启动可见游戏或结束其他进程：
+
+- 默认 B `--auto-exit 0.5`：`target/re-flora-logs/re-flora-20260912-161113.278-490460.log`；原 A 加 `RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE=1`：`re-flora-20260912-161118.052-490528.log`。
+- `RE_FLORA_BUTTERFLY_REVIEW=rhythm`，`--windowed --denoiser-bench blacky target/butterfly-review/shared-rhythm.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`：`re-flora-20260912-161318.488-491040.log`。frame 654 锁定自然主体，744/834/924 后共同频率 20/40/10 Hz；日志确认自主速度 0.35、强度 4、其余控件 1。771 个状态样本最高 6 只；120 张 2560×1440 原 PNG 在 `target/butterfly-review/shared-rhythm.artifacts-apQGuq/`，检查了恢复 10 Hz 段的 `frame-0300/0303/0306.png`。
+
+三次运行退出 0、shutdown failures=0，无 ERROR/panic/VUID，仅既有多 atlas 运行警告。连续截图只验证真实画面与位移，不宣称美观、满载性能或复杂地形最终验收。功能提交 **`699c29aa`**；改动 `src/particles/{butterfly_flight,emitters}.rs`、`src/app/core/particles.rs`，另提交本报告。生成文件/config/shader/素材/GPU ABI 无差异，与主工作区落叶着色的原有重叠提醒不变；未 merge/push 或管理 Worker。
