@@ -31,6 +31,97 @@ impl ButterflyFlightVariant {
     }
 }
 
+/// Live B-only art controls. Multipliers of one retain the first A/B candidate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ButterflyFlightTuning {
+    pub position_step_ms: f32,
+    pub maneuver_tempo: f32,
+    pub vertical_strength: f32,
+    pub turn_sharpness: f32,
+    pub speed: f32,
+}
+
+impl Default for ButterflyFlightTuning {
+    fn default() -> Self {
+        Self {
+            position_step_ms: 60.0,
+            maneuver_tempo: 1.0,
+            vertical_strength: 1.0,
+            turn_sharpness: 1.0,
+            speed: 1.0,
+        }
+    }
+}
+
+impl ButterflyFlightTuning {
+    pub const POSITION_STEP_RANGE: std::ops::RangeInclusive<f32> = 0.0..=160.0;
+    pub const TEMPO_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
+    pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
+    pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
+    pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.25..=2.5;
+
+    pub fn sanitized(self) -> Self {
+        let bounded = |value: f32, range: std::ops::RangeInclusive<f32>| {
+            if value.is_finite() {
+                value.clamp(*range.start(), *range.end())
+            } else {
+                1.0
+            }
+        };
+        Self {
+            position_step_ms: if self.position_step_ms.is_finite() {
+                self.position_step_ms.clamp(0.0, 160.0)
+            } else {
+                Self::default().position_step_ms
+            },
+            maneuver_tempo: bounded(self.maneuver_tempo, Self::TEMPO_RANGE),
+            vertical_strength: bounded(self.vertical_strength, Self::VERTICAL_RANGE),
+            turn_sharpness: bounded(self.turn_sharpness, Self::SHARPNESS_RANGE),
+            speed: bounded(self.speed, Self::SPEED_RANGE),
+        }
+    }
+}
+
+/// Sample-and-hold of the real trajectory, not a second simulation or position noise.
+#[derive(Debug)]
+pub(super) struct SteppedFlightPose {
+    pub(super) position: Vec3,
+    remaining: f32,
+    interval_ms: f32,
+    rng: SmallRng,
+}
+
+impl SteppedFlightPose {
+    pub(super) fn new(seed: f32, position: Vec3) -> Self {
+        Self {
+            position,
+            remaining: 0.0,
+            interval_ms: -1.0,
+            rng: SmallRng::seed_from_u64(u64::from(seed.to_bits()) ^ 0x706f_7365_5f73_7465),
+        }
+    }
+
+    pub(super) fn reset(&mut self, position: Vec3) {
+        self.position = position;
+        self.remaining = 0.0;
+    }
+
+    pub(super) fn advance(&mut self, position: Vec3, dt: f32, interval_ms: f32) {
+        self.remaining -= dt;
+        if interval_ms != self.interval_ms
+            || interval_ms <= 0.0
+            || self.remaining <= 0.0
+            || self.position.distance_squared(position) >= 0.025_f32.powi(2)
+        {
+            self.position = position;
+            self.interval_ms = interval_ms;
+            // Different individuals have different, slightly irregular publication times.
+            // Independent RNG means changing this knob cannot change the flight/population.
+            self.remaining = interval_ms * 0.001 * self.rng.random_range(0.8..=1.2);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
     habitat_center: Vec3,
@@ -152,32 +243,44 @@ impl DartingFlightState {
         dt: f32,
         world_max: Vec3,
         emerging: bool,
+        tuning: ButterflyFlightTuning,
         terrain_distance: &mut impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) -> Vec3 {
+        let tuning = tuning.sanitized();
+        let max_speed = BUTTERFLY_BLOCK_MAX_SPEED * tuning.speed;
+        let max_vertical_speed = BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED * tuning.speed;
         let dt = dt.clamp(0.0, 0.1);
         if dt <= 0.0 {
-            return velocity.clamp_length_max(BUTTERFLY_BLOCK_MAX_SPEED);
+            return velocity.clamp_length_max(max_speed);
         }
 
         if !emerging {
-            self.time_until_event -= dt;
-            self.event_time_remaining = (self.event_time_remaining - dt).max(0.0);
+            // Only maneuver clocks change tempo; physics and lifetime keep real time.
+            let event_dt = dt * tuning.maneuver_tempo;
+            self.time_until_event -= event_dt;
+            self.event_time_remaining = (self.event_time_remaining - event_dt).max(0.0);
             if self.time_until_event <= 0.0 {
                 self.start_maneuver(velocity);
             }
         }
 
-        let cruise_velocity = if emerging {
+        let mut cruise_velocity = if emerging {
             Vec3::Y * self.cruise_speed
         } else {
             self.cruise_direction * self.cruise_speed
         };
+        if !emerging {
+            cruise_velocity.y *= tuning.vertical_strength;
+        }
+        cruise_velocity = (cruise_velocity * tuning.speed).clamp_length_max(max_speed);
         let cruise_acceleration = (cruise_velocity - velocity) * 2.4;
-        let maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
+        let mut maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
             self.event_acceleration
         } else {
             Vec3::ZERO
         };
+        maneuver_acceleration *= tuning.speed;
+        maneuver_acceleration.y *= tuning.vertical_strength;
         let mut recovery = self.habitat_recovery_acceleration(position, velocity);
         for axis in 0..3 {
             let near_low = ((0.10 - position[axis]) / 0.10).clamp(0.0, 1.0);
@@ -193,19 +296,17 @@ impl DartingFlightState {
             }
         }
         let target_acceleration = (cruise_acceleration + maneuver_acceleration + recovery)
-            .clamp_length_max(BUTTERFLY_BLOCK_MAX_ACCELERATION);
+            .clamp_length_max(BUTTERFLY_BLOCK_MAX_ACCELERATION * tuning.speed);
         self.acceleration = approach_vec3(
             self.acceleration,
             target_acceleration,
-            BUTTERFLY_BLOCK_MAX_JERK * dt,
+            BUTTERFLY_BLOCK_MAX_JERK * tuning.speed * tuning.turn_sharpness * dt,
         );
 
-        let mut next_velocity =
-            (velocity + self.acceleration * dt).clamp_length_max(BUTTERFLY_BLOCK_MAX_SPEED);
-        next_velocity.y = next_velocity.y.clamp(
-            -BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED,
-            BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED,
-        );
+        let mut next_velocity = (velocity + self.acceleration * dt).clamp_length_max(max_speed);
+        next_velocity.y = next_velocity
+            .y
+            .clamp(-max_vertical_speed, max_vertical_speed);
         // Contact constraints bound the next displacement, never relocate the particle.
         // A hard contact may interrupt acceleration continuity, as in an ordinary collision.
         for axis in 0..3 {
@@ -242,6 +343,139 @@ mod tests {
     use super::*;
 
     #[test]
+    fn butterfly_live_knobs_change_their_intended_motion_terms() {
+        let run = |tuning| {
+            let mut state = DartingFlightState::new(9.0, Vec3::ONE, Vec3::X);
+            state.event_acceleration = Vec3::new(0.4, 0.5, 0.2);
+            state.event_time_remaining = 0.2;
+            state.time_until_event = 0.6;
+            let velocity = state.advance(
+                Vec3::ONE,
+                Vec3::ZERO,
+                FLIGHT_STEP_SECONDS as f32,
+                Vec3::splat(2.0),
+                false,
+                tuning,
+                &mut |_, _| None,
+            );
+            (velocity, state.time_until_event)
+        };
+        let baseline = ButterflyFlightTuning::default();
+        let (velocity, remaining) = run(baseline);
+        assert!(
+            run(ButterflyFlightTuning {
+                vertical_strength: 4.0,
+                ..baseline
+            })
+            .0
+            .y > velocity.y
+        );
+        assert!(
+            run(ButterflyFlightTuning {
+                turn_sharpness: 4.0,
+                ..baseline
+            })
+            .0
+            .length()
+                > velocity.length() * 2.0
+        );
+        assert!(
+            run(ButterflyFlightTuning {
+                speed: 2.5,
+                ..baseline
+            })
+            .0
+            .length()
+                > velocity.length() * 2.0
+        );
+        assert!(
+            run(ButterflyFlightTuning {
+                maneuver_tempo: 4.0,
+                ..baseline
+            })
+            .1 < remaining
+        );
+    }
+
+    #[test]
+    fn butterfly_tuning_extremes_and_live_edits_stay_finite_and_in_world() {
+        assert_eq!(
+            ButterflyFlightTuning {
+                position_step_ms: f32::NAN,
+                maneuver_tempo: f32::INFINITY,
+                vertical_strength: f32::NAN,
+                turn_sharpness: f32::NEG_INFINITY,
+                speed: f32::NAN,
+            }
+            .sanitized(),
+            ButterflyFlightTuning::default()
+        );
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        for seed in 0..4 {
+            let mut state = DartingFlightState::new(seed as f32, Vec3::ONE, Vec3::X);
+            let mut position = Vec3::ONE;
+            let mut velocity = Vec3::X * 0.15;
+            for tick in 0..2400 {
+                let tuning = if (tick / 240) % 2 == 0 {
+                    ButterflyFlightTuning {
+                        position_step_ms: 160.0,
+                        maneuver_tempo: 4.0,
+                        vertical_strength: 4.0,
+                        turn_sharpness: 4.0,
+                        speed: 2.5,
+                    }
+                } else {
+                    ButterflyFlightTuning {
+                        position_step_ms: 0.0,
+                        maneuver_tempo: 0.25,
+                        vertical_strength: 0.0,
+                        turn_sharpness: 0.25,
+                        speed: 0.25,
+                    }
+                };
+                velocity = state.advance(
+                    position,
+                    velocity,
+                    dt,
+                    Vec3::splat(2.0),
+                    false,
+                    tuning,
+                    &mut |_, _| None,
+                );
+                position += velocity * dt;
+                assert!(position.is_finite() && velocity.is_finite());
+                assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());
+                assert!(velocity.length() <= 0.75 + 1e-6);
+                assert!(state.acceleration.length() <= 4.5 + 1e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn butterfly_pose_steps_sample_real_positions_with_bounded_irregular_holds() {
+        let mut pose = SteppedFlightPose::new(7.0, Vec3::ZERO);
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        let mut position = Vec3::ZERO;
+        let mut intervals = std::collections::BTreeSet::new();
+        let mut last_publication = 0;
+        for tick in 1..=240 {
+            position.x += 0.3 * dt;
+            let previous = pose.position;
+            pose.advance(position, dt, 60.0);
+            if pose.position != previous {
+                assert_eq!(pose.position, position);
+                intervals.insert(tick - last_publication);
+                last_publication = tick;
+            }
+            assert!(pose.position.distance(position) < 0.025 + 1e-6);
+        }
+        assert!(intervals.len() >= 3);
+        assert!(*intervals.iter().max().unwrap() <= 9);
+        pose.advance(position, dt, 0.0);
+        assert_eq!(pose.position, position);
+    }
+
+    #[test]
     fn seeded_flight_is_continuous_bounded_and_has_irregular_events() {
         let dt = FLIGHT_STEP_SECONDS as f32;
         for seed in 0..12 {
@@ -261,6 +495,7 @@ mod tests {
                     dt,
                     Vec3::splat(2.0),
                     false,
+                    ButterflyFlightTuning::default(),
                     &mut |_, _| None,
                 );
                 assert!(next.is_finite());
@@ -300,6 +535,7 @@ mod tests {
             dt,
             Vec3::splat(2.0),
             false,
+            ButterflyFlightTuning::default(),
             &mut |_, _| None,
         );
         assert!((position + velocity * dt).x <= 2.0);
@@ -310,6 +546,7 @@ mod tests {
             dt,
             Vec3::splat(2.0),
             false,
+            ButterflyFlightTuning::default(),
             &mut |_, _| Some(0.0011),
         );
         assert!((velocity * dt).length() <= 0.000101);

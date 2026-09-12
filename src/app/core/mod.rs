@@ -104,8 +104,9 @@ use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
 use crate::lighting::LocalLightRegistry;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, LeafEmitterDesc,
-    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightTuning, ButterflyFlightVariant,
+    LeafEmitterDesc, ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem,
+    PARTICLE_CAPACITY,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -473,6 +474,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_flight_variant: ButterflyFlightVariant,
+    butterfly_flight_tuning: ButterflyFlightTuning,
     butterfly_review: Option<particles::ButterflyReview>,
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
@@ -1380,9 +1382,11 @@ impl App {
             } else {
                 ButterflyFlightVariant::OriginalSprite
             };
+        let butterfly_flight_tuning = ButterflyFlightTuning::default();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
             &debug_settings.adjustables,
             butterfly_flight_variant,
+            butterfly_flight_tuning,
         );
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         let world_extent = CHUNK_DIM.as_vec3();
@@ -1517,6 +1521,7 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_flight_variant,
+            butterfly_flight_tuning,
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
                 .map(|_| particles::ButterflyReview::default()),
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
@@ -2725,6 +2730,7 @@ impl App {
                                                     particles::draw_butterfly_flight_ab_controls(
                                                         ui,
                                                         &mut self.butterfly_flight_variant,
+                                                        &mut self.butterfly_flight_tuning,
                                                     );
                                                 }
                                             });

@@ -1,10 +1,10 @@
 use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, ButterflySpawnSource,
-    FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind,
-    ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig,
-    PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightTuning, ButterflyFlightVariant,
+    ButterflySpawnSource, FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle,
+    ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
+    ParticleUpdateConfig, PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -42,6 +42,7 @@ pub(super) struct ButterflyReview {
 pub(super) fn draw_butterfly_flight_ab_controls(
     ui: &mut egui::Ui,
     variant: &mut ButterflyFlightVariant,
+    tuning: &mut ButterflyFlightTuning,
 ) -> egui::Response {
     ui.separator();
     ui.label("Flight appearance A/B");
@@ -72,7 +73,54 @@ pub(super) fn draw_butterfly_flight_ab_controls(
         "A — original butterfly sprites and worm-noise flight"
     });
     ui.small("Switching keeps the same live butterflies, habitats, colors and hard count limit.");
+    ui.add_enabled_ui(darting_block, |ui| {
+        draw_butterfly_flight_tuning(ui, tuning);
+    });
     response
+}
+
+fn draw_butterfly_flight_tuning(
+    ui: &mut egui::Ui,
+    tuning: &mut ButterflyFlightTuning,
+) -> ([egui::Response; 5], egui::Response) {
+    ui.small(
+        "B only — live controls, not saved. Physics stays at 120 Hz; World Tick is unchanged.",
+    );
+    let position = ui.add(egui::Slider::new(&mut tuning.position_step_ms, ButterflyFlightTuning::POSITION_STEP_RANGE)
+        .text("Position step interval (ms)").step_by(1.0))
+        .on_hover_text("0 = continuous. Higher = more visible steps. Each butterfly varies the interval by ±20%; large motion publishes earlier. No random position offsets.");
+    let tempo = ui
+        .add(
+            egui::Slider::new(
+                &mut tuning.maneuver_tempo,
+                ButterflyFlightTuning::TEMPO_RANGE,
+            )
+            .text("Maneuver tempo (x)")
+            .step_by(0.05),
+        )
+        .on_hover_text(
+            "Higher = more frequent, shorter maneuvers. Does not change physics tick or lifetime.",
+        );
+    let vertical = ui.add(egui::Slider::new(&mut tuning.vertical_strength, ButterflyFlightTuning::VERTICAL_RANGE)
+        .text("Vertical movement (x)").step_by(0.05))
+        .on_hover_text("Higher = stronger up/down steering. 0 removes voluntary vertical motion, but terrain/habitat recovery still works.");
+    let sharpness = ui.add(egui::Slider::new(&mut tuning.turn_sharpness, ButterflyFlightTuning::SHARPNESS_RANGE)
+        .text("Turn sharpness (x)").step_by(0.05))
+        .on_hover_text("Higher = acceleration changes faster; lower = softer turns. Position is always integrated.");
+    let speed = ui.add(egui::Slider::new(&mut tuning.speed, ButterflyFlightTuning::SPEED_RANGE)
+        .text("Flight speed (x)").step_by(0.05))
+        .on_hover_text("Scales cruise, maneuver force and speed limits. Does not change spawn rate or lifetime.");
+    let reset = ui.button("Reset B flight controls");
+    let changed = [&position, &tempo, &vertical, &sharpness, &speed]
+        .iter()
+        .any(|r| r.changed());
+    if reset.clicked() {
+        *tuning = ButterflyFlightTuning::default();
+    }
+    if changed || reset.clicked() {
+        log::info!("[BUTTERFLY_AB][TUNING] {tuning:?}");
+    }
+    ([position, tempo, vertical, sharpness, speed], reset)
 }
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
@@ -453,6 +501,7 @@ impl App {
     pub(super) fn butterfly_desc_from_gui_adjustables(
         gui_adjustables: &crate::app::GuiAdjustables,
         flight_variant: ButterflyFlightVariant,
+        flight_tuning: ButterflyFlightTuning,
     ) -> ButterflyEmitterDesc {
         let (height_offset_min, height_offset_max) = {
             let min = gui_adjustables.butterfly_height_offset_min.value;
@@ -482,6 +531,7 @@ impl App {
                 .value,
             worm_noise_detail_weight: gui_adjustables.butterfly_worm_noise_detail_weight.value,
             flight_variant,
+            flight_tuning,
         }
     }
 
@@ -556,6 +606,7 @@ impl App {
             self.butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
                 &self.debug_settings.adjustables,
                 self.butterfly_flight_variant,
+                self.butterfly_flight_tuning,
             );
             for emitter in &mut self.butterfly_emitters {
                 emitter.apply_desc(&self.butterfly_emitter_desc);
@@ -624,8 +675,15 @@ impl App {
         let plan_ms = plan_start.elapsed().as_secs_f32() * 1000.0;
 
         let snapshot_start = Instant::now();
-        self.particle_system
-            .write_snapshots(&mut self.particle_snapshots);
+        self.particle_system.write_snapshots_with_block_pose(
+            &mut self.particle_snapshots,
+            |handle, position| {
+                self.butterfly_emitters
+                    .iter()
+                    .find_map(|emitter| emitter.block_render_position(handle))
+                    .unwrap_or(position)
+            },
+        );
         self.review_butterfly_frame(dt);
         let sim_snapshot_count = self.particle_snapshots.len();
         self.append_water_debug_snapshots();
@@ -751,6 +809,27 @@ impl App {
             if let Some(next) = next {
                 self.butterfly_flight_variant = next;
                 log::info!("[BUTTERFLY_REVIEW] scripted_switch={next:?} frame={frame}");
+            }
+        }
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("tuning") {
+            let next = match review.subject_frame.map(|start| frame - start) {
+                Some(90) => Some(ButterflyFlightTuning {
+                    position_step_ms: 0.0,
+                    ..ButterflyFlightTuning::default()
+                }),
+                Some(180) => Some(ButterflyFlightTuning {
+                    position_step_ms: 160.0,
+                    maneuver_tempo: 2.0,
+                    vertical_strength: 3.0,
+                    turn_sharpness: 2.0,
+                    speed: 1.0,
+                }),
+                Some(270) => Some(ButterflyFlightTuning::default()),
+                _ => None,
+            };
+            if let Some(next) = next {
+                self.butterfly_flight_tuning = next;
+                log::info!("[BUTTERFLY_REVIEW] scripted_tuning={next:?} frame={frame}");
             }
         }
     }
@@ -978,6 +1057,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn butterfly_tuning_sliders_and_reset_respond_to_pointer_input() {
+        let context = egui::Context::default();
+        let mut tuning = ButterflyFlightTuning::default();
+        let mut draw = |events| {
+            let mut rects = [egui::Rect::NOTHING; 5];
+            let mut reset_rect = egui::Rect::NOTHING;
+            let _ = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 700.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let (sliders, reset) = draw_butterfly_flight_tuning(ui, &mut tuning);
+                    rects = sliders.map(|response| response.rect);
+                    reset_rect = reset.rect;
+                },
+            );
+            (rects, reset_rect, tuning)
+        };
+        draw(Vec::new());
+        let (rects, _, initial) = draw(Vec::new());
+        let click_events = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        for rect in rects {
+            let pos = egui::pos2(rect.left() + 4.0, rect.center().y);
+            draw(click_events(pos, true));
+            draw(click_events(pos, false));
+        }
+        let (_, reset, edited) = draw(Vec::new());
+        assert_ne!(edited.position_step_ms, initial.position_step_ms);
+        assert_ne!(edited.maneuver_tempo, initial.maneuver_tempo);
+        assert_ne!(edited.vertical_strength, initial.vertical_strength);
+        assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
+        assert_ne!(edited.speed, initial.speed);
+        draw(click_events(reset.center(), true));
+        let (_, _, restored) = draw(click_events(reset.center(), false));
+        assert_eq!(restored, initial);
+    }
+
+    #[test]
     fn butterfly_debug_checkbox_clicks_switch_a_b_a_without_config_changes() {
         let context = egui::Context::default();
         context.memory_mut(|memory| memory.set_everything_is_visible(true));
@@ -989,6 +1121,7 @@ mod tests {
         }];
         let original_config = serde_json::to_value(&settings.config).unwrap();
         let mut variant = ButterflyFlightVariant::default();
+        let mut tuning = ButterflyFlightTuning::default();
         let mut rect = egui::Rect::NOTHING;
         let mut draw = |events: Vec<egui::Event>| {
             let _ = context.run_ui(
@@ -1003,7 +1136,8 @@ mod tests {
                 |ui| {
                     settings.draw(ui, |section, ui| {
                         if section == "Butterflies" {
-                            rect = draw_butterfly_flight_ab_controls(ui, &mut variant).rect;
+                            rect = draw_butterfly_flight_ab_controls(ui, &mut variant, &mut tuning)
+                                .rect;
                         }
                     });
                 },

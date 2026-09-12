@@ -7,7 +7,7 @@ pub use animation::{
     BUTTERFLY_ATLAS_ROW_FOR_VIEW, BUTTERFLY_FRAMES_PER_VARIANT, BUTTERFLY_VIEW_COUNT,
     PARTICLE_SPRITE_FRAME_DIM,
 };
-pub use butterfly_flight::ButterflyFlightVariant;
+pub use butterfly_flight::{ButterflyFlightTuning, ButterflyFlightVariant};
 pub use emitters::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,
     LeafEmitterDesc, ParticleEmitter,

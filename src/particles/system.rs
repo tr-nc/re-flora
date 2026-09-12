@@ -629,7 +629,17 @@ impl ParticleSystem {
     }
 
     /// Copies the alive particle data into the provided buffer for rendering.
+    #[cfg(test)]
     pub fn write_snapshots(&self, out: &mut Vec<ParticleSnapshot>) {
+        self.write_snapshots_with_block_pose(out, |_, position| position);
+    }
+
+    /// Presentation sampling applies to B butterflies only; simulation state stays authoritative.
+    pub fn write_snapshots_with_block_pose(
+        &self,
+        out: &mut Vec<ParticleSnapshot>,
+        mut block_pose: impl FnMut(ParticleHandle, Vec3) -> Vec3,
+    ) {
         out.clear();
         out.reserve(self.alive_indices.len());
         for slot in &self.alive_indices {
@@ -663,7 +673,17 @@ impl ParticleSystem {
             }
 
             out.push(ParticleSnapshot {
-                position_ws: self.positions[*slot],
+                position_ws: if kind == ParticleRenderKind::ButterflyBlock {
+                    block_pose(
+                        ParticleHandle {
+                            index: *slot as u32,
+                            generation: self.generations[*slot],
+                        },
+                        self.positions[*slot],
+                    )
+                } else {
+                    self.positions[*slot]
+                },
                 velocity: self.velocities[*slot],
                 color,
                 size: if kind == ParticleRenderKind::ButterflyBlock {

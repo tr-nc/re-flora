@@ -4,8 +4,8 @@ use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
-use super::butterfly_flight::{DartingFlightState, FLIGHT_STEP_SECONDS};
-use super::ButterflyFlightVariant;
+use super::butterfly_flight::{DartingFlightState, SteppedFlightPose, FLIGHT_STEP_SECONDS};
+use super::{ButterflyFlightTuning, ButterflyFlightVariant};
 use super::{
     MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
@@ -261,6 +261,7 @@ pub struct ButterflyEmitterDesc {
     pub worm_noise_detail_frequency: f32,
     pub worm_noise_detail_weight: f32,
     pub flight_variant: ButterflyFlightVariant,
+    pub flight_tuning: ButterflyFlightTuning,
 }
 
 impl Default for ButterflyEmitterDesc {
@@ -280,6 +281,7 @@ impl Default for ButterflyEmitterDesc {
             worm_noise_detail_frequency: 8.0,
             worm_noise_detail_weight: 0.5,
             flight_variant: ButterflyFlightVariant::OriginalSprite,
+            flight_tuning: ButterflyFlightTuning::default(),
         }
     }
 }
@@ -319,6 +321,7 @@ struct ActiveButterfly {
     worm_phase: f32,
     emergence_target_y: Option<f32>,
     darting_flight: DartingFlightState,
+    render_pose: SteppedFlightPose,
 }
 
 pub struct ButterflyEmitter {
@@ -333,6 +336,7 @@ pub struct ButterflyEmitter {
     pub spawn_rate_per_source: f32,
     pub max_active_butterflies: usize,
     flight_variant: ButterflyFlightVariant,
+    flight_tuning: ButterflyFlightTuning,
     pub worm_noise: FastNoiseLite,
     pub worm_noise_detail: FastNoiseLite,
     pub worm_noise_detail_weight: f32,
@@ -358,6 +362,7 @@ impl ButterflyEmitter {
             spawn_rate_per_source: desc.spawn_rate_per_source.max(0.0),
             max_active_butterflies: desc.max_active_butterflies,
             flight_variant: desc.flight_variant,
+            flight_tuning: desc.flight_tuning.sanitized(),
             worm_noise: butterfly_worm_noise_state(seed as i32, desc.worm_noise_frequency),
             worm_noise_detail: butterfly_worm_noise_detail_state(
                 (seed as i32).wrapping_add(5000),
@@ -381,6 +386,7 @@ impl ButterflyEmitter {
         self.spawn_rate_per_source = desc.spawn_rate_per_source.max(0.0);
         self.max_active_butterflies = desc.max_active_butterflies;
         self.flight_variant = desc.flight_variant;
+        self.flight_tuning = desc.flight_tuning.sanitized();
         self.height_offset = desc.height_offset_min.min(desc.height_offset_max)
             ..=desc.height_offset_max.max(desc.height_offset_min);
         self.size = desc.size.max(0.001);
@@ -409,6 +415,9 @@ impl ButterflyEmitter {
                 butterfly
                     .darting_flight
                     .resume(system.velocity(butterfly.handle).unwrap_or(Vec3::ZERO));
+                if let Some(position) = system.position(butterfly.handle) {
+                    butterfly.render_pose.reset(position);
+                }
             }
         }
     }
@@ -506,6 +515,7 @@ impl ButterflyEmitter {
                     worm_phase: phase,
                     emergence_target_y,
                     darting_flight: DartingFlightState::new(seed, habitat_center, initial_dir),
+                    render_pose: SteppedFlightPose::new(seed, position),
                 });
                 Some(handle)
             }
@@ -595,9 +605,17 @@ impl ButterflyEmitter {
                     step as f32,
                     world_max,
                     emerging,
+                    self.flight_tuning,
                     &mut terrain_distance,
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
+                if let Some(position) = system.position(butterfly.handle) {
+                    butterfly.render_pose.advance(
+                        position,
+                        step as f32,
+                        self.flight_tuning.position_step_ms,
+                    );
+                }
             }
         }
         self.prune_handles(system);
@@ -605,6 +623,16 @@ impl ButterflyEmitter {
 
     pub const fn flight_variant(&self) -> ButterflyFlightVariant {
         self.flight_variant
+    }
+
+    pub fn block_render_position(&self, handle: ParticleHandle) -> Option<Vec3> {
+        if !self.flight_variant.is_darting_block() {
+            return None;
+        }
+        self.active_butterflies
+            .iter()
+            .find(|butterfly| butterfly.handle == handle)
+            .map(|butterfly| butterfly.render_pose.position)
     }
 
     pub fn despawn_butterfly(&mut self, handle: ParticleHandle) {
@@ -946,5 +974,51 @@ mod tests {
         assert_eq!(system.alive_count(), 2);
         emitter.update(&mut system, 1., &WindFieldFrame::default());
         assert_eq!(system.alive_count(), 2);
+    }
+    #[test]
+    fn butterfly_display_cadence_does_not_change_physics_palette_or_lifecycle() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        let mut stepped = ButterflyEmitter::new(23, &desc);
+        desc.flight_tuning.position_step_ms = 0.0;
+        let mut continuous = ButterflyEmitter::new(23, &desc);
+        let mut a = ParticleSystem::new(4);
+        let mut b = ParticleSystem::new(4);
+        for emitter in [&mut stepped, &mut continuous] {
+            emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(Vec3::ONE)]);
+        }
+        let ah = stepped.spawn_butterfly(&mut a).unwrap();
+        let bh = continuous.spawn_butterfly(&mut b).unwrap();
+        let mut snapshots = Vec::new();
+        let mut held_frames = 0;
+        let mut previous = Vec3::ONE;
+        for _ in 0..120 {
+            stepped.advance_block_flight(&mut a, 1.0 / 60.0, Vec3::splat(2.0), |_, _| None);
+            continuous.advance_block_flight(&mut b, 1.0 / 60.0, Vec3::splat(2.0), |_, _| None);
+            assert_eq!(a.position(ah), b.position(bh));
+            assert_eq!(a.velocity(ah), b.velocity(bh));
+            assert_eq!(continuous.block_render_position(bh), b.position(bh));
+            a.write_snapshots_with_block_pose(&mut snapshots, |handle, position| {
+                stepped.block_render_position(handle).unwrap_or(position)
+            });
+            let displayed = snapshots[0].position_ws;
+            held_frames += usize::from(displayed == previous);
+            previous = displayed;
+        }
+        assert!(held_frames > 50);
+        let (position, velocity) = (a.position(ah), a.velocity(ah));
+        desc.flight_tuning.vertical_strength = 4.0;
+        stepped.apply_desc(&desc);
+        stepped.sync_active_style(&mut a);
+        assert_eq!((a.position(ah), a.velocity(ah)), (position, velocity));
+        assert_eq!(a.alive_count(), b.alive_count());
+        assert_eq!(stepped.rng.random::<u64>(), continuous.rng.random::<u64>());
+        desc.flight_variant = ButterflyFlightVariant::OriginalSprite;
+        stepped.apply_desc(&desc);
+        stepped.sync_active_style(&mut a);
+        a.write_snapshots_with_block_pose(&mut snapshots, |_, _| {
+            panic!("A must not use held B pose")
+        });
+        assert_eq!(snapshots[0].position_ws, a.position(ah).unwrap());
     }
 }
