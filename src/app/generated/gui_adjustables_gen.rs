@@ -1141,12 +1141,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
-        section: "Character Walk",
-        id: "smooth_microvoxel_walk",
-        kind: "bool",
-        label: "B: Smooth Microvoxel Walk (off = A: Original)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "HeadBob",
         id: "headbob_vertical_amp",
         kind: "float",
@@ -1360,7 +1354,6 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
-    pub smooth_microvoxel_walk: crate::gui_adjustables::BoolParam,
     pub headbob_vertical_amp: crate::gui_adjustables::FloatParam,
     pub headbob_horizontal_amp: crate::gui_adjustables::FloatParam,
     pub headbob_roll_amp: crate::gui_adjustables::FloatParam,
@@ -1564,7 +1557,6 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut smooth_microvoxel_walk_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut headbob_vertical_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_horizontal_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_roll_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2813,11 +2805,6 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "smooth_microvoxel_walk" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            smooth_microvoxel_walk_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "headbob_vertical_amp" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3038,7 +3025,6 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
-            smooth_microvoxel_walk: smooth_microvoxel_walk_field.expect("Missing parameter: smooth_microvoxel_walk"),
             headbob_vertical_amp: headbob_vertical_amp_field.expect("Missing parameter: headbob_vertical_amp"),
             headbob_horizontal_amp: headbob_horizontal_amp_field.expect("Missing parameter: headbob_horizontal_amp"),
             headbob_roll_amp: headbob_roll_amp_field.expect("Missing parameter: headbob_roll_amp"),
@@ -3253,7 +3239,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
-        "smooth_microvoxel_walk" => Some(&adjustables.smooth_microvoxel_walk),
         _ => None,
     }
 }
@@ -3489,7 +3474,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
-        "smooth_microvoxel_walk" => Some(&mut adjustables.smooth_microvoxel_walk),
         _ => None,
     }
 }

@@ -137,8 +137,6 @@ pub struct CapsuleCharacterMove {
     pub desired_translation: Vec3,
     /// Duration of this movement in seconds.
     pub dt: f32,
-    /// Preserve intended horizontal progress across climbable voxel edges.
-    pub smooth_microvoxel_walk: bool,
 }
 
 /// Collision-corrected result of one kinematic capsule movement query.
@@ -583,8 +581,7 @@ impl CollisionWorld {
         let landed_during_move = collisions
             .iter()
             .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
-        if movement.smooth_microvoxel_walk
-            && (grounded_at_start || effective.grounded || landed_during_move)
+        if (grounded_at_start || effective.grounded || landed_during_move)
             && movement.desired_translation.y <= 0.0
         {
             let requested_horizontal =

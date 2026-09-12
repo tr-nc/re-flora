@@ -619,7 +619,6 @@ impl App {
                 camera_position: Vec3::new(CENTER_X / 256.0, eye + 0.001, 360.0 / 256.0),
                 camera_height: 0.08,
                 desired_translation: Vec3::new(0.0, 0.0, -56.0 / 256.0),
-                smooth_microvoxel_walk: false,
             },
             0.25,
         )?;
@@ -642,7 +641,6 @@ impl App {
                     camera_position: approach,
                     camera_height: 0.08,
                     desired_translation: Vec3::new(0.0, -0.05 / 60.0, -1.0 / 256.0),
-                    smooth_microvoxel_walk: false,
                 },
                 1.0 / 60.0,
             )?;

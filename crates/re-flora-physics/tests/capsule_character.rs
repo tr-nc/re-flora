@@ -37,7 +37,6 @@ fn capsule_move(center: Vec3, desired_translation: Vec3) -> CapsuleCharacterMove
         half_height: HALF_HEIGHT,
         desired_translation,
         dt: DT,
-        smooth_microvoxel_walk: false,
     }
 }
 
@@ -45,18 +44,13 @@ fn standing_center_y(surface_y: f32) -> f32 {
     surface_y + HALF_HEIGHT + RADIUS + CAPSULE_CHARACTER_COLLISION_OFFSET
 }
 
-fn player_capsule_move(
-    center: Vec3,
-    desired_translation: Vec3,
-    smooth_microvoxel_walk: bool,
-) -> CapsuleCharacterMove {
+fn player_capsule_move(center: Vec3, desired_translation: Vec3) -> CapsuleCharacterMove {
     CapsuleCharacterMove {
         center,
         radius: PLAYER_RADIUS,
         half_height: PLAYER_HALF_HEIGHT,
         desired_translation,
         dt: DT,
-        smooth_microvoxel_walk,
     }
 }
 
@@ -281,7 +275,7 @@ fn player_scale_capsule_keeps_horizontal_progress_over_voxel_stair_slope() {
     let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
     for _ in 0..20 {
         let result = world
-            .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0), true))
+            .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
             .unwrap();
         assert!(result.grounded, "center={center:?} result={result:?}");
         assert!(result.translation.x > 0.98, "result={result:?}");
@@ -296,36 +290,6 @@ fn player_scale_capsule_keeps_horizontal_progress_over_voxel_stair_slope() {
 }
 
 #[test]
-fn player_scale_capsule_original_mode_keeps_existing_voxel_edge_response() {
-    let mut world = CollisionWorld::new();
-    world.upsert_static_voxel_brick(
-        StaticVoxelBrickId(IVec3::ZERO),
-        1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y == 1)),
-    );
-
-    let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
-    center += world
-        .move_capsule_character(player_capsule_move(
-            center,
-            Vec3::new(1.0, -0.1, 0.0),
-            false,
-        ))
-        .unwrap()
-        .translation;
-    let edge = world
-        .move_capsule_character(player_capsule_move(
-            center,
-            Vec3::new(1.0, -0.1, 0.0),
-            false,
-        ))
-        .unwrap();
-
-    assert!(edge.grounded, "result={edge:?}");
-    assert!(edge.translation.x < 0.8, "result={edge:?}");
-}
-
-#[test]
 fn smooth_player_scale_capsule_still_stops_at_a_tall_wall() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
@@ -336,7 +300,7 @@ fn smooth_player_scale_capsule_still_stops_at_a_tall_wall() {
 
     let start = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
     let result = world
-        .move_capsule_character(player_capsule_move(start, Vec3::new(10.0, -0.1, 0.0), true))
+        .move_capsule_character(player_capsule_move(start, Vec3::new(10.0, -0.1, 0.0)))
         .unwrap();
     let final_center = start + result.translation;
 
@@ -353,23 +317,13 @@ fn smooth_walk_preserves_heading_past_a_left_front_step() {
         occupancy_where(|v| v.y == 0 || (v.x < 16 && v.z >= 12 && v.y <= 4)),
     );
     let start = Vec3::new(17.0, player_standing_center_y(1.0), 4.0);
-    let trace = |world: &mut CollisionWorld, smooth| {
-        let mut center = start;
-        for _ in 0..20 {
-            let result = world
-                .move_capsule_character(player_capsule_move(
-                    center,
-                    Vec3::new(0.0, -0.1, 1.0),
-                    smooth,
-                ))
-                .unwrap();
-            center += result.translation;
-        }
-        center
-    };
-    let original = trace(&mut world, false);
-    let center = trace(&mut world, true);
-    println!("left-front step: A={original:?}, B={center:?}");
+    let mut center = start;
+    for _ in 0..20 {
+        let result = world
+            .move_capsule_character(player_capsule_move(center, Vec3::new(0.0, -0.1, 1.0)))
+            .unwrap();
+        center += result.translation;
+    }
     assert!(
         (center.x - start.x).abs() < 0.05,
         "forward input was pushed sideways: start={start:?}, end={center:?}"
@@ -441,7 +395,6 @@ fn smooth_walk_keeps_straight_and_diagonal_headings_at_different_frame_rates() {
                         let mut request = player_capsule_move(
                             center,
                             direction * (60.0 * dt) - Vec3::Y * (12.8 * dt),
-                            true,
                         );
                         request.dt = dt;
                         let movement = world.move_capsule_character(request).unwrap();
@@ -481,11 +434,7 @@ fn smooth_walk_handles_limited_headroom_without_penetrating_the_ceiling() {
         let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
         for _ in 0..20 {
             let result = world
-                .move_capsule_character(player_capsule_move(
-                    center,
-                    Vec3::new(1.0, -0.1, 0.0),
-                    true,
-                ))
+                .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
                 .unwrap();
             center += result.translation;
             assert_player_clear_of_box(
@@ -520,48 +469,65 @@ fn smooth_walk_does_not_accelerate_sliding_along_a_tall_wall() {
     );
     let start = Vec3::new(7.9, player_standing_center_y(1.0), 8.0);
     let desired = Vec3::new(1.0, -0.1, 1.0);
-    let a = world
-        .move_capsule_character(player_capsule_move(start, desired, false))
+    let result = world
+        .move_capsule_character(player_capsule_move(start, desired))
         .unwrap();
-    let b = world
-        .move_capsule_character(player_capsule_move(start, desired, true))
-        .unwrap();
-    assert_eq!(a, b, "a rejected step must keep the original wall response");
-    assert!(b.translation.z > 0.99 && b.translation.z <= 1.001, "{b:?}");
+    assert!(
+        result.grounded && result.is_sliding_down_slope,
+        "{result:?}"
+    );
+    assert!(result.translation.x.abs() < 0.001, "{result:?}");
+    assert!(result.translation.y.abs() < 0.001, "{result:?}");
+    assert!(
+        result.translation.z > 0.99 && result.translation.z <= 1.001,
+        "{result:?}"
+    );
     assert_player_clear_of_box(
-        start + b.translation,
+        start + result.translation,
         Vec3::new(12.0, 1.0, 0.0),
         Vec3::new(32.0, 28.0, 32.0),
     );
 }
 
 #[test]
-fn smooth_walk_does_not_change_airborne_and_cliff_motion() {
+fn smooth_walk_preserves_accepted_jump_fall_and_cliff_behavior() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
         occupancy_where(|v| (v.z < 12 && v.y == 0) || (v.x < 16 && v.z >= 12 && v.y <= 4)),
     );
+    // Fixed results recorded from the accepted controller before removing the experiment.
     // Jumping into the corner; falling beside it; leaving a cliff on the other side.
-    for (start, desired) in [
+    for (start, desired, expected_translation, expected_grounded) in [
         (
             Vec3::new(17.0, player_standing_center_y(1.0), 8.0),
             Vec3::new(0.0, 0.5, 1.0),
+            Vec3::new(0.102851145, 2.002953, 0.6560878),
+            true,
         ),
-        (Vec3::new(17.0, 20.0, 8.0), Vec3::new(0.0, -1.0, 1.0)),
+        (
+            Vec3::new(17.0, 20.0, 8.0),
+            Vec3::new(0.0, -1.0, 1.0),
+            Vec3::new(0.0, -1.0, 1.0),
+            false,
+        ),
         (
             Vec3::new(26.0, player_standing_center_y(1.0), 10.0),
             Vec3::new(0.0, -0.1, 10.0),
+            Vec3::new(0.0, 0.0, 10.0),
+            false,
         ),
     ] {
-        let a = world
-            .move_capsule_character(player_capsule_move(start, desired, false))
+        let result = world
+            .move_capsule_character(player_capsule_move(start, desired))
             .unwrap();
-        let b = world
-            .move_capsule_character(player_capsule_move(start, desired, true))
-            .unwrap();
-        assert_eq!(a, b, "unexpected airborne/cliff change at {start:?}");
+        assert!(
+            result.translation.abs_diff_eq(expected_translation, 1.0e-3),
+            "unexpected airborne/cliff change at {start:?}: {result:?}"
+        );
+        assert_eq!(result.grounded, expected_grounded, "{result:?}");
+        assert!(!result.is_sliding_down_slope, "{result:?}");
     }
 }
 
@@ -575,25 +541,9 @@ fn smooth_walk_preserves_player_scale_large_step_traversability() {
             occupancy_where(|v| v.y == 0 || (v.x >= 12 && v.y <= height)),
         );
         let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
-        let mut original = center;
-        for _ in 0..20 {
-            original += world
-                .move_capsule_character(player_capsule_move(
-                    original,
-                    Vec3::new(1.0, -0.1, 0.0),
-                    false,
-                ))
-                .unwrap()
-                .translation;
-        }
-        println!("step height={height}: original={original:?}");
         for _ in 0..20 {
             let movement = world
-                .move_capsule_character(player_capsule_move(
-                    center,
-                    Vec3::new(1.0, -0.1, 0.0),
-                    true,
-                ))
+                .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
                 .unwrap();
             center += movement.translation;
             assert_player_clear_of_box(
@@ -603,12 +553,8 @@ fn smooth_walk_preserves_player_scale_large_step_traversability() {
             );
         }
         println!("step height={height}: end={center:?}");
-        // At player scale Rapier can already climb 17 voxels in several smaller moves, unlike
-        // the small-capsule, single-move regression above. Keep that existing reachability.
-        assert!(
-            original.x > 20.0,
-            "baseline no longer traverses this step: {original:?}"
-        );
+        // Continuous player-scale movement already traversed both heights before smoothing.
+        // The small-capsule single-move limit above is not a player-scale reachability limit.
         assert!(
             center.x > 23.8,
             "previously traversable step blocked: {center:?}"
@@ -631,16 +577,9 @@ fn smooth_walk_preserves_heading_at_a_brick_seam_and_after_collider_edits() {
             occupancy_where(|v| v.y == 0 || (v.x < 16 && v.y <= height)),
         );
         let mut center = start;
-        for frame in 0..20 {
-            // Alternate A/B without resetting the authoritative capsule pose. Only the B
-            // trajectory is constrained when there is a real step in the way.
-            let smooth = height > 0 || frame % 2 == 0;
+        for _ in 0..20 {
             let result = world
-                .move_capsule_character(player_capsule_move(
-                    center,
-                    Vec3::new(0.0, -0.1, 1.0),
-                    smooth,
-                ))
+                .move_capsule_character(player_capsule_move(center, Vec3::new(0.0, -0.1, 1.0)))
                 .unwrap();
             center += result.translation;
             assert!(
