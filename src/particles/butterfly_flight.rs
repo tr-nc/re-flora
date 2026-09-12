@@ -40,6 +40,7 @@ impl ButterflyFlightVariant {
 pub struct ButterflyFlightTuning {
     pub position_step_ms: f32,
     pub maneuver_tempo: f32,
+    pub vertical_frequency: f32,
     pub vertical_strength: f32,
     pub turn_sharpness: f32,
     pub speed: f32,
@@ -51,6 +52,7 @@ impl Default for ButterflyFlightTuning {
         Self {
             position_step_ms: 60.0,
             maneuver_tempo: 1.0,
+            vertical_frequency: 1.0,
             vertical_strength: 1.0,
             turn_sharpness: 1.0,
             speed: 0.65,
@@ -62,6 +64,7 @@ impl Default for ButterflyFlightTuning {
 impl ButterflyFlightTuning {
     pub const POSITION_STEP_RANGE: std::ops::RangeInclusive<f32> = 0.0..=160.0;
     pub const TEMPO_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
+    pub const VERTICAL_FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
     pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.25..=2.5;
@@ -82,6 +85,7 @@ impl ButterflyFlightTuning {
                 Self::default().position_step_ms
             },
             maneuver_tempo: bounded(self.maneuver_tempo, Self::TEMPO_RANGE),
+            vertical_frequency: bounded(self.vertical_frequency, Self::VERTICAL_FREQUENCY_RANGE),
             vertical_strength: bounded(self.vertical_strength, Self::VERTICAL_RANGE),
             turn_sharpness: bounded(self.turn_sharpness, Self::SHARPNESS_RANGE),
             speed: if self.speed.is_finite() {
@@ -92,6 +96,65 @@ impl ButterflyFlightTuning {
             wind_drift: bounded(self.wind_drift, Self::WIND_DRIFT_RANGE),
         }
     }
+}
+
+/// A separate event clock, not a separate particle simulation. Frequency scales only
+/// the irregular rest periods; pulse duration/force and horizontal timing stay unchanged.
+#[derive(Debug)]
+struct VerticalManeuvers {
+    acceleration: f32,
+    active_remaining: f32,
+    rest_remaining: f32,
+    rng: SmallRng,
+}
+
+impl VerticalManeuvers {
+    fn new(seed: f32) -> Self {
+        let mut rng = SmallRng::seed_from_u64(u64::from(seed.to_bits()) ^ 0x7665_7274_6963_616c);
+        Self {
+            acceleration: 0.0,
+            active_remaining: 0.0,
+            rest_remaining: rng.random_range(0.04..=0.30),
+            rng,
+        }
+    }
+
+    fn advance(&mut self, dt: f32, frequency: f32) -> f32 {
+        let resting_dt = (dt - self.active_remaining).max(0.0);
+        self.active_remaining = (self.active_remaining - dt).max(0.0);
+        if self.active_remaining > 0.0 {
+            return self.acceleration;
+        }
+        // Zero stops new voluntary pulses; the current pulse and physical velocity
+        // finish/settle normally. Re-enabling resumes the remaining irregular wait.
+        if frequency <= 0.0 {
+            return 0.0;
+        }
+        self.rest_remaining -= resting_dt * frequency;
+        if self.rest_remaining > 0.0 {
+            return 0.0;
+        }
+        let roll = self.rng.random_range(0.0..1.0_f32);
+        let vertical = if roll < 0.13 {
+            self.rng.random_range(0.55..=0.95)
+        } else if roll < 0.21 {
+            -self.rng.random_range(0.35..=0.70)
+        } else {
+            self.rng.random_range(-0.18..=0.22)
+        };
+        self.acceleration = vertical * self.rng.random_range(0.75..=1.55);
+        self.active_remaining = self
+            .rng
+            .random_range(BUTTERFLY_BLOCK_EVENT_DURATION_MIN..=BUTTERFLY_BLOCK_EVENT_DURATION_MAX);
+        self.rest_remaining = sample_event_wait(&mut self.rng);
+        self.acceleration
+    }
+}
+
+fn sample_event_wait(rng: &mut SmallRng) -> f32 {
+    let unit = rng.random_range(0.0..=1.0_f32);
+    BUTTERFLY_BLOCK_EVENT_WAIT_MIN
+        + (BUTTERFLY_BLOCK_EVENT_WAIT_MAX - BUTTERFLY_BLOCK_EVENT_WAIT_MIN) * unit * unit
 }
 
 /// Sample-and-hold of the real trajectory, not a second simulation or position noise.
@@ -141,6 +204,7 @@ pub(super) struct DartingFlightState {
     cruise_speed: f32,
     acceleration: Vec3,
     wind_velocity: Vec3,
+    vertical_maneuvers: VerticalManeuvers,
     event_acceleration: Vec3,
     event_time_remaining: f32,
     time_until_event: f32,
@@ -153,7 +217,8 @@ impl DartingFlightState {
     pub(super) fn new(seed: f32, habitat_center: Vec3, initial_direction: Vec3) -> Self {
         let mut rng =
             SmallRng::seed_from_u64(u64::from(seed.to_bits()).wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        let cruise_direction = initial_direction.normalize_or(Vec3::Y);
+        let cruise_direction =
+            Vec3::new(initial_direction.x, 0.0, initial_direction.z).normalize_or(Vec3::X);
         Self {
             habitat_center,
             cruise_direction,
@@ -161,6 +226,7 @@ impl DartingFlightState {
                 .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
             acceleration: Vec3::ZERO,
             wind_velocity: Vec3::ZERO,
+            vertical_maneuvers: VerticalManeuvers::new(seed),
             event_acceleration: Vec3::ZERO,
             event_time_remaining: 0.0,
             time_until_event: rng.random_range(0.04..=0.30),
@@ -168,12 +234,6 @@ impl DartingFlightState {
             turn_sign: if rng.random_bool(0.5) { 1.0 } else { -1.0 },
             rng,
         }
-    }
-
-    fn sample_event_wait(&mut self) -> f32 {
-        let unit = self.rng.random_range(0.0..=1.0_f32);
-        BUTTERFLY_BLOCK_EVENT_WAIT_MIN
-            + (BUTTERFLY_BLOCK_EVENT_WAIT_MAX - BUTTERFLY_BLOCK_EVENT_WAIT_MIN) * unit * unit
     }
 
     fn start_maneuver(&mut self, velocity: Vec3) {
@@ -188,7 +248,7 @@ impl DartingFlightState {
             }
         }
 
-        let current_direction = velocity
+        let current_direction = Vec3::new(velocity.x, 0.0, velocity.z)
             .normalize_or_zero()
             .lerp(self.cruise_direction, 0.35)
             .normalize_or(self.cruise_direction);
@@ -201,15 +261,7 @@ impl DartingFlightState {
             0.0,
             current_planar.x * sin_turn + current_planar.z * cos_turn,
         );
-        let vertical_roll = self.rng.random_range(0.0..1.0_f32);
-        let vertical = if vertical_roll < 0.13 {
-            self.rng.random_range(0.55..=0.95)
-        } else if vertical_roll < 0.21 {
-            -self.rng.random_range(0.35..=0.70)
-        } else {
-            self.rng.random_range(-0.18..=0.22)
-        };
-        let maneuver_direction = (turned_planar + Vec3::Y * vertical).normalize_or(current_planar);
+        let maneuver_direction = turned_planar.normalize_or(current_planar);
         self.event_acceleration = maneuver_direction * self.rng.random_range(0.75..=1.55);
         self.event_time_remaining = self
             .rng
@@ -222,7 +274,7 @@ impl DartingFlightState {
             self.rng
                 .random_range(BUTTERFLY_BLOCK_RAPID_GAP_MIN..=BUTTERFLY_BLOCK_RAPID_GAP_MAX)
         } else {
-            self.sample_event_wait()
+            sample_event_wait(&mut self.rng)
         };
         self.time_until_event = self.event_time_remaining + gap;
     }
@@ -248,7 +300,8 @@ impl DartingFlightState {
     pub(super) fn resume(&mut self, velocity: Vec3) {
         self.acceleration = Vec3::ZERO;
         self.wind_velocity = Vec3::ZERO;
-        self.cruise_direction = velocity.normalize_or(self.cruise_direction);
+        self.cruise_direction =
+            Vec3::new(velocity.x, 0.0, velocity.z).normalize_or(self.cruise_direction);
     }
 
     pub(super) fn advance(
@@ -297,9 +350,6 @@ impl DartingFlightState {
         } else {
             self.cruise_direction * self.cruise_speed
         };
-        if !emerging {
-            cruise_velocity.y *= tuning.vertical_strength;
-        }
         cruise_velocity = (cruise_velocity * tuning.speed).clamp_length_max(max_speed);
         let cruise_acceleration = (cruise_velocity - air_velocity) * 2.4;
         let mut maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
@@ -307,6 +357,11 @@ impl DartingFlightState {
         } else {
             Vec3::ZERO
         };
+        if !emerging {
+            maneuver_acceleration.y = self
+                .vertical_maneuvers
+                .advance(dt, tuning.vertical_frequency);
+        }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
         let mut recovery = self.habitat_recovery_acceleration(position, velocity);
@@ -377,6 +432,115 @@ mod tests {
     use super::*;
 
     #[test]
+    fn butterfly_vertical_frequency_changes_irregular_rests_not_pulse_strength_or_duration() {
+        let run = |frequency| {
+            let mut pulses = VerticalManeuvers::new(17.0);
+            let mut events = Vec::new();
+            for tick in 0..7200 {
+                let previous_remaining = pulses.active_remaining;
+                pulses.advance(FLIGHT_STEP_SECONDS as f32, frequency);
+                if pulses.active_remaining > previous_remaining {
+                    events.push((tick, pulses.acceleration, pulses.active_remaining));
+                }
+            }
+            events
+        };
+        let slow = run(0.25);
+        let normal = run(1.0);
+        let fast = run(4.0);
+        assert!(slow.len() > 10);
+        assert!(normal.len() > slow.len() * 2);
+        assert!(fast.len() > normal.len());
+        for ((_, slow_force, slow_duration), (_, fast_force, fast_duration)) in
+            slow.iter().zip(&fast)
+        {
+            assert_eq!(slow_force, fast_force);
+            assert_eq!(slow_duration, fast_duration);
+        }
+        let intervals = fast
+            .windows(2)
+            .map(|pair| pair[1].0 - pair[0].0)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            intervals.len() >= 12,
+            "vertical pulses must not become periodic"
+        );
+        assert!(fast.iter().any(|(_, force, _)| *force > 0.4));
+        assert!(fast.iter().any(|(_, force, _)| *force < -0.2));
+    }
+
+    #[test]
+    fn butterfly_vertical_zero_stops_new_pulses_without_cutting_the_current_one() {
+        let mut pulses = VerticalManeuvers::new(7.0);
+        let initial_wait = pulses.rest_remaining;
+        for _ in 0..240 {
+            assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), 0.0);
+        }
+        assert_eq!(pulses.rest_remaining, initial_wait);
+        pulses.rest_remaining = 0.0;
+        let force = pulses.advance(FLIGHT_STEP_SECONDS as f32, 4.0);
+        assert_ne!(force, 0.0);
+        assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), force);
+        for _ in 0..30 {
+            pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0);
+        }
+        assert_eq!(pulses.active_remaining, 0.0);
+        assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), 0.0);
+    }
+
+    #[test]
+    fn butterfly_vertical_and_horizontal_event_clocks_are_independent() {
+        let run = |vertical_frequency, maneuver_tempo| {
+            let mut state = DartingFlightState::new(3.0, Vec3::ONE, Vec3::X);
+            for _ in 0..360 {
+                // Fixed inputs isolate intent clocks from terrain and shared speed limits.
+                state.advance(
+                    Vec3::ONE,
+                    Vec3::X * 0.1,
+                    FLIGHT_STEP_SECONDS as f32,
+                    Vec3::splat(2.0),
+                    false,
+                    ButterflyFlightTuning {
+                        vertical_frequency,
+                        maneuver_tempo,
+                        ..Default::default()
+                    },
+                    Vec3::ZERO,
+                    &mut |_, _| None,
+                );
+            }
+            state
+        };
+        let mut low = run(0.25, 1.0);
+        let mut high = run(4.0, 1.0);
+        assert_eq!(low.time_until_event, high.time_until_event);
+        assert_eq!(low.event_time_remaining, high.event_time_remaining);
+        assert_eq!(low.event_acceleration, high.event_acceleration);
+        assert_eq!(low.rng.random::<u64>(), high.rng.random::<u64>());
+        assert_ne!(
+            low.vertical_maneuvers.rest_remaining,
+            high.vertical_maneuvers.rest_remaining
+        );
+        let mut lateral_fast = run(0.25, 4.0);
+        assert_eq!(
+            low.vertical_maneuvers.rest_remaining,
+            lateral_fast.vertical_maneuvers.rest_remaining
+        );
+        assert_eq!(
+            low.vertical_maneuvers.active_remaining,
+            lateral_fast.vertical_maneuvers.active_remaining
+        );
+        assert_eq!(
+            low.vertical_maneuvers.acceleration,
+            lateral_fast.vertical_maneuvers.acceleration
+        );
+        assert_eq!(
+            low.vertical_maneuvers.rng.random::<u64>(),
+            lateral_fast.vertical_maneuvers.rng.random::<u64>()
+        );
+    }
+
+    #[test]
     fn butterfly_wind_drift_is_independent_of_self_speed_and_has_its_own_gain() {
         let run = |speed, wind_drift| {
             let mut state = DartingFlightState::new(5.0, Vec3::ONE, Vec3::X);
@@ -397,6 +561,7 @@ mod tests {
                     ButterflyFlightTuning {
                         speed,
                         wind_drift,
+                        vertical_frequency: 0.0,
                         ..Default::default()
                     },
                     Vec3::X * 2.0,
@@ -477,7 +642,9 @@ mod tests {
     fn butterfly_live_knobs_change_their_intended_motion_terms() {
         let run = |tuning| {
             let mut state = DartingFlightState::new(9.0, Vec3::ONE, Vec3::X);
-            state.event_acceleration = Vec3::new(0.4, 0.5, 0.2);
+            state.event_acceleration = Vec3::new(0.4, 0.0, 0.2);
+            state.vertical_maneuvers.acceleration = 0.5;
+            state.vertical_maneuvers.active_remaining = 0.2;
             state.event_time_remaining = 0.2;
             state.time_until_event = 0.6;
             let velocity = state.advance(
@@ -535,6 +702,7 @@ mod tests {
             ButterflyFlightTuning {
                 position_step_ms: f32::NAN,
                 maneuver_tempo: f32::INFINITY,
+                vertical_frequency: f32::NAN,
                 vertical_strength: f32::NAN,
                 turn_sharpness: f32::NEG_INFINITY,
                 speed: f32::NAN,
@@ -553,6 +721,7 @@ mod tests {
                     ButterflyFlightTuning {
                         position_step_ms: 160.0,
                         maneuver_tempo: 4.0,
+                        vertical_frequency: 4.0,
                         vertical_strength: 4.0,
                         turn_sharpness: 4.0,
                         speed: 2.5,
@@ -562,6 +731,7 @@ mod tests {
                     ButterflyFlightTuning {
                         position_step_ms: 0.0,
                         maneuver_tempo: 0.25,
+                        vertical_frequency: 0.0,
                         vertical_strength: 0.0,
                         turn_sharpness: 0.25,
                         speed: 0.25,

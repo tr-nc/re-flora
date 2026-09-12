@@ -83,7 +83,7 @@ pub(super) fn draw_butterfly_flight_ab_controls(
 fn draw_butterfly_flight_tuning(
     ui: &mut egui::Ui,
     tuning: &mut ButterflyFlightTuning,
-) -> ([egui::Response; 6], egui::Response) {
+) -> ([egui::Response; 7], egui::Response) {
     ui.small(
         "B only — live controls, not saved. Physics stays at 120 Hz; World Tick is unchanged.",
     );
@@ -96,12 +96,15 @@ fn draw_butterfly_flight_tuning(
                 &mut tuning.maneuver_tempo,
                 ButterflyFlightTuning::TEMPO_RANGE,
             )
-            .text("Maneuver tempo (x)")
+            .text("Horizontal maneuver tempo (x)")
             .step_by(0.05),
         )
         .on_hover_text(
-            "Higher = more frequent, shorter maneuvers. Does not change physics tick or lifetime.",
+            "Higher = more frequent, shorter horizontal maneuvers. Vertical timing, wind, physics tick and lifetime are unchanged.",
         );
+    let vertical_frequency = ui.add(egui::Slider::new(&mut tuning.vertical_frequency, ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE)
+        .text("Vertical maneuver frequency (x)").step_by(0.05))
+        .on_hover_text("Higher = shorter irregular rests between up/down pulses, not a fixed Hz or sine wave. Pulse strength/duration and horizontal timing stay unchanged. 0 stops new pulses; existing motion settles and terrain/habitat recovery still works.");
     let vertical = ui.add(egui::Slider::new(&mut tuning.vertical_strength, ButterflyFlightTuning::VERTICAL_RANGE)
         .text("Vertical movement (x)").step_by(0.05))
         .on_hover_text("Higher = stronger up/down steering. 0 removes voluntary vertical motion, but terrain/habitat recovery still works.");
@@ -115,16 +118,35 @@ fn draw_butterfly_flight_tuning(
         .text("Wind drift (x)").step_by(0.05))
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
     let reset = ui.button("Reset B flight controls");
-    let changed = [&position, &tempo, &vertical, &sharpness, &speed, &wind]
-        .iter()
-        .any(|r| r.changed());
+    let changed = [
+        &position,
+        &tempo,
+        &vertical_frequency,
+        &vertical,
+        &sharpness,
+        &speed,
+        &wind,
+    ]
+    .iter()
+    .any(|r| r.changed());
     if reset.clicked() {
         *tuning = ButterflyFlightTuning::default();
     }
     if changed || reset.clicked() {
         log::info!("[BUTTERFLY_AB][TUNING] {tuning:?}");
     }
-    ([position, tempo, vertical, sharpness, speed, wind], reset)
+    (
+        [
+            position,
+            tempo,
+            vertical_frequency,
+            vertical,
+            sharpness,
+            speed,
+            wind,
+        ],
+        reset,
+    )
 }
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
@@ -826,6 +848,7 @@ impl App {
                 Some(180) => Some(ButterflyFlightTuning {
                     position_step_ms: 160.0,
                     maneuver_tempo: 2.0,
+                    vertical_frequency: 1.0,
                     vertical_strength: 3.0,
                     turn_sharpness: 2.0,
                     speed: 1.0,
@@ -859,6 +882,18 @@ impl App {
             if let Some(gain) = next_gain {
                 self.butterfly_flight_tuning.wind_drift = gain;
                 log::info!("[BUTTERFLY_REVIEW] scripted_wind_gain={gain} frame={frame}");
+            }
+        }
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("vertical") {
+            let next_frequency = match review.subject_frame.map(|start| frame - start) {
+                Some(90) => Some(0.0),
+                Some(180) => Some(4.0),
+                Some(270) => Some(1.0),
+                _ => None,
+            };
+            if let Some(frequency) = next_frequency {
+                self.butterfly_flight_tuning.vertical_frequency = frequency;
+                log::info!("[BUTTERFLY_REVIEW] scripted_vertical_frequency={frequency} frame={frame} tuning={:?}", self.butterfly_flight_tuning);
             }
         }
     }
@@ -1090,7 +1125,7 @@ mod tests {
         let context = egui::Context::default();
         let mut tuning = ButterflyFlightTuning::default();
         let mut draw = |events| {
-            let mut rects = [egui::Rect::NOTHING; 6];
+            let mut rects = [egui::Rect::NOTHING; 7];
             let mut reset_rect = egui::Rect::NOTHING;
             let _ = context.run_ui(
                 egui::RawInput {
@@ -1130,6 +1165,7 @@ mod tests {
         let (_, reset, edited) = draw(Vec::new());
         assert_ne!(edited.position_step_ms, initial.position_step_ms);
         assert_ne!(edited.maneuver_tempo, initial.maneuver_tempo);
+        assert_ne!(edited.vertical_frequency, initial.vertical_frequency);
         assert_ne!(edited.vertical_strength, initial.vertical_strength);
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);
