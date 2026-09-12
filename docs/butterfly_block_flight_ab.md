@@ -1,5 +1,7 @@
 # 蝴蝶方块飞行 A/B 候选交接
 
+2026-09-13 更新见 [设置保存、飞行高度与滑杆反馈闭环](butterfly_settings_height_validation.md)。下文为此前各次实验记录；“临时不保存”、旧启动值和旧 tempo 滑杆描述不再代表当前版本。
+
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
