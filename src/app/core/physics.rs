@@ -250,6 +250,7 @@ impl TerrainPhysics {
                 half_height: PLAYER_CAPSULE_HALF_HEIGHT_VOXELS,
                 desired_translation: request.desired_translation * VOXELS_PER_WORLD_UNIT,
                 dt: frame_delta_time,
+                smooth_microvoxel_walk: request.smooth_microvoxel_walk,
             })
             .context("moving the player capsule through terrain")?;
 

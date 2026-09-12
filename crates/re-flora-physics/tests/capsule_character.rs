@@ -8,6 +8,8 @@ use re_flora_physics::{
 const DT: f32 = 1.0 / 60.0;
 const RADIUS: f32 = 0.5;
 const HALF_HEIGHT: f32 = 1.0;
+const PLAYER_RADIUS: f32 = 4.0;
+const PLAYER_HALF_HEIGHT: f32 = 8.0;
 
 fn occupancy_where(mut filled: impl FnMut(UVec3) -> bool) -> BrickOccupancy {
     let mut voxels = Vec::new();
@@ -35,11 +37,31 @@ fn capsule_move(center: Vec3, desired_translation: Vec3) -> CapsuleCharacterMove
         half_height: HALF_HEIGHT,
         desired_translation,
         dt: DT,
+        smooth_microvoxel_walk: false,
     }
 }
 
 fn standing_center_y(surface_y: f32) -> f32 {
     surface_y + HALF_HEIGHT + RADIUS + CAPSULE_CHARACTER_COLLISION_OFFSET
+}
+
+fn player_capsule_move(
+    center: Vec3,
+    desired_translation: Vec3,
+    smooth_microvoxel_walk: bool,
+) -> CapsuleCharacterMove {
+    CapsuleCharacterMove {
+        center,
+        radius: PLAYER_RADIUS,
+        half_height: PLAYER_HALF_HEIGHT,
+        desired_translation,
+        dt: DT,
+        smooth_microvoxel_walk,
+    }
+}
+
+fn player_standing_center_y(surface_y: f32) -> f32 {
+    surface_y + PLAYER_HALF_HEIGHT + PLAYER_RADIUS + CAPSULE_CHARACTER_COLLISION_OFFSET
 }
 
 #[test]
@@ -239,6 +261,98 @@ fn capsule_climbs_a_voxel_stair_slope() {
         (center.y - standing_center_y(4.0)).abs() < 1.0e-3,
         "center={center:?}"
     );
+}
+
+#[test]
+fn player_scale_capsule_keeps_horizontal_progress_over_voxel_stair_slope() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| {
+            voxel.y == 0
+                || (voxel.x >= 8 && voxel.y == 1)
+                || (voxel.x >= 12 && voxel.y == 2)
+                || (voxel.x >= 16 && voxel.y == 3)
+                || (voxel.x >= 20 && voxel.y == 4)
+        }),
+    );
+
+    let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+    for _ in 0..20 {
+        let result = world
+            .move_capsule_character(player_capsule_move(
+                center,
+                Vec3::new(1.0, -0.1, 0.0),
+                true,
+            ))
+            .unwrap();
+        assert!(result.grounded, "center={center:?} result={result:?}");
+        assert!(result.translation.x > 0.98, "result={result:?}");
+        center += result.translation;
+    }
+
+    assert!(
+        center.x > 23.5,
+        "center={center:?}"
+    );
+    assert!(
+        (center.y - player_standing_center_y(5.0)).abs() < 1.0e-3,
+        "center={center:?}"
+    );
+}
+
+#[test]
+fn player_scale_capsule_original_mode_keeps_existing_voxel_edge_response() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y == 1)),
+    );
+
+    let mut center = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+    center += world
+        .move_capsule_character(player_capsule_move(
+            center,
+            Vec3::new(1.0, -0.1, 0.0),
+            false,
+        ))
+        .unwrap()
+        .translation;
+    let edge = world
+        .move_capsule_character(player_capsule_move(
+            center,
+            Vec3::new(1.0, -0.1, 0.0),
+            false,
+        ))
+        .unwrap();
+
+    assert!(edge.grounded, "result={edge:?}");
+    assert!(edge.translation.x < 0.8, "result={edge:?}");
+}
+
+#[test]
+fn smooth_player_scale_capsule_still_stops_at_a_tall_wall() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 12 && voxel.y < 28)),
+    );
+
+    let start = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+    let result = world
+        .move_capsule_character(player_capsule_move(
+            start,
+            Vec3::new(10.0, -0.1, 0.0),
+            true,
+        ))
+        .unwrap();
+    let final_center = start + result.translation;
+
+    assert!(result.grounded, "result={result:?}");
+    assert!(final_center.x + PLAYER_RADIUS < 12.0, "result={result:?}");
 }
 
 #[test]

@@ -2101,6 +2101,18 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "Character Walk"
+
+[[section.param]]
+id = "smooth_microvoxel_walk"
+kind = "bool"
+label = "B: Smooth Microvoxel Walk (off = A: Original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section]]
 name = "HeadBob"
 
 [[section.param]]

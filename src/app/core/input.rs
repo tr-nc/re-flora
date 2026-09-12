@@ -172,9 +172,11 @@ impl App {
             self.tracer.update_fly_camera(frame_delta_time);
         } else if self.is_walk_camera_mode() {
             if frame_delta_time > f32::EPSILON && frame_delta_time.is_finite() {
-                let request = self
-                    .tracer
-                    .prepare_walk_camera_movement(frame_delta_time, sim_time_seconds);
+                let request = self.tracer.prepare_walk_camera_movement(
+                    frame_delta_time,
+                    sim_time_seconds,
+                    self.debug_settings.adjustables.smooth_microvoxel_walk.value,
+                );
                 let result = self
                     .terrain_physics
                     .move_player_capsule(request, frame_delta_time)

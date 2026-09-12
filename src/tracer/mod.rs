@@ -6039,9 +6039,13 @@ impl Tracer {
         &mut self,
         frame_delta_time: f32,
         sim_time_seconds: f64,
+        smooth_microvoxel_walk: bool,
     ) -> crate::gameplay::camera::PlayerWalkMovementRequest {
-        self.camera
-            .prepare_walk_movement(frame_delta_time, sim_time_seconds)
+        self.camera.prepare_walk_movement(
+            frame_delta_time,
+            sim_time_seconds,
+            smooth_microvoxel_walk,
+        )
     }
 
     pub fn apply_walk_camera_movement(

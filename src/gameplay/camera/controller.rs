@@ -12,12 +12,14 @@ use winit::event::KeyEvent;
 const GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED: f32 = 14.0;
 const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 16.5 / 256.0;
 const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 8.0 / 256.0;
+const MAX_SMOOTH_MICROVOXEL_CAMERA_VERTICAL_LAG: f32 = 16.5 / 256.0;
 
 fn smoothed_grounded_camera_y(
     current_y: f32,
     target_y: f32,
     vertical_translation: f32,
     frame_delta_time: f32,
+    max_vertical_lag: f32,
 ) -> f32 {
     if !current_y.is_finite()
         || !target_y.is_finite()
@@ -31,11 +33,7 @@ fn smoothed_grounded_camera_y(
 
     let alpha = 1.0 - (-GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED * frame_delta_time).exp();
     let smoothed = current_y + (target_y - current_y) * alpha;
-    target_y
-        + (smoothed - target_y).clamp(
-            -MAX_GROUNDED_CAMERA_VERTICAL_LAG,
-            MAX_GROUNDED_CAMERA_VERTICAL_LAG,
-        )
+    target_y + (smoothed - target_y).clamp(-max_vertical_lag, max_vertical_lag)
 }
 
 fn walk_velocity_after_collision(control_velocity: Vec3, vertical_velocity: f32) -> Vec3 {
@@ -72,6 +70,7 @@ pub struct PlayerWalkMovementRequest {
     pub camera_position: Vec3,
     pub camera_height: f32,
     pub desired_translation: Vec3,
+    pub smooth_microvoxel_walk: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -118,6 +117,9 @@ pub struct Camera {
 
     head_bob: HeadBob,
     stride_cycle: StrideCycle,
+
+    smooth_microvoxel_walk_was_enabled: bool,
+    legacy_camera_reentry_pending: bool,
 }
 
 impl Camera {
@@ -145,6 +147,8 @@ impl Camera {
             pre_landing_speed: 0.0,
             head_bob: HeadBob::new(),
             stride_cycle: StrideCycle::new(),
+            smooth_microvoxel_walk_was_enabled: false,
+            legacy_camera_reentry_pending: false,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -332,6 +336,7 @@ impl Camera {
         &mut self,
         frame_delta_time: f32,
         sim_time_seconds: f64,
+        smooth_microvoxel_walk: bool,
     ) -> PlayerWalkMovementRequest {
         const GRAVITY_G: f32 = 2.0;
         const JUMP_IMPULSE: f32 = 0.5;
@@ -344,6 +349,7 @@ impl Camera {
                 camera_position: self.walk_collision_position.unwrap_or(self.position),
                 camera_height: self.desc.camera_height,
                 desired_translation: Vec3::ZERO,
+                smooth_microvoxel_walk,
             };
         }
 
@@ -397,6 +403,7 @@ impl Camera {
             camera_position: collision_position,
             camera_height: self.desc.camera_height,
             desired_translation: self.rigidbody.velocity * frame_delta_time,
+            smooth_microvoxel_walk,
         }
     }
 
@@ -428,14 +435,32 @@ impl Camera {
         let collision_position = *collision_position;
         self.position.x = collision_position.x;
         self.position.z = collision_position.z;
+        if self.smooth_microvoxel_walk_was_enabled && !request.smooth_microvoxel_walk {
+            self.legacy_camera_reentry_pending = true;
+        }
+        self.smooth_microvoxel_walk_was_enabled = request.smooth_microvoxel_walk;
         self.position.y = if grounded {
-            smoothed_grounded_camera_y(
+            let max_vertical_lag =
+                if request.smooth_microvoxel_walk || self.legacy_camera_reentry_pending {
+                    MAX_SMOOTH_MICROVOXEL_CAMERA_VERTICAL_LAG
+                } else {
+                    MAX_GROUNDED_CAMERA_VERTICAL_LAG
+                };
+            let camera_y = smoothed_grounded_camera_y(
                 self.position.y,
                 collision_position.y,
                 result.translation.y,
                 frame_delta_time,
-            )
+                max_vertical_lag,
+            );
+            if self.legacy_camera_reentry_pending
+                && (collision_position.y - camera_y).abs() <= MAX_GROUNDED_CAMERA_VERTICAL_LAG
+            {
+                self.legacy_camera_reentry_pending = false;
+            }
+            camera_y
         } else {
+            self.legacy_camera_reentry_pending = false;
             collision_position.y
         };
 
@@ -514,6 +539,8 @@ impl Camera {
         self.pre_landing_speed = 0.0;
         self.head_bob.reset();
         self.stride_cycle.reset();
+        self.smooth_microvoxel_walk_was_enabled = false;
+        self.legacy_camera_reentry_pending = false;
     }
 }
 
@@ -525,10 +552,21 @@ mod tests {
     fn grounded_camera_smooths_a_sixteen_voxel_step_without_overshooting() {
         let current_y = 1.0;
         let target_y = current_y + 16.0 / 256.0;
-        let smoothed = smoothed_grounded_camera_y(current_y, target_y, 16.0 / 256.0, 1.0 / 60.0);
+        let smoothed = smoothed_grounded_camera_y(
+            current_y,
+            target_y,
+            16.0 / 256.0,
+            1.0 / 60.0,
+            MAX_SMOOTH_MICROVOXEL_CAMERA_VERTICAL_LAG,
+        );
 
         assert!(smoothed > current_y);
         assert!(smoothed < target_y);
+        assert!(
+            smoothed - current_y <= 4.0 / 256.0,
+            "first-frame rise was {} voxels",
+            (smoothed - current_y) * 256.0
+        );
     }
 
     #[test]
@@ -536,7 +574,13 @@ mod tests {
         fn simulate(frame_delta_time: f32, frames: usize) -> f32 {
             let mut current_y = 0.0;
             for _ in 0..frames {
-                current_y = smoothed_grounded_camera_y(current_y, 0.01, 0.0, frame_delta_time);
+                current_y = smoothed_grounded_camera_y(
+                    current_y,
+                    0.01,
+                    0.0,
+                    frame_delta_time,
+                    MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+                );
             }
             current_y
         }
@@ -548,15 +592,111 @@ mod tests {
 
     #[test]
     fn grounded_camera_does_not_smooth_large_vertical_discontinuities() {
-        assert_eq!(smoothed_grounded_camera_y(0.0, 1.0, 0.25, 1.0 / 60.0), 1.0);
+        assert_eq!(
+            smoothed_grounded_camera_y(
+                0.0,
+                1.0,
+                0.25,
+                1.0 / 60.0,
+                MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+            ),
+            1.0
+        );
     }
 
     #[test]
     fn grounded_camera_limits_accumulated_vertical_lag() {
         let target_y = 1.0;
-        let smoothed = smoothed_grounded_camera_y(0.0, target_y, 1.0 / 256.0, 1.0 / 60.0);
+        let smoothed = smoothed_grounded_camera_y(
+            0.0,
+            target_y,
+            1.0 / 256.0,
+            1.0 / 60.0,
+            MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+        );
 
         assert!((target_y - smoothed).abs() <= MAX_GROUNDED_CAMERA_VERTICAL_LAG);
+    }
+
+    #[test]
+    fn original_grounded_camera_keeps_the_eight_voxel_lag_limit() {
+        let current_y = 1.0;
+        let target_y = current_y + 16.0 / 256.0;
+        let smoothed = smoothed_grounded_camera_y(
+            current_y,
+            target_y,
+            16.0 / 256.0,
+            1.0 / 60.0,
+            MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+        );
+
+        assert!(((smoothed - current_y) * 256.0 - 8.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn disabling_smooth_walk_keeps_pose_continuous_while_reentering_original_mode() {
+        let initial = Vec3::new(2.0, 1.0, 3.0);
+        let mut camera = Camera::new(initial, 0.0, 0.0, CameraDesc::default());
+        let request = |camera_position, smooth_microvoxel_walk| PlayerWalkMovementRequest {
+            camera_position,
+            camera_height: 0.08,
+            desired_translation: Vec3::ZERO,
+            smooth_microvoxel_walk,
+        };
+
+        camera.apply_walk_movement(
+            1.0 / 60.0,
+            0.0,
+            request(initial, true),
+            PlayerWalkMovementResult {
+                translation: Vec3::Y * (16.0 / 256.0),
+                grounded: true,
+            },
+        );
+        let before_toggle = camera.position;
+        let collision_before_toggle = camera.walk_collision_position.unwrap();
+        camera.apply_walk_movement(
+            1.0 / 60.0,
+            1.0 / 60.0,
+            request(collision_before_toggle, false),
+            PlayerWalkMovementResult {
+                translation: Vec3::ZERO,
+                grounded: true,
+            },
+        );
+
+        assert_eq!(camera.position.x, before_toggle.x);
+        assert_eq!(camera.position.z, before_toggle.z);
+        assert_eq!(
+            camera.walk_collision_position,
+            Some(collision_before_toggle)
+        );
+        assert!(
+            (camera.position.y - before_toggle.y).abs() <= 4.0 / 256.0,
+            "toggle frame moved {} voxels",
+            (camera.position.y - before_toggle.y) * 256.0
+        );
+        assert!(camera.legacy_camera_reentry_pending);
+
+        for frame in 2..120 {
+            camera.apply_walk_movement(
+                1.0 / 60.0,
+                frame as f64 / 60.0,
+                request(collision_before_toggle, false),
+                PlayerWalkMovementResult {
+                    translation: Vec3::ZERO,
+                    grounded: true,
+                },
+            );
+            if !camera.legacy_camera_reentry_pending {
+                break;
+            }
+        }
+        assert!(!camera.legacy_camera_reentry_pending);
+        assert!(
+            (collision_before_toggle.y - camera.position.y).abs()
+                <= MAX_GROUNDED_CAMERA_VERTICAL_LAG
+        );
     }
 
     #[test]
