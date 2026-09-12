@@ -62,7 +62,7 @@ impl ParticleHandle {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MotionMode {
-    /// Default falling behaviour driven by noise and gravity.
+    /// Coupled flight for leaves; legacy noise/gravity for other falling particles.
     Falling,
     /// Free-flight particles that keep their velocity, only damped over time.
     Free,
@@ -155,7 +155,7 @@ impl Default for SpeedNoise {
 pub struct ParticleForces {
     /// Linear damping factor (0..1). Use small values to avoid instability.
     pub linear_damping: f32,
-    /// Perlin-driven speed profile (used for falling leaves).
+    /// Perlin-driven speed profile for non-leaf falling particles.
     pub speed_noise: SpeedNoise,
     /// Multiplier for planar velocity on falling particles.
     pub leaf_planar_speed_multiplier: f32,
@@ -181,8 +181,8 @@ pub struct ParticleSnapshot {
     pub kind: ParticleRenderKind,
     pub texture_variant: u32,
     pub animation_frame_offset: u32,
-    /// Held B-mode optical pose, also used by optional rotating geometry.
-    /// None preserves the original A motion-derived optics and billboard.
+    /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
+    /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
 }
 
@@ -195,7 +195,7 @@ pub enum ParticleRenderKind {
 }
 
 /// Sample-and-hold presentation, never an input to particle mechanics.
-/// Position, velocity proxy (A) and geometric/optical orientation (B) publish together.
+/// Position, velocity and optical orientation publish together.
 #[derive(Clone, Copy, Debug)]
 struct LeafDisplayPose {
     position: Vec3,
@@ -242,7 +242,6 @@ pub struct ParticleSystem {
     update_bucket_step_seconds: f32,
     last_tick_step: ParticleTickStep,
     speed_noise: FastNoiseLite,
-    leaf_flight_enabled: bool,
     leaf_flight: Vec<LeafFlight>,
     leaf_display: Vec<LeafDisplayPose>,
 }
@@ -304,7 +303,6 @@ impl ParticleSystem {
                 bucket_count: PARTICLE_UPDATE_BUCKET_COUNT as u32,
             },
             speed_noise,
-            leaf_flight_enabled: false,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
             leaf_display: vec![
                 LeafDisplayPose {
@@ -496,28 +494,13 @@ impl ParticleSystem {
         }
     }
 
-    pub fn set_leaf_flight_enabled(&mut self, enabled: bool) {
-        if self.leaf_flight_enabled != enabled {
-            self.leaf_flight_enabled = enabled;
-            log::info!(
-                "[LEAF_FLIGHT_AB] variant={} particles_retained={} geometry_selected_by_renderer=true",
-                if enabled { "B-coupled-flight" } else { "A-billboard" },
-                self.alive_count(),
-            );
-        }
-    }
-
-    fn uses_leaf_flight(&self, slot: usize) -> bool {
-        self.leaf_flight_enabled && self.is_falling_leaf(slot)
-    }
-
     fn is_falling_leaf(&self, slot: usize) -> bool {
         self.render_kinds[slot] == ParticleRenderKind::Leaf
             && self.motion_modes[slot] == MotionMode::Falling
     }
 
     /// Advances the simulation by `dt` seconds and applies forces/damping.
-    /// Supports both falling particles and free-flight motion with the same drift model.
+    /// Falling leaves use coupled flight; other kinds/modes retain their existing motion.
     #[allow(dead_code)]
     pub fn update(&mut self, dt: f32, forces: ParticleForces) {
         self.update_with_wind(dt, forces, &WindFieldFrame::default());
@@ -568,7 +551,7 @@ impl ParticleSystem {
         while alive_cursor < self.alive_indices.len() {
             let slot = self.alive_indices[alive_cursor];
             let mode = self.motion_modes[slot];
-            let uses_leaf_flight = self.uses_leaf_flight(slot);
+            let uses_leaf_flight = self.is_falling_leaf(slot);
             self.pending_sim_dt[slot] += dt;
             self.update_elapsed[slot] += dt;
             let update_interval = self.update_intervals[slot];
@@ -707,7 +690,7 @@ impl ParticleSystem {
         }
 
         // Reuse the existing world-tick particle buckets for presentation only.
-        // In particular, B's 120 Hz mechanical integrator above still runs on
+        // In particular, the 120 Hz mechanical integrator above still runs on
         // every frame and must never read this held display state back.
         if self.last_tick_step.did_step {
             for &slot in &self.alive_indices {
@@ -757,7 +740,7 @@ impl ParticleSystem {
                 texture_variant: self.texture_variants[*slot],
                 animation_frame_offset: self.animation_frame_offsets[*slot],
                 leaf_orientation: self
-                    .uses_leaf_flight(*slot)
+                    .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),
             });
         }
@@ -977,7 +960,6 @@ mod tests {
     fn leaf_display_holds_between_world_ticks_while_physics_advances() {
         let mut system = ParticleSystem::new(1);
         system.spawn(long_lived_leaf()).unwrap();
-        system.set_leaf_flight_enabled(true);
         system.set_bucket_step_seconds(0.05);
         let mut snapshots = Vec::new();
         system.write_snapshots(&mut snapshots);
@@ -1003,79 +985,66 @@ mod tests {
     #[test]
     fn leaf_world_tick_controls_only_display_not_physical_trajectory() {
         let steps = [0.025, 0.05, 0.1];
-        for flight_enabled in [false, true] {
-            let mut systems = steps.map(|step| {
-                let mut system = ParticleSystem::new(1);
-                system.spawn(long_lived_leaf()).unwrap();
-                system.set_leaf_flight_enabled(flight_enabled);
-                system.set_bucket_step_seconds(step);
-                system
-            });
-            let mut changes = [0_u32; 3];
-            let mut previous = [long_lived_leaf().position; 3];
-            let mut snapshots = Vec::new();
-            for frame in 0..240 {
-                for (index, system) in systems.iter_mut().enumerate() {
-                    // Exercise the same per-frame setter as the GUI adapter.
-                    system.set_bucket_step_seconds(steps[index]);
-                    system.update_with_wind(
-                        1. / 120.,
-                        ParticleForces::default(),
-                        &WindFieldFrame::uniform(glam::Vec2::new(0.7, 0.2)),
-                    );
-                    system.write_snapshots(&mut snapshots);
-                    let displayed = snapshots[0];
-                    if displayed.position_ws != previous[index] {
-                        let tick = system.last_tick_step();
-                        assert!(tick.did_step, "mode={flight_enabled}, frame={frame}");
-                        assert_eq!(system.update_buckets[0], tick.active_bucket);
-                        assert_eq!(displayed.position_ws, system.positions[0]);
-                        assert_eq!(displayed.velocity, system.velocities[0]);
-                        if flight_enabled {
-                            assert_eq!(
-                                displayed.leaf_orientation,
-                                Some(system.leaf_flight[0].orientation),
-                            );
-                        }
-                        changes[index] += 1;
-                    }
-                    previous[index] = displayed.position_ws;
-                }
-                for system in &systems[1..] {
-                    assert_eq!(system.positions, systems[0].positions);
-                    assert_eq!(system.velocities, systems[0].velocities);
-                    assert_eq!(system.ages, systems[0].ages);
+        let mut systems = steps.map(|step| {
+            let mut system = ParticleSystem::new(1);
+            system.spawn(long_lived_leaf()).unwrap();
+            system.set_bucket_step_seconds(step);
+            system
+        });
+        let mut changes = [0_u32; 3];
+        let mut previous = [long_lived_leaf().position; 3];
+        let mut snapshots = Vec::new();
+        for frame in 0..240 {
+            for (index, system) in systems.iter_mut().enumerate() {
+                // Exercise the same per-frame setter as the GUI adapter.
+                system.set_bucket_step_seconds(steps[index]);
+                system.update_with_wind(
+                    1. / 120.,
+                    ParticleForces::default(),
+                    &WindFieldFrame::uniform(glam::Vec2::new(0.7, 0.2)),
+                );
+                system.write_snapshots(&mut snapshots);
+                let displayed = snapshots[0];
+                assert!(displayed.leaf_orientation.is_some());
+                if displayed.position_ws != previous[index] {
+                    let tick = system.last_tick_step();
+                    assert!(tick.did_step, "frame={frame}");
+                    assert_eq!(system.update_buckets[0], tick.active_bucket);
+                    assert_eq!(displayed.position_ws, system.positions[0]);
+                    assert_eq!(displayed.velocity, system.velocities[0]);
                     assert_eq!(
-                        system.leaf_flight[0].orientation,
-                        systems[0].leaf_flight[0].orientation,
+                        displayed.leaf_orientation,
+                        Some(system.leaf_flight[0].orientation)
                     );
+                    changes[index] += 1;
                 }
+                previous[index] = displayed.position_ws;
             }
-            if flight_enabled {
-                // Two existing particle buckets: each leaf publishes once per cycle.
-                for (actual, expected) in changes.into_iter().zip([40, 20, 10]) {
-                    assert!(actual.abs_diff(expected) <= 1, "{changes:?}");
-                }
+            for system in &systems[1..] {
+                assert_eq!(system.positions, systems[0].positions);
+                assert_eq!(system.velocities, systems[0].velocities);
+                assert_eq!(system.ages, systems[0].ages);
+                assert_eq!(
+                    system.leaf_flight[0].orientation,
+                    systems[0].leaf_flight[0].orientation
+                );
             }
+        }
+        // Two existing particle buckets: each leaf publishes once per cycle.
+        for (actual, expected) in changes.into_iter().zip([40, 20, 10]) {
+            assert!(actual.abs_diff(expected) <= 1, "{changes:?}");
         }
     }
 
     #[test]
-    fn leaf_display_switch_and_slot_reuse_keep_publication_coherent() {
+    fn leaf_display_cadence_edit_and_slot_reuse_keep_publication_coherent() {
         let mut system = ParticleSystem::new(1);
         let handle = system.spawn(long_lived_leaf()).unwrap();
-        system.set_leaf_flight_enabled(true);
         let mut snapshots = Vec::new();
         system.write_snapshots(&mut snapshots);
         let initial = snapshots[0];
         system.update(1. / 120., ParticleForces::default());
         let physical = (system.positions[0], system.leaf_flight[0].orientation);
-        system.set_leaf_flight_enabled(false);
-        system.write_snapshots(&mut snapshots);
-        assert_eq!(snapshots[0].position_ws, initial.position_ws);
-        assert_eq!(snapshots[0].velocity, initial.velocity);
-        assert_eq!(snapshots[0].leaf_orientation, None);
-        system.set_leaf_flight_enabled(true);
         // A live GUI cadence edit also cannot reset the physical state or publish early.
         system.set_bucket_step_seconds(0.1);
         system.write_snapshots(&mut snapshots);
@@ -1104,27 +1073,24 @@ mod tests {
     }
 
     #[test]
-    fn leaf_ab_switch_preserves_identity_position_and_lifetime() {
+    fn falling_leaf_flight_is_unconditional_and_preserves_identity_and_lifetime() {
         let mut system = ParticleSystem::new(1);
         let handle = system.spawn(long_lived_leaf()).unwrap();
-        system.update(0.2, ParticleForces::default());
-        let before = (system.positions[0], system.velocities[0], system.ages[0]);
-        system.set_leaf_flight_enabled(true);
-        assert_eq!(
-            before,
-            (system.positions[0], system.velocities[0], system.ages[0])
-        );
         let mut snapshots = Vec::new();
         system.write_snapshots(&mut snapshots);
-        assert!(snapshots[0].leaf_orientation.is_some());
-        system.update(0.2, ParticleForces::default());
+        assert_eq!(
+            snapshots[0].leaf_orientation,
+            Some(system.leaf_flight[0].orientation)
+        );
+        let initial_pose = system.leaf_flight[0].orientation;
+        for _ in 0..3 {
+            system.update(0.2, ParticleForces::default());
+            system.write_snapshots(&mut snapshots);
+            assert!(snapshots[0].leaf_orientation.is_some());
+            assert!(system.is_alive_handle(handle) && system.alive_count() == 1);
+        }
         let pose = system.leaf_flight[0].orientation;
-        system.set_leaf_flight_enabled(false);
-        system.write_snapshots(&mut snapshots);
-        assert!(snapshots[0].leaf_orientation.is_none());
-        system.update(0.2, ParticleForces::default());
-        assert_eq!(pose, system.leaf_flight[0].orientation);
-        assert!(system.is_alive_handle(handle) && system.alive_count() == 1);
+        assert_ne!(pose, initial_pose);
         assert!((system.ages[0] - 0.6).abs() < 1e-6);
         assert!(system.despawn(handle));
         let replacement = system.spawn(long_lived_leaf()).unwrap();
@@ -1136,38 +1102,54 @@ mod tests {
     }
 
     #[test]
-    fn leaf_experiment_does_not_change_other_particles_or_legacy_noise() {
+    fn coupled_leaf_flight_does_not_apply_to_other_kinds_or_free_particles() {
         for kind in [
             ParticleRenderKind::Butterfly,
             ParticleRenderKind::WaterDroplet,
             ParticleRenderKind::TerrainVoxel,
             ParticleRenderKind::Leaf,
         ] {
-            let mut a = ParticleSystem::new(1);
-            let mut b = ParticleSystem::new(1);
-            let spawn = ParticleSpawn {
-                render_kind: kind,
-                // Free leaf-colored harvest particles are also outside the experiment.
-                motion_mode: MotionMode::Free,
-                drift_strength: 0.3,
-                ..long_lived_leaf()
-            };
-            a.spawn(spawn).unwrap();
-            b.spawn(spawn).unwrap();
-            b.set_leaf_flight_enabled(true);
-            for _ in 0..120 {
-                a.update(1. / 60., ParticleForces::default());
-                b.update_with_wind(
-                    1. / 60.,
-                    ParticleForces::default(),
-                    &WindFieldFrame::uniform(glam::Vec2::splat(10.)),
-                );
-                assert_eq!(a.positions, b.positions);
-                assert_eq!(a.velocities, b.velocities);
+            for mode in [MotionMode::Free, MotionMode::Falling] {
+                if kind == ParticleRenderKind::Leaf && mode == MotionMode::Falling {
+                    continue;
+                }
+                let mut calm = ParticleSystem::new(1);
+                let mut windy = ParticleSystem::new(1);
+                let spawn = ParticleSpawn {
+                    render_kind: kind,
+                    motion_mode: mode,
+                    drift_strength: 0.3,
+                    ..long_lived_leaf()
+                };
+                calm.spawn(spawn).unwrap();
+                windy.spawn(spawn).unwrap();
+                let unused_pose = windy.leaf_flight[0].orientation;
+                let forces = ParticleForces {
+                    speed_noise: SpeedNoise {
+                        min_speed: 0.12,
+                        max_speed: 0.12,
+                        ..SpeedNoise::default()
+                    },
+                    ..ParticleForces::default()
+                };
+                for _ in 0..120 {
+                    calm.update(1. / 60., forces);
+                    windy.update_with_wind(
+                        1. / 60.,
+                        forces,
+                        &WindFieldFrame::uniform(glam::Vec2::splat(10.)),
+                    );
+                    assert_eq!(calm.positions, windy.positions);
+                    assert_eq!(calm.velocities, windy.velocities);
+                    assert_eq!(windy.leaf_flight[0].orientation, unused_pose);
+                }
+                if mode == MotionMode::Falling {
+                    assert_eq!(windy.velocities[0].y, -0.12);
+                }
+                let mut snapshots = Vec::new();
+                windy.write_snapshots(&mut snapshots);
+                assert!(snapshots[0].leaf_orientation.is_none());
             }
-            let mut snapshots = Vec::new();
-            b.write_snapshots(&mut snapshots);
-            assert!(snapshots[0].leaf_orientation.is_none());
         }
     }
 
@@ -1184,9 +1166,6 @@ mod tests {
         })
         .unwrap();
         windy.spawn(long_lived_leaf()).unwrap();
-        for system in [&mut a, &mut b, &mut windy] {
-            system.set_leaf_flight_enabled(true);
-        }
         for _ in 0..240 {
             a.update(1. / 60., ParticleForces::default());
             b.update(
@@ -1214,7 +1193,6 @@ mod tests {
     #[test]
     fn plate_system_keeps_sink_and_despawn_authority() {
         let mut system = ParticleSystem::new(1);
-        system.set_leaf_flight_enabled(true);
         let handle = system
             .spawn(ParticleSpawn {
                 position: Vec3::Y * 0.02,

@@ -1016,18 +1016,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
-        id: "fallen_leaf_flight",
-        kind: "bool",
-        label: "B: Fallen leaf flight & lighting (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "fallen_leaf_rotating_plate",
-        kind: "bool",
-        label: "Draw rotating plates (off = camera-facing squares)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
         id: "leaf_flutter_strength",
         kind: "float",
         label: "Local Flutter (0 = original)",
@@ -1345,8 +1333,6 @@ pub struct GuiAdjustables {
     pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
-    pub fallen_leaf_flight: crate::gui_adjustables::BoolParam,
-    pub fallen_leaf_rotating_plate: crate::gui_adjustables::BoolParam,
     pub leaf_flutter_strength: crate::gui_adjustables::FloatParam,
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
@@ -1550,8 +1536,6 @@ impl GuiAdjustables {
         let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut fallen_leaf_flight_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut fallen_leaf_rotating_plate_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut leaf_flutter_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -2692,16 +2676,6 @@ impl GuiAdjustables {
                             flora_voxel_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "fallen_leaf_flight" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            fallen_leaf_flight_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "fallen_leaf_rotating_plate" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            fallen_leaf_rotating_plate_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "leaf_flutter_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3030,8 +3004,6 @@ impl GuiAdjustables {
             flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
             flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
             flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
-            fallen_leaf_flight: fallen_leaf_flight_field.expect("Missing parameter: fallen_leaf_flight"),
-            fallen_leaf_rotating_plate: fallen_leaf_rotating_plate_field.expect("Missing parameter: fallen_leaf_rotating_plate"),
             leaf_flutter_strength: leaf_flutter_strength_field.expect("Missing parameter: leaf_flutter_strength"),
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
@@ -3265,8 +3237,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
-        "fallen_leaf_flight" => Some(&adjustables.fallen_leaf_flight),
-        "fallen_leaf_rotating_plate" => Some(&adjustables.fallen_leaf_rotating_plate),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         _ => None,
@@ -3502,8 +3472,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
-        "fallen_leaf_flight" => Some(&mut adjustables.fallen_leaf_flight),
-        "fallen_leaf_rotating_plate" => Some(&mut adjustables.fallen_leaf_rotating_plate),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         _ => None,

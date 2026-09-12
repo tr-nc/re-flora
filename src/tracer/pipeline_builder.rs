@@ -1169,9 +1169,7 @@ impl PipelineBuilder {
             pool,
             &environment_lighting_resources,
             GraphicsPipelineDesc {
-                // Detached leaf plates must remain visible after turning over.
-                // Camera-facing A sprites still submit the same front-facing quad.
-                cull_mode: vk::CullModeFlags::NONE,
+                cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 depth_write_enable: true,
                 ..Default::default()

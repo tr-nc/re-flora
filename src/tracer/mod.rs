@@ -6124,11 +6124,7 @@ impl Tracer {
         self.dynamic_fruit_resources.clear();
     }
 
-    pub fn upload_particles(
-        &mut self,
-        snapshots: &[ParticleSnapshot],
-        rotating_leaf_plates: bool,
-    ) -> Result<()> {
+    pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
         let capacity = PARTICLE_CAPACITY;
         let count = snapshots.len().min(capacity);
         let texture_layout = ParticleTextureLayout::new();
@@ -6215,8 +6211,7 @@ impl Tracer {
                 );
                 tex_index
             };
-            let (leaf_optics, leaf_pose_flags) =
-                leaf_particle_pose::encode(snap, rotating_leaf_plates);
+            let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
             let instance = ParticleInstanceGpu {
                 leaf_optics,
                 position: snap.position_ws.to_array(),

@@ -520,8 +520,6 @@ impl App {
         }
         let wind_time = self.time_info.time_since_start();
         self.particle_system
-            .set_leaf_flight_enabled(self.debug_settings.adjustables.fallen_leaf_flight.value);
-        self.particle_system
             .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -579,13 +577,7 @@ impl App {
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
-        if let Err(err) = self.tracer.upload_particles(
-            &self.particle_snapshots,
-            self.debug_settings
-                .adjustables
-                .fallen_leaf_rotating_plate
-                .value,
-        ) {
+        if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;

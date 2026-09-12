@@ -6,7 +6,7 @@ use anyhow::{bail, Result};
 use glam::{Vec3, Vec4};
 
 pub(super) struct FallenLeafReview {
-    mode: String,
+    fixture: bool,
     frame: u32,
 }
 
@@ -15,13 +15,12 @@ impl FallenLeafReview {
         let Ok(mode) = std::env::var("RE_FLORA_FALLEN_LEAF_REVIEW") else {
             return Ok(None);
         };
-        if !matches!(
-            mode.as_str(),
-            "a" | "b" | "b-billboard" | "switch" | "geometry-switch" | "natural-b"
-        ) {
-            bail!("RE_FLORA_FALLEN_LEAF_REVIEW must be a, b, b-billboard, switch, geometry-switch or natural-b");
-        }
-        Ok(Some(Self { mode, frame: 0 }))
+        let fixture = match mode.as_str() {
+            "fixture" => true,
+            "natural" => false,
+            _ => bail!("RE_FLORA_FALLEN_LEAF_REVIEW must be fixture or natural; retired A/B modes are no longer supported"),
+        };
+        Ok(Some(Self { fixture, frame: 0 }))
     }
 }
 
@@ -31,24 +30,7 @@ impl App {
             return;
         };
         let frame = review.frame;
-        let fixture = review.mode != "natural-b";
-        let enabled = match review.mode.as_str() {
-            "a" => false,
-            "switch" => (120..240).contains(&frame),
-            _ => true,
-        };
-        self.debug_settings.adjustables.fallen_leaf_flight.value = enabled;
-        // Keep historical b/switch captures explicitly on the rotating plate.
-        // New default and geometry-switch captures keep the same B mechanics.
-        self.debug_settings
-            .adjustables
-            .fallen_leaf_rotating_plate
-            .value = match review.mode.as_str() {
-            "b" | "switch" => true,
-            // Both transitions must happen before the leaves fall out of view.
-            "geometry-switch" => (60..120).contains(&frame),
-            _ => false,
-        };
+        let fixture = review.fixture;
         review.frame += 1;
         if frame == 0 && fixture {
             let camera = Vec3::new(1., 1.55, 1.8);
@@ -59,7 +41,7 @@ impl App {
             self.set_manual_time_of_day(0.45);
             self.debug_settings.adjustables.auto_daynight_cycle.value = false;
             for index in 0..8 {
-                // Same square size and fixed initial conditions in A and B. Seed
+                // Standard square size and repeatable initial conditions. Seed
                 // variations initialize angular state; they never animate RGB.
                 let color = self.debug_settings.adjustables.leaves_bottom_color.value;
                 let spawn = ParticleSpawn {
@@ -106,9 +88,8 @@ impl App {
             .take(8)
             .enumerate()
         {
-            log::info!("[LEAF_FLIGHT_REVIEW] frame={} variant={} rotating_geometry={} leaves={} sample={} position={:?} velocity={:?} normal={:?}",
-                review.frame, if leaf.leaf_orientation.is_some() { "B" } else { "A" },
-                self.debug_settings.adjustables.fallen_leaf_rotating_plate.value,
+            log::info!("[LEAF_FLIGHT_REVIEW] frame={} geometry=screen-facing leaves={} sample={} position={:?} velocity={:?} normal={:?}",
+                review.frame,
                 leaves, index, leaf.position_ws, leaf.velocity,
                 leaf.leaf_orientation.map(|q| q * Vec3::Z));
         }

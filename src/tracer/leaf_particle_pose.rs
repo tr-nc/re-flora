@@ -1,27 +1,18 @@
-//! Detached-leaf render encoding. Geometry choice never enters the particle simulation.
+//! Detached-leaf optical encoding. All particle geometry stays screen-facing.
 use crate::particles::{ParticleRenderKind, ParticleSnapshot};
 use glam::Vec3;
 
 // Mirrored by leaf_particle_pose.slang. Bit 31 remains the existing sprite flip.
 const LEAF_FLIGHT_BIT: u32 = 1 << 30;
-const LEAF_ROTATING_PLATE_BIT: u32 = 1 << 29;
 
-pub(super) fn encode(snapshot: &ParticleSnapshot, rotating_plate: bool) -> ([f32; 4], u32) {
+pub(super) fn encode(snapshot: &ParticleSnapshot) -> ([f32; 4], u32) {
     if snapshot.kind != ParticleRenderKind::Leaf {
         return ([0.0; 4], 0);
     }
     if let Some(orientation) = snapshot.leaf_orientation {
-        // Both B representations use the same held simulation pose for optics.
-        let flags = LEAF_FLIGHT_BIT
-            | if rotating_plate {
-                LEAF_ROTATING_PLATE_BIT
-            } else {
-                0
-            };
-        return (orientation.to_array(), flags);
+        return (orientation.to_array(), LEAF_FLIGHT_BIT);
     }
-    // Unchecked A retains its original motion-derived optical proxy, regardless
-    // of the saved B geometry preference (including non-falling leaf particles).
+    // Non-falling leaf-colored particles retain their existing optical proxy.
     let velocity = snapshot.velocity;
     let normal = Vec3::new(-velocity.x, velocity.y.abs() + 0.05, -velocity.z).normalize();
     (normal.extend(1.0).to_array(), 0)
@@ -34,9 +25,8 @@ mod tests {
     use glam::Quat;
 
     #[test]
-    fn geometry_switch_changes_only_render_flag_throughout_live_flight() {
+    fn falling_leaf_optics_always_use_the_published_simulation_pose() {
         let mut system = ParticleSystem::new(1);
-        system.set_leaf_flight_enabled(true);
         system
             .spawn(ParticleSpawn {
                 position: Vec3::new(0., 2., 0.),
@@ -52,12 +42,9 @@ mod tests {
             system.update(1. / 120., ParticleForces::default());
             system.write_snapshots(&mut snapshots);
             let snapshot = &snapshots[0];
-            let billboard = encode(snapshot, false);
-            let plate = encode(snapshot, true);
+            let billboard = encode(snapshot);
             assert_eq!(billboard.0, snapshot.leaf_orientation.unwrap().to_array());
-            assert_eq!(billboard.0, plate.0);
             assert_eq!(billboard.1, LEAF_FLIGHT_BIT);
-            assert_eq!(billboard.1 ^ plate.1, LEAF_ROTATING_PLATE_BIT);
             if previous.is_some_and(|pose| pose != billboard.0) {
                 assert!(system.last_tick_step().did_step);
                 pose_changes += 1;
@@ -66,19 +53,23 @@ mod tests {
         }
         assert!(
             pose_changes > 10,
-            "B optical pose must keep evolving on world ticks"
+            "optical pose must keep evolving on world ticks"
         );
     }
 
     #[test]
-    fn legacy_and_non_leaf_rendering_ignore_saved_plate_preference() {
+    fn non_falling_and_non_leaf_particles_keep_their_existing_optical_inputs() {
         let mut system = ParticleSystem::new(1);
-        system.spawn(ParticleSpawn::default()).unwrap();
+        system
+            .spawn(ParticleSpawn {
+                motion_mode: crate::particles::MotionMode::Free,
+                ..ParticleSpawn::default()
+            })
+            .unwrap();
         let mut snapshots = Vec::new();
         system.write_snapshots(&mut snapshots);
         let mut snapshot = snapshots[0];
-        assert_eq!(encode(&snapshot, false), encode(&snapshot, true));
-        assert_eq!(encode(&snapshot, true), ([0., 1., 0., 1.], 0));
+        assert_eq!(encode(&snapshot), ([0., 1., 0., 1.], 0));
         for kind in [
             ParticleRenderKind::Butterfly,
             ParticleRenderKind::WaterDroplet,
@@ -86,8 +77,7 @@ mod tests {
         ] {
             snapshot.kind = kind;
             snapshot.leaf_orientation = Some(Quat::IDENTITY);
-            assert_eq!(encode(&snapshot, false), ([0.; 4], 0));
-            assert_eq!(encode(&snapshot, true), ([0.; 4], 0));
+            assert_eq!(encode(&snapshot), ([0.; 4], 0));
         }
     }
 }

@@ -51,7 +51,7 @@ void unpackVertexData(uint packedData, out int3 voxelLocalPosition,
         (packedOffset >> 2u) & 1u);
 }
 
-LeafParticlePose particlePose(VertexInput input, uint3 vertexOffset, float scale)
+float3 billboardVertexOffset(uint3 vertexOffset, float scale)
 {
     float2 mappedOffset = (float2(vertexOffset.xy) - 0.5) * scale * 1.225;
     float3 right = normalize(float3(
@@ -62,8 +62,7 @@ LeafParticlePose particlePose(VertexInput input, uint3 vertexOffset, float scale
         camera_info.view_mat[1][0],
         camera_info.view_mat[1][1],
         camera_info.view_mat[1][2]));
-    return evaluateLeafParticlePose(input.leaf_optics, input.instance_texture_index,
-        mappedOffset, right, up);
+    return screenFacingParticleOffset(mappedOffset, right, up);
 }
 
 uint instanceHash(float3 instancePosition)
@@ -90,8 +89,8 @@ VertexOutput main(VertexInput input)
     unpackVertexData(input.packed_data, voxelLocalPosition, vertexOffset);
 
     float scale = max(input.instance_size, 0.001) * 1.25;
-    LeafParticlePose pose = particlePose(input, vertexOffset, scale);
-    float3 vertexPosition = input.instance_position + pose.vertexOffset;
+    float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
+    bool hasFlightPose = (input.instance_texture_index & LEAF_FLIGHT_BIT) != 0u;
 
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
@@ -108,7 +107,7 @@ VertexOutput main(VertexInput input)
         float3(voxelLocalPosition));
     output.color.a = input.instance_color.a;
 
-    if (pose.hasFlightPose || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
+    if (hasFlightPose || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
     {
         float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
             ? sampleDiffuseEnvironment(gui_input, shading_info,
@@ -116,7 +115,8 @@ VertexOutput main(VertexInput input)
             : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
         output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
             environmentLight, shadow.sun_transmittance, input.instance_position,
-            pose.opticalNormal, camera_info.pos.xyz, sun_info,
+            leafParticleOpticalNormal(input.leaf_optics, input.instance_texture_index),
+            camera_info.pos.xyz, sun_info,
             gui_input.leaf_transmission_strength);
     }
 
@@ -133,6 +133,6 @@ VertexOutput main(VertexInput input)
         output.uv.x = 1.0 - output.uv.x;
     }
     output.texture_index = input.instance_texture_index
-        & ~(SPRITE_FLIP_BIT | LEAF_FLIGHT_BIT | LEAF_ROTATING_PLATE_BIT);
+        & ~(SPRITE_FLIP_BIT | LEAF_FLIGHT_BIT);
     return output;
 }

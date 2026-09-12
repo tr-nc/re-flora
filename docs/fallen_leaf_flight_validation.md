@@ -1,8 +1,30 @@
-# 落叶薄片飞行 A/B：候选与交接
+# 落叶飞行与姿态光照：实现与验证记录
 
 2026-09-12；独立 worktree `/home/terence/code/re-flora-agent-fallen-leaf-flight`，分支 `agent/fallen-leaf-flight`，确认起点为 `74bf8b049c1f2f7000868af10d5f82d022f4770f`。未 merge、cherry-pick、push，也未操作其他 Worker 或主工作区的游戏进程。
 
-## 最新默认：B 物理与光学，镜头朝向正方形
+## 当前定稿：删除两个 A/B 开关，固定新飞行与 screen-facing quad
+
+用户明确结束 A/B 探索，选择新飞行模型与新姿态光学，并只保留 screen-facing quad。已删除 `fallen_leaf_flight` / `fallen_leaf_rotating_plate` 两个配置项及生成字段、App/Tracer 开关接线、ParticleSystem 模式 bool/setter/切换日志、旋转几何 bit 29 与顶点旋转分支；不是仅隐藏 UI 或把开关写死。`Leaf + Falling` 从出生起无条件使用原 B 模型，不再能切回旧落叶物理。其他 kind/motion 的共享运动代码保留，避免误改蝴蝶、水滴、地形和采集粒子。
+
+`src/particles/leaf_flight.rs` 的力学模型、参数、120 Hz 固定积分、种子、风场和生命周期/数量权威均未变。World Tick 两桶发布与 held pose 保留，默认每叶约 10 Hz 上屏。`leaf_orientation` 仍存在，但只供光学消费；新 `leafParticleOpticalNormal` 保留必要的四元数法线旋转，不向 quad 顶点输入姿态。主粒子管线恢复原 BACK 剔除。着色继续唯一调用 `shadeLeafWithEnvironment` → `leafOpticalColor`；每叶每帧单一 RGB，挂树叶几何始终 axis-aligned。
+
+顶点/实例 ABI 不变：紧凑 mesh 输入仅 location 0，实例仍 52 字节；纹理 bit 30 只标记脱落叶四元数光学编码，bit 31 仍是 sprite flip，bit 29 不再占用。若以后重做旋转画法，可参考 `4c7bf3b2`；无需保留失效分支或重做物理。
+
+验证夹具只保留 `RE_FLORA_FALLEN_LEAF_REVIEW=fixture`（8 个生产落叶与固定镜头）和 `natural`（不注入/不改镜头）。旧 A/B、geometry-switch 等输入明确报错，不偷偷映射到其他模式。夹具不再改写任何运行模式；正常游戏不需要这个环境变量。
+
+CPU 验证通过：`cargo fmt --check`、`cargo check`、`cargo test --quiet` **944 + 4 通过、2 忽略**、`python3 scripts/run_slang_tests.py` **10/10**，以及 `cargo test -p re-flora-vkn particle_vertex_shader_reflects_one_compact_mesh_input_before_instances -- --nocapture` **1 通过**。日志在 `target/fallen-leaf-flight/fixed-mode-{check,tests,slang-tests,reflection}.log`。原跨 FPS、下降/滑移/稳定性及 World Tick 只改显示的断言保留；旧开关测试改为无条件启用、生命周期/槽位复用和其他 kind/motion 隔离。Slang 检查 81 个光学姿态 × 3 个相机基底，确认正方形始终随相机基底、光学法线随模拟、各顶点共用同一个变化的 RGB。删除模式入口不等于删除角状态。
+
+真实 GPU 复验：release build、标准 `--hidden --mute --auto-exit 0.5`，以及 `RE_FLORA_FALLEN_LEAF_REVIEW=fixture` 的 180 个连续帧捕获均成功；全部通过 `flock --close --wait 60 /tmp/re-flora-summer-gpu.lock`，取消 Wayland 环境变量以使用 X11 真正隐藏窗口。烟测日志 `target/re-flora-logs/re-flora-20260912-154905.319-462353.log`，捕获日志 `re-flora-20260912-154908.820-462397.log`，均退出 0、`phase=complete failures=0`，未发现 ERROR/VUID/Validation Error/panic，并用同 worktree 的 `--tail-latest-log 8` 复核。
+
+捕获报告 `target/fallen-leaf-flight/fixed-mode.toml`，原帧目录 `fixed-mode.artifacts-NJP0XY`。与删除前有效 B 方块捕获 `b-billboard-verified-console.log` 比较，前 180 帧的 **48 条位置、速度、法线、存活数记录完全一致**（只去掉模式标签和日志时间）。实看原始帧 60/61/62/120：60→61 保持、62 部分叶片随桶更新；前后仍为朝镜头的正方形，位置与整叶颜色演变。实际 60 FPS 连续帧编码为 [fixed-mode.mp4](../target/fallen-leaf-flight/fixed-mode.mp4)，也放在 [回放页](../target/fallen-leaf-flight/review.html) 首部；无补帧、无生成图替代。未自动启动可见游戏，删除开关后的手动试玩及性能专项未验收，捕获读回/写盘成本不作为性能证据。
+
+本步骤涉及：`config/gui.toml`、`src/app/{gui_config.rs,core/particles.rs,core/fallen_leaf_review.rs}`、`src/particles/system.rs`、`src/tracer/{leaf_particle_pose.rs,mod.rs,resources.rs,pipeline_builder.rs}`、`shader/slang/{leaf_particle_pose.slang,particle_lod_textured.vert.slang}`、`shader/tests/leaf_particle_pose_contract.slang` 与两份说明文档。唯一已跟踪生成变化为 `src/app/generated/gui_adjustables_gen.rs`，只由 `cargo check` 移除对应字段；`gpu_structs.rs` 无 diff。配置仅删除用户指定的两项，其他值未变；GUI SHA-256 为 `2aeedce8e2d2f3036920313b7aec11589b7e538214d4e3986d1c56e8e3255ae3`，相机仍为 `2e81cc790ed2e02a9b881aac670cda93f5de428951da626638f8e8ff4d2a5b40`。
+
+与蝴蝶 Worker 的潜在重叠仍为 `src/particles/system.rs`、`src/tracer/{mod.rs,resources.rs}` 与 `particle_lod_textured.vert.slang` 的上传/实例布局/纹理位编码；bit 29 已释放，bit 30/31 需在以后语义整合时协调。没有修改其专属功能或操作其分支。本步骤删除的绘制与开关代码可从上述历史提交恢复，研究文档和以前的捕获证据均保留。
+
+以下为各阶段历史记录，保留当时的入口、命令和验收边界；旧 checkbox/切换命令不代表当前可用功能。
+
+## 阶段历史：B 默认，绘制形式独立可选
 
 用户明确选择“恢复旧落叶始终朝向镜头的正方形”，不是世界轴对齐 cube。现在 Debug Panel → Flora → Leaves → Flight & Lighting 有两个 checkbox：
 
