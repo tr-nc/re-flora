@@ -1,6 +1,7 @@
 import flora_shadow;
 import environment_lighting;
 import leaf_lighting;
+import leaf_particle_pose;
 import tracer_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -14,6 +15,7 @@ import tracer_types;
 [[vk::binding(10, 0)]] Sampler2D leaf_shadow_mask_tex;
 
 static const uint SPRITE_FLIP_BIT = 0x80000000u;
+static const uint LEAF_PLATE_BIT = 0x40000000u;
 
 struct VertexInput
 {
@@ -92,6 +94,15 @@ VertexOutput main(VertexInput input)
     float scale = max(input.instance_size, 0.001) * 1.25;
     float3 vertexPosition = billboardVertexPosition(
         input.instance_position, vertexOffset, scale);
+    bool isLeafPlate = (input.instance_texture_index & LEAF_PLATE_BIT) != 0u;
+    float3 opticalNormal = input.leaf_optics.xyz;
+    if (isLeafPlate)
+    {
+        float2 offset = (float2(vertexOffset.xy) - 0.5) * scale * 1.225;
+        vertexPosition = input.instance_position
+            + rotateLeafPlate(input.leaf_optics, float3(offset, 0.0));
+        opticalNormal = rotateLeafPlate(input.leaf_optics, float3(0.0, 0.0, 1.0));
+    }
 
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
@@ -108,7 +119,7 @@ VertexOutput main(VertexInput input)
         float3(voxelLocalPosition));
     output.color.a = input.instance_color.a;
 
-    if (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0)
+    if (isLeafPlate || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
     {
         float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
             ? sampleDiffuseEnvironment(gui_input, shading_info,
@@ -116,7 +127,7 @@ VertexOutput main(VertexInput input)
             : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
         output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
             environmentLight, shadow.sun_transmittance, input.instance_position,
-            input.leaf_optics.xyz, camera_info.pos.xyz, sun_info,
+            opticalNormal, camera_info.pos.xyz, sun_info,
             gui_input.leaf_transmission_strength);
     }
 
@@ -132,6 +143,6 @@ VertexOutput main(VertexInput input)
     {
         output.uv.x = 1.0 - output.uv.x;
     }
-    output.texture_index = input.instance_texture_index & ~SPRITE_FLIP_BIT;
+    output.texture_index = input.instance_texture_index & ~(SPRITE_FLIP_BIT | LEAF_PLATE_BIT);
     return output;
 }

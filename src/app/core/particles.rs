@@ -519,6 +519,8 @@ impl App {
         }
         let wind_time = self.time_info.time_since_start();
         self.particle_system
+            .set_leaf_flight_enabled(self.debug_settings.adjustables.fallen_leaf_flight.value);
+        self.particle_system
             .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -548,7 +550,11 @@ impl App {
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
-        self.particle_system.update(dt, self.particle_forces);
+        self.particle_system.update_with_wind(
+            dt,
+            self.particle_forces,
+            &self.wind_prototype.field.frame(),
+        );
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
 
         let collect_start = Instant::now();
@@ -635,6 +641,7 @@ impl App {
                 kind: ParticleRenderKind::Leaf,
                 texture_variant: 0,
                 animation_frame_offset: 0,
+                leaf_orientation: None,
             });
         }
     }

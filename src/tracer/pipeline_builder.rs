@@ -1160,7 +1160,7 @@ impl PipelineBuilder {
             },
         );
 
-        let particle_ppl = Self::create_gfx_pipeline(
+        let particle_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.particle_lod_textured_vert_sm,
             &shader_modules.particle_lod_textured_frag_sm,
@@ -1168,6 +1168,14 @@ impl PipelineBuilder {
             Some(2),
             pool,
             &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                // Detached leaf plates must remain visible after turning over.
+                // Camera-facing A sprites still submit the same front-facing quad.
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
         let water_droplet_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,

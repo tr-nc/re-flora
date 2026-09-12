@@ -6150,6 +6150,7 @@ impl Tracer {
             Vec2::new(self.camera.vectors().front.x, self.camera.vectors().front.z)
                 .normalize_or_zero();
         const SPRITE_FLIP_BIT: u32 = 1 << 31;
+        const LEAF_PLATE_BIT: u32 = 1 << 30;
         const MIN_SPEED_SQ: f32 = 0.01 * 0.01;
 
         let is_moving_right_relative_to_player = |velocity: Vec3| -> bool {
@@ -6210,17 +6211,20 @@ impl Tracer {
                 );
                 tex_index
             };
-            // Free leaves have no angular state. Their motion direction is a
-            // broadside-flight optical proxy, not a rotation of the billboard.
-            // A vertical bias keeps this continuous through zero velocity.
+            // B publishes the simulation quaternion for both geometry and optics.
+            // A retains the original motion-derived optical proxy and billboard.
             let leaf_optics = if snap.kind == crate::particles::ParticleRenderKind::Leaf {
-                let optical_normal = Vec3::new(
-                    -snap.velocity.x,
-                    snap.velocity.y.abs() + 0.05,
-                    -snap.velocity.z,
-                )
-                .normalize();
-                optical_normal.extend(1.0).to_array()
+                if let Some(orientation) = snap.leaf_orientation {
+                    orientation.to_array()
+                } else {
+                    let optical_normal = Vec3::new(
+                        -snap.velocity.x,
+                        snap.velocity.y.abs() + 0.05,
+                        -snap.velocity.z,
+                    )
+                    .normalize();
+                    optical_normal.extend(1.0).to_array()
+                }
             } else {
                 [0.0; 4]
             };
@@ -6230,7 +6234,14 @@ impl Tracer {
                 size: snap.size,
                 color: snap.color.to_array(),
                 tex_index: match snap.kind {
-                    crate::particles::ParticleRenderKind::Leaf => texture_layout.leaf_layer(),
+                    crate::particles::ParticleRenderKind::Leaf => {
+                        texture_layout.leaf_layer()
+                            | if snap.leaf_orientation.is_some() {
+                                LEAF_PLATE_BIT
+                            } else {
+                                0
+                            }
+                    }
                     crate::particles::ParticleRenderKind::Butterfly => pack_particle_tex_index(
                         butterfly_tex_index,
                         is_moving_right_relative_to_player(snap.velocity),

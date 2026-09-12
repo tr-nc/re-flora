@@ -1,7 +1,9 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
-use glam::{Vec3, Vec4};
+use glam::{Quat, Vec3, Vec4};
 
 use super::animation::{BUTTERFLY_ANIM_FRAME_DURATION_SEC, BUTTERFLY_FRAMES_PER_VARIANT};
+use super::leaf_flight::LeafFlight;
+use crate::wind_field::WindFieldFrame;
 
 /// Default maximum particle capacity shared between the CPU simulation and GPU buffer.
 pub const PARTICLE_CAPACITY: usize = 16_384;
@@ -179,6 +181,8 @@ pub struct ParticleSnapshot {
     pub kind: ParticleRenderKind,
     pub texture_variant: u32,
     pub animation_frame_offset: u32,
+    /// B-mode detached leaf pose. None preserves the original billboard path.
+    pub leaf_orientation: Option<Quat>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -228,6 +232,8 @@ pub struct ParticleSystem {
     update_bucket_step_seconds: f32,
     last_tick_step: ParticleTickStep,
     speed_noise: FastNoiseLite,
+    leaf_flight_enabled: bool,
+    leaf_flight: Vec<LeafFlight>,
 }
 
 impl ParticleSystem {
@@ -287,6 +293,8 @@ impl ParticleSystem {
                 bucket_count: PARTICLE_UPDATE_BUCKET_COUNT as u32,
             },
             speed_noise,
+            leaf_flight_enabled: false,
+            leaf_flight: vec![LeafFlight::new(0); max_particles],
         }
     }
 
@@ -346,6 +354,11 @@ impl ParticleSystem {
 
         let new_generation = self.generations[slot].wrapping_add(1).max(1);
         self.generations[slot] = new_generation;
+        self.leaf_flight[slot] = LeafFlight::new(
+            (slot as u32).wrapping_mul(0x9e37_79b9)
+                ^ new_generation.wrapping_mul(0x85eb_ca6b)
+                ^ spawn.speed_noise_offset.to_bits(),
+        );
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.colors[slot] = spawn.color;
@@ -459,10 +472,32 @@ impl ParticleSystem {
         }
     }
 
+    pub fn set_leaf_flight_enabled(&mut self, enabled: bool) {
+        if self.leaf_flight_enabled != enabled {
+            self.leaf_flight_enabled = enabled;
+            log::info!(
+                "[LEAF_FLIGHT_AB] variant={} particles_retained={} geometry_and_optics_share_pose=true",
+                if enabled { "B-world-plate" } else { "A-billboard" },
+                self.alive_count(),
+            );
+        }
+    }
+
+    fn uses_leaf_flight(&self, slot: usize) -> bool {
+        self.leaf_flight_enabled
+            && self.render_kinds[slot] == ParticleRenderKind::Leaf
+            && self.motion_modes[slot] == MotionMode::Falling
+    }
+
     /// Advances the simulation by `dt` seconds and applies forces/damping.
     /// Supports both falling particles and free-flight motion with the same drift model.
+    #[allow(dead_code)]
     pub fn update(&mut self, dt: f32, forces: ParticleForces) {
-        if dt <= 0.0 || self.alive_indices.is_empty() {
+        self.update_with_wind(dt, forces, &WindFieldFrame::default());
+    }
+
+    pub fn update_with_wind(&mut self, dt: f32, forces: ParticleForces, wind: &WindFieldFrame) {
+        if !dt.is_finite() || dt <= 0.0 || self.alive_indices.is_empty() {
             let bucket_count = PARTICLE_UPDATE_BUCKET_COUNT.max(1) as u32;
             let step_seconds = self.bucket_step_seconds();
             self.last_tick_step = ParticleTickStep {
@@ -506,10 +541,11 @@ impl ParticleSystem {
         while alive_cursor < self.alive_indices.len() {
             let slot = self.alive_indices[alive_cursor];
             let mode = self.motion_modes[slot];
+            let uses_leaf_flight = self.uses_leaf_flight(slot);
             self.pending_sim_dt[slot] += dt;
             self.update_elapsed[slot] += dt;
             let update_interval = self.update_intervals[slot];
-            if self.update_elapsed[slot] < update_interval {
+            if !uses_leaf_flight && self.update_elapsed[slot] < update_interval {
                 alive_cursor += 1;
                 continue;
             }
@@ -519,66 +555,91 @@ impl ParticleSystem {
             self.pending_sim_dt[slot] = 0.0;
             let damping = base_damping;
 
-            let vel = &mut self.velocities[slot];
             let is_sinking = self.is_sinking[slot];
-
-            // Apply randomized turbulent drift
-            let age = self.ages[slot];
-            let drift_phase = age * self.drift_frequencies[slot];
-            let drift_offset_x = (drift_phase * 2.3).sin() * 0.7 + (drift_phase * 1.1).cos() * 0.3;
-            let drift_offset_y = (drift_phase * 1.7).sin() * 0.5;
-            let drift_offset_z = (drift_phase * 3.1).cos() * 0.7 + (drift_phase * 1.9).sin() * 0.3;
-
-            let turbulence = Vec3::new(drift_offset_x, drift_offset_y, drift_offset_z);
-            let drift_force =
-                (self.drift_directions[slot] + turbulence * 0.5) * self.drift_strengths[slot];
-            *vel += drift_force * sim_dt;
-
-            if is_sinking {
-                let sink_damping = base_damping * 0.96;
-                vel.x *= sink_damping;
-                vel.z *= sink_damping;
-                vel.y = -self.sink_speeds[slot];
+            if uses_leaf_flight {
+                if is_sinking {
+                    let vel = &mut self.velocities[slot];
+                    let sink_damping = (base_damping * 0.96).powf(sim_dt / update_interval);
+                    vel.x *= sink_damping;
+                    vel.z *= sink_damping;
+                    vel.y = -self.sink_speeds[slot];
+                    self.positions[slot] += *vel * sim_dt;
+                    self.leaf_flight[slot].settle(sim_dt);
+                } else {
+                    self.leaf_flight[slot].advance(
+                        &mut self.positions[slot],
+                        &mut self.velocities[slot],
+                        sim_dt,
+                        self.sizes[slot],
+                        self.gravity_factors[slot],
+                        self.wind_factors[slot],
+                        |position| wind.sample_world(position),
+                    );
+                }
             } else {
-                match mode {
-                    MotionMode::Falling => {
-                        let gravity_scale = self.gravity_factors[slot];
-                        let planar_speed_multiplier = forces.leaf_planar_speed_multiplier.max(0.0);
-                        // Clamp and order the speed range
-                        let (min_speed, max_speed) =
-                            if forces.speed_noise.min_speed <= forces.speed_noise.max_speed {
-                                (forces.speed_noise.min_speed, forces.speed_noise.max_speed)
-                            } else {
-                                (forces.speed_noise.max_speed, forces.speed_noise.min_speed)
-                            };
+                let vel = &mut self.velocities[slot];
 
-                        let noise_t = age + self.speed_noise_offsets[slot];
-                        let noise_val =
-                            self.speed_noise.get_noise_2d(noise_t, 0.0).clamp(-1.0, 1.0);
-                        let normalized = noise_val * 0.5 + 0.5; // 0..1
-                        let target_speed =
-                            (min_speed + (max_speed - min_speed) * normalized) * gravity_scale;
+                // Apply randomized turbulent drift
+                let age = self.ages[slot];
+                let drift_phase = age * self.drift_frequencies[slot];
+                let drift_offset_x =
+                    (drift_phase * 2.3).sin() * 0.7 + (drift_phase * 1.1).cos() * 0.3;
+                let drift_offset_y = (drift_phase * 1.7).sin() * 0.5;
+                let drift_offset_z =
+                    (drift_phase * 3.1).cos() * 0.7 + (drift_phase * 1.9).sin() * 0.3;
 
-                        // Keep horizontal motion damped; vertical comes purely from noise.
-                        vel.x *= damping;
-                        vel.z *= damping;
-                        vel.x *= planar_speed_multiplier;
-                        vel.z *= planar_speed_multiplier;
-                        vel.y = -target_speed;
-                    }
-                    MotionMode::Free => {
-                        vel.y -= 3.6 * self.gravity_factors[slot] * sim_dt;
-                        *vel *= damping;
-                        let max_speed = 3.0;
-                        let speed = vel.length();
-                        if speed > max_speed {
-                            *vel *= max_speed / speed;
+                let turbulence = Vec3::new(drift_offset_x, drift_offset_y, drift_offset_z);
+                let drift_force =
+                    (self.drift_directions[slot] + turbulence * 0.5) * self.drift_strengths[slot];
+                *vel += drift_force * sim_dt;
+
+                if is_sinking {
+                    let sink_damping = base_damping * 0.96;
+                    vel.x *= sink_damping;
+                    vel.z *= sink_damping;
+                    vel.y = -self.sink_speeds[slot];
+                } else {
+                    match mode {
+                        MotionMode::Falling => {
+                            let gravity_scale = self.gravity_factors[slot];
+                            let planar_speed_multiplier =
+                                forces.leaf_planar_speed_multiplier.max(0.0);
+                            // Clamp and order the speed range
+                            let (min_speed, max_speed) =
+                                if forces.speed_noise.min_speed <= forces.speed_noise.max_speed {
+                                    (forces.speed_noise.min_speed, forces.speed_noise.max_speed)
+                                } else {
+                                    (forces.speed_noise.max_speed, forces.speed_noise.min_speed)
+                                };
+
+                            let noise_t = age + self.speed_noise_offsets[slot];
+                            let noise_val =
+                                self.speed_noise.get_noise_2d(noise_t, 0.0).clamp(-1.0, 1.0);
+                            let normalized = noise_val * 0.5 + 0.5; // 0..1
+                            let target_speed =
+                                (min_speed + (max_speed - min_speed) * normalized) * gravity_scale;
+
+                            // Keep horizontal motion damped; vertical comes purely from noise.
+                            vel.x *= damping;
+                            vel.z *= damping;
+                            vel.x *= planar_speed_multiplier;
+                            vel.z *= planar_speed_multiplier;
+                            vel.y = -target_speed;
+                        }
+                        MotionMode::Free => {
+                            vel.y -= 3.6 * self.gravity_factors[slot] * sim_dt;
+                            *vel *= damping;
+                            let max_speed = 3.0;
+                            let speed = vel.length();
+                            if speed > max_speed {
+                                *vel *= max_speed / speed;
+                            }
                         }
                     }
                 }
-            }
 
-            self.positions[slot] += *vel * sim_dt;
+                self.positions[slot] += *vel * sim_dt;
+            }
             self.ages[slot] += sim_dt;
 
             match self.render_kinds[slot] {
@@ -644,6 +705,9 @@ impl ParticleSystem {
                 kind,
                 texture_variant: self.texture_variants[*slot],
                 animation_frame_offset: self.animation_frame_offsets[*slot],
+                leaf_orientation: self
+                    .uses_leaf_flight(*slot)
+                    .then_some(self.leaf_flight[*slot].orientation),
             });
         }
     }
@@ -845,5 +909,145 @@ mod tests {
 
         system.update(0.04, ParticleForces::default());
         assert!(!system.is_alive_handle(handle));
+    }
+
+    fn long_lived_leaf() -> ParticleSpawn {
+        ParticleSpawn {
+            position: Vec3::Y,
+            velocity: Vec3::new(0.06, 0., -0.03),
+            lifetime: 120.,
+            size: STANDARD_PARTICLE_SIZE,
+            despawn_below_ground: false,
+            ..ParticleSpawn::default()
+        }
+    }
+
+    #[test]
+    fn leaf_ab_switch_preserves_identity_position_and_lifetime() {
+        let mut system = ParticleSystem::new(1);
+        let handle = system.spawn(long_lived_leaf()).unwrap();
+        system.update(0.2, ParticleForces::default());
+        let before = (system.positions[0], system.velocities[0], system.ages[0]);
+        system.set_leaf_flight_enabled(true);
+        assert_eq!(
+            before,
+            (system.positions[0], system.velocities[0], system.ages[0])
+        );
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        assert!(snapshots[0].leaf_orientation.is_some());
+        system.update(0.2, ParticleForces::default());
+        let pose = system.leaf_flight[0].orientation;
+        system.set_leaf_flight_enabled(false);
+        system.write_snapshots(&mut snapshots);
+        assert!(snapshots[0].leaf_orientation.is_none());
+        system.update(0.2, ParticleForces::default());
+        assert_eq!(pose, system.leaf_flight[0].orientation);
+        assert!(system.is_alive_handle(handle) && system.alive_count() == 1);
+        assert!((system.ages[0] - 0.6).abs() < 1e-6);
+        assert!(system.despawn(handle));
+        let replacement = system.spawn(long_lived_leaf()).unwrap();
+        assert!(!system.is_alive_handle(handle));
+        assert_ne!(replacement, handle);
+        assert_ne!(pose, system.leaf_flight[0].orientation);
+        system.clear();
+        assert_eq!(system.available_capacity(), 1);
+    }
+
+    #[test]
+    fn leaf_experiment_does_not_change_other_particles_or_legacy_noise() {
+        for kind in [
+            ParticleRenderKind::Butterfly,
+            ParticleRenderKind::WaterDroplet,
+            ParticleRenderKind::TerrainVoxel,
+            ParticleRenderKind::Leaf,
+        ] {
+            let mut a = ParticleSystem::new(1);
+            let mut b = ParticleSystem::new(1);
+            let spawn = ParticleSpawn {
+                render_kind: kind,
+                // Free leaf-colored harvest particles are also outside the experiment.
+                motion_mode: MotionMode::Free,
+                drift_strength: 0.3,
+                ..long_lived_leaf()
+            };
+            a.spawn(spawn).unwrap();
+            b.spawn(spawn).unwrap();
+            b.set_leaf_flight_enabled(true);
+            for _ in 0..120 {
+                a.update(1. / 60., ParticleForces::default());
+                b.update_with_wind(
+                    1. / 60.,
+                    ParticleForces::default(),
+                    &WindFieldFrame::uniform(glam::Vec2::splat(10.)),
+                );
+                assert_eq!(a.positions, b.positions);
+                assert_eq!(a.velocities, b.velocities);
+            }
+            let mut snapshots = Vec::new();
+            b.write_snapshots(&mut snapshots);
+            assert!(snapshots[0].leaf_orientation.is_none());
+        }
+    }
+
+    #[test]
+    fn plate_motion_ignores_legacy_drift_and_samples_relative_wind() {
+        let mut a = ParticleSystem::new(1);
+        let mut b = ParticleSystem::new(1);
+        let mut windy = ParticleSystem::new(1);
+        a.spawn(long_lived_leaf()).unwrap();
+        b.spawn(ParticleSpawn {
+            drift_strength: 500.,
+            drift_frequency: 20.,
+            ..long_lived_leaf()
+        })
+        .unwrap();
+        windy.spawn(long_lived_leaf()).unwrap();
+        for system in [&mut a, &mut b, &mut windy] {
+            system.set_leaf_flight_enabled(true);
+        }
+        for _ in 0..240 {
+            a.update(1. / 60., ParticleForces::default());
+            b.update(
+                1. / 60.,
+                ParticleForces {
+                    leaf_planar_speed_multiplier: 50.,
+                    ..ParticleForces::default()
+                },
+            );
+            windy.update_with_wind(
+                1. / 60.,
+                ParticleForces::default(),
+                &WindFieldFrame::uniform(glam::Vec2::new(2., 0.)),
+            );
+        }
+        assert_eq!(a.positions, b.positions);
+        assert_eq!(a.velocities, b.velocities);
+        assert!(windy.positions[0].x > a.positions[0].x + 0.1);
+        assert_ne!(
+            a.leaf_flight[0].orientation,
+            windy.leaf_flight[0].orientation
+        );
+    }
+
+    #[test]
+    fn plate_system_keeps_sink_and_despawn_authority() {
+        let mut system = ParticleSystem::new(1);
+        system.set_leaf_flight_enabled(true);
+        let handle = system
+            .spawn(ParticleSpawn {
+                position: Vec3::Y * 0.02,
+                lifetime: 0.1,
+                sink_on_lifetime: true,
+                sink_speed: 0.1,
+                despawn_below_ground: true,
+                ..long_lived_leaf()
+            })
+            .unwrap();
+        system.update(0.11, ParticleForces::default());
+        assert!(system.is_alive_handle(handle) && system.is_sinking[0]);
+        system.update(0.3, ParticleForces::default());
+        assert!(!system.is_alive_handle(handle));
+        assert_eq!(system.available_capacity(), 1);
     }
 }

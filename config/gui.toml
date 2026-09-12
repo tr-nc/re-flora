@@ -1879,6 +1879,15 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
+id = "fallen_leaf_flight"
+kind = "bool"
+label = "B: Fallen leaf plate flight (A/B experiment)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "leaf_flutter_strength"
 kind = "float"
 label = "Local Flutter (0 = original)"
