@@ -473,7 +473,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_flight_variant: ButterflyFlightVariant,
-    butterfly_review_frame: Option<u32>,
+    butterfly_review: Option<particles::ButterflyReview>,
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
@@ -1517,7 +1517,8 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_flight_variant,
-            butterfly_review_frame: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW").map(|_| 0),
+            butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
+                .map(|_| particles::ButterflyReview::default()),
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
             sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),

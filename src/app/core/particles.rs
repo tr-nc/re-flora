@@ -33,6 +33,12 @@ fn butterfly_world_limit(chunk_dim: glam::UVec3) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+#[derive(Default)]
+pub(super) struct ButterflyReview {
+    frame: u32,
+    subject_frame: Option<u32>,
+}
+
 pub(super) fn draw_butterfly_flight_ab_controls(
     ui: &mut egui::Ui,
     variant: &mut ButterflyFlightVariant,
@@ -696,11 +702,11 @@ impl App {
 
     /// Opt-in capture observer. Uses natural spawns; never places or creates butterflies.
     fn review_butterfly_frame(&mut self, dt: f32) {
-        let Some(frame) = self.butterfly_review_frame.as_mut() else {
+        let Some(review) = self.butterfly_review.as_mut() else {
             return;
         };
-        *frame += 1;
-        let frame = *frame;
+        review.frame += 1;
+        let frame = review.frame;
         let butterflies = self
             .particle_snapshots
             .iter()
@@ -711,12 +717,13 @@ impl App {
                 )
             })
             .collect::<Vec<_>>();
-        if frame == 240 {
+        if frame >= 240 && review.subject_frame.is_none() {
             if let Some(subject) = butterflies.iter().find(|s| s.color.w >= 0.99) {
                 let target = subject.position_ws;
                 self.tracer
                     .set_camera_pose_looking_at(target + Vec3::new(0.0, 0.30, 0.95), target);
-                log::info!("[BUTTERFLY_REVIEW] camera=fixed-natural-subject target={target:?}");
+                review.subject_frame = Some(frame);
+                log::info!("[BUTTERFLY_REVIEW] camera=fixed-natural-subject frame={frame} target={target:?}");
             }
         }
         if frame >= 240 {
@@ -736,9 +743,9 @@ impl App {
             );
         }
         if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("switch") {
-            let next = match frame {
-                420 => Some(ButterflyFlightVariant::DartingBlock),
-                540 => Some(ButterflyFlightVariant::OriginalSprite),
+            let next = match review.subject_frame.map(|start| frame - start) {
+                Some(120) => Some(ButterflyFlightVariant::DartingBlock),
+                Some(240) => Some(ButterflyFlightVariant::OriginalSprite),
                 _ => None,
             };
             if let Some(next) = next {
@@ -975,10 +982,11 @@ mod tests {
         let context = egui::Context::default();
         context.memory_mut(|memory| memory.set_everything_is_visible(true));
         let mut settings = crate::app::DebugSettings::load();
-        settings
-            .config
-            .section
-            .retain(|section| section.name == "Butterflies");
+        // The callback fixture does not depend on user-editable sliders or section layout.
+        settings.config.section = vec![crate::app::gui_config_model::GuiSection {
+            name: "Butterflies".to_owned(),
+            param: Vec::new(),
+        }];
         let original_config = serde_json::to_value(&settings.config).unwrap();
         let mut variant = ButterflyFlightVariant::default();
         let mut rect = egui::Rect::NOTHING;
