@@ -47,6 +47,7 @@ pub(super) fn draw_butterfly_flight_ab_controls(
     ui.separator();
     ui.label("Flight appearance A/B");
     ui.small("Temporary comparison control — not saved to GUI config");
+    ui.small("B is the startup default. Uncheck to compare original A (without wind drift).");
     let mut darting_block = variant.is_darting_block();
     let response = ui.checkbox(
         &mut darting_block,
@@ -82,7 +83,7 @@ pub(super) fn draw_butterfly_flight_ab_controls(
 fn draw_butterfly_flight_tuning(
     ui: &mut egui::Ui,
     tuning: &mut ButterflyFlightTuning,
-) -> ([egui::Response; 5], egui::Response) {
+) -> ([egui::Response; 6], egui::Response) {
     ui.small(
         "B only — live controls, not saved. Physics stays at 120 Hz; World Tick is unchanged.",
     );
@@ -108,10 +109,13 @@ fn draw_butterfly_flight_tuning(
         .text("Turn sharpness (x)").step_by(0.05))
         .on_hover_text("Higher = acceleration changes faster; lower = softer turns. Position is always integrated.");
     let speed = ui.add(egui::Slider::new(&mut tuning.speed, ButterflyFlightTuning::SPEED_RANGE)
-        .text("Flight speed (x)").step_by(0.05))
-        .on_hover_text("Scales cruise, maneuver force and speed limits. Does not change spawn rate or lifetime.");
+        .text("Self-flight speed (x)").step_by(0.05))
+        .on_hover_text("Scales autonomous cruise, maneuver force and air-relative speed limits only. Wind drift has its own control.");
+    let wind = ui.add(egui::Slider::new(&mut tuning.wind_drift, ButterflyFlightTuning::WIND_DRIFT_RANGE)
+        .text("Wind drift (x)").step_by(0.05))
+        .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
     let reset = ui.button("Reset B flight controls");
-    let changed = [&position, &tempo, &vertical, &sharpness, &speed]
+    let changed = [&position, &tempo, &vertical, &sharpness, &speed, &wind]
         .iter()
         .any(|r| r.changed());
     if reset.clicked() {
@@ -120,7 +124,7 @@ fn draw_butterfly_flight_tuning(
     if changed || reset.clicked() {
         log::info!("[BUTTERFLY_AB][TUNING] {tuning:?}");
     }
-    ([position, tempo, vertical, sharpness, speed], reset)
+    ([position, tempo, vertical, sharpness, speed, wind], reset)
 }
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
@@ -648,11 +652,13 @@ impl App {
         self.particle_system.update(dt, self.particle_forces);
         let world_max =
             super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        let wind = self.wind_prototype.field.frame();
         for emitter in &mut self.butterfly_emitters {
             emitter.advance_block_flight(
                 &mut self.particle_system,
                 dt,
                 world_max,
+                &wind,
                 |origin, direction| {
                     self.contree_builder
                         .query_terrain_ray_cpu(origin, direction)
@@ -823,6 +829,7 @@ impl App {
                     vertical_strength: 3.0,
                     turn_sharpness: 2.0,
                     speed: 1.0,
+                    wind_drift: 1.0,
                 }),
                 Some(270) => Some(ButterflyFlightTuning::default()),
                 _ => None,
@@ -830,6 +837,28 @@ impl App {
             if let Some(next) = next {
                 self.butterfly_flight_tuning = next;
                 log::info!("[BUTTERFLY_REVIEW] scripted_tuning={next:?} frame={frame}");
+            }
+        }
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("wind") {
+            let wind = self.wind_prototype.field.frame();
+            log::info!(
+                "[BUTTERFLY_REVIEW][WIND] frame={frame} self_speed={} drift_gain={} samples={:?}",
+                self.butterfly_flight_tuning.speed,
+                self.butterfly_flight_tuning.wind_drift,
+                butterflies
+                    .iter()
+                    .map(|s| wind.sample_world(s.position_ws).to_array())
+                    .collect::<Vec<_>>()
+            );
+            let next_gain = match review.subject_frame.map(|start| frame - start) {
+                Some(90) => Some(0.0),
+                Some(180) => Some(2.0),
+                Some(270) => Some(1.0),
+                _ => None,
+            };
+            if let Some(gain) = next_gain {
+                self.butterfly_flight_tuning.wind_drift = gain;
+                log::info!("[BUTTERFLY_REVIEW] scripted_wind_gain={gain} frame={frame}");
             }
         }
     }
@@ -1061,7 +1090,7 @@ mod tests {
         let context = egui::Context::default();
         let mut tuning = ButterflyFlightTuning::default();
         let mut draw = |events| {
-            let mut rects = [egui::Rect::NOTHING; 5];
+            let mut rects = [egui::Rect::NOTHING; 6];
             let mut reset_rect = egui::Rect::NOTHING;
             let _ = context.run_ui(
                 egui::RawInput {
@@ -1104,13 +1133,14 @@ mod tests {
         assert_ne!(edited.vertical_strength, initial.vertical_strength);
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);
+        assert_ne!(edited.wind_drift, initial.wind_drift);
         draw(click_events(reset.center(), true));
         let (_, _, restored) = draw(click_events(reset.center(), false));
         assert_eq!(restored, initial);
     }
 
     #[test]
-    fn butterfly_debug_checkbox_clicks_switch_a_b_a_without_config_changes() {
+    fn butterfly_debug_checkbox_defaults_to_b_and_clicks_b_a_b_without_config_changes() {
         let context = egui::Context::default();
         context.memory_mut(|memory| memory.set_everything_is_visible(true));
         let mut settings = crate::app::DebugSettings::load();
@@ -1146,11 +1176,11 @@ mod tests {
         };
         draw(Vec::new());
         let (initial, rect) = draw(Vec::new());
-        assert_eq!(initial, ButterflyFlightVariant::OriginalSprite);
+        assert_eq!(initial, ButterflyFlightVariant::DartingBlock);
         assert!(rect.is_positive());
         for expected in [
-            ButterflyFlightVariant::DartingBlock,
             ButterflyFlightVariant::OriginalSprite,
+            ButterflyFlightVariant::DartingBlock,
         ] {
             let pos = rect.center();
             draw(vec![

@@ -17,11 +17,15 @@ const BUTTERFLY_BLOCK_RAPID_GAP_MIN: f32 = 0.035;
 const BUTTERFLY_BLOCK_RAPID_GAP_MAX: f32 = 0.11;
 const BUTTERFLY_BLOCK_HABITAT_RADIUS: f32 = 0.32;
 const BUTTERFLY_BLOCK_HABITAT_HEIGHT: f32 = 0.20;
+// WindFieldFrame carries authored strength, not world metres/second.
+const WIND_DRIFT_WORLD_SPEED_PER_STRENGTH: f32 = 0.06;
+const MAX_WIND_DRIFT_SPEED: f32 = 0.45;
+const MAX_WIND_DRIFT_ACCELERATION: f32 = 0.60;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButterflyFlightVariant {
-    #[default]
     OriginalSprite,
+    #[default]
     DartingBlock,
 }
 
@@ -31,7 +35,7 @@ impl ButterflyFlightVariant {
     }
 }
 
-/// Live B-only art controls. Multipliers of one retain the first A/B candidate.
+/// Live B-only art controls. Self propulsion and environmental drift are independent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ButterflyFlightTuning {
     pub position_step_ms: f32,
@@ -39,6 +43,7 @@ pub struct ButterflyFlightTuning {
     pub vertical_strength: f32,
     pub turn_sharpness: f32,
     pub speed: f32,
+    pub wind_drift: f32,
 }
 
 impl Default for ButterflyFlightTuning {
@@ -48,7 +53,8 @@ impl Default for ButterflyFlightTuning {
             maneuver_tempo: 1.0,
             vertical_strength: 1.0,
             turn_sharpness: 1.0,
-            speed: 1.0,
+            speed: 0.65,
+            wind_drift: 1.0,
         }
     }
 }
@@ -59,6 +65,7 @@ impl ButterflyFlightTuning {
     pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
     pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.25..=2.5;
+    pub const WIND_DRIFT_RANGE: std::ops::RangeInclusive<f32> = 0.0..=3.0;
 
     pub fn sanitized(self) -> Self {
         let bounded = |value: f32, range: std::ops::RangeInclusive<f32>| {
@@ -77,7 +84,12 @@ impl ButterflyFlightTuning {
             maneuver_tempo: bounded(self.maneuver_tempo, Self::TEMPO_RANGE),
             vertical_strength: bounded(self.vertical_strength, Self::VERTICAL_RANGE),
             turn_sharpness: bounded(self.turn_sharpness, Self::SHARPNESS_RANGE),
-            speed: bounded(self.speed, Self::SPEED_RANGE),
+            speed: if self.speed.is_finite() {
+                bounded(self.speed, Self::SPEED_RANGE)
+            } else {
+                Self::default().speed
+            },
+            wind_drift: bounded(self.wind_drift, Self::WIND_DRIFT_RANGE),
         }
     }
 }
@@ -128,6 +140,7 @@ pub(super) struct DartingFlightState {
     cruise_direction: Vec3,
     cruise_speed: f32,
     acceleration: Vec3,
+    wind_velocity: Vec3,
     event_acceleration: Vec3,
     event_time_remaining: f32,
     time_until_event: f32,
@@ -147,6 +160,7 @@ impl DartingFlightState {
             cruise_speed: rng
                 .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
             acceleration: Vec3::ZERO,
+            wind_velocity: Vec3::ZERO,
             event_acceleration: Vec3::ZERO,
             event_time_remaining: 0.0,
             time_until_event: rng.random_range(0.04..=0.30),
@@ -233,6 +247,7 @@ impl DartingFlightState {
 
     pub(super) fn resume(&mut self, velocity: Vec3) {
         self.acceleration = Vec3::ZERO;
+        self.wind_velocity = Vec3::ZERO;
         self.cruise_direction = velocity.normalize_or(self.cruise_direction);
     }
 
@@ -244,6 +259,7 @@ impl DartingFlightState {
         world_max: Vec3,
         emerging: bool,
         tuning: ButterflyFlightTuning,
+        local_wind: Vec3,
         terrain_distance: &mut impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) -> Vec3 {
         let tuning = tuning.sanitized();
@@ -251,8 +267,20 @@ impl DartingFlightState {
         let max_vertical_speed = BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED * tuning.speed;
         let dt = dt.clamp(0.0, 0.1);
         if dt <= 0.0 {
-            return velocity.clamp_length_max(max_speed);
+            return velocity;
         }
+
+        // Self-speed acts on air-relative steering, never on wind advection.
+        let air_velocity = velocity - self.wind_velocity;
+        let wind_target = if local_wind.is_finite() {
+            (Vec3::new(local_wind.x, 0.0, local_wind.z)
+                * (WIND_DRIFT_WORLD_SPEED_PER_STRENGTH * tuning.wind_drift))
+                .clamp_length_max(MAX_WIND_DRIFT_SPEED)
+        } else {
+            Vec3::ZERO
+        };
+        let wind_delta = (wind_target - self.wind_velocity) * (1.0 - (-dt / 0.25).exp());
+        self.wind_velocity += wind_delta.clamp_length_max(MAX_WIND_DRIFT_ACCELERATION * dt);
 
         if !emerging {
             // Only maneuver clocks change tempo; physics and lifetime keep real time.
@@ -260,7 +288,7 @@ impl DartingFlightState {
             self.time_until_event -= event_dt;
             self.event_time_remaining = (self.event_time_remaining - event_dt).max(0.0);
             if self.time_until_event <= 0.0 {
-                self.start_maneuver(velocity);
+                self.start_maneuver(air_velocity);
             }
         }
 
@@ -273,7 +301,7 @@ impl DartingFlightState {
             cruise_velocity.y *= tuning.vertical_strength;
         }
         cruise_velocity = (cruise_velocity * tuning.speed).clamp_length_max(max_speed);
-        let cruise_acceleration = (cruise_velocity - velocity) * 2.4;
+        let cruise_acceleration = (cruise_velocity - air_velocity) * 2.4;
         let mut maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
             self.event_acceleration
         } else {
@@ -303,17 +331,22 @@ impl DartingFlightState {
             BUTTERFLY_BLOCK_MAX_JERK * tuning.speed * tuning.turn_sharpness * dt,
         );
 
-        let mut next_velocity = (velocity + self.acceleration * dt).clamp_length_max(max_speed);
+        let mut next_velocity = (air_velocity + self.acceleration * dt).clamp_length_max(max_speed);
         next_velocity.y = next_velocity
             .y
             .clamp(-max_vertical_speed, max_vertical_speed);
+        next_velocity += self.wind_velocity;
         // Contact constraints bound the next displacement, never relocate the particle.
         // A hard contact may interrupt acceleration continuity, as in an ordinary collision.
         for axis in 0..3 {
+            let intended = next_velocity[axis];
             next_velocity[axis] = next_velocity[axis].clamp(
                 -position[axis].max(0.0) / dt,
                 (world_max[axis] - position[axis]).max(0.0) / dt,
             );
+            if intended != next_velocity[axis] {
+                self.wind_velocity[axis] *= next_velocity[axis] / intended;
+            }
         }
         let distance = next_velocity.length() * dt;
         if !emerging && distance > 1e-7 {
@@ -321,6 +354,7 @@ impl DartingFlightState {
                 let allowed = (hit_distance - 0.001).max(0.0);
                 if allowed < distance {
                     next_velocity *= allowed / distance;
+                    self.wind_velocity *= allowed / distance;
                 }
             }
         }
@@ -343,6 +377,103 @@ mod tests {
     use super::*;
 
     #[test]
+    fn butterfly_wind_drift_is_independent_of_self_speed_and_has_its_own_gain() {
+        let run = |speed, wind_drift| {
+            let mut state = DartingFlightState::new(5.0, Vec3::ONE, Vec3::X);
+            // Isolate environmental drift without a competing steering event.
+            state.cruise_speed = 0.0;
+            state.time_until_event = 100.0;
+            let mut position = Vec3::ONE;
+            let mut velocity = Vec3::ZERO;
+            let dt = FLIGHT_STEP_SECONDS as f32;
+            for _ in 0..60 {
+                let previous_wind = state.wind_velocity;
+                velocity = state.advance(
+                    position,
+                    velocity,
+                    dt,
+                    Vec3::splat(2.0),
+                    false,
+                    ButterflyFlightTuning {
+                        speed,
+                        wind_drift,
+                        ..Default::default()
+                    },
+                    Vec3::X * 2.0,
+                    &mut |_, _| None,
+                );
+                assert!(
+                    (state.wind_velocity - previous_wind).length()
+                        <= MAX_WIND_DRIFT_ACCELERATION * dt + 1e-6
+                );
+                position += velocity * dt;
+            }
+            (position, velocity)
+        };
+        let slow = run(0.25, 1.0);
+        let fast = run(2.5, 1.0);
+        assert!(slow.0.distance(fast.0) < 1e-6);
+        assert!(slow.1.distance(fast.1) < 1e-6);
+        assert!(
+            slow.1.x > BUTTERFLY_BLOCK_MAX_SPEED * 0.25,
+            "wind must not be capped by self-speed"
+        );
+        assert_eq!(run(0.25, 0.0), (Vec3::ONE, Vec3::ZERO));
+        let stronger = run(0.25, 2.0);
+        assert!(stronger.1.x > slow.1.x * 1.5);
+    }
+
+    #[test]
+    fn butterfly_strong_wind_reversal_and_decay_are_bounded() {
+        let mut state = DartingFlightState::new(2.0, Vec3::ONE, Vec3::X);
+        let tuning = ButterflyFlightTuning {
+            speed: 2.5,
+            wind_drift: 3.0,
+            ..Default::default()
+        };
+        let mut position = Vec3::ONE;
+        let mut velocity = Vec3::ZERO;
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        for tick in 0..2400 {
+            let wind = match (tick / 120) % 3 {
+                0 => Vec3::X * 100.0,
+                1 => -Vec3::X * 100.0,
+                _ => Vec3::splat(f32::NAN),
+            };
+            velocity = state.advance(
+                position,
+                velocity,
+                dt,
+                Vec3::splat(2.0),
+                false,
+                tuning,
+                wind,
+                &mut |_, _| None,
+            );
+            position += velocity * dt;
+            assert!(position.is_finite() && velocity.is_finite());
+            assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());
+            assert!(state.wind_velocity.length() <= MAX_WIND_DRIFT_SPEED + 1e-6);
+            assert!(velocity.length() <= 1.2 + 1e-6);
+        }
+        // Calming wind releases smoothly instead of retaining permanent advection.
+        for _ in 0..180 {
+            velocity = state.advance(
+                position,
+                velocity,
+                dt,
+                Vec3::splat(2.0),
+                false,
+                tuning,
+                Vec3::ZERO,
+                &mut |_, _| None,
+            );
+            position += velocity * dt;
+        }
+        assert!(state.wind_velocity.length() < 0.002);
+    }
+
+    #[test]
     fn butterfly_live_knobs_change_their_intended_motion_terms() {
         let run = |tuning| {
             let mut state = DartingFlightState::new(9.0, Vec3::ONE, Vec3::X);
@@ -356,6 +487,7 @@ mod tests {
                 Vec3::splat(2.0),
                 false,
                 tuning,
+                Vec3::ZERO,
                 &mut |_, _| None,
             );
             (velocity, state.time_until_event)
@@ -406,6 +538,7 @@ mod tests {
                 vertical_strength: f32::NAN,
                 turn_sharpness: f32::NEG_INFINITY,
                 speed: f32::NAN,
+                wind_drift: f32::NAN,
             }
             .sanitized(),
             ButterflyFlightTuning::default()
@@ -423,6 +556,7 @@ mod tests {
                         vertical_strength: 4.0,
                         turn_sharpness: 4.0,
                         speed: 2.5,
+                        wind_drift: 3.0,
                     }
                 } else {
                     ButterflyFlightTuning {
@@ -431,6 +565,7 @@ mod tests {
                         vertical_strength: 0.0,
                         turn_sharpness: 0.25,
                         speed: 0.25,
+                        wind_drift: 0.0,
                     }
                 };
                 velocity = state.advance(
@@ -440,6 +575,7 @@ mod tests {
                     Vec3::splat(2.0),
                     false,
                     tuning,
+                    Vec3::ZERO,
                     &mut |_, _| None,
                 );
                 position += velocity * dt;
@@ -496,6 +632,7 @@ mod tests {
                     Vec3::splat(2.0),
                     false,
                     ButterflyFlightTuning::default(),
+                    Vec3::ZERO,
                     &mut |_, _| None,
                 );
                 assert!(next.is_finite());
@@ -536,6 +673,7 @@ mod tests {
             Vec3::splat(2.0),
             false,
             ButterflyFlightTuning::default(),
+            Vec3::ZERO,
             &mut |_, _| None,
         );
         assert!((position + velocity * dt).x <= 2.0);
@@ -547,6 +685,7 @@ mod tests {
             Vec3::splat(2.0),
             false,
             ButterflyFlightTuning::default(),
+            Vec3::ZERO,
             &mut |_, _| Some(0.0011),
         );
         assert!((velocity * dt).length() <= 0.000101);

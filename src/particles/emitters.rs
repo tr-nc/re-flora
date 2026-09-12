@@ -280,7 +280,7 @@ impl Default for ButterflyEmitterDesc {
             worm_noise_frequency: 2.0,
             worm_noise_detail_frequency: 8.0,
             worm_noise_detail_weight: 0.5,
-            flight_variant: ButterflyFlightVariant::OriginalSprite,
+            flight_variant: ButterflyFlightVariant::default(),
             flight_tuning: ButterflyFlightTuning::default(),
         }
     }
@@ -579,6 +579,7 @@ impl ButterflyEmitter {
         system: &mut ParticleSystem,
         dt: f32,
         world_max: Vec3,
+        wind: &WindFieldFrame,
         mut terrain_distance: impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) {
         if !self.flight_variant.is_darting_block() {
@@ -606,6 +607,7 @@ impl ButterflyEmitter {
                     world_max,
                     emerging,
                     self.flight_tuning,
+                    wind.sample_world(position),
                     &mut terrain_distance,
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
@@ -687,6 +689,7 @@ mod tests {
 
     fn butterfly_test_desc() -> ButterflyEmitterDesc {
         ButterflyEmitterDesc {
+            flight_variant: ButterflyFlightVariant::OriginalSprite,
             spawn_rate_per_source: 1.0,
             height_offset_min: 0.05,
             height_offset_max: 0.05,
@@ -694,6 +697,43 @@ mod tests {
             lifetime_max: 100.0,
             ..ButterflyEmitterDesc::default()
         }
+    }
+
+    #[test]
+    fn butterfly_samples_local_wind_and_zero_gain_preserves_calm_motion() {
+        let mut local = WindFieldFrame::uniform(glam::Vec2::ZERO);
+        for (i, pair) in local.cells.iter_mut().enumerate() {
+            pair[0] = if (i * 2) % 32 == 31 { 2.0 } else { 0.0 };
+            pair[2] = if (i * 2 + 1) % 32 == 31 { 2.0 } else { 0.0 };
+        }
+        let run = |position, wind: &WindFieldFrame, gain| {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+            desc.flight_tuning.wind_drift = gain;
+            let mut emitter = ButterflyEmitter::new(17, &desc);
+            emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(position)]);
+            let mut system = ParticleSystem::new(2);
+            let handle = emitter.spawn_butterfly(&mut system).unwrap();
+            emitter.advance_block_flight(&mut system, 0.1, Vec3::splat(4.0), wind, |_, _| None);
+            (
+                system.position(handle).unwrap(),
+                system.velocity(handle).unwrap(),
+                emitter.rng.random::<u64>(),
+            )
+        };
+        let calm = WindFieldFrame::default();
+        let sheltered = Vec3::new(0.5, 1.0, 1.0);
+        assert_eq!(run(sheltered, &local, 1.0), run(sheltered, &calm, 1.0));
+        let exposed = Vec3::new(1.99, 1.0, 1.0);
+        assert_eq!(run(exposed, &local, 0.0), run(exposed, &calm, 0.0));
+        let with_wind = run(exposed, &local, 1.0);
+        let no_wind = run(exposed, &calm, 1.0);
+        assert!(with_wind.0.x > no_wind.0.x + 0.0005);
+        assert!(with_wind.1.x > no_wind.1.x + 0.005);
+        assert_eq!(
+            with_wind.2, no_wind.2,
+            "wind must not consume population RNG"
+        );
     }
 
     #[test]
@@ -713,7 +753,13 @@ mod tests {
             assert_eq!(ah, bh);
             assert_eq!(a_system.position(ah), b_system.position(bh));
             // Flight RNG must never advance the population/palette RNG.
-            b.advance_block_flight(&mut b_system, 0.25, Vec3::splat(2.0), |_, _| None);
+            b.advance_block_flight(
+                &mut b_system,
+                0.25,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
         }
         let mut snaps = Vec::new();
         b_system.write_snapshots(&mut snaps);
@@ -764,7 +810,13 @@ mod tests {
             let handle = emitter.spawn_butterfly(&mut system).unwrap();
             for _ in 0..(4.0 / frame_dt).round() as usize {
                 system.update(frame_dt, super::super::ParticleForces::default());
-                emitter.advance_block_flight(&mut system, frame_dt, Vec3::splat(2.0), |_, _| None);
+                emitter.advance_block_flight(
+                    &mut system,
+                    frame_dt,
+                    Vec3::splat(2.0),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
             }
             (
                 system.position(handle).unwrap(),
@@ -789,7 +841,13 @@ mod tests {
         emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(Vec3::ONE)]);
         let mut system = ParticleSystem::new(4);
         let first = emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.advance_block_flight(&mut system, 0.25, Vec3::splat(2.0), |_, _| None);
+        emitter.advance_block_flight(
+            &mut system,
+            0.25,
+            Vec3::splat(2.0),
+            &WindFieldFrame::default(),
+            |_, _| None,
+        );
         assert!(!system.is_alive_handle(first));
         let second = emitter.spawn_butterfly(&mut system).unwrap();
         emitter.enabled = false;
@@ -993,8 +1051,20 @@ mod tests {
         let mut held_frames = 0;
         let mut previous = Vec3::ONE;
         for _ in 0..120 {
-            stepped.advance_block_flight(&mut a, 1.0 / 60.0, Vec3::splat(2.0), |_, _| None);
-            continuous.advance_block_flight(&mut b, 1.0 / 60.0, Vec3::splat(2.0), |_, _| None);
+            stepped.advance_block_flight(
+                &mut a,
+                1.0 / 60.0,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            continuous.advance_block_flight(
+                &mut b,
+                1.0 / 60.0,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
             assert_eq!(a.position(ah), b.position(bh));
             assert_eq!(a.velocity(ah), b.velocity(bh));
             assert_eq!(continuous.block_render_position(bh), b.position(bh));

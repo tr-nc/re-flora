@@ -1376,12 +1376,12 @@ impl App {
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
         let butterfly_flight_variant =
-            if std::env::var_os("RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE").is_some() {
-                log::info!("[BUTTERFLY_AB] variant=B-darting-block source=smoke-override");
-                ButterflyFlightVariant::DartingBlock
-            } else {
+            if std::env::var_os("RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE").is_some() {
                 ButterflyFlightVariant::OriginalSprite
+            } else {
+                ButterflyFlightVariant::default()
             };
+        log::info!("[BUTTERFLY_AB] startup_variant={butterfly_flight_variant:?}");
         let butterfly_flight_tuning = ButterflyFlightTuning::default();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
             &debug_settings.adjustables,
