@@ -38,9 +38,8 @@ impl ButterflyFlightVariant {
 /// Live B-only art controls. Self propulsion and environmental drift are independent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ButterflyFlightTuning {
-    pub position_step_ms: f32,
+    pub flight_frequency_hz: f32,
     pub maneuver_tempo: f32,
-    pub vertical_frequency: f32,
     pub vertical_strength: f32,
     pub turn_sharpness: f32,
     pub speed: f32,
@@ -50,21 +49,19 @@ pub struct ButterflyFlightTuning {
 impl Default for ButterflyFlightTuning {
     fn default() -> Self {
         Self {
-            position_step_ms: 60.0,
+            flight_frequency_hz: 10.0,
             maneuver_tempo: 1.0,
-            vertical_frequency: 4.0,
             vertical_strength: 4.0,
             turn_sharpness: 1.0,
-            speed: 0.25,
+            speed: 0.35,
             wind_drift: 1.0,
         }
     }
 }
 
 impl ButterflyFlightTuning {
-    pub const POSITION_STEP_RANGE: std::ops::RangeInclusive<f32> = 0.0..=160.0;
+    pub const FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=40.0;
     pub const TEMPO_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
-    pub const VERTICAL_FREQUENCY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=40.0;
     pub const VERTICAL_RANGE: std::ops::RangeInclusive<f32> = 0.0..=4.0;
     pub const SHARPNESS_RANGE: std::ops::RangeInclusive<f32> = 0.25..=4.0;
     pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.25..=2.5;
@@ -80,20 +77,15 @@ impl ButterflyFlightTuning {
             }
         };
         Self {
-            position_step_ms: if self.position_step_ms.is_finite() {
-                self.position_step_ms.clamp(0.0, 160.0)
-            } else {
-                Self::default().position_step_ms
-            },
+            flight_frequency_hz: bounded(
+                self.flight_frequency_hz,
+                Self::FREQUENCY_RANGE,
+                defaults.flight_frequency_hz,
+            ),
             maneuver_tempo: bounded(
                 self.maneuver_tempo,
                 Self::TEMPO_RANGE,
                 defaults.maneuver_tempo,
-            ),
-            vertical_frequency: bounded(
-                self.vertical_frequency,
-                Self::VERTICAL_FREQUENCY_RANGE,
-                defaults.vertical_frequency,
             ),
             vertical_strength: bounded(
                 self.vertical_strength,
@@ -115,71 +107,61 @@ impl ButterflyFlightTuning {
     }
 }
 
-/// A separate event clock, not a separate particle simulation. Up to 4x only rests
-/// shrink; above 4x pulses also compress, so their duration cannot impose a rate ceiling.
+/// One beat owns both the vertical intent and the publication of a real trajectory
+/// point. No independent display timer, phase jitter, or vertical pulse timer.
 #[derive(Debug)]
-struct VerticalManeuvers {
+struct SharedFlightRhythm {
+    position: Vec3,
     acceleration: f32,
-    active_remaining: f32,
-    rest_remaining: f32,
+    phase: f64,
+    frequency_hz: f32,
+    publish_due: bool,
     rng: SmallRng,
 }
 
-impl VerticalManeuvers {
-    fn new(seed: f32) -> Self {
-        let mut rng = SmallRng::seed_from_u64(u64::from(seed.to_bits()) ^ 0x7665_7274_6963_616c);
+impl SharedFlightRhythm {
+    fn new(seed: f32, position: Vec3) -> Self {
         Self {
+            position,
             acceleration: 0.0,
-            active_remaining: 0.0,
-            rest_remaining: rng.random_range(0.04..=0.30),
-            rng,
+            phase: 0.0,
+            frequency_hz: 0.0,
+            publish_due: false,
+            rng: SmallRng::seed_from_u64(u64::from(seed.to_bits()) ^ 0x7665_7274_6963_616c),
         }
     }
 
-    fn advance(&mut self, dt: f32, frequency: f32) -> f32 {
-        if dt <= 0.0 {
+    fn advance(&mut self, position: Vec3, dt: f32, frequency_hz: f32) -> f32 {
+        self.publish_due = false;
+        if frequency_hz <= 0.0 {
+            // Shared stepping off: show continuous physical motion and stop new
+            // vertical intent. The bounded integrator still settles existing velocity.
+            self.phase = 0.0;
+            self.frequency_hz = 0.0;
+            self.acceleration = 0.0;
+            self.publish_due = true;
             return 0.0;
         }
-        let pulse_rate = (frequency / 4.0).max(1.0);
-        let mut remaining = dt;
-        let mut impulse = 0.0;
-        // Integrate through event boundaries, including pulses shorter than a physics
-        // step. Return their time-averaged force to the existing bounded integrator.
-        // At the sanitized maximum the minimum cycle is 10 ms (> the 120 Hz step),
-        // so this cannot turn into an unbounded high-frequency event loop.
-        while remaining > 0.0 {
-            if self.active_remaining > 0.0 {
-                let until_end = self.active_remaining / pulse_rate;
-                let active_dt = remaining.min(until_end);
-                impulse += self.acceleration * active_dt;
-                self.active_remaining = if remaining >= until_end {
-                    0.0
-                } else {
-                    self.active_remaining - active_dt * pulse_rate
-                };
-                remaining = (remaining - active_dt).max(0.0);
+        // Keep fractional phase on live edits; rounding must not accumulate a second
+        // cadence. The 40 Hz maximum is below the 120 Hz integrator's step frequency.
+        let starting = self.frequency_hz <= 0.0;
+        self.frequency_hz = frequency_hz;
+        self.phase += f64::from(dt) * f64::from(frequency_hz);
+        let beat_due = self.phase + 1e-8 >= 1.0;
+        let displacement_guard = self.position.distance_squared(position) >= 0.025_f32.powi(2);
+        if starting || beat_due || displacement_guard {
+            self.phase = if beat_due {
+                (self.phase - 1.0).max(0.0)
             } else {
-                // Zero stops new pulses, without cutting existing physical motion.
-                if frequency <= 0.0 {
-                    break;
-                }
-                let until_end = self.rest_remaining / frequency;
-                let rest_dt = remaining.min(until_end);
-                self.rest_remaining = if remaining >= until_end {
-                    0.0
-                } else {
-                    self.rest_remaining - rest_dt * frequency
-                };
-                remaining = (remaining - rest_dt).max(0.0);
-                if self.rest_remaining <= 0.0 {
-                    self.start_pulse();
-                }
-            }
+                0.0
+            };
+            self.sample_vertical_intent();
+            self.publish_due = true;
         }
-        impulse / dt
+        self.acceleration
     }
 
-    fn start_pulse(&mut self) {
+    fn sample_vertical_intent(&mut self) {
         let roll = self.rng.random_range(0.0..1.0_f32);
         let vertical = if roll < 0.13 {
             self.rng.random_range(0.55..=0.95)
@@ -189,10 +171,20 @@ impl VerticalManeuvers {
             self.rng.random_range(-0.18..=0.22)
         };
         self.acceleration = vertical * self.rng.random_range(0.75..=1.55);
-        self.active_remaining = self
-            .rng
-            .random_range(BUTTERFLY_BLOCK_EVENT_DURATION_MIN..=BUTTERFLY_BLOCK_EVENT_DURATION_MAX);
-        self.rest_remaining = sample_event_wait(&mut self.rng);
+    }
+
+    fn reset(&mut self, position: Vec3) {
+        self.position = position;
+        self.phase = 0.0;
+        self.frequency_hz = 0.0;
+        self.acceleration = 0.0;
+        self.publish_due = false;
+    }
+
+    fn publish(&mut self, position: Vec3) {
+        if self.publish_due {
+            self.position = position;
+        }
     }
 }
 
@@ -202,46 +194,6 @@ fn sample_event_wait(rng: &mut SmallRng) -> f32 {
         + (BUTTERFLY_BLOCK_EVENT_WAIT_MAX - BUTTERFLY_BLOCK_EVENT_WAIT_MIN) * unit * unit
 }
 
-/// Sample-and-hold of the real trajectory, not a second simulation or position noise.
-#[derive(Debug)]
-pub(super) struct SteppedFlightPose {
-    pub(super) position: Vec3,
-    remaining: f32,
-    interval_ms: f32,
-    rng: SmallRng,
-}
-
-impl SteppedFlightPose {
-    pub(super) fn new(seed: f32, position: Vec3) -> Self {
-        Self {
-            position,
-            remaining: 0.0,
-            interval_ms: -1.0,
-            rng: SmallRng::seed_from_u64(u64::from(seed.to_bits()) ^ 0x706f_7365_5f73_7465),
-        }
-    }
-
-    pub(super) fn reset(&mut self, position: Vec3) {
-        self.position = position;
-        self.remaining = 0.0;
-    }
-
-    pub(super) fn advance(&mut self, position: Vec3, dt: f32, interval_ms: f32) {
-        self.remaining -= dt;
-        if interval_ms != self.interval_ms
-            || interval_ms <= 0.0
-            || self.remaining <= 0.0
-            || self.position.distance_squared(position) >= 0.025_f32.powi(2)
-        {
-            self.position = position;
-            self.interval_ms = interval_ms;
-            // Different individuals have different, slightly irregular publication times.
-            // Independent RNG means changing this knob cannot change the flight/population.
-            self.remaining = interval_ms * 0.001 * self.rng.random_range(0.8..=1.2);
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
     habitat_center: Vec3,
@@ -249,7 +201,7 @@ pub(super) struct DartingFlightState {
     cruise_speed: f32,
     acceleration: Vec3,
     wind_velocity: Vec3,
-    vertical_maneuvers: VerticalManeuvers,
+    rhythm: SharedFlightRhythm,
     event_acceleration: Vec3,
     event_time_remaining: f32,
     time_until_event: f32,
@@ -271,7 +223,7 @@ impl DartingFlightState {
                 .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
             acceleration: Vec3::ZERO,
             wind_velocity: Vec3::ZERO,
-            vertical_maneuvers: VerticalManeuvers::new(seed),
+            rhythm: SharedFlightRhythm::new(seed, habitat_center),
             event_acceleration: Vec3::ZERO,
             event_time_remaining: 0.0,
             time_until_event: rng.random_range(0.04..=0.30),
@@ -349,6 +301,18 @@ impl DartingFlightState {
             Vec3::new(velocity.x, 0.0, velocity.z).normalize_or(self.cruise_direction);
     }
 
+    pub(super) fn reset_render_pose(&mut self, position: Vec3) {
+        self.rhythm.reset(position);
+    }
+
+    pub(super) fn publish_render_pose(&mut self, position: Vec3) {
+        self.rhythm.publish(position);
+    }
+
+    pub(super) fn render_position(&self) -> Vec3 {
+        self.rhythm.position
+    }
+
     pub(super) fn advance(
         &mut self,
         position: Vec3,
@@ -367,6 +331,9 @@ impl DartingFlightState {
         if dt <= 0.0 {
             return velocity;
         }
+        let vertical_acceleration = self
+            .rhythm
+            .advance(position, dt, tuning.flight_frequency_hz);
 
         // Self-speed acts on air-relative steering, never on wind advection.
         let air_velocity = velocity - self.wind_velocity;
@@ -403,9 +370,7 @@ impl DartingFlightState {
             Vec3::ZERO
         };
         if !emerging {
-            maneuver_acceleration.y = self
-                .vertical_maneuvers
-                .advance(dt, tuning.vertical_frequency);
+            maneuver_acceleration.y = vertical_acceleration;
         }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
@@ -477,112 +442,112 @@ mod tests {
     use super::*;
 
     #[test]
-    fn butterfly_vertical_frequency_changes_irregular_rests_not_pulse_force_sequence() {
+    fn butterfly_shared_frequency_publishes_pose_and_vertical_intent_on_the_same_beat() {
         let run = |frequency| {
-            let mut pulses = VerticalManeuvers::new(17.0);
+            let mut rhythm = SharedFlightRhythm::new(17.0, Vec3::ZERO);
+            let mut position = Vec3::ZERO;
             let mut events = Vec::new();
             for tick in 0..7200 {
-                let previous_rng = pulses.rng.clone().random::<u64>();
-                pulses.advance(FLIGHT_STEP_SECONDS as f32, frequency);
-                if pulses.rng.clone().random::<u64>() != previous_rng {
-                    events.push((tick, pulses.acceleration));
+                let previous_rng = rhythm.rng.clone().random::<u64>();
+                let previous_pose = rhythm.position;
+                rhythm.advance(position, FLIGHT_STEP_SECONDS as f32, frequency);
+                assert_eq!(
+                    rhythm.rng.clone().random::<u64>() != previous_rng,
+                    rhythm.publish_due
+                );
+                position.x += 0.00001; // Real fixture trajectory, below the displacement guard.
+                rhythm.publish(position);
+                assert_eq!(
+                    rhythm.position,
+                    if rhythm.publish_due {
+                        position
+                    } else {
+                        previous_pose
+                    }
+                );
+                if rhythm.publish_due {
+                    events.push((tick, rhythm.acceleration));
                 }
             }
             events
         };
-        let slow = run(0.25);
-        let normal = run(1.0);
-        let fast = run(4.0);
-        let extended = run(*ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE.end());
-        assert!(slow.len() > 10);
-        assert!(normal.len() > slow.len() * 2);
-        assert!(fast.len() > normal.len());
-        for ((_, slow_force), (_, fast_force)) in slow.iter().zip(&fast) {
-            assert_eq!(slow_force, fast_force);
+        let normal = run(10.0);
+        let fast = run(40.0);
+        assert_eq!(normal.len(), 600);
+        assert_eq!(fast.len(), 2400);
+        assert!(normal.windows(2).all(|pair| pair[1].0 - pair[0].0 == 12));
+        assert!(fast.windows(2).all(|pair| pair[1].0 - pair[0].0 == 3));
+        for ((_, normal_force), (_, fast_force)) in normal.iter().zip(&fast) {
+            assert_eq!(normal_force, fast_force);
         }
-        assert_eq!(*ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE.end(), 40.0);
-        // The same seed's event times above 4x compress by the exact frequency ratio,
-        // within one fixed-step observation interval, rather than hitting a pulse ceiling.
-        for ((old_tick, old_force), (new_tick, new_force)) in fast.iter().zip(&extended) {
-            assert_eq!(old_force, new_force);
-            assert!((*new_tick as f32 - *old_tick as f32 / 10.0).abs() <= 1.1);
-        }
-        eprintln!(
-            "vertical events in 60s: 4x={} 40x={}",
-            fast.len(),
-            extended.len()
-        );
-        let intervals = fast
-            .windows(2)
-            .map(|pair| pair[1].0 - pair[0].0)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert!(
-            intervals.len() >= 12,
-            "vertical pulses must not become periodic"
-        );
-        assert!(fast.iter().any(|(_, force)| *force > 0.4));
-        assert!(fast.iter().any(|(_, force)| *force < -0.2));
+        assert!(normal.iter().any(|(_, force)| *force > 0.4));
+        assert!(normal.iter().any(|(_, force)| *force < -0.2));
     }
 
     #[test]
-    fn butterfly_fast_vertical_pulses_conserve_impulse_across_step_boundaries() {
-        let run = |dt: f32, steps| {
-            let mut pulses = VerticalManeuvers::new(17.0);
-            let mut impulse = 0.0;
-            for _ in 0..steps {
-                let force = pulses.advance(dt, 40.0);
-                assert!(force.is_finite() && force.abs() <= 0.95 * 1.55 + 1e-6);
-                impulse += force * dt;
-            }
-            (impulse, pulses.rng.random::<u64>())
-        };
-        let fine = run(1.0 / 1200.0, 12000);
-        for (dt, steps) in [(1.0 / 120.0, 1200), (1.0 / 30.0, 300)] {
-            let actual = run(dt, steps);
-            assert_eq!(actual.1, fine.1);
-            assert!((actual.0 - fine.0).abs() < 1e-4);
+    fn butterfly_shared_frequency_edits_preserve_one_fractional_phase() {
+        let mut rhythm = SharedFlightRhythm::new(17.0, Vec3::ZERO);
+        let dt = FLIGHT_STEP_SECONDS as f32;
+        rhythm.advance(Vec3::ZERO, dt, 10.0);
+        for _ in 0..5 {
+            rhythm.advance(Vec3::ZERO, dt, 10.0);
         }
+        let phase = rhythm.phase;
+        let force = rhythm.acceleration;
+        rhythm.advance(Vec3::ZERO, dt, 20.0);
+        assert!((rhythm.phase - phase - f64::from(dt) * 20.0).abs() < 1e-8);
+        assert!(!rhythm.publish_due);
+        assert_eq!(rhythm.acceleration, force);
+        for _ in 0..3 {
+            rhythm.advance(Vec3::ZERO, dt, 20.0);
+        }
+        assert!(rhythm.publish_due);
+        assert_ne!(rhythm.acceleration, force);
     }
 
     #[test]
     fn butterfly_user_tuning_is_the_startup_and_sanitization_default() {
         let defaults = ButterflyFlightTuning::default();
-        assert_eq!(defaults.speed, 0.25);
+        assert_eq!(defaults.speed, 0.35);
         assert_eq!(defaults.vertical_strength, 4.0);
-        assert_eq!(defaults.vertical_frequency, 4.0);
+        assert_eq!(defaults.flight_frequency_hz, 10.0);
         assert_eq!(
             ButterflyFlightTuning {
-                vertical_frequency: 400.0,
+                flight_frequency_hz: 400.0,
                 ..defaults
             }
             .sanitized()
-            .vertical_frequency,
+            .flight_frequency_hz,
             40.0
         );
     }
 
     #[test]
-    fn butterfly_vertical_zero_stops_new_pulses_without_cutting_the_current_one() {
-        let mut pulses = VerticalManeuvers::new(7.0);
-        let initial_wait = pulses.rest_remaining;
-        for _ in 0..240 {
-            assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), 0.0);
+    fn butterfly_shared_zero_is_continuous_and_reenable_starts_one_shared_beat() {
+        let mut rhythm = SharedFlightRhythm::new(7.0, Vec3::ZERO);
+        for tick in 0..240 {
+            let position = Vec3::X * tick as f32 * 0.001;
+            assert_eq!(
+                rhythm.advance(position, FLIGHT_STEP_SECONDS as f32, 0.0),
+                0.0
+            );
+            rhythm.publish(position);
+            assert_eq!(rhythm.position, position);
         }
-        assert_eq!(pulses.rest_remaining, initial_wait);
-        pulses.rest_remaining = 0.0;
-        let force = pulses.advance(FLIGHT_STEP_SECONDS as f32, 4.0);
-        assert_ne!(force, 0.0);
-        assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), force);
-        for _ in 0..30 {
-            pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0);
-        }
-        assert_eq!(pulses.active_remaining, 0.0);
-        assert_eq!(pulses.advance(FLIGHT_STEP_SECONDS as f32, 0.0), 0.0);
+        let position = rhythm.position;
+        assert_ne!(
+            rhythm.advance(position, FLIGHT_STEP_SECONDS as f32, 10.0),
+            0.0
+        );
+        assert!(rhythm.publish_due);
+        rhythm.reset(position);
+        assert_eq!(rhythm.acceleration, 0.0);
+        assert_eq!(rhythm.phase, 0.0);
     }
 
     #[test]
     fn butterfly_vertical_and_horizontal_event_clocks_are_independent() {
-        let run = |vertical_frequency, maneuver_tempo| {
+        let run = |flight_frequency_hz, maneuver_tempo| {
             let mut state = DartingFlightState::new(3.0, Vec3::ONE, Vec3::X);
             for _ in 0..360 {
                 // Fixed inputs isolate intent clocks from terrain and shared speed limits.
@@ -593,7 +558,7 @@ mod tests {
                     Vec3::splat(2.0),
                     false,
                     ButterflyFlightTuning {
-                        vertical_frequency,
+                        flight_frequency_hz,
                         maneuver_tempo,
                         ..Default::default()
                     },
@@ -609,26 +574,13 @@ mod tests {
         assert_eq!(low.event_time_remaining, high.event_time_remaining);
         assert_eq!(low.event_acceleration, high.event_acceleration);
         assert_eq!(low.rng.random::<u64>(), high.rng.random::<u64>());
-        assert_ne!(
-            low.vertical_maneuvers.rest_remaining,
-            high.vertical_maneuvers.rest_remaining
-        );
+        assert_ne!(low.rhythm.acceleration, high.rhythm.acceleration);
         let mut lateral_fast = run(0.25, 4.0);
+        assert_eq!(low.rhythm.phase, lateral_fast.rhythm.phase);
+        assert_eq!(low.rhythm.acceleration, lateral_fast.rhythm.acceleration);
         assert_eq!(
-            low.vertical_maneuvers.rest_remaining,
-            lateral_fast.vertical_maneuvers.rest_remaining
-        );
-        assert_eq!(
-            low.vertical_maneuvers.active_remaining,
-            lateral_fast.vertical_maneuvers.active_remaining
-        );
-        assert_eq!(
-            low.vertical_maneuvers.acceleration,
-            lateral_fast.vertical_maneuvers.acceleration
-        );
-        assert_eq!(
-            low.vertical_maneuvers.rng.random::<u64>(),
-            lateral_fast.vertical_maneuvers.rng.random::<u64>()
+            low.rhythm.rng.random::<u64>(),
+            lateral_fast.rhythm.rng.random::<u64>()
         );
     }
 
@@ -653,7 +605,7 @@ mod tests {
                     ButterflyFlightTuning {
                         speed,
                         wind_drift,
-                        vertical_frequency: 0.0,
+                        flight_frequency_hz: 0.0,
                         ..Default::default()
                     },
                     Vec3::X * 2.0,
@@ -664,6 +616,7 @@ mod tests {
                         <= MAX_WIND_DRIFT_ACCELERATION * dt + 1e-6
                 );
                 position += velocity * dt;
+                state.publish_render_pose(position);
             }
             (position, velocity)
         };
@@ -708,6 +661,7 @@ mod tests {
                 &mut |_, _| None,
             );
             position += velocity * dt;
+            state.publish_render_pose(position);
             assert!(position.is_finite() && velocity.is_finite());
             assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());
             assert!(state.wind_velocity.length() <= MAX_WIND_DRIFT_SPEED + 1e-6);
@@ -726,17 +680,18 @@ mod tests {
                 &mut |_, _| None,
             );
             position += velocity * dt;
+            state.publish_render_pose(position);
         }
         assert!(state.wind_velocity.length() < 0.002);
     }
 
     #[test]
     fn butterfly_live_knobs_change_their_intended_motion_terms() {
-        let run = |tuning| {
+        let run = |tuning: ButterflyFlightTuning| {
             let mut state = DartingFlightState::new(9.0, Vec3::ONE, Vec3::X);
             state.event_acceleration = Vec3::new(0.4, 0.0, 0.2);
-            state.vertical_maneuvers.acceleration = 0.5;
-            state.vertical_maneuvers.active_remaining = 0.2;
+            state.rhythm.acceleration = 0.5;
+            state.rhythm.frequency_hz = tuning.flight_frequency_hz;
             state.event_time_remaining = 0.2;
             state.time_until_event = 0.6;
             let velocity = state.advance(
@@ -795,9 +750,8 @@ mod tests {
     fn butterfly_tuning_extremes_and_live_edits_stay_finite_and_in_world() {
         assert_eq!(
             ButterflyFlightTuning {
-                position_step_ms: f32::NAN,
+                flight_frequency_hz: f32::NAN,
                 maneuver_tempo: f32::INFINITY,
-                vertical_frequency: f32::NAN,
                 vertical_strength: f32::NAN,
                 turn_sharpness: f32::NEG_INFINITY,
                 speed: f32::NAN,
@@ -814,9 +768,8 @@ mod tests {
             for tick in 0..2400 {
                 let tuning = if (tick / 240) % 2 == 0 {
                     ButterflyFlightTuning {
-                        position_step_ms: 160.0,
+                        flight_frequency_hz: 40.0,
                         maneuver_tempo: 4.0,
-                        vertical_frequency: 40.0,
                         vertical_strength: 4.0,
                         turn_sharpness: 4.0,
                         speed: 2.5,
@@ -824,9 +777,8 @@ mod tests {
                     }
                 } else {
                     ButterflyFlightTuning {
-                        position_step_ms: 0.0,
+                        flight_frequency_hz: 0.0,
                         maneuver_tempo: 0.25,
-                        vertical_frequency: 0.0,
                         vertical_strength: 0.0,
                         turn_sharpness: 0.25,
                         speed: 0.25,
@@ -844,6 +796,7 @@ mod tests {
                     &mut |_, _| None,
                 );
                 position += velocity * dt;
+                state.publish_render_pose(position);
                 assert!(position.is_finite() && velocity.is_finite());
                 assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());
                 assert!(velocity.length() <= 0.75 + 1e-6);
@@ -853,27 +806,29 @@ mod tests {
     }
 
     #[test]
-    fn butterfly_pose_steps_sample_real_positions_with_bounded_irregular_holds() {
-        let mut pose = SteppedFlightPose::new(7.0, Vec3::ZERO);
+    fn butterfly_displacement_guard_advances_intent_and_pose_together() {
+        let mut rhythm = SharedFlightRhythm::new(7.0, Vec3::ZERO);
         let dt = FLIGHT_STEP_SECONDS as f32;
         let mut position = Vec3::ZERO;
-        let mut intervals = std::collections::BTreeSet::new();
-        let mut last_publication = 0;
-        for tick in 1..=240 {
-            position.x += 0.3 * dt;
-            let previous = pose.position;
-            pose.advance(position, dt, 60.0);
-            if pose.position != previous {
-                assert_eq!(pose.position, position);
-                intervals.insert(tick - last_publication);
-                last_publication = tick;
+        let mut guarded_beats = 0;
+        for _ in 0..240 {
+            let old_rng = rhythm.rng.clone().random::<u64>();
+            rhythm.advance(position, dt, 0.25);
+            if rhythm.publish_due {
+                guarded_beats += 1;
             }
-            assert!(pose.position.distance(position) < 0.025 + 1e-6);
+            assert_eq!(
+                rhythm.publish_due,
+                rhythm.rng.clone().random::<u64>() != old_rng
+            );
+            position.x += 0.3 * dt;
+            rhythm.publish(position);
+            assert!(rhythm.position.distance(position) <= 0.025 + 0.3 * dt + 1e-6);
         }
-        assert!(intervals.len() >= 3);
-        assert!(*intervals.iter().max().unwrap() <= 9);
-        pose.advance(position, dt, 0.0);
-        assert_eq!(pose.position, position);
+        assert!(
+            guarded_beats > 10,
+            "slow cadence must retain the displacement guard"
+        );
     }
 
     #[test]
@@ -910,6 +865,7 @@ mod tests {
                 );
                 assert!((next - velocity).length() <= BUTTERFLY_BLOCK_MAX_ACCELERATION * dt + 1e-5);
                 position += next * dt;
+                flight.publish_render_pose(position);
                 velocity = next;
                 max_offset = max_offset.max(position.distance(center));
                 assert!(position.cmpge(Vec3::ZERO).all() && position.cmple(Vec3::splat(2.0)).all());

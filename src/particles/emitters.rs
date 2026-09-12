@@ -4,7 +4,7 @@ use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
-use super::butterfly_flight::{DartingFlightState, SteppedFlightPose, FLIGHT_STEP_SECONDS};
+use super::butterfly_flight::{DartingFlightState, FLIGHT_STEP_SECONDS};
 use super::{ButterflyFlightTuning, ButterflyFlightVariant};
 use super::{
     MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem,
@@ -321,7 +321,6 @@ struct ActiveButterfly {
     worm_phase: f32,
     emergence_target_y: Option<f32>,
     darting_flight: DartingFlightState,
-    render_pose: SteppedFlightPose,
 }
 
 pub struct ButterflyEmitter {
@@ -416,7 +415,7 @@ impl ButterflyEmitter {
                     .darting_flight
                     .resume(system.velocity(butterfly.handle).unwrap_or(Vec3::ZERO));
                 if let Some(position) = system.position(butterfly.handle) {
-                    butterfly.render_pose.reset(position);
+                    butterfly.darting_flight.reset_render_pose(position);
                 }
             }
         }
@@ -509,13 +508,14 @@ impl ButterflyEmitter {
 
         match system.spawn(spawn) {
             Some(handle) => {
+                let mut darting_flight = DartingFlightState::new(seed, habitat_center, initial_dir);
+                darting_flight.reset_render_pose(position);
                 self.active_butterflies.push(ActiveButterfly {
                     handle,
                     worm_seed: seed,
                     worm_phase: phase,
                     emergence_target_y,
-                    darting_flight: DartingFlightState::new(seed, habitat_center, initial_dir),
-                    render_pose: SteppedFlightPose::new(seed, position),
+                    darting_flight,
                 });
                 Some(handle)
             }
@@ -612,11 +612,7 @@ impl ButterflyEmitter {
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
                 if let Some(position) = system.position(butterfly.handle) {
-                    butterfly.render_pose.advance(
-                        position,
-                        step as f32,
-                        self.flight_tuning.position_step_ms,
-                    );
+                    butterfly.darting_flight.publish_render_pose(position);
                 }
             }
         }
@@ -634,7 +630,7 @@ impl ButterflyEmitter {
         self.active_butterflies
             .iter()
             .find(|butterfly| butterfly.handle == handle)
-            .map(|butterfly| butterfly.render_pose.position)
+            .map(|butterfly| butterfly.darting_flight.render_position())
     }
 
     pub fn despawn_butterfly(&mut self, handle: ParticleHandle) {
@@ -821,6 +817,7 @@ mod tests {
             (
                 system.position(handle).unwrap(),
                 system.velocity(handle).unwrap(),
+                emitter.block_render_position(handle).unwrap(),
             )
         };
         let reference = run(1.0 / 120.0, 0.05);
@@ -828,6 +825,38 @@ mod tests {
             let actual = run(dt, tick);
             assert!(actual.0.distance(reference.0) < 1e-6);
             assert!(actual.1.distance(reference.1) < 1e-6);
+            assert!(actual.2.distance(reference.2) < 1e-6);
+        }
+    }
+
+    #[test]
+    fn butterfly_100ms_shared_beats_publish_actual_integrated_positions() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        desc.flight_tuning.flight_frequency_hz = 10.0;
+        let mut emitter = ButterflyEmitter::new(23, &desc);
+        emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(Vec3::ONE)]);
+        let mut system = ParticleSystem::new(4);
+        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+        for tick in 0..240 {
+            let previous = emitter.block_render_position(handle).unwrap();
+            emitter.advance_block_flight(
+                &mut system,
+                FLIGHT_STEP_SECONDS as f32,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            let expected = if tick % 12 == 0 {
+                system.position(handle).unwrap()
+            } else {
+                previous
+            };
+            assert_eq!(
+                emitter.block_render_position(handle).unwrap(),
+                expected,
+                "tick={tick}"
+            );
         }
     }
 
@@ -1034,11 +1063,11 @@ mod tests {
         assert_eq!(system.alive_count(), 2);
     }
     #[test]
-    fn butterfly_display_cadence_does_not_change_physics_palette_or_lifecycle() {
+    fn butterfly_shared_cadence_changes_motion_but_preserves_population_and_palette() {
         let mut desc = butterfly_test_desc();
         desc.flight_variant = ButterflyFlightVariant::DartingBlock;
         let mut stepped = ButterflyEmitter::new(23, &desc);
-        desc.flight_tuning.position_step_ms = 0.0;
+        desc.flight_tuning.flight_frequency_hz = 0.0;
         let mut continuous = ButterflyEmitter::new(23, &desc);
         let mut a = ParticleSystem::new(4);
         let mut b = ParticleSystem::new(4);
@@ -1065,8 +1094,6 @@ mod tests {
                 &WindFieldFrame::default(),
                 |_, _| None,
             );
-            assert_eq!(a.position(ah), b.position(bh));
-            assert_eq!(a.velocity(ah), b.velocity(bh));
             assert_eq!(continuous.block_render_position(bh), b.position(bh));
             a.write_snapshots_with_block_pose(&mut snapshots, |handle, position| {
                 stepped.block_render_position(handle).unwrap_or(position)
@@ -1076,6 +1103,11 @@ mod tests {
             previous = displayed;
         }
         assert!(held_frames > 50);
+        assert_ne!(a.position(ah), b.position(bh));
+        let mut b_snapshots = Vec::new();
+        b.write_snapshots(&mut b_snapshots);
+        assert_eq!(snapshots[0].texture_variant, b_snapshots[0].texture_variant);
+        assert_eq!(snapshots[0].color, b_snapshots[0].color);
         let (position, velocity) = (a.position(ah), a.velocity(ah));
         desc.flight_tuning.vertical_strength = 4.0;
         stepped.apply_desc(&desc);

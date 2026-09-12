@@ -83,13 +83,21 @@ pub(super) fn draw_butterfly_flight_ab_controls(
 fn draw_butterfly_flight_tuning(
     ui: &mut egui::Ui,
     tuning: &mut ButterflyFlightTuning,
-) -> ([egui::Response; 7], egui::Response) {
+) -> ([egui::Response; 6], egui::Response) {
     ui.small(
         "B only — live controls, not saved. Physics stays at 120 Hz; World Tick is unchanged.",
     );
-    let position = ui.add(egui::Slider::new(&mut tuning.position_step_ms, ButterflyFlightTuning::POSITION_STEP_RANGE)
-        .text("Position step interval (ms)").step_by(1.0))
-        .on_hover_text("0 = continuous. Higher = more visible steps. Each butterfly varies the interval by ±20%; large motion publishes earlier. No random position offsets.");
+    let frequency = ui.add(egui::Slider::new(&mut tuning.flight_frequency_hz, ButterflyFlightTuning::FREQUENCY_RANGE)
+        .text("Shared flight frequency (Hz)").logarithmic(true).step_by(0.05))
+        .on_hover_text("One beat updates BOTH vertical intent and displayed position. No independent timer or timing jitter. 0 = continuous display, no voluntary vertical intent. Large displacement may advance BOTH together; display is limited by render FPS.");
+    if tuning.flight_frequency_hz > 0.0 {
+        ui.small(format!(
+            "Shared interval: {:.1} ms — vertical intent + display",
+            1000.0 / tuning.flight_frequency_hz
+        ));
+    } else {
+        ui.small("Shared stepping off — continuous display, no vertical intent");
+    }
     let tempo = ui
         .add(
             egui::Slider::new(
@@ -102,9 +110,6 @@ fn draw_butterfly_flight_tuning(
         .on_hover_text(
             "Higher = more frequent, shorter horizontal maneuvers. Vertical timing, wind, physics tick and lifetime are unchanged.",
         );
-    let vertical_frequency = ui.add(egui::Slider::new(&mut tuning.vertical_frequency, ButterflyFlightTuning::VERTICAL_FREQUENCY_RANGE)
-        .text("Vertical maneuver frequency (x)").logarithmic(true).step_by(0.05))
-        .on_hover_text("0-4 shortens irregular rests; above 4 also compresses pulses, up to 40. Not fixed Hz or a sine wave. Force, horizontal timing and wind are unchanged; speed/acceleration limits still apply. 0 stops new pulses.");
     let vertical = ui.add(egui::Slider::new(&mut tuning.vertical_strength, ButterflyFlightTuning::VERTICAL_RANGE)
         .text("Vertical movement (x)").step_by(0.05))
         .on_hover_text("Higher = stronger up/down steering. 0 removes voluntary vertical motion, but terrain/habitat recovery still works.");
@@ -118,35 +123,16 @@ fn draw_butterfly_flight_tuning(
         .text("Wind drift (x)").step_by(0.05))
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
     let reset = ui.button("Reset B flight controls");
-    let changed = [
-        &position,
-        &tempo,
-        &vertical_frequency,
-        &vertical,
-        &sharpness,
-        &speed,
-        &wind,
-    ]
-    .iter()
-    .any(|r| r.changed());
+    let changed = [&frequency, &tempo, &vertical, &sharpness, &speed, &wind]
+        .iter()
+        .any(|r| r.changed());
     if reset.clicked() {
         *tuning = ButterflyFlightTuning::default();
     }
     if changed || reset.clicked() {
         log::info!("[BUTTERFLY_AB][TUNING] {tuning:?}");
     }
-    (
-        [
-            position,
-            tempo,
-            vertical_frequency,
-            vertical,
-            sharpness,
-            speed,
-            wind,
-        ],
-        reset,
-    )
+    ([frequency, tempo, vertical, sharpness, speed, wind], reset)
 }
 
 fn terrain_harvest_rgb_for_voxel(voxel_type: u32) -> [u8; 3] {
@@ -842,13 +828,12 @@ impl App {
         if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("tuning") {
             let next = match review.subject_frame.map(|start| frame - start) {
                 Some(90) => Some(ButterflyFlightTuning {
-                    position_step_ms: 0.0,
+                    flight_frequency_hz: 0.0,
                     ..ButterflyFlightTuning::default()
                 }),
                 Some(180) => Some(ButterflyFlightTuning {
-                    position_step_ms: 160.0,
+                    flight_frequency_hz: 6.25,
                     maneuver_tempo: 2.0,
-                    vertical_frequency: 1.0,
                     vertical_strength: 3.0,
                     turn_sharpness: 2.0,
                     speed: 1.0,
@@ -884,18 +869,16 @@ impl App {
                 log::info!("[BUTTERFLY_REVIEW] scripted_wind_gain={gain} frame={frame}");
             }
         }
-        let review_mode = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").unwrap_or_default();
-        if matches!(review_mode.as_str(), "vertical" | "vertical-range") {
-            let extended_range = review_mode == "vertical-range";
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("rhythm") {
             let next_frequency = match review.subject_frame.map(|start| frame - start) {
-                Some(90) => Some(if extended_range { 4.0 } else { 0.0 }),
-                Some(180) => Some(if extended_range { 40.0 } else { 4.0 }),
-                Some(270) => Some(if extended_range { 4.0 } else { 1.0 }),
+                Some(90) => Some(20.0),
+                Some(180) => Some(40.0),
+                Some(270) => Some(10.0),
                 _ => None,
             };
             if let Some(frequency) = next_frequency {
-                self.butterfly_flight_tuning.vertical_frequency = frequency;
-                log::info!("[BUTTERFLY_REVIEW] scripted_vertical_frequency={frequency} frame={frame} tuning={:?}", self.butterfly_flight_tuning);
+                self.butterfly_flight_tuning.flight_frequency_hz = frequency;
+                log::info!("[BUTTERFLY_REVIEW] scripted_shared_frequency_hz={frequency} frame={frame} tuning={:?}", self.butterfly_flight_tuning);
             }
         }
     }
@@ -1127,7 +1110,7 @@ mod tests {
         let context = egui::Context::default();
         let mut tuning = ButterflyFlightTuning::default();
         let mut draw = |events| {
-            let mut rects = [egui::Rect::NOTHING; 7];
+            let mut rects = [egui::Rect::NOTHING; 6];
             let mut reset_rect = egui::Rect::NOTHING;
             let _ = context.run_ui(
                 egui::RawInput {
@@ -1147,7 +1130,7 @@ mod tests {
             (rects, reset_rect, tuning)
         };
         draw(Vec::new());
-        let (rects, _, initial) = draw(Vec::new());
+        let (_, _, initial) = draw(Vec::new());
         let click_events = |pos, pressed| {
             vec![
                 egui::Event::PointerMoved(pos),
@@ -1159,9 +1142,10 @@ mod tests {
                 },
             ]
         };
-        for rect in rects {
-            // Self-speed now starts at its minimum. Click inside the track, not the
-            // minimum endpoint (which would correctly leave that setting unchanged).
+        for index in 0..6 {
+            let (rects, _, _) = draw(Vec::new());
+            let rect = rects[index];
+            // Use current layout and click inside the track, not a possibly-default endpoint.
             let pos = egui::pos2(
                 rect.left() + context.style().spacing.slider_width * 0.5,
                 rect.center().y,
@@ -1170,9 +1154,8 @@ mod tests {
             draw(click_events(pos, false));
         }
         let (_, reset, edited) = draw(Vec::new());
-        assert_ne!(edited.position_step_ms, initial.position_step_ms);
+        assert_ne!(edited.flight_frequency_hz, initial.flight_frequency_hz);
         assert_ne!(edited.maneuver_tempo, initial.maneuver_tempo);
-        assert_ne!(edited.vertical_frequency, initial.vertical_frequency);
         assert_ne!(edited.vertical_strength, initial.vertical_strength);
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);
