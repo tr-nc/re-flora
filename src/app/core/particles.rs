@@ -506,6 +506,7 @@ impl App {
         }
 
         let total_start = Instant::now();
+        self.prepare_fallen_leaf_review();
         let setup_start = Instant::now();
         let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
         if allows_ambient_emitters {
@@ -573,6 +574,7 @@ impl App {
         self.particle_system
             .write_snapshots(&mut self.particle_snapshots);
         let sim_snapshot_count = self.particle_snapshots.len();
+        self.log_fallen_leaf_review();
         self.append_water_debug_snapshots();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
