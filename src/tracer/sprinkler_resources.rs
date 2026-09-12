@@ -54,15 +54,6 @@ pub struct SprinklerInstanceGpu {
     animation_phase: f32,
 }
 
-impl SprinklerInstanceGpu {
-    pub(crate) fn static_mode() -> Self {
-        Self {
-            base_position: Vec3::ZERO.to_array(),
-            animation_phase: 0.0,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct SprinklerRenderInstance {
     pub base_position: Vec3,

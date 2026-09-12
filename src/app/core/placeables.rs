@@ -10,14 +10,11 @@ use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
 };
-use crate::tracer::{
-    IrrigationPipeRenderData, IrrigationPipeRenderSegment, SprinklerRenderInstance,
-    IRRIGATION_PIPE_END_CAP_VOXELS, IRRIGATION_PIPE_RADIUS_VOXELS,
-};
+use crate::tracer::SprinklerRenderInstance;
 use anyhow::{anyhow, Result};
-use glam::{IVec3, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
@@ -44,488 +41,14 @@ const SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL: u8 = 0;
 const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
 const SPRINKLER_RASTER_ENTITY_NAMESPACE: u32 = 0x5350_524B;
 pub(super) const SPRINKLER_HEAD_EMITTER_PART: RasterEmitterPartId = RasterEmitterPartId::new(1);
-const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
 
 type PreparedRasterEmitterPublication =
     PreparedLocalLightSourcePublication<RasterEntityEmitterProvider, RasterEntityEmitterChange>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IrrigationNodeKind {
-    Source,
-    Junction,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct IrrigationNode {
-    id: u32,
-    position_voxels: IVec3,
-    kind: IrrigationNodeKind,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct PipeSegment {
-    start_node: u32,
-    end_node: u32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct PipeAttachment {
-    pub position_voxels: Vec3,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct PipeRayHit {
-    pub distance: f32,
-    pub attachment: PipeAttachment,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) enum SprinklerPlacementTarget {
-    Terrain(Vec3),
-    Pipe(PipeAttachment),
-}
-
-impl SprinklerPlacementTarget {
-    pub(super) fn position(self) -> Vec3 {
-        match self {
-            Self::Terrain(position) => position,
-            Self::Pipe(attachment) => attachment.position_voxels / VOXELS_PER_WORLD_UNIT,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct PipeDrag {
-    start_voxels: IVec3,
-    end_voxels: IVec3,
-}
-
-struct PipeRoutePreviewPlan {
-    expected_revision: u64,
-    next_drag: PipeDrag,
-    render_data: IrrigationPipeRenderData,
-}
-
-impl PipeRoutePreviewPlan {
-    fn render_data(&self) -> &IrrigationPipeRenderData {
-        &self.render_data
-    }
-}
-
-struct PipeRouteCommitPlan {
-    expected_revision: u64,
-    start_voxels: IVec3,
-    next_network: IrrigationNetwork,
-    render_data: IrrigationPipeRenderData,
-}
-
-impl PipeRouteCommitPlan {
-    fn render_data(&self) -> &IrrigationPipeRenderData {
-        &self.render_data
-    }
-
-    fn start_voxels(&self) -> IVec3 {
-        self.start_voxels
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub(super) struct IrrigationNetwork {
-    source_node: Option<u32>,
-    nodes: Vec<IrrigationNode>,
-    segments: Vec<PipeSegment>,
-    next_node_id: u32,
-    powered_nodes: HashSet<u32>,
-    active_drag: Option<PipeDrag>,
-    revision: u64,
-}
-
-impl IrrigationNetwork {
-    fn snap_surface_position(world_position: Vec3) -> IVec3 {
-        (world_position * VOXELS_PER_WORLD_UNIT).round().as_ivec3() + IVec3::Y
-    }
-
-    fn node(&self, id: u32) -> Option<&IrrigationNode> {
-        self.nodes.iter().find(|node| node.id == id)
-    }
-
-    fn node_at(&self, position_voxels: IVec3) -> Option<u32> {
-        self.nodes
-            .iter()
-            .find(|node| node.position_voxels == position_voxels)
-            .map(|node| node.id)
-    }
-
-    fn upsert_node(&mut self, position_voxels: IVec3, kind: IrrigationNodeKind) -> u32 {
-        if let Some(id) = self.node_at(position_voxels) {
-            if kind == IrrigationNodeKind::Source {
-                if let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) {
-                    node.kind = kind;
-                }
-            }
-            return id;
-        }
-        let id = self.next_node_id.max(1);
-        self.next_node_id = id.wrapping_add(1).max(1);
-        self.nodes.push(IrrigationNode {
-            id,
-            position_voxels,
-            kind,
-        });
-        id
-    }
-
-    fn connected_nodes(&self) -> HashSet<u32> {
-        let Some(source) = self.source_node else {
-            return HashSet::new();
-        };
-        let mut connected = HashSet::from([source]);
-        let mut queue = VecDeque::from([source]);
-        while let Some(node_id) = queue.pop_front() {
-            for segment in &self.segments {
-                let neighbor = if segment.start_node == node_id {
-                    Some(segment.end_node)
-                } else if segment.end_node == node_id {
-                    Some(segment.start_node)
-                } else {
-                    None
-                };
-                if let Some(neighbor) = neighbor {
-                    if connected.insert(neighbor) {
-                        queue.push_back(neighbor);
-                    }
-                }
-            }
-        }
-        connected
-    }
-
-    fn refresh_connectivity(&mut self) {
-        self.powered_nodes = self.connected_nodes();
-    }
-
-    #[cfg(test)]
-    fn segment_is_connected(&self, segment: &PipeSegment) -> bool {
-        self.powered_nodes.contains(&segment.start_node)
-            && self.powered_nodes.contains(&segment.end_node)
-    }
-
-    fn nearest_node(&self, position: Vec3, max_distance: f32) -> Option<u32> {
-        self.nodes
-            .iter()
-            .filter(|node| self.powered_nodes.contains(&node.id))
-            .filter_map(|node| {
-                let distance_sq = node.position_voxels.as_vec3().distance_squared(position);
-                (distance_sq <= max_distance * max_distance).then_some((distance_sq, node.id))
-            })
-            .min_by(|left, right| left.0.total_cmp(&right.0))
-            .map(|(_, id)| id)
-    }
-
-    fn drag_from(&self, world_position: Vec3) -> Option<PipeDrag> {
-        let snapped = Self::snap_surface_position(world_position);
-        if self.source_node.is_none() {
-            return Some(PipeDrag {
-                start_voxels: snapped,
-                end_voxels: snapped,
-            });
-        }
-        self.nearest_node(snapped.as_vec3(), PIPE_START_MAX_DISTANCE_VOXELS)
-            .and_then(|id| self.node(id))
-            .map(|node| PipeDrag {
-                start_voxels: node.position_voxels,
-                end_voxels: node.position_voxels,
-            })
-    }
-
-    fn commit_drag_topology(&mut self, drag: PipeDrag, world_end: Vec3) -> Result<()> {
-        let end = Self::snap_surface_position(world_end);
-        let source_id = if let Some(source) = self.source_node {
-            source
-        } else {
-            let source = self.upsert_node(drag.start_voxels, IrrigationNodeKind::Source);
-            self.source_node = Some(source);
-            source
-        };
-        self.refresh_connectivity();
-        let start_node = self.node_at(drag.start_voxels).unwrap_or(source_id);
-        if !self.powered_nodes.contains(&start_node) {
-            return Err(anyhow!(
-                "pipe drag must start on the powered irrigation network"
-            ));
-        }
-
-        for (start, end) in orthogonal_pipe_route(drag.start_voxels, end) {
-            let start_id = self.upsert_node(start, IrrigationNodeKind::Junction);
-            let end_id = self.upsert_node(end, IrrigationNodeKind::Junction);
-            if self.segments.iter().any(|segment| {
-                (segment.start_node == start_id && segment.end_node == end_id)
-                    || (segment.start_node == end_id && segment.end_node == start_id)
-            }) {
-                continue;
-            }
-            self.segments.push(PipeSegment {
-                start_node: start_id,
-                end_node: end_id,
-            });
-        }
-        self.refresh_connectivity();
-        Ok(())
-    }
-
-    pub(super) fn route_active(&self) -> bool {
-        self.active_drag.is_some()
-    }
-
-    fn plan_begin_route(&self, world_position: Vec3) -> Option<PipeRoutePreviewPlan> {
-        if self.active_drag.is_some() {
-            return None;
-        }
-        let next_drag = self.drag_from(world_position)?;
-        Some(PipeRoutePreviewPlan {
-            expected_revision: self.revision,
-            render_data: self.preview_render_data(next_drag),
-            next_drag,
-        })
-    }
-
-    fn plan_update_route(&self, world_position: Vec3) -> Option<PipeRoutePreviewPlan> {
-        let mut next_drag = self.active_drag?;
-        let end_voxels = Self::snap_surface_position(world_position);
-        if next_drag.end_voxels == end_voxels {
-            return None;
-        }
-        next_drag.end_voxels = end_voxels;
-        Some(PipeRoutePreviewPlan {
-            expected_revision: self.revision,
-            render_data: self.preview_render_data(next_drag),
-            next_drag,
-        })
-    }
-
-    fn commit_route_preview(&mut self, plan: PipeRoutePreviewPlan) {
-        assert_eq!(
-            self.revision, plan.expected_revision,
-            "pipe route preview must commit against its source revision"
-        );
-        self.active_drag = Some(plan.next_drag);
-        self.revision = self.revision.wrapping_add(1);
-    }
-
-    fn plan_finish_route(&self, world_end: Vec3) -> Result<Option<PipeRouteCommitPlan>> {
-        let Some(active_drag) = self.active_drag else {
-            return Ok(None);
-        };
-        let mut next_network = self.clone();
-        next_network.active_drag = None;
-        next_network.commit_drag_topology(active_drag, world_end)?;
-        next_network.revision = self.revision.wrapping_add(1);
-        let render_data = next_network.render_data();
-        Ok(Some(PipeRouteCommitPlan {
-            expected_revision: self.revision,
-            start_voxels: active_drag.start_voxels,
-            next_network,
-            render_data,
-        }))
-    }
-
-    fn commit_route(&mut self, plan: PipeRouteCommitPlan) {
-        assert_eq!(
-            self.revision, plan.expected_revision,
-            "pipe route must commit against its source revision"
-        );
-        debug_assert_eq!(
-            plan.next_network.revision,
-            self.revision.wrapping_add(1),
-            "committed pipe route must advance the network revision"
-        );
-        *self = plan.next_network;
-    }
-
-    fn cancel_route(&mut self) -> bool {
-        if self.active_drag.take().is_none() {
-            return false;
-        }
-        self.revision = self.revision.wrapping_add(1);
-        true
-    }
-
-    pub(super) fn ray_attachment(
-        &self,
-        ray_origin: Vec3,
-        ray_direction: Vec3,
-        max_distance: f32,
-    ) -> Option<PipeRayHit> {
-        if !ray_origin.is_finite()
-            || !ray_direction.is_finite()
-            || !max_distance.is_finite()
-            || max_distance <= 0.0
-        {
-            return None;
-        }
-        let ray_direction = ray_direction.normalize_or_zero();
-        if ray_direction == Vec3::ZERO {
-            return None;
-        }
-        let radius = IRRIGATION_PIPE_RADIUS_VOXELS / VOXELS_PER_WORLD_UNIT;
-        let end_cap = IRRIGATION_PIPE_END_CAP_VOXELS / VOXELS_PER_WORLD_UNIT;
-        self.segments
-            .iter()
-            .filter_map(|segment| {
-                let start_voxels = self.node(segment.start_node)?.position_voxels.as_vec3();
-                let end_voxels = self.node(segment.end_node)?.position_voxels.as_vec3();
-                let start = start_voxels / VOXELS_PER_WORLD_UNIT;
-                let end = end_voxels / VOXELS_PER_WORLD_UNIT;
-                let segment_direction = (end - start).normalize_or_zero();
-                if segment_direction == Vec3::ZERO {
-                    return None;
-                }
-                let distance = ray_capped_cylinder_intersection_distance(
-                    ray_origin,
-                    ray_direction,
-                    start - segment_direction * end_cap,
-                    end + segment_direction * end_cap,
-                    radius,
-                )?;
-                if distance > max_distance {
-                    return None;
-                }
-                let hit_voxels = (ray_origin + ray_direction * distance) * VOXELS_PER_WORLD_UNIT;
-                let axis = end_voxels - start_voxels;
-                let length_sq = axis.length_squared();
-                let t = ((hit_voxels - start_voxels).dot(axis) / length_sq).clamp(0.0, 1.0);
-                Some(PipeRayHit {
-                    distance,
-                    attachment: PipeAttachment {
-                        position_voxels: start_voxels + axis * t,
-                    },
-                })
-            })
-            .min_by(|left, right| left.distance.total_cmp(&right.distance))
-    }
-
-    fn preview_render_data(&self, drag: PipeDrag) -> IrrigationPipeRenderData {
-        IrrigationPipeRenderData {
-            source_position: self
-                .source_node
-                .is_none()
-                .then_some(drag.start_voxels.as_vec3() / VOXELS_PER_WORLD_UNIT),
-            segments: orthogonal_pipe_route(drag.start_voxels, drag.end_voxels)
-                .into_iter()
-                .map(|(start, end)| IrrigationPipeRenderSegment {
-                    start: start.as_vec3() / VOXELS_PER_WORLD_UNIT,
-                    end: end.as_vec3() / VOXELS_PER_WORLD_UNIT,
-                })
-                .collect(),
-        }
-    }
-
-    fn render_data(&self) -> IrrigationPipeRenderData {
-        IrrigationPipeRenderData {
-            source_position: self
-                .source_node
-                .and_then(|id| self.node(id))
-                .map(|node| node.position_voxels.as_vec3() / VOXELS_PER_WORLD_UNIT),
-            segments: self
-                .segments
-                .iter()
-                .filter_map(|segment| {
-                    let start = self.node(segment.start_node)?.position_voxels.as_vec3()
-                        / VOXELS_PER_WORLD_UNIT;
-                    let end = self.node(segment.end_node)?.position_voxels.as_vec3()
-                        / VOXELS_PER_WORLD_UNIT;
-                    Some(IrrigationPipeRenderSegment { start, end })
-                })
-                .collect(),
-        }
-    }
-}
-
-fn ray_capped_cylinder_intersection_distance(
-    ray_origin: Vec3,
-    ray_direction: Vec3,
-    cylinder_start: Vec3,
-    cylinder_end: Vec3,
-    radius: f32,
-) -> Option<f32> {
-    let ray_direction = ray_direction.normalize_or_zero();
-    let axis = cylinder_end - cylinder_start;
-    let axis_length = axis.length();
-    if ray_direction == Vec3::ZERO
-        || !axis_length.is_finite()
-        || axis_length <= f32::EPSILON
-        || !radius.is_finite()
-        || radius <= 0.0
-    {
-        return None;
-    }
-
-    let axis_direction = axis / axis_length;
-    let origin_from_start = ray_origin - cylinder_start;
-    let origin_axial = origin_from_start.dot(axis_direction);
-    let direction_axial = ray_direction.dot(axis_direction);
-    let origin_radial = origin_from_start - axis_direction * origin_axial;
-    let direction_radial = ray_direction - axis_direction * direction_axial;
-    let radius_sq = radius * radius;
-
-    if (0.0..=axis_length).contains(&origin_axial) && origin_radial.length_squared() <= radius_sq {
-        return Some(0.0);
-    }
-
-    let mut closest = f32::INFINITY;
-    let quadratic_a = direction_radial.length_squared();
-    if quadratic_a > f32::EPSILON {
-        let quadratic_b = 2.0 * origin_radial.dot(direction_radial);
-        let quadratic_c = origin_radial.length_squared() - radius_sq;
-        let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
-        if discriminant >= 0.0 {
-            let sqrt_discriminant = discriminant.sqrt();
-            for distance in [
-                (-quadratic_b - sqrt_discriminant) / (2.0 * quadratic_a),
-                (-quadratic_b + sqrt_discriminant) / (2.0 * quadratic_a),
-            ] {
-                let axial = origin_axial + direction_axial * distance;
-                if distance >= 0.0 && (0.0..=axis_length).contains(&axial) {
-                    closest = closest.min(distance);
-                }
-            }
-        }
-    }
-
-    if direction_axial.abs() > f32::EPSILON {
-        for cap_axial in [0.0, axis_length] {
-            let distance = (cap_axial - origin_axial) / direction_axial;
-            if distance < 0.0 {
-                continue;
-            }
-            let cap_hit = origin_from_start + ray_direction * distance - axis_direction * cap_axial;
-            if cap_hit.length_squared() <= radius_sq {
-                closest = closest.min(distance);
-            }
-        }
-    }
-
-    closest.is_finite().then_some(closest)
-}
-
-fn orthogonal_pipe_route(start: IVec3, end: IVec3) -> Vec<(IVec3, IVec3)> {
-    let corners = [
-        start,
-        IVec3::new(end.x, start.y, start.z),
-        IVec3::new(end.x, start.y, end.z),
-        end,
-    ];
-    corners
-        .windows(2)
-        .filter_map(|pair| (pair[0] != pair[1]).then_some((pair[0], pair[1])))
-        .collect()
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PlaceableKind {
     Tree,
     Sprinkler,
-    Pipe,
 }
 
 impl PlaceableKind {
@@ -533,7 +56,6 @@ impl PlaceableKind {
         match self {
             Self::Tree => "Tree",
             Self::Sprinkler => "Sprinkler",
-            Self::Pipe => "Pipe",
         }
     }
 }
@@ -840,16 +362,16 @@ impl SprinklerRuntime {
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
-    fn plan_placement(&self, target: SprinklerPlacementTarget) -> Result<SprinklerPlacementPlan> {
+    fn plan_placement(&self, target: Vec3) -> Result<SprinklerPlacementPlan> {
         self.plan_placement_with_emitter(target, None)
     }
 
     fn plan_placement_with_emitter(
         &self,
-        target: SprinklerPlacementTarget,
+        target: Vec3,
         emitter_component: Option<RasterEmitterComponent>,
     ) -> Result<SprinklerPlacementPlan> {
-        let base_position = target.position();
+        let base_position = target;
         let nozzle_position =
             base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
         let id = u32::try_from(self.next_id)
@@ -1121,49 +643,6 @@ impl App {
         self.current_placeable_kind().label()
     }
 
-    pub(super) fn begin_pipe_drag(&mut self, world_position: Vec3) {
-        let Some(plan) = self.irrigation_network.plan_begin_route(world_position) else {
-            log::info!("Pipe drag must start near the source or an existing junction");
-            return;
-        };
-        if let Err(err) = self
-            .tracer
-            .upload_irrigation_pipe_preview(plan.render_data())
-        {
-            log::error!("Failed to show irrigation pipe preview: {err}");
-            return;
-        }
-        self.irrigation_network.commit_route_preview(plan);
-    }
-
-    pub(super) fn update_pipe_drag_preview(&mut self, world_position: Vec3) -> Result<()> {
-        let Some(plan) = self.irrigation_network.plan_update_route(world_position) else {
-            return Ok(());
-        };
-        self.tracer
-            .upload_irrigation_pipe_preview(plan.render_data())?;
-        self.irrigation_network.commit_route_preview(plan);
-        Ok(())
-    }
-
-    pub(super) fn finish_pipe_drag(&mut self, world_position: Vec3) -> Result<()> {
-        let Some(plan) = self.irrigation_network.plan_finish_route(world_position)? else {
-            return Ok(());
-        };
-        self.tracer.upload_irrigation_pipes(plan.render_data())?;
-        let start_voxels = plan.start_voxels();
-        self.irrigation_network.commit_route(plan);
-        self.tracer.clear_irrigation_pipe_preview();
-        log::info!("Committed irrigation pipe route from {:?}", start_voxels);
-        Ok(())
-    }
-
-    pub(super) fn cancel_pipe_drag(&mut self) {
-        if self.irrigation_network.cancel_route() {
-            self.tracer.clear_irrigation_pipe_preview();
-        }
-    }
-
     pub(super) fn remove_sprinklers_in_brush(&mut self, edit: TerrainBrushEdit) -> Result<usize> {
         let Some(plan) = self.sprinklers.plan_removal(edit) else {
             return Ok(0);
@@ -1199,17 +678,14 @@ impl App {
         Ok(removed_count)
     }
 
-    pub(super) fn apply_sprinkler_placement(
-        &mut self,
-        target: SprinklerPlacementTarget,
-    ) -> Result<()> {
+    pub(super) fn apply_sprinkler_placement(&mut self, target: Vec3) -> Result<()> {
         self.apply_sprinkler_placement_internal(target, None)
             .map(|_| ())
     }
 
     fn apply_sprinkler_placement_internal(
         &mut self,
-        target: SprinklerPlacementTarget,
+        target: Vec3,
         component: Option<RasterEmitterComponent>,
     ) -> Result<(RasterEntityId, Option<LightId>)> {
         let plan = self
@@ -1271,7 +747,7 @@ impl App {
 
     pub(super) fn apply_emissive_sprinkler_placement(
         &mut self,
-        target: SprinklerPlacementTarget,
+        target: Vec3,
         component: RasterEmitterComponent,
     ) -> Result<(RasterEntityId, LightId)> {
         let (entity, light_id) =
@@ -1403,18 +879,6 @@ mod tests {
         ))
     }
 
-    fn commit_test_route(network: &mut IrrigationNetwork, start: Vec3, end: Vec3) {
-        let begin = network
-            .plan_begin_route(start)
-            .expect("route should begin at a valid network position");
-        network.commit_route_preview(begin);
-        let finish = network
-            .plan_finish_route(end)
-            .expect("route planning should succeed")
-            .expect("active route should produce a commit plan");
-        network.commit_route(finish);
-    }
-
     #[test]
     fn digging_brush_overlap_uses_capsule_distance() {
         let start = Vec3::ZERO;
@@ -1441,9 +905,7 @@ mod tests {
     fn sprinkler_runtime_plans_then_atomically_commits_lifecycle_changes() {
         let mut runtime = SprinklerRuntime::new();
         let base_position = Vec3::new(0.5, 0.25, 0.75);
-        let placement = runtime
-            .plan_placement(SprinklerPlacementTarget::Terrain(base_position))
-            .unwrap();
+        let placement = runtime.plan_placement(base_position).unwrap();
 
         assert!(runtime.is_empty());
         assert_eq!(placement.render_instances().len(), 1);
@@ -1480,9 +942,7 @@ mod tests {
     #[test]
     fn ordinary_sprinklers_have_no_emitter_component() {
         let runtime = SprinklerRuntime::new();
-        let plan = runtime
-            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
-            .unwrap();
+        let plan = runtime.plan_placement(Vec3::ZERO).unwrap();
 
         assert!(plan.emitter_source().is_none());
         assert_eq!(plan.raster_entity_id().generation(), 1);
@@ -1492,9 +952,7 @@ mod tests {
     fn sprinkler_identity_exhaustion_is_explicit_and_never_reuses_u32_consumers() {
         let mut runtime = SprinklerRuntime::new();
         runtime.next_id = u64::from(u32::MAX);
-        let last = runtime
-            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
-            .unwrap();
+        let last = runtime.plan_placement(Vec3::ZERO).unwrap();
         assert_eq!(last.id(), u32::MAX);
         assert_eq!(last.raster_entity_id().slot(), u32::MAX);
         assert_eq!(
@@ -1505,7 +963,7 @@ mod tests {
         let revision_after_last = runtime.revision;
 
         let error = runtime
-            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ONE))
+            .plan_placement(Vec3::ONE)
             .err()
             .expect("the u32 identity space must be exhausted");
         assert!(error.to_string().contains("identity space exhausted"));
@@ -1525,10 +983,7 @@ mod tests {
         let initial_position = Vec3::new(0.25, 0.5, 0.75);
         let initial_component = test_raster_emitter(initial_position, 2.0);
         let placement = runtime
-            .plan_placement_with_emitter(
-                SprinklerPlacementTarget::Terrain(initial_position),
-                Some(initial_component),
-            )
+            .plan_placement_with_emitter(initial_position, Some(initial_component))
             .unwrap();
         let entity = placement.raster_entity_id();
         let (key, _) = placement.emitter_source().unwrap();
@@ -1607,9 +1062,7 @@ mod tests {
     #[test]
     fn sprinkler_removal_plan_ignores_non_overlapping_brushes() {
         let mut runtime = SprinklerRuntime::new();
-        let placement = runtime
-            .plan_placement(SprinklerPlacementTarget::Terrain(Vec3::ZERO))
-            .unwrap();
+        let placement = runtime.plan_placement(Vec3::ZERO).unwrap();
         runtime.commit_placement(placement);
 
         assert!(runtime
@@ -1667,209 +1120,5 @@ mod tests {
         assert_eq!(first, sprinkler_animation_phase(1, position));
         assert_ne!(first, sprinkler_animation_phase(2, position));
         assert!((0.0..1.0).contains(&first));
-    }
-
-    #[test]
-    fn pipe_preview_does_not_commit_topology() {
-        let mut network = IrrigationNetwork::default();
-        let begin = network.plan_begin_route(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        assert!(
-            !network.route_active(),
-            "planning must not mutate route state"
-        );
-        network.commit_route_preview(begin);
-        let update = network
-            .plan_update_route(Vec3::new(0.75, 0.25, 0.5))
-            .unwrap();
-        let preview = update.render_data();
-
-        assert!(preview.source_position.is_some());
-        assert_eq!(preview.segments.len(), 1);
-        assert_eq!(
-            network.active_drag.unwrap().end_voxels,
-            IrrigationNetwork::snap_surface_position(Vec3::new(0.5, 0.25, 0.5)),
-            "planning a preview update must preserve the committed endpoint"
-        );
-        assert!(network.source_node.is_none());
-        assert!(network.segments.is_empty());
-    }
-
-    #[test]
-    fn pipe_finish_plan_preserves_topology_until_committed() {
-        let mut network = IrrigationNetwork::default();
-        let begin = network.plan_begin_route(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        network.commit_route_preview(begin);
-
-        let finish = network
-            .plan_finish_route(Vec3::new(0.75, 0.25, 0.5))
-            .unwrap()
-            .unwrap();
-
-        assert!(network.route_active());
-        assert!(network.source_node.is_none());
-        assert!(network.segments.is_empty());
-        assert!(finish.render_data().source_position.is_some());
-        assert_eq!(finish.render_data().segments.len(), 1);
-
-        network.commit_route(finish);
-        assert!(!network.route_active());
-        assert!(network.source_node.is_some());
-        assert_eq!(network.segments.len(), 1);
-    }
-
-    #[test]
-    fn pipe_preview_excludes_the_committed_network() {
-        let mut network = IrrigationNetwork::default();
-        commit_test_route(
-            &mut network,
-            Vec3::new(0.5, 0.25, 0.5),
-            Vec3::new(0.75, 0.25, 0.5),
-        );
-        let committed_segment_count = network.segments.len();
-        let start = network.nodes.last().unwrap().position_voxels;
-        let begin_world = (start - IVec3::Y).as_vec3() / VOXELS_PER_WORLD_UNIT;
-        let end_world = (start + IVec3::new(4, 3, 2) - IVec3::Y).as_vec3() / VOXELS_PER_WORLD_UNIT;
-        let begin = network.plan_begin_route(begin_world).unwrap();
-        network.commit_route_preview(begin);
-        let preview = network.plan_update_route(end_world).unwrap();
-
-        assert_eq!(preview.render_data().source_position, None);
-        assert_eq!(preview.render_data().segments.len(), 3);
-        assert!(committed_segment_count > 0);
-    }
-
-    #[test]
-    fn pipe_route_is_axis_aligned_and_connected_to_source() {
-        let mut network = IrrigationNetwork::default();
-        commit_test_route(
-            &mut network,
-            Vec3::new(0.5, 0.25, 0.5),
-            Vec3::new(0.75, 0.5, 0.9),
-        );
-
-        assert!(network.source_node.is_some());
-        assert!(!network.segments.is_empty());
-        assert!(network.segments.iter().all(|segment| {
-            let start = network.node(segment.start_node).unwrap().position_voxels;
-            let end = network.node(segment.end_node).unwrap().position_voxels;
-            let changed_axes =
-                (start.x != end.x) as u8 + (start.y != end.y) as u8 + (start.z != end.z) as u8;
-            changed_axes == 1
-        }));
-        assert!(network
-            .segments
-            .iter()
-            .all(|segment| network.segment_is_connected(segment)));
-    }
-
-    #[test]
-    fn sprinkler_ray_attaches_to_middle_of_pipe() {
-        let mut network = IrrigationNetwork::default();
-        commit_test_route(
-            &mut network,
-            Vec3::new(0.5, 0.25, 0.5),
-            Vec3::new(0.75, 0.25, 0.5),
-        );
-        let pipe_y = network
-            .node(network.segments[0].start_node)
-            .unwrap()
-            .position_voxels
-            .y as f32
-            / VOXELS_PER_WORLD_UNIT;
-        let attachment = network
-            .ray_attachment(Vec3::new(0.625, pipe_y + 0.25, 0.5), Vec3::NEG_Y, 1.0)
-            .unwrap();
-
-        assert!(network.segment_is_connected(&network.segments[0]));
-        assert!(
-            (attachment.attachment.position_voxels.x / VOXELS_PER_WORLD_UNIT - 0.625).abs() < 0.01
-        );
-    }
-
-    #[test]
-    fn sprinkler_ray_does_not_require_a_powered_pipe() {
-        let mut network = IrrigationNetwork::default();
-        let source = network.upsert_node(IVec3::ZERO, IrrigationNodeKind::Source);
-        network.source_node = Some(source);
-        let first = network.upsert_node(IVec3::new(100, 0, 0), IrrigationNodeKind::Junction);
-        let second = network.upsert_node(IVec3::new(120, 0, 0), IrrigationNodeKind::Junction);
-        network.segments.push(PipeSegment {
-            start_node: first,
-            end_node: second,
-        });
-        network.refresh_connectivity();
-
-        let attachment = network
-            .ray_attachment(
-                Vec3::new(110.0, 20.0, 0.0) / VOXELS_PER_WORLD_UNIT,
-                Vec3::NEG_Y,
-                1.0,
-            )
-            .unwrap();
-        assert!(!network.segment_is_connected(&network.segments[0]));
-        assert_eq!(attachment.attachment.position_voxels.x, 110.0);
-
-        network.source_node = None;
-        network.refresh_connectivity();
-        assert!(network
-            .ray_attachment(
-                Vec3::new(110.0, 20.0, 0.0) / VOXELS_PER_WORLD_UNIT,
-                Vec3::NEG_Y,
-                1.0,
-            )
-            .is_some());
-    }
-
-    #[test]
-    fn sprinkler_ray_requires_an_existing_pipe() {
-        let network = IrrigationNetwork::default();
-        assert!(network.ray_attachment(Vec3::Y, Vec3::NEG_Y, 2.0).is_none());
-    }
-
-    #[test]
-    fn sprinkler_ray_does_not_snap_from_a_nearby_miss() {
-        let mut network = IrrigationNetwork::default();
-        commit_test_route(
-            &mut network,
-            Vec3::new(0.5, 0.25, 0.5),
-            Vec3::new(0.75, 0.25, 0.5),
-        );
-        let segment = network.segments[0];
-        let pipe_y = network.node(segment.start_node).unwrap().position_voxels.y as f32
-            / VOXELS_PER_WORLD_UNIT;
-        let miss_z = 0.5 + (IRRIGATION_PIPE_RADIUS_VOXELS + 0.25) / VOXELS_PER_WORLD_UNIT;
-
-        assert!(network
-            .ray_attachment(Vec3::new(0.625, pipe_y + 0.25, miss_z), Vec3::NEG_Y, 1.0,)
-            .is_none());
-    }
-
-    #[test]
-    fn sprinkler_ray_selects_the_frontmost_pipe() {
-        let mut network = IrrigationNetwork::default();
-        let low_start = network.upsert_node(IVec3::new(100, 100, 0), IrrigationNodeKind::Junction);
-        let low_end = network.upsert_node(IVec3::new(120, 100, 0), IrrigationNodeKind::Junction);
-        let high_start = network.upsert_node(IVec3::new(100, 200, 0), IrrigationNodeKind::Junction);
-        let high_end = network.upsert_node(IVec3::new(120, 200, 0), IrrigationNodeKind::Junction);
-        network.segments.extend([
-            PipeSegment {
-                start_node: low_start,
-                end_node: low_end,
-            },
-            PipeSegment {
-                start_node: high_start,
-                end_node: high_end,
-            },
-        ]);
-
-        let hit = network
-            .ray_attachment(
-                Vec3::new(110.0, 256.0, 0.0) / VOXELS_PER_WORLD_UNIT,
-                Vec3::NEG_Y,
-                2.0,
-            )
-            .unwrap();
-
-        assert_eq!(hit.attachment.position_voxels.y, 200.0);
     }
 }

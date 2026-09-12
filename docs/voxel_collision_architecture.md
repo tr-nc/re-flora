@@ -160,7 +160,7 @@ Dynamic fruit rendering needs orientation as well as position. The existing stat
 4. Integrate budgeted, revisioned terrain-brick synchronization and wake-up after edits.
 5. Add `FruitRegistry`, the GUI transition, convex fruit bodies, and dynamic rendering transforms.
 6. Validate 10, 100, and high-count fruit drops in the release app before tuning solver iterations, CCD policy, or physics LOD.
-7. Add pipe and other prop colliders through the same `CollisionWorld` API after terrain and fruit are stable.
+7. Add other prop colliders through the same `CollisionWorld` API after terrain and fruit are stable.
 
 Each step should remain independently validated and committed. Do not remove the coarse water SDF as part of this work.
 

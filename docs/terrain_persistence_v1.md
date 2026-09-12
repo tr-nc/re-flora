@@ -186,7 +186,7 @@ buttons, and explicit `Ready`, `Saving`, `Loading`, or `Error` status.
   retained but its simulation remains paused until the new terrain cache is ready.
 - DDGI resources and history are not persisted. The full terrain domain is invalidated and DDGI may
   rebuild asynchronously through the existing fallback path without blocking persistence `Ready`.
-- Runtime load preserves all non-terrain state. This can leave trees, entities, pipes, water, and
+- Runtime load preserves all non-terrain state. This can leave trees, entities, water, and
   other state spatially inconsistent; v1 documents rather than repairs that limitation.
 - During Loading, terrain editing, entity physics, water simulation, and game time are paused. At
   `Ready`, terrain editing, entity physics, and time may resume. Water resumes independently when its
@@ -261,7 +261,7 @@ buttons, and explicit `Ready`, `Saving`, `Loading`, or `Error` status.
 ## Out of Scope
 
 - Logical tree records, growth state, leaves, fruit ownership, and procedural-tree state.
-- Entities and placeables, including sprinklers, pipes, butterflies, particles, and rigid bodies.
+- Entities and placeables, including sprinklers, butterflies, particles, and rigid bodies.
 - Inventory, selected tools, player state, camera state, and GUI preferences.
 - Water particle and simulation persistence. Retained runtime water is not restored from the file.
 - Time of day, weather, wind, audio, and DDGI radiance history.

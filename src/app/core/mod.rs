@@ -69,7 +69,7 @@ use self::lighting_mode_acceptance::{
 use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
-use self::placeables::{IrrigationNetwork, SprinklerRuntime};
+use self::placeables::SprinklerRuntime;
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::render_frame_input::{freeze_render_frame_inputs, LiveRenderFrameFacts};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
@@ -139,19 +139,18 @@ use ui_style::{
     FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
     CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX,
     HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
-    ITEM_PANEL_PIPE_ICON_PATH, ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
+    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
     ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
     ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
-    PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX,
-    SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX,
-    SOIL_INSPECTOR_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
-    STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT,
-    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX,
-    WATER_TOOL_ACCENT,
+    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
+    SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
+    TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
+    TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -452,7 +451,6 @@ pub struct App {
     item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
     item_panel_sprinkler_icon: Option<TextureHandle>,
-    item_panel_pipe_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
@@ -474,7 +472,6 @@ pub struct App {
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
-    irrigation_network: IrrigationNetwork,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
@@ -1485,7 +1482,6 @@ impl App {
             item_panel_tree_icon: None,
             item_panel_water_icon: None,
             item_panel_sprinkler_icon: None,
-            item_panel_pipe_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
             player_tools: {
@@ -1507,7 +1503,6 @@ impl App {
             butterfly_emitter_desc,
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
             sprinklers: SprinklerRuntime::new(),
-            irrigation_network: IrrigationNetwork::default(),
             particle_animation_time_sec: 0.0,
             water,
             particle_snapshots,
@@ -1819,24 +1814,6 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_sprinkler_icon = Some(sprinkler_texture);
-
-        let pipe_bytes = std::fs::read(ITEM_PANEL_PIPE_ICON_PATH).with_context(|| {
-            format!("Failed to read item panel icon from {ITEM_PANEL_PIPE_ICON_PATH}")
-        })?;
-        let pipe_rgba = image::load_from_memory(&pipe_bytes)
-            .with_context(|| {
-                format!("Failed to decode item panel icon from {ITEM_PANEL_PIPE_ICON_PATH}")
-            })?
-            .to_rgba8();
-        let pipe_size = [pipe_rgba.width() as usize, pipe_rgba.height() as usize];
-        let pipe_pixels = pipe_rgba.into_raw();
-        let pipe_image = ColorImage::from_rgba_unmultiplied(pipe_size, &pipe_pixels);
-        let pipe_texture = self.egui_renderer.context().load_texture(
-            "item_panel_pipe",
-            pipe_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_pipe_icon = Some(pipe_texture);
 
         let soil_inspector_path =
             if std::path::Path::new(ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH).exists() {
@@ -2194,7 +2171,6 @@ impl App {
                     let target_placeable_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
-                        PhysicalKey::Code(KeyCode::KeyV) => Some(PIPE_PLACEABLE_SLOT_INDEX),
                         _ => None,
                     };
                     if let Some(slot_idx) = target_placeable_slot {
@@ -2208,7 +2184,6 @@ impl App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.handle_orbit_mouse_drag(Vec2::new(position.x as f32, position.y as f32));
-                self.try_update_pipe_drag_preview();
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let captured = self.set_orbit_mouse_drag_state(button, state);
@@ -2232,16 +2207,11 @@ impl App {
                                     self.stop_terrain_edit_loop_sound();
                                     self.try_placeable_placement();
                                 }
-                                Some(PlayerToolPointerAction::CancelPlaceable) => {
-                                    self.cancel_pipe_drag();
-                                }
+
                                 None => {}
                             }
                         }
                         ElementState::Released => {
-                            if button == MouseButton::Left {
-                                self.try_finish_pipe_drag();
-                            }
                             self.refresh_terrain_edit_hold_from_mouse_buttons();
                         }
                     }
@@ -2430,7 +2400,6 @@ impl App {
                 let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
-                let item_panel_pipe_icon = self.item_panel_pipe_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
@@ -2998,15 +2967,6 @@ impl App {
                                 key_hint: "X",
                                 category: Some("ITEMS"),
                                 icon: item_panel_sprinkler_icon.as_ref(),
-                                accent: WATER_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: PIPE_SLOT_INDEX,
-                                label: "Pipe",
-                                key_hint: "V",
-                                category: Some("ITEMS"),
-                                icon: item_panel_pipe_icon.as_ref(),
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
