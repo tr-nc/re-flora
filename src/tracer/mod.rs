@@ -18,6 +18,7 @@ mod palette_remap;
 
 mod particle_texture_layout;
 pub use particle_texture_layout::*;
+mod leaf_particle_pose;
 
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
@@ -6139,27 +6140,16 @@ impl Tracer {
                 );
                 tex_index
             };
-            // Free leaves have no angular state. Their motion direction is a
-            // broadside-flight optical proxy, not a rotation of the billboard.
-            // A vertical bias keeps this continuous through zero velocity.
-            let leaf_optics = if snap.kind == crate::particles::ParticleRenderKind::Leaf {
-                let optical_normal = Vec3::new(
-                    -snap.velocity.x,
-                    snap.velocity.y.abs() + 0.05,
-                    -snap.velocity.z,
-                )
-                .normalize();
-                optical_normal.extend(1.0).to_array()
-            } else {
-                [0.0; 4]
-            };
+            let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
             let instance = ParticleInstanceGpu {
                 leaf_optics,
                 position: snap.position_ws.to_array(),
                 size: snap.size,
                 color: snap.color.to_array(),
                 tex_index: match snap.kind {
-                    crate::particles::ParticleRenderKind::Leaf => texture_layout.leaf_layer(),
+                    crate::particles::ParticleRenderKind::Leaf => {
+                        texture_layout.leaf_layer() | leaf_pose_flags
+                    }
                     crate::particles::ParticleRenderKind::Butterfly => pack_particle_tex_index(
                         butterfly_tex_index,
                         is_moving_right_relative_to_player(snap.velocity),

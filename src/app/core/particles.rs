@@ -506,6 +506,7 @@ impl App {
         }
 
         let total_start = Instant::now();
+        self.prepare_fallen_leaf_review();
         let setup_start = Instant::now();
         let allows_ambient_emitters = self.launch_owners.allows_ambient_particle_emitters();
         if allows_ambient_emitters {
@@ -548,7 +549,11 @@ impl App {
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
-        self.particle_system.update(dt, self.particle_forces);
+        self.particle_system.update_with_wind(
+            dt,
+            self.particle_forces,
+            &self.wind_prototype.field.frame(),
+        );
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
 
         let collect_start = Instant::now();
@@ -567,6 +572,7 @@ impl App {
         self.particle_system
             .write_snapshots(&mut self.particle_snapshots);
         let sim_snapshot_count = self.particle_snapshots.len();
+        self.log_fallen_leaf_review();
         self.append_water_debug_snapshots();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -635,6 +641,7 @@ impl App {
                 kind: ParticleRenderKind::Leaf,
                 texture_variant: 0,
                 animation_frame_offset: 0,
+                leaf_orientation: None,
             });
         }
     }

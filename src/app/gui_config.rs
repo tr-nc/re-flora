@@ -15,6 +15,7 @@ use crate::tree_gen::TreeDesc;
 use egui::Color32;
 use std::path::Path;
 mod debug_groups;
+mod flora_groups;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -435,210 +436,6 @@ fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     );
 }
 
-fn is_custom_flora_param(id: &str) -> bool {
-    matches!(
-        id,
-        "grass_natural_bend_min_voxels"
-            | "grass_natural_bend_max_voxels"
-            | "flora_bend_height_power"
-            | "grass_vibration_amplitude_voxels"
-            | "grass_vibration_primary_speed"
-            | "grass_vibration_secondary_speed"
-            | "leaf_paddle_amplitude_voxels"
-            | "leaf_paddle_primary_speed"
-            | "leaf_paddle_secondary_speed"
-            | "leaf_paddle_amplitude_wind_start_strength"
-            | "leaf_paddle_amplitude_wind_full_strength"
-            | "leaf_paddle_amplitude_wind_knee_bias"
-            | "leaf_paddle_frequency_wind_start_strength"
-            | "leaf_paddle_frequency_wind_full_strength"
-            | "leaf_paddle_frequency_wind_knee_bias"
-            | "leaf_paddle_frequency_min_multiplier"
-            | "leaf_paddle_frequency_max_multiplier"
-            | "grass_bottom_dark_color"
-            | "grass_bottom_light_color"
-            | "grass_tip_dark_color"
-            | "grass_tip_light_color"
-    )
-}
-
-fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
-    ui.label("Natural Bend");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_natural_bend_min_voxels.value,
-            adjustables.grass_natural_bend_min_voxels.range.clone(),
-        )
-        .text("Flora Natural Bend Min (voxels)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_natural_bend_max_voxels.value,
-            adjustables.grass_natural_bend_max_voxels.range.clone(),
-        )
-        .text("Flora Natural Bend Max (voxels)"),
-    );
-    enforce_flora_natural_bend_order(adjustables);
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.flora_bend_height_power.value,
-            adjustables.flora_bend_height_power.range.clone(),
-        )
-        .text("Flora Bend Height Power"),
-    );
-
-    ui.add_space(4.0);
-    ui.label("Flora Vibration");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_vibration_amplitude_voxels.value,
-            adjustables.grass_vibration_amplitude_voxels.range.clone(),
-        )
-        .text("Flora Vibration Amplitude (voxels)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_vibration_primary_speed.value,
-            adjustables.grass_vibration_primary_speed.range.clone(),
-        )
-        .text("Flora Vibration Primary Speed"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_vibration_secondary_speed.value,
-            adjustables.grass_vibration_secondary_speed.range.clone(),
-        )
-        .text("Flora Vibration Secondary Speed"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_voxels.value,
-            adjustables.leaf_paddle_amplitude_voxels.range.clone(),
-        )
-        .text("Leaf Paddle Amplitude (voxels)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_primary_speed.value,
-            adjustables.leaf_paddle_primary_speed.range.clone(),
-        )
-        .text("Leaf Paddle Primary Speed"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_secondary_speed.value,
-            adjustables.leaf_paddle_secondary_speed.range.clone(),
-        )
-        .text("Leaf Paddle Secondary Speed"),
-    );
-
-    ui.add_space(4.0);
-    ui.label("Leaf Wind Response Curves");
-    ui.label("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_start_strength.value,
-            adjustables
-                .leaf_paddle_amplitude_wind_start_strength
-                .range
-                .clone(),
-        )
-        .text("Amplitude Start Wind"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_full_strength.value,
-            adjustables
-                .leaf_paddle_amplitude_wind_full_strength
-                .range
-                .clone(),
-        )
-        .text("Amplitude Full Wind"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_knee_bias.value,
-            adjustables
-                .leaf_paddle_amplitude_wind_knee_bias
-                .range
-                .clone(),
-        )
-        .text("Amplitude Knee Bias"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_start_strength.value,
-            adjustables
-                .leaf_paddle_frequency_wind_start_strength
-                .range
-                .clone(),
-        )
-        .text("Frequency Start Wind"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_full_strength.value,
-            adjustables
-                .leaf_paddle_frequency_wind_full_strength
-                .range
-                .clone(),
-        )
-        .text("Frequency Full Wind"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_knee_bias.value,
-            adjustables
-                .leaf_paddle_frequency_wind_knee_bias
-                .range
-                .clone(),
-        )
-        .text("Frequency Knee Bias"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_min_multiplier.value,
-            adjustables
-                .leaf_paddle_frequency_min_multiplier
-                .range
-                .clone(),
-        )
-        .text("Frequency Min Multiplier"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_max_multiplier.value,
-            adjustables
-                .leaf_paddle_frequency_max_multiplier
-                .range
-                .clone(),
-        )
-        .text("Frequency Max Multiplier"),
-    );
-    enforce_leaf_curve_order(adjustables);
-    ui.add_space(4.0);
-    draw_leaf_curve_previews(ui, adjustables);
-
-    ui.add_space(4.0);
-    ui.label("Grass Colors");
-    ui.horizontal(|ui| {
-        ui.label("Bottom Dark");
-        ui.color_edit_button_srgba(&mut adjustables.grass_bottom_dark_color.value);
-    });
-    ui.horizontal(|ui| {
-        ui.label("Bottom Light");
-        ui.color_edit_button_srgba(&mut adjustables.grass_bottom_light_color.value);
-    });
-    ui.horizontal(|ui| {
-        ui.label("Tip Dark");
-        ui.color_edit_button_srgba(&mut adjustables.grass_tip_dark_color.value);
-    });
-    ui.horizontal(|ui| {
-        ui.label("Tip Light");
-        ui.color_edit_button_srgba(&mut adjustables.grass_tip_light_color.value);
-    });
-}
-
 fn render_gui_param_from_config(
     ui: &mut egui::Ui,
     param: &GuiParam,
@@ -796,6 +593,10 @@ pub fn render_gui_from_config(
             continue;
         }
         ui.collapsing(section_title(&section.name), |ui| {
+            if section.name == "Flora" {
+                flora_groups::render(ui, config, section, adjustables, &mut after_section);
+                return;
+            }
             render_section_controls(ui, section, adjustables);
             if let Some(debug) = config.section.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
@@ -836,16 +637,6 @@ fn render_section_controls(
         }
         return;
     }
-    if section.name == "Flora" {
-        for param in &section.param {
-            if !is_custom_flora_param(&param.id) {
-                render_gui_param_from_config(ui, param, &section.name, adjustables);
-            }
-        }
-        render_flora_gui(ui, adjustables);
-        return;
-    }
-
     for param in &section.param {
         render_gui_param_from_config(ui, param, &section.name, adjustables);
     }
@@ -854,6 +645,22 @@ fn render_section_controls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallen_leaf_experiment_controls_are_removed() {
+        let config = GuiConfigLoader::load();
+        for param in config.section.iter().flat_map(|s| &s.param) {
+            assert!(!matches!(
+                param.id.as_str(),
+                "fallen_leaf_flight" | "fallen_leaf_rotating_plate"
+            ));
+        }
+        assert!(config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "leaf_flutter_strength"));
+    }
 
     #[test]
     fn section_hierarchy_has_unique_children_and_existing_top_level_parents() {
@@ -933,12 +740,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn custom_sections_fall_back_to_generic_rendering_for_unhandled_params() {
-        assert!(!is_custom_flora_param("special_flora_plants_per_release"));
-        assert!(is_custom_flora_param("grass_natural_bend_min_voxels"));
     }
 
     #[test]

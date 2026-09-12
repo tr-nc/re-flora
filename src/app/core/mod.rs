@@ -11,6 +11,7 @@ mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
+mod fallen_leaf_review;
 mod foliage_shadow_bench;
 mod frame_timing;
 mod glass_voxel_test_scene;
@@ -475,6 +476,7 @@ pub struct App {
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
+    fallen_leaf_review: Option<fallen_leaf_review::FallenLeafReview>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
     particle_forces: ParticleForces,
@@ -1506,6 +1508,7 @@ impl App {
             particle_animation_time_sec: 0.0,
             water,
             particle_snapshots,
+            fallen_leaf_review: fallen_leaf_review::FallenLeafReview::from_env()?,
             terrain_harvest_particle_handles,
             particle_forces,
 

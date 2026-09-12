@@ -398,7 +398,9 @@ pub struct ParticleInstanceGpu {
     pub size: f32,
     pub color: [f32; 4],
     pub tex_index: u32,
-    /// Optical proxy normal; w enables leaf shading independently of atlas layer.
+    /// Falling leaves (texture bit 30): held simulation quaternion for optics only.
+    /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
+    /// Packing both optical inputs preserves the existing reflected 52-byte instance ABI.
     pub leaf_optics: [f32; 4],
 }
 
@@ -2006,5 +2008,7 @@ mod tests {
             std::mem::size_of_val(vertices.as_slice()) / vertices.len(),
             std::mem::size_of::<LeafVertex>(),
         );
+        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 52);
+        assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 36);
     }
 }
