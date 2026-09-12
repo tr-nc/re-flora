@@ -3,6 +3,8 @@
 2026-09-12；worktree `re-flora-agent-butterfly-block-flight`，分支 `agent/butterfly-block-flight`。
 开始时工作树干净，base 为 `9ca488e9ed9b623691596d6dfdfe4a0f096c16db`。
 
+更新：用户试玩后要求更自然的分步/顿挫和自行调参，已增加第二轮控件；最新默认与验证见本文末尾。前面的首轮证据保持原记录。
+
 ## 入口与实际效果
 
 按 **R → Debug Panel → Butterflies → B: Darting color blocks (A/B experiment)**。
@@ -85,3 +87,30 @@ env -u WAYLAND_DISPLAY RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1 RE_FLORA_BUTTERFL
 提交：`b8625310` 研究；`13a52203` 功能/测试；`400b2881` 自然主体等待与采集验证。报告作为后续独立提交。
 
 模型审计边界：任务中途发生模型切换；本次没有可用的会话级证据确认全程是用户指定的 `gpt-5.6-sol / xhigh`，因此不把该项列为已满足。
+
+## 用户调参（第二轮）
+
+仍在原 B checkbox 正下方，实时作用于现有蝴蝶；A 时禁用，不影响 World Tick、落叶或其他粒子。所有值是临时 App 状态，重启恢复默认，不写 GUI 配置；修改会写 `[BUTTERFLY_AB][TUNING]` 日志，便于保留试玩反馈。
+
+| 控件 | 范围 / 默认 | 含义 |
+| --- | --- | --- |
+| Position step interval (ms) | 0–160 / 60 | B 显示位置的采样保持间隔。0 为首轮连续显示，越大分步越明显。每个体间隔有 ±20% 变化。 |
+| Maneuver tempo (x) | 0.25–4 / 1 | 越高，机动事件更短、更频繁；不缩放物理时间或寿命。 |
+| Vertical movement (x) | 0–4 / 1 | 上下自主机动强度；0 仍保留地形避让和栖息地恢复。 |
+| Turn sharpness (x) | 0.25–4 / 1 | 越高，加速度响应越快；越低，转向更柔和。 |
+| Flight speed (x) | 0.25–2.5 / 1 | 巡航、机动力与速度上限倍率；不改生成率/寿命。 |
+
+`Reset B flight controls` 一键恢复上表默认。优先只调位置步进间隔来找顿挫节奏，再调其余项；这些数值是操作范围，不是已经通过用户视觉验收的最佳值。
+
+实现把 120 Hz 连续物理积分与 B 的显示位置采样分离。显示位置只能取真实轨迹点，不随机偏移；轨迹偏离上次显示位置达到 0.025 world 时提前发布（最多再加一个物理子步的距离），限制长间隔/高速组合的大跳。显示采样使用独立 RNG，不消耗飞行/出生 RNG。降低速度滑条会立即收紧速度上限，但不改写位置。切回 A 使用当前真实位置，不使用 B 的旧显示缓存。
+
+验证：`cargo fmt --check`、`cargo check`、`cargo test` 通过，**936 passed / 0 failed / 2 ignored**。新增测试覆盖五个滑条与 reset 的 egui 指针点击、运动参数实际效果、极端值/非有限输入、变化间隔、显示采样不改变真实轨迹/出生 RNG/存活数、A 不调用 B 的显示覆盖函数。输出 `target/butterfly-tuning-all-tests.log`。
+
+两次 GPU 验证仍使用 `env -u WAYLAND_DISPLAY ... flock --close /tmp/re-flora-summer-gpu.lock cargo run --release -- --hidden --mute ...`，没有启动可见游戏：
+
+- B 0.5 s smoke：`target/re-flora-logs/re-flora-20260912-133918.306-330644.log`。
+- 自然主体实时调参：`RE_FLORA_BUTTERFLY_REVIEW=tuning` 与 `RE_FLORA_BUTTERFLY_BLOCK_FLIGHT_SMOKE=1`，`--windowed --denoiser-bench blacky target/butterfly-review/tuning.toml --denoiser-bench-warmup-frames 650 --denoiser-bench-frames 360`。日志 `re-flora-20260912-133951.067-331260.log`，120 张 2560×1440 PNG 在 `target/butterfly-review/tuning.artifacts-GV0ueb/`，检查了连续采样 `0180/0183/0186`；未将截图检查等同于人眼动态体验。
+
+第二次运行在 726/816/906 simulation frame 后切为连续、160 ms（同时增强机动）、恢复 60 ms。排除实际速度近零与数量改变的帧间样本，显示位置保持次数分别为初始 60 ms 的 41/178、连续的 0/190、160 ms 的 157/232、恢复后的 157/396。不同段个体与运动状态不同，不作严格性能或主观自然度比较；只确认控件切换实际生效。最高 6 只，状态有限；两次退出码均 0、shutdown failures=0，日志无 ERROR/panic/VUID。
+
+本轮仅改 `src/particles/{butterfly_flight,emitters,mod,system}.rs`、`src/app/core/{mod,particles}.rs` 和本报告。没有生成文件/config/shader/GPU ABI 的改动，也没有扩大与主工作区落叶着色的重叠。动态效果由用户继续调参验收。
