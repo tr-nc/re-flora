@@ -14,6 +14,7 @@
 
 ## Visual Iteration Priorities
 
+- An A/B experiment must provide a checkbox in the Debug panel that switches at runtime between the original mode (unchecked) and the experimental mode (checked). A CLI flag, separate build, or offline comparison alone does not satisfy an A/B request. Label the checkbox clearly and preserve both modes for user comparison.
 - Prioritize visible results and fast user feedback during visual exploration and iteration. Present the actual effect and iterate on its appearance before pursuing performance optimization.
 - Do not block visual review solely because of a small measured performance regression or an unmet hard performance threshold. Record the measurements and known issues honestly; showing a candidate does not mean its performance or release acceptance has passed.
 - Once the user approves the visual result, treat performance optimization and performance acceptance as a separate stage, using release-mode measurements and the applicable budgets. This sequencing does not introduce a new universal threshold or erase previous failed measurements.
