@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Check the final ten simulated seconds of an opt-in real-game fruit trace."""
+"""Check resting motion and pose sync after a real-game drop with terrain ready.
+
+This does not by itself prove terrain containment; inspect the recorded final poses too.
+"""
 import argparse
 import collections
 import json
@@ -29,9 +32,11 @@ def main():
         render_rotation_error = max(max(abs(p-v) for p,v in zip(r["rotation"], r["render_rotation"])) for r in rows)
         sleeping = sum(r["sleeping"] for r in tail)
         first_sleep = next((r["simulated"] for r in rows if r["sleeping"]), None)
+        pending_during_drop = max(r["dirty_bricks"] for r in rows)
         ok = (tail[0]["simulated"] <= end - 9.9 and max(position_range) < 0.01
               and angle_range < 0.01 and sleeping == len(tail)
-              and render_error < 1e-7 and render_rotation_error < 1e-7)
+              and render_error < 1e-7 and render_rotation_error < 1e-7
+              and pending_during_drop == 0)
         passed &= ok
         results.append(dict(body=body, samples=len(tail), position_range_voxels=position_range,
                             angle_range_radians=angle_range, sleeping_samples=sleeping,
@@ -39,9 +44,11 @@ def main():
                             render_position_error=render_error, render_rotation_error=render_rotation_error,
                             max_linear_speed=max(math.sqrt(sum(v*v for v in r["linvel"])) for r in tail),
                             max_angular_speed=max(math.sqrt(sum(v*v for v in r["angvel"])) for r in tail),
+                            final_position_voxels=rows[-1]["position"],
+                            pending_terrain_during_drop=pending_during_drop,
                             pending_terrain_bricks=max(r["dirty_bricks"] for r in tail), passed=ok))
     passed &= bool(results)
-    print(json.dumps(dict(passed=passed, simulated_seconds=end, bodies=results), indent=2))
+    print(json.dumps(dict(acceptance="resting_motion_and_pose_sync", passed=passed, simulated_seconds=end, bodies=results), indent=2))
     return 0 if passed else 1
 
 

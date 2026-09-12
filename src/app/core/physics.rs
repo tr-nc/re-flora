@@ -25,6 +25,9 @@ const APPLE_FRICTION: f32 = 0.82;
 const APPLE_RESTITUTION: f32 = 0.12;
 const APPLE_LINEAR_DAMPING: f32 = 0.06;
 const APPLE_ANGULAR_DAMPING: f32 = 0.10;
+// The tilted replay needs extra convergence; the full terrain scene still jitters with 2.
+// Spend the extra solve work on fruit contact islands without changing global query/step settings.
+const APPLE_ADDITIONAL_SOLVER_ITERATIONS: usize = 4;
 // Release measurements put a 32-cubed Contree export plus Rapier update below 0.75 ms. Use a time
 // budget for prompt local edits while retaining a hard cap for unusually cheap or deferred work.
 const TERRAIN_COLLIDER_UPDATE_BUDGET: Duration = Duration::from_millis(1);
@@ -924,6 +927,7 @@ fn apple_dynamic_body_desc(
     desc.linear_damping = APPLE_LINEAR_DAMPING;
     desc.angular_damping = APPLE_ANGULAR_DAMPING;
     desc.ccd_enabled = true;
+    desc.additional_solver_iterations = APPLE_ADDITIONAL_SOLVER_ITERATIONS;
     desc
 }
 
@@ -1052,6 +1056,10 @@ mod tests {
 
         let state = world.dynamic_body_state(body).unwrap();
         assert!(
+            state.sleeping,
+            "resting apple did not naturally sleep: {state:?}"
+        );
+        assert!(
             state.linear_velocity.x.hypot(state.linear_velocity.z) < 0.01,
             "apple still translating across the floor after five seconds: {state:?}",
         );
@@ -1059,6 +1067,14 @@ mod tests {
             state.angular_velocity.length() < 0.01,
             "apple still visibly rotating after five seconds: {state:?}",
         );
+        for _ in 0..120 {
+            world.advance(1.0 / 120.0);
+            assert_eq!(
+                world.dynamic_body_state(body).unwrap(),
+                state,
+                "resting apple position or rotation keeps changing"
+            );
+        }
     }
 
     #[test]
