@@ -6,11 +6,11 @@ scale = 17.0
 
 [audio_mix.leaves]
 enabled = true
-scale = 1.0
+scale = 23.0
 
 [audio_mix.cicadas]
 enabled = true
-scale = 8.0
+scale = 50.0
 
 [audio_mix.footsteps]
 enabled = true
@@ -25,7 +25,7 @@ enabled = true
 scale = 5.0
 
 [butterfly_flight]
-variant = "DartingBlock"
+variant = "DartingSprite"
 
 [butterfly_flight.tuning]
 flight_frequency_hz = 6.0
@@ -318,7 +318,7 @@ label = "Tree Wind Response Min"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 0.135
 min = 0
 max = 1
 
