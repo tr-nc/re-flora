@@ -113,7 +113,8 @@ impl CanopyAudioVoice {
         wind_audio_release_decay: f32,
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
-        let target_response = Self::sampled_response(&self.descriptor, wind);
+        let target_response =
+            Self::sampled_response(&self.descriptor, wind, self.wind_response_curve);
         let response = self.inertial_response(
             target_response,
             time_seconds,
@@ -125,8 +126,12 @@ impl CanopyAudioVoice {
         self.apply_response_volume(response, spatial_sound_manager)
     }
 
-    fn sampled_response(descriptor: &CanopyAcousticDescriptor, wind: &WindFieldFrame) -> f32 {
-        descriptor
+    fn sampled_response(
+        descriptor: &CanopyAcousticDescriptor,
+        wind: &WindFieldFrame,
+        curve: WindResponseCurve,
+    ) -> f32 {
+        let strength = descriptor
             .samples()
             .iter()
             .map(|sample| {
@@ -135,7 +140,14 @@ impl CanopyAudioVoice {
                     * Self::linear_sampled_wind_response(wind.sample_world(position).length())
             })
             .sum::<f32>()
-            .clamp(0.0, 1.0)
+            .clamp(0.0, 1.0);
+        // Remap the shared canopy sample before the existing attack/release filter.
+        // Even a degenerate zero-width curve must not create sound without wind.
+        if strength <= 0.0 {
+            0.0
+        } else {
+            curve.factor(strength)
+        }
     }
 
     fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
@@ -233,8 +245,13 @@ mod tests {
             &[],
         );
         assert_eq!(descriptor.samples().len(), 2);
+        let curve = crate::wind_response::WindResponseCurve {
+            min_strength: 0.0,
+            max_strength: 1.0,
+            power: 1.0,
+        };
         assert_eq!(
-            CanopyAudioVoice::sampled_response(&descriptor, &WindFieldFrame::default()),
+            CanopyAudioVoice::sampled_response(&descriptor, &WindFieldFrame::default(), curve),
             0.
         );
         let mut wind = WindFieldFrame::uniform(Vec2::ZERO);
@@ -242,9 +259,38 @@ mod tests {
             pair[0] = ((i * 2) % 32) as f32 / 31. * 8.;
             pair[2] = ((i * 2 + 1) % 32) as f32 / 31. * 8.;
         }
-        assert!((CanopyAudioVoice::sampled_response(&descriptor, &wind) - 0.375).abs() < 1e-6);
+        assert!(
+            (CanopyAudioVoice::sampled_response(&descriptor, &wind, curve) - 0.375).abs() < 1e-6
+        );
         assert_eq!(
-            CanopyAudioVoice::sampled_response(&descriptor, &WindFieldFrame::uniform(Vec2::X * 8.)),
+            CanopyAudioVoice::sampled_response(
+                &descriptor,
+                &WindFieldFrame::uniform(Vec2::X * 8.),
+                curve
+            ),
+            1.
+        );
+        let wind = WindFieldFrame::uniform(Vec2::X * 2.);
+        assert_eq!(
+            CanopyAudioVoice::sampled_response(
+                &descriptor,
+                &wind,
+                crate::wind_response::WindResponseCurve {
+                    min_strength: 0.3,
+                    ..curve
+                }
+            ),
+            0.
+        );
+        assert_eq!(
+            CanopyAudioVoice::sampled_response(
+                &descriptor,
+                &wind,
+                crate::wind_response::WindResponseCurve {
+                    max_strength: 0.25,
+                    ..curve
+                }
+            ),
             1.
         );
     }
