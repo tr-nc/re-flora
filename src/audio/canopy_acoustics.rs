@@ -107,45 +107,47 @@ impl CanopyAcousticDescriptor {
         } else {
             let center = canopy_center(&candidates);
             let clearance_index = RoundConeClearanceIndex::new(trunks);
-            let mut sector_counts = [0_usize; Self::MAX_SAMPLES];
-            for leaf in &candidates {
-                sector_counts[octant(leaf.position, center)] += 1;
-            }
-
-            let mut ranked_candidates = candidates.clone();
-            ranked_candidates.sort_by(|left, right| {
-                right
-                    .position
-                    .distance_squared(center)
-                    .total_cmp(&left.position.distance_squared(center))
-                    .then_with(|| compare_leaf_placements(left, right))
-            });
-            let best_global_candidate = || {
-                ranked_candidates.iter().copied().find(|leaf| {
-                    clearance_index
-                        .has_minimum_clearance(leaf.position, Self::MIN_WOOD_CLEARANCE_VOXELS)
-                })
-            };
+            let regions = coverage_regions(&candidates);
             let mut selected = Vec::<CanopyAcousticSample>::new();
-
-            for (sector, population) in sector_counts.into_iter().enumerate() {
-                if population == 0 {
-                    continue;
-                }
-                let Some(leaf) = ranked_candidates
+            for (seed, members) in regions {
+                // Keep clearance repair local to this coverage region; never substitute a
+                // clear leaf from the other side of the canopy.
+                let real = members
                     .iter()
-                    .copied()
-                    .filter(|leaf| octant(leaf.position, center) == sector)
-                    .find(|leaf| {
+                    .filter(|leaf| {
                         clearance_index
                             .has_minimum_clearance(leaf.position, Self::MIN_WOOD_CLEARANCE_VOXELS)
                     })
-                    .or_else(&best_global_candidate)
-                else {
+                    .min_by(|a, b| {
+                        a.position
+                            .distance_squared(seed)
+                            .total_cmp(&b.position.distance_squared(seed))
+                            .then_with(|| compare_leaf_placements(a, b))
+                    });
+                let resolved = real
+                    .map(|leaf| {
+                        (
+                            leaf.position,
+                            clearance_index.minimum_clearance(leaf.position),
+                            CanopyAcousticSampleProvenance::LeafPlacement,
+                        )
+                    })
+                    .or_else(|| {
+                        clear_leaf_spray_fallback(&members, trunks, &clearance_index, center).map(
+                            |(p, c)| {
+                                (
+                                    p,
+                                    c,
+                                    CanopyAcousticSampleProvenance::ExtrapolatedLeafSprayFallback,
+                                )
+                            },
+                        )
+                    });
+                let Some((position, clearance, provenance)) = resolved else {
                     continue;
                 };
-                let id = sample_id(tree_seed, leaf.position);
-                let weight = population as f32 / candidates.len() as f32;
+                let weight = members.len() as f32 / candidates.len() as f32;
+                let id = sample_id(tree_seed, position);
                 if let Some(existing) = selected.iter_mut().find(|sample| sample.id == id) {
                     existing.weight += weight;
                     continue;
@@ -153,30 +155,13 @@ impl CanopyAcousticDescriptor {
                 let content_seed = mix_u64(CANOPY_CONTENT_SEED_DOMAIN ^ tree_seed ^ id.0);
                 selected.push(CanopyAcousticSample {
                     id,
-                    position_tree_voxels: leaf.position,
-                    clearance_voxels: clearance_index.minimum_clearance(leaf.position),
+                    position_tree_voxels: position,
+                    clearance_voxels: clearance,
                     weight,
                     content_seed,
                     phase: unit_from_u64(mix_u64(content_seed ^ 0x7068_6173_655f_3031)),
-                    provenance: CanopyAcousticSampleProvenance::LeafPlacement,
+                    provenance,
                 });
-            }
-            if selected.is_empty() {
-                if let Some((position, clearance)) =
-                    clear_leaf_spray_fallback(&candidates, trunks, &clearance_index, center)
-                {
-                    let id = sample_id(tree_seed, position);
-                    let content_seed = mix_u64(CANOPY_CONTENT_SEED_DOMAIN ^ tree_seed ^ id.0);
-                    selected.push(CanopyAcousticSample {
-                        id,
-                        position_tree_voxels: position,
-                        clearance_voxels: clearance,
-                        weight: 1.0,
-                        content_seed,
-                        phase: unit_from_u64(mix_u64(content_seed ^ 0x7068_6173_655f_3031)),
-                        provenance: CanopyAcousticSampleProvenance::ExtrapolatedLeafSprayFallback,
-                    });
-                }
             }
             selected.sort_by_key(|sample| sample.id);
             selected
@@ -241,6 +226,48 @@ fn compare_leaf_placements(left: &LeafPlacement, right: &LeafPlacement) -> Order
     .into_iter()
     .find(|ordering| *ordering != Ordering::Equal)
     .unwrap_or(Ordering::Equal)
+}
+
+/// Deterministic farthest-first (k-center) coverage, then nearest-center ownership.
+/// Density affects weights, never priority. Input is sorted for stable tie breaking.
+/// O(MAX_SAMPLES * leaves), evaluated only when the canopy is rebuilt.
+fn coverage_regions(candidates: &[LeafPlacement]) -> Vec<(Vec3, Vec<LeafPlacement>)> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    // Sub-clearance-scale leaves need not spend separate acoustic ray slots.
+    const MIN_SEPARATION_SQUARED: f32 = 2.0 * 2.0;
+    let mut seeds = vec![candidates[0].position];
+    let mut distances = vec![f32::INFINITY; candidates.len()];
+    loop {
+        let latest = *seeds.last().unwrap();
+        let mut farthest = 0;
+        for (i, leaf) in candidates.iter().enumerate() {
+            distances[i] = distances[i].min(leaf.position.distance_squared(latest));
+            if distances[i] > distances[farthest] {
+                farthest = i;
+            }
+        }
+        if seeds.len() == CanopyAcousticDescriptor::MAX_SAMPLES
+            || distances[farthest] <= MIN_SEPARATION_SQUARED
+        {
+            break;
+        }
+        seeds.push(candidates[farthest].position);
+    }
+    let mut regions: Vec<_> = seeds.into_iter().map(|p| (p, Vec::new())).collect();
+    for leaf in candidates {
+        let closest = (0..regions.len())
+            .min_by(|&a, &b| {
+                leaf.position
+                    .distance_squared(regions[a].0)
+                    .total_cmp(&leaf.position.distance_squared(regions[b].0))
+                    .then(a.cmp(&b))
+            })
+            .unwrap();
+        regions[closest].1.push(*leaf);
+    }
+    regions
 }
 
 fn canopy_center(candidates: &[LeafPlacement]) -> Vec3 {
@@ -404,6 +431,25 @@ mod tests {
     use glam::Vec3;
     use std::collections::HashSet;
 
+    #[test]
+    fn sparse_cluster_sharing_an_octant_keeps_local_coverage() {
+        let sparse = Vec3::splat(20.0);
+        let leaf = |position| LeafPlacement {
+            position,
+            anchor: Vec3::ZERO,
+        };
+        let mut leaves = vec![leaf(Vec3::splat(-100.0)), leaf(sparse)];
+        leaves.extend((0..100).map(|i| leaf(Vec3::new(80.0 + i as f32 * 0.01, 80.0, 80.0))));
+        let descriptor = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 1, &leaves, &[]);
+        let sample = descriptor
+            .samples()
+            .iter()
+            .find(|s| s.position_tree_voxels().distance(sparse) < 2.0)
+            .expect("isolated sparse cluster must have a local representative");
+        assert!((sample.weight() - 1.0 / 102.0).abs() < 1e-6);
+        assert!((descriptor.total_weight() - 1.0).abs() < 1e-6);
+    }
+
     fn octant_leaf_placements() -> Vec<LeafPlacement> {
         [-6.0, 6.0]
             .into_iter()
@@ -419,6 +465,54 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    #[test]
+    fn blocked_sparse_region_is_repaired_locally_not_replaced_by_distant_leaves() {
+        let leaves = [
+            LeafPlacement {
+                position: Vec3::ZERO,
+                anchor: Vec3::NEG_Y,
+            },
+            LeafPlacement {
+                position: Vec3::splat(100.0),
+                anchor: Vec3::splat(99.0),
+            },
+        ];
+        let trunks = [RoundCone::new(1.0, Vec3::NEG_Y, 1.0, Vec3::Y)];
+        let descriptor = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 7, &leaves, &trunks);
+        assert_eq!(descriptor.samples().len(), 2);
+        let local = descriptor
+            .samples()
+            .iter()
+            .find(|s| s.position_tree_voxels().length() < 5.0)
+            .unwrap();
+        assert_eq!(
+            local.provenance(),
+            CanopyAcousticSampleProvenance::ExtrapolatedLeafSprayFallback
+        );
+        assert_eq!(local.weight(), 0.5);
+        assert!(local.clearance_voxels() >= CanopyAcousticDescriptor::MIN_WOOD_CLEARANCE_VOXELS);
+        assert!((descriptor.total_weight() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn over_budget_coverage_is_stable_and_assigns_all_leaf_weight() {
+        let mut leaves: Vec<_> = (0..64)
+            .map(|i| LeafPlacement {
+                position: Vec3::new((i % 4) as f32, (i / 4 % 4) as f32, (i / 16) as f32) * 10.0,
+                anchor: Vec3::ZERO,
+            })
+            .collect();
+        let first = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 5, &leaves, &[]);
+        leaves.reverse();
+        let second = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 5, &leaves, &[]);
+        assert_eq!(first.samples(), second.samples());
+        assert_eq!(first.samples().len(), 8);
+        assert!(first.samples().iter().all(|s| s.weight() > 0.0));
+        assert!((first.total_weight() - 1.0).abs() < 1e-6);
+        let empty = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 5, &[], &[]);
+        assert!(empty.samples().is_empty());
     }
 
     #[test]
