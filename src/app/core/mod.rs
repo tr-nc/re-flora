@@ -1300,6 +1300,14 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
+        // Opt-in wood-only capture; normal startup and saved leaf visibility are unchanged.
+        if let Ok(mode) = std::env::var("RE_FLORA_THIN_BRANCH_REVIEW") {
+            if mode == "A" || mode == "B" {
+                debug_settings.tree.desc.cull_thin_branches = mode == "B";
+                debug_settings.tree.render_leaves = false;
+                log::info!("[THIN_BRANCH_REVIEW] wood_only_capture={mode}");
+            }
+        }
         // Opt-in visual review: reuse the normal camera capture and GUI parameter.
         if let Ok(value) = std::env::var("RE_FLORA_LEAF_REVIEW") {
             let gain: f32 = value
@@ -1477,7 +1485,7 @@ impl App {
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             trees,
-            config_panel_visible: false,
+            config_panel_visible: std::env::var_os("RE_FLORA_DEBUG_PANEL_REVIEW").is_some(),
             environment_probe_spacing_draft: lighting.probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels: lighting.rebuild_probe_spacing_voxels,
             camera_snapshots,

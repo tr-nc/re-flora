@@ -100,6 +100,11 @@ impl DebugSettings {
             }
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
+                    let response = saved_controls::SavedControls::new(ui, custom).toggle(
+                        |s| &mut s.tree.desc.cull_thin_branches, true, false,
+                        "B: Hide branches thinner than minimum (A/B)",
+                    ).on_hover_text("Off: inflate thin wood to the existing minimum radius. On: omit thin wood and trim taper crossings at the threshold. Leaf and fruit anchors stay unchanged. Rebuilds the tuning tree; saved with Save.");
+                    tree_desc_changed |= response.changed();
                     tree_desc_changed |= edit_tree_desc(
                         ui,
                         &mut custom.tree.desc,
@@ -711,6 +716,75 @@ mod tests {
         let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_generic_values_match(&loaded.config, &settings.adjustables);
         assert_generic_values_match(&loaded.config, &loaded.adjustables);
+    }
+
+    #[test]
+    fn branch_checkbox_requests_rebuild_and_saves_through_the_common_path() {
+        fn find(shape: &egui::Shape) -> Option<egui::Pos2> {
+            match shape {
+                egui::Shape::Text(t)
+                    if t.galley.job.text == "B: Hide branches thinner than minimum (A/B)" =>
+                {
+                    Some(t.pos + egui::vec2(5.0, 6.0))
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(find),
+                _ => None,
+            }
+        }
+        let mut settings = DebugSettings::load();
+        settings.tree.desc.cull_thin_branches = false;
+        let context = egui::Context::default();
+        context.memory_mut(|m| m.set_everything_is_visible(true));
+        let mut draw = |events| {
+            let mut changed = false;
+            let output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 24000.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    changed = settings.draw(ui, |_, _| {});
+                },
+            );
+            (output.shapes.iter().find_map(|s| find(&s.shape)), changed)
+        };
+        draw(Vec::new());
+        let pos = draw(Vec::new())
+            .0
+            .expect("branch checkbox must be in Debug Panel");
+        draw(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        assert!(
+            draw(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default()
+            }])
+            .1,
+            "checkbox must request the existing tree rebuild"
+        );
+        assert!(settings.tree.desc.cull_thin_branches);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        assert!(
+            DebugSettings::from_config(GuiConfigLoader::load_from_path(&path))
+                .tree
+                .desc
+                .cull_thin_branches
+        );
     }
 
     #[test]
