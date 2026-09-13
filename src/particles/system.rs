@@ -9,6 +9,10 @@ use crate::wind_field::WindFieldFrame;
 pub const PARTICLE_CAPACITY: usize = 16_384;
 /// Standard world-space particle quad size, matching one terrain voxel.
 pub const STANDARD_PARTICLE_SIZE: f32 = 1.0 / 256.0;
+/// The two active atlas rows average 58 opaque pixels per 16x16 frame.
+/// A fixed sqrt(256 / 58) scale matches a block's mean visible area without
+/// cancelling wingbeats through per-frame resizing. Presentation only.
+const BUTTERFLY_SPRITE_SIZE_COMPENSATION: f32 = 2.1;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
@@ -789,6 +793,11 @@ impl ParticleSystem {
                 color,
                 size: if self.motion_modes[*slot] == MotionMode::GuidedFlight {
                     STANDARD_PARTICLE_SIZE
+                        * if kind == ParticleRenderKind::Butterfly {
+                            BUTTERFLY_SPRITE_SIZE_COMPENSATION
+                        } else {
+                            1.0
+                        }
                 } else {
                     self.sizes[*slot]
                 },

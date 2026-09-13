@@ -802,7 +802,19 @@ mod tests {
     }
 
     #[test]
-    fn butterfly_appearance_switch_preserves_motion_rhythm_size_and_animation() {
+    fn butterfly_appearance_switch_preserves_motion_and_visible_area() {
+        let atlas = image::open("assets/texture/butterfly_16px/butterfly.png")
+            .unwrap()
+            .to_rgba8();
+        let mut opaque_pixels = 0;
+        for row in super::super::BUTTERFLY_ATLAS_ROW_FOR_VIEW {
+            for y in row * 16..(row + 1) * 16 {
+                for x in 0..80 {
+                    opaque_pixels += usize::from(atlas.get_pixel(x, y)[3] > 0);
+                }
+            }
+        }
+        let mean_coverage = opaque_pixels as f32 / (2.0 * 5.0 * 16.0 * 16.0);
         let mut desc = butterfly_test_desc();
         desc.flight_variant = ButterflyFlightVariant::DartingSprite;
         let mut reference = ButterflyEmitter::new(82, &desc);
@@ -856,8 +868,16 @@ mod tests {
                 "appearance must not restart the display beat"
             );
             assert_eq!(a.velocity, b.velocity);
-            assert_eq!(a.size, super::super::STANDARD_PARTICLE_SIZE);
-            assert_eq!(a.size, b.size);
+            if (80..200).contains(&step) {
+                assert_eq!(b.size, super::super::STANDARD_PARTICLE_SIZE);
+                let area_ratio = mean_coverage * (a.size / b.size).powi(2);
+                assert!(
+                    (0.85..=1.15).contains(&area_ratio),
+                    "sprite/block mean visible area ratio {area_ratio}, atlas coverage {mean_coverage}"
+                );
+            } else {
+                assert_eq!(a.size, b.size);
+            }
             assert_eq!(a.texture_variant, b.texture_variant);
             assert_eq!(a.animation_frame_offset, b.animation_frame_offset);
             assert_eq!(a.color.w, b.color.w);
