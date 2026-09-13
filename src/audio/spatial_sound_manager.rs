@@ -5,12 +5,11 @@ use crate::gameplay::{CameraPose, CameraVectors};
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, Emitter, EmitterDesc,
-    EmitterSpatialState, EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile,
-    OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayCommandId,
-    PlayOptions, PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip,
-    RuntimeDiagnostics, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
-    Vec3 as PetalVec3,
+    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, Emitter, EmitterDesc, EmitterSpatialState,
+    EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile, OutputDevicePolicy,
+    PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayCommandId, PlayOptions,
+    PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip, RuntimeDiagnostics,
+    RuntimeState, SourceExtent, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;

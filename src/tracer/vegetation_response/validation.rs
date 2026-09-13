@@ -195,6 +195,8 @@ pub(in crate::tracer) fn validate_gpu(
     let mut angle_peak = 0_f32;
     let mut angle_difference = 0_f32;
     let mut quiet_angle = 0_f32;
+    let mut steady_min = f32::INFINITY;
+    let mut steady_max = f32::NEG_INFINITY;
     for frame in 0..480 {
         if frame == 240 {
             source.cells.fill([0.; 4]);
@@ -204,6 +206,10 @@ pub(in crate::tracer) fn validate_gpu(
         angle_peak = angle_peak.max(states[0][20].abs());
         angle_difference = angle_difference.max((states[0][20] - states[1][20]).abs());
         quiet_angle = states[0][20].abs();
+        if (180..240).contains(&frame) {
+            steady_min = steady_min.min(states[0][20]);
+            steady_max = steady_max.max(states[0][20]);
+        }
         anyhow::ensure!(
             states
                 .iter()
@@ -215,10 +221,17 @@ pub(in crate::tracer) fn validate_gpu(
         }
     }
     anyhow::ensure!(
-        angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.02 && quiet_angle < 0.001,
+        steady_max - steady_min < 0.002,
+        "steady wind must settle, not drive a private periodic leaf gust: excursion={}",
+        steady_max - steady_min
+    );
+    anyhow::ensure!(
+        // Compare distinct leaf mechanics, not the removed per-leaf oscillator's
+        // phase separation. A 0.01 rad difference is well above numeric noise.
+        angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.01 && quiet_angle < 0.001,
         "leaf torsion invalid peak={angle_peak} independent={angle_difference} quiet={quiet_angle}"
     );
-    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} held_bounds=passed");
+    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} steady_excursion={} steady_wind_settles=passed held_bounds=passed", steady_max - steady_min);
     harness.controls[3] = 0.;
     source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;

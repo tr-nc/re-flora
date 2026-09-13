@@ -25,7 +25,6 @@ pub struct CanopyAudioVoice {
     current_volume_db: f32,
     last_update_time_seconds: Option<f32>,
     wind_response_curve: WindResponseCurve,
-    base_wind: f32,
 }
 
 impl CanopyAudioVoice {
@@ -37,7 +36,6 @@ impl CanopyAudioVoice {
         phase: f32,
         wind_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        base_wind: f32,
     ) -> Self {
         Self {
             uuid,
@@ -51,7 +49,6 @@ impl CanopyAudioVoice {
             current_volume_db: TREE_SILENT_VOLUME_DB,
             last_update_time_seconds: None,
             wind_response_curve,
-            base_wind: base_wind.clamp(0.0, 1.0),
         }
     }
 
@@ -64,10 +61,6 @@ impl CanopyAudioVoice {
 
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
         self.wind_response_curve = wind_response_curve;
-    }
-
-    pub fn set_base_wind(&mut self, base_wind: f32) {
-        self.base_wind = base_wind.clamp(0.0, 1.0);
     }
 
     pub fn set_wind_volume_db(
@@ -183,12 +176,8 @@ impl CanopyAudioVoice {
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
         let response = response.clamp(0.0, 1.0);
-        let content_active = response > f32::EPSILON || self.base_wind > f32::EPSILON;
-        let target_volume_db = if content_active {
-            Self::volume_db_for_power(self.wind_volume_db, self.lifecycle_power)
-        } else {
-            TREE_SILENT_VOLUME_DB
-        };
+        let target_volume_db =
+            Self::response_volume_db(self.wind_volume_db, self.lifecycle_power, response);
 
         self.current_response = response;
         if (target_volume_db - self.current_volume_db).abs() <= VOLUME_EPSILON {
@@ -198,6 +187,13 @@ impl CanopyAudioVoice {
         spatial_sound_manager.update_source_volume(self.uuid, target_volume_db)?;
         self.current_volume_db = target_volume_db;
         Ok(())
+    }
+
+    fn response_volume_db(base: f32, power: f32, response: f32) -> f32 {
+        // The resident clip is a full-wind reference. Wind response is amplitude,
+        // not a binary playback gate; lifecycle fades remain independent power.
+        let response = response.clamp(0.0, 1.0);
+        Self::volume_db_for_power(base, power * response * response)
     }
 
     fn volume_db_for_power(base_volume_db: f32, power: f32) -> f32 {
@@ -211,6 +207,14 @@ impl CanopyAudioVoice {
 #[cfg(test)]
 mod tests {
     use super::CanopyAudioVoice;
+
+    #[test]
+    fn quiet_canopy_does_not_play_the_full_wind_loop_at_full_gain() {
+        let strong = CanopyAudioVoice::response_volume_db(0.0, 1.0, 1.0);
+        let weak = CanopyAudioVoice::response_volume_db(0.0, 1.0, 0.01);
+        assert!(weak < strong - 30.0, "weak={weak} strong={strong}");
+        assert_eq!(CanopyAudioVoice::response_volume_db(0.0, 1.0, 0.0), -80.0);
+    }
 
     #[test]
     fn canopy_response_samples_the_shared_field_at_its_weighted_leaf_positions() {

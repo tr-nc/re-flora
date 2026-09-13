@@ -36,9 +36,10 @@ public float3 leafLocalOffset(uint seed, float angle)
     return leafRotate(lever, hinge, angle) - lever;
 }
 
-// Pressure projected onto a proxy leaf plus continuous, unresolved turbulence.
+// Pressure projected onto a proxy leaf. All time variation comes from the shared
+// sampled wind and mechanical state, not a second periodic wind generator.
 // Wind is in game units; the bounded equilibrium angle is an art calibration.
-public float leafTorqueTarget(float2 wind, float angle, float time, uint seed, float gain)
+public float leafTorqueTarget(float2 wind, float angle, uint seed, float gain)
 {
     float speed2 = dot(wind, wind);
     // Reference speed 0.3 in the game field makes a breeze excite local motion.
@@ -48,11 +49,7 @@ public float leafTorqueTarget(float2 wind, float angle, float time, uint seed, f
     float3 lever = cross(leafHinge(seed), normal);
     float projected = abs(dot(flow, normal));
     float torque = dot(cross(lever, flow), leafHinge(seed)) * projected;
-    float phase = leafUnit(seed ^ 0x68E31DA4u) * 6.28318530718;
-    float frequency = lerp(0.9, 1.5, leafUnit(seed ^ 0x1B56C4E9u));
-    float turbulence = sin(time * frequency * 6.28318530718 + phase)
-        + 0.35 * sin(time * frequency * 0.61 * 6.28318530718 + phase * 1.7);
-    float target = max(gain, 0.0) * pressure * (0.35 * torque + 0.65 * turbulence);
+    float target = max(gain, 0.0) * pressure * torque;
     return 0.75 * target / (1.0 + abs(target));
 }
 

@@ -49,7 +49,6 @@ impl CanopyDistributedEmitterAdapter {
         rustle_clip: &ResidentClip,
         base_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        base_wind: f32,
         time_seconds: f32,
     ) -> Result<Vec<Uuid>> {
         let active_keys = snapshot
@@ -72,7 +71,6 @@ impl CanopyDistributedEmitterAdapter {
                     rustle_clip,
                     base_volume_db,
                     wind_response_curve,
-                    base_wind,
                     time_seconds,
                 ) {
                     Ok(uuid) => uuid,
@@ -170,18 +168,13 @@ impl CanopyDistributedEmitterAdapter {
         }
     }
 
-    pub fn replace_rustle_clip(
-        &mut self,
-        rustle_clip: &ResidentClip,
-        base_wind: f32,
-    ) -> Result<()> {
+    pub fn replace_rustle_clip(&mut self, rustle_clip: &ResidentClip) -> Result<()> {
         for voice in self.voices.values_mut() {
             self.spatial_sound_manager.replace_looping_clip(
                 voice.uuid,
                 rustle_clip.clone(),
                 voice.phase,
             )?;
-            voice.set_base_wind(base_wind);
         }
         Ok(())
     }
@@ -335,7 +328,6 @@ impl CanopyDistributedEmitterAdapter {
         rustle_clip: &ResidentClip,
         base_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        base_wind: f32,
         time_seconds: f32,
     ) -> Result<Uuid> {
         #[cfg(test)]
@@ -369,7 +361,6 @@ impl CanopyDistributedEmitterAdapter {
                 phase,
                 base_volume_db,
                 wind_response_curve,
-                base_wind,
             ),
         );
         Ok(uuid)
@@ -530,7 +521,6 @@ mod tests {
                     max_strength: 1.0,
                     power: 1.0,
                 },
-                0.0,
                 0.0,
             )
             .expect_err("the second generation spawn should fail the whole sync");
