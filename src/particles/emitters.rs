@@ -467,12 +467,10 @@ impl ButterflyEmitter {
             )
         };
 
-        let preset_count = ButterflyPalettePreset::COUNT;
-        let texture_variant = if preset_count == 0 {
-            0
-        } else {
-            self.rng.random_range(0..preset_count)
-        };
+        let texture_variant = ButterflyPalettePreset::from_garden_roll(
+            self.rng
+                .random_range(0..ButterflyPalettePreset::GARDEN_ROLL_COUNT),
+        ) as u32;
 
         let lifetime = random_in_range(&mut self.rng, &self.lifetime);
         let block_mode = self.flight_variant.uses_darting_flight();

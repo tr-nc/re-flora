@@ -58,6 +58,20 @@ pub enum ButterflyPalettePreset {
 
 impl ButterflyPalettePreset {
     pub const COUNT: u32 = 7;
+    pub const GARDEN_ROLL_COUNT: u32 = 100;
+
+    /// Art-directed starter mix, not a measured ecological distribution.
+    /// Keep texture IDs stable; purple/red remain available to existing IDs.
+    pub fn from_garden_roll(roll: u32) -> Self {
+        match roll {
+            0..35 => Self::White,
+            35..60 => Self::Yellow,
+            60..80 => Self::Orange,
+            80..95 => Self::Brown,
+            95..100 => Self::Blue,
+            _ => panic!("butterfly garden roll out of range: {roll}"),
+        }
+    }
 
     pub fn from_index(index: u32) -> Self {
         match index {
@@ -100,10 +114,10 @@ impl ButterflyPalettePreset {
 impl ButterflyPaletteConfig {
     pub fn yellow() -> Self {
         Self {
-            border: [48, 30, 8, 255],
-            dark_shade: [176, 122, 22, 255],
-            mid_shade: [232, 185, 48, 255],
-            light_shade: [255, 233, 140, 255],
+            border: [49, 46, 28, 255],
+            dark_shade: [155, 149, 76, 255],
+            mid_shade: [231, 220, 118, 255],
+            light_shade: [251, 244, 181, 255],
         }
     }
 
@@ -118,19 +132,19 @@ impl ButterflyPaletteConfig {
 
     pub fn orange() -> Self {
         Self {
-            border: [55, 24, 8, 255],
-            dark_shade: [160, 68, 18, 255],
-            mid_shade: [225, 118, 32, 255],
-            light_shade: [255, 190, 90, 255],
+            border: [46, 31, 22, 255],
+            dark_shade: [118, 69, 37, 255],
+            mid_shade: [202, 133, 60, 255],
+            light_shade: [238, 191, 115, 255],
         }
     }
 
     pub fn white() -> Self {
         Self {
-            border: [36, 38, 42, 255],
-            dark_shade: [130, 135, 145, 255],
-            mid_shade: [205, 210, 218, 255],
-            light_shade: [250, 248, 235, 255],
+            border: [48, 47, 41, 255],
+            dark_shade: [154, 153, 137, 255],
+            mid_shade: [231, 229, 207, 255],
+            light_shade: [251, 249, 235, 255],
         }
     }
 
@@ -145,19 +159,19 @@ impl ButterflyPaletteConfig {
 
     pub fn blue() -> Self {
         Self {
-            border: [8, 18, 55, 255],
-            dark_shade: [30, 70, 150, 255],
-            mid_shade: [70, 130, 220, 255],
-            light_shade: [160, 210, 255, 255],
+            border: [40, 42, 49, 255],
+            dark_shade: [60, 87, 131, 255],
+            mid_shade: [112, 153, 201, 255],
+            light_shade: [213, 224, 233, 255],
         }
     }
 
     pub fn brown() -> Self {
         Self {
-            border: [38, 22, 10, 255],
-            dark_shade: [105, 62, 28, 255],
-            mid_shade: [165, 105, 50, 255],
-            light_shade: [225, 170, 95, 255],
+            border: [40, 32, 25, 255],
+            dark_shade: [84, 66, 46, 255],
+            mid_shade: [141, 116, 79, 255],
+            light_shade: [207, 187, 143, 255],
         }
     }
 }
@@ -185,4 +199,38 @@ pub fn load_butterfly_and_remap(
 
     let target_roles = target_config.into_role_array();
     remap_palette(&source_roles, &target_roles, &rgba)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn garden_palette_rolls_have_exact_authored_weights_and_stable_ids() {
+        let mut counts = [0; ButterflyPalettePreset::COUNT as usize];
+        for roll in 0..ButterflyPalettePreset::GARDEN_ROLL_COUNT {
+            let preset = ButterflyPalettePreset::from_garden_roll(roll);
+            assert_eq!(ButterflyPalettePreset::from_index(preset as u32), preset);
+            counts[preset as usize] += 1;
+        }
+        assert_eq!(counts, [25, 0, 20, 35, 0, 5, 15]);
+    }
+
+    #[test]
+    fn garden_palette_preserves_transparency_and_ordered_shading_roles() {
+        for index in 0..ButterflyPalettePreset::COUNT {
+            let colors = ButterflyPalettePreset::from_index(index)
+                .config()
+                .into_role_array();
+            assert_eq!(colors[0], [0; 4]);
+            let mut previous_luminance = -1.0;
+            for color in &colors[1..] {
+                assert_eq!(color[3], 255);
+                let luminance =
+                    0.2126 * color[0] as f32 + 0.7152 * color[1] as f32 + 0.0722 * color[2] as f32;
+                assert!(luminance > previous_luminance);
+                previous_luminance = luminance;
+            }
+        }
+    }
 }
