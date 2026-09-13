@@ -221,6 +221,35 @@ mod tests {
     use super::CanopyAudioVoice;
 
     #[test]
+    fn fastest_wind_audio_response_still_has_a_125ms_time_constant() {
+        use crate::{
+            audio::{CanopyAcousticDescriptor, CanopyAudioGenerationKey},
+            wind_response::WindResponseCurve,
+        };
+        let mut voice = CanopyAudioVoice::new(
+            uuid::Uuid::nil(),
+            CanopyAudioGenerationKey::new(1, 1),
+            CanopyAcousticDescriptor::build(1, glam::Vec3::ZERO, 1, &[], &[]),
+            0.0,
+            0.0,
+            WindResponseCurve {
+                min_strength: 0.0,
+                max_strength: 1.0,
+                power: 1.0,
+            },
+        );
+        voice.last_update_time_seconds = Some(0.0);
+        let at_125ms = voice.inertial_response(1.0, 0.125, 1.0, 1.0);
+        let at_375ms = voice.inertial_response(1.0, 0.375, 1.0, 1.0);
+        assert!((at_125ms - 0.63212055).abs() < 1e-6);
+        assert!((at_375ms - 0.95021296).abs() < 1e-6);
+        voice.current_response = 1.0;
+        let release_125ms = voice.inertial_response(0.0, 0.125, 1.0, 1.0);
+        assert!((release_125ms - 0.36787945).abs() < 1e-6);
+        println!("fast attack: 125ms={at_125ms:.6}, 375ms={at_375ms:.6}; release 125ms={release_125ms:.6}");
+    }
+
+    #[test]
     fn quiet_canopy_does_not_play_the_full_wind_loop_at_full_gain() {
         let strong = CanopyAudioVoice::response_volume_db(0.0, 1.0, 1.0);
         let weak = CanopyAudioVoice::response_volume_db(0.0, 1.0, 0.01);
