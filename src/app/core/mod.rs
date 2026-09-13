@@ -3251,6 +3251,9 @@ impl App {
                 }
 
                 self.apply_effective_master_volume_gain("Failed to apply master volume");
+                if let Err(err) = self.refresh_canopy_audio_sample_budget() {
+                    log::error!("Failed to apply canopy audio sample budget: {err:#}");
+                }
                 if let Err(err) = self
                     .tree_audio_manager
                     .set_wind_volume_db(self.debug_settings.adjustables.tree_wind_volume_db.value)

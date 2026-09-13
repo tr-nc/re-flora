@@ -86,7 +86,7 @@ impl TreeSnapshot {
         Ok(())
     }
 
-    fn prepare(&self, generation_start: u64) -> Result<PreparedTreeSnapshot> {
+    fn prepare(&self, generation_start: u64, sample_budget: usize) -> Result<PreparedTreeSnapshot> {
         self.validate()?;
         let next_generation = generation_start
             .checked_add(self.trees.len() as u64)
@@ -102,6 +102,7 @@ impl TreeSnapshot {
                     UAabb3::default(),
                     self.age,
                     generation_start + index as u64,
+                    sample_budget,
                 );
                 PreparedTreePublication::new(saved.id, saved.mature_desc.clone(), compiled)
             })
@@ -144,7 +145,13 @@ impl App {
         &self,
         snapshot: &TreeSnapshot,
     ) -> Result<PreparedTreeSnapshot> {
-        snapshot.prepare(self.trees.next_canopy_acoustic_generation)
+        snapshot.prepare(
+            self.trees.next_canopy_acoustic_generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
+        )
     }
 
     pub(in crate::app::core) fn verify_restored_tree_rendering(
@@ -288,8 +295,12 @@ mod tests {
         let decoded: TreeSnapshot =
             serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
         assert_eq!(snapshot, decoded);
-        let first = snapshot.prepare(1).unwrap();
-        let second = decoded.prepare(10).unwrap();
+        let first = snapshot
+            .prepare(1, CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET)
+            .unwrap();
+        let second = decoded
+            .prepare(10, CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET)
+            .unwrap();
         assert_eq!(first.next_generation, 2);
         assert_eq!(second.next_generation, 11);
         assert_eq!(

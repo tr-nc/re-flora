@@ -134,6 +134,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "canopy_audio_sample_budget",
+        kind: "uint",
+        label: "Canopy Audio Samples / Tree",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_audio_attack_decay",
         kind: "float",
         label: "Wind Audio Attack Decay (0 slow, 1 fast)",
@@ -1186,6 +1192,7 @@ pub struct GuiAdjustables {
     pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
     pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
     pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
+    pub canopy_audio_sample_budget: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
@@ -1389,6 +1396,7 @@ impl GuiAdjustables {
         let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut canopy_audio_sample_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1679,6 +1687,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             dither_strength_lsb_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "canopy_audio_sample_budget" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            canopy_audio_sample_budget_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "wind_audio_attack_decay" => {
@@ -2857,6 +2872,7 @@ impl GuiAdjustables {
             vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
             vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
             dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
+            canopy_audio_sample_budget: canopy_audio_sample_budget_field.expect("Missing parameter: canopy_audio_sample_budget"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
@@ -3201,6 +3217,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
+        "canopy_audio_sample_budget" => Some(&adjustables.canopy_audio_sample_budget),
         "audio_ray_tracing_quality_percent" => Some(&adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
@@ -3436,6 +3453,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
+        "canopy_audio_sample_budget" => Some(&mut adjustables.canopy_audio_sample_budget),
         "audio_ray_tracing_quality_percent" => Some(&mut adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),

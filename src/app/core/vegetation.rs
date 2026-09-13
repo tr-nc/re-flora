@@ -22,13 +22,14 @@ use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::particles::{LeafEmitterDesc, ParticleSystem};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
+use crate::tree_gen::{LeafPlacement, Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
@@ -308,6 +309,8 @@ struct CompiledTreePlacement {
     fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
+    canopy_leaf_placements: Arc<[LeafPlacement]>,
+    canopy_trunks: Arc<[RoundCone]>,
 }
 
 #[derive(Clone, Debug)]
@@ -476,16 +479,18 @@ impl TreePlacementService {
         extra_rebuild_bound: UAabb3,
         tree_age: f32,
         canopy_generation: u64,
+        canopy_sample_budget: usize,
     ) -> CompiledTreePlacement {
         let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
         let mature_tree = Tree::new(mature_tree_desc.clone());
-        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build(
+        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build_with_budget(
             canopy_generation,
             tree_pos,
             tree_desc.branching.seed,
             tree.relative_leaf_placements(),
             tree.trunks(),
+            canopy_sample_budget,
         );
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
@@ -599,6 +604,8 @@ impl TreePlacementService {
             fruit_specs,
             world_leaf_positions,
             canopy_acoustic_descriptor,
+            canopy_leaf_placements: tree.relative_leaf_placements().to_vec().into(),
+            canopy_trunks: tree.trunks().to_vec().into(),
         }
     }
 }
@@ -990,6 +997,10 @@ struct TreeRecord {
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
+    // Original committed geometry is retained for audio-only resampling. Never regenerate a
+    // second tree or use quantized render positions when changing the acoustic budget.
+    canopy_leaf_placements: Arc<[LeafPlacement]>,
+    canopy_trunks: Arc<[RoundCone]>,
     leaf_clusters: Vec<ClusterResult>,
 }
 
@@ -999,6 +1010,19 @@ struct PreparedTreePublication {
     rebuild_bound: UAabb3,
     leaf_anchor_count: usize,
     cluster_elapsed: std::time::Duration,
+}
+
+impl TreeRecord {
+    fn resample_canopy(&self, generation: u64, budget: usize) -> CanopyAcousticDescriptor {
+        CanopyAcousticDescriptor::build_with_budget(
+            generation,
+            self.position,
+            self.canopy_acoustic_descriptor.tree_seed(),
+            &self.canopy_leaf_placements,
+            &self.canopy_trunks,
+            budget,
+        )
+    }
 }
 
 impl PreparedTreePublication {
@@ -1021,6 +1045,8 @@ impl PreparedTreePublication {
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
                 canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
+                canopy_leaf_placements: compiled.canopy_leaf_placements,
+                canopy_trunks: compiled.canopy_trunks,
                 leaf_clusters,
             },
         }
@@ -2275,12 +2301,16 @@ impl App {
             .at_age(self.debug_settings.adjustables.tree_age.value);
         let tree = Tree::new(tree_desc.clone());
         let generation = self.trees.next_canopy_acoustic_generation.saturating_sub(1);
-        let canopy = CanopyAcousticDescriptor::build(
+        let canopy = CanopyAcousticDescriptor::build_with_budget(
             generation,
             self.debug_tree_pos,
             tree_desc.branching.seed,
             tree.relative_leaf_placements(),
             tree.trunks(),
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let legacy =
             LegacyBranchEndpointLayout::build(tree.relative_leaf_positions(), tree.trunks());
@@ -2340,6 +2370,60 @@ impl App {
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)
     }
 
+    pub(super) fn refresh_canopy_audio_sample_budget(&mut self) -> Result<()> {
+        let budget = (self
+            .debug_settings
+            .adjustables
+            .canopy_audio_sample_budget
+            .value as usize)
+            .clamp(1, CanopyAcousticDescriptor::MAX_SAMPLES);
+        let mut ids: Vec<_> = self
+            .trees
+            .records
+            .iter()
+            .filter(|(_, record)| record.canopy_acoustic_descriptor.sample_budget() != budget)
+            .map(|(&id, _)| id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        ids.sort_unstable();
+        let mut replacements = Vec::with_capacity(ids.len());
+        for id in ids {
+            let generation = self.trees.allocate_canopy_acoustic_generation();
+            let record = &self.trees.records[&id];
+            let descriptor = record.resample_canopy(generation, budget);
+            replacements.push((id, descriptor));
+        }
+        let checkpoint = self.tree_audio_manager.publication_checkpoint();
+        let time = self.time_info.time_since_start();
+        for (id, descriptor) in &replacements {
+            if let Err(error) = self
+                .tree_audio_manager
+                .upsert_tree(*id, descriptor.clone(), time)
+            {
+                self.tree_audio_manager
+                    .restore_publication_checkpoint(checkpoint, time)
+                    .context("restore canopy audio after failed budget change")?;
+                return Err(error);
+            }
+        }
+        let tree_count = replacements.len();
+        for (id, descriptor) in replacements {
+            self.trees
+                .records
+                .get_mut(&id)
+                .unwrap()
+                .canopy_acoustic_descriptor = descriptor;
+        }
+        log::info!(
+            "[AUDIO][CANOPY][SAMPLE_BUDGET] per_tree={} updated_trees={}",
+            budget,
+            tree_count
+        );
+        Ok(())
+    }
+
     pub(super) fn stage_tuned_tree_desc_from_gui(&mut self) -> bool {
         self.trees
             .stage_tuned_description(self.debug_settings.tree.desc.clone())
@@ -2365,6 +2449,10 @@ impl App {
                 UAabb3::default(),
                 tree_age,
                 canopy_generation,
+                self.debug_settings
+                    .adjustables
+                    .canopy_audio_sample_budget
+                    .value as usize,
             );
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
@@ -2433,6 +2521,10 @@ impl App {
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
             canopy_generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
@@ -3249,6 +3341,10 @@ impl App {
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
             canopy_generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let compile_elapsed = compile_start.elapsed();
         if benchmark_gui_tree {
@@ -3764,6 +3860,7 @@ mod tests {
             UAabb3::default(),
             0.5,
             generation,
+            CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET,
         );
         PreparedTreePublication::new(tree_id, source.mature_desc, compiled)
     }
@@ -3777,8 +3874,34 @@ mod tests {
             UAabb3::default(),
             1.0,
             generation,
+            CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET,
         );
         PreparedTreePublication::new(tree_id, mature_desc, compiled)
+    }
+
+    #[test]
+    fn audio_budget_resampling_reuses_committed_geometry_for_multiple_trees() {
+        for id in [1, 2] {
+            let record = prepared_tree(id, id as u64, 123 + id as u64).record;
+            let leaves = record.canopy_leaf_placements.clone();
+            let trunks = record.canopy_trunks.clone();
+            let render_positions = record.leaf_render_positions.clone();
+            for budget in [1, 8, 16, 32, 64] {
+                let sampled = record.resample_canopy(100 + budget as u64, budget);
+                assert_eq!(sampled.sample_budget(), budget);
+                assert!(sampled.samples().len() <= budget);
+                assert_eq!(sampled.tree_origin_world(), record.position);
+                assert_eq!(
+                    sampled.tree_seed(),
+                    record.canopy_acoustic_descriptor.tree_seed()
+                );
+                assert!((sampled.total_weight() - 1.0).abs() < 1e-6);
+            }
+            assert!(Arc::ptr_eq(&leaves, &record.canopy_leaf_placements));
+            assert!(Arc::ptr_eq(&trunks, &record.canopy_trunks));
+            assert_eq!(record.leaf_render_positions, render_positions);
+            assert_eq!(record.canopy_acoustic_descriptor.generation(), id as u64);
+        }
     }
 
     fn placement_events(

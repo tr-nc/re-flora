@@ -80,14 +80,18 @@ pub struct CanopyAcousticDescriptor {
     content_seed: u64,
     phase: f32,
     samples: Vec<CanopyAcousticSample>,
+    sample_budget: usize,
 }
 
 impl CanopyAcousticDescriptor {
-    pub const MAX_SAMPLES: usize = 8;
+    #[cfg(test)]
+    pub const DEFAULT_SAMPLE_BUDGET: usize = 16;
+    pub const MAX_SAMPLES: usize = 64;
     /// This is conservatively above PetalSonic 0.7's 0.853-voxel source endpoint epsilon plus a
     /// one-voxel safety margin for Re: Flora's voxelized tree geometry.
     pub const MIN_WOOD_CLEARANCE_VOXELS: f32 = 2.0;
 
+    #[cfg(test)]
     pub fn build(
         generation: u64,
         tree_origin_world: Vec3,
@@ -95,6 +99,25 @@ impl CanopyAcousticDescriptor {
         leaf_placements: &[LeafPlacement],
         trunks: &[RoundCone],
     ) -> Self {
+        Self::build_with_budget(
+            generation,
+            tree_origin_world,
+            tree_seed,
+            leaf_placements,
+            trunks,
+            Self::DEFAULT_SAMPLE_BUDGET,
+        )
+    }
+
+    pub fn build_with_budget(
+        generation: u64,
+        tree_origin_world: Vec3,
+        tree_seed: u64,
+        leaf_placements: &[LeafPlacement],
+        trunks: &[RoundCone],
+        sample_budget: usize,
+    ) -> Self {
+        let sample_budget = sample_budget.clamp(1, Self::MAX_SAMPLES);
         let mut candidates = leaf_placements
             .iter()
             .copied()
@@ -107,7 +130,7 @@ impl CanopyAcousticDescriptor {
         } else {
             let center = canopy_center(&candidates);
             let clearance_index = RoundConeClearanceIndex::new(trunks);
-            let regions = coverage_regions(&candidates);
+            let regions = coverage_regions(&candidates, sample_budget);
             let mut selected = Vec::<CanopyAcousticSample>::new();
             for (seed, members) in regions {
                 // Keep clearance repair local to this coverage region; never substitute a
@@ -175,6 +198,7 @@ impl CanopyAcousticDescriptor {
             content_seed,
             phase: unit_from_u64(mix_u64(content_seed ^ 0x766f_6963_655f_7068)),
             samples,
+            sample_budget,
         }
     }
 
@@ -204,6 +228,10 @@ impl CanopyAcousticDescriptor {
         &self.samples
     }
 
+    pub fn sample_budget(&self) -> usize {
+        self.sample_budget
+    }
+
     #[allow(dead_code)]
     pub fn sample_world_position(&self, sample: &CanopyAcousticSample) -> Vec3 {
         self.tree_origin_world + sample.position_tree_voxels / 256.0
@@ -231,7 +259,10 @@ fn compare_leaf_placements(left: &LeafPlacement, right: &LeafPlacement) -> Order
 /// Deterministic farthest-first (k-center) coverage, then nearest-center ownership.
 /// Density affects weights, never priority. Input is sorted for stable tie breaking.
 /// O(MAX_SAMPLES * leaves), evaluated only when the canopy is rebuilt.
-fn coverage_regions(candidates: &[LeafPlacement]) -> Vec<(Vec3, Vec<LeafPlacement>)> {
+fn coverage_regions(
+    candidates: &[LeafPlacement],
+    sample_budget: usize,
+) -> Vec<(Vec3, Vec<LeafPlacement>)> {
     if candidates.is_empty() {
         return Vec::new();
     }
@@ -248,9 +279,7 @@ fn coverage_regions(candidates: &[LeafPlacement]) -> Vec<(Vec3, Vec<LeafPlacemen
                 farthest = i;
             }
         }
-        if seeds.len() == CanopyAcousticDescriptor::MAX_SAMPLES
-            || distances[farthest] <= MIN_SEPARATION_SQUARED
-        {
+        if seeds.len() == sample_budget || distances[farthest] <= MIN_SEPARATION_SQUARED {
             break;
         }
         seeds.push(candidates[farthest].position);
@@ -293,7 +322,7 @@ fn clear_leaf_spray_fallback(
     center: Vec3,
 ) -> Option<(Vec3, f32)> {
     let mut sector_candidates = Vec::new();
-    for sector in 0..CanopyAcousticDescriptor::MAX_SAMPLES {
+    for sector in 0..8 {
         let candidate = candidates
             .iter()
             .filter(|leaf| octant(leaf.position, center) == sector)
@@ -508,7 +537,10 @@ mod tests {
         leaves.reverse();
         let second = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 5, &leaves, &[]);
         assert_eq!(first.samples(), second.samples());
-        assert_eq!(first.samples().len(), 8);
+        assert_eq!(
+            first.samples().len(),
+            CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET
+        );
         assert!(first.samples().iter().all(|s| s.weight() > 0.0));
         assert!((first.total_weight() - 1.0).abs() < 1e-6);
         let empty = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 5, &[], &[]);

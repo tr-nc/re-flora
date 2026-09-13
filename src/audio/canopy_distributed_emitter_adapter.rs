@@ -379,7 +379,10 @@ impl CanopyDistributedEmitterAdapter {
                 )
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(SourceExtent::weighted_samples(samples)?)
+        Ok(SourceExtent::weighted_samples_with_limit(
+            samples,
+            descriptor.sample_budget(),
+        )?)
     }
 
     fn occlusion_profile() -> OcclusionProfile {
@@ -497,6 +500,30 @@ mod tests {
             CanopyDistributedEmitterAdapter::occlusion_profile(),
             OcclusionProfile::AmbientDistributed(_)
         ));
+    }
+
+    #[test]
+    fn configurable_budget_reaches_backend_without_eight_point_truncation() {
+        let leaves: Vec<_> = (0..64)
+            .map(|i| LeafPlacement {
+                position: Vec3::X * i as f32 * 4.0,
+                anchor: Vec3::ZERO,
+            })
+            .collect();
+        for budget in [1, 8, 16, 32, 64] {
+            let descriptor = CanopyAcousticDescriptor::build_with_budget(
+                1,
+                Vec3::ZERO,
+                123,
+                &leaves,
+                &[],
+                budget,
+            );
+            let extent = CanopyDistributedEmitterAdapter::source_extent(&descriptor).unwrap();
+            assert_eq!(extent.sample_count(), budget);
+            assert_eq!(descriptor.sample_budget(), budget);
+            assert!((descriptor.total_weight() - 1.0).abs() < 1e-6);
+        }
     }
 
     #[test]

@@ -290,6 +290,17 @@ max = 4
 name = "Wind"
 
 [[section.param]]
+id = "canopy_audio_sample_budget"
+kind = "uint"
+label = "Canopy Audio Samples / Tree"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 1
+max = 64
+
+[[section.param]]
 id = "wind_audio_attack_decay"
 kind = "float"
 label = "Wind Audio Attack Decay (0 slow, 1 fast)"
