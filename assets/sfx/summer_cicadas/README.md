@@ -8,8 +8,17 @@ The two mono calls are resampled to 48 kHz PCM16, reduced by 3 dB, band-limited 
 
 ## Runtime and review
 
-`src/audio/summer_cicadas.rs` owns finite calls, scheduling, density, gain and retirement; `src/app/core/summer_cicadas.rs` reads committed foliage and a bounded sample of the live grass instance buffers. There are at most six habitats per kind and three simultaneous cicada calls. Starts are separated by at least 2.7 s, and each habitat rests 12–28 s after its 8–10 s call. Default gains are −20 dB in canopies and −24 dB in grass; existing master volume/mute applies. Habitat refresh is 0.5 s. No saved insect entities or additional GUI configuration are introduced.
+`src/audio/summer_cicadas.rs` owns finite calls, gain and retirement. The shared ecology scheduler
+in `src/ecology.rs` supplies both butterflies and cicadas from real grass, authored plants and
+committed tree leaves through `src/app/core/ambient_ecology.rs`. There are at most three concurrent
+calls, separated by at least 2.7 seconds. A region rests 24–40 seconds after an accepted call starts.
+Default gains remain −20 dB in canopies and −24 dB in grass/plants; existing master volume/mute applies.
+Hosts are validated every 0.5 seconds, and world replacement clears old calls and ecology state.
 
-An opt-in real-app acceptance run uses `RE_FLORA_CICADA_SMOKE=1`: save the live garden under `target/summer-evidence`, replace it twice while calls are playing, then remove a sounding canonical tree and verify its sources retire. Combine with the existing `RE_FLORA_GARDEN_SNAPSHOT_SMOKE=seed` to plant actual grass when the startup world has none. Use a long hidden muted release run (65 s), the shared GPU lock, and inspect `[AUDIO][CICADAS]` logs. This modifies only the disposable running scene and its target snapshot; restore any GUI configuration drift after the run.
+See [shared ecology](../../../docs/ecology_spawning.md) for sampling budgets, initial density tuning,
+release measurement boundaries and opt-in real-app fixtures. `RE_FLORA_CICADA_SMOKE=1` remains an
+alias for the shared lifecycle acceptance, which now also checks removed grass/plant hosts and an
+empty garden. Original audio provenance and processing are unchanged.
 
-WAV playback reviews the prepared source material. Muted app logs and screenshots verify lifecycle and placement, not the audible spatial mix. A headphone listening pass in the actual game remains necessary before calling the sound balance accepted. No release performance comparison has been made for this feature.
+Muted app logs and screenshots verify lifecycle and placement, not the audible spatial mix.
+A headphone listening pass in the actual game remains necessary before calling sound balance accepted.

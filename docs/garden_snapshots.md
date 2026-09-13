@@ -10,12 +10,13 @@ Enter another **Save path** to create a separate snapshot. **Delete terrain** re
 only the selected file and retains the live garden. An empty directory is supported;
 unrelated files, directories, and symbolic links are not listed. Failed operations
 before world mutation can be retried; failures after mutation still require restart.
+Old vegetation snapshots containing the retired last species `kochia` remain readable: loading drops only that species and preserves the other plants and terrain. The original file is not rewritten until the player saves.
 
 ## Persistent state
 
 - The exact packed terrain atlas, including hand-edited tree wood.
 - Both painted grass species: roots and current per-instance growth, read from their live GPU streams.
-- Lavender and ember bloom: roots, species, growth, seed and stable response identity.
+- Lavender and purple allium (legacy key `ember_bloom`): roots, species, growth, seed and stable response identity.
 - Every tree: identity, position, mature authoring description and global age. Leaves and their
   anchors, tree ownership, fruit specifications and canopy audio are rebuilt from that description.
 - The fruiting cycle and global flora growth override. Loading a completed crop does not replay

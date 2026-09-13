@@ -1,3 +1,4 @@
+mod ecology;
 mod resources;
 mod snapshot;
 use super::PlainBuilderResources;
@@ -884,41 +885,6 @@ impl SurfaceBuilder {
             .filter(|instance| instance.species_index == species_index)
             .map(|instance| instance.base_world_vox)
             .collect()
-    }
-
-    pub fn non_grass_flora_base_world_voxels(&self) -> Result<Vec<UVec3>> {
-        let instance_size = std::mem::size_of::<resources::Instance>() as u64;
-        let mut positions = Vec::new();
-
-        for (_, chunk_resources) in &self.resources.instances.chunk_flora_instances {
-            for species_index in (0..self.flora_species_count)
-                .filter(|&species_index| !species::is_grass_species_index(species_index as u32))
-            {
-                let instance_count = chunk_resources.species_len(species_index) as u64;
-                if instance_count == 0 {
-                    continue;
-                }
-
-                let byte_offset = u64::from(FloraInstanceResources::species_offset(species_index))
-                    * instance_size;
-                let raw_instances = chunk_resources
-                    .resource
-                    .instances_buf
-                    .read_back_range(byte_offset, instance_count * instance_size)?;
-                let instances = bytemuck::try_cast_slice::<u8, resources::Instance>(&raw_instances)
-                    .map_err(|err| anyhow::anyhow!("invalid flora instance readback: {err}"))?;
-
-                positions.extend(instances.iter().filter_map(|instance| {
-                    let local_position = unpack_flora_instance_local_position(*instance);
-                    local_position
-                        .cmplt(self.voxel_dim_per_chunk)
-                        .all()
-                        .then_some(chunk_resources.chunk_world_offset + local_position)
-                }));
-            }
-        }
-
-        Ok(positions)
     }
 
     /// Low-level authored-flora storage primitive. Callers must validate the terrain anchor first.

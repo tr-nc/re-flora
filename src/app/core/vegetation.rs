@@ -986,7 +986,6 @@ struct TreeRecord {
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
-    butterfly_spawn_positions_ws: Vec<Vec3>,
     leaf_render_positions: Vec<UVec3>,
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
@@ -1008,13 +1007,6 @@ impl PreparedTreePublication {
         let leaf_clusters =
             cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
         let cluster_elapsed = cluster_start.elapsed();
-        let butterfly_spawn_positions_ws = compiled
-            .quantized_leaf_render_positions
-            .iter()
-            .map(|position| {
-                (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
-            })
-            .collect::<Vec<_>>();
         Self {
             tree_id,
             rebuild_bound: compiled.rebuild_bound,
@@ -1025,7 +1017,6 @@ impl PreparedTreePublication {
                 bound: compiled.this_bound,
                 mature_desc,
                 trunk_geometry: compiled.trunk_geometry,
-                butterfly_spawn_positions_ws,
                 leaf_render_positions: compiled.quantized_leaf_render_positions,
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
@@ -1526,36 +1517,33 @@ impl GardenTrees {
             .map(|record| record.canopy_acoustic_descriptor.generation())
     }
 
-    /// Observe only committed foliage; failed tree publications never become insect habitats.
-    pub(super) fn cicada_canopy_habitats(&self) -> Vec<crate::audio::CicadaHabitat> {
+    /// Lightweight supply metadata; no expanded leaf-position copy.
+    pub(super) fn ecology_regions(&self) -> Vec<crate::ecology::Region> {
         self.records
             .iter()
-            .flat_map(|(&tree_id, record)| {
-                let descriptor = &record.canopy_acoustic_descriptor;
-                descriptor
-                    .samples()
-                    .iter()
-                    .filter(|sample| {
-                        sample.provenance()
-                            == crate::audio::CanopyAcousticSampleProvenance::LeafPlacement
-                    })
-                    .map(move |sample| crate::audio::CicadaHabitat {
-                        key: crate::audio::CicadaHabitatKey::Canopy(
-                            tree_id,
-                            descriptor.generation(),
-                            sample.id().value(),
-                        ),
-                        position: descriptor.sample_world_position(sample),
-                    })
+            .map(|(&id, r)| crate::ecology::Region {
+                key: crate::ecology::RegionKey::Canopy(id),
+                kind: 2,
+                count: r.leaf_render_positions.len() as u32,
+                center: (r.bound.min().as_vec3() + r.bound.max().as_vec3()) * 0.5 / 256.,
+                radius: (r.bound.max().as_vec3() - r.bound.min().as_vec3()).length() * 0.5 / 256.,
             })
             .collect()
     }
-
-    pub(super) fn butterfly_spawn_positions(&self) -> Vec<Vec3> {
-        self.records
-            .values()
-            .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
-            .collect()
+    pub(super) fn sample_ecology_leaf(
+        &self,
+        id: u32,
+        slot: u32,
+    ) -> Option<crate::ecology::Habitat> {
+        let r = self.records.get(&id)?;
+        let position = *r.leaf_render_positions.get(slot as usize)?;
+        Some(crate::ecology::Habitat {
+            region: crate::ecology::RegionKey::Canopy(id),
+            slot,
+            token: r.canopy_acoustic_descriptor.generation(),
+            position: (position.as_vec3() + Vec3::splat(0.5)) / 256.,
+            kind: 2,
+        })
     }
 
     pub(super) fn advance_leaf_emitters(
@@ -4092,7 +4080,7 @@ mod tests {
         assert_eq!(garden.placement_id(true), 2);
         assert_eq!(garden.procedural_tree_ids(), vec![1]);
         assert!(garden.previous_bound().has_size());
-        assert!(!garden.butterfly_spawn_positions().is_empty());
+        assert!(garden.ecology_regions().iter().any(|r| r.count > 0));
     }
 
     #[test]

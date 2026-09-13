@@ -375,7 +375,6 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
     }
     float3 darkHeightColor = unpackLinearRgb10(darkPackedColor);
 
-
     if (instanceType == FLORA_SPECIES_EMBER_BLOOM &&
         materialId == FLORA_VOXEL_MATERIAL_ALLIUM_CORE)
     {

@@ -136,7 +136,7 @@ impl ResponsePerf {
         let frame = self.frame;
         self.frame += 1;
         if frame < 30 {
-            let species = frame % 3 + 1;
+            let species = frame % (species::PLAYER_FLORA_PAINT_SELECTIONS.len() as u32 - 1) + 1;
             app.player_tools.flora_paint_selection_index = species as usize;
             let xz = authored_flora_bench_center(frame);
             let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
@@ -159,7 +159,7 @@ impl ResponsePerf {
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.55, 1.15), target);
         }
         if frame == 600 || frame == 2600 {
-            let counts = (0..5)
+            let counts = (0..species::species_count())
                 .map(|species| {
                     app.surface_builder
                         .resources
@@ -317,6 +317,7 @@ impl ResponseCheck {
                     .adjustables
                     .vegetation_response_pose_hz
                     .value = 8.;
+                log::info!("[VEGETATION_RESPONSE][SCENE] action=change-response-controls");
             }
             20 => {
                 let before = app

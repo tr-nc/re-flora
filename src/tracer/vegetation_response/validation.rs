@@ -164,7 +164,7 @@ pub(in crate::tracer) fn validate_gpu(
             root: [1., 1., 1., 0.],
             identity: [
                 NO_PREVIOUS,
-                crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX,
+                species::TREE_LEAF_RENDER_SPECIES_INDEX,
                 seed,
                 1,
             ],
@@ -222,7 +222,14 @@ pub(in crate::tracer) fn validate_gpu(
     harness.controls[3] = 0.;
     source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;
-    let mut inputs: Vec<_> = [0, 2, 3, 4, 5]
+    let validation_species = [
+        species::TALL_GRASS_SPECIES_INDEX,
+        species::LAVENDER_SPECIES_INDEX,
+        species::EMBER_BLOOM_SPECIES_INDEX,
+        species::TREE_LEAF_RENDER_SPECIES_INDEX,
+        species::APPLE_RENDER_SPECIES_INDEX,
+    ];
+    let mut inputs: Vec<_> = validation_species
         .into_iter()
         .map(|species| ResponseInput {
             root: [1., 1., 1., 0.],
@@ -263,7 +270,7 @@ pub(in crate::tracer) fn validate_gpu(
         }
     }
     // Production-state measurements, not a verdict on the deliberately discrete art style.
-    for (index, species) in [0, 2, 3, 4, 5].into_iter().enumerate() {
+    for (index, species) in validation_species.into_iter().enumerate() {
         let reach = response_samples[..120]
             .iter()
             .position(|s| s[index][0] >= 0.9)
@@ -381,7 +388,7 @@ pub(in crate::tracer) fn validate_gpu(
             old == changed,
             "live controls or cadence change reset state"
         );
-        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species=0,2,3,4,5 t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
+        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species={validation_species:?} t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
         control_results.push((t90, overshoot, last.clone()));
     }
     for index in 0..inputs.len() {

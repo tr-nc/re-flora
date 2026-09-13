@@ -297,7 +297,7 @@ mod tests {
     fn authored_species_are_derived_from_registry_metadata() {
         assert_eq!(
             authored_plant_species_indices().collect::<Vec<_>>(),
-            vec![LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX,]
+            vec![LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX]
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));

@@ -1969,7 +1969,7 @@ value = true
 [[section.param]]
 id = "butterfly_spawn_rate_per_source"
 kind = "float"
-label = "Spawn Rate Per Flora Voxel"
+label = "Habitat Spawn Rate (0.00002 = Normal)"
 type = "Float"
 
 [section.param.data]

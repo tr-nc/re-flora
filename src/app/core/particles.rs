@@ -2,9 +2,9 @@ use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightTuning, ButterflyFlightVariant,
-    ButterflySpawnSource, FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle,
-    ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
-    ParticleUpdateConfig, PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
+    FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind,
+    ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig,
+    PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -21,7 +21,6 @@ const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
-const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
 const BUTTERFLY_LIMIT_PER_WORLD_CHUNK: u64 = 2;
 // Leaf-born visual particles may start inside branch voxels. B treats the canopy
 // as permeable, while soil, rocks and constructed surfaces remain solid.
@@ -465,56 +464,6 @@ impl App {
             .push(ButterflyEmitter::new(9_173, &self.butterfly_emitter_desc));
     }
 
-    fn refresh_butterfly_spawn_sources(&mut self, dt: f32) {
-        self.butterfly_spawn_source_refresh_elapsed += dt.max(0.0);
-        if self.butterfly_spawn_source_refresh_elapsed < BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS {
-            return;
-        }
-        self.butterfly_spawn_source_refresh_elapsed = 0.0;
-
-        let ground_voxels = match self.surface_builder.non_grass_flora_base_world_voxels() {
-            Ok(positions) => positions,
-            Err(err) => {
-                log::warn!("Failed to refresh butterfly flora spawn sources: {err}");
-                return;
-            }
-        };
-        let ground_source_count = ground_voxels.len();
-        let tree_spawn_positions = self.trees.butterfly_spawn_positions();
-        let tree_source_count = tree_spawn_positions.len();
-        let mut sources = Vec::with_capacity(ground_source_count + tree_source_count);
-        let voxel_scale = super::VOXEL_DIM_PER_CHUNK.as_vec3();
-        sources.extend(ground_voxels.into_iter().map(|position| {
-            ButterflySpawnSource::ground_flora(
-                (position.as_vec3() + Vec3::splat(0.5)) / voxel_scale,
-            )
-        }));
-        sources.extend(
-            tree_spawn_positions
-                .into_iter()
-                .map(ButterflySpawnSource::tree_leaf),
-        );
-
-        let previous_source_count = self
-            .butterfly_emitters
-            .first()
-            .map_or(0, ButterflyEmitter::spawn_source_count);
-        let total_source_count = sources.len();
-        for emitter in &mut self.butterfly_emitters {
-            emitter.set_spawn_sources(sources.clone());
-        }
-        if previous_source_count != total_source_count {
-            log::info!(
-                "[BUTTERFLY][SPAWN_SOURCES] non_grass_flora={} tree_leaves={} total={} rate_per_source_per_second={:.6} world_limit={}",
-                ground_source_count,
-                tree_source_count,
-                total_source_count,
-                self.butterfly_emitter_desc.spawn_rate_per_source,
-                self.butterfly_emitter_desc.max_active_butterflies,
-            );
-        }
-    }
-
     pub(super) fn update_particle_simulation(&mut self, dt: f32) {
         if dt <= 0.0 {
             return;
@@ -534,7 +483,6 @@ impl App {
                 emitter.apply_desc(&self.butterfly_emitter_desc);
             }
             self.ensure_butterfly_emitter();
-            self.refresh_butterfly_spawn_sources(dt);
         }
         let wind_time = self.time_info.time_since_start();
         self.particle_system
