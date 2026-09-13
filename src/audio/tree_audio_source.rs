@@ -131,23 +131,24 @@ impl CanopyAudioVoice {
         wind: &WindFieldFrame,
         curve: WindResponseCurve,
     ) -> f32 {
-        let strength = descriptor
+        descriptor
             .samples()
             .iter()
             .map(|sample| {
                 let position = descriptor.sample_world_position(sample);
+                let strength =
+                    Self::linear_sampled_wind_response(wind.sample_world(position).length());
+                // A local gust drives the leaves it reaches, not a threshold on the
+                // whole-canopy mean. Keep one weighted emitter and the same wind field.
                 sample.weight()
-                    * Self::linear_sampled_wind_response(wind.sample_world(position).length())
+                    * if strength <= 0.0 {
+                        0.0
+                    } else {
+                        curve.factor(strength)
+                    }
             })
             .sum::<f32>()
-            .clamp(0.0, 1.0);
-        // Remap the shared canopy sample before the existing attack/release filter.
-        // Even a degenerate zero-width curve must not create sound without wind.
-        if strength <= 0.0 {
-            0.0
-        } else {
-            curve.factor(strength)
-        }
+            .clamp(0.0, 1.0)
     }
 
     fn linear_sampled_wind_response(sampled_strength: f32) -> f32 {
@@ -250,6 +251,75 @@ mod tests {
     }
 
     #[test]
+    fn manual_gust_replay_reports_local_and_canopy_threshold_onset() {
+        use crate::{
+            audio::CanopyAcousticDescriptor,
+            tree_gen::LeafPlacement,
+            wind_field::{GustSettings, WindField},
+            wind_response::WindResponseCurve,
+        };
+        use glam::{Vec2, Vec3};
+        let descriptor = CanopyAcousticDescriptor::build(
+            1,
+            Vec3::new(0.98, 0.7, 1.13),
+            1,
+            &[-64., 64.].map(|x| LeafPlacement {
+                position: Vec3::new(x, 0., 0.),
+                anchor: Vec3::ZERO,
+            }),
+            &[],
+        );
+        let mut field = WindField::default();
+        field.background_enabled = false;
+        field.advance(0.0);
+        // Recorded 9-item gesture; other gust settings use the startup defaults.
+        assert!(field.release_with_settings(
+            Vec3::new(0.82689226, 0.42759848, 0.7031249),
+            Vec2::new(0.6090692, 0.79311705),
+            GustSettings {
+                speed: 108.042145,
+                ..Default::default()
+            }
+        ));
+        let curve = WindResponseCurve {
+            min_strength: 0.135,
+            max_strength: 1.0,
+            power: 1.0,
+        };
+        let mut first_local = None;
+        let mut first_old_mean = None;
+        let mut first_response = None;
+        for frame in 1..=480 {
+            let time = frame as f32 / 60.0;
+            field.advance(time);
+            let wind = field.frame();
+            let mut mean = 0.0;
+            for sample in descriptor.samples() {
+                let local = CanopyAudioVoice::linear_sampled_wind_response(
+                    wind.sample_world(descriptor.sample_world_position(sample))
+                        .length(),
+                );
+                mean += sample.weight() * local;
+                if curve.factor(local) > 0.0 {
+                    first_local.get_or_insert(time);
+                }
+            }
+            if curve.factor(mean) > 0.0 {
+                first_old_mean.get_or_insert(time);
+            }
+            if CanopyAudioVoice::sampled_response(&descriptor, &wind, curve) > 0.0 {
+                first_response.get_or_insert(time);
+            }
+        }
+        assert!(first_local.is_some());
+        assert_eq!(
+            first_response, first_local,
+            "a locally driven canopy sample must respond in that same update"
+        );
+        println!("manual gust onset seconds: local={first_local:?} old_mean={first_old_mean:?} response={first_response:?}; synthetic two-leaf canopy, recorded gesture and default gust shape");
+    }
+
+    #[test]
     fn quiet_canopy_does_not_play_the_full_wind_loop_at_full_gain() {
         let strong = CanopyAudioVoice::response_volume_db(0.0, 1.0, 1.0);
         let weak = CanopyAudioVoice::response_volume_db(0.0, 1.0, 0.01);
@@ -290,6 +360,18 @@ mod tests {
         }
         assert!(
             (CanopyAudioVoice::sampled_response(&descriptor, &wind, curve) - 0.375).abs() < 1e-6
+        );
+        // A gust reaches one side of the canopy before the other. A locally
+        // wind-driven leaf must not wait for the whole-canopy mean to cross Min.
+        assert!(
+            CanopyAudioVoice::sampled_response(
+                &descriptor,
+                &wind,
+                crate::wind_response::WindResponseCurve {
+                    min_strength: 0.4,
+                    ..curve
+                }
+            ) > 0.0
         );
         assert_eq!(
             CanopyAudioVoice::sampled_response(
