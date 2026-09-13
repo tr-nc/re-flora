@@ -37,9 +37,77 @@ pub(super) struct TerrainEditHover {
     pub(super) is_editable: bool,
 }
 
+fn panel_blocks_world(config_open: bool, card_open: bool, orbit_edit: bool) -> bool {
+    card_open || (config_open && !orbit_edit)
+}
+
+fn gui_owns_pointer(ctx: &egui::Context, position: Option<Vec2>) -> bool {
+    ctx.egui_is_using_pointer()
+        || position.is_some_and(|position| {
+            let position = position / ctx.pixels_per_point();
+            ctx.layer_id_at(egui::pos2(position.x, position.y))
+                .is_some_and(|layer| layer.order != egui::Order::Background)
+        })
+}
+
+#[cfg(test)]
+mod panel_input_tests {
+    use super::{gui_owns_pointer, panel_blocks_world};
+
+    #[test]
+    fn latest_pointer_position_blocks_ui_but_leaves_world_available() {
+        let ctx = egui::Context::default();
+        let mut panel = egui::Rect::NOTHING;
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                panel = egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20.0, 20.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    })
+                    .unwrap()
+                    .response
+                    .rect;
+            });
+        }
+        let physical = |p: egui::Pos2| Some(glam::Vec2::new(p.x, p.y) * ctx.pixels_per_point());
+        assert!(gui_owns_pointer(&ctx, physical(panel.center())));
+        assert!(!gui_owns_pointer(
+            &ctx,
+            physical(panel.max + egui::vec2(100., 100.))
+        ));
+    }
+
+    #[test]
+    fn debug_panel_is_non_modal_only_in_orbit_edit() {
+        assert!(!panel_blocks_world(true, false, true));
+        assert!(panel_blocks_world(true, false, false));
+        for orbit in [false, true] {
+            assert!(!panel_blocks_world(false, false, orbit));
+            for debug in [false, true] {
+                assert!(panel_blocks_world(debug, true, orbit));
+            }
+        }
+    }
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
-        self.config_panel_visible || self.card_display_visible
+        panel_blocks_world(
+            self.config_panel_visible,
+            self.card_display_visible,
+            self.is_orbit_edit_camera_mode(),
+        )
+    }
+
+    pub(super) fn gui_blocks_world_pointer(&self) -> bool {
+        if !self.window_state.is_cursor_visible() {
+            return false;
+        }
+        let ctx = self.egui_renderer.context();
+        // Use the latest window-event position, not last frame's egui hover position.
+        // A slider drag remains owned by egui even after leaving its window.
+        gui_owns_pointer(ctx, self.cursor_position_physical)
     }
 
     pub(super) fn is_free_look_camera_mode(&self) -> bool {
@@ -59,11 +127,12 @@ impl App {
     }
 
     pub(super) fn keyboard_tool_shortcuts_available(&self) -> bool {
-        !self.blocking_panel_open()
+        !self.blocking_panel_open() && !self.gui_wants_keyboard_input()
     }
 
     pub(super) fn terrain_edit_pointer_available(&self) -> bool {
         !self.blocking_panel_open()
+            && !self.gui_blocks_world_pointer()
             && self.launch_owners.glass_experiment_settings().is_none()
             && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
     }
@@ -87,7 +156,9 @@ impl App {
 
     pub(super) fn sync_cursor_with_panels(&mut self) {
         let was_cursor_visible = self.window_state.is_cursor_visible();
-        let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
+        let cursor_visible = self.config_panel_visible
+            || self.card_display_visible
+            || self.is_orbit_edit_camera_mode();
 
         if cursor_visible && !was_cursor_visible {
             // Wayland rejects cursor warps after the pointer is unlocked, so center while still
@@ -212,7 +283,9 @@ impl App {
     }
 
     fn orbit_mouse_drag_available(&self) -> bool {
-        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
+        self.is_orbit_edit_camera_mode()
+            && !self.blocking_panel_open()
+            && !self.gui_blocks_world_pointer()
     }
 
     fn update_orbit_camera_motion(&mut self, frame_delta_time: f32) {
@@ -325,7 +398,7 @@ impl App {
     }
 
     fn camera_scroll_available(&self) -> bool {
-        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
+        self.orbit_mouse_drag_available()
     }
 
     fn update_mouse_wheel_camera_dolly(&mut self, frame_delta_time: f32) {

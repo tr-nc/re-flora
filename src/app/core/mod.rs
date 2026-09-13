@@ -2077,7 +2077,15 @@ impl App {
                 return;
             }
 
-            if consumed && !is_keyboard_event {
+            let pointer_event = matches!(
+                &event,
+                WindowEvent::CursorMoved { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::MouseWheel { .. }
+            );
+            if !is_keyboard_event
+                && (consumed || (pointer_event && self.gui_blocks_world_pointer()))
+            {
                 if matches!(
                     &event,
                     WindowEvent::MouseInput {
