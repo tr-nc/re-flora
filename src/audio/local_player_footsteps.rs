@@ -787,6 +787,7 @@ impl LocalPlayerFootstepAudio {
 
     fn play_legacy_2d(&self, event: &FootstepEvent) -> Result<()> {
         self.spatial_sound_manager.add_non_spatial_source(
+            super::mixer::AudioCategory::Footsteps,
             self.clip_bank.path_for(event),
             self.event_gain_db(event) + self.volume_gain_db,
         )

@@ -967,10 +967,10 @@ impl App {
     }
 
     fn apply_effective_master_volume_gain(&self, error_context: &str) {
-        if let Err(err) = self
-            .spatial_sound_manager
-            .set_global_volume_gain_db(self.effective_master_volume_gain_db())
-        {
+        if let Err(err) = self.spatial_sound_manager.set_mix(
+            self.debug_settings.audio_mix,
+            self.effective_master_volume_gain_db(),
+        ) {
             log::error!("{}: {}", error_context, err);
         }
     }

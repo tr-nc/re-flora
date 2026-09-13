@@ -12,6 +12,7 @@ use crate::app::gui_config_model::{
 use crate::app::tree_gui::edit_tree_desc;
 use egui::Color32;
 use std::path::Path;
+mod audio_mix;
 pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
@@ -93,6 +94,9 @@ impl DebugSettings {
         let custom = &mut config.custom;
         let mut tree_desc_changed = false;
         render_gui_from_config(ui, &config.section, adjustables, |section_name, ui| {
+            if section_name == "Audio" {
+                audio_mix::draw(&mut saved_controls::SavedControls::new(ui, custom));
+            }
             if section_name == "Butterflies" {
                 self::butterfly_flight::draw_butterfly_flight_ab_controls(
                     &mut saved_controls::SavedControls::new(ui, custom),
@@ -603,6 +607,13 @@ fn render_gui_from_config(
             continue;
         }
         ui.collapsing(section_title(&section.name), |ui| {
+            if section.name == "Audio" {
+                after_section(&section.name, ui);
+                ui.collapsing("Advanced audio / source trims", |ui| {
+                    render_section_controls(ui, section, adjustables);
+                });
+                return;
+            }
             if section.name == "Flora" {
                 flora_groups::render(ui, config, section, adjustables, &mut after_section);
                 return;

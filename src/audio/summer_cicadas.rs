@@ -65,9 +65,12 @@ impl SummerCicadas {
         }
         let clip = usize::from(site.kind != 2);
         let gain_db = if site.kind == 2 { -20. } else { -24. };
-        let source = self
-            .audio
-            .add_spatial_one_shot(CLIPS[clip], gain_db, site.position)?;
+        let source = self.audio.add_spatial_one_shot(
+            super::mixer::AudioCategory::Cicadas,
+            CLIPS[clip],
+            gain_db,
+            site.position,
+        )?;
         let end = now + self.durations[clip] + 0.15;
         self.active.push(ActiveCall { site, source, end });
         self.next_start = now + 2.7;

@@ -532,6 +532,7 @@ impl App {
         }
 
         match self.spatial_sound_manager.add_looping_spatial_source(
+            crate::audio::mixer::AudioCategory::Terrain,
             super::TERRAIN_EDIT_LOOP_PATH,
             super::TERRAIN_EDIT_LOOP_VOLUME_DB,
             position,
@@ -566,6 +567,7 @@ impl App {
 
     pub(super) fn play_item_panel_scroll_sound(&self) {
         if let Err(err) = self.spatial_sound_manager.add_non_spatial_source(
+            crate::audio::mixer::AudioCategory::Interface,
             super::ITEM_PANEL_SCROLL_SFX_PATH,
             super::ITEM_PANEL_SCROLL_SFX_VOLUME_DB,
         ) {

@@ -1,10 +1,11 @@
 use crate::audio::audio_clip_cache::AudioClipCache;
+use crate::audio::mixer::{AudioCategory, AudioMixSettings};
 use crate::audio::{AudioTelemetryObservations, AudioTelemetryRouter, CanopyAudioGenerationKey};
 use crate::gameplay::{CameraPose, CameraVectors};
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, BusParams, Emitter, EmitterDesc,
+    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, Emitter, EmitterDesc,
     EmitterSpatialState, EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile,
     OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayCommandId,
     PlayOptions, PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip,
@@ -23,6 +24,7 @@ const SPATIAL_FRAME_PUBLISH_INTERVAL_SECONDS: f64 = 1.0 / 30.0;
 const AUDIO_EVENT_QUEUE_CAPACITY: usize = 1_024;
 
 struct SourceInfo {
+    category: AudioCategory,
     emitter: Emitter,
     volume_db: f32,
     position: Option<Vec3>,
@@ -134,11 +136,11 @@ pub struct SpatialSoundManager {
     world: Arc<PetalSonicWorld>,
     clip_cache: Arc<AudioClipCache>,
     uuid_to_source: Arc<Mutex<HashMap<Uuid, SourceInfo>>>,
-    one_shot_emitters: Arc<Mutex<HashMap<String, OneShotEmitter>>>,
+    one_shot_emitters: Arc<Mutex<HashMap<(String, AudioCategory), OneShotEmitter>>>,
     transient_spatial_emitters: Arc<Mutex<HashMap<Emitter, TransientSpatialSource>>>,
     audio_telemetry_router: Arc<Mutex<AudioTelemetryRouter>>,
     listener_state: Arc<Mutex<ListenerState>>,
-    global_volume_gain_db: Arc<Mutex<f32>>,
+    mix_state: Arc<Mutex<Option<(AudioMixSettings, f32)>>>,
     health_log_state: Arc<Mutex<AudioHealthLogState>>,
     spatial_frame_revision: Arc<AtomicU64>,
     spatial_frame_publish_cadence: Arc<Mutex<SpatialFramePublishCadence>>,
@@ -352,6 +354,10 @@ impl SpatialSoundManager {
             // capacity. AudioTelemetryRouter drains the telemetry queues once into a frame-scoped
             // observation batch and never adds a second persistent inbox.
             event_queue_capacity: AUDIO_EVENT_QUEUE_CAPACITY,
+            buses: AudioCategory::ALL
+                .into_iter()
+                .map(|category| petalsonic::BusDesc::new(category.bus_name()))
+                .collect(),
             ..PetalSonicWorldDesc::default()
         })?;
 
@@ -363,7 +369,7 @@ impl SpatialSoundManager {
             transient_spatial_emitters: Arc::new(Mutex::new(HashMap::new())),
             audio_telemetry_router: Arc::new(Mutex::new(AudioTelemetryRouter::default())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
-            global_volume_gain_db: Arc::new(Mutex::new(0.0)),
+            mix_state: Arc::new(Mutex::new(None)),
             health_log_state: Arc::new(Mutex::new(AudioHealthLogState::default())),
             spatial_frame_revision: Arc::new(AtomicU64::new(0)),
             spatial_frame_publish_cadence: Arc::new(Mutex::new(
@@ -413,6 +419,7 @@ impl SpatialSoundManager {
     #[allow(clippy::too_many_arguments)]
     fn add_clip_source(
         &self,
+        category: AudioCategory,
         clip: ResidentClip,
         play_options: PlayOptions,
         volume_db: f32,
@@ -424,7 +431,8 @@ impl SpatialSoundManager {
     ) -> Result<Uuid> {
         let emitter = self.world.create_emitter(
             clip,
-            Self::emitter_desc(position, volume_db, extent.clone(), occlusion_profile),
+            Self::emitter_desc(position, volume_db, extent.clone(), occlusion_profile)
+                .with_bus(self.category_bus(category)),
         )?;
         if let Err(error) = self.world.play(emitter, play_options) {
             let _ = self.world.destroy_emitter(emitter);
@@ -444,6 +452,7 @@ impl SpatialSoundManager {
         self.uuid_to_source.lock().unwrap().insert(
             uuid,
             SourceInfo {
+                category,
                 emitter,
                 volume_db,
                 position,
@@ -463,12 +472,14 @@ impl SpatialSoundManager {
 
     pub fn add_looping_spatial_source(
         &self,
+        category: AudioCategory,
         path: &str,
         volume_db: f32,
         position: Vec3,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
         self.add_clip_source(
+            category,
             self.cached_clip(path)?,
             PlayOptions::looping(),
             volume_db,
@@ -483,11 +494,13 @@ impl SpatialSoundManager {
     /// One registered point source, one finite Voice. The caller owns retirement.
     pub(crate) fn add_spatial_one_shot(
         &self,
+        category: AudioCategory,
         path: &str,
         volume_db: f32,
         position: Vec3,
     ) -> Result<Uuid> {
         self.add_clip_source(
+            category,
             self.cached_clip(path)?,
             PlayOptions::once(),
             volume_db,
@@ -510,6 +523,7 @@ impl SpatialSoundManager {
         occlusion_profile: OcclusionProfile,
     ) -> Result<Uuid> {
         let uuid = self.add_clip_source(
+            AudioCategory::Leaves,
             clip,
             PlayOptions::looping(),
             volume_db,
@@ -538,13 +552,21 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    pub fn add_non_spatial_source(&self, path: &str, volume_db: f32) -> Result<()> {
+    pub fn add_non_spatial_source(
+        &self,
+        category: AudioCategory,
+        path: &str,
+        volume_db: f32,
+    ) -> Result<()> {
         let mut emitters = self.one_shot_emitters.lock().unwrap();
-        let emitter = if let Some(source) = emitters.get_mut(path) {
+        let key = (path.to_owned(), category);
+        let emitter = if let Some(source) = emitters.get_mut(&key) {
             if (source.volume_db - volume_db).abs() > f32::EPSILON {
                 self.world.update_emitter(
                     source.emitter,
-                    EmitterDesc::non_spatial().with_gain_db(volume_db),
+                    EmitterDesc::non_spatial()
+                        .with_gain_db(volume_db)
+                        .with_bus(self.category_bus(category)),
                 )?;
                 source.volume_db = volume_db;
             }
@@ -552,9 +574,11 @@ impl SpatialSoundManager {
         } else {
             let emitter = self.world.create_emitter(
                 self.cached_clip(path)?,
-                EmitterDesc::non_spatial().with_gain_db(volume_db),
+                EmitterDesc::non_spatial()
+                    .with_gain_db(volume_db)
+                    .with_bus(self.category_bus(category)),
             )?;
-            emitters.insert(path.to_owned(), OneShotEmitter { emitter, volume_db });
+            emitters.insert(key, OneShotEmitter { emitter, volume_db });
             emitter
         };
         self.world.play(emitter, PlayOptions::once())?;
@@ -570,7 +594,9 @@ impl SpatialSoundManager {
     ) -> Result<TransientSpatialEmitter> {
         let emitter = self.world.create_emitter(
             self.cached_clip(path)?,
-            EmitterDesc::spatial(Self::pose(position)).with_gain_db(volume_db),
+            EmitterDesc::spatial(Self::pose(position))
+                .with_gain_db(volume_db)
+                .with_bus(self.category_bus(AudioCategory::Footsteps)),
         )?;
         self.transient_spatial_emitters.lock().unwrap().insert(
             emitter,
@@ -919,7 +945,8 @@ impl SpatialSoundManager {
                 source.volume_db,
                 source.extent.clone(),
                 source.occlusion_profile,
-            ),
+            )
+            .with_bus(self.category_bus(source.category)),
         )?;
         Ok(())
     }
@@ -942,7 +969,8 @@ impl SpatialSoundManager {
                 source.volume_db,
                 source.extent.clone(),
                 source.occlusion_profile,
-            ),
+            )
+            .with_bus(self.category_bus(source.category)),
         )?;
         if let Err(error) = self
             .audio_telemetry_router
@@ -990,19 +1018,28 @@ impl SpatialSoundManager {
         Ok(())
     }
 
-    pub fn set_global_volume_gain_db(&self, gain_db: f32) -> Result<()> {
-        let mut current = self.global_volume_gain_db.lock().unwrap();
-        if (*current - gain_db).abs() <= f32::EPSILON {
+    fn category_bus(&self, category: AudioCategory) -> petalsonic::Bus {
+        self.world
+            .bus(category.bus_name())
+            .expect("all game audio buses declared at startup")
+    }
+
+    pub fn set_mix(&self, settings: AudioMixSettings, gain_db: f32) -> Result<()> {
+        let mut current = self.mix_state.lock().unwrap();
+        if *current == Some((settings, gain_db)) {
             return Ok(());
         }
-        self.world.set_bus_params(
-            self.world.master_bus(),
-            BusParams {
-                gain_db,
-                ..BusParams::default()
-            },
-        )?;
-        *current = gain_db;
+        for category in AudioCategory::ALL {
+            self.world.set_bus_params(
+                self.category_bus(category),
+                settings.channel(category).params(),
+            )?;
+        }
+        let mut master = settings.master.params();
+        master.gain_db += gain_db;
+        self.world.set_bus_params(self.world.master_bus(), master)?;
+        log::info!("[AUDIO][MIX] settings={settings:?} master_input_db={gain_db}");
+        *current = Some((settings, gain_db));
         Ok(())
     }
 

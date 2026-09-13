@@ -12,6 +12,8 @@ pub struct GuiConfigFile {
 /// Add typed custom settings here. Serde saves the live object directly; no save hook.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SavedCustomSettings {
+    #[serde(default)]
+    pub audio_mix: crate::audio::mixer::AudioMixSettings,
     // Simulates a newly added custom setting in every test build. There is no
     // matching entry in DebugSettings::save, load, or synchronization code.
     #[cfg(test)]
