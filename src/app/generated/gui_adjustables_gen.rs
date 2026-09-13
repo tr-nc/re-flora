@@ -1022,6 +1022,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
+        id: "leaf_local_displacement_voxels",
+        kind: "float",
+        label: "Local Flutter Displacement (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
         id: "leaf_flutter_strength",
         kind: "float",
         label: "Local Flutter Strength (0 = off)",
@@ -1340,6 +1346,7 @@ pub struct GuiAdjustables {
     pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
     pub leaf_global_offset_scale: crate::gui_adjustables::FloatParam,
+    pub leaf_local_displacement_voxels: crate::gui_adjustables::FloatParam,
     pub leaf_flutter_strength: crate::gui_adjustables::FloatParam,
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
@@ -1544,6 +1551,7 @@ impl GuiAdjustables {
         let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_global_offset_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_local_displacement_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_flutter_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -2691,6 +2699,13 @@ impl GuiAdjustables {
                             leaf_global_offset_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "leaf_local_displacement_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_local_displacement_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "leaf_flutter_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3020,6 +3035,7 @@ impl GuiAdjustables {
             flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
             flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
             leaf_global_offset_scale: leaf_global_offset_scale_field.expect("Missing parameter: leaf_global_offset_scale"),
+            leaf_local_displacement_voxels: leaf_local_displacement_voxels_field.expect("Missing parameter: leaf_local_displacement_voxels"),
             leaf_flutter_strength: leaf_flutter_strength_field.expect("Missing parameter: leaf_flutter_strength"),
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
@@ -3183,6 +3199,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
         "leaf_global_offset_scale" => Some(&adjustables.leaf_global_offset_scale),
+        "leaf_local_displacement_voxels" => Some(&adjustables.leaf_local_displacement_voxels),
         "leaf_flutter_strength" => Some(&adjustables.leaf_flutter_strength),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
@@ -3419,6 +3436,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
         "leaf_global_offset_scale" => Some(&mut adjustables.leaf_global_offset_scale),
+        "leaf_local_displacement_voxels" => Some(&mut adjustables.leaf_local_displacement_voxels),
         "leaf_flutter_strength" => Some(&mut adjustables.leaf_flutter_strength),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),

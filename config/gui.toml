@@ -1927,6 +1927,17 @@ min = 0
 max = 3
 
 [[section.param]]
+id = "leaf_local_displacement_voxels"
+kind = "float"
+label = "Local Flutter Displacement (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.36627253
+min = 0
+max = 5
+
+[[section.param]]
 id = "leaf_flutter_strength"
 kind = "float"
 label = "Local Flutter Strength (0 = off)"

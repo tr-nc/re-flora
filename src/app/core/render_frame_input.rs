@@ -91,6 +91,7 @@ pub(super) fn freeze_render_frame_inputs(
         },
         motion: FloraMotionFrameInput {
             leaf_global_offset_scale: gui.leaf_global_offset_scale.value,
+            leaf_local_displacement_voxels: gui.leaf_local_displacement_voxels.value,
             inertial_response_enabled: gui.flora_inertial_response.value,
             response_controls: [
                 gui.vegetation_response_speed.value,
@@ -453,6 +454,10 @@ mod tests {
                 },
                 motion: FloraMotionFrameInput {
                     leaf_global_offset_scale: settings.adjustables.leaf_global_offset_scale.value,
+                    leaf_local_displacement_voxels: settings
+                        .adjustables
+                        .leaf_local_displacement_voxels
+                        .value,
                     inertial_response_enabled: settings.adjustables.flora_inertial_response.value,
                     response_controls: [
                         settings.adjustables.vegetation_response_speed.value,

@@ -306,7 +306,7 @@ public PreparedFloraVertex prepareFloraVertex(
     if (instanceType == FLORA_SPECIES_TREE_LEAF)
     {
         float3 localOffset = useResponse && gui_input.leaf_flutter_strength > 0.0
-            ? leafLocalOffset(leafSeed, leafAngle) : float3(0.0);
+            ? leafLocalDisplacement(leafSeed, leafAngle, gui_input.leaf_local_displacement_voxels) : float3(0.0);
         windOffset = leafWindOffset(windOffset, localOffset, gui_input.leaf_global_offset_scale);
     }
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);

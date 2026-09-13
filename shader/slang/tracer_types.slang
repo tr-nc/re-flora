@@ -36,6 +36,7 @@ public struct U_GuiInput
     public float flora_bend_height_power;
     public float leaf_flutter_strength;
     public float leaf_global_offset_scale;
+    public float leaf_local_displacement_voxels;
     public float leaf_paddle_amplitude_voxels;
     public float leaf_paddle_primary_speed;
     public float leaf_paddle_secondary_speed;

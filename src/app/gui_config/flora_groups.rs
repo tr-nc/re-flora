@@ -32,7 +32,11 @@ const LEAF_MOTION: &[&str] = &[
     "leaf_paddle_primary_speed",
     "leaf_paddle_secondary_speed",
 ];
-const LEAF_RESPONSE: &[&str] = &["leaf_flutter_strength", "leaf_global_offset_scale"];
+const LEAF_RESPONSE: &[&str] = &[
+    "leaf_flutter_strength",
+    "leaf_local_displacement_voxels",
+    "leaf_global_offset_scale",
+];
 const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_amplitude_wind_start_strength",
     "leaf_paddle_amplitude_wind_full_strength",
@@ -159,7 +163,7 @@ pub(super) fn render(
             if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                 controls(ui, leaves, LEAF_RESPONSE, adjustables);
             }
-            ui.small("Local Flutter: hinge motion and optical turning (requires inertia). Overall Offset: whole-leaf translation only. Neither changes sound or grass.");
+            ui.small("Flutter Strength: wind-driven hinge torque and optical turning (requires inertia). Displacement: local position radius, up to 5 voxels; actual motion follows wind. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
             category(ui, "Legacy Motion (inertia off)", |ui| {
                 controls(ui, flora, LEAF_MOTION, adjustables);
             });
@@ -231,6 +235,7 @@ mod tests {
         }
         for label in [
             "Local Flutter Strength (0 = off)",
+            "Local Flutter Displacement (voxels)",
             "Overall Wind Offset (0 = off)",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);

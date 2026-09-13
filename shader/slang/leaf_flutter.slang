@@ -42,6 +42,15 @@ public float3 leafLocalOffset(uint seed, float angle)
     return leafRotate(lever, hinge, angle) - lever;
 }
 
+// Normalize the original half-voxel hinge excursion at the 0.75-radian
+// equilibrium limit. Clamp transient overshoot so amplitude is a true radius.
+// The reference amplitude preserves the original displacement below that limit.
+public float3 leafLocalDisplacement(uint seed, float angle, float amplitudeVoxels)
+{
+    float3 offset = leafLocalOffset(seed, angle);
+    return offset / max(0.36627253, length(offset)) * clamp(amplitudeVoxels, 0.0, 5.0);
+}
+
 // Pressure projected onto a proxy leaf. All time variation comes from the shared
 // sampled wind and mechanical state, not a second periodic wind generator.
 // Wind is in game units; the bounded equilibrium angle is an art calibration.
