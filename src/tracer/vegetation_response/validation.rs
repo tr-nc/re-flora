@@ -475,8 +475,7 @@ pub(in crate::tracer) fn validate_gpu(
         // it with uniform fields at each CPU-sampled probe, avoiding assumptions
         // about the plant solver's nonlinear response curve.
         let mut field = crate::wind_field::WindField::default();
-        field.strength = 0.;
-        field.detail_strength = 0.;
+        field.background_enabled = false;
         field.advance(0.);
         field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X);
         field.advance(1.);
