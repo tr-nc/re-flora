@@ -2,11 +2,11 @@ schema_version = 1
 
 [audio_mix.master]
 enabled = true
-scale = 80.0
+scale = 17.0
 
 [audio_mix.leaves]
-enabled = false
-scale = 3.0
+enabled = true
+scale = 1.0
 
 [audio_mix.cicadas]
 enabled = true
@@ -18,11 +18,11 @@ scale = 8.0
 
 [audio_mix.terrain]
 enabled = true
-scale = 1.0
+scale = 2.0
 
 [audio_mix.interface]
 enabled = true
-scale = 1.0
+scale = 5.0
 
 [butterfly_flight]
 variant = "DartingBlock"
