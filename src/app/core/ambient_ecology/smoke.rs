@@ -92,6 +92,16 @@ impl App {
         })();
         self.player_tools.flora_paint_selection_index = previous;
         result?;
+        // Fixtures must not depend on a user-owned camera snapshot. The normal
+        // overview camera can be outside the bounded ecology listener range.
+        let focus_xz = Vec2::new(0.65, 0.65);
+        let focus = Vec3::new(
+            focus_xz.x,
+            self.query_terrain_height_cpu(focus_xz) + 0.12,
+            focus_xz.y,
+        );
+        self.tracer
+            .set_camera_pose_looking_at(focus + Vec3::new(0.0, 0.25, 0.6), focus);
         self.ecology.clear();
         log::info!("[ECOLOGY][SCENE] seeded={scene} normal_vegetation_edits=true");
         Ok(())
