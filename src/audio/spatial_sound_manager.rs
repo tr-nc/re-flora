@@ -5,11 +5,12 @@ use crate::gameplay::{CameraPose, CameraVectors};
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, Emitter, EmitterDesc, EmitterSpatialState,
-    EnvironmentalAcousticsBudget, LatencyProfile, OcclusionProfile, OutputDevicePolicy,
-    PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc, PlayCommandId, PlayOptions,
-    PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat, ResidentClip, RuntimeDiagnostics,
-    RuntimeState, SourceExtent, SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
+    AcousticSceneSnapshot, AcousticTelemetryDiagnostics, DirectGeometry, DirectPath, Emitter,
+    EmitterDesc, EmitterSpatialState, EnvironmentalAcousticsBudget, LatencyProfile,
+    OcclusionProfile, OutputDevicePolicy, PetalSonicEvent, PetalSonicWorld, PetalSonicWorldDesc,
+    PlayCommandId, PlayOptions, PlaybackControl, PlaybackTag, Pose, Quat as PetalQuat,
+    ResidentClip, RuntimeDiagnostics, RuntimeState, SourceExtent, SpatialFrame, SpatialQuality,
+    Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -490,6 +491,17 @@ impl SpatialSoundManager {
         )
     }
 
+    fn spatial_one_shot_direct_path(category: AudioCategory) -> DirectPath {
+        // User-requested diagnostic: isolate moving-listener clicks from cicada direct
+        // occlusion. Keep world placement, distance attenuation and environment routing.
+        let path = DirectPath::world();
+        if category == AudioCategory::Cicadas {
+            path.with_geometry(DirectGeometry::BypassTransmission)
+        } else {
+            path
+        }
+    }
+
     /// One registered point source, one finite Voice. The caller owns retirement.
     pub(crate) fn add_spatial_one_shot(
         &self,
@@ -501,7 +513,7 @@ impl SpatialSoundManager {
         self.add_clip_source(
             category,
             self.cached_clip(path)?,
-            PlayOptions::once(),
+            PlayOptions::once().with_direct_path(Self::spatial_one_shot_direct_path(category)),
             volume_db,
             Some(position),
             None,
@@ -1108,6 +1120,17 @@ mod tests {
     use petalsonic::{
         DistributedOcclusionProfile, ExtentSample, ExtentSampleId, OcclusionProfile, SourceExtent,
     };
+
+    #[test]
+    fn cicada_diagnostic_bypasses_only_direct_occlusion() {
+        use crate::audio::mixer::AudioCategory;
+        use petalsonic::{DirectGeometry, DirectPath, DirectPlacement};
+        let cicada = SpatialSoundManager::spatial_one_shot_direct_path(AudioCategory::Cicadas);
+        assert_eq!(cicada.geometry(), DirectGeometry::BypassTransmission);
+        assert_eq!(cicada.placement(), DirectPlacement::World);
+        let normal = SpatialSoundManager::spatial_one_shot_direct_path(AudioCategory::Terrain);
+        assert_eq!(normal, DirectPath::world());
+    }
 
     fn acoustic_snapshot(
         enabled: bool,
