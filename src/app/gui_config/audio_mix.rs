@@ -2,7 +2,7 @@ use super::saved_controls::SavedControls;
 
 pub(super) fn draw(ui: &mut SavedControls<'_>) {
     ui.label("Live mixer");
-    ui.small("1x = existing mix; 0x = silence. Save keeps all switches and scales.");
+    ui.small("Logarithmic loudness adjustment: equal travel changes gain by equal dB. Use the switch to mute; Save keeps the mix.");
     macro_rules! channel {
         ($field:ident, $label:literal) => {
             ui.toggle(
@@ -13,10 +13,10 @@ pub(super) fn draw(ui: &mut SavedControls<'_>) {
             );
             ui.slider(
                 |s| &mut s.audio_mix.$field.scale,
-                0.0..=8.0,
+                0.01..=crate::audio::mixer::MixChannel::MAX_SCALE,
                 concat!($label, " scale (x)"),
-                0.05,
-                false,
+                0.001,
+                true,
             );
         };
     }

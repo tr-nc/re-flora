@@ -45,9 +45,11 @@ impl Default for MixChannel {
     }
 }
 impl MixChannel {
+    pub const MAX_SCALE: f32 = 128.0;
+
     pub fn params(self) -> BusParams {
         let scale = if self.scale.is_finite() {
-            self.scale.clamp(0.0, 8.0)
+            self.scale.clamp(0.0, Self::MAX_SCALE)
         } else {
             1.0
         };
@@ -88,6 +90,19 @@ impl AudioMixSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tenfold_master_boost_is_twenty_db_without_old_eightfold_ceiling() {
+        let gain = |scale| {
+            MixChannel {
+                scale,
+                ..Default::default()
+            }
+            .params()
+            .gain_db
+        };
+        assert!((gain(80.0) - gain(8.0) - 20.0).abs() < 0.001);
+        assert!((gain(0.1) - gain(0.01) - 20.0).abs() < 0.001);
+    }
     #[test]
     fn mix_defaults_are_neutral_and_each_channel_is_independent() {
         let mut settings = AudioMixSettings::default();
