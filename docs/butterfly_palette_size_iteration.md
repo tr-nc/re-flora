@@ -29,3 +29,5 @@ RE_FLORA_BUTTERFLY_REVIEW=switch flock --close /tmp/re-flora-summer-gpu.lock car
 日志 `target/re-flora-logs/re-flora-20260913-180220.190-28869.log`：自然主体 frame 1312，脚本设置方块 frame 1432、动画 frame 1552；正常退出，无 ERROR，保留既有多图集选择 WARN。此前较短捕获未覆盖切换，因此不算切换证据。
 
 已检查 `target/butterfly-review/natural-palette-size-long.artifacts-xqjBSo/frame-0450.png`、`0570`、`0573`。全景中主体过小且场景/UI 干扰明显，不能凭这些图确认配色优劣或主观尺寸匹配。实机运行和切换日志通过，最终视觉效果仍待人工试玩；捕获运行不是性能验收。用户保存的方块模式、6Hz、速度 0.4、上下强度 3.2 等设置原样保留，未将这些无关改动提交。
+
+面板说明同步改为共享飞行／风／节奏，另明确动画有透明留白补偿、方块不变。最终文案版本再次通过 fmt/check 和持锁隐藏静音短运行，日志 `target/re-flora-logs/re-flora-20260913-180424.300-29590.log` 正常退出、无 ERROR、shutdown failures=0。最终用户配置 SHA-256 与运行前相同，无生成文件变更。

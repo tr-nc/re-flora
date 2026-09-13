@@ -6,7 +6,8 @@ pub(crate) fn draw_butterfly_flight_ab_controls(ui: &mut SavedControls<'_>) -> e
     ui.separator();
     ui.label("Flight appearance A/B");
     ui.small("Use Debug Panel Save to keep flight settings across restarts.");
-    ui.small("Both appearances use the same flight, wind, rhythm and compact size.");
+    ui.small("Both appearances use the same flight, wind and rhythm.");
+    ui.small("Animated sprites compensate for transparent padding; block size stays unchanged.");
     let response = ui.toggle(
         |s| &mut s.butterfly_flight.variant,
         ButterflyFlightVariant::DartingBlock,
