@@ -1,7 +1,7 @@
 schema_version = 1
 
 [butterfly_flight]
-variant = "DartingBlock"
+variant = "DartingSprite"
 
 [butterfly_flight.tuning]
 flight_frequency_hz = 5.5

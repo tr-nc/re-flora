@@ -6,12 +6,12 @@ pub(crate) fn draw_butterfly_flight_ab_controls(ui: &mut SavedControls<'_>) -> e
     ui.separator();
     ui.label("Flight appearance A/B");
     ui.small("Use Debug Panel Save to keep flight settings across restarts.");
-    ui.small("Uncheck to compare original A (without wind drift).");
+    ui.small("Both appearances use the same flight, wind, rhythm and compact size.");
     let response = ui.toggle(
         |s| &mut s.butterfly_flight.variant,
         ButterflyFlightVariant::DartingBlock,
-        ButterflyFlightVariant::OriginalSprite,
-        "B: Darting color blocks (A/B experiment)",
+        ButterflyFlightVariant::DartingSprite,
+        "B: Color blocks (unchecked: animated butterflies)",
     );
     let darting_block = ui.read(|s| &s.butterfly_flight.variant).is_darting_block();
     if response.changed() {
@@ -20,17 +20,17 @@ pub(crate) fn draw_butterfly_flight_ab_controls(ui: &mut SavedControls<'_>) -> e
             if darting_block {
                 "B-darting-block"
             } else {
-                "A-original-sprite"
+                "A-darting-sprite"
             }
         );
     }
     ui.small(if darting_block {
         "B — single-color particle blocks with irregular acceleration bursts"
     } else {
-        "A — original butterfly sprites and worm-noise flight"
+        "A — animated butterfly sprites with the current darting flight"
     });
     ui.small("Switching keeps the same live butterflies, habitats, colors and hard count limit.");
-    ui.enabled(darting_block, |ui| {
+    ui.enabled(true, |ui| {
         draw_butterfly_flight_tuning(ui);
     });
     response
@@ -38,7 +38,7 @@ pub(crate) fn draw_butterfly_flight_ab_controls(ui: &mut SavedControls<'_>) -> e
 
 pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui::Response; 6] {
     ui.small(
-        "B only — saved with Debug Panel Save. Physics stays at 120 Hz; World Tick is unchanged.",
+        "Both appearances — saved with Debug Panel Save. Physics stays at 120 Hz; World Tick is unchanged.",
     );
     let frequency = ui.slider(|s| &mut s.butterfly_flight.tuning.flight_frequency_hz, ButterflyFlightTuning::FREQUENCY_RANGE, "Shared flight frequency (Hz)", 0.05, true)
         .on_hover_text("One beat updates BOTH vertical intent and displayed position. No independent timer or timing jitter. 0 = continuous display, no voluntary vertical intent. Large displacement may advance BOTH together; display is limited by render FPS.");

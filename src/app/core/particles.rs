@@ -775,7 +775,7 @@ impl App {
         if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("switch") {
             let next = match review.subject_frame.map(|start| frame - start) {
                 Some(120) => Some(ButterflyFlightVariant::DartingBlock),
-                Some(240) => Some(ButterflyFlightVariant::OriginalSprite),
+                Some(240) => Some(ButterflyFlightVariant::DartingSprite),
                 _ => None,
             };
             if let Some(next) = next {
@@ -862,7 +862,7 @@ impl App {
         for emitter_idx in 0..self.butterfly_emitters.len() {
             if self.butterfly_emitters[emitter_idx]
                 .flight_variant()
-                .is_darting_block()
+                .uses_darting_flight()
             {
                 continue;
             }
@@ -1166,11 +1166,11 @@ mod tests {
         };
         draw(Vec::new());
         let (initial, rect) = draw(Vec::new());
-        assert_eq!(initial, ButterflyFlightVariant::DartingBlock);
+        assert_eq!(initial, ButterflyFlightVariant::DartingSprite);
         assert!(rect.is_positive());
         for expected in [
-            ButterflyFlightVariant::OriginalSprite,
             ButterflyFlightVariant::DartingBlock,
+            ButterflyFlightVariant::DartingSprite,
         ] {
             let pos = rect.center();
             draw(vec![

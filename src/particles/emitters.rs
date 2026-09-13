@@ -408,9 +408,11 @@ impl ButterflyEmitter {
     fn sync_active_style(&mut self, system: &mut ParticleSystem) {
         for butterfly in &mut self.active_butterflies {
             let _ = system.set_size(butterfly.handle, self.size);
-            if system
-                .set_butterfly_block_mode(butterfly.handle, self.flight_variant.is_darting_block())
-            {
+            if system.set_butterfly_flight_style(
+                butterfly.handle,
+                self.flight_variant.uses_darting_flight(),
+                self.flight_variant.is_darting_block(),
+            ) {
                 butterfly
                     .darting_flight
                     .resume(system.velocity(butterfly.handle).unwrap_or(Vec3::ZERO));
@@ -473,7 +475,7 @@ impl ButterflyEmitter {
         };
 
         let lifetime = random_in_range(&mut self.rng, &self.lifetime);
-        let block_mode = self.flight_variant.is_darting_block();
+        let block_mode = self.flight_variant.uses_darting_flight();
         let habitat_center = Vec3::new(
             position.x,
             emergence_target_y.unwrap_or(position.y),
@@ -508,6 +510,11 @@ impl ButterflyEmitter {
 
         match system.spawn(spawn) {
             Some(handle) => {
+                system.set_butterfly_flight_style(
+                    handle,
+                    block_mode,
+                    self.flight_variant.is_darting_block(),
+                );
                 let mut darting_flight = DartingFlightState::new(seed, habitat_center, initial_dir);
                 darting_flight.reset_render_pose(position);
                 self.active_butterflies.push(ActiveButterfly {
@@ -566,7 +573,7 @@ impl ButterflyEmitter {
             .iter_mut()
             .find(|butterfly| butterfly.handle == handle)
         {
-            if !self.flight_variant.is_darting_block() {
+            if !self.flight_variant.uses_darting_flight() {
                 butterfly.worm_phase += WORM_STEP_LEN;
             }
             let _ = (position, direction);
@@ -582,7 +589,7 @@ impl ButterflyEmitter {
         wind: &WindFieldFrame,
         mut terrain_distance: impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) {
-        if !self.flight_variant.is_darting_block() {
+        if !self.flight_variant.uses_darting_flight() {
             self.flight_elapsed = 0.0;
             return;
         }
@@ -624,7 +631,7 @@ impl ButterflyEmitter {
     }
 
     pub fn block_render_position(&self, handle: ParticleHandle) -> Option<Vec3> {
-        if !self.flight_variant.is_darting_block() {
+        if !self.flight_variant.uses_darting_flight() {
             return None;
         }
         self.active_butterflies
@@ -792,6 +799,83 @@ mod tests {
             before.iter().map(|s| s.texture_variant).collect::<Vec<_>>()
         );
         assert_eq!(a.rng.random::<u64>(), b.rng.random::<u64>());
+    }
+
+    #[test]
+    fn butterfly_appearance_switch_preserves_motion_rhythm_size_and_animation() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingSprite;
+        let mut reference = ButterflyEmitter::new(82, &desc);
+        let mut switched = ButterflyEmitter::new(82, &desc);
+        let sources = vec![ButterflySpawnSource::tree_leaf(Vec3::ONE)];
+        reference.set_spawn_sources(sources.clone());
+        switched.set_spawn_sources(sources);
+        let mut reference_system = ParticleSystem::new(4);
+        let mut switched_system = ParticleSystem::new(4);
+        let handle = reference.spawn_butterfly(&mut reference_system).unwrap();
+        assert_eq!(
+            handle,
+            switched.spawn_butterfly(&mut switched_system).unwrap()
+        );
+        let mut frames = std::collections::BTreeSet::new();
+        for step in 0..360 {
+            if step == 80 || step == 200 {
+                desc.flight_variant = if step == 80 {
+                    ButterflyFlightVariant::DartingBlock
+                } else {
+                    ButterflyFlightVariant::DartingSprite
+                };
+                switched.apply_desc(&desc);
+                switched.sync_active_style(&mut switched_system);
+            }
+            for (emitter, system) in [
+                (&mut reference, &mut reference_system),
+                (&mut switched, &mut switched_system),
+            ] {
+                emitter.advance_block_flight(
+                    system,
+                    1.0 / 120.0,
+                    Vec3::splat(4.0),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+            }
+            let mut a = Vec::new();
+            let mut b = Vec::new();
+            reference_system.write_snapshots_with_block_pose(&mut a, |h, p| {
+                reference.block_render_position(h).unwrap_or(p)
+            });
+            switched_system.write_snapshots_with_block_pose(&mut b, |h, p| {
+                switched.block_render_position(h).unwrap_or(p)
+            });
+            assert_eq!(a.len(), 1);
+            assert_eq!(b.len(), 1);
+            let (a, b) = (&a[0], &b[0]);
+            assert_eq!(
+                a.position_ws, b.position_ws,
+                "appearance must not restart the display beat"
+            );
+            assert_eq!(a.velocity, b.velocity);
+            assert_eq!(a.size, super::super::STANDARD_PARTICLE_SIZE);
+            assert_eq!(a.size, b.size);
+            assert_eq!(a.texture_variant, b.texture_variant);
+            assert_eq!(a.animation_frame_offset, b.animation_frame_offset);
+            assert_eq!(a.color.w, b.color.w);
+            assert_eq!(a.kind, ParticleRenderKind::Butterfly);
+            assert_eq!(
+                b.kind,
+                if (80..200).contains(&step) {
+                    ParticleRenderKind::ButterflyBlock
+                } else {
+                    ParticleRenderKind::Butterfly
+                }
+            );
+            frames.insert(a.animation_frame_offset);
+        }
+        assert!(
+            frames.len() > 1,
+            "sprite animation must still advance at the compact size"
+        );
     }
 
     #[test]

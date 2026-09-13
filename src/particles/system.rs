@@ -230,6 +230,7 @@ pub struct ParticleSystem {
     max_particles: usize,
     speed_noise_offsets: Vec<f32>,
     texture_variants: Vec<u32>,
+    butterfly_block_appearance: Vec<bool>,
     animation_elapsed: Vec<f32>,
     animation_frame_offsets: Vec<u32>,
     render_kinds: Vec<ParticleRenderKind>,
@@ -286,6 +287,7 @@ impl ParticleSystem {
             max_particles,
             speed_noise_offsets: vec![0.0; max_particles],
             texture_variants: vec![0; max_particles],
+            butterfly_block_appearance: vec![false; max_particles],
             animation_elapsed: vec![0.0; max_particles],
             animation_frame_offsets: vec![0; max_particles],
             render_kinds: vec![ParticleRenderKind::Leaf; max_particles],
@@ -403,6 +405,7 @@ impl ParticleSystem {
         self.alive_indices.push(slot);
         self.speed_noise_offsets[slot] = spawn.speed_noise_offset;
         self.texture_variants[slot] = spawn.texture_variant;
+        self.butterfly_block_appearance[slot] = spawn.motion_mode == MotionMode::GuidedFlight;
         self.animation_elapsed[slot] = 0.0;
         self.animation_frame_offsets[slot] = 0;
         self.render_kinds[slot] = spawn.render_kind;
@@ -745,7 +748,7 @@ impl ParticleSystem {
 
                 // fade butterflies by modulating alpha
                 color.w *= fade;
-                if self.motion_modes[*slot] == MotionMode::GuidedFlight {
+                if self.butterfly_block_appearance[*slot] {
                     kind = ParticleRenderKind::ButterflyBlock;
                     let rgb = crate::tracer::ButterflyPalettePreset::from_index(
                         self.texture_variants[*slot],
@@ -771,7 +774,7 @@ impl ParticleSystem {
                 (self.positions[*slot], self.velocities[*slot])
             };
             out.push(ParticleSnapshot {
-                position_ws: if kind == ParticleRenderKind::ButterflyBlock {
+                position_ws: if self.motion_modes[*slot] == MotionMode::GuidedFlight {
                     block_pose(
                         ParticleHandle {
                             index: *slot as u32,
@@ -784,7 +787,7 @@ impl ParticleSystem {
                 },
                 velocity,
                 color,
-                size: if kind == ParticleRenderKind::ButterflyBlock {
+                size: if self.motion_modes[*slot] == MotionMode::GuidedFlight {
                     STANDARD_PARTICLE_SIZE
                 } else {
                     self.sizes[*slot]
@@ -821,14 +824,25 @@ impl ParticleSystem {
     }
 
     /// Changes style on the same slot without resetting position, age, palette or animation.
+    #[cfg(test)]
     pub fn set_butterfly_block_mode(&mut self, handle: ParticleHandle, enabled: bool) -> bool {
+        self.set_butterfly_flight_style(handle, enabled, enabled)
+    }
+
+    pub fn set_butterfly_flight_style(
+        &mut self,
+        handle: ParticleHandle,
+        guided: bool,
+        blocks: bool,
+    ) -> bool {
         let Some(idx) = self.validate_handle(handle) else {
             return false;
         };
         if self.render_kinds[idx] != ParticleRenderKind::Butterfly {
             return false;
         }
-        let mode = if enabled {
+        self.butterfly_block_appearance[idx] = blocks;
+        let mode = if guided {
             MotionMode::GuidedFlight
         } else {
             MotionMode::Free

@@ -750,6 +750,7 @@ mod tests {
                     Value::from(v.as_u64().expect("add a signed-value test policy") ^ 1)
                 }
                 Value::String(v) if v == "DartingBlock" => Value::from("OriginalSprite"),
+                Value::String(v) if v == "DartingSprite" => Value::from("DartingBlock"),
                 Value::String(v) if v == "OriginalSprite" => Value::from("DartingBlock"),
                 _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
             };

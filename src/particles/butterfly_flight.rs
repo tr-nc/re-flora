@@ -24,12 +24,17 @@ const MAX_WIND_DRIFT_ACCELERATION: f32 = 0.60;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ButterflyFlightVariant {
+    /// Legacy flight retained for old recordings and diagnostics, not the appearance checkbox.
     OriginalSprite,
     #[default]
+    DartingSprite,
     DartingBlock,
 }
 
 impl ButterflyFlightVariant {
+    pub const fn uses_darting_flight(self) -> bool {
+        !matches!(self, Self::OriginalSprite)
+    }
     pub const fn is_darting_block(self) -> bool {
         matches!(self, Self::DartingBlock)
     }
