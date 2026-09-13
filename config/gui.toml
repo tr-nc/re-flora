@@ -311,31 +311,6 @@ value = 0.8
 min = 0
 max = 1
 
-[[section]]
-name = "Audio"
-
-[[section.param]]
-id = "master_volume"
-kind = "float"
-label = "Master Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = -20
-max = 20
-
-[[section.param]]
-id = "footstep_volume_db"
-kind = "float"
-label = "Footstep Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 33.5
-min = -40
-max = 40
-
 [[section.param]]
 id = "tree_wind_response_min_strength"
 kind = "float"
@@ -357,17 +332,6 @@ type = "Float"
 value = 1
 min = 0
 max = 1
-
-[[section.param]]
-id = "tree_wind_volume_db"
-kind = "float"
-label = "Tree Wind Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = -40
-max = 20
 
 [[section.param]]
 id = "tree_rustle_base_wind"
@@ -467,6 +431,42 @@ type = "Float"
 value = 1
 min = 0
 max = 1
+
+[[section]]
+name = "Audio"
+
+[[section.param]]
+id = "master_volume"
+kind = "float"
+label = "Master Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = -20
+max = 20
+
+[[section.param]]
+id = "footstep_volume_db"
+kind = "float"
+label = "Footstep Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 33.5
+min = -40
+max = 40
+
+[[section.param]]
+id = "tree_wind_volume_db"
+kind = "float"
+label = "Tree Wind Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -40
+max = 20
 
 [[section.param]]
 id = "audio_ray_tracing_quality_percent"

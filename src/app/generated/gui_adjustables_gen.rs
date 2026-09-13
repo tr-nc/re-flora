@@ -145,6 +145,72 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Wind Audio Release Decay (0 slow, 1 fast)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_wind_response_min_strength",
+        kind: "float",
+        label: "Tree Wind Response Min",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_wind_response_max_strength",
+        kind: "float",
+        label: "Tree Wind Response Max",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_base_wind",
+        kind: "float",
+        label: "Tree Rustle Base Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_gustiness",
+        kind: "float",
+        label: "Tree Rustle Gustiness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_leaf_density",
+        kind: "float",
+        label: "Tree Rustle Leaf Density",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_dryness",
+        kind: "float",
+        label: "Tree Rustle Dryness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_branch",
+        kind: "float",
+        label: "Tree Rustle Branch Creak",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_air",
+        kind: "float",
+        label: "Tree Rustle Air",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_leaf_body",
+        kind: "float",
+        label: "Tree Rustle Leaf Body",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_crackle",
+        kind: "float",
+        label: "Tree Rustle Crackle",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_brightness",
+        kind: "float",
+        label: "Tree Rustle Brightness",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Audio",
         id: "master_volume",
         kind: "float",
@@ -158,75 +224,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
-        id: "tree_wind_response_min_strength",
-        kind: "float",
-        label: "Tree Wind Response Min",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_wind_response_max_strength",
-        kind: "float",
-        label: "Tree Wind Response Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
         id: "tree_wind_volume_db",
         kind: "float",
         label: "Tree Wind Volume (dB)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_base_wind",
-        kind: "float",
-        label: "Tree Rustle Base Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_gustiness",
-        kind: "float",
-        label: "Tree Rustle Gustiness",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_leaf_density",
-        kind: "float",
-        label: "Tree Rustle Leaf Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_dryness",
-        kind: "float",
-        label: "Tree Rustle Dryness",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_branch",
-        kind: "float",
-        label: "Tree Rustle Branch Creak",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_air",
-        kind: "float",
-        label: "Tree Rustle Air",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_leaf_body",
-        kind: "float",
-        label: "Tree Rustle Leaf Body",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_crackle",
-        kind: "float",
-        label: "Tree Rustle Crackle",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_brightness",
-        kind: "float",
-        label: "Tree Rustle Brightness",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -1188,11 +1188,8 @@ pub struct GuiAdjustables {
     pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
-    pub master_volume: crate::gui_adjustables::FloatParam,
-    pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
-    pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_rustle_base_wind: crate::gui_adjustables::FloatParam,
     pub tree_rustle_gustiness: crate::gui_adjustables::FloatParam,
     pub tree_rustle_leaf_density: crate::gui_adjustables::FloatParam,
@@ -1202,6 +1199,9 @@ pub struct GuiAdjustables {
     pub tree_rustle_leaf_body: crate::gui_adjustables::FloatParam,
     pub tree_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub tree_rustle_brightness: crate::gui_adjustables::FloatParam,
+    pub master_volume: crate::gui_adjustables::FloatParam,
+    pub footstep_volume_db: crate::gui_adjustables::FloatParam,
+    pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_quality_percent: crate::gui_adjustables::UintParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
@@ -1391,11 +1391,8 @@ impl GuiAdjustables {
         let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_base_wind_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_gustiness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_leaf_density_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1405,6 +1402,9 @@ impl GuiAdjustables {
         let mut tree_rustle_leaf_body_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_quality_percent_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1695,20 +1695,6 @@ impl GuiAdjustables {
                             wind_audio_release_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "master_volume" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "footstep_volume_db" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "tree_wind_response_min_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1721,13 +1707,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_wind_response_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "tree_wind_volume_db" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            tree_wind_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "tree_rustle_base_wind" => {
@@ -1791,6 +1770,27 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_rustle_brightness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "master_volume" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "footstep_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_wind_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_wind_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "audio_ray_tracing_quality_percent" => {
@@ -2859,11 +2859,8 @@ impl GuiAdjustables {
             dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
-            master_volume: master_volume_field.expect("Missing parameter: master_volume"),
-            footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
-            tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
             tree_rustle_base_wind: tree_rustle_base_wind_field.expect("Missing parameter: tree_rustle_base_wind"),
             tree_rustle_gustiness: tree_rustle_gustiness_field.expect("Missing parameter: tree_rustle_gustiness"),
             tree_rustle_leaf_density: tree_rustle_leaf_density_field.expect("Missing parameter: tree_rustle_leaf_density"),
@@ -2873,6 +2870,9 @@ impl GuiAdjustables {
             tree_rustle_leaf_body: tree_rustle_leaf_body_field.expect("Missing parameter: tree_rustle_leaf_body"),
             tree_rustle_crackle: tree_rustle_crackle_field.expect("Missing parameter: tree_rustle_crackle"),
             tree_rustle_brightness: tree_rustle_brightness_field.expect("Missing parameter: tree_rustle_brightness"),
+            master_volume: master_volume_field.expect("Missing parameter: master_volume"),
+            footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
+            tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
             audio_ray_tracing_quality_percent: audio_ray_tracing_quality_percent_field.expect("Missing parameter: audio_ray_tracing_quality_percent"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
@@ -3049,11 +3049,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "dither_strength_lsb" => Some(&adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
-        "master_volume" => Some(&adjustables.master_volume),
-        "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
-        "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
         "tree_rustle_base_wind" => Some(&adjustables.tree_rustle_base_wind),
         "tree_rustle_gustiness" => Some(&adjustables.tree_rustle_gustiness),
         "tree_rustle_leaf_density" => Some(&adjustables.tree_rustle_leaf_density),
@@ -3063,6 +3060,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_rustle_leaf_body" => Some(&adjustables.tree_rustle_leaf_body),
         "tree_rustle_crackle" => Some(&adjustables.tree_rustle_crackle),
         "tree_rustle_brightness" => Some(&adjustables.tree_rustle_brightness),
+        "master_volume" => Some(&adjustables.master_volume),
+        "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
+        "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
         "sky_light_strength" => Some(&adjustables.sky_light_strength),
@@ -3284,11 +3284,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "dither_strength_lsb" => Some(&mut adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
-        "master_volume" => Some(&mut adjustables.master_volume),
-        "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
-        "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
         "tree_rustle_base_wind" => Some(&mut adjustables.tree_rustle_base_wind),
         "tree_rustle_gustiness" => Some(&mut adjustables.tree_rustle_gustiness),
         "tree_rustle_leaf_density" => Some(&mut adjustables.tree_rustle_leaf_density),
@@ -3298,6 +3295,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_rustle_leaf_body" => Some(&mut adjustables.tree_rustle_leaf_body),
         "tree_rustle_crackle" => Some(&mut adjustables.tree_rustle_crackle),
         "tree_rustle_brightness" => Some(&mut adjustables.tree_rustle_brightness),
+        "master_volume" => Some(&mut adjustables.master_volume),
+        "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
+        "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
         "sky_light_strength" => Some(&mut adjustables.sky_light_strength),
