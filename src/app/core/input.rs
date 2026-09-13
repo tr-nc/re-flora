@@ -37,7 +37,7 @@ pub(super) struct TerrainEditHover {
     pub(super) is_editable: bool,
 }
 
-fn panel_blocks_world(config_open: bool, card_open: bool, orbit_edit: bool) -> bool {
+pub(super) fn panel_blocks_world(config_open: bool, card_open: bool, orbit_edit: bool) -> bool {
     card_open || (config_open && !orbit_edit)
 }
 
@@ -50,9 +50,23 @@ fn gui_owns_pointer(ctx: &egui::Context, position: Option<Vec2>) -> bool {
         })
 }
 
+pub(super) fn gui_consumes_nonkeyboard_event(
+    pointer_event: bool,
+    consumed: bool,
+    pointer_owned: bool,
+) -> bool {
+    // egui-winit's consumed bit uses the previous egui frame's pointer position.
+    // For mouse events the current hit-test plus ongoing UI drag owns routing.
+    if pointer_event {
+        pointer_owned
+    } else {
+        consumed
+    }
+}
+
 #[cfg(test)]
 mod panel_input_tests {
-    use super::{gui_owns_pointer, panel_blocks_world};
+    use super::{gui_consumes_nonkeyboard_event, gui_owns_pointer, panel_blocks_world};
 
     #[test]
     fn latest_pointer_position_blocks_ui_but_leaves_world_available() {
@@ -75,6 +89,28 @@ mod panel_input_tests {
         assert!(!gui_owns_pointer(
             &ctx,
             physical(panel.max + egui::vec2(100., 100.))
+        ));
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(panel.center())],
+                ..Default::default()
+            },
+            |ui| {
+                egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20., 20.))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    });
+            },
+        );
+        // Winit has queued a move out of Debug, followed by a press, before the next
+        // egui frame. Its consumed response still reflects the previous hover.
+        assert!(ctx.egui_wants_pointer_input());
+        let owned = gui_owns_pointer(&ctx, physical(panel.max + egui::vec2(100., 100.)));
+        assert!(!gui_consumes_nonkeyboard_event(
+            true,
+            ctx.egui_wants_pointer_input(),
+            owned
         ));
     }
 

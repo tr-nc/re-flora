@@ -384,6 +384,28 @@ mod tests {
     }
 }
 
+fn wind_pointer_available(orbit_edit: bool, world_pointer_available: bool) -> bool {
+    orbit_edit && world_pointer_available
+}
+
+#[cfg(test)]
+mod debug_panel_input_tests {
+    #[test]
+    fn debug_panel_does_not_disable_world_wind_gestures() {
+        use crate::app::core::input::panel_blocks_world;
+        assert!(super::wind_pointer_available(
+            true,
+            !panel_blocks_world(true, false, true)
+        ));
+        assert!(!super::wind_pointer_available(
+            true,
+            !panel_blocks_world(true, true, true)
+        ));
+        assert!(!super::wind_pointer_available(false, true));
+        assert!(!super::wind_pointer_available(true, false));
+    }
+}
+
 impl App {
     pub(super) fn handle_wind_prototype_event(&mut self, event: &WindowEvent) -> bool {
         let prototype = &self.wind_prototype;
@@ -418,10 +440,10 @@ impl App {
         if self.player_tools.selected_tool() != PlayerTool::Wind {
             return false;
         }
-        if !self.is_orbit_edit_camera_mode()
-            || self.config_panel_visible
-            || self.card_display_visible
-        {
+        if !wind_pointer_available(
+            self.is_orbit_edit_camera_mode(),
+            self.terrain_edit_pointer_available(),
+        ) {
             self.wind_prototype.cancel();
             return false;
         }

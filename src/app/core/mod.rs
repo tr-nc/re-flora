@@ -2084,7 +2084,11 @@ impl App {
                     | WindowEvent::MouseWheel { .. }
             );
             if !is_keyboard_event
-                && (consumed || (pointer_event && self.gui_blocks_world_pointer()))
+                && input::gui_consumes_nonkeyboard_event(
+                    pointer_event,
+                    consumed,
+                    self.gui_blocks_world_pointer(),
+                )
             {
                 if matches!(
                     &event,
