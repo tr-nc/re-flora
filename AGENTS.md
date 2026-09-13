@@ -22,6 +22,14 @@
 
 ## Release Versioning
 
+**Whenever the user asks for official packaging or a release, first read
+[`docs/agents/releasing.md`](docs/agents/releasing.md). The agent must summarize the
+actual shipped changes for players and commit `docs/releases/<version>.md` before
+triggering any of the three-platform builds, including manual preview packages.**
+The release helper and CI reject missing or placeholder notes. All packages include
+`RELEASE_NOTES.md`; GitHub Release creation uses the same committed notes, and reruns
+preserve existing Release descriptions. `--message` is only the tag annotation.
+
 Use the main worktree (`/home/terence/code/re-flora`) on a clean, up-to-date `main` branch for releases. Do not release from worker worktrees.
 
 - First check and update: `git status --short --branch` then `git pull --ff-only`.

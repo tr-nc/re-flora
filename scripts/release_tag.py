@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from release_notes import ReleaseNotesError, committed_notes, notes_path
+
 DEFAULT_BRANCH = "main"
 DEFAULT_REMOTE = "origin"
 WORKFLOW_PATH = ".github/workflows/itch-builds.yml"
@@ -227,7 +229,13 @@ def print_plan(*, tag: str, version: str, branch: str, remote: str, commit: str,
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=("Before tagging, write and commit docs/releases/<version>.md with player-facing "
+                "What's new, Known limitations, and How to play sections. "
+                "Read docs/agents/releasing.md. --message only changes the Git tag annotation, "
+                "not the player notes. --dry-run also validates notes."),
+    )
     parser.add_argument(
         "version",
         nargs="?",
@@ -290,6 +298,7 @@ def main() -> int:
         else:
             version_input = args.version or cargo_ver
         tag, version = canonical_tag(version_input)
+        committed_notes(root, version)
 
         if version != cargo_ver and not bump_requested and not args.allow_version_mismatch:
             raise ReleaseTagError(
@@ -320,6 +329,7 @@ def main() -> int:
         commit = git(root, "rev-parse", "--short=12", "HEAD")
         push = not args.no_push
         print_plan(tag=tag, version=version, branch=branch, remote=args.remote, commit=commit, push=push)
+        print(f"Player notes: {notes_path(version)} (committed HEAD; packaged as RELEASE_NOTES.md)")
 
         bump_commit_command = ["git", "commit", "-m", f"bump version to {version}"]
         push_branch_command = ["git", "push", args.remote, branch]
@@ -369,7 +379,7 @@ def main() -> int:
             print(f"Push later with: git push {args.remote} {tag}")
 
         return 0
-    except ReleaseTagError as error:
+    except (ReleaseTagError, ReleaseNotesError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
