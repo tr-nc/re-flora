@@ -29,6 +29,12 @@ public float3 leafOpticalNormal(uint seed, float angle)
 {
     return leafRotate(leafRestNormal(seed), leafHinge(seed), angle);
 }
+public float3 leafWindOffset(float3 globalOffset, float3 localOffset, float globalScale)
+{
+    // Independent leaf-only translation; never scale hinge motion or optical orientation.
+    return globalOffset * max(globalScale, 0.0) + localOffset;
+}
+
 public float3 leafLocalOffset(uint seed, float angle)
 {
     float3 hinge = leafHinge(seed);

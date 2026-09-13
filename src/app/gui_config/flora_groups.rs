@@ -32,6 +32,7 @@ const LEAF_MOTION: &[&str] = &[
     "leaf_paddle_primary_speed",
     "leaf_paddle_secondary_speed",
 ];
+const LEAF_RESPONSE: &[&str] = &["leaf_flutter_strength", "leaf_global_offset_scale"];
 const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_amplitude_wind_start_strength",
     "leaf_paddle_amplitude_wind_full_strength",
@@ -85,6 +86,9 @@ fn stored_section(
     if let Some(section) = config.iter().find(|section| section.name == name) {
         category(ui, title, |ui| {
             for param in &section.param {
+                if name == "Leaves" && LEAF_RESPONSE.contains(&param.id.as_str()) {
+                    continue;
+                }
                 render_gui_param_from_config(ui, param, name, adjustables);
             }
             after_section(name, ui);
@@ -147,14 +151,20 @@ pub(super) fn render(
             ui,
             config,
             "Leaves",
-            "Flight & Lighting",
+            "Appearance & Lighting",
             adjustables,
             after_section,
         );
         category(ui, "Wind Motion", |ui| {
-            controls(ui, flora, LEAF_MOTION, adjustables);
+            if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
+                controls(ui, leaves, LEAF_RESPONSE, adjustables);
+            }
+            ui.small("Local Flutter: hinge motion and optical turning (requires inertia). Overall Offset: whole-leaf translation only. Neither changes sound or grass.");
+            category(ui, "Legacy Motion (inertia off)", |ui| {
+                controls(ui, flora, LEAF_MOTION, adjustables);
+            });
         });
-        category(ui, "Wind Response Curves", |ui| {
+        category(ui, "Legacy Wind Curves (inertia off)", |ui| {
             ui.weak("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
             controls(ui, flora, LEAF_CURVES, adjustables);
             enforce_leaf_curve_order(adjustables);
@@ -202,6 +212,28 @@ mod tests {
                 }
             }
             _ => {}
+        }
+    }
+
+    #[test]
+    fn leaf_response_controls_are_rendered_once_in_the_motion_menu() {
+        let config = GuiConfigLoader::load();
+        let flora = config.section.iter().find(|s| s.name == "Flora").unwrap();
+        let mut adjustables = GuiAdjustables::from_config(&config);
+        let context = egui::Context::default();
+        context.memory_mut(|memory| memory.set_everything_is_visible(true));
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            render(ui, &config.section, flora, &mut adjustables, &mut |_, _| {});
+        });
+        let mut text = Vec::new();
+        for shape in output.shapes {
+            collect_text(&shape.shape, &mut text);
+        }
+        for label in [
+            "Local Flutter Strength (0 = off)",
+            "Overall Wind Offset (0 = off)",
+        ] {
+            assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);
         }
     }
 

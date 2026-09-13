@@ -1916,9 +1916,20 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
+id = "leaf_global_offset_scale"
+kind = "float"
+label = "Overall Wind Offset (0 = off)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
 id = "leaf_flutter_strength"
 kind = "float"
-label = "Local Flutter (0 = original)"
+label = "Local Flutter Strength (0 = off)"
 type = "Float"
 
 [section.param.data]

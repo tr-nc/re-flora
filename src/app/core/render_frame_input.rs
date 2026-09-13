@@ -90,6 +90,7 @@ pub(super) fn freeze_render_frame_inputs(
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
         },
         motion: FloraMotionFrameInput {
+            leaf_global_offset_scale: gui.leaf_global_offset_scale.value,
             inertial_response_enabled: gui.flora_inertial_response.value,
             response_controls: [
                 gui.vegetation_response_speed.value,
@@ -451,6 +452,7 @@ mod tests {
                     grass_tip_light,
                 },
                 motion: FloraMotionFrameInput {
+                    leaf_global_offset_scale: settings.adjustables.leaf_global_offset_scale.value,
                     inertial_response_enabled: settings.adjustables.flora_inertial_response.value,
                     response_controls: [
                         settings.adjustables.vegetation_response_speed.value,

@@ -1379,6 +1379,7 @@ pub struct FloraAppearanceFrameInput {
 pub struct FloraMotionFrameInput {
     pub inertial_response_enabled: bool,
     pub response_controls: [f32; 4],
+    pub leaf_global_offset_scale: f32,
     pub response_pose_hz: f32,
     pub world_tick_seconds: f32,
     pub grass_vibration_amplitude_voxels: f32,

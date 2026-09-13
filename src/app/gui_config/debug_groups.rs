@@ -222,9 +222,9 @@ mod tests {
             "Color Variation",
             "Purple Allium",
             "Leaves",
-            "Flight & Lighting",
+            "Appearance & Lighting",
             "Wind Motion",
-            "Wind Response Curves",
+            "Legacy Wind Curves (inertia off)",
         ] {
             assert!(
                 text.lines().any(|line| line == title),

@@ -303,8 +303,12 @@ public PreparedFloraVertex prepareFloraVertex(
 
     uint leafSeed = instanceSeed(uint3(int3(instancePositionVoxels) + voxelLocalPosition));
     result.optical_normal = leafOpticalNormal(leafSeed, leafAngle);
-    if (useResponse && instanceType == FLORA_SPECIES_TREE_LEAF && gui_input.leaf_flutter_strength > 0.0)
-        windOffset += leafLocalOffset(leafSeed, leafAngle);
+    if (instanceType == FLORA_SPECIES_TREE_LEAF)
+    {
+        float3 localOffset = useResponse && gui_input.leaf_flutter_strength > 0.0
+            ? leafLocalOffset(leafSeed, leafAngle) : float3(0.0);
+        windOffset = leafWindOffset(windOffset, localOffset, gui_input.leaf_global_offset_scale);
+    }
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
