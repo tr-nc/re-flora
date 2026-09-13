@@ -2669,13 +2669,10 @@ impl App {
                                     ui.add_space(8.0);
                                     ui.separator();
                                     ui.add_space(8.0);
-                                    ui.heading(
-                                        RichText::new("Terrain & Plants")
-                                            .size(16.0)
-                                            .color(GOLD_ACCENT),
-                                    );
+                                    ui.collapsing("Terrain & Plants", |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
+                                    });
 
                                     ui.add_space(4.0);
                                     ui.separator();
@@ -2696,11 +2693,7 @@ impl App {
                                             ui.add_space(8.0);
                                             ui.separator();
                                             ui.add_space(8.0);
-                                            ui.heading(
-                                                RichText::new("Environment Probes")
-                                                    .size(16.0)
-                                                    .color(GOLD_ACCENT),
-                                            );
+                                            ui.collapsing("Environment Probes", |ui| {
                                             ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
@@ -2864,10 +2857,12 @@ impl App {
                                                 },
                                             );
 
+                                            });
+
                                             ui.add_space(8.0);
                                             ui.separator();
                                             ui.add_space(8.0);
-                                            camera_snapshot_to_apply = draw_camera_snapshots_ui(
+                                            camera_snapshot_to_apply = ui.collapsing("Camera Snapshots", |ui| draw_camera_snapshots_ui(
                                                 ui,
                                                 &mut self.camera_snapshots,
                                                 &mut self.camera_snapshot_draft_name,
@@ -2875,20 +2870,17 @@ impl App {
                                                 &mut self.camera_snapshot_status,
                                                 current_camera_pose,
                                                 current_camera_is_free_fly,
-                                            );
+                                            )).body_returned.flatten();
 
                                             ui.add_space(8.0);
                                             ui.separator();
                                             ui.add_space(8.0);
-                                            ui.heading(
-                                                RichText::new("Flora Growth")
-                                                    .size(16.0)
-                                                    .color(GOLD_ACCENT),
-                                            );
+                                            ui.collapsing("Flora Growth", |ui| {
                                             ui.label(format!(
                                                 "Updating chunks: {}",
                                                 growing_flora_chunk_count
                                             ));
+                                            });
 
                                         });
                                 });

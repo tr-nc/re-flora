@@ -1,4 +1,3 @@
-use super::ui_style::GOLD_ACCENT;
 use super::App;
 use crate::app::camera_snapshots::{
     is_player_default_snapshot_name, CameraSnapshot, CameraSnapshotLibrary,
@@ -6,7 +5,6 @@ use crate::app::camera_snapshots::{
 };
 use crate::gameplay::CameraPose;
 use anyhow::{anyhow, Result};
-use egui::RichText;
 
 const CAMERA_SNAPSHOT_DRAFT_BASE_NAME: &str = "snapshot";
 
@@ -67,11 +65,6 @@ pub(super) fn draw_camera_snapshots_ui(
     current_pose: CameraPose,
     is_fly_mode: bool,
 ) -> Option<CameraSnapshot> {
-    ui.heading(
-        RichText::new("Camera Snapshots")
-            .size(16.0)
-            .color(GOLD_ACCENT),
-    );
     ui.label(format!("File: {}", camera_snapshots.path().display()));
 
     ui.monospace(format!(
