@@ -640,6 +640,24 @@ fn render_section_controls(
     section: &crate::app::gui_config_model::GuiSection,
     adjustables: &mut GuiAdjustables,
 ) {
+    if section.name == "Wind" {
+        for param in &section.param {
+            if !is_tree_sound_synthesis_param(&param.id) {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            }
+        }
+        ui.collapsing("Procedural Tree Sound", |ui| {
+            ui.small(
+                "Synthesized rustle texture only; does not change the world's wind or leaf motion.",
+            );
+            for param in &section.param {
+                if is_tree_sound_synthesis_param(&param.id) {
+                    render_gui_param_from_config(ui, param, &section.name, adjustables);
+                }
+            }
+        });
+        return;
+    }
     if section.name == "Sky" {
         ui.label("Scene lighting");
         for id in ["sun_luminance", "sky_light_strength"] {
@@ -662,9 +680,42 @@ fn render_section_controls(
     }
 }
 
+fn is_tree_sound_synthesis_param(id: &str) -> bool {
+    id.starts_with("tree_rustle_")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_sound_synthesis_is_separate_from_spatial_wind_controls() {
+        let settings = DebugSettings::load();
+        let wind = settings
+            .config
+            .section
+            .iter()
+            .find(|s| s.name == "Wind")
+            .unwrap();
+        let synthesis: Vec<_> = wind
+            .param
+            .iter()
+            .filter(|p| is_tree_sound_synthesis_param(&p.id))
+            .map(|p| p.id.as_str())
+            .collect();
+        assert_eq!(synthesis.len(), 8);
+        assert!(!wind.param.iter().any(|p| p.id == "tree_rustle_base_wind"));
+        for id in [
+            "canopy_audio_sample_budget",
+            "wind_audio_attack_decay",
+            "wind_audio_release_decay",
+            "tree_wind_response_min_strength",
+            "tree_wind_response_max_strength",
+        ] {
+            assert!(wind.param.iter().any(|p| p.id == id));
+            assert!(!is_tree_sound_synthesis_param(id));
+        }
+    }
 
     #[test]
     fn every_declared_generic_setting_saves_its_live_value() {

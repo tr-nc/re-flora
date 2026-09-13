@@ -8,9 +8,6 @@ const MAX_CREAKS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TreeRustleParams {
-    /// Runtime equivalent of the Python prototype's base wind slider. The app's
-    /// spatial wind remains the main driver; this adds a synthesis-side floor.
-    pub base_wind: f32,
     /// Extra procedural wind wander on top of the app wind sources.
     pub gustiness: f32,
     pub leaf_density: f32,
@@ -25,10 +22,6 @@ pub struct TreeRustleParams {
 impl TreeRustleParams {
     pub fn dense() -> Self {
         Self {
-            // Keep the current in-game wind response unchanged by default. The
-            // Python prototype's dense preset used base_wind=0.62/gustiness=0.50
-            // because it rendered a standalone preview without app wind sources.
-            base_wind: 0.0,
             gustiness: 0.0,
             leaf_density: 1.35,
             dryness: 0.20,
@@ -42,7 +35,6 @@ impl TreeRustleParams {
 
     fn clamped(self) -> Self {
         Self {
-            base_wind: clamp(self.base_wind, 0.0, 1.0),
             gustiness: clamp(self.gustiness, 0.0, 1.0),
             leaf_density: clamp(self.leaf_density, 0.0, 3.0),
             dryness: clamp(self.dryness, 0.0, 1.0),
@@ -58,7 +50,6 @@ impl TreeRustleParams {
 #[derive(Debug)]
 pub struct TreeRustleControl {
     wind_response_bits: AtomicU32,
-    base_wind_bits: AtomicU32,
     gustiness_bits: AtomicU32,
     leaf_density_bits: AtomicU32,
     dryness_bits: AtomicU32,
@@ -84,7 +75,6 @@ impl TreeRustleControl {
         let params = params.clamped();
         Self {
             wind_response_bits: AtomicU32::new(0.0f32.to_bits()),
-            base_wind_bits: AtomicU32::new(params.base_wind.to_bits()),
             gustiness_bits: AtomicU32::new(params.gustiness.to_bits()),
             leaf_density_bits: AtomicU32::new(params.leaf_density.to_bits()),
             dryness_bits: AtomicU32::new(params.dryness.to_bits()),
@@ -106,7 +96,6 @@ impl TreeRustleControl {
 
     pub fn set_params(&self, params: TreeRustleParams) {
         let params = params.clamped();
-        store_clamped(&self.base_wind_bits, params.base_wind, 0.0, 1.0);
         store_clamped(&self.gustiness_bits, params.gustiness, 0.0, 1.0);
         store_clamped(&self.leaf_density_bits, params.leaf_density, 0.0, 3.0);
         store_clamped(&self.dryness_bits, params.dryness, 0.0, 1.0);
@@ -119,7 +108,6 @@ impl TreeRustleControl {
 
     pub fn params(&self) -> TreeRustleParams {
         TreeRustleParams {
-            base_wind: load_clamped(&self.base_wind_bits, 0.0, 1.0),
             gustiness: load_clamped(&self.gustiness_bits, 0.0, 1.0),
             leaf_density: load_clamped(&self.leaf_density_bits, 0.0, 3.0),
             dryness: load_clamped(&self.dryness_bits, 0.0, 1.0),
@@ -419,9 +407,7 @@ impl TreeRustleVoice {
         let world_wind = self.control.wind_response();
         let block_seconds = out.len() as f32 / self.sample_rate;
 
-        // The Python prototype had base-wind and gustiness controls because it
-        // rendered standalone clips. In-game, spatial wind sources are still the
-        // main input; these sliders only bias/modulate the synthesis response.
+        // This modulates synthesized clip texture, not the game's spatial wind field.
         let gustiness = params.gustiness;
         if gustiness > 0.0 {
             let target_alpha = 1.0 - (-TWO_PI * 0.35 * block_seconds).exp();
@@ -438,11 +424,7 @@ impl TreeRustleVoice {
             self.gust_wander += (0.0 - self.gust_wander) * release_alpha.clamp(0.0, 1.0);
         }
 
-        let target_wind = clamp(
-            world_wind + params.base_wind * (1.0 - world_wind) + self.gust_wander,
-            0.0,
-            1.0,
-        );
+        let target_wind = clamp(world_wind + self.gust_wander, 0.0, 1.0);
         let wind_cutoff = if target_wind >= self.wind { 3.2 } else { 1.8 };
         let wind_alpha = 1.0 - (-TWO_PI * wind_cutoff * block_seconds).exp();
         self.wind += (target_wind - self.wind) * wind_alpha.clamp(0.0, 1.0);
@@ -828,7 +810,6 @@ mod tests {
         assert_eq!(control.crackle(), 1.0);
 
         control.set_params(TreeRustleParams {
-            base_wind: 2.0,
             gustiness: -1.0,
             leaf_density: 4.0,
             dryness: -1.0,
@@ -839,7 +820,6 @@ mod tests {
             brightness: 2.0,
         });
         let params = control.params();
-        assert_eq!(params.base_wind, 1.0);
         assert_eq!(params.gustiness, 0.0);
         assert_eq!(params.leaf_density, 3.0);
         assert_eq!(params.dryness, 0.0);

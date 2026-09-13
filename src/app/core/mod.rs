@@ -1023,7 +1023,6 @@ impl App {
 
     fn tree_rustle_params(gui_adjustables: &GuiAdjustables) -> TreeRustleParams {
         TreeRustleParams {
-            base_wind: gui_adjustables.tree_rustle_base_wind.value,
             gustiness: gui_adjustables.tree_rustle_gustiness.value,
             leaf_density: gui_adjustables.tree_rustle_leaf_density.value,
             dryness: gui_adjustables.tree_rustle_dryness.value,
