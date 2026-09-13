@@ -211,6 +211,7 @@ pub(super) struct OrbitMotion {
 
 pub(super) struct CameraControlRuntime {
     mode: CameraControlMode,
+    debug_return_mode: Option<CameraControlMode>,
     orbit_focus: Vec3,
     keyboard_pan: OrbitKeyboardPanInput,
     orbit_drag: Option<OrbitDrag>,
@@ -225,6 +226,7 @@ impl Default for CameraControlRuntime {
     fn default() -> Self {
         Self {
             mode: CameraControlMode::default(),
+            debug_return_mode: None,
             orbit_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             keyboard_pan: OrbitKeyboardPanInput::default(),
             orbit_drag: None,
@@ -258,11 +260,13 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn cycle_mode(&mut self) -> bool {
+        self.debug_return_mode = None;
         self.mode = self.mode.next();
         self.is_orbit_edit()
     }
 
     pub(super) fn apply_snapshot_mode(&mut self, fly_mode: bool) {
+        self.debug_return_mode = None;
         self.mode = if fly_mode {
             CameraControlMode::FreeFly
         } else {
@@ -276,6 +280,31 @@ impl CameraControlRuntime {
         if focus.is_finite() {
             self.orbit_focus = focus;
         }
+    }
+
+    /// Debug temporarily borrows orbit editing from free flight, without changing pose.
+    /// Repeated per-frame synchronization must not reset an ongoing orbit gesture.
+    pub(super) fn sync_debug_panel_mode(&mut self, open: bool) -> bool {
+        let changed = if open && self.is_free_fly() {
+            self.debug_return_mode = Some(self.mode);
+            self.mode = CameraControlMode::OrbitEdit;
+            true
+        } else if !open {
+            if let Some(mode) = self.debug_return_mode.take() {
+                self.mode = mode;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if changed {
+            self.reset_mode_transition_motion();
+            self.accumulated_mouse_delta = Vec2::ZERO;
+            self.smoothed_mouse_delta = Vec2::ZERO;
+        }
+        changed
     }
 
     pub(super) fn sync_focus_from_view_ray(
@@ -678,6 +707,29 @@ mod tests {
         assert!(runtime.is_walk());
         assert!(runtime.cycle_mode());
         assert!(runtime.is_orbit_edit());
+    }
+
+    #[test]
+    fn debug_temporarily_borrows_free_flight_and_restores_only_its_own_transition() {
+        let mut runtime = CameraControlRuntime::default();
+        assert!(!runtime.sync_debug_panel_mode(true));
+        assert!(!runtime.sync_debug_panel_mode(false));
+        assert!(runtime.is_orbit_edit());
+        runtime.cycle_mode();
+        assert!(runtime.is_free_fly());
+        runtime.accumulate_free_look_mouse_delta(Vec2::ONE);
+        assert!(runtime.sync_debug_panel_mode(true));
+        assert!(runtime.is_orbit_edit());
+        assert_eq!(runtime.take_smoothed_free_look_mouse_delta(), Vec2::ZERO);
+        assert!(!runtime.sync_debug_panel_mode(true));
+        assert!(runtime.sync_debug_panel_mode(false));
+        assert!(runtime.is_free_fly());
+        assert!(!runtime.sync_debug_panel_mode(false));
+        runtime.cycle_mode();
+        assert!(runtime.is_walk());
+        assert!(!runtime.sync_debug_panel_mode(true));
+        assert!(!runtime.sync_debug_panel_mode(false));
+        assert!(runtime.is_walk());
     }
 
     #[test]

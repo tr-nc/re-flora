@@ -648,7 +648,6 @@ fn render_section_controls(
             }
         }
         ui.small("Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
-        ui.separator();
         ui.label("Sky appearance & time");
         ui.small("The sky gradient and its mirror image keep their appearance. Clouds use scene lighting. Sun disk brightness does not set surface lighting.");
         for param in &section.param {

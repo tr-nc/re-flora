@@ -28,10 +28,10 @@ pub(super) fn edit_tree_desc(
         )
         .changed();
 
-    ui.separator();
+    ui.add_space(6.0);
     changed |= edit_branching_desc(ui, &mut tree.branching);
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Subdivision");
     changed |= ui
         .checkbox(&mut tree.enable_subdivision, "Enable Subdivision")
@@ -59,7 +59,7 @@ pub(super) fn edit_tree_desc(
         tree.subdivision_count_max = tree.subdivision_count_min;
     }
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Leaves");
     if let Some(render_leaves) = render_leaves {
         ui.checkbox(render_leaves, "Render Leaves");
@@ -97,7 +97,7 @@ pub(super) fn edit_tree_desc(
         )
         .changed();
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Fruit");
     changed |= ui
         .add(

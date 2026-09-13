@@ -3,7 +3,6 @@ use super::saved_controls::SavedControls;
 use crate::particles::{ButterflyFlightTuning, ButterflyFlightVariant};
 
 pub(crate) fn draw_butterfly_flight_ab_controls(ui: &mut SavedControls<'_>) -> egui::Response {
-    ui.separator();
     ui.label("Flight appearance A/B");
     ui.small("Use Debug Panel Save to keep flight settings across restarts.");
     ui.small("Both appearances use the same flight, wind and rhythm.");

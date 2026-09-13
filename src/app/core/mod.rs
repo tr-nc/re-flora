@@ -21,6 +21,7 @@ mod input;
 pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
+mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -1566,6 +1567,11 @@ impl App {
         }
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
+        // Establish the authored player view before specialized test-scene overrides.
+        app.tracer
+            .apply_camera_pose(crate::app::camera_snapshots::player_default_camera_pose());
+        app.sync_orbit_focus_from_current_view();
+
         if environment_lighting_test.is_some() {
             app.configure_environment_lighting_test_scene_camera();
         }
@@ -2687,7 +2693,6 @@ impl App {
                                     }
 
                                     ui.add_space(8.0);
-                                    ui.separator();
                                     ui.add_space(8.0);
                                     ui.collapsing("Terrain & Plants", |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
@@ -2695,7 +2700,6 @@ impl App {
                                     });
 
                                     ui.add_space(4.0);
-                                    ui.separator();
                                     ui.add_space(4.0);
 
                                     egui::ScrollArea::vertical()
@@ -2711,7 +2715,6 @@ impl App {
                                             });
 
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
                                             ui.collapsing("Environment Probes", |ui| {
                                             ui.small("Not saved — Environment Probe experiments");
@@ -2880,7 +2883,6 @@ impl App {
                                             });
 
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
                                             camera_snapshot_to_apply = ui.collapsing("Camera Snapshots", |ui| draw_camera_snapshots_ui(
                                                 ui,
@@ -2893,7 +2895,6 @@ impl App {
                                             )).body_returned.flatten();
 
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
                                             ui.collapsing("Flora Growth", |ui| {
                                             ui.label(format!(

@@ -146,7 +146,7 @@ impl WindPrototype {
                     );
                 }
             });
-            ui.separator();
+            ui.add_space(6.0);
             ui.collapsing("Local detail / transport", |ui| {
                 ui.add(
                     egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.)

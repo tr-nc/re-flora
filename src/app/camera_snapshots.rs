@@ -9,6 +9,16 @@ use std::path::{Path, PathBuf};
 pub(crate) const DEFAULT_CAMERA_SNAPSHOT_PATH: &str = "config/camera_snapshots.toml";
 pub(crate) const PLAYER_DEFAULT_SNAPSHOT_NAME: &str = "player-default";
 
+/// Authored startup view, independent of disposable user snapshots and camera mode.
+pub(crate) fn player_default_camera_pose() -> CameraPose {
+    CameraPose {
+        position: Vec3::new(0.6319819, 0.78248376, 1.5561526),
+        yaw_deg: 30.080286,
+        pitch_deg: -18.3479,
+        fov_deg: 60.0,
+    }
+}
+
 const FALLBACK_SNAPSHOT_NAME: &str = "snapshot";
 const RESERVED_SNAPSHOT_NAMES: &[&str] = &[PLAYER_DEFAULT_SNAPSHOT_NAME, "default"];
 
@@ -176,6 +186,28 @@ impl CameraSnapshotLibrary {
         Ok(true)
     }
 
+    /// Save to the selected name, matching terrain save semantics. Roll back on failure.
+    pub fn save_from_pose(
+        &mut self,
+        requested_name: &str,
+        description: String,
+        pose: CameraPose,
+        fly_mode: bool,
+    ) -> Result<String> {
+        let name = normalize_snapshot_name(requested_name);
+        if let Some(index) = self.snapshots.iter().position(|s| s.name == name) {
+            let replacement = CameraSnapshot::from_pose(name.clone(), description, pose, fly_mode);
+            let previous = std::mem::replace(&mut self.snapshots[index], replacement);
+            if let Err(error) = self.save() {
+                self.snapshots[index] = previous;
+                return Err(error);
+            }
+            Ok(name)
+        } else {
+            self.add_from_pose(&name, description, pose, fly_mode)
+        }
+    }
+
     pub fn unique_name(&self, requested_name: &str) -> String {
         unique_snapshot_name(
             requested_name,
@@ -283,6 +315,52 @@ fn default_fly_mode() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_startup_view_survives_removing_the_temporary_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = CameraSnapshotLibrary::load(dir.path().join("cameras.toml")).unwrap();
+        let pose = player_default_camera_pose();
+        assert_eq!(pose.position, Vec3::new(0.6319819, 0.78248376, 1.5561526));
+        assert_eq!(
+            (pose.yaw_deg, pose.pitch_deg, pose.fov_deg),
+            (30.080286, -18.3479, 60.0)
+        );
+        let name = library
+            .add_from_pose("snapshot", String::new(), pose, false)
+            .unwrap();
+        assert!(library.remove(&name).unwrap());
+        assert!(CameraSnapshotLibrary::load(library.path())
+            .unwrap()
+            .is_empty());
+        assert_eq!(player_default_camera_pose(), pose);
+    }
+
+    #[test]
+    fn saving_selected_camera_updates_it_and_rolls_back_failed_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = CameraSnapshotLibrary::load(dir.path().join("cameras.toml")).unwrap();
+        let pose = player_default_camera_pose();
+        library
+            .save_from_pose("view", "first".into(), pose, false)
+            .unwrap();
+        let changed = CameraPose {
+            yaw_deg: 45.0,
+            ..pose
+        };
+        library
+            .save_from_pose("view", "updated".into(), changed, true)
+            .unwrap();
+        assert_eq!(library.snapshots().len(), 1);
+        let reloaded = CameraSnapshotLibrary::load(library.path()).unwrap();
+        assert_eq!(reloaded.find("view").unwrap().pose(), changed);
+        library.path = dir.path().to_owned(); // An existing directory is not a writable snapshot file.
+        assert!(library
+            .save_from_pose("view", "failed".into(), pose, false)
+            .is_err());
+        assert_eq!(library.find("view").unwrap().pose(), changed);
+        assert_eq!(library.find("view").unwrap().description, "updated");
+    }
 
     #[test]
     fn normalizes_snapshot_names_to_kebab_case() {

@@ -191,6 +191,17 @@ impl App {
     }
 
     pub(super) fn sync_cursor_with_panels(&mut self) {
+        if self
+            .camera_control
+            .sync_debug_panel_mode(self.config_panel_visible)
+        {
+            self.player_tools.cancel_continuous_hold();
+            self.stop_terrain_edit_loop_sound();
+            self.tracer.reset_camera_velocity();
+            if self.is_orbit_edit_camera_mode() {
+                self.sync_orbit_focus_from_current_view();
+            }
+        }
         let was_cursor_visible = self.window_state.is_cursor_visible();
         let cursor_visible = self.config_panel_visible
             || self.card_display_visible
@@ -235,7 +246,7 @@ impl App {
         })
     }
 
-    fn sync_orbit_focus_from_current_view(&mut self) {
+    pub(super) fn sync_orbit_focus_from_current_view(&mut self) {
         let Some((origin, direction)) = self.current_view_center_ray() else {
             return;
         };

@@ -9,12 +9,7 @@ pub(super) struct SnapshotSelector {
     error: Option<String>,
 }
 
-#[derive(Clone, Copy)]
-pub(in crate::app::core) enum SnapshotAction {
-    Save,
-    Load,
-    Delete,
-}
+pub(in crate::app::core) use super::super::snapshot_controls::SnapshotAction;
 
 fn snapshot_directory(path: &str) -> PathBuf {
     Path::new(path)
@@ -66,66 +61,48 @@ impl TerrainPersistenceRuntime {
         &mut self,
         ui: &mut egui::Ui,
     ) -> Option<SnapshotAction> {
+        use super::super::snapshot_controls;
         if self.selector.directory.as_ref() != Some(&snapshot_directory(&self.snapshot_path)) {
             self.refresh_snapshots();
         }
-        let mut action = None;
-        ui.horizontal(|ui| {
-            ui.label("Saved terrains");
-            let label = if self.selector.paths.contains(&self.snapshot_path) {
-                Path::new(&self.snapshot_path)
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned()
-            } else if self.selector.paths.is_empty() {
-                "No saved terrains".to_owned()
-            } else {
-                "Select a terrain".to_owned()
-            };
-            egui::ComboBox::from_id_salt("terrain_snapshot_selector")
-                .selected_text(label)
-                .show_ui(ui, |ui| {
-                    for path in &self.selector.paths {
-                        let label = Path::new(path).file_name().unwrap().to_string_lossy();
-                        ui.selectable_value(&mut self.snapshot_path, path.clone(), label.as_ref());
-                    }
-                });
-            if ui.button("Refresh").clicked() {
-                self.refresh_snapshots();
-            }
-        });
+        let entries: Vec<_> = self
+            .selector
+            .paths
+            .iter()
+            .map(|path| {
+                (
+                    path.clone(),
+                    Path::new(path)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
+            .collect();
+        if snapshot_controls::selector(
+            ui,
+            "terrain_snapshot_selector",
+            "terrains",
+            &mut self.snapshot_path,
+            &entries,
+        ) {
+            self.refresh_snapshots();
+        }
         ui.horizontal(|ui| {
             ui.label("Save path");
             ui.text_edit_singleline(&mut self.snapshot_path);
         });
         ui.small("Choose a saved terrain, or enter a new .rflterrain path to save another.");
-        ui.horizontal(|ui| {
-            let ready = self.can_start_operation();
-            let selected = self.selector.paths.contains(&self.snapshot_path);
-            if ui
-                .add_enabled(
-                    ready && !self.snapshot_path.trim().is_empty(),
-                    egui::Button::new("Save terrain"),
-                )
-                .clicked()
-            {
-                action = Some(SnapshotAction::Save);
-            }
-            if ui
-                .add_enabled(ready && selected, egui::Button::new("Load terrain"))
-                .clicked()
-            {
-                action = Some(SnapshotAction::Load);
-            }
-            if ui
-                .add_enabled(ready && selected, egui::Button::new("Delete terrain"))
-                .clicked()
-            {
-                action = Some(SnapshotAction::Delete);
-            }
-            ui.label(self.status_label());
-        });
+        let ready = self.can_start_operation();
+        let selected = self.selector.paths.contains(&self.snapshot_path);
+        let action = snapshot_controls::actions(
+            ui,
+            "terrain",
+            ready && !self.snapshot_path.trim().is_empty(),
+            ready && selected,
+        );
+        ui.label(self.status_label());
         if let Some(error) = &self.selector.error {
             ui.colored_label(egui::Color32::LIGHT_RED, error);
         }
