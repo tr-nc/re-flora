@@ -36,6 +36,9 @@ const LEAF_RESPONSE: &[&str] = &[
     "leaf_flutter_strength",
     "leaf_local_displacement_voxels",
     "leaf_global_offset_scale",
+    "leaf_flutter_wind_start",
+    "leaf_flutter_wind_full",
+    "leaf_flutter_wind_knee",
 ];
 const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_amplitude_wind_start_strength",
@@ -162,6 +165,7 @@ pub(super) fn render(
         category(ui, "Wind Motion", |ui| {
             if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                 controls(ui, leaves, LEAF_RESPONSE, adjustables);
+                super::draw_flutter_curve_preview(ui, adjustables);
             }
             ui.small("Flutter Strength: wind-powered local oscillation (requires inertia); steady wind keeps leaves moving, calm lets them settle. Amplitude: maximum local excursion, up to 5 voxels, not a resting offset. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
             category(ui, "Legacy Motion (inertia off)", |ui| {
@@ -237,6 +241,9 @@ mod tests {
             "Local Flutter Strength (0 = off)",
             "Local Flutter Amplitude (voxels)",
             "Overall Wind Offset (0 = off)",
+            "Flutter Start Wind",
+            "Flutter Full Wind",
+            "Flutter Curve Bias",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);
         }

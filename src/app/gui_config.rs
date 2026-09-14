@@ -391,6 +391,40 @@ fn enforce_leaf_curve_order(adjustables: &mut GuiAdjustables) {
     }
 }
 
+fn draw_flutter_curve_preview(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
+    let start = adjustables.leaf_flutter_wind_start.value;
+    adjustables.leaf_flutter_wind_full.value = adjustables.leaf_flutter_wind_full.value.max(start);
+    let full = adjustables.leaf_flutter_wind_full.value;
+    let knee = adjustables.leaf_flutter_wind_knee.value;
+    let markers = [
+        CurvePreviewMarker {
+            x: start,
+            label: "start",
+            color: Color32::from_rgb(120, 180, 255),
+        },
+        CurvePreviewMarker {
+            x: full,
+            label: "full",
+            color: Color32::from_rgb(255, 200, 90),
+        },
+    ];
+    draw_curve_preview(
+        ui,
+        "Flutter wind response",
+        0.0..=4.0,
+        0.0..=1.0,
+        &markers,
+        |wind| {
+            if wind <= 0.0 {
+                0.0
+            } else {
+                smoothstep_variant_response(wind, start, full, knee)
+            }
+        },
+    );
+    ui.small("Start: wind speed where flutter begins. Full: maximum response, not a stop threshold. Bias: negative responds earlier, positive later; 0 is a smooth S curve. Falling wind follows the same curve; inertia lets motion settle. These are wind strengths, not seconds.");
+}
+
 fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     let marker_start_color = Color32::from_rgb(120, 180, 255);
     let marker_full_color = Color32::from_rgb(255, 200, 90);

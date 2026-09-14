@@ -534,6 +534,7 @@ pub struct PushConstantVegetationResponse {
     pub tick_seconds: f32,
     pub count: u32,
     pub controls: [f32; 4],
+    pub flutter_curve: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).

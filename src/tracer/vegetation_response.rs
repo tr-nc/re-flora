@@ -43,6 +43,7 @@ struct ResponseStep {
     tick_seconds: f32,
     count: u32,
     controls: [f32; 4],
+    flutter_curve: [f32; 4],
 }
 
 struct FrameBuffers {
@@ -89,6 +90,7 @@ impl FrameBuffers {
 pub(super) struct VegetationResponse {
     pub enabled: bool,
     pub controls: [f32; 4],
+    pub flutter_curve: [f32; 4],
     pub pose_hz: f32,
     comparison: String,
     grid: ResponseInfo,
@@ -105,7 +107,7 @@ pub(super) struct VegetationResponse {
     validation_draw_mask: u32,
     validation_reset_count: u32,
     validation_tree_mask: u32,
-    last_controls: Option<([f32; 4], f32)>,
+    last_controls: Option<([f32; 4], f32, [f32; 4])>,
 }
 
 impl VegetationResponse {
@@ -156,6 +158,7 @@ impl VegetationResponse {
         Self {
             enabled: true,
             controls: [1.5, 1., 1., 0.],
+            flutter_curve: [0.05, 1., 0., 0.],
             pose_hz: 5.,
             comparison,
             grid,
@@ -305,6 +308,7 @@ impl VegetationResponse {
         info.shape[3] = inputs.len() as u32;
         frame.info.fill_uniform(&info)?;
         let step = ResponseStep {
+            flutter_curve: self.flutter_curve,
             start_time: start,
             end_time: time,
             tick_seconds: if !self.comparison.is_empty() {
@@ -319,14 +323,15 @@ impl VegetationResponse {
                 self.controls
             },
         };
-        let settings = (step.controls, step.tick_seconds);
+        let settings = (step.controls, step.tick_seconds, step.flutter_curve);
         if self.last_controls != Some(settings) {
             log::info!(
-                "[VEGETATION_RESPONSE][SETTINGS] controls={:?} pose_hz={} states={} reset_count={}",
+                "[VEGETATION_RESPONSE][SETTINGS] controls={:?} pose_hz={} states={} reset_count={} flutter_curve={:?}",
                 step.controls,
                 1. / (4. * step.tick_seconds),
                 step.count,
-                self.validation_reset_count
+                self.validation_reset_count,
+                step.flutter_curve
             );
             self.last_controls = Some(settings);
         }
@@ -492,7 +497,18 @@ mod tests {
     fn gpu_input_layouts_remain_aligned() {
         assert_eq!(std::mem::size_of::<ResponseInput>(), 32);
         assert_eq!(std::mem::size_of::<ResponseInfo>(), 32);
-        assert_eq!(std::mem::size_of::<ResponseStep>(), 32);
+        assert_eq!(std::mem::size_of::<ResponseStep>(), 48);
+        assert_eq!(
+            std::mem::size_of::<ResponseStep>(),
+            std::mem::size_of::<crate::generated::gpu_structs::PushConstantVegetationResponse>()
+        );
+        assert_eq!(
+            std::mem::offset_of!(ResponseStep, flutter_curve),
+            std::mem::offset_of!(
+                crate::generated::gpu_structs::PushConstantVegetationResponse,
+                flutter_curve
+            )
+        );
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::ManualResponseInputs>(),
             32

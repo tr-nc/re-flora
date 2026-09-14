@@ -1379,6 +1379,7 @@ pub struct FloraAppearanceFrameInput {
 pub struct FloraMotionFrameInput {
     pub inertial_response_enabled: bool,
     pub response_controls: [f32; 4],
+    pub leaf_flutter_curve: [f32; 4],
     pub leaf_global_offset_scale: f32,
     pub leaf_local_displacement_voxels: f32,
     pub response_pose_hz: f32,
@@ -2890,6 +2891,7 @@ impl Tracer {
         self.world_tick_seconds = vegetation.motion.world_tick_seconds;
         self.vegetation_response.enabled = vegetation.motion.inertial_response_enabled;
         self.vegetation_response.controls = vegetation.motion.response_controls;
+        self.vegetation_response.flutter_curve = vegetation.motion.leaf_flutter_curve;
         self.vegetation_response.pose_hz = vegetation.motion.response_pose_hz;
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);

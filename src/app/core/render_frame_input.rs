@@ -90,6 +90,12 @@ pub(super) fn freeze_render_frame_inputs(
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
         },
         motion: FloraMotionFrameInput {
+            leaf_flutter_curve: [
+                gui.leaf_flutter_wind_start.value,
+                gui.leaf_flutter_wind_full.value,
+                gui.leaf_flutter_wind_knee.value,
+                0.,
+            ],
             leaf_global_offset_scale: gui.leaf_global_offset_scale.value,
             leaf_local_displacement_voxels: gui.leaf_local_displacement_voxels.value,
             inertial_response_enabled: gui.flora_inertial_response.value,
@@ -453,6 +459,12 @@ mod tests {
                     grass_tip_light,
                 },
                 motion: FloraMotionFrameInput {
+                    leaf_flutter_curve: [
+                        settings.adjustables.leaf_flutter_wind_start.value,
+                        settings.adjustables.leaf_flutter_wind_full.value,
+                        settings.adjustables.leaf_flutter_wind_knee.value,
+                        0.,
+                    ],
                     leaf_global_offset_scale: settings.adjustables.leaf_global_offset_scale.value,
                     leaf_local_displacement_voxels: settings
                         .adjustables

@@ -1949,6 +1949,39 @@ min = 0
 max = 2
 
 [[section.param]]
+id = "leaf_flutter_wind_start"
+kind = "float"
+label = "Flutter Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_wind_full"
+kind = "float"
+label = "Flutter Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_wind_knee"
+kind = "float"
+label = "Flutter Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6
+
+[[section.param]]
 id = "leaf_transmission_strength"
 kind = "float"
 label = "Sunlight Transmission Strength"

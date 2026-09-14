@@ -89,6 +89,7 @@ impl<'a> Harness<'a> {
         let previous = self.buffers.output_index;
         let output = previous ^ 1;
         let step = ResponseStep {
+            flutter_curve: [0.05, 1., 0., 0.],
             start_time: start,
             end_time: end,
             tick_seconds: tick,

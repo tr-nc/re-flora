@@ -51,9 +51,10 @@ public void advanceLeafResponse(inout float4 motion, float2 force,
 }
 
 public void advanceLeafTorsion(inout float4 torsion, float2 wind, float dt,
-                              uint seed, float gain, float time)
+                              uint seed, float gain, float time,
+                              float4 curve = float4(0.05, 1.0, 0.0, 0.0))
 {
-    float target = leafTorqueTarget(wind, time, seed, gain);
+    float target = leafTorqueTarget(wind, time, seed, gain, curve);
     advanceMechanicalResponse(torsion, float2(target, 0.0), dt,
         float2(1.8, 0.32), float4(1.0, 1.0, 1.0, 0.0));
 }

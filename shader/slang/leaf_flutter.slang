@@ -1,4 +1,5 @@
 module leaf_flutter;
+import wind_response_curve;
 
 // A cube represents an unresolved thin leaf. This frame is optical/mechanical
 // state only: never apply it to cube vertices, face normals, or ray origins.
@@ -66,18 +67,19 @@ float leafFlutterNoise(float phase, uint seed)
 // Stylized wind-powered petiole excitation. This is not a calibrated botanical
 // instability model: zero-mean local forcing is intentionally distinct from the
 // overall branch/leaf displacement already handled by advanceLeafResponse.
-public float leafTorqueTarget(float2 wind, float time, uint seed, float gain)
+public float leafTorqueTarget(float2 wind, float time, uint seed, float gain,
+                             float4 curve = float4(0.05, 1.0, 0.0, 0.0))
 {
     float speed2 = dot(wind, wind);
-    // Reference speed 0.3 in the game field makes a breeze excite local motion.
-    float pressure = speed2 / (0.09 + speed2);
+    float response = speed2 > 0.0 ? windResponseCurve(sqrt(speed2), curve.x, curve.y, curve.z) : 0.0;
     float3 flow = float3(wind.x, 0.0, wind.y) / max(sqrt(speed2), 0.00001);
     float coupling = lerp(0.65, 1.0, abs(dot(flow, leafRestNormal(seed))));
     float rate = lerp(2.8, 4.3, leafUnit(seed ^ 0xA341316Cu));
     float phase = leafUnit(seed ^ 0xC8013EA4u) * 100.0;
     float forcing = 0.7 * leafFlutterNoise(max(time, 0.0) * rate + phase, seed)
         + 0.3 * leafFlutterNoise(max(time, 0.0) * rate * 2.37 + phase, seed ^ 0xAD90777Du);
-    return 0.75 * min(max(gain, 0.0) * pressure, 1.0) * coupling * forcing;
+    // Gain changes the envelope, never the wind threshold at which it saturates.
+    return 0.75 * (clamp(gain, 0.0, 2.0) * 0.5) * response * coupling * forcing;
 }
 
 // One RGB evaluated at the leaf center, shared by every corner and every face.
