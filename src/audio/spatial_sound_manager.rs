@@ -495,7 +495,10 @@ impl SpatialSoundManager {
         // User-requested diagnostic: isolate moving-listener clicks from cicada direct
         // occlusion. Keep world placement, distance attenuation and environment routing.
         let path = DirectPath::world();
-        if category == AudioCategory::Cicadas {
+        if matches!(
+            category,
+            AudioCategory::TreeCicadas | AudioCategory::GroundCicadas
+        ) {
             path.with_geometry(DirectGeometry::BypassTransmission)
         } else {
             path
@@ -1125,9 +1128,11 @@ mod tests {
     fn cicada_diagnostic_bypasses_only_direct_occlusion() {
         use crate::audio::mixer::AudioCategory;
         use petalsonic::{DirectGeometry, DirectPath, DirectPlacement};
-        let cicada = SpatialSoundManager::spatial_one_shot_direct_path(AudioCategory::Cicadas);
-        assert_eq!(cicada.geometry(), DirectGeometry::BypassTransmission);
-        assert_eq!(cicada.placement(), DirectPlacement::World);
+        for category in [AudioCategory::TreeCicadas, AudioCategory::GroundCicadas] {
+            let cicada = SpatialSoundManager::spatial_one_shot_direct_path(category);
+            assert_eq!(cicada.geometry(), DirectGeometry::BypassTransmission);
+            assert_eq!(cicada.placement(), DirectPlacement::World);
+        }
         let normal = SpatialSoundManager::spatial_one_shot_direct_path(AudioCategory::Terrain);
         assert_eq!(normal, DirectPath::world());
     }

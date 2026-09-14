@@ -8,6 +8,15 @@ const CLIPS: [&str; 2] = [
     "assets/sfx/summer_cicadas/linne_01.wav",
 ];
 const MAX_CALLS: usize = 3;
+
+fn call_profile(habitat_kind: usize) -> (super::mixer::AudioCategory, usize, f32) {
+    if habitat_kind == 2 {
+        (super::mixer::AudioCategory::TreeCicadas, 0, -20.0)
+    } else {
+        (super::mixer::AudioCategory::GroundCicadas, 1, -24.0)
+    }
+}
+
 struct ActiveCall {
     site: Habitat,
     source: Uuid,
@@ -63,14 +72,10 @@ impl SummerCicadas {
         {
             return Ok(false);
         }
-        let clip = usize::from(site.kind != 2);
-        let gain_db = if site.kind == 2 { -20. } else { -24. };
-        let source = self.audio.add_spatial_one_shot(
-            super::mixer::AudioCategory::Cicadas,
-            CLIPS[clip],
-            gain_db,
-            site.position,
-        )?;
+        let (category, clip, gain_db) = call_profile(site.kind);
+        let source =
+            self.audio
+                .add_spatial_one_shot(category, CLIPS[clip], gain_db, site.position)?;
         let end = now + self.durations[clip] + 0.15;
         self.active.push(ActiveCall { site, source, end });
         self.next_start = now + 2.7;
@@ -133,5 +138,19 @@ impl SummerCicadas {
             self.high_water
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+    use crate::audio::mixer::AudioCategory;
+
+    #[test]
+    fn habitats_route_to_independent_buses_without_changing_assets_or_trims() {
+        assert_eq!(call_profile(2), (AudioCategory::TreeCicadas, 0, -20.0));
+        for kind in [0, 1] {
+            assert_eq!(call_profile(kind), (AudioCategory::GroundCicadas, 1, -24.0));
+        }
     }
 }

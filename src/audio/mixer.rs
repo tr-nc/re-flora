@@ -5,16 +5,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AudioCategory {
     Leaves,
-    Cicadas,
+    TreeCicadas,
+    GroundCicadas,
     Footsteps,
     Terrain,
     Interface,
 }
 
 impl AudioCategory {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Leaves,
-        Self::Cicadas,
+        Self::TreeCicadas,
+        Self::GroundCicadas,
         Self::Footsteps,
         Self::Terrain,
         Self::Interface,
@@ -22,7 +24,8 @@ impl AudioCategory {
     pub fn bus_name(self) -> &'static str {
         match self {
             Self::Leaves => "leaves",
-            Self::Cicadas => "cicadas",
+            Self::TreeCicadas => "tree_cicadas",
+            Self::GroundCicadas => "ground_cicadas",
             Self::Footsteps => "footsteps",
             Self::Terrain => "terrain",
             Self::Interface => "interface",
@@ -66,11 +69,12 @@ impl MixChannel {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(from = "StoredAudioMixSettings")]
 pub struct AudioMixSettings {
     pub master: MixChannel,
     pub leaves: MixChannel,
-    pub cicadas: MixChannel,
+    pub tree_cicadas: MixChannel,
+    pub ground_cicadas: MixChannel,
     pub footsteps: MixChannel,
     pub terrain: MixChannel,
     pub interface: MixChannel,
@@ -79,7 +83,8 @@ impl AudioMixSettings {
     pub fn channel(self, category: AudioCategory) -> MixChannel {
         match category {
             AudioCategory::Leaves => self.leaves,
-            AudioCategory::Cicadas => self.cicadas,
+            AudioCategory::TreeCicadas => self.tree_cicadas,
+            AudioCategory::GroundCicadas => self.ground_cicadas,
             AudioCategory::Footsteps => self.footsteps,
             AudioCategory::Terrain => self.terrain,
             AudioCategory::Interface => self.interface,
@@ -87,9 +92,80 @@ impl AudioMixSettings {
     }
 }
 
+// Read the previous combined channel without retaining a hidden master gain.
+// Explicit new fields win; a missing new field inherits the legacy value.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredAudioMixSettings {
+    master: MixChannel,
+    leaves: MixChannel,
+    cicadas: Option<MixChannel>,
+    tree_cicadas: Option<MixChannel>,
+    ground_cicadas: Option<MixChannel>,
+    footsteps: MixChannel,
+    terrain: MixChannel,
+    interface: MixChannel,
+}
+
+impl From<StoredAudioMixSettings> for AudioMixSettings {
+    fn from(stored: StoredAudioMixSettings) -> Self {
+        let legacy = stored.cicadas.unwrap_or_default();
+        Self {
+            master: stored.master,
+            leaves: stored.leaves,
+            tree_cicadas: stored.tree_cicadas.unwrap_or(legacy),
+            ground_cicadas: stored.ground_cicadas.unwrap_or(legacy),
+            footsteps: stored.footsteps,
+            terrain: stored.terrain,
+            interface: stored.interface,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_cicada_mix_migrates_without_changing_either_sound() {
+        let mix: AudioMixSettings =
+            toml::from_str("[cicadas]\nenabled = false\nscale = 37.0\n").unwrap();
+        assert_eq!(
+            mix.tree_cicadas,
+            MixChannel {
+                enabled: false,
+                scale: 37.0
+            }
+        );
+        assert_eq!(mix.ground_cicadas, mix.tree_cicadas);
+        let saved = toml::to_string(&mix).unwrap();
+        assert!(!saved.contains("[cicadas]"));
+        assert_eq!(toml::from_str::<AudioMixSettings>(&saved).unwrap(), mix);
+    }
+
+    #[test]
+    fn split_cicada_mix_is_independent_and_round_trips() {
+        let mut mix: AudioMixSettings =
+            toml::from_str("[cicadas]\nscale = 37.0\n[tree_cicadas]\nscale = 2.0\n").unwrap();
+        assert_eq!(mix.tree_cicadas.scale, 2.0);
+        assert_eq!(mix.ground_cicadas.scale, 37.0);
+        mix.ground_cicadas = MixChannel {
+            enabled: false,
+            scale: 0.5,
+        };
+        assert!(!mix.channel(AudioCategory::TreeCicadas).params().muted);
+        assert!(mix.channel(AudioCategory::GroundCicadas).params().muted);
+        let loaded: AudioMixSettings = toml::from_str(&toml::to_string(&mix).unwrap()).unwrap();
+        assert_eq!(loaded, mix);
+        assert_ne!(
+            AudioCategory::TreeCicadas.bus_name(),
+            AudioCategory::GroundCicadas.bus_name()
+        );
+        assert_eq!(
+            toml::from_str::<AudioMixSettings>("").unwrap(),
+            AudioMixSettings::default()
+        );
+    }
     #[test]
     fn tenfold_master_boost_is_twenty_db_without_old_eightfold_ceiling() {
         let gain = |scale| {
@@ -106,16 +182,16 @@ mod tests {
     #[test]
     fn mix_defaults_are_neutral_and_each_channel_is_independent() {
         let mut settings = AudioMixSettings::default();
-        settings.cicadas = MixChannel {
+        settings.tree_cicadas = MixChannel {
             enabled: false,
             scale: 4.0,
         };
         for category in AudioCategory::ALL {
             let p = settings.channel(category).params();
-            assert_eq!(p.muted, category == AudioCategory::Cicadas);
+            assert_eq!(p.muted, category == AudioCategory::TreeCicadas);
             assert_eq!(
                 p.gain_db,
-                if category == AudioCategory::Cicadas {
+                if category == AudioCategory::TreeCicadas {
                     20.0 * 4.0_f32.log10()
                 } else {
                     0.0

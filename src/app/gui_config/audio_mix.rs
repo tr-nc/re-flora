@@ -22,7 +22,8 @@ pub(super) fn draw(ui: &mut SavedControls<'_>) {
     }
     channel!(master, "Master");
     channel!(leaves, "Tree leaves");
-    channel!(cicadas, "Cicadas");
+    channel!(tree_cicadas, "Tree cicadas");
+    channel!(ground_cicadas, "Grass / plant cicadas");
     channel!(footsteps, "Footsteps / jump / landing");
     channel!(terrain, "Digging / terrain editing");
     channel!(interface, "Interface / item selection");
