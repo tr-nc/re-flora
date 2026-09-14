@@ -163,7 +163,7 @@ pub(super) fn render(
             if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                 controls(ui, leaves, LEAF_RESPONSE, adjustables);
             }
-            ui.small("Flutter Strength: wind-driven hinge torque and optical turning (requires inertia). Displacement: local position radius, up to 5 voxels; actual motion follows wind. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
+            ui.small("Flutter Strength: wind-powered local oscillation (requires inertia); steady wind keeps leaves moving, calm lets them settle. Amplitude: maximum local excursion, up to 5 voxels, not a resting offset. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
             category(ui, "Legacy Motion (inertia off)", |ui| {
                 controls(ui, flora, LEAF_MOTION, adjustables);
             });
@@ -235,7 +235,7 @@ mod tests {
         }
         for label in [
             "Local Flutter Strength (0 = off)",
-            "Local Flutter Displacement (voxels)",
+            "Local Flutter Amplitude (voxels)",
             "Overall Wind Offset (0 = off)",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);

@@ -1929,7 +1929,7 @@ max = 3
 [[section.param]]
 id = "leaf_local_displacement_voxels"
 kind = "float"
-label = "Local Flutter Displacement (voxels)"
+label = "Local Flutter Amplitude (voxels)"
 type = "Float"
 
 [section.param.data]

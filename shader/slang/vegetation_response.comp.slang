@@ -39,7 +39,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (input.identity.w == 1u)
         {
             advanceLeafResponse(state.motion, force, dt, input.identity.z, pc.controls);
-            advanceLeafTorsion(state.torsion, force, dt, input.identity.z, pc.controls.w);
+            advanceLeafTorsion(state.torsion, force, dt, input.identity.z, pc.controls.w, time + dt * 0.5);
         }
         else
             advanceVegetationResponse(state.motion, force, dt, input.identity.y, pc.controls);

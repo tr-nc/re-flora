@@ -221,17 +221,16 @@ pub(in crate::tracer) fn validate_gpu(
         }
     }
     anyhow::ensure!(
-        steady_max - steady_min < 0.002,
-        "steady wind must settle, not drive a private periodic leaf gust: excursion={}",
+        steady_max - steady_min > 0.01,
+        "steady wind must sustain local leaf flutter: excursion={}",
         steady_max - steady_min
     );
     anyhow::ensure!(
-        // Compare distinct leaf mechanics, not the removed per-leaf oscillator's
-        // phase separation. A 0.01 rad difference is well above numeric noise.
+        // Distinct leaves retain independent local forcing under the same mean flow.
         angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.01 && quiet_angle < 0.001,
         "leaf torsion invalid peak={angle_peak} independent={angle_difference} quiet={quiet_angle}"
     );
-    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} steady_excursion={} steady_wind_settles=passed held_bounds=passed", steady_max - steady_min);
+    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} steady_excursion={} sustained_flutter=passed held_bounds=passed", steady_max - steady_min);
     harness.controls[3] = 0.;
     source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;

@@ -1024,7 +1024,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Leaves",
         id: "leaf_local_displacement_voxels",
         kind: "float",
-        label: "Local Flutter Displacement (voxels)",
+        label: "Local Flutter Amplitude (voxels)",
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",

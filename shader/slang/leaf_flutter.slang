@@ -51,21 +51,33 @@ public float3 leafLocalDisplacement(uint seed, float angle, float amplitudeVoxel
     return offset / max(0.36627253, length(offset)) * clamp(amplitudeVoxels, 0.0, 5.0);
 }
 
-// Pressure projected onto a proxy leaf. All time variation comes from the shared
-// sampled wind and mechanical state, not a second periodic wind generator.
-// Wind is in game units; the bounded equilibrium angle is an art calibration.
-public float leafTorqueTarget(float2 wind, float angle, uint seed, float gain)
+// Smooth, deterministic local forcing, not a displacement or a second world wind
+// field. In particular, constant mean flow must not imply a static leaf pose.
+float leafFlutterNoise(float phase, uint seed)
+{
+    float cell = floor(phase);
+    float blend = frac(phase);
+    blend = blend * blend * (3.0 - 2.0 * blend);
+    float a = leafUnit(seed ^ leafHash(uint(cell)));
+    float b = leafUnit(seed ^ leafHash(uint(cell) + 1u));
+    return lerp(a, b, blend) * 2.0 - 1.0;
+}
+
+// Stylized wind-powered petiole excitation. This is not a calibrated botanical
+// instability model: zero-mean local forcing is intentionally distinct from the
+// overall branch/leaf displacement already handled by advanceLeafResponse.
+public float leafTorqueTarget(float2 wind, float time, uint seed, float gain)
 {
     float speed2 = dot(wind, wind);
     // Reference speed 0.3 in the game field makes a breeze excite local motion.
     float pressure = speed2 / (0.09 + speed2);
     float3 flow = float3(wind.x, 0.0, wind.y) / max(sqrt(speed2), 0.00001);
-    float3 normal = leafOpticalNormal(seed, angle);
-    float3 lever = cross(leafHinge(seed), normal);
-    float projected = abs(dot(flow, normal));
-    float torque = dot(cross(lever, flow), leafHinge(seed)) * projected;
-    float target = max(gain, 0.0) * pressure * torque;
-    return 0.75 * target / (1.0 + abs(target));
+    float coupling = lerp(0.65, 1.0, abs(dot(flow, leafRestNormal(seed))));
+    float rate = lerp(2.8, 4.3, leafUnit(seed ^ 0xA341316Cu));
+    float phase = leafUnit(seed ^ 0xC8013EA4u) * 100.0;
+    float forcing = 0.7 * leafFlutterNoise(max(time, 0.0) * rate + phase, seed)
+        + 0.3 * leafFlutterNoise(max(time, 0.0) * rate * 2.37 + phase, seed ^ 0xAD90777Du);
+    return 0.75 * min(max(gain, 0.0) * pressure, 1.0) * coupling * forcing;
 }
 
 // One RGB evaluated at the leaf center, shared by every corner and every face.
