@@ -50,6 +50,12 @@ const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_frequency_min_multiplier",
     "leaf_paddle_frequency_max_multiplier",
 ];
+const LEAF_FREQUENCY: &[&str] = &["leaf_flutter_frequency_hz", "leaf_flutter_frequency_scale"];
+const LEAF_FREQUENCY_CURVE: &[&str] = &[
+    "leaf_flutter_frequency_start",
+    "leaf_flutter_frequency_full",
+    "leaf_flutter_frequency_knee",
+];
 const PARAM_GROUPS: &[&[&str]] = &[
     DISTRIBUTION,
     GROUND_MOTION,
@@ -93,7 +99,11 @@ fn stored_section(
     if let Some(section) = config.iter().find(|section| section.name == name) {
         category(ui, title, |ui| {
             for param in &section.param {
-                if name == "Leaves" && LEAF_RESPONSE.contains(&param.id.as_str()) {
+                if name == "Leaves"
+                    && [LEAF_RESPONSE, LEAF_FREQUENCY, LEAF_FREQUENCY_CURVE]
+                        .iter()
+                        .any(|group| group.contains(&param.id.as_str()))
+                {
                     continue;
                 }
                 render_gui_param_from_config(ui, param, name, adjustables);
@@ -166,6 +176,14 @@ pub(super) fn render(
             if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                 controls(ui, leaves, LEAF_RESPONSE, adjustables);
                 super::draw_flutter_curve_preview(ui, adjustables);
+                category(ui, "Flutter Frequency", |ui| {
+                    controls(ui, leaves, LEAF_FREQUENCY, adjustables);
+                    super::draw_flutter_frequency_summary(ui, adjustables);
+                    category(ui, "Frequency Wind Curve", |ui| {
+                        controls(ui, leaves, LEAF_FREQUENCY_CURVE, adjustables);
+                        super::draw_flutter_frequency_preview(ui, adjustables);
+                    });
+                });
             }
             ui.small("Flutter Strength: wind-powered local oscillation (requires inertia); steady wind keeps leaves moving, calm lets them settle. Amplitude: maximum local excursion, up to 5 voxels, not a resting offset. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
             category(ui, "Legacy Motion (inertia off)", |ui| {
@@ -244,6 +262,11 @@ mod tests {
             "Flutter Start Wind",
             "Flutter Full Wind",
             "Flutter Curve Bias",
+            "Base Flutter Frequency (Hz)",
+            "Strong-Wind Frequency Scale",
+            "Frequency Start Wind",
+            "Frequency Full Wind",
+            "Frequency Curve Bias",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);
         }

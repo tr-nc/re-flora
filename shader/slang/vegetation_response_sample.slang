@@ -47,5 +47,7 @@ public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species
 
 public float sampleLeafAngle(uint seed, uint localIndex, uint responseOffset)
 {
-    return vegetation_response.data[responseOffset + localIndex].held_angles[windVolumeBucketIndex(seed)];
+    // Local flutter uses the current frame's mechanical state. The whole-leaf
+    // offset still uses the independent discrete publication buckets above.
+    return clamp(vegetation_response.data[responseOffset + localIndex].torsion.x, -1.0, 1.0);
 }

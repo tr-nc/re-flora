@@ -17,13 +17,13 @@ export __extern_cpp int main()
         }
     }
     if (windResponseCurve(0.7, 1.2, 0.2, 0.0) != windResponseCurve(0.7, 0.2, 1.2, 0.0)) return 7;
-    if (leafTorqueTarget(float2(0.0), 1.0, 11u, 2.0, float4(0.0)) != 0.0) return 8;
+    if (leafTorqueTarget(float2(0.0), float2(0.25), uint2(3u), 11u, 2.0, float4(0.0)) != 0.0) return 8;
     float4 curve = float4(0.2, 1.2, 0.0, 0.0);
-    float half = leafTorqueTarget(float2(0.7, 0.0), 1.0, 11u, 2.0, curve);
-    float full = leafTorqueTarget(float2(1.2, 0.0), 1.0, 11u, 2.0, curve);
+    float half = leafTorqueTarget(float2(0.7, 0.0), float2(0.25), uint2(3u), 11u, 2.0, curve);
+    float full = leafTorqueTarget(float2(1.2, 0.0), float2(0.25), uint2(3u), 11u, 2.0, curve);
     if (abs(half - full * 0.5) > 0.00001 || abs(full) < 0.00001) return 9;
-    if (abs(half - 2.0 * leafTorqueTarget(float2(0.7, 0.0), 1.0, 11u, 1.0, curve)) > 0.00001) return 10;
+    if (abs(half - 2.0 * leafTorqueTarget(float2(0.7, 0.0), float2(0.25), uint2(3u), 11u, 1.0, curve)) > 0.00001) return 10;
     if (windResponseCurve(0.4, 0.5, 0.5, 0.0) != 0.0 || windResponseCurve(0.5, 0.5, 0.5, 0.0) != 1.0) return 11;
-    if (leafTorqueTarget(float2(0.1, 0.0), 1.0, 11u, 2.0, curve) != 0.0) return 12;
+    if (leafTorqueTarget(float2(0.1, 0.0), float2(0.25), uint2(3u), 11u, 2.0, curve) != 0.0) return 12;
     return 0;
 }

@@ -4,15 +4,19 @@ import vegetation_response_solver;
 export __extern_cpp int main()
 {
     float4 a = float4(0.0);
+    float2 aPhase = float2(0.0);
+    uint2 aCells = uint2(0u);
     float4 b = float4(0.0);
+    float2 bPhase = float2(0.0);
+    uint2 bCells = uint2(0u);
     float peak = 0.0;
     float lateVariation = 0.0;
     float previous = 0.0;
     float independent = 0.0;
     for (uint frame = 0; frame < 600u; ++frame)
     {
-        advanceLeafTorsion(a, float2(0.3, 0.0), 1.0 / 60.0, 11u, 1.0, (float(frame) + 0.5) / 60.0);
-        advanceLeafTorsion(b, float2(0.3, 0.0), 1.0 / 60.0, 47u, 1.0, (float(frame) + 0.5) / 60.0);
+        advanceLeafTorsion(a, aPhase, aCells, float2(0.3, 0.0), 1.0 / 60.0, 11u, 1.0);
+        advanceLeafTorsion(b, bPhase, bCells, float2(0.3, 0.0), 1.0 / 60.0, 47u, 1.0);
         peak = max(peak, abs(a.x));
         independent = max(independent, abs(a.x - b.x));
         if (frame > 300u) lateVariation = max(lateVariation, abs(a.x - previous));
@@ -21,7 +25,7 @@ export __extern_cpp int main()
         if (abs(length(leafOpticalNormal(11u, a.x)) - 1.0) > 0.0001) return 2;
     }
     for (uint frame = 0; frame < 600u; ++frame)
-        advanceLeafTorsion(a, float2(0.0), 1.0 / 60.0, 11u, 1.0, 10.0 + (float(frame) + 0.5) / 60.0);
+        advanceLeafTorsion(a, aPhase, aCells, float2(0.0), 1.0 / 60.0, 11u, 1.0);
     float3 base = float3(0.1, 0.3, 0.04);
     float3 view = normalize(float3(1.0, 0.4, 0.1));
     float3 light = normalize(float3(-0.8, 1.0, 0.2));

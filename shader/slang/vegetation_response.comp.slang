@@ -39,7 +39,9 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (input.identity.w == 1u)
         {
             advanceLeafResponse(state.motion, force, dt, input.identity.z, pc.controls);
-            advanceLeafTorsion(state.torsion, force, dt, input.identity.z, pc.controls.w, time + dt * 0.5, pc.flutter_curve);
+            advanceLeafTorsion(state.torsion, state.flutter_phase, state.flutter_cells,
+                force, dt, input.identity.z, pc.controls.w, pc.flutter_curve,
+                pc.flutter_frequency, pc.flutter_frequency_curve);
         }
         else
             advanceVegetationResponse(state.motion, force, dt, input.identity.y, pc.controls);
@@ -47,7 +49,6 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (time >= boundary - 0.000001)
         {
             state.held[publication % 4u] = state.motion;
-            state.held_angles[publication % 4u] = clamp(state.torsion.x, -1.0, 1.0);
             ++publication;
         }
     }

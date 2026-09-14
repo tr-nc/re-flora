@@ -54,32 +54,51 @@ public float3 leafLocalDisplacement(uint seed, float angle, float amplitudeVoxel
 
 // Smooth, deterministic local forcing, not a displacement or a second world wind
 // field. In particular, constant mean flow must not imply a static leaf pose.
-float leafFlutterNoise(float phase, uint seed)
+float leafFlutterNoise(float fraction, uint cell, uint seed)
 {
-    float cell = floor(phase);
-    float blend = frac(phase);
+    float blend = fraction;
     blend = blend * blend * (3.0 - 2.0 * blend);
-    float a = leafUnit(seed ^ leafHash(uint(cell)));
-    float b = leafUnit(seed ^ leafHash(uint(cell) + 1u));
+    float a = leafUnit(seed ^ leafHash(cell));
+    float b = leafUnit(seed ^ leafHash(cell + 1u));
     return lerp(a, b, blend) * 2.0 - 1.0;
 }
 
 // Stylized wind-powered petiole excitation. This is not a calibrated botanical
 // instability model: zero-mean local forcing is intentionally distinct from the
 // overall branch/leaf displacement already handled by advanceLeafResponse.
-public float leafTorqueTarget(float2 wind, float time, uint seed, float gain,
+public float leafTorqueTarget(float2 wind, float2 phase, uint2 cells, uint seed, float gain,
                              float4 curve = float4(0.05, 1.0, 0.0, 0.0))
 {
     float speed2 = dot(wind, wind);
     float response = speed2 > 0.0 ? windResponseCurve(sqrt(speed2), curve.x, curve.y, curve.z) : 0.0;
     float3 flow = float3(wind.x, 0.0, wind.y) / max(sqrt(speed2), 0.00001);
     float coupling = lerp(0.65, 1.0, abs(dot(flow, leafRestNormal(seed))));
-    float rate = lerp(2.8, 4.3, leafUnit(seed ^ 0xA341316Cu));
-    float phase = leafUnit(seed ^ 0xC8013EA4u) * 100.0;
-    float forcing = 0.7 * leafFlutterNoise(max(time, 0.0) * rate + phase, seed)
-        + 0.3 * leafFlutterNoise(max(time, 0.0) * rate * 2.37 + phase, seed ^ 0xAD90777Du);
+    float forcing = 0.7 * leafFlutterNoise(phase.x, cells.x, seed)
+        + 0.3 * leafFlutterNoise(phase.y, cells.y, seed ^ 0xAD90777Du);
     // Gain changes the envelope, never the wind threshold at which it saturates.
     return 0.75 * (clamp(gain, 0.0, 2.0) * 0.5) * response * coupling * forcing;
+}
+
+public float leafFlutterFrequency(float2 wind, float4 frequency, float4 curve)
+{
+    float response = windResponseCurve(length(wind), curve.x, curve.y, curve.z);
+    return clamp(frequency.x, 0.5, 12.0) * lerp(1.0, clamp(frequency.y, 0.5, 2.0), response);
+}
+
+// Fractional coordinates never grow with world time; integer cells retain the
+// seeded noise sequence even after hours of play. Unsigned wrap is continuous.
+public void advanceFlutterClock(inout float2 phase, inout uint2 cells, float2 delta)
+{
+    float2 total = phase + delta;
+    uint2 crossed = uint2(floor(total));
+    phase = total - float2(crossed);
+    cells += crossed;
+}
+
+public float2 leafFlutterRates(uint seed, float frequency)
+{
+    float rate = lerp(2.8, 4.3, leafUnit(seed ^ 0xA341316Cu)) * frequency / 1.8;
+    return rate * float2(1.0, 2.37);
 }
 
 // One RGB evaluated at the leaf center, shared by every corner and every face.

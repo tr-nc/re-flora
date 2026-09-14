@@ -207,7 +207,8 @@ pub struct ManualResponseOutput {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ManualResponsePrevious` (native Slang source of truth).
@@ -217,7 +218,8 @@ pub struct ManualResponsePrevious {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ManualVegetationResponse` (native Slang source of truth).
@@ -227,7 +229,8 @@ pub struct ManualVegetationResponse {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ModelTriangles` (native Slang source of truth).
@@ -535,6 +538,8 @@ pub struct PushConstantVegetationResponse {
     pub count: u32,
     pub controls: [f32; 4],
     pub flutter_curve: [f32; 4],
+    pub flutter_frequency: [f32; 4],
+    pub flutter_frequency_curve: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).

@@ -5,7 +5,8 @@ public struct VegetationResponseState
     public float4 motion; // displacement xz, velocity xz, in wind/voxel units
     public float4 held[4]; // published displacement + velocity; no temporal interpolation
     public float4 torsion; // angle x, unused y, angular velocity z, unused w
-    public float4 held_angles; // same four publication buckets as held motion
+    public float2 flutter_phase; // fractional noise coordinates, always [0, 1)
+    public uint2 flutter_cells; // integer noise coordinates, retained on remap
 };
 
 public struct VegetationResponseInput
@@ -28,4 +29,6 @@ public struct VegetationResponsePushConstants
     public uint count;
     public float4 controls; // mechanical frequency, damping, force gain multipliers, leaf flutter gain
     public float4 flutter_curve; // wind onset, full response, knee bias, reserved
+    public float4 flutter_frequency; // base Hz, strong-wind scale, reserved
+    public float4 flutter_frequency_curve; // wind onset, full response, knee bias, reserved
 };

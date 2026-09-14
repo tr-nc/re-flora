@@ -425,6 +425,53 @@ fn draw_flutter_curve_preview(ui: &mut egui::Ui, adjustables: &mut GuiAdjustable
     ui.small("Start: wind speed where flutter begins. Full: maximum response, not a stop threshold. Bias: negative responds earlier, positive later; 0 is a smooth S curve. Falling wind follows the same curve; inertia lets motion settle. These are wind strengths, not seconds.");
 }
 
+fn draw_flutter_frequency_summary(ui: &mut egui::Ui, a: &GuiAdjustables) {
+    let base = a.leaf_flutter_frequency_hz.value;
+    let strong = base * a.leaf_flutter_frequency_scale.value;
+    ui.label(format!(
+        "Target natural frequency: {base:.2} Hz → {strong:.2} Hz in strong wind"
+    ));
+    ui.small("Scale 1 keeps the same tempo; above 1 speeds up, below 1 slows down. Irregular motion, not a fixed number of cycles. Amplitude and overall wind offset remain separate. Local flutter updates every rendered frame, independent of Discrete Poses / Second.");
+    let fps = 1.0 / ui.input(|i| i.stable_dt).max(0.0001);
+    let samples = fps / base.max(strong).max(0.001);
+    ui.weak(format!(
+        "Approx. {fps:.0} frames/s, {samples:.1} samples per fastest target cycle"
+    ));
+    if samples < 6.0 {
+        ui.colored_label(Color32::from_rgb(255, 190, 90), "High frequency may look uneven or falsely slow at this frame rate. Lower frequency for a clearer shape; target is not silently capped.");
+    }
+}
+
+fn draw_flutter_frequency_preview(ui: &mut egui::Ui, a: &mut GuiAdjustables) {
+    let start = a.leaf_flutter_frequency_start.value;
+    a.leaf_flutter_frequency_full.value = a.leaf_flutter_frequency_full.value.max(start);
+    let full = a.leaf_flutter_frequency_full.value;
+    let knee = a.leaf_flutter_frequency_knee.value;
+    let base = a.leaf_flutter_frequency_hz.value;
+    let scale = a.leaf_flutter_frequency_scale.value;
+    let markers = [
+        CurvePreviewMarker {
+            x: start,
+            label: "start",
+            color: Color32::from_rgb(120, 180, 255),
+        },
+        CurvePreviewMarker {
+            x: full,
+            label: "full",
+            color: Color32::from_rgb(255, 200, 90),
+        },
+    ];
+    draw_curve_preview(
+        ui,
+        "Flutter frequency response (Hz)",
+        0.0..=4.0,
+        0.0..=base.max(base * scale),
+        &markers,
+        |wind| base * (1.0 + (scale - 1.0) * smoothstep_variant_response(wind, start, full, knee)),
+    );
+    ui.small("Independent of the amplitude curve. Start/Full are game wind strengths, not m/s. Bias: negative changes tempo earlier, positive later. Calm still settles because wind powers amplitude, not because frequency must reach zero.");
+}
+
 fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     let marker_start_color = Color32::from_rgb(120, 180, 255);
     let marker_full_color = Color32::from_rgb(255, 200, 90);
