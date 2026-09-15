@@ -51,7 +51,7 @@ const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_frequency_min_multiplier",
     "leaf_paddle_frequency_max_multiplier",
 ];
-const LEAF_FREQUENCY: &[&str] = &["leaf_flutter_frequency_multiplier"];
+const LEAF_FREQUENCY: &[&str] = &["leaf_flutter_frequency_ceiling_hz"];
 const LEAF_FREQUENCY_CURVE: &[&str] = &[
     "leaf_flutter_frequency_low_hz",
     "leaf_flutter_frequency_high_hz",
@@ -146,8 +146,8 @@ pub(super) fn render(
         );
     });
     category(ui, "Ground Plants", |ui| {
-        category(ui, "Shape & Motion", |ui| {
-            controls(ui, flora, GROUND_MOTION, adjustables);
+        category(ui, "Rest Shape", |ui| {
+            controls(ui, flora, &GROUND_MOTION[..2], adjustables);
             enforce_flora_natural_bend_order(adjustables);
         });
         category(ui, "Grass Colors", |ui| {
@@ -181,36 +181,6 @@ pub(super) fn render(
             adjustables,
             after_section,
         );
-        category(ui, "Wind Motion", |ui| {
-            if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
-                controls(ui, leaves, LEAF_RESPONSE, adjustables);
-                category(ui, "Amplitude Response", |ui| {
-                    controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
-                    crate::app::flutter_response_editor::draw(
-                        ui,
-                        adjustables,
-                        crate::app::flutter_response_editor::Kind::Amplitude,
-                    );
-                });
-                category(ui, "Frequency Response", |ui| {
-                    controls(ui, leaves, LEAF_FREQUENCY, adjustables);
-                    crate::app::flutter_response_editor::draw(
-                        ui,
-                        adjustables,
-                        crate::app::flutter_response_editor::Kind::Frequency,
-                    );
-                });
-            }
-            category(ui, "Legacy Motion (inertia off)", |ui| {
-                controls(ui, flora, LEAF_MOTION, adjustables);
-            });
-        });
-        category(ui, "Legacy Wind Curves (inertia off)", |ui| {
-            ui.weak("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
-            controls(ui, flora, LEAF_CURVES, adjustables);
-            enforce_leaf_curve_order(adjustables);
-            draw_leaf_curve_previews(ui, adjustables);
-        });
     });
     // Preserve visibility of custom/future controls without spilling them onto a branch level.
     if flora.param.iter().any(|param| !is_grouped(&param.id)) {
@@ -220,6 +190,73 @@ pub(super) fn render(
                     render_gui_param_from_config(ui, param, &flora.name, adjustables);
                 }
             }
+        });
+    }
+}
+
+// Wind owns response controls; stored sections and persistence remain unchanged.
+pub(super) fn render_wind(
+    ui: &mut egui::Ui,
+    config: &[GuiSection],
+    adjustables: &mut GuiAdjustables,
+) {
+    if let Some(flora) = config.iter().find(|s| s.name == "Flora") {
+        category(ui, "Grass Response", |ui| {
+            controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
+            category(ui, "Legacy Vibration (inertia off)", |ui| {
+                controls(ui, flora, &GROUND_MOTION[3..], adjustables);
+            });
+            if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
+                for (title, scale, kind) in [
+                    (
+                        "Amplitude Response",
+                        "grass_sway_amplitude_scale",
+                        crate::app::flutter_response_editor::Kind::GrassAmplitude,
+                    ),
+                    (
+                        "Frequency Response",
+                        "grass_sway_frequency_scale",
+                        crate::app::flutter_response_editor::Kind::GrassFrequency,
+                    ),
+                ] {
+                    category(ui, title, |ui| {
+                        controls(ui, grass, &[scale], adjustables);
+                        crate::app::flutter_response_editor::draw(ui, adjustables, kind);
+                    });
+                }
+            }
+        });
+        category(ui, "Leaf Response", |ui| {
+            ui.scope(|ui| {
+                if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
+                    controls(ui, leaves, LEAF_RESPONSE, adjustables);
+                    category(ui, "Amplitude Response", |ui| {
+                        controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
+                        crate::app::flutter_response_editor::draw(
+                            ui,
+                            adjustables,
+                            crate::app::flutter_response_editor::Kind::Amplitude,
+                        );
+                    });
+                    category(ui, "Frequency Response", |ui| {
+                        controls(ui, leaves, LEAF_FREQUENCY, adjustables);
+                        crate::app::flutter_response_editor::draw(
+                            ui,
+                            adjustables,
+                            crate::app::flutter_response_editor::Kind::Frequency,
+                        );
+                    });
+                }
+                category(ui, "Legacy Motion (inertia off)", |ui| {
+                    controls(ui, flora, LEAF_MOTION, adjustables);
+                });
+            });
+            category(ui, "Legacy Wind Curves (inertia off)", |ui| {
+                ui.weak("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
+                controls(ui, flora, LEAF_CURVES, adjustables);
+                enforce_leaf_curve_order(adjustables);
+                draw_leaf_curve_previews(ui, adjustables);
+            });
         });
     }
 }
@@ -265,6 +302,7 @@ mod tests {
         context.memory_mut(|memory| memory.set_everything_is_visible(true));
         let output = context.run_ui(egui::RawInput::default(), |ui| {
             render(ui, &config.section, flora, &mut adjustables, &mut |_, _| {});
+            render_wind(ui, &config.section, &mut adjustables);
         });
         let mut text = Vec::new();
         for shape in output.shapes {
@@ -289,9 +327,16 @@ mod tests {
         for label in [
             "Amplitude Scaling (voxels)",
             "Overall Wind Offset (0 = off)",
-            "Frequency Scaling",
+            "Frequency Scaling (Hz)",
         ] {
-            assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);
+            assert_eq!(
+                text.iter().filter(|s| s.as_str() == label).count(),
+                if label == "Overall Wind Offset (0 = off)" {
+                    1
+                } else {
+                    2
+                }
+            );
         }
     }
 

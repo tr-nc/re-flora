@@ -2019,15 +2019,15 @@ min = 0.25
 max = 24
 
 [[section.param]]
-id = "leaf_flutter_frequency_multiplier"
+id = "leaf_flutter_frequency_ceiling_hz"
 kind = "float"
-label = "Frequency Scaling"
+label = "Frequency Scaling (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 24
 min = 0.25
-max = 2
+max = 48
 
 [[section.param]]
 id = "leaf_flutter_frequency_start"
@@ -2319,3 +2319,138 @@ type = "Float"
 value = 3
 min = 1
 max = 3
+
+[[section]]
+name = "Grass Wind Response"
+
+[[section.param]]
+id = "grass_sway_amplitude_scale"
+kind = "float"
+label = "Amplitude Scaling (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1.5
+min = 0
+max = 5
+
+[[section.param]]
+id = "grass_sway_amplitude_low"
+kind = "float"
+label = "Amplitude Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "grass_sway_amplitude_high"
+kind = "float"
+label = "Amplitude Curve High"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "grass_sway_amplitude_start"
+kind = "float"
+label = "Amplitude Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_amplitude_full"
+kind = "float"
+label = "Amplitude Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_amplitude_knee"
+kind = "float"
+label = "Amplitude Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6
+
+[[section.param]]
+id = "grass_sway_frequency_scale"
+kind = "float"
+label = "Frequency Scaling (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0.25
+max = 24
+
+[[section.param]]
+id = "grass_sway_frequency_low"
+kind = "float"
+label = "Frequency Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "grass_sway_frequency_high"
+kind = "float"
+label = "Frequency Curve High"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "grass_sway_frequency_start"
+kind = "float"
+label = "Frequency Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_frequency_full"
+kind = "float"
+label = "Frequency Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_frequency_knee"
+kind = "float"
+label = "Frequency Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6

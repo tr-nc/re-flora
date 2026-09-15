@@ -1,6 +1,7 @@
 import vegetation_response_types;
 import wind_volume_sample;
 import vegetation_response_solver;
+import flora_types;
 
 struct B_ManualResponseInputs { VegetationResponseInput data[]; };
 struct B_ManualResponsePrevious { VegetationResponseState data[]; };
@@ -45,6 +46,13 @@ void main(uint3 tid : SV_DispatchThreadID)
         }
         else
             advanceVegetationResponse(state.motion, force, dt, input.identity.y, pc.controls);
+        if (input.identity.y < FLORA_SPECIES_COUNT)
+        {
+            float4 frequency = pc.grass_frequency;
+            frequency.xy *= input.root.w > 0.0 ? clamp(input.root.w, 0.1, 1.0) : 1.0;
+            advanceGrassSway(state.torsion, state.flutter_phase, state.flutter_cells,
+                force, dt, input.identity.z, pc.grass_amplitude, frequency, pc.grass_curve);
+        }
         time = end;
         if (time >= boundary - 0.000001)
         {

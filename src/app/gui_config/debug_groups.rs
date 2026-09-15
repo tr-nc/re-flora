@@ -217,13 +217,13 @@ mod tests {
             "Distribution",
             "Spawn Animation",
             "Ground Plants",
-            "Shape & Motion",
+            "Grass Response",
             "Grass Colors",
             "Color Variation",
             "Purple Allium",
             "Leaves",
             "Appearance & Lighting",
-            "Wind Motion",
+            "Leaf Response",
             "Legacy Wind Curves (inertia off)",
         ] {
             assert!(

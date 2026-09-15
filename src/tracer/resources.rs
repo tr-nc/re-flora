@@ -154,6 +154,7 @@ pub struct FloraVoxelLookupResources {
     pub flora_voxel_table_descs: Resource<Buffer>,
     pub flora_voxel_infos: Resource<Buffer>,
     type_data: Vec<FloraVoxelLookupTypeData>,
+    pub grass_response_profiles: [f32; species::MAX_FLORA_SPECIES],
 }
 
 impl FloraVoxelLookupResources {
@@ -176,7 +177,15 @@ impl FloraVoxelLookupResources {
             flora_voxel_table_descs: Resource::new(flora_voxel_table_descs),
             flora_voxel_infos: Resource::new(flora_voxel_infos),
             type_data: Self::default_type_data().unwrap(),
+            grass_response_profiles: [1.; species::MAX_FLORA_SPECIES],
         };
+        let proxies: [f32; species::MAX_FLORA_SPECIES] = std::array::from_fn(|i| {
+            super::vegetation_response::morphology::frequency_proxy(&resources.type_data[i].entries)
+        });
+        let fastest = proxies.iter().copied().fold(0.00001_f32, f32::max);
+        // Compress unknown-material differences for art direction, retaining ordering.
+        resources.grass_response_profiles = proxies.map(|f| (f / fastest).sqrt().clamp(0.1, 1.));
+        log::info!("[GRASS_RESPONSE][MORPHOLOGY] relative_frequency={:?} source=canonical_voxels unit_density=true", resources.grass_response_profiles);
         resources.upload().unwrap();
         resources
     }

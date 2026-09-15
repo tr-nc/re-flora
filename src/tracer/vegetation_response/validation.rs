@@ -94,6 +94,9 @@ impl<'a> Harness<'a> {
             flutter_curve: [0.05, 1., 0., 0.],
             flutter_frequency: self.flutter_frequency,
             flutter_frequency_curve: [0.05, 1., 0., 0.],
+            grass_amplitude: [0., 1.5, 0.05, 2.],
+            grass_frequency: [1., 1., 0.05, 2.],
+            grass_curve: [0.; 4],
             start_time: start,
             end_time: end,
             tick_seconds: tick,
@@ -163,6 +166,40 @@ pub(in crate::tracer) fn validate_gpu(
     let mut harness = Harness::new(context, allocator, 2113)?;
     let mut source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;
+    let mut grass: Vec<_> = (0..species::MAX_FLORA_SPECIES)
+        .map(|species| ResponseInput {
+            root: [
+                1.,
+                1.,
+                1.,
+                resources.flora_voxel_lookup.grass_response_profiles[species],
+            ],
+            identity: [NO_PREVIOUS, species as u32, 23 + species as u32, 0],
+        })
+        .collect();
+    let mut ranges = [(f32::INFINITY, f32::NEG_INFINITY); species::MAX_FLORA_SPECIES];
+    for frame in 0..240 {
+        let states = harness.step(&grass, frame as f32 / 60., (frame + 1) as f32 / 60., 0.025)?;
+        for (i, state) in states.iter().enumerate() {
+            anyhow::ensure!(state.iter().all(|v| v.is_finite()), "grass state nonfinite");
+            anyhow::ensure!(
+                glam::Vec2::new(state[20], state[21]).length() <= 1.50001,
+                "grass local envelope exceeded"
+            );
+            if frame >= 120 {
+                ranges[i].0 = ranges[i].0.min(state[20]);
+                ranges[i].1 = ranges[i].1.max(state[20]);
+            }
+            grass[i].identity[0] = i as u32;
+        }
+    }
+    anyhow::ensure!(
+        ranges.iter().all(|(lo, hi)| hi - lo > 0.001),
+        "constant wind left a grass species static: {ranges:?}"
+    );
+    log::info!(
+        "[GRASS_RESPONSE][GPU] all_four_species_constant_wind=passed late_ranges={ranges:?}"
+    );
     // Same forcing and the same spatial point deliberately remove wind-field
     // variation: individual leaf mechanics must not collapse into one spray pose.
     let mut leaves: Vec<_> = [11, 23, 47, 83]

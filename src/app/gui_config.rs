@@ -570,6 +570,7 @@ const SECTION_PARENTS: &[(&str, &str)] = &[
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
     ("Leaves", "Flora"),
+    ("Grass Wind Response", "Wind"),
     ("Terrain Harvest Particles", "Voxel"),
 ];
 
@@ -619,12 +620,18 @@ fn render_gui_from_config(
                 return;
             }
             render_section_controls(ui, section, adjustables);
+            if section.name == "Wind" {
+                flora_groups::render_wind(ui, config, adjustables);
+                after_section("Grass Wind Response", ui);
+            }
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
             after_section(&section.name, ui);
             for child in config {
-                if section_parent(&child.name) == Some(section.name.as_str()) {
+                if child.name != "Grass Wind Response"
+                    && section_parent(&child.name) == Some(section.name.as_str())
+                {
                     ui.collapsing(section_title(&child.name), |ui| {
                         render_section_controls(ui, child, adjustables);
                         after_section(&child.name, ui);
@@ -692,6 +699,8 @@ mod tests {
         for kind in [
             crate::app::flutter_response_editor::Kind::Frequency,
             crate::app::flutter_response_editor::Kind::Amplitude,
+            crate::app::flutter_response_editor::Kind::GrassAmplitude,
+            crate::app::flutter_response_editor::Kind::GrassFrequency,
         ] {
             let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
             settings.adjustables.leaf_flutter_frequency_start.value = 0.1;
@@ -702,6 +711,14 @@ mod tests {
             settings.adjustables.leaf_flutter_wind_full.value = 2.;
             settings.adjustables.leaf_flutter_amplitude_low.value = 2. / 24.;
             settings.adjustables.leaf_flutter_amplitude_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_amplitude_low.value = 2. / 24.;
+            settings.adjustables.grass_sway_amplitude_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_amplitude_start.value = 0.1;
+            settings.adjustables.grass_sway_amplitude_full.value = 2.;
+            settings.adjustables.grass_sway_frequency_low.value = 2. / 24.;
+            settings.adjustables.grass_sway_frequency_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_frequency_start.value = 0.1;
+            settings.adjustables.grass_sway_frequency_full.value = 2.;
             let context = egui::Context::default();
             let mut plot = Rect::NOTHING;
             let screen = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.)));
@@ -760,6 +777,24 @@ mod tests {
                 );
             }
             match kind {
+                crate::app::flutter_response_editor::Kind::GrassAmplitude => {
+                    assert!(
+                        (settings.adjustables.grass_sway_amplitude_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.grass_sway_amplitude_start.value - 0.8).abs() < 0.01
+                    );
+                }
+                crate::app::flutter_response_editor::Kind::GrassFrequency => {
+                    assert!(
+                        (settings.adjustables.grass_sway_frequency_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.grass_sway_frequency_start.value - 0.8).abs() < 0.01
+                    );
+                }
                 crate::app::flutter_response_editor::Kind::Frequency => {
                     assert!(
                         (settings.adjustables.leaf_flutter_frequency_low_hz.value - 4.).abs()
@@ -789,6 +824,18 @@ mod tests {
             let path = dir.path().join("gui.toml");
             settings.save_to_path(&path).unwrap();
             let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert!(
+                (settings.adjustables.grass_sway_amplitude_low.value
+                    - loaded.adjustables.grass_sway_amplitude_low.value)
+                    .abs()
+                    < 1e-7
+            );
+            assert!(
+                (settings.adjustables.grass_sway_frequency_low.value
+                    - loaded.adjustables.grass_sway_frequency_low.value)
+                    .abs()
+                    < 1e-7
+            );
             assert_eq!(
                 settings.adjustables.leaf_flutter_frequency_low_hz.value,
                 loaded.adjustables.leaf_flutter_frequency_low_hz.value

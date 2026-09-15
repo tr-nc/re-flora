@@ -93,7 +93,25 @@ pub(super) fn freeze_render_frame_inputs(
             leaf_flutter_frequency: [
                 gui.leaf_flutter_frequency_low_hz.value,
                 gui.leaf_flutter_frequency_high_hz.value,
-                gui.leaf_flutter_frequency_multiplier.value,
+                gui.leaf_flutter_frequency_ceiling_hz.value / 24.,
+                0.,
+            ],
+            grass_amplitude: [
+                gui.grass_sway_amplitude_low.value * gui.grass_sway_amplitude_scale.value,
+                gui.grass_sway_amplitude_high.value * gui.grass_sway_amplitude_scale.value,
+                gui.grass_sway_amplitude_start.value,
+                gui.grass_sway_amplitude_full.value,
+            ],
+            grass_frequency: [
+                gui.grass_sway_frequency_low.value * gui.grass_sway_frequency_scale.value,
+                gui.grass_sway_frequency_high.value * gui.grass_sway_frequency_scale.value,
+                gui.grass_sway_frequency_start.value,
+                gui.grass_sway_frequency_full.value,
+            ],
+            grass_curve: [
+                gui.grass_sway_amplitude_knee.value,
+                gui.grass_sway_frequency_knee.value,
+                0.,
                 0.,
             ],
             leaf_flutter_frequency_curve: [
@@ -474,7 +492,29 @@ mod tests {
                     leaf_flutter_frequency: [
                         settings.adjustables.leaf_flutter_frequency_low_hz.value,
                         settings.adjustables.leaf_flutter_frequency_high_hz.value,
-                        settings.adjustables.leaf_flutter_frequency_multiplier.value,
+                        settings.adjustables.leaf_flutter_frequency_ceiling_hz.value / 24.,
+                        0.,
+                    ],
+                    grass_amplitude: [
+                        settings.adjustables.grass_sway_amplitude_low.value
+                            * settings.adjustables.grass_sway_amplitude_scale.value,
+                        settings.adjustables.grass_sway_amplitude_high.value
+                            * settings.adjustables.grass_sway_amplitude_scale.value,
+                        settings.adjustables.grass_sway_amplitude_start.value,
+                        settings.adjustables.grass_sway_amplitude_full.value,
+                    ],
+                    grass_frequency: [
+                        settings.adjustables.grass_sway_frequency_low.value
+                            * settings.adjustables.grass_sway_frequency_scale.value,
+                        settings.adjustables.grass_sway_frequency_high.value
+                            * settings.adjustables.grass_sway_frequency_scale.value,
+                        settings.adjustables.grass_sway_frequency_start.value,
+                        settings.adjustables.grass_sway_frequency_full.value,
+                    ],
+                    grass_curve: [
+                        settings.adjustables.grass_sway_amplitude_knee.value,
+                        settings.adjustables.grass_sway_frequency_knee.value,
+                        0.,
                         0.,
                     ],
                     leaf_flutter_frequency_curve: [

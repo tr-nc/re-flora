@@ -31,4 +31,7 @@ public struct VegetationResponsePushConstants
     public float4 flutter_curve; // wind onset, full response, knee bias, low excitation (0..2)
     public float4 flutter_frequency; // low Hz, high Hz, overall scale, reserved
     public float4 flutter_frequency_curve; // wind onset, full response, knee bias, reserved
+    public float4 grass_amplitude; // low/high tip voxels, wind onset/full
+    public float4 grass_frequency; // low/high Hz, wind onset/full
+    public float4 grass_curve; // amplitude/frequency knee, reserved
 };

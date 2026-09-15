@@ -9,6 +9,8 @@ use egui::{Color32, Pos2, Rect, Sense, Vec2};
 pub(super) enum Kind {
     Amplitude,
     Frequency,
+    GrassAmplitude,
+    GrassFrequency,
 }
 
 struct Fields<'a> {
@@ -41,13 +43,38 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
         Kind::Frequency => Fields {
             low: &mut a.leaf_flutter_frequency_low_hz.value,
             high: &mut a.leaf_flutter_frequency_high_hz.value,
-            scale: a.leaf_flutter_frequency_multiplier.value,
+            // Legacy endpoint coordinates span 0..24; the visible ceiling is Hz.
+            scale: a.leaf_flutter_frequency_ceiling_hz.value / 24.,
             start: &mut a.leaf_flutter_frequency_start.value,
             full: &mut a.leaf_flutter_frequency_full.value,
             knee: &mut a.leaf_flutter_frequency_knee.value,
             min: 0.25,
             max: 24.,
             label: "Wind → Flutter Frequency (Hz)",
+            unit: "Hz",
+        },
+        Kind::GrassAmplitude => Fields {
+            low: &mut a.grass_sway_amplitude_low.value,
+            high: &mut a.grass_sway_amplitude_high.value,
+            scale: a.grass_sway_amplitude_scale.value,
+            start: &mut a.grass_sway_amplitude_start.value,
+            full: &mut a.grass_sway_amplitude_full.value,
+            knee: &mut a.grass_sway_amplitude_knee.value,
+            min: 0.,
+            max: 1.,
+            label: "Wind → Grass Amplitude",
+            unit: "voxel envelope",
+        },
+        Kind::GrassFrequency => Fields {
+            low: &mut a.grass_sway_frequency_low.value,
+            high: &mut a.grass_sway_frequency_high.value,
+            scale: a.grass_sway_frequency_scale.value,
+            start: &mut a.grass_sway_frequency_start.value,
+            full: &mut a.grass_sway_frequency_full.value,
+            knee: &mut a.grass_sway_frequency_knee.value,
+            min: 0.01,
+            max: 1.,
+            label: "Wind → Grass Frequency (Hz)",
             unit: "Hz",
         },
     }
@@ -149,6 +176,17 @@ fn edit_fields(f: &mut Fields<'_>, index: usize, wind: f32, value: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frequency_scaling_one_is_a_one_hz_graph_ceiling() {
+        let mut a =
+            GuiAdjustables::from_config(&crate::app::gui_config_loader::GuiConfigLoader::load());
+        a.leaf_flutter_frequency_ceiling_hz.value = 1.;
+        a.grass_sway_frequency_scale.value = 1.;
+        for kind in [Kind::Frequency, Kind::GrassFrequency] {
+            let f = fields(&mut a, kind);
+            assert_eq!(f.max * f.scale, 1.);
+        }
+    }
     #[test]
     fn shape_handle_supports_increasing_and_decreasing_curves() {
         let mut a =

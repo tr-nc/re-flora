@@ -1382,6 +1382,9 @@ pub struct FloraMotionFrameInput {
     pub leaf_flutter_curve: [f32; 4],
     pub leaf_flutter_frequency: [f32; 4],
     pub leaf_flutter_frequency_curve: [f32; 4],
+    pub grass_amplitude: [f32; 4],
+    pub grass_frequency: [f32; 4],
+    pub grass_curve: [f32; 4],
     pub leaf_global_offset_scale: f32,
     pub leaf_local_displacement_voxels: f32,
     pub response_pose_hz: f32,
@@ -2895,6 +2898,9 @@ impl Tracer {
         self.vegetation_response.controls = vegetation.motion.response_controls;
         self.vegetation_response.flutter_curve = vegetation.motion.leaf_flutter_curve;
         self.vegetation_response.flutter_frequency = vegetation.motion.leaf_flutter_frequency;
+        self.vegetation_response.grass_amplitude = vegetation.motion.grass_amplitude;
+        self.vegetation_response.grass_frequency = vegetation.motion.grass_frequency;
+        self.vegetation_response.grass_curve = vegetation.motion.grass_curve;
         self.vegetation_response.flutter_frequency_curve =
             vegetation.motion.leaf_flutter_frequency_curve;
         self.vegetation_response.pose_hz = vegetation.motion.response_pose_hz;
@@ -3396,6 +3402,7 @@ impl Tracer {
                     &self.pipeline_topology.compute().vegetation_response_ppl,
                     cmdbuf,
                     surface_resources,
+                    self.resources.flora_voxel_lookup.grass_response_profiles,
                     gpu_profiler_frame_slot,
                     time,
                     self.world_tick_seconds,

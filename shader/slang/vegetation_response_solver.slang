@@ -1,6 +1,41 @@
 module vegetation_response_solver;
 import flora_types;
 import leaf_flutter;
+import wind_response_curve;
+
+// Unresolved wind excitation around the mean bend, not another wind field.
+// Stored in the existing grass grid's otherwise-unused local motion/clock.
+public void advanceGrassSway(inout float4 motion, inout float2 phase, inout uint2 cells,
+    float2 wind, float dt, uint seed, float4 amplitude, float4 frequency, float4 curve)
+{
+    float speed = length(wind);
+    float gain = speed > 0.0 ? lerp(amplitude.x, amplitude.y,
+        windResponseCurve(speed, amplitude.z, amplitude.w, curve.x)) : 0.0;
+    float hz = max(0.01, lerp(frequency.x, frequency.y,
+        windResponseCurve(speed, frequency.z, frequency.w, curve.y)));
+    uint steps = uint(clamp(ceil(max(dt, 0.0) * hz * 32.0), 1.0, 256.0));
+    float step = max(dt, 0.0) / float(steps);
+    float2 increment = leafFlutterRates(seed, hz) * step;
+    for (uint i = 0u; i < steps; ++i) {
+        float2 midpoint = phase;
+        uint2 midpointCells = cells;
+        advanceFlutterClock(midpoint, midpointCells, increment * 0.5);
+        float2 forcing = float2(
+            leafFlutterNoise(midpoint.x, midpointCells.x, seed),
+            leafFlutterNoise(midpoint.y, midpointCells.y, seed ^ 0xAD90777Du));
+        advanceMechanicalResponse(motion, forcing * (gain * 0.5), step,
+            float2(hz, 0.32), float4(1.0, 1.0, 1.0, 0.0));
+        // Radius bounds excursions even after retuning; no independent vertex phase.
+        float limit = max(amplitude.x, amplitude.y);
+        float radius = length(motion.xy);
+        if (radius > limit) {
+            float2 normal = motion.xy / max(radius, 0.000001);
+            motion.xy = normal * limit;
+            motion.zw -= normal * max(dot(normal, motion.zw), 0.0);
+        }
+        advanceFlutterClock(phase, cells, increment);
+    }
+}
 
 // One solver for field nodes and lifetime-owned plants. State ownership is not
 // a solver concern: all callers use world seconds, voxel displacement and velocity.

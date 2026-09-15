@@ -54,7 +54,7 @@ public float3 leafLocalDisplacement(uint seed, float angle, float amplitudeVoxel
 
 // Smooth, deterministic local forcing, not a displacement or a second world wind
 // field. In particular, constant mean flow must not imply a static leaf pose.
-float leafFlutterNoise(float fraction, uint cell, uint seed)
+public float leafFlutterNoise(float fraction, uint cell, uint seed)
 {
     float blend = fraction;
     blend = blend * blend * (3.0 - 2.0 * blend);
@@ -84,7 +84,7 @@ public float leafFlutterFrequency(float2 wind, float4 frequency, float4 curve)
 {
     float response = windResponseCurve(length(wind), curve.x, curve.y, curve.z);
     return lerp(clamp(frequency.x, 0.25, 24.0), clamp(frequency.y, 0.25, 24.0), response)
-        * clamp(frequency.z, 0.25, 2.0);
+        * clamp(frequency.z, 1.0 / 96.0, 2.0);
 }
 
 // Fractional coordinates never grow with world time; integer cells retain the

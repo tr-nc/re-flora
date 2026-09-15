@@ -44,6 +44,22 @@ impl GuiConfigLoader {
 
         Self::validate(&config, config_path);
         Self::migrate_flutter_frequency(&mut config);
+        Self::migrate_frequency_ceiling(&mut config);
+        if !config
+            .section
+            .iter()
+            .any(|s| s.name == "Grass Wind Response")
+        {
+            let defaults: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).expect("GUI defaults");
+            config.section.push(
+                defaults
+                    .section
+                    .into_iter()
+                    .find(|s| s.name == "Grass Wind Response")
+                    .unwrap(),
+            );
+        }
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_sky_strength(&mut config);
 
@@ -126,7 +142,7 @@ impl GuiConfigLoader {
         for (id, value) in [
             ("leaf_flutter_frequency_low_hz", base),
             ("leaf_flutter_frequency_high_hz", high),
-            ("leaf_flutter_frequency_multiplier", 1.),
+            ("leaf_flutter_frequency_ceiling_hz", 24.),
         ] {
             if leaves.param.iter().any(|p| p.id == id) {
                 continue;
@@ -146,6 +162,42 @@ impl GuiConfigLoader {
         leaves.param.retain(|p| {
             p.id != "leaf_flutter_frequency_hz" && p.id != "leaf_flutter_frequency_scale"
         });
+    }
+
+    fn migrate_frequency_ceiling(config: &mut GuiConfigFile) {
+        let Some(leaves) = config.section.iter_mut().find(|s| s.name == "Leaves") else {
+            return;
+        };
+        let old = leaves
+            .param
+            .iter()
+            .find(|p| p.id == "leaf_flutter_frequency_multiplier")
+            .and_then(|p| p.value.get_float())
+            .map(|v| v.0);
+        if let Some(multiplier) = old {
+            if !leaves
+                .param
+                .iter()
+                .any(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+            {
+                let defaults: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).expect("GUI defaults");
+                let mut ceiling = defaults
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+                    .unwrap()
+                    .clone();
+                if let GuiParamValue::Float { value, .. } = &mut ceiling.value {
+                    *value = multiplier.clamp(0.25, 2.) * 24.;
+                }
+                leaves.param.push(ceiling);
+            }
+            leaves
+                .param
+                .retain(|p| p.id != "leaf_flutter_frequency_multiplier");
+        }
     }
 
     fn add_missing_sky_strength(config: &mut GuiConfigFile) {
@@ -655,7 +707,7 @@ mod tests {
         }
         leaves
             .param
-            .retain(|p| p.id != "leaf_flutter_frequency_multiplier");
+            .retain(|p| p.id != "leaf_flutter_frequency_ceiling_hz");
         let before = config.clone();
         GuiConfigLoader::migrate_flutter_frequency(&mut config);
         let get = |id: &str| {
@@ -672,7 +724,7 @@ mod tests {
         };
         assert_eq!(get("leaf_flutter_frequency_low_hz"), 1.5);
         assert_eq!(get("leaf_flutter_frequency_high_hz"), 3.);
-        assert_eq!(get("leaf_flutter_frequency_multiplier"), 1.);
+        assert_eq!(get("leaf_flutter_frequency_ceiling_hz"), 24.);
         for s in &before.section {
             for p in &s.param {
                 if p.id == "leaf_flutter_frequency_hz" || p.id == "leaf_flutter_frequency_scale" {
@@ -695,6 +747,41 @@ mod tests {
         GuiConfigLoader::save_to_path(&before, &path).unwrap();
         let loaded = GuiConfigLoader::load_from_path(&path);
         assert_eq!(toml::to_string(&loaded).unwrap(), once);
+    }
+
+    #[test]
+    fn frequency_ceiling_migration_preserves_saved_curve_and_other_fields() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let before = config.clone();
+        let p = config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+            .unwrap();
+        p.id = "leaf_flutter_frequency_multiplier".into();
+        if let GuiParamValue::Float { value, .. } = &mut p.value {
+            *value = 0.75;
+        }
+        GuiConfigLoader::migrate_frequency_ceiling(&mut config);
+        for old in before.section.iter().flat_map(|s| &s.param) {
+            let new = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == old.id)
+                .unwrap();
+            if old.id == "leaf_flutter_frequency_ceiling_hz" {
+                assert_eq!(new.value.get_float().unwrap().0, 18.);
+            } else {
+                assert_eq!(toml::to_string(old).unwrap(), toml::to_string(new).unwrap());
+            }
+        }
+        let once = toml::to_string(&config).unwrap();
+        GuiConfigLoader::migrate_frequency_ceiling(&mut config);
+        assert_eq!(once, toml::to_string(&config).unwrap());
     }
 
     use super::{GuiConfigLoader, GUI_FLOAT_DECIMALS};
