@@ -437,9 +437,6 @@ fn draw_flutter_frequency_summary(ui: &mut egui::Ui, a: &GuiAdjustables) {
     ui.weak(format!(
         "Approx. {fps:.0} frames/s, {samples:.1} samples per fastest target cycle"
     ));
-    if samples < 6.0 {
-        ui.colored_label(Color32::from_rgb(255, 190, 90), "High frequency may look uneven or falsely slow at this frame rate. Lower frequency for a clearer shape; target is not silently capped.");
-    }
 }
 
 fn draw_flutter_frequency_preview(ui: &mut egui::Ui, a: &mut GuiAdjustables) {

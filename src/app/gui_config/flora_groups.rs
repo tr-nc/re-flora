@@ -229,6 +229,33 @@ mod tests {
         assert!(!is_grouped("future_flora_control"));
     }
 
+    #[test]
+    fn flutter_summary_never_flashes_a_frame_rate_warning() {
+        let config = GuiConfigLoader::load();
+        let mut a = GuiAdjustables::from_config(&config);
+        a.leaf_flutter_frequency_hz.value = 12.;
+        a.leaf_flutter_frequency_scale.value = 2.;
+        for fps in [30., 240., 60., 144., 120.] {
+            let context = egui::Context::default();
+            let output = context.run_ui(
+                egui::RawInput {
+                    predicted_dt: 1. / fps,
+                    ..Default::default()
+                },
+                |ui| super::super::draw_flutter_frequency_summary(ui, &a),
+            );
+            let mut text = Vec::new();
+            for shape in output.shapes {
+                collect_text(&shape.shape, &mut text);
+            }
+            assert!(
+                !text.iter().any(|s| s.contains("High frequency may look")),
+                "unexpected warning at {fps} fps"
+            );
+            assert!(text.iter().any(|s| s.contains("Target natural frequency")));
+        }
+    }
+
     fn collect_text(shape: &egui::Shape, text: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(shape) => text.push(shape.galley.job.text.clone()),

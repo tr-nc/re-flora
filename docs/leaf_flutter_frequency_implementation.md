@@ -40,8 +40,10 @@ frame. Only the whole-leaf offset still reads the 4 staggered pose buckets.
 This removes the former per-leaf 10 Hz flutter presentation bottleneck without
 changing grass, fruit, world tick or the overall discrete-pose setting. It does
 not eliminate low-frame-rate aliasing: the UI displays approximate samples per
-target cycle and warns below 6, without secretly lowering the target frequency.
-Six is a visual tuning heuristic, not a guarantee for broadband noise.
+target cycle without secretly lowering the target frequency. The conditional
+warning was removed at the user's request: crossing its threshold with normal
+frame-rate variation repeatedly inserted/removed text. The numerical readout
+and controls remain; a GUI regression checks absence at several frame rates.
 
 Former held-angle storage is reused for the phase/cell fields: response state
 stays 112 bytes, with fractional phase at byte 96 and integer cells at 104.
