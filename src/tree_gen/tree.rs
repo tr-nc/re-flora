@@ -1,4 +1,4 @@
-use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchingDesc};
+use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchSegment, BranchingDesc};
 use crate::geom::RoundCone;
 use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
@@ -148,6 +148,9 @@ pub struct LeafPlacement {
 
 #[derive(Debug)]
 struct BuiltObjects {
+    branches: Vec<BranchSegment>,
+    trunk_branches: Vec<usize>,
+    leaf_branches: Vec<usize>,
     trunks: Vec<RoundCone>,
     leaf_positions: Vec<Vec3>,
     leaf_placements: Vec<LeafPlacement>,
@@ -176,6 +179,22 @@ impl Tree {
     /// Obtain independently placeable leaf voxels relative to the tree position.
     pub fn relative_leaf_placements(&self) -> &[LeafPlacement] {
         &self.built_objects.leaf_placements
+    }
+
+    /// Full deterministic topology, including branches not yet revealed by age.
+    /// Indices are stable across age/subdivision/thin-wood changes for one authored tree.
+    pub fn branches(&self) -> &[BranchSegment] {
+        &self.built_objects.branches
+    }
+
+    /// Branch ownership for every rendered trunk cone, in `trunks()` order.
+    pub fn trunk_branch_indices(&self) -> &[usize] {
+        &self.built_objects.trunk_branches
+    }
+
+    /// Attachment ownership in `relative_leaf_placements()` order.
+    pub fn leaf_branch_indices(&self) -> &[usize] {
+        &self.built_objects.leaf_branches
     }
 
     fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
@@ -209,22 +228,30 @@ impl Tree {
         let leaf_anchors = skeleton
             .segments
             .iter()
-            .filter(|segment| segment.level < visible_branch_levels)
-            .filter(|segment| segment.level.saturating_add(1) == leaf_level)
-            .map(|segment| {
+            .enumerate()
+            .filter(|(_, segment)| segment.level < visible_branch_levels)
+            .filter(|(_, segment)| segment.level.saturating_add(1) == leaf_level)
+            .map(|(branch_index, segment)| {
                 let direction = (segment.end - segment.start).normalize_or_zero();
-                (segment.end, direction)
+                (branch_index, segment.end, direction)
             })
             .collect::<Vec<_>>();
-        let leaf_positions = leaf_anchors.iter().map(|(position, _)| *position).collect();
-        let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut leaf_rng);
+        let leaf_positions = leaf_anchors
+            .iter()
+            .map(|(_, position, _)| *position)
+            .collect();
+        let (leaf_placements, leaf_branches) =
+            generate_leaf_sprays(desc, &leaf_anchors, &mut leaf_rng);
 
         let mut trunks = Vec::new();
-        for segment in skeleton
+        let mut trunk_branches = Vec::new();
+        for (branch_index, segment) in skeleton
             .segments
             .iter()
-            .filter(|segment| segment.level < visible_branch_levels)
+            .enumerate()
+            .filter(|(_, segment)| segment.level < visible_branch_levels)
         {
+            let first_cone = trunks.len();
             let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
             let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
             let cone = RoundCone::new(
@@ -254,9 +281,13 @@ impl Tree {
             } else {
                 trunks.extend(subdivided_cones);
             }
+            trunk_branches.extend(std::iter::repeat_n(branch_index, trunks.len() - first_cone));
         }
 
         BuiltObjects {
+            branches: skeleton.segments,
+            trunk_branches,
+            leaf_branches,
             trunks,
             leaf_positions,
             leaf_placements,
@@ -275,9 +306,9 @@ fn visible_branch_levels(age: f32, mature_levels: u32) -> u32 {
 
 fn generate_leaf_sprays(
     desc: &TreeDesc,
-    anchors: &[(Vec3, Vec3)],
+    anchors: &[(usize, Vec3, Vec3)],
     rng: &mut StdRng,
-) -> Vec<LeafPlacement> {
+) -> (Vec<LeafPlacement>, Vec<usize>) {
     let diameter = 2.0_f32.powi(desc.leaves_size_level.min(8) as i32);
     let along_radius = (diameter * 0.5).max(1.0);
     let width_radius = (along_radius * desc.leaf_spray_width_ratio.max(0.05)).max(1.0);
@@ -286,7 +317,8 @@ fn generate_leaf_sprays(
     let leaves_per_spray = (spray_volume * desc.leaf_density.max(0.0)).round() as usize;
     let mut placements = Vec::with_capacity(anchors.len().saturating_mul(leaves_per_spray));
 
-    for &(anchor, branch_direction) in anchors {
+    let mut bindings = Vec::with_capacity(placements.capacity());
+    for &(branch_index, anchor, branch_direction) in anchors {
         let axis = if branch_direction.length_squared() > 0.0 {
             branch_direction
         } else {
@@ -316,11 +348,12 @@ fn generate_leaf_sprays(
                 + side * (sample.y * width_radius)
                 + vertical * (sample.z * thickness_radius);
             placements.push(LeafPlacement { position, anchor });
+            bindings.push(branch_index);
             emitted += 1;
         }
     }
 
-    placements
+    (placements, bindings)
 }
 
 /// Retain only the portion whose authored radius reaches the existing minimum.
@@ -450,6 +483,58 @@ fn subdivide_trunk_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_bindings_survive_subdivision_clipping_and_age() {
+        for seed in [7, 122] {
+            let mut desc = TreeDesc::default();
+            desc.branching.seed = seed;
+            let mature = Tree::new(desc.clone());
+            for age in [0.0, 0.25, 0.5, 1.0] {
+                for subdivision in [false, true] {
+                    for cull in [false, true] {
+                        desc.growth_age = age;
+                        desc.enable_subdivision = subdivision;
+                        desc.cull_thin_branches = cull;
+                        let tree = Tree::new(desc.clone());
+                        assert_eq!(tree.branches(), mature.branches());
+                        assert_eq!(tree.trunks().len(), tree.trunk_branch_indices().len());
+                        assert_eq!(
+                            tree.relative_leaf_placements().len(),
+                            tree.leaf_branch_indices().len()
+                        );
+                        let visible_levels = visible_branch_levels(age, desc.branching.iterations);
+                        for &branch in tree.trunk_branch_indices() {
+                            assert!(tree.branches()[branch].level < visible_levels);
+                        }
+                        for (leaf, &branch) in tree
+                            .relative_leaf_placements()
+                            .iter()
+                            .zip(tree.leaf_branch_indices())
+                        {
+                            assert_eq!(leaf.anchor, tree.branches()[branch].end);
+                            assert!(tree.branches()[branch].level < visible_levels);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn branch_identity_survives_age_scaling() {
+        let desc = TreeDesc::default();
+        let mature = Tree::new(desc.clone());
+        for age in [0.0, 0.25, 0.5, 1.0] {
+            let tree = Tree::new(desc.at_age(age));
+            assert_eq!(tree.branches().len(), mature.branches().len());
+            for (young, adult) in tree.branches().iter().zip(mature.branches()) {
+                assert_eq!(young.parent, adult.parent);
+                assert_eq!(young.level, adult.level);
+                assert_eq!(young.role, adult.role);
+            }
+        }
+    }
 
     #[test]
     fn thin_wood_policy_omits_small_segments_and_clips_crossings() {

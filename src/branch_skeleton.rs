@@ -71,6 +71,9 @@ pub enum BranchSegmentRole {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BranchSegment {
+    /// Parent segment index in the same skeleton, always preceding this segment.
+    /// Root axes have no parent; identity is structural, never inferred from position.
+    pub parent: Option<usize>,
     pub start: Vec3,
     pub end: Vec3,
     pub level: u32,
@@ -104,6 +107,7 @@ pub fn generate_branch_skeleton_with_rng(
     recurse(
         Vec3::ZERO,
         Vec3::Y,
+        None,
         0,
         &desc,
         desc.initial_length,
@@ -113,9 +117,11 @@ pub fn generate_branch_skeleton_with_rng(
     skeleton
 }
 
+#[allow(clippy::too_many_arguments)]
 fn recurse(
     pos: Vec3,
     dir: Vec3,
+    parent: Option<usize>,
     level: u32,
     desc: &BranchingDesc,
     length: f32,
@@ -140,6 +146,7 @@ fn recurse(
             grow_segment(
                 pos,
                 continuation_dir,
+                parent,
                 level,
                 BranchSegmentRole::MainAxis,
                 desc,
@@ -156,6 +163,7 @@ fn recurse(
             grow_segment(
                 pos,
                 new_dir,
+                parent,
                 level,
                 BranchSegmentRole::Lateral,
                 desc,
@@ -170,6 +178,7 @@ fn recurse(
             grow_segment(
                 pos,
                 continuation_dir,
+                parent,
                 level,
                 BranchSegmentRole::MainAxis,
                 desc,
@@ -183,6 +192,7 @@ fn recurse(
         grow_segment(
             pos,
             continuation_dir,
+            parent,
             level,
             BranchSegmentRole::MainAxis,
             desc,
@@ -252,6 +262,7 @@ fn varied_segment_length(length: f32, desc: &BranchingDesc, rng: &mut impl RngEx
 fn grow_segment(
     pos: Vec3,
     dir: Vec3,
+    parent: Option<usize>,
     level: u32,
     role: BranchSegmentRole,
     desc: &BranchingDesc,
@@ -266,7 +277,9 @@ fn grow_segment(
     let segment_length = varied_segment_length(length, desc, rng);
     let end_pos = pos + dir * segment_length;
 
+    let segment_index = skeleton.segments.len();
     skeleton.segments.push(BranchSegment {
+        parent,
         start: pos,
         end: end_pos,
         level,
@@ -276,6 +289,7 @@ fn grow_segment(
     recurse(
         end_pos,
         dir,
+        Some(segment_index),
         level + 1,
         desc,
         length * desc.length_dropoff,
@@ -340,6 +354,36 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut impl RngExt) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parents_are_topological_even_when_branches_share_positions() {
+        for length in [0.0, 4.0] {
+            for continue_main_axis in [false, true] {
+                let desc = BranchingDesc {
+                    initial_length: length,
+                    continue_main_axis,
+                    ..test_desc()
+                };
+                let skeleton = generate_branch_skeleton(&desc);
+                assert!(!skeleton.segments.is_empty());
+                for (index, segment) in skeleton.segments.iter().enumerate() {
+                    if let Some(parent) = segment.parent {
+                        assert!(parent < index, "parents must precede children");
+                        let parent = &skeleton.segments[parent];
+                        assert_eq!(segment.start, parent.end);
+                        assert_eq!(segment.level, parent.level + 1);
+                    } else {
+                        assert_eq!(segment.start, Vec3::ZERO);
+                        assert_eq!(segment.level, 0);
+                    }
+                }
+                assert!(skeleton
+                    .segments
+                    .iter()
+                    .any(|segment| segment.parent.is_some()));
+            }
+        }
+    }
 
     fn test_desc() -> BranchingDesc {
         BranchingDesc {

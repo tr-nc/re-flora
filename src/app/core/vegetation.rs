@@ -22,7 +22,7 @@ use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::particles::{LeafEmitterDesc, ParticleSystem};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{LeafPlacement, Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
+use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
@@ -309,8 +309,7 @@ struct CompiledTreePlacement {
     fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
-    canopy_leaf_placements: Arc<[LeafPlacement]>,
-    canopy_trunks: Arc<[RoundCone]>,
+    rest_tree: Arc<Tree>,
 }
 
 #[derive(Clone, Debug)]
@@ -604,8 +603,7 @@ impl TreePlacementService {
             fruit_specs,
             world_leaf_positions,
             canopy_acoustic_descriptor,
-            canopy_leaf_placements: tree.relative_leaf_placements().to_vec().into(),
-            canopy_trunks: tree.trunks().to_vec().into(),
+            rest_tree: Arc::new(tree),
         }
     }
 }
@@ -997,10 +995,9 @@ struct TreeRecord {
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
-    // Original committed geometry is retained for audio-only resampling. Never regenerate a
-    // second tree or use quantized render positions when changing the acoustic budget.
-    canopy_leaf_placements: Arc<[LeafPlacement]>,
-    canopy_trunks: Arc<[RoundCone]>,
+    // One committed rest tree retains geometry, topology and attachments for all derived
+    // consumers. Audio resampling must never regenerate or use quantized render positions.
+    rest_tree: Arc<Tree>,
     leaf_clusters: Vec<ClusterResult>,
 }
 
@@ -1018,8 +1015,8 @@ impl TreeRecord {
             generation,
             self.position,
             self.canopy_acoustic_descriptor.tree_seed(),
-            &self.canopy_leaf_placements,
-            &self.canopy_trunks,
+            self.rest_tree.relative_leaf_placements(),
+            self.rest_tree.trunks(),
             budget,
         )
     }
@@ -1045,8 +1042,7 @@ impl PreparedTreePublication {
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
                 canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
-                canopy_leaf_placements: compiled.canopy_leaf_placements,
-                canopy_trunks: compiled.canopy_trunks,
+                rest_tree: compiled.rest_tree,
                 leaf_clusters,
             },
         }
@@ -3883,8 +3879,7 @@ mod tests {
     fn audio_budget_resampling_reuses_committed_geometry_for_multiple_trees() {
         for id in [1, 2] {
             let record = prepared_tree(id, id as u64, 123 + id as u64).record;
-            let leaves = record.canopy_leaf_placements.clone();
-            let trunks = record.canopy_trunks.clone();
+            let rest_tree = record.rest_tree.clone();
             let render_positions = record.leaf_render_positions.clone();
             for budget in [1, 8, 16, 32, 64] {
                 let sampled = record.resample_canopy(100 + budget as u64, budget);
@@ -3897,8 +3892,15 @@ mod tests {
                 );
                 assert!((sampled.total_weight() - 1.0).abs() < 1e-6);
             }
-            assert!(Arc::ptr_eq(&leaves, &record.canopy_leaf_placements));
-            assert!(Arc::ptr_eq(&trunks, &record.canopy_trunks));
+            assert!(Arc::ptr_eq(&rest_tree, &record.rest_tree));
+            assert_eq!(
+                record.rest_tree.trunks().len(),
+                record.rest_tree.trunk_branch_indices().len()
+            );
+            assert_eq!(
+                record.rest_tree.relative_leaf_placements().len(),
+                record.rest_tree.leaf_branch_indices().len()
+            );
             assert_eq!(record.leaf_render_positions, render_positions);
             assert_eq!(record.canopy_acoustic_descriptor.generation(), id as u64);
         }
