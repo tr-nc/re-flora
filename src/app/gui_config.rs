@@ -623,10 +623,14 @@ fn render_gui_from_config(
                 ui.collapsing("Generation", |ui| after_section("Wind", ui));
                 ui.collapsing("Response", |ui| {
                     if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
-                        debug_groups::render(ui, debug, adjustables, Some("Wind"));
+                        ui.collapsing("Shared Mechanics", |ui| {
+                            debug_groups::render(ui, debug, adjustables, Some("Wind"));
+                        });
                     }
                     flora_groups::render_wind(ui, config, adjustables);
-                    render_section_controls(ui, section, adjustables);
+                    ui.collapsing("Sound", |ui| {
+                        render_section_controls(ui, section, adjustables);
+                    });
                     after_section("Grass Wind Response", ui);
                 });
                 return;

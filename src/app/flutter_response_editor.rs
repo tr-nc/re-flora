@@ -37,7 +37,7 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
             knee: &mut a.leaf_flutter_wind_knee.value,
             min: 0.,
             max: 1.,
-            label: "Wind → Flutter Amplitude",
+            label: "Flutter Amplitude vs Wind",
             unit: "voxel envelope",
         },
         Kind::Frequency => Fields {
@@ -50,7 +50,7 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
             knee: &mut a.leaf_flutter_frequency_knee.value,
             min: 0.25,
             max: 24.,
-            label: "Wind → Flutter Frequency (Hz)",
+            label: "Flutter Frequency vs Wind (Hz)",
             unit: "Hz",
         },
         Kind::GrassAmplitude => Fields {
@@ -62,7 +62,7 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
             knee: &mut a.grass_sway_amplitude_knee.value,
             min: 0.,
             max: 1.,
-            label: "Wind → Grass Amplitude",
+            label: "Grass Amplitude vs Wind",
             unit: "voxel envelope",
         },
         Kind::GrassFrequency => Fields {
@@ -74,7 +74,7 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
             knee: &mut a.grass_sway_frequency_knee.value,
             min: 0.01,
             max: 1.,
-            label: "Wind → Grass Frequency (Hz)",
+            label: "Grass Frequency vs Wind (Hz)",
             unit: "Hz",
         },
     }
@@ -176,6 +176,19 @@ fn edit_fields(f: &mut Fields<'_>, index: usize, wind: f32, value: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn curve_titles_use_supported_ascii_text() {
+        let mut a =
+            GuiAdjustables::from_config(&crate::app::gui_config_loader::GuiConfigLoader::load());
+        for kind in [
+            Kind::Amplitude,
+            Kind::Frequency,
+            Kind::GrassAmplitude,
+            Kind::GrassFrequency,
+        ] {
+            assert!(fields(&mut a, kind).label.is_ascii());
+        }
+    }
     #[test]
     fn frequency_scaling_one_is_a_one_hz_graph_ceiling() {
         let mut a =

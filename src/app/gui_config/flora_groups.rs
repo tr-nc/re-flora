@@ -202,47 +202,56 @@ pub(super) fn render_wind(
 ) {
     use crate::app::flutter_response_editor::{draw, Kind};
     if let Some(flora) = config.iter().find(|s| s.name == "Flora") {
-        ui.label("Grass response — all ground plants");
-        controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
-        if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
-            for (title, scale, kind) in [
-                (
-                    "Grass Amplitude Response",
-                    "grass_sway_amplitude_scale",
-                    Kind::GrassAmplitude,
-                ),
-                (
-                    "Grass Frequency Response",
-                    "grass_sway_frequency_scale",
-                    Kind::GrassFrequency,
-                ),
-            ] {
-                ui.label(title);
-                controls(ui, grass, &[scale], adjustables);
-                draw(ui, adjustables, kind);
-            }
-        }
-        if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
-            ui.label("Leaf response");
-            controls(ui, leaves, LEAF_RESPONSE, adjustables);
-            ui.label("Leaf Amplitude Response");
-            controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
-            draw(ui, adjustables, Kind::Amplitude);
-            ui.label("Leaf Frequency Response");
-            controls(ui, leaves, LEAF_FREQUENCY, adjustables);
-            draw(ui, adjustables, Kind::Frequency);
-        }
-        // These controls are still used when the common inertial solver is off.
-        // Show their actual purpose, only when applicable, without another menu.
-        if !adjustables.flora_inertial_response.value {
-            ui.label("Direct grass vibration (inertia off)");
-            controls(ui, flora, &GROUND_MOTION[3..], adjustables);
-            ui.label("Direct leaf motion (inertia off)");
-            controls(ui, flora, LEAF_MOTION, adjustables);
-            controls(ui, flora, LEAF_CURVES, adjustables);
-            enforce_leaf_curve_order(adjustables);
-            draw_leaf_curve_previews(ui, adjustables);
-        }
+        egui::CollapsingHeader::new("Grass")
+            .default_open(true)
+            .show(ui, |ui| {
+                controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
+                if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
+                    for (title, scale, kind) in [
+                        (
+                            "Grass Amplitude Response",
+                            "grass_sway_amplitude_scale",
+                            Kind::GrassAmplitude,
+                        ),
+                        (
+                            "Grass Frequency Response",
+                            "grass_sway_frequency_scale",
+                            Kind::GrassFrequency,
+                        ),
+                    ] {
+                        ui.label(title);
+                        controls(ui, grass, &[scale], adjustables);
+                        draw(ui, adjustables, kind);
+                    }
+                }
+                if !adjustables.flora_inertial_response.value {
+                    ui.label("Direct grass vibration (inertia off)");
+                    controls(ui, flora, &GROUND_MOTION[3..], adjustables);
+                }
+            });
+        egui::CollapsingHeader::new("Leaves")
+            .id_salt("wind_leaf_response")
+            .default_open(true)
+            .show(ui, |ui| {
+                if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
+                    controls(ui, leaves, LEAF_RESPONSE, adjustables);
+                    ui.label("Leaf Amplitude Response");
+                    controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
+                    draw(ui, adjustables, Kind::Amplitude);
+                    ui.label("Leaf Frequency Response");
+                    controls(ui, leaves, LEAF_FREQUENCY, adjustables);
+                    draw(ui, adjustables, Kind::Frequency);
+                }
+                // These controls are still used when the common inertial solver is off.
+                // Show their actual purpose, only when applicable, without another menu.
+                if !adjustables.flora_inertial_response.value {
+                    ui.label("Direct leaf motion (inertia off)");
+                    controls(ui, flora, LEAF_MOTION, adjustables);
+                    controls(ui, flora, LEAF_CURVES, adjustables);
+                    enforce_leaf_curve_order(adjustables);
+                    draw_leaf_curve_previews(ui, adjustables);
+                }
+            });
     }
 }
 

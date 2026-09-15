@@ -7,6 +7,7 @@ mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
 mod ddgi_spatial_weight_readback;
+mod debug_panel;
 mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
@@ -2702,11 +2703,7 @@ impl App {
                                     ui.add_space(4.0);
                                     ui.add_space(4.0);
 
-                                    egui::ScrollArea::vertical()
-                                        .auto_shrink([false; 2])
-                                        .scroll_source(
-                                            egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
-                                        )
+                                    debug_panel::scroll_area()
                                         .show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
