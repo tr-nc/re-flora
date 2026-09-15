@@ -187,18 +187,21 @@ pub(in crate::tracer) fn validate_gpu(
                 "grass local envelope exceeded"
             );
             if frame >= 120 {
-                ranges[i].0 = ranges[i].0.min(state[20]);
-                ranges[i].1 = ranges[i].1.max(state[20]);
+                // Local trajectories now belong to stem-seeded render sampling;
+                // GPU state carries the envelope and integrated clock, not a patch pose.
+                anyhow::ensure!(state[20] > 0.001, "grass envelope remained zero");
+                ranges[i].0 = ranges[i].0.min(state[24]);
+                ranges[i].1 = ranges[i].1.max(state[24]);
             }
             grass[i].identity[0] = i as u32;
         }
     }
     anyhow::ensure!(
         ranges.iter().all(|(lo, hi)| hi - lo > 0.001),
-        "constant wind left a grass species static: {ranges:?}"
+        "constant wind left a grass species clock static: {ranges:?}"
     );
     log::info!(
-        "[GRASS_RESPONSE][GPU] all_four_species_constant_wind=passed late_ranges={ranges:?}"
+        "[GRASS_RESPONSE][GPU] all_four_species_clock_and_envelope=passed late_phase_ranges={ranges:?}"
     );
     // Same forcing and the same spatial point deliberately remove wind-field
     // variation: individual leaf mechanics must not collapse into one spray pose.

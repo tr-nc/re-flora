@@ -1,5 +1,6 @@
 import vegetation_response_solver;
 import leaf_flutter;
+import grass_sway_sample;
 
 export __extern_cpp int main()
 {
@@ -12,7 +13,9 @@ export __extern_cpp int main()
     for (uint i = 0u; i < 2400u; ++i) {
         advanceGrassSway(state, phase, cells, float2(2.0, 0.0), 1.0 / 120.0, 23u, amplitude, frequency, float4(0.0));
         if (any(!isfinite(state)) || length(state.xy) > 2.00001) return 1;
-        if (i > 1200u) { low = min(low, state.x); high = max(high, state.x); }
+        float2 local = grassLocalResponse(state, phase, cells, 23u);
+        if (length(local) > 2.00001) return 7;
+        if (i > 1200u) { low = min(low, local.x); high = max(high, local.x); }
     }
     if (high - low < 0.05) return 2; // constant mean wind must still supply fine forcing
     for (uint i = 0u; i < 2400u; ++i)
@@ -27,6 +30,7 @@ export __extern_cpp int main()
             advanceGrassSway(fast, pf, cf, float2(1.0), 1.0 / 240.0, 13u, amplitude, frequency, float4(0.0));
     }
     if (length(slow.xy-fast.xy) > 0.002) return 4;
+    if (length(grassLocalResponse(slow,ps,cs,13u)-grassLocalResponse(fast,pf,cf,13u)) > 0.002) return 8;
     // Retuning the frequency at zero dt does not teleport the plant or its clock.
     float4 saved = slow;
     float2 savedPhase = ps;

@@ -200,64 +200,49 @@ pub(super) fn render_wind(
     config: &[GuiSection],
     adjustables: &mut GuiAdjustables,
 ) {
+    use crate::app::flutter_response_editor::{draw, Kind};
     if let Some(flora) = config.iter().find(|s| s.name == "Flora") {
-        category(ui, "Grass Response", |ui| {
-            controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
-            category(ui, "Legacy Vibration (inertia off)", |ui| {
-                controls(ui, flora, &GROUND_MOTION[3..], adjustables);
-            });
-            if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
-                for (title, scale, kind) in [
-                    (
-                        "Amplitude Response",
-                        "grass_sway_amplitude_scale",
-                        crate::app::flutter_response_editor::Kind::GrassAmplitude,
-                    ),
-                    (
-                        "Frequency Response",
-                        "grass_sway_frequency_scale",
-                        crate::app::flutter_response_editor::Kind::GrassFrequency,
-                    ),
-                ] {
-                    category(ui, title, |ui| {
-                        controls(ui, grass, &[scale], adjustables);
-                        crate::app::flutter_response_editor::draw(ui, adjustables, kind);
-                    });
-                }
+        ui.label("Grass response — all ground plants");
+        controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
+        if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
+            for (title, scale, kind) in [
+                (
+                    "Grass Amplitude Response",
+                    "grass_sway_amplitude_scale",
+                    Kind::GrassAmplitude,
+                ),
+                (
+                    "Grass Frequency Response",
+                    "grass_sway_frequency_scale",
+                    Kind::GrassFrequency,
+                ),
+            ] {
+                ui.label(title);
+                controls(ui, grass, &[scale], adjustables);
+                draw(ui, adjustables, kind);
             }
-        });
-        category(ui, "Leaf Response", |ui| {
-            ui.scope(|ui| {
-                if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
-                    controls(ui, leaves, LEAF_RESPONSE, adjustables);
-                    category(ui, "Amplitude Response", |ui| {
-                        controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
-                        crate::app::flutter_response_editor::draw(
-                            ui,
-                            adjustables,
-                            crate::app::flutter_response_editor::Kind::Amplitude,
-                        );
-                    });
-                    category(ui, "Frequency Response", |ui| {
-                        controls(ui, leaves, LEAF_FREQUENCY, adjustables);
-                        crate::app::flutter_response_editor::draw(
-                            ui,
-                            adjustables,
-                            crate::app::flutter_response_editor::Kind::Frequency,
-                        );
-                    });
-                }
-                category(ui, "Legacy Motion (inertia off)", |ui| {
-                    controls(ui, flora, LEAF_MOTION, adjustables);
-                });
-            });
-            category(ui, "Legacy Wind Curves (inertia off)", |ui| {
-                ui.weak("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
-                controls(ui, flora, LEAF_CURVES, adjustables);
-                enforce_leaf_curve_order(adjustables);
-                draw_leaf_curve_previews(ui, adjustables);
-            });
-        });
+        }
+        if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
+            ui.label("Leaf response");
+            controls(ui, leaves, LEAF_RESPONSE, adjustables);
+            ui.label("Leaf Amplitude Response");
+            controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
+            draw(ui, adjustables, Kind::Amplitude);
+            ui.label("Leaf Frequency Response");
+            controls(ui, leaves, LEAF_FREQUENCY, adjustables);
+            draw(ui, adjustables, Kind::Frequency);
+        }
+        // These controls are still used when the common inertial solver is off.
+        // Show their actual purpose, only when applicable, without another menu.
+        if !adjustables.flora_inertial_response.value {
+            ui.label("Direct grass vibration (inertia off)");
+            controls(ui, flora, &GROUND_MOTION[3..], adjustables);
+            ui.label("Direct leaf motion (inertia off)");
+            controls(ui, flora, LEAF_MOTION, adjustables);
+            controls(ui, flora, LEAF_CURVES, adjustables);
+            enforce_leaf_curve_order(adjustables);
+            draw_leaf_curve_previews(ui, adjustables);
+        }
     }
 }
 
@@ -291,6 +276,49 @@ mod tests {
             }
             _ => {}
         }
+    }
+
+    #[test]
+    fn response_curves_are_visible_without_opening_child_menus() {
+        let config = GuiConfigLoader::load();
+        let mut adjustables = GuiAdjustables::from_config(&config);
+        let context = egui::Context::default();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            render_wind(ui, &config.section, &mut adjustables);
+        });
+        let mut text = Vec::new();
+        for shape in output.shapes {
+            collect_text(&shape.shape, &mut text);
+        }
+        for title in [
+            "Grass Amplitude Response",
+            "Grass Frequency Response",
+            "Leaf Amplitude Response",
+            "Leaf Frequency Response",
+        ] {
+            assert_eq!(text.iter().filter(|s| s.as_str() == title).count(), 1);
+        }
+        assert!(!text.iter().any(|s| s.contains("Legacy")));
+    }
+
+    #[test]
+    fn non_inertial_controls_have_functional_names_and_no_child_menus() {
+        let config = GuiConfigLoader::load();
+        let mut adjustables = GuiAdjustables::from_config(&config);
+        adjustables.flora_inertial_response.value = false;
+        let context = egui::Context::default();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            render_wind(ui, &config.section, &mut adjustables);
+        });
+        let mut text = Vec::new();
+        for shape in output.shapes {
+            collect_text(&shape.shape, &mut text);
+        }
+        assert!(text
+            .iter()
+            .any(|s| s == "Direct grass vibration (inertia off)"));
+        assert!(text.iter().any(|s| s == "Direct leaf motion (inertia off)"));
+        assert!(!text.iter().any(|s| s.contains("Legacy")));
     }
 
     #[test]

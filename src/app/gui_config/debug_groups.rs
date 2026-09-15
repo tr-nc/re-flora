@@ -75,6 +75,15 @@ pub(super) fn render(
     parent: Option<&str>,
 ) {
     for group in GROUPS.iter().filter(|group| group.parent == parent) {
+        if parent == Some("Wind") {
+            ui.label(group.title);
+            for id in group.params {
+                if let Some(param) = section.param.iter().find(|p| p.id == *id) {
+                    render_gui_param_from_config(ui, param, &section.name, adjustables);
+                }
+            }
+            continue;
+        }
         egui::CollapsingHeader::new(group.title)
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
@@ -217,14 +226,17 @@ mod tests {
             "Distribution",
             "Spawn Animation",
             "Ground Plants",
-            "Grass Response",
+            "Generation",
+            "Response",
+            "Grass Amplitude Response",
+            "Grass Frequency Response",
             "Grass Colors",
             "Color Variation",
             "Purple Allium",
             "Leaves",
             "Appearance & Lighting",
-            "Leaf Response",
-            "Legacy Wind Curves (inertia off)",
+            "Leaf Amplitude Response",
+            "Leaf Frequency Response",
         ] {
             assert!(
                 text.lines().any(|line| line == title),

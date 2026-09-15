@@ -11,30 +11,19 @@ public void advanceGrassSway(inout float4 motion, inout float2 phase, inout uint
     float speed = length(wind);
     float gain = speed > 0.0 ? lerp(amplitude.x, amplitude.y,
         windResponseCurve(speed, amplitude.z, amplitude.w, curve.x)) : 0.0;
-    float hz = max(0.01, lerp(frequency.x, frequency.y,
+    float hz = max(0.0001, lerp(frequency.x, frequency.y,
         windResponseCurve(speed, frequency.z, frequency.w, curve.y)));
-    uint steps = uint(clamp(ceil(max(dt, 0.0) * hz * 32.0), 1.0, 256.0));
-    float step = max(dt, 0.0) / float(steps);
-    float2 increment = leafFlutterRates(seed, hz) * step;
-    for (uint i = 0u; i < steps; ++i) {
-        float2 midpoint = phase;
-        uint2 midpointCells = cells;
-        advanceFlutterClock(midpoint, midpointCells, increment * 0.5);
-        float2 forcing = float2(
-            leafFlutterNoise(midpoint.x, midpointCells.x, seed),
-            leafFlutterNoise(midpoint.y, midpointCells.y, seed ^ 0xAD90777Du));
-        advanceMechanicalResponse(motion, forcing * (gain * 0.5), step,
-            float2(hz, 0.32), float4(1.0, 1.0, 1.0, 0.0));
-        // Radius bounds excursions even after retuning; no independent vertex phase.
-        float limit = max(amplitude.x, amplitude.y);
-        float radius = length(motion.xy);
-        if (radius > limit) {
-            float2 normal = motion.xy / max(radius, 0.000001);
-            motion.xy = normal * limit;
-            motion.zw -= normal * max(dot(normal, motion.zw), 0.0);
-        }
-        advanceFlutterClock(phase, cells, increment);
+    // Grid/instance state owns only a smooth wind-powered envelope and clock.
+    // Each rendered stem evaluates its own phase; sharing sampled positions here
+    // would synchronize every stem inside a grid cell.
+    advanceMechanicalResponse(motion, float2(gain, 0.0), max(dt, 0.0),
+        float2(max(hz, 0.5), 0.9), float4(1.0, 1.0, 1.0, 0.0));
+    float limit = max(amplitude.x, amplitude.y);
+    if (motion.x < 0.0 || motion.x > limit) {
+        motion.x = clamp(motion.x, 0.0, limit);
+        motion.z = 0.0;
     }
+    advanceFlutterClock(phase, cells, leafFlutterRates(seed, hz) * max(dt, 0.0));
 }
 
 // One solver for field nodes and lifetime-owned plants. State ownership is not

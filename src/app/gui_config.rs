@@ -619,11 +619,19 @@ fn render_gui_from_config(
                 flora_groups::render(ui, config, section, adjustables, &mut after_section);
                 return;
             }
-            render_section_controls(ui, section, adjustables);
             if section.name == "Wind" {
-                flora_groups::render_wind(ui, config, adjustables);
-                after_section("Grass Wind Response", ui);
+                ui.collapsing("Generation", |ui| after_section("Wind", ui));
+                ui.collapsing("Response", |ui| {
+                    if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
+                        debug_groups::render(ui, debug, adjustables, Some("Wind"));
+                    }
+                    flora_groups::render_wind(ui, config, adjustables);
+                    render_section_controls(ui, section, adjustables);
+                    after_section("Grass Wind Response", ui);
+                });
+                return;
             }
+            render_section_controls(ui, section, adjustables);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
@@ -648,21 +656,10 @@ fn render_section_controls(
     adjustables: &mut GuiAdjustables,
 ) {
     if section.name == "Wind" {
+        ui.label("Tree sound response");
         for param in &section.param {
-            if !is_tree_sound_synthesis_param(&param.id) {
-                render_gui_param_from_config(ui, param, &section.name, adjustables);
-            }
+            render_gui_param_from_config(ui, param, &section.name, adjustables);
         }
-        ui.collapsing("Procedural Tree Sound", |ui| {
-            ui.small(
-                "Synthesized rustle texture only; does not change the world's wind or leaf motion.",
-            );
-            for param in &section.param {
-                if is_tree_sound_synthesis_param(&param.id) {
-                    render_gui_param_from_config(ui, param, &section.name, adjustables);
-                }
-            }
-        });
         return;
     }
     if section.name == "Sky" {
@@ -687,6 +684,7 @@ fn render_section_controls(
     }
 }
 
+#[cfg(test)]
 fn is_tree_sound_synthesis_param(id: &str) -> bool {
     id.starts_with("tree_rustle_")
 }
