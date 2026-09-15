@@ -163,7 +163,7 @@ impl VegetationResponse {
             enabled: true,
             controls: [1.5, 1., 1., 0.],
             flutter_curve: [0.05, 1., 0., 0.],
-            flutter_frequency: [1.8, 1., 0., 0.],
+            flutter_frequency: [1.8, 1.8, 1., 0.],
             flutter_frequency_curve: [0.05, 1., 0., 0.],
             pose_hz: 5.,
             comparison,

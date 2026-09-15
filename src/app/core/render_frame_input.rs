@@ -91,9 +91,9 @@ pub(super) fn freeze_render_frame_inputs(
         },
         motion: FloraMotionFrameInput {
             leaf_flutter_frequency: [
-                gui.leaf_flutter_frequency_hz.value,
-                gui.leaf_flutter_frequency_scale.value,
-                0.,
+                gui.leaf_flutter_frequency_low_hz.value,
+                gui.leaf_flutter_frequency_high_hz.value,
+                gui.leaf_flutter_frequency_multiplier.value,
                 0.,
             ],
             leaf_flutter_frequency_curve: [
@@ -472,9 +472,9 @@ mod tests {
                 },
                 motion: FloraMotionFrameInput {
                     leaf_flutter_frequency: [
-                        settings.adjustables.leaf_flutter_frequency_hz.value,
-                        settings.adjustables.leaf_flutter_frequency_scale.value,
-                        0.,
+                        settings.adjustables.leaf_flutter_frequency_low_hz.value,
+                        settings.adjustables.leaf_flutter_frequency_high_hz.value,
+                        settings.adjustables.leaf_flutter_frequency_multiplier.value,
                         0.,
                     ],
                     leaf_flutter_frequency_curve: [

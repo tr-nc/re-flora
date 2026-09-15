@@ -29,6 +29,6 @@ public struct VegetationResponsePushConstants
     public uint count;
     public float4 controls; // mechanical frequency, damping, force gain multipliers, leaf flutter gain
     public float4 flutter_curve; // wind onset, full response, knee bias, reserved
-    public float4 flutter_frequency; // base Hz, strong-wind scale, reserved
+    public float4 flutter_frequency; // low Hz, high Hz, overall scale, reserved
     public float4 flutter_frequency_curve; // wind onset, full response, knee bias, reserved
 };

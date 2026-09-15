@@ -43,6 +43,7 @@ impl GuiConfigLoader {
         });
 
         Self::validate(&config, config_path);
+        Self::migrate_flutter_frequency(&mut config);
         Self::add_missing_sky_strength(&mut config);
 
         log::info!(
@@ -54,6 +55,52 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    fn migrate_flutter_frequency(config: &mut GuiConfigFile) {
+        let Some(leaves) = config.section.iter_mut().find(|s| s.name == "Leaves") else {
+            return;
+        };
+        let old = |id: &str| {
+            leaves
+                .param
+                .iter()
+                .find(|p| p.id == id)
+                .and_then(|p| p.value.get_float())
+                .map(|v| v.0)
+        };
+        let base = old("leaf_flutter_frequency_hz");
+        let scale = old("leaf_flutter_frequency_scale");
+        if base.is_none() && scale.is_none() {
+            return;
+        }
+        let base = base.unwrap_or(1.8).clamp(0.5, 12.);
+        let high = base * scale.unwrap_or(1.).clamp(0.5, 2.);
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for (id, value) in [
+            ("leaf_flutter_frequency_low_hz", base),
+            ("leaf_flutter_frequency_high_hz", high),
+            ("leaf_flutter_frequency_multiplier", 1.),
+        ] {
+            if leaves.param.iter().any(|p| p.id == id) {
+                continue;
+            }
+            let mut param = defaults
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .expect("frequency schema")
+                .clone();
+            if let GuiParamValue::Float { value: stored, .. } = &mut param.value {
+                *stored = value;
+            }
+            leaves.param.push(param);
+        }
+        leaves.param.retain(|p| {
+            p.id != "leaf_flutter_frequency_hz" && p.id != "leaf_flutter_frequency_scale"
+        });
     }
 
     fn add_missing_sky_strength(config: &mut GuiConfigFile) {
@@ -460,6 +507,78 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_flutter_settings_migrate_without_changing_the_saved_curve() {
+        use crate::app::gui_config_model::{GuiConfigFile, GuiParamValue};
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let leaves = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Leaves")
+            .unwrap();
+        for (new, old, value) in [
+            (
+                "leaf_flutter_frequency_low_hz",
+                "leaf_flutter_frequency_hz",
+                1.5,
+            ),
+            (
+                "leaf_flutter_frequency_high_hz",
+                "leaf_flutter_frequency_scale",
+                2.,
+            ),
+        ] {
+            let p = leaves.param.iter_mut().find(|p| p.id == new).unwrap();
+            p.id = old.into();
+            if let GuiParamValue::Float { value: stored, .. } = &mut p.value {
+                *stored = value;
+            }
+        }
+        leaves
+            .param
+            .retain(|p| p.id != "leaf_flutter_frequency_multiplier");
+        let before = config.clone();
+        GuiConfigLoader::migrate_flutter_frequency(&mut config);
+        let get = |id: &str| {
+            config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .unwrap()
+                .value
+                .get_float()
+                .unwrap()
+                .0
+        };
+        assert_eq!(get("leaf_flutter_frequency_low_hz"), 1.5);
+        assert_eq!(get("leaf_flutter_frequency_high_hz"), 3.);
+        assert_eq!(get("leaf_flutter_frequency_multiplier"), 1.);
+        for s in &before.section {
+            for p in &s.param {
+                if p.id == "leaf_flutter_frequency_hz" || p.id == "leaf_flutter_frequency_scale" {
+                    continue;
+                }
+                let after = config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|q| q.id == p.id)
+                    .unwrap();
+                assert_eq!(toml::to_string(p).unwrap(), toml::to_string(after).unwrap());
+            }
+        }
+        let once = toml::to_string(&config).unwrap();
+        GuiConfigLoader::migrate_flutter_frequency(&mut config);
+        assert_eq!(once, toml::to_string(&config).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&before, &path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(toml::to_string(&loaded).unwrap(), once);
+    }
+
     use super::{GuiConfigLoader, GUI_FLOAT_DECIMALS};
     use crate::app::gui_config_model::GuiConfigFile;
     use std::path::Path;

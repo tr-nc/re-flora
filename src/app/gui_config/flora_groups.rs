@@ -50,8 +50,10 @@ const LEAF_CURVES: &[&str] = &[
     "leaf_paddle_frequency_min_multiplier",
     "leaf_paddle_frequency_max_multiplier",
 ];
-const LEAF_FREQUENCY: &[&str] = &["leaf_flutter_frequency_hz", "leaf_flutter_frequency_scale"];
+const LEAF_FREQUENCY: &[&str] = &["leaf_flutter_frequency_multiplier"];
 const LEAF_FREQUENCY_CURVE: &[&str] = &[
+    "leaf_flutter_frequency_low_hz",
+    "leaf_flutter_frequency_high_hz",
     "leaf_flutter_frequency_start",
     "leaf_flutter_frequency_full",
     "leaf_flutter_frequency_knee",
@@ -178,11 +180,7 @@ pub(super) fn render(
                 super::draw_flutter_curve_preview(ui, adjustables);
                 category(ui, "Flutter Frequency", |ui| {
                     controls(ui, leaves, LEAF_FREQUENCY, adjustables);
-                    super::draw_flutter_frequency_summary(ui, adjustables);
-                    category(ui, "Frequency Wind Curve", |ui| {
-                        controls(ui, leaves, LEAF_FREQUENCY_CURVE, adjustables);
-                        super::draw_flutter_frequency_preview(ui, adjustables);
-                    });
+                    super::draw_flutter_frequency_preview(ui, adjustables);
                 });
             }
             ui.small("Flutter Strength: wind-powered local oscillation (requires inertia); steady wind keeps leaves moving, calm lets them settle. Amplitude: maximum local excursion, up to 5 voxels, not a resting offset. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
@@ -229,33 +227,6 @@ mod tests {
         assert!(!is_grouped("future_flora_control"));
     }
 
-    #[test]
-    fn flutter_summary_never_flashes_a_frame_rate_warning() {
-        let config = GuiConfigLoader::load();
-        let mut a = GuiAdjustables::from_config(&config);
-        a.leaf_flutter_frequency_hz.value = 12.;
-        a.leaf_flutter_frequency_scale.value = 2.;
-        for fps in [30., 240., 60., 144., 120.] {
-            let context = egui::Context::default();
-            let output = context.run_ui(
-                egui::RawInput {
-                    predicted_dt: 1. / fps,
-                    ..Default::default()
-                },
-                |ui| super::super::draw_flutter_frequency_summary(ui, &a),
-            );
-            let mut text = Vec::new();
-            for shape in output.shapes {
-                collect_text(&shape.shape, &mut text);
-            }
-            assert!(
-                !text.iter().any(|s| s.contains("High frequency may look")),
-                "unexpected warning at {fps} fps"
-            );
-            assert!(text.iter().any(|s| s.contains("Target natural frequency")));
-        }
-    }
-
     fn collect_text(shape: &egui::Shape, text: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(shape) => text.push(shape.galley.job.text.clone()),
@@ -282,6 +253,22 @@ mod tests {
         for shape in output.shapes {
             collect_text(&shape.shape, &mut text);
         }
+        for removed in [
+            "Target natural frequency",
+            "Scale 1 keeps",
+            "frames/s",
+            "High frequency may look",
+            "Base Flutter Frequency",
+            "Strong-Wind Frequency Scale",
+            "Frequency Start Wind",
+            "Frequency Full Wind",
+            "Frequency Curve Bias",
+        ] {
+            assert!(
+                !text.iter().any(|s| s.contains(removed)),
+                "unexpected display-only text: {removed}"
+            );
+        }
         for label in [
             "Local Flutter Strength (0 = off)",
             "Local Flutter Amplitude (voxels)",
@@ -289,11 +276,7 @@ mod tests {
             "Flutter Start Wind",
             "Flutter Full Wind",
             "Flutter Curve Bias",
-            "Base Flutter Frequency (Hz)",
-            "Strong-Wind Frequency Scale",
-            "Frequency Start Wind",
-            "Frequency Full Wind",
-            "Frequency Curve Bias",
+            "Frequency Scaling",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);
         }

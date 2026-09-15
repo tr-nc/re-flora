@@ -1,16 +1,26 @@
 import leaf_flutter;
 import vegetation_response_solver;
+import wind_response_curve;
 
 export __extern_cpp int main()
 {
     float4 amp = float4(0.05, 1.0, 0.0, 0.0);
     float4 curve = float4(0.2, 1.2, 0.0, 0.0);
-    float4 tuning = float4(2.0, 2.0, 0.0, 0.0);
+    float4 tuning = float4(2.0, 4.0, 1.0, 0.0);
     if (leafFlutterFrequency(float2(0.0), tuning, curve) != 2.0) return 1;
     if (leafFlutterFrequency(float2(2.0, 0.0), tuning, curve) != 4.0) return 2;
     if (abs(leafFlutterFrequency(float2(0.7, 0.0), tuning, curve) - 3.0) > 0.00001) return 3;
-    tuning.y = 0.5;
+    tuning.y = 1.0;
     if (leafFlutterFrequency(float2(2.0, 0.0), tuning, curve) != 1.0) return 4;
+    tuning.z = 2.0;
+    if (leafFlutterFrequency(float2(0.0), tuning, curve) != 4.0 || leafFlutterFrequency(float2(2.0, 0.0), tuning, curve) != 2.0) return 12;
+    // Migrated user settings reproduce the old base * wind multiplier curve.
+    for (uint i = 0u; i <= 400u; ++i) {
+        float wind = float(i) * 0.01;
+        float expected = 1.5 * (1.0 + windResponseCurve(wind, 0.05, 1.0, 0.8));
+        float actual = leafFlutterFrequency(float2(wind, 0.0), float4(1.5, 3.0, 1.0, 0.0), float4(0.05, 1.0, 0.8, 0.0));
+        if (abs(expected - actual) > 0.000001) return 13;
+    }
 
     // Identical normalized time must yield identical motion across an octave.
     // This catches changing only the noise clock or only mechanical stiffness.
@@ -19,8 +29,8 @@ export __extern_cpp int main()
     uint2 cs = uint2(0u), cf = uint2(0u);
     float maximumError = 0.0;
     for (uint i = 0u; i < 4096u; ++i) {
-        advanceLeafTorsion(slow, ps, cs, float2(1.0, 0.0), 1.0 / 256.0, 11u, 1.0, amp, float4(2.0, 1.0, 0.0, 0.0));
-        advanceLeafTorsion(fast, pf, cf, float2(1.0, 0.0), 1.0 / 512.0, 11u, 1.0, amp, float4(4.0, 1.0, 0.0, 0.0));
+        advanceLeafTorsion(slow, ps, cs, float2(1.0, 0.0), 1.0 / 256.0, 11u, 1.0, amp, float4(2.0, 2.0, 1.0, 0.0));
+        advanceLeafTorsion(fast, pf, cf, float2(1.0, 0.0), 1.0 / 512.0, 11u, 1.0, amp, float4(4.0, 4.0, 1.0, 0.0));
         maximumError = max(maximumError, abs(slow.x - fast.x));
     }
     if (maximumError > 0.00001 || any(cs != cf) || any(abs(ps - pf) > 0.00001)) return 5;
@@ -37,7 +47,7 @@ export __extern_cpp int main()
         float samples[2048];
         float sumSquares = 0.0;
         for (uint i = 0u; i < 2304u; ++i) {
-            float4 f = run == 3u ? float4(12.0, 2.0, 0.0, 0.0) : float4(hz, 1.0, 0.0, 0.0);
+            float4 f = run == 3u ? float4(24.0, 24.0, 1.0, 0.0) : float4(hz, hz, 1.0, 0.0);
             advanceLeafTorsion(state, phase, cells, float2(1.0, 0.0), dt, 11u, 1.0, amp, f);
             if (abs(state.x) > 1.0) return 6;
             if (i >= 256u) { samples[i - 256u] = state.x; sumSquares += state.x * state.x; }
@@ -63,7 +73,7 @@ export __extern_cpp int main()
     float4 before = slow;
     float2 beforePhase = ps;
     uint2 beforeCells = cs;
-    advanceLeafTorsion(slow, ps, cs, float2(1.0, 0.0), 0.0, 11u, 1.0, amp, float4(12.0, 2.0, 0.0, 0.0));
+    advanceLeafTorsion(slow, ps, cs, float2(1.0, 0.0), 0.0, 11u, 1.0, amp, float4(24.0, 24.0, 1.0, 0.0));
     if (any(abs(slow - before) > 0.000001) || any(ps != beforePhase) || any(cs != beforeCells)) return 8;
 
     // Clock rollover: both value and future progression remain continuous,
@@ -77,7 +87,7 @@ export __extern_cpp int main()
 
     // Abrupt tempo changes retain bounded continuous state, and calm decays.
     for (uint i = 0u; i < 4096u; ++i) {
-        float4 f = i % 64u < 32u ? float4(12.0, 2.0, 0.0, 0.0) : float4(0.5, 0.5, 0.0, 0.0);
+        float4 f = i % 64u < 32u ? float4(24.0, 24.0, 1.0, 0.0) : float4(0.25, 0.25, 1.0, 0.0);
         advanceLeafTorsion(slow, ps, cs, float2(1.0, 0.0), 1.0 / 256.0, 11u, 2.0, amp, f);
         if (abs(slow.x) > 1.0 || !all(isfinite(slow))) return 10;
     }
@@ -86,7 +96,7 @@ export __extern_cpp int main()
     uint2 coarseCells = uint2(0u), fineCells = uint2(0u);
     float dtError = 0.0;
     for (uint frame = 0u; frame < 600u; ++frame) {
-        float4 f = float4(12.0, 2.0, 0.0, 0.0);
+        float4 f = float4(24.0, 24.0, 1.0, 0.0);
         advanceLeafTorsion(coarse, coarsePhase, coarseCells, float2(1.0, 0.0), 1.0 / 60.0, 11u, 1.0, amp, f);
         for (uint substep = 0u; substep < 4u; ++substep)
             advanceLeafTorsion(fine, finePhase, fineCells, float2(1.0, 0.0), 1.0 / 240.0, 11u, 1.0, amp, f);

@@ -3,6 +3,7 @@ pub(crate) mod camera_snapshots;
 mod core;
 mod curve_preview;
 mod environment;
+mod flutter_frequency_editor;
 mod gui_config;
 mod gui_config_loader;
 mod gui_config_model;

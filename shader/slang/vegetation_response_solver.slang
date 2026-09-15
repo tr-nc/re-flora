@@ -53,11 +53,11 @@ public void advanceLeafResponse(inout float4 motion, float2 force,
 public void advanceLeafTorsion(inout float4 torsion, inout float2 phase, inout uint2 cells,
                               float2 wind, float dt, uint seed, float gain,
                               float4 curve = float4(0.05, 1.0, 0.0, 0.0),
-                              float4 frequency = float4(1.8, 1.0, 0.0, 0.0),
+                              float4 frequency = float4(1.8, 1.8, 1.0, 0.0),
                               float4 frequencyCurve = float4(0.05, 1.0, 0.0, 0.0))
 {
     float hz = leafFlutterFrequency(wind, frequency, frequencyCurve);
-    // Resolve both noise bands even at the maximum exposed 24 Hz. This changes
+    // Resolve both noise bands even at the maximum exposed 48 Hz. This changes
     // only local leaf work, not the world's tick or other vegetation dynamics.
     uint steps = uint(clamp(ceil(max(dt, 0.0) * hz * 32.0), 1.0, 256.0));
     float step = max(dt, 0.0) / float(steps);

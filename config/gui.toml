@@ -1982,25 +1982,36 @@ min = -6
 max = 6
 
 [[section.param]]
-id = "leaf_flutter_frequency_hz"
+id = "leaf_flutter_frequency_low_hz"
 kind = "float"
-label = "Base Flutter Frequency (Hz)"
+label = "Frequency Curve Low (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 1.8
-min = 0.5
-max = 12
+value = 1.5
+min = 0.25
+max = 24
 
 [[section.param]]
-id = "leaf_flutter_frequency_scale"
+id = "leaf_flutter_frequency_high_hz"
 kind = "float"
-label = "Strong-Wind Frequency Scale"
+label = "Frequency Curve High (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0.25
+max = 24
+
+[[section.param]]
+id = "leaf_flutter_frequency_multiplier"
+kind = "float"
+label = "Frequency Scaling"
 type = "Float"
 
 [section.param.data]
 value = 1
-min = 0.5
+min = 0.25
 max = 2
 
 [[section.param]]
@@ -2032,7 +2043,7 @@ label = "Frequency Curve Bias"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 0.8
 min = -6
 max = 6
 

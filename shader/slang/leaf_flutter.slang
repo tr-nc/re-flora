@@ -82,7 +82,8 @@ public float leafTorqueTarget(float2 wind, float2 phase, uint2 cells, uint seed,
 public float leafFlutterFrequency(float2 wind, float4 frequency, float4 curve)
 {
     float response = windResponseCurve(length(wind), curve.x, curve.y, curve.z);
-    return clamp(frequency.x, 0.5, 12.0) * lerp(1.0, clamp(frequency.y, 0.5, 2.0), response);
+    return lerp(clamp(frequency.x, 0.25, 24.0), clamp(frequency.y, 0.25, 24.0), response)
+        * clamp(frequency.z, 0.25, 2.0);
 }
 
 // Fractional coordinates never grow with world time; integer cells retain the

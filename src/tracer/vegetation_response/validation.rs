@@ -73,7 +73,7 @@ impl<'a> Harness<'a> {
             buffers,
             readback,
             controls: [1., 1., 1., 0.],
-            flutter_frequency: [1.8, 1., 0., 0.],
+            flutter_frequency: [1.8, 1.8, 1., 0.],
             _pool: pool,
         })
     }
@@ -245,9 +245,9 @@ pub(in crate::tracer) fn validate_gpu(
     let mut reference = Vec::new();
     for hz in [2.0_f32, 4.0, 24.0] {
         harness.flutter_frequency = if hz > 12. {
-            [12., 2., 0., 0.]
+            [24., 24., 1., 0.]
         } else {
-            [hz, 1., 0., 0.]
+            [hz, hz, 1., 0.]
         };
         for leaf in &mut leaves {
             leaf.identity[0] = NO_PREVIOUS;
@@ -278,7 +278,7 @@ pub(in crate::tracer) fn validate_gpu(
         // Reorder all leaf identities and change tuning without elapsed time:
         // state, phase fractions and integer cells must survive bit-for-bit.
         leaves.reverse();
-        harness.flutter_frequency = [0.5, 0.5, 0., 0.];
+        harness.flutter_frequency = [0.25, 0.25, 1., 0.];
         let end = 180. / (hz * 64.);
         let remapped = harness.step(&leaves, end, end, 0.1)?;
         for (i, state) in remapped.iter().enumerate() {
@@ -294,7 +294,7 @@ pub(in crate::tracer) fn validate_gpu(
         leaves.reverse();
         log::info!("[LEAF_FLUTTER][FREQUENCY_GPU] target_hz={hz} normalized_trajectory_error={error:.8} zero_dt_retune=passed phase_lifetime_remap=passed");
     }
-    harness.flutter_frequency = [1.8, 1., 0., 0.];
+    harness.flutter_frequency = [1.8, 1.8, 1., 0.];
     harness.controls[3] = 0.;
     source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;
