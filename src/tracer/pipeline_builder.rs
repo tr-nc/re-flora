@@ -77,6 +77,8 @@ impl PipelineBuilder {
             &render_passes,
             input.pool,
             input.resources,
+            input.contree_builder_resources,
+            input.scene_accel_resources,
             input.plain_builder_resources,
             &input.ddgi_resources,
             input.ddgi_voxel_visibility,
@@ -469,6 +471,30 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let raster_tree_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/raster_tree.vert",
+            "main",
+        )
+        .unwrap();
+        let raster_tree_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/raster_tree.frag",
+            "main",
+        )
+        .unwrap();
+        let raster_tree_shadow_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/raster_tree_shadow.vert",
+            "main",
+        )
+        .unwrap();
+        let raster_tree_lighting_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/raster_tree_lighting.comp",
+            "main",
+        )
+        .unwrap();
         let dynamic_fruit_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/dynamic_fruit.vert",
@@ -572,6 +598,10 @@ impl PipelineBuilder {
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
             environment_probe_visualization_vert_sm,
+            raster_tree_vert_sm,
+            raster_tree_frag_sm,
+            raster_tree_shadow_vert_sm,
+            raster_tree_lighting_sm,
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
@@ -680,6 +710,17 @@ impl PipelineBuilder {
             &shader_modules.ddgi_voxel_visibility_blocks_sm,
             pool,
             &[ddgi_voxel_visibility],
+        );
+        let raster_tree_lighting_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.raster_tree_lighting_sm,
+            pool,
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
         let flora_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
@@ -878,6 +919,7 @@ impl PipelineBuilder {
             ddgi_atlas_reduce_ppl,
             ddgi_voxel_visibility_pack_ppl,
             ddgi_voxel_visibility_blocks_ppl,
+            raster_tree_lighting_ppl,
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -937,6 +979,8 @@ impl PipelineBuilder {
         render_passes: &RenderPasses,
         pool: &DescriptorPool,
         resources: &TracerResources,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
         ddgi_volume: &DdgiActiveResources<'_>,
         ddgi_voxel_visibility: &DdgiVoxelVisibility,
@@ -1128,6 +1172,44 @@ impl PipelineBuilder {
             },
         );
 
+        let tree_resources: [&dyn ResourceContainer; 6] = [
+            resources,
+            plain_builder_resources,
+            ddgi_volume,
+            ddgi_voxel_visibility,
+            contree_builder_resources,
+            scene_accel_resources,
+        ];
+        let raster_tree_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.raster_tree_vert_sm,
+            &shader_modules.raster_tree_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            &tree_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        let raster_tree_shadow_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.raster_tree_shadow_vert_sm,
+            &shader_modules.dynamic_fruit_shadow_frag_sm,
+            &render_passes.render_pass_depth,
+            None,
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let dynamic_fruit_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.dynamic_fruit_vert_sm,
@@ -1221,6 +1303,8 @@ impl PipelineBuilder {
             geometry_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
+            raster_tree_ppl,
+            raster_tree_shadow_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
             particle_ppl,
@@ -1439,6 +1523,7 @@ declare_ddgi_consumer_registry! {
     Leaves => Graphics(graphics.leaves_ppl),
     LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
+    RasterTree => Graphics(graphics.raster_tree_ppl),
     DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),
@@ -1674,7 +1759,13 @@ impl PipelineTopology {
             active_ddgi_volume,
             ddgi_voxel_visibility,
         ];
+        retire_graphics(
+            &self.graphics.raster_tree_ppl,
+            DescriptorUpdate::All(&all_resources),
+            "raster tree extent descriptor update failed",
+        );
         for pipeline in [
+            &self.compute.raster_tree_lighting_ppl,
             &self.compute.tracer_ppl,
             &self.compute.tracer_shadow_ppl,
             &self.compute.player_collider_ppl,
@@ -2247,6 +2338,10 @@ pub struct ShaderModules {
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
     pub environment_probe_visualization_vert_sm: ShaderModule,
+    pub raster_tree_lighting_sm: ShaderModule,
+    pub raster_tree_vert_sm: ShaderModule,
+    pub raster_tree_frag_sm: ShaderModule,
+    pub raster_tree_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_frag_sm: ShaderModule,
@@ -2270,6 +2365,7 @@ pub struct ComputePipelines {
     pub ddgi_atlas_reduce_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
+    pub raster_tree_lighting_ppl: ComputePipeline,
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
@@ -2315,6 +2411,8 @@ pub struct GraphicsPipelines {
     pub geometry_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
+    pub raster_tree_ppl: GraphicsPipeline,
+    pub raster_tree_shadow_ppl: GraphicsPipeline,
     pub dynamic_fruit_ppl: GraphicsPipeline,
     pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,

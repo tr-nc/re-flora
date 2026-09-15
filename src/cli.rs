@@ -392,6 +392,7 @@ pub struct EnvironmentLightingPlan {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkPlan {
+    pub raster_tree_smoke: bool,
     pub tree_samples: Option<u32>,
     pub authored_flora_samples: Option<u32>,
 }
@@ -1099,6 +1100,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         automation: AutomationPlan {
             camera,
             benchmarks: BenchmarkPlan {
+                raster_tree_smoke: args.iter().any(|a| a == "--raster-tree-smoke"),
                 tree_samples: tree_bench.then_some(tree_bench_samples.unwrap_or(10)),
                 authored_flora_samples: authored_flora_bench
                     .then_some(authored_flora_bench_samples.unwrap_or(25)),
@@ -1527,6 +1529,7 @@ Options:
                               Rebuild probes once after rendering starts, for runtime validation
   --environment-probe-visualization
                               Visualize the environment probe grid (debug; default: off)
+  --raster-tree-smoke         Validate live tree A/B, age, removal and replacement, then exit
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --authored-flora-bench      Run authored special-flora paint benchmark and exit

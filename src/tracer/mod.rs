@@ -26,6 +26,9 @@ pub use sprinkler_resources::*;
 mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
+mod raster_tree;
+use raster_tree::RasterTreeGeometry;
+pub use raster_tree::{RasterTreeMesh, TREE_CELL_CAPACITY};
 mod dynamic_fruit_resources;
 pub use dynamic_fruit_resources::*;
 
@@ -1584,6 +1587,7 @@ pub struct Tracer {
     sprinkler_resources: SprinklerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
+    pub(crate) raster_trees: RasterTreeGeometry,
     environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
 
     camera: Camera,
@@ -1855,6 +1859,7 @@ impl Tracer {
         let particle_capacity = PARTICLE_CAPACITY;
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
+        let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         Ok(Self {
             vulkan_ctx,
             desc,
@@ -1865,6 +1870,7 @@ impl Tracer {
             sprinkler_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
+            raster_trees,
             environment_probe_visualization_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
@@ -2913,6 +2919,7 @@ impl Tracer {
         BufferUpdater::update_wind_inputs(&self.resources, &wind)?;
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
+            self.raster_trees.enabled,
             lighting_frame,
             &terrain,
             &materials,
@@ -3473,6 +3480,15 @@ impl Tracer {
             self.direct_sun_shadows.mark_leaf_history_recorded();
         }
         if render_flags.enable_shadows && update_shadow_map {
+            if self.raster_trees.enabled && self.raster_trees.index_count > 0 {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "raster_tree_shadow.pass",
+                    || self.record_raster_tree_shadow_pass(cmdbuf),
+                );
+            }
             if self.dynamic_fruit_resources.instance_count > 0 {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -3608,6 +3624,18 @@ impl Tracer {
                 self.environment_probe_visualization_resources.index_count(),
             );
         }
+        if self.raster_trees.enabled {
+            record_mesh(
+                &self.raster_trees.indices,
+                &self.raster_trees.shadow_vertices,
+                self.raster_trees.index_count,
+            );
+            record_mesh(
+                &self.raster_trees.indices,
+                &self.raster_trees.vertices,
+                self.raster_trees.index_count,
+            );
+        }
         record_mesh(
             &self.dynamic_fruit_resources.indices,
             &self.dynamic_fruit_resources.vertices,
@@ -3722,7 +3750,8 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.environment_probe_visualization.enabled
-            || self.dynamic_fruit_resources.instance_count > 0;
+            || self.dynamic_fruit_resources.instance_count > 0
+            || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
 
         if render_flags.enable_flora {
             assert_eq!(
@@ -3738,6 +3767,20 @@ impl Tracer {
         // its hardware depth attachment from this output so every raster
         // fragment is tested against terrain before transparent blending can
         // discard the individual depths of layers behind it.
+        if self.raster_trees.enabled && self.raster_trees.index_count > 0 {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "raster_tree_lighting.pass",
+                || {
+                    self.pipeline_topology
+                        .compute()
+                        .raster_tree_lighting_ppl
+                        .record(cmdbuf, Extent3D::new(TREE_CELL_CAPACITY as u32, 1, 1), None)
+                },
+            );
+        }
         if render_flags.enable_tracer {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -4000,7 +4043,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
-            || self.dynamic_fruit_resources.instance_count > 0;
+            || self.dynamic_fruit_resources.instance_count > 0
+            || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
         if !has_graphics_pass {
             self.resources
                 .extent_dependent_resources
@@ -4521,6 +4565,12 @@ impl Tracer {
                 .geometry_preview_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        if self.raster_trees.enabled {
+            self.pipeline_topology
+                .graphics()
+                .raster_tree_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
         if self.dynamic_fruit_resources.instance_count > 0 {
             self.pipeline_topology
                 .graphics()
@@ -4992,6 +5042,15 @@ impl Tracer {
             }
         }
 
+        if self.raster_trees.enabled && self.raster_trees.index_count > 0 {
+            self.raster_trees.color_draws += 1;
+            let pipeline = &self.pipeline_topology.graphics().raster_tree_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&self.raster_trees.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&self.raster_trees.vertices]);
+            pipeline.record_indexed(cmdbuf, self.raster_trees.index_count, 1, 0, 0, 0, None);
+        }
         if self.dynamic_fruit_resources.instance_count > 0 {
             let fruit_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -5396,6 +5455,47 @@ impl Tracer {
             0,
             None,
         );
+
+        self.pipeline_topology
+            .depth_only_target()
+            .record_end(cmdbuf);
+    }
+
+    fn record_raster_tree_shadow_pass(&self, cmdbuf: &CommandBuffer) {
+        let resources = &self.raster_trees;
+        if !resources.enabled || resources.index_count == 0 {
+            return;
+        }
+
+        let pipeline = &self.pipeline_topology.graphics().raster_tree_shadow_ppl;
+        pipeline.prepare_descriptor_resources(cmdbuf);
+
+        let clear_values: [vk::ClearValue; 0] = [];
+        self.pipeline_topology
+            .depth_only_target()
+            .record_begin(cmdbuf, &clear_values);
+
+        let shadow_extent = self
+            .resources
+            .shadow
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: shadow_extent.width,
+                height: shadow_extent.height,
+            },
+        };
+
+        pipeline.record_bind(cmdbuf);
+        pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+        cmdbuf.bind_index_buffer_u32(&resources.indices);
+        cmdbuf.bind_vertex_buffers(0, &[&resources.shadow_vertices]);
+        pipeline.record_indexed(cmdbuf, resources.index_count, 1, 0, 0, 0, None);
 
         self.pipeline_topology
             .depth_only_target()
@@ -6056,6 +6156,24 @@ impl Tracer {
 
     pub fn clear_tree_geometry_preview(&mut self) {
         self.geometry_preview_resources.tree.clear();
+    }
+
+    pub fn upload_static_raster_trees(
+        &mut self,
+        mesh: &RasterTreeMesh,
+        cells: &[[u32; 4]],
+        revision: u32,
+    ) -> Result<()> {
+        // App has waited for all submitted frames before readback/replacement.
+        self.resources.raster_tree_cells.fill(cells)?;
+        self.raster_trees.upload(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            mesh,
+            revision,
+        )?;
+        self.invalidate_local_direct_sun_shadow_histories();
+        Ok(())
     }
 
     pub fn show_dynamic_fruit_geometry(

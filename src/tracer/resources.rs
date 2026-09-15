@@ -1408,6 +1408,8 @@ impl TracerMeshResources {
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
+    pub raster_tree_cells: Resource<Buffer>,
+    pub raster_tree_local_light_cache: Resource<Buffer>,
     #[resource(nested)]
     pub uniforms: TracerUniformResources,
     #[resource(nested)]
@@ -1452,8 +1454,26 @@ impl TracerResources {
         max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
+        let raster_tree_cells = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (super::TREE_CELL_CAPACITY * 16) as u64,
+        );
+        raster_tree_cells
+            .fill(&vec![[0u32; 4]; super::TREE_CELL_CAPACITY])
+            .unwrap();
 
         Self {
+            raster_tree_cells: Resource::new(raster_tree_cells),
+            raster_tree_local_light_cache: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::GpuOnly,
+                (super::TREE_CELL_CAPACITY * 16) as u64,
+            )),
             uniforms: TracerUniformResources::new(
                 device.clone(),
                 allocator.clone(),

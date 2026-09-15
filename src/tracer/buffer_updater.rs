@@ -257,6 +257,7 @@ impl BufferUpdater {
 
     pub fn update_gui_input(
         resources: &TracerResources,
+        raster_tree_static: bool,
         lighting_frame: &ResolvedLightingFrameInputs,
         terrain: &TerrainFrameInput,
         materials: &MaterialFrameInput,
@@ -270,6 +271,7 @@ impl BufferUpdater {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
+            raster_tree_static: raster_tree_static as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),

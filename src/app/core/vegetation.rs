@@ -1144,7 +1144,7 @@ impl GardenTrees {
         }
     }
 
-    fn tuned_tree_id(&self) -> u32 {
+    pub(super) fn tuned_tree_id(&self) -> u32 {
         self.tuned_tree_id
     }
 
@@ -4560,5 +4560,43 @@ mod tests {
         assert!(
             compiled.rebuild_bound.max().z >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
         );
+    }
+}
+
+impl App {
+    pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
+        let enabled = self.debug_settings.adjustables.raster_tree_static.value;
+        if !enabled {
+            if self.tracer.raster_trees.enabled {
+                log::info!("[TREE][RASTER_STATIC] mode=A");
+                self.tracer.invalidate_local_direct_sun_shadow_histories();
+            }
+            self.tracer.raster_trees.enabled = false;
+            return Ok(());
+        }
+        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision) {
+            self.vulkan_ctx.device().wait_idle();
+            let started = Instant::now();
+            let mut mesh = crate::tracer::RasterTreeMesh::default();
+            let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+            for record in self.trees.records.values() {
+                let origin = record.bound.min().saturating_sub(UVec3::splat(2));
+                let end = (record.bound.max() + UVec3::splat(3)).min(world_dim);
+                let dim = end.saturating_sub(origin);
+                let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
+                mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
+            }
+            let cells = mesh.finish()?;
+            self.tracer
+                .upload_static_raster_trees(&mesh, &cells, self.visible_terrain_revision)?;
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} secondary_geometry=exact_static_voxels",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0);
+        }
+        if !self.tracer.raster_trees.enabled {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
+            log::info!("[TREE][RASTER_STATIC] mode=B");
+        }
+        self.tracer.raster_trees.enabled = true;
+        Ok(())
     }
 }

@@ -92,6 +92,15 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "raster_tree_static"
+kind = "bool"
+label = "Raster whole trees (B: static comparison)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "flora_growth_override_enabled"
 kind = "bool"
 label = "Override Flora Growth"

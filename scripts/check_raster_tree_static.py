@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Capture static tree A/B with real shadows; restores the worktree's GUI/camera files.
+
+Build with cargo build --release first. The GPU lock covers all configuration changes
+and captures. This is a visual diagnostic, not a performance or image-equivalence test.
+"""
+from pathlib import Path
+import argparse
+import fcntl
+import os
+import re
+import subprocess
+
+ROOT = Path(__file__).resolve().parents[1]
+CAMERA = '''
+[[snapshots]]
+name = "raster-tree-review"
+description = "Static raster tree comparison"
+position = [1.0, 0.64, 1.55]
+yaw_deg = 0.0
+pitch_deg = 0.0
+fov_deg = 55.0
+fly_mode = true
+'''
+
+def setting(source, name, value):
+    pattern = rf'(id = "{re.escape(name)}".*?\[section.param.data\]\nvalue = )[^\n]+'
+    result, count = re.subn(pattern, lambda match: match[1] + value, source, count=1, flags=re.S)
+    if count != 1:
+        raise ValueError(f"missing GUI parameter: {name}")
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', type=Path, default=ROOT / 'target/raster-tree-evidence')
+    args = parser.parse_args()
+    out = args.output.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.pop('WAYLAND_DISPLAY', None)
+    gui = ROOT / 'config/gui.toml'
+    camera = ROOT / 'config/camera_snapshots.toml'
+    with open('/tmp/re-flora-summer-gpu.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        gui_original, camera_original = gui.read_bytes(), camera.read_bytes()
+        try:
+            source = setting(gui_original.decode(), 'auto_daynight_cycle', 'false')
+            source = setting(source, 'time_of_day', '0.47')
+            source = setting(source, 'path_tracing_reference', 'false')
+            camera.write_text(CAMERA)
+            for foliage in [False, True]:
+                for mode in ['A', 'B']:
+                    gui.write_text(setting(source, 'raster_tree_static', str(mode == 'B').lower()))
+                    name = f'{mode}-' + ('canopy' if foliage else 'wood')
+                    (out / f'{name}.png').unlink(missing_ok=True)
+                    cmd = [str(ROOT / 'target/release/re-flora'), '--hidden', '--mute',
+                           '--no-particles', '--no-clouds', '--no-god-rays', '--no-lens-flare',
+                           '--screenshot', 'raster-tree-review', str(out / f'{name}.png'),
+                           '--screenshot-delay', '4', '--auto-exit', '6']
+                    if not foliage:
+                        cmd.append('--no-flora')
+                    with (out / f'{name}.log').open('w') as log:
+                        subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                       check=True, timeout=90)
+                    assert (out / f'{name}.png').is_file(), f'{name}: screenshot missing'
+                    text = (out / f'{name}.log').read_text()
+                    assert 'Application exited successfully' in text, name
+                    if mode == 'B':
+                        assert '[TREE][RASTER_STATIC] mode=B' in text, name
+                    assert not any(error in text for error in [' ERROR ', 'VUID-', 'panicked at']), name
+                    print(out / f'{name}.png', flush=True)
+        finally:
+            gui.write_bytes(gui_original)
+            camera.write_bytes(camera_original)
+
+if __name__ == '__main__':
+    main()
