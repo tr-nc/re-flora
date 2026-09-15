@@ -76,7 +76,8 @@ public float leafTorqueTarget(float2 wind, float2 phase, uint2 cells, uint seed,
     float forcing = 0.7 * leafFlutterNoise(phase.x, cells.x, seed)
         + 0.3 * leafFlutterNoise(phase.y, cells.y, seed ^ 0xAD90777Du);
     // Gain changes the envelope, never the wind threshold at which it saturates.
-    return 0.75 * (clamp(gain, 0.0, 2.0) * 0.5) * response * coupling * forcing;
+    float envelope = speed2 > 0.0 ? lerp(clamp(curve.w, 0.0, 2.0), clamp(gain, 0.0, 2.0), response) * 0.5 : 0.0;
+    return 0.75 * envelope * coupling * forcing;
 }
 
 public float leafFlutterFrequency(float2 wind, float4 frequency, float4 curve)

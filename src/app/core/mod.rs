@@ -1314,7 +1314,8 @@ impl App {
                 .parse()
                 .context("RE_FLORA_LEAF_REVIEW must be a gain in 0..=2")?;
             anyhow::ensure!((0.0..=2.0).contains(&gain), "invalid leaf review gain");
-            debug_settings.adjustables.leaf_flutter_strength.value = gain;
+            debug_settings.adjustables.leaf_flutter_amplitude_high.value = gain * 0.5;
+            debug_settings.adjustables.leaf_flutter_amplitude_low.value = 0.;
         }
         if foliage_shadow_bench || lighting_mode_acceptance_requested {
             foliage_shadow_bench::configure_tree(&mut debug_settings);

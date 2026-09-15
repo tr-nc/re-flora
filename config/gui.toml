@@ -1929,24 +1929,35 @@ max = 3
 [[section.param]]
 id = "leaf_local_displacement_voxels"
 kind = "float"
-label = "Local Flutter Amplitude (voxels)"
+label = "Amplitude Scaling (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.36627253
+value = 1.43
 min = 0
 max = 5
 
 [[section.param]]
-id = "leaf_flutter_strength"
+id = "leaf_flutter_amplitude_high"
 kind = "float"
-label = "Local Flutter Strength (0 = off)"
+label = "Amplitude Curve High"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0.5
 min = 0
-max = 2
+max = 1
+
+[[section.param]]
+id = "leaf_flutter_amplitude_low"
+kind = "float"
+label = "Amplitude Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
 
 [[section.param]]
 id = "leaf_flutter_wind_start"
@@ -1955,7 +1966,7 @@ label = "Flutter Start Wind"
 type = "Float"
 
 [section.param.data]
-value = 0.05
+value = 0.5
 min = 0
 max = 4
 
@@ -1966,7 +1977,7 @@ label = "Flutter Full Wind"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 1.5
 min = 0
 max = 4
 

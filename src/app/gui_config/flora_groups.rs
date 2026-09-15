@@ -32,10 +32,11 @@ const LEAF_MOTION: &[&str] = &[
     "leaf_paddle_primary_speed",
     "leaf_paddle_secondary_speed",
 ];
-const LEAF_RESPONSE: &[&str] = &[
-    "leaf_flutter_strength",
-    "leaf_local_displacement_voxels",
-    "leaf_global_offset_scale",
+const LEAF_RESPONSE: &[&str] = &["leaf_global_offset_scale"];
+const LEAF_AMPLITUDE: &[&str] = &["leaf_local_displacement_voxels"];
+const LEAF_AMPLITUDE_CURVE: &[&str] = &[
+    "leaf_flutter_amplitude_low",
+    "leaf_flutter_amplitude_high",
     "leaf_flutter_wind_start",
     "leaf_flutter_wind_full",
     "leaf_flutter_wind_knee",
@@ -102,9 +103,15 @@ fn stored_section(
         category(ui, title, |ui| {
             for param in &section.param {
                 if name == "Leaves"
-                    && [LEAF_RESPONSE, LEAF_FREQUENCY, LEAF_FREQUENCY_CURVE]
-                        .iter()
-                        .any(|group| group.contains(&param.id.as_str()))
+                    && [
+                        LEAF_RESPONSE,
+                        LEAF_AMPLITUDE,
+                        LEAF_AMPLITUDE_CURVE,
+                        LEAF_FREQUENCY,
+                        LEAF_FREQUENCY_CURVE,
+                    ]
+                    .iter()
+                    .any(|group| group.contains(&param.id.as_str()))
                 {
                     continue;
                 }
@@ -177,13 +184,23 @@ pub(super) fn render(
         category(ui, "Wind Motion", |ui| {
             if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                 controls(ui, leaves, LEAF_RESPONSE, adjustables);
-                super::draw_flutter_curve_preview(ui, adjustables);
-                category(ui, "Flutter Frequency", |ui| {
+                category(ui, "Amplitude Response", |ui| {
+                    controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
+                    crate::app::flutter_response_editor::draw(
+                        ui,
+                        adjustables,
+                        crate::app::flutter_response_editor::Kind::Amplitude,
+                    );
+                });
+                category(ui, "Frequency Response", |ui| {
                     controls(ui, leaves, LEAF_FREQUENCY, adjustables);
-                    super::draw_flutter_frequency_preview(ui, adjustables);
+                    crate::app::flutter_response_editor::draw(
+                        ui,
+                        adjustables,
+                        crate::app::flutter_response_editor::Kind::Frequency,
+                    );
                 });
             }
-            ui.small("Flutter Strength: wind-powered local oscillation (requires inertia); steady wind keeps leaves moving, calm lets them settle. Amplitude: maximum local excursion, up to 5 voxels, not a resting offset. Overall Offset: independent whole-leaf translation. These do not change sound or grass.");
             category(ui, "Legacy Motion (inertia off)", |ui| {
                 controls(ui, flora, LEAF_MOTION, adjustables);
             });
@@ -270,12 +287,8 @@ mod tests {
             );
         }
         for label in [
-            "Local Flutter Strength (0 = off)",
-            "Local Flutter Amplitude (voxels)",
+            "Amplitude Scaling (voxels)",
             "Overall Wind Offset (0 = off)",
-            "Flutter Start Wind",
-            "Flutter Full Wind",
-            "Flutter Curve Bias",
             "Frequency Scaling",
         ] {
             assert_eq!(text.iter().filter(|s| s.as_str() == label).count(), 1);

@@ -25,5 +25,19 @@ export __extern_cpp int main()
     if (abs(half - 2.0 * leafTorqueTarget(float2(0.7, 0.0), float2(0.25), uint2(3u), 11u, 1.0, curve)) > 0.00001) return 10;
     if (windResponseCurve(0.4, 0.5, 0.5, 0.0) != 0.0 || windResponseCurve(0.5, 0.5, 0.5, 0.0) != 1.0) return 11;
     if (leafTorqueTarget(float2(0.1, 0.0), float2(0.25), uint2(3u), 11u, 2.0, curve) != 0.0) return 12;
+    // Nonzero low endpoint allows a falling response, but calm stays silent.
+    float4 falling = float4(0.2, 1.2, 0.0, 2.0);
+    if (leafTorqueTarget(float2(0.0), float2(0.25), uint2(3u), 11u, 0.0, falling) != 0.0) return 13;
+    float weak = leafTorqueTarget(float2(0.1, 0.0), float2(0.25), uint2(3u), 11u, 0.0, falling);
+    float strong = leafTorqueTarget(float2(1.3, 0.0), float2(0.25), uint2(3u), 11u, 0.0, falling);
+    if (abs(weak) < 0.00001 || strong != 0.0) return 14;
+    // Old strength/2 is now the curve high endpoint: exact migrated forcing.
+    for (uint i = 1u; i < 400u; ++i) {
+        float speed = float(i) * 0.01;
+        float response = windResponseCurve(speed, 0.5, 1.5, 0.0);
+        float actual = leafTorqueTarget(float2(speed, 0.0), float2(0.25), uint2(3u), 11u, 1.0, float4(0.5, 1.5, 0.0, 0.0));
+        float maximum = leafTorqueTarget(float2(speed, 0.0), float2(0.25), uint2(3u), 11u, 1.0, float4(0.0, 0.0, 0.0, 0.0));
+        if (abs(actual - maximum * response) > 0.000001) return 15;
+    }
     return 0;
 }

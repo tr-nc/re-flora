@@ -391,44 +391,6 @@ fn enforce_leaf_curve_order(adjustables: &mut GuiAdjustables) {
     }
 }
 
-fn draw_flutter_curve_preview(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
-    let start = adjustables.leaf_flutter_wind_start.value;
-    adjustables.leaf_flutter_wind_full.value = adjustables.leaf_flutter_wind_full.value.max(start);
-    let full = adjustables.leaf_flutter_wind_full.value;
-    let knee = adjustables.leaf_flutter_wind_knee.value;
-    let markers = [
-        CurvePreviewMarker {
-            x: start,
-            label: "start",
-            color: Color32::from_rgb(120, 180, 255),
-        },
-        CurvePreviewMarker {
-            x: full,
-            label: "full",
-            color: Color32::from_rgb(255, 200, 90),
-        },
-    ];
-    draw_curve_preview(
-        ui,
-        "Flutter wind response",
-        0.0..=4.0,
-        0.0..=1.0,
-        &markers,
-        |wind| {
-            if wind <= 0.0 {
-                0.0
-            } else {
-                smoothstep_variant_response(wind, start, full, knee)
-            }
-        },
-    );
-    ui.small("Start: wind speed where flutter begins. Full: maximum response, not a stop threshold. Bias: negative responds earlier, positive later; 0 is a smooth S curve. Falling wind follows the same curve; inertia lets motion settle. These are wind strengths, not seconds.");
-}
-
-fn draw_flutter_frequency_preview(ui: &mut egui::Ui, a: &mut GuiAdjustables) {
-    super::flutter_frequency_editor::draw(ui, a);
-}
-
 fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     let marker_start_color = Color32::from_rgb(120, 180, 255);
     let marker_full_color = Color32::from_rgb(255, 200, 90);
@@ -727,74 +689,126 @@ mod tests {
     #[test]
     fn flutter_curve_drag_edits_persisted_fields_without_a_save_hook() {
         use egui::{Event, PointerButton, Pos2, Rect, Vec2};
-        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
-        settings.adjustables.leaf_flutter_frequency_start.value = 0.1;
-        settings.adjustables.leaf_flutter_frequency_full.value = 2.0;
-        settings.adjustables.leaf_flutter_frequency_low_hz.value = 2.0;
-        settings.adjustables.leaf_flutter_frequency_high_hz.value = 8.0;
-        let context = egui::Context::default();
-        let mut plot = Rect::NOTHING;
-        let screen = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.)));
-        let _ = context.run_ui(
-            egui::RawInput {
-                screen_rect: screen,
-                ..Default::default()
-            },
-            |ui| {
-                plot = crate::app::flutter_frequency_editor::draw(ui, &mut settings.adjustables);
-            },
-        );
-        let point = |wind: f32, hz: f32| {
-            Pos2::new(
-                plot.left() + wind / 4. * plot.width(),
-                plot.bottom() - hz / 24. * plot.height(),
-            )
-        };
-        let from = point(0.1, 2.);
-        let to = point(0.8, 4.);
-        for events in [
-            vec![
-                Event::PointerMoved(from),
-                Event::PointerButton {
-                    pos: from,
-                    button: PointerButton::Primary,
-                    pressed: true,
-                    modifiers: Default::default(),
-                },
-            ],
-            vec![Event::PointerMoved(to)],
-            vec![Event::PointerButton {
-                pos: to,
-                button: PointerButton::Primary,
-                pressed: false,
-                modifiers: Default::default(),
-            }],
+        for kind in [
+            crate::app::flutter_response_editor::Kind::Frequency,
+            crate::app::flutter_response_editor::Kind::Amplitude,
         ] {
+            let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+            settings.adjustables.leaf_flutter_frequency_start.value = 0.1;
+            settings.adjustables.leaf_flutter_frequency_full.value = 2.0;
+            settings.adjustables.leaf_flutter_frequency_low_hz.value = 2.0;
+            settings.adjustables.leaf_flutter_frequency_high_hz.value = 8.0;
+            settings.adjustables.leaf_flutter_wind_start.value = 0.1;
+            settings.adjustables.leaf_flutter_wind_full.value = 2.;
+            settings.adjustables.leaf_flutter_amplitude_low.value = 2. / 24.;
+            settings.adjustables.leaf_flutter_amplitude_high.value = 8. / 24.;
+            let context = egui::Context::default();
+            let mut plot = Rect::NOTHING;
+            let screen = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.)));
             let _ = context.run_ui(
                 egui::RawInput {
                     screen_rect: screen,
-                    events,
                     ..Default::default()
                 },
                 |ui| {
-                    crate::app::flutter_frequency_editor::draw(ui, &mut settings.adjustables);
+                    plot = crate::app::flutter_response_editor::draw(
+                        ui,
+                        &mut settings.adjustables,
+                        kind,
+                    );
                 },
             );
+            let point = |wind: f32, hz: f32| {
+                Pos2::new(
+                    plot.left() + wind / 4. * plot.width(),
+                    plot.bottom() - hz / 24. * plot.height(),
+                )
+            };
+            let from = point(0.1, 2.);
+            let to = point(0.8, 4.);
+            for events in [
+                vec![
+                    Event::PointerMoved(from),
+                    Event::PointerButton {
+                        pos: from,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Default::default(),
+                    },
+                ],
+                vec![Event::PointerMoved(to)],
+                vec![Event::PointerButton {
+                    pos: to,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                }],
+            ] {
+                let _ = context.run_ui(
+                    egui::RawInput {
+                        screen_rect: screen,
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        crate::app::flutter_response_editor::draw(
+                            ui,
+                            &mut settings.adjustables,
+                            kind,
+                        );
+                    },
+                );
+            }
+            match kind {
+                crate::app::flutter_response_editor::Kind::Frequency => {
+                    assert!(
+                        (settings.adjustables.leaf_flutter_frequency_low_hz.value - 4.).abs()
+                            < 0.01
+                    );
+                    assert!(
+                        (settings.adjustables.leaf_flutter_frequency_start.value - 0.8).abs()
+                            < 0.01
+                    );
+                    assert_eq!(
+                        settings.adjustables.leaf_flutter_amplitude_low.value,
+                        2. / 24.
+                    );
+                }
+                crate::app::flutter_response_editor::Kind::Amplitude => {
+                    assert!(
+                        (settings.adjustables.leaf_flutter_amplitude_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.leaf_flutter_wind_start.value - 0.8).abs() < 0.01
+                    );
+                    assert_eq!(settings.adjustables.leaf_flutter_frequency_low_hz.value, 2.);
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            settings.save_to_path(&path).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                settings.adjustables.leaf_flutter_frequency_low_hz.value,
+                loaded.adjustables.leaf_flutter_frequency_low_hz.value
+            );
+            assert_eq!(
+                settings.adjustables.leaf_flutter_frequency_start.value,
+                loaded.adjustables.leaf_flutter_frequency_start.value
+            );
+            // The shared TOML writer normalizes floats to eight decimals.
+            assert!(
+                (settings.adjustables.leaf_flutter_amplitude_low.value
+                    - loaded.adjustables.leaf_flutter_amplitude_low.value)
+                    .abs()
+                    < 0.0000001
+            );
+            assert_eq!(
+                settings.adjustables.leaf_flutter_wind_start.value,
+                loaded.adjustables.leaf_flutter_wind_start.value
+            );
         }
-        assert!((settings.adjustables.leaf_flutter_frequency_low_hz.value - 4.).abs() < 0.01);
-        assert!((settings.adjustables.leaf_flutter_frequency_start.value - 0.8).abs() < 0.01);
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gui.toml");
-        settings.save_to_path(&path).unwrap();
-        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert_eq!(
-            settings.adjustables.leaf_flutter_frequency_low_hz.value,
-            loaded.adjustables.leaf_flutter_frequency_low_hz.value
-        );
-        assert_eq!(
-            settings.adjustables.leaf_flutter_frequency_start.value,
-            loaded.adjustables.leaf_flutter_frequency_start.value
-        );
     }
 
     use super::*;
@@ -1028,7 +1042,7 @@ mod tests {
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .any(|p| p.id == "leaf_flutter_strength"));
+            .any(|p| p.id == "leaf_flutter_amplitude_high"));
     }
 
     #[test]
