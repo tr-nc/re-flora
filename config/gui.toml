@@ -2003,7 +2003,7 @@ label = "Frequency Curve Low (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 2.3615625
+value = 3.1134374
 min = 0.25
 max = 24
 
@@ -2014,7 +2014,7 @@ label = "Frequency Curve High (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 7.033125
+value = 24
 min = 0.25
 max = 24
 
@@ -2025,7 +2025,7 @@ label = "Frequency Scaling (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 24
+value = 8
 min = 0.25
 max = 48
 
@@ -2058,7 +2058,7 @@ label = "Frequency Curve Bias"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 0.25237083
 min = -6
 max = 6
 
@@ -2330,7 +2330,7 @@ label = "Amplitude Scaling (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 1.5
+value = 0.62
 min = 0
 max = 5
 
@@ -2363,7 +2363,7 @@ label = "Amplitude Start Wind"
 type = "Float"
 
 [section.param.data]
-value = 0.05
+value = 0
 min = 0
 max = 4
 
@@ -2374,7 +2374,7 @@ label = "Amplitude Full Wind"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 4
 min = 0
 max = 4
 
@@ -2396,7 +2396,7 @@ label = "Frequency Scaling (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 3
 min = 0.25
 max = 24
 
@@ -2407,7 +2407,7 @@ label = "Frequency Curve Low"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 0.18878907
 min = 0.01
 max = 1
 
@@ -2418,7 +2418,7 @@ label = "Frequency Curve High"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 1
 min = 0.01
 max = 1
 
@@ -2429,7 +2429,7 @@ label = "Frequency Start Wind"
 type = "Float"
 
 [section.param.data]
-value = 0.05
+value = 0
 min = 0
 max = 4
 
@@ -2440,7 +2440,7 @@ label = "Frequency Full Wind"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 4
 min = 0
 max = 4
 
