@@ -6,7 +6,15 @@ use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::collections::BTreeMap;
 
 use super::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
-use crate::{geom::RoundCone, resource::Resource};
+use crate::{
+    geom::RoundCone,
+    resource::Resource,
+    tree_gen::{
+        pose::BranchPose,
+        skin::{intersect_surface_triangle, SkinBinding, SurfaceHit},
+        Tree,
+    },
+};
 
 pub const TREE_CELL_CAPACITY: usize = 1 << 18;
 const NEIGHBORS: [IVec3; 6] = [
@@ -26,11 +34,12 @@ pub struct RasterTreeVertex {
     normal: [f32; 3],
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RasterTreeMesh {
     pub vertices: Vec<RasterTreeVertex>,
     pub indices: Vec<u32>,
     cells: BTreeMap<[u32; 3], (Vec3, [bool; 6])>,
+    bindings: Vec<Option<(u32, SkinBinding)>>,
 }
 
 impl RasterTreeMesh {
@@ -127,11 +136,101 @@ impl RasterTreeMesh {
                 }
             }
         }
+        self.bindings = vec![None; self.vertices.len()];
         Ok(table)
     }
+    /// Coincident voxel corners bind from the same rest coordinate. Never choose
+    /// a joint independently from each voxel center, which would open cracks.
+    pub fn bind_tree(&mut self, tree_id: u32, origin: Vec3, tree: &Tree) -> Result<()> {
+        ensure!(
+            self.bindings.len() == self.vertices.len(),
+            "finish tree mesh before binding"
+        );
+        let mut corners = BTreeMap::new();
+        for (vertex, binding) in self.vertices.iter().zip(&mut self.bindings) {
+            if binding.is_some() {
+                continue;
+            }
+            let center = (Vec3::from_array(vertex.center) - origin) * 256.;
+            if !tree.trunks().iter().any(|c| c.signed_distance(center) < 0.) {
+                continue;
+            }
+            let point = (Vec3::from_array(vertex.position) - origin) * 256.;
+            let key = vertex.position.map(f32::to_bits);
+            let skin = if let Some(skin) = corners.get(&key) {
+                *skin
+            } else {
+                let skin = SkinBinding::at_rest_position(tree, point)?;
+                corners.insert(key, skin);
+                skin
+            };
+            *binding = Some((tree_id, skin));
+        }
+        Ok(())
+    }
+
+    pub fn posed_surface<'a>(
+        &self,
+        poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
+    ) -> Result<PosedTreeSurface> {
+        ensure!(
+            self.bindings.len() == self.vertices.len(),
+            "missing tree bindings"
+        );
+        let mut positions = Vec::with_capacity(self.vertices.len());
+        let mut normals = Vec::with_capacity(self.vertices.len());
+        for (vertex, binding) in self.vertices.iter().zip(&self.bindings) {
+            let (tree_id, binding) =
+                binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
+            let transform = binding
+                .transform(poses(tree_id).ok_or_else(|| anyhow::anyhow!("tree pose missing"))?)?;
+            positions.push(transform.point(Vec3::from_array(vertex.position)));
+            normals.push(transform.normal(Vec3::from_array(vertex.normal)));
+        }
+        Ok(PosedTreeSurface { positions, normals })
+    }
+
+    /// Exact surface query used to validate rest-coordinate editing. The future
+    /// scene acceleration structure must preserve this barycentric hit contract.
+    pub fn raycast(
+        &self,
+        posed: &PosedTreeSurface,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Result<Option<SurfaceHit>> {
+        ensure!(
+            posed.positions.len() == self.vertices.len(),
+            "surface topology mismatch"
+        );
+        let mut nearest: Option<SurfaceHit> = None;
+        for triangle in self.indices.chunks_exact(3) {
+            let ids = [
+                triangle[0] as usize,
+                triangle[1] as usize,
+                triangle[2] as usize,
+            ];
+            if let Some(hit) = intersect_surface_triangle(
+                origin,
+                direction,
+                ids.map(|i| posed.positions[i]),
+                ids.map(|i| Vec3::from_array(self.vertices[i].position)),
+            ) {
+                if nearest.is_none_or(|previous| hit.distance < previous.distance) {
+                    nearest = Some(hit);
+                }
+            }
+        }
+        Ok(nearest)
+    }
+
     pub fn cell_count(&self) -> usize {
         self.cells.len()
     }
+}
+
+pub struct PosedTreeSurface {
+    pub positions: Vec<Vec3>,
+    pub normals: Vec<Vec3>,
 }
 
 fn pack_normal_oct16(normal: Vec3) -> u32 {
@@ -159,6 +258,7 @@ pub struct RasterTreeGeometry {
     pub revision: Option<u32>,
     pub enabled: bool,
     pub color_draws: u64,
+    pub rest_mesh: RasterTreeMesh,
 }
 
 impl RasterTreeGeometry {
@@ -186,6 +286,7 @@ impl RasterTreeGeometry {
             revision: None,
             enabled: false,
             color_draws: 0,
+            rest_mesh: RasterTreeMesh::default(),
         }
     }
     fn buffer(
@@ -242,6 +343,7 @@ impl RasterTreeGeometry {
         self.vertices = Resource::new(vertices);
         self.shadow_vertices = Resource::new(shadow_vertices);
         self.indices = Resource::new(indices);
+        self.rest_mesh = mesh.clone();
         self.index_count = count;
         self.revision = Some(revision);
         Ok(())
@@ -279,6 +381,63 @@ mod tests {
         assert_eq!(edited.cell_count(), 1);
         assert_eq!(edited.indices.len(), 36);
     }
+    #[test]
+    fn neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface() {
+        use crate::{
+            tree_gen::{pose::TreePose, TreeDesc},
+            wind_field::WindFieldFrame,
+        };
+        use glam::Vec2;
+        let tree = Tree::new(TreeDesc::default());
+        let mut bytes = vec![0; 512];
+        for x in [3, 4] {
+            bytes[x + 8 * (3 + 8 * 3)] = 5;
+        }
+        let mut mesh = RasterTreeMesh::default();
+        mesh.append_region(UVec3::ZERO, UVec3::splat(8), &bytes, tree.trunks())
+            .unwrap();
+        mesh.finish().unwrap();
+        assert_eq!(mesh.cell_count(), 2);
+        mesh.bind_tree(17, Vec3::ZERO, &tree).unwrap();
+        let mut pose = TreePose::new(tree.branches(), Vec3::ZERO).unwrap();
+        for _ in 0..120 {
+            pose.advance(&WindFieldFrame::uniform(Vec2::X * 8.), 1. / 60.)
+                .unwrap();
+        }
+        let surface = mesh
+            .posed_surface(|id| (id == 17).then_some(pose.branches()))
+            .unwrap();
+        let mut corners = BTreeMap::new();
+        let mut shared = 0;
+        for (vertex, position) in mesh.vertices.iter().zip(&surface.positions) {
+            let key = vertex.position.map(f32::to_bits);
+            if let Some(previous) = corners.insert(key, *position) {
+                assert_eq!(previous, *position);
+                shared += 1;
+            }
+        }
+        assert_eq!(shared, 4);
+        let ids = [
+            mesh.indices[0] as usize,
+            mesh.indices[1] as usize,
+            mesh.indices[2] as usize,
+        ];
+        let posed = ids.map(|i| surface.positions[i]);
+        let target = (posed[0] + posed[1] + posed[2]) / 3.;
+        let normal = (posed[1] - posed[0]).cross(posed[2] - posed[0]).normalize();
+        let hit = mesh
+            .raycast(&surface, target + normal * 0.001, -normal)
+            .unwrap()
+            .unwrap();
+        let rest = ids.map(|i| Vec3::from_array(mesh.vertices[i].position));
+        assert!(
+            hit.rest_position
+                .distance((rest[0] + rest[1] + rest[2]) / 3.)
+                < 1e-6
+        );
+        assert!(hit.world_position.distance(target) < 1e-6);
+    }
+
     #[test]
     fn other_wood_and_surrounding_terrain_are_not_replaced() {
         let mut bytes = vec![0; 512];

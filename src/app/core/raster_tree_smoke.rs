@@ -38,6 +38,7 @@ impl RasterTreeSmoke {
             20 | 60 | 85 | 125 => {
                 ensure!(app.tracer.raster_trees.enabled, "B is not enabled");
                 app.validate_tree_poses()?;
+                app.validate_tree_surface_pose()?;
                 ensure!(app.tracer.raster_trees.index_count > 0, "B has no geometry");
                 ensure!(
                     app.tracer.raster_trees.color_draws > self.initial_draws,

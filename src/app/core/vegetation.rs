@@ -4589,6 +4589,24 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
+        let mesh = &self.tracer.raster_trees.rest_mesh;
+        let surface =
+            mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
+        anyhow::ensure!(
+            surface.positions.iter().all(|p| p.is_finite()),
+            "nonfinite posed tree position"
+        );
+        anyhow::ensure!(
+            surface
+                .normals
+                .iter()
+                .all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-4),
+            "invalid posed normal"
+        );
+        Ok(())
+    }
+
     pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
         let wind = self.wind_prototype.field.frame();
         for record in self.trees.records.values_mut() {
@@ -4620,6 +4638,9 @@ impl App {
                 mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
             }
             let cells = mesh.finish()?;
+            for (&tree_id, record) in &self.trees.records {
+                mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+            }
             self.tracer
                 .upload_static_raster_trees(&mesh, &cells, self.visible_terrain_revision)?;
             log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} secondary_geometry=exact_static_voxels",
