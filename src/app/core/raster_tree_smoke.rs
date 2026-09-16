@@ -31,7 +31,7 @@ impl RasterTreeSmoke {
             1 | 30 => {
                 app.debug_settings.adjustables.raster_tree_static.value = false;
             }
-            49 => {
+            49 | 64 => {
                 app.drive_tree_pose_smoke()?;
             }
             10 | 50 => {
@@ -72,7 +72,30 @@ impl RasterTreeSmoke {
                     "A did not restore voxel rendering"
                 );
             }
+            62 | 89 => {
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_axis_aligned
+                    .value = true;
+            }
+            87 => {
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_axis_aligned
+                    .value = false;
+            }
+            88 => {
+                ensure!(
+                    !app.tracer.raster_trees.rest_mesh.axis_aligned,
+                    "smooth mode did not restore"
+                );
+                app.validate_tree_surface_pose()?;
+            }
             65 => {
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.axis_aligned,
+                    "axis-aligned mode not active"
+                );
                 app.validate_tree_surface_queries()?;
             }
             66 => {

@@ -315,12 +315,12 @@ public PreparedFloraVertex prepareFloraVertex(
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
     if (instanceType == FLORA_SPECIES_TREE_LEAF || instanceType == FLORA_SPECIES_APPLE) {
-        result.anchor_position = treeAttachmentPoint(instancePositionVoxels,result.anchor_position);
+        result.anchor_position = treeBlockAnchor(instancePositionVoxels,result.anchor_position);
         result.optical_normal = treeAttachmentVector(instancePositionVoxels,result.optical_normal);
     }
     float3 centerOffset = float3(0.5 * FLORA_SCALING_FACTOR);
     if (instanceType == FLORA_SPECIES_TREE_LEAF || instanceType == FLORA_SPECIES_APPLE)
-        centerOffset = treeAttachmentVector(instancePositionVoxels, centerOffset);
+        centerOffset = treeBlockVector(instancePositionVoxels, centerOffset);
     result.voxel_position = result.anchor_position + centerOffset;
     float3 restLeafShadowReceiverPosition =
         (posedVoxelLocalPosition + spawnPose.translation_voxels) *
@@ -330,7 +330,7 @@ public PreparedFloraVertex prepareFloraVertex(
         : result.voxel_position;
     result.shading_normal = float3(voxelLocalPosition);
     if (instanceType == FLORA_SPECIES_TREE_LEAF || instanceType == FLORA_SPECIES_APPLE)
-        result.shading_normal = treeAttachmentVector(instancePositionVoxels,result.shading_normal);
+        result.shading_normal = treeBlockVector(instancePositionVoxels,result.shading_normal);
     StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadowAtLeafReceiver(
         gui_input, sun_info, shadow_camera_info,
         shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,

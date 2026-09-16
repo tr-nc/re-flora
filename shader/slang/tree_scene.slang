@@ -108,3 +108,15 @@ public bool treeSceneOccludes(float3 start, float3 end) {
     MarchingResult hit=traceTreeScene(start,(end-start)/distance,empty);
     return hit.is_hit && hit.distance < distance-1e-5;
 }
+
+// Preserve the same posed cube center while leaving its world-axis corners fixed.
+public bool treeBlocksAxisAligned() { return treeSceneActive() && tree_scene_info[0].z != 0u; }
+public float3 treeBlockAnchor(uint3 anchor, float3 position) {
+    float3 halfSize = float3(0.5 / 256.0);
+    return treeBlocksAxisAligned()
+        ? treeAttachmentPoint(anchor, position + halfSize) - halfSize
+        : treeAttachmentPoint(anchor, position);
+}
+public float3 treeBlockVector(uint3 anchor, float3 vector) {
+    return treeBlocksAxisAligned() ? vector : treeAttachmentVector(anchor, vector);
+}

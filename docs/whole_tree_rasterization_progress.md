@@ -120,3 +120,19 @@
 - `cargo fmt --check`、`cargo check` 和全量测试通过（1010 main + 4 library，2 ignored）。
 - 保留断言的 debug 隐藏静音运行 30 秒正常退出，无 ERROR/panic/VUID；日志 `target/tree-axis-debug-run.log`。
 - release 隐藏静音 0.5 秒启动检查通过，无 ERROR/panic/VUID；日志 `target/tree-axis-release-run.log`。本次没有生成文件变化；既有 `Cargo.lock` 差异保留。
+
+## 视觉 A/B：方块平移、保持世界轴对齐
+
+在 `R → Debug → Whole Tree Rasterization` 新增保存型开关 `Axis-aligned tree blocks (B, requires wind)`，默认关闭。先启用整树光栅化和 wind；新开关关闭时保留原平滑蒙皮，开启时每个木块中心跟随同一骨架蒙皮、八个角共享相同位移，方块不旋转、不缩放、不吸附网格。模式切换重建表示并使太阳阴影历史失效；关闭 wind 恢复原静态外壳。
+
+- 新模式从同一份已发布地形木材生成完整立方体，包括内部木块和六个面。相邻块可以重叠/分离，没有放大方块或补缝伪装。仍用原地形作为编辑权威；CPU/GPU 射线、物理碰撞、颜色和木材阴影共享生成后的动态表面。
+- 叶块/挂果保持与原模式相同的变换后中心，角偏移保持世界轴；叶片光学法线仍保留其独立的光学朝向。阴影代理中心同步；挂果脱落的位置、速度和初始朝向与新表示对齐，脱落后的物理运动不受本开关约束。
+- 完整木块几何量增加：当前默认树从 3,954 个外壳单元 / 15,992 三角形变为 10,596 个完整木块 / 127,152 三角形。真实运行触及旧的 65,536 三角形上限后，将三角形上限扩至 131,072、BVH 节点扩至 262,144；顶点上限仍为 131,072。固定查询缓冲增加约 5 MiB。本步是外观对照，不是性能优化或密林性能验收。
+
+### 验证
+
+- `cargo fmt --check`、`cargo check`、全量测试通过：1011 main + 4 library，2 ignored。容量调整后的 tracer 专项 91 项通过。新增测试覆盖内部面、统一位移、不变尺寸/法线及动态命中到静止坐标的映射；现有设置保存测试覆盖新增声明字段。
+- 真实隐藏静音 `--raster-tree-smoke` 通过：轴对齐模式最大位移 17.56 体素，16 条 CPU/GPU 命中一致，实际移除 6 个木体素；模式往返、生长、删除、重建、关闭 wind 均通过。日志 `target/tree-block-smoke-verified.log`，对应 `re-flora-20260917-013750.196-55947.log`。自动 fixture 在切换完成后重新施加风响应，避免断言采样时恰好回到近静止状态。
+- `python3 scripts/check_raster_tree_static.py --axis-aligned --delay 2.5 --output target/tree-axis-aligned-evidence` 完成四张真实截图并原样恢复 GUI/相机配置。该参数下 A 是原平滑风动，B 是轴对齐风动。检查 A/B 裸枝与 B 树冠，方块轮廓和地面阴影存在；当前截图风动差异较小，强风运动观感与细枝缝隙仍交由用户运行时比较。
+- 生成文件仅 `src/app/generated/gui_adjustables_gen.rs`，由构建生成。原先的 `Cargo.lock` 元数据差异保留，不纳入提交。
+- 默认 release `--hidden --mute --auto-exit 0.5` 通过，无 ERROR/panic/VUID；日志 `target/tree-block-default-run.log` / `re-flora-20260917-013930.025-56237.log`。

@@ -4608,13 +4608,13 @@ impl App {
             .as_ref()
             .context("missing posed tree surface")?;
         let displacement = self.tracer.raster_trees.rest_mesh.max_displacement(surface);
-        anyhow::ensure!(
-            displacement > 1. / 256.,
-            "dynamic query fixture did not move at least one voxel"
-        );
         log::info!(
             "[TREE][DYNAMIC_POSE] max_displacement_voxels={}",
             displacement * 256.
+        );
+        anyhow::ensure!(
+            displacement > 1. / 256.,
+            "dynamic query fixture did not move at least one voxel"
         );
         let indices = &self.tracer.raster_trees.rest_mesh.indices;
         let rays: Vec<_> = indices
@@ -4733,6 +4733,30 @@ impl App {
         let mesh = &self.tracer.raster_trees.rest_mesh;
         let surface =
             mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
+        if mesh.axis_aligned {
+            for cube in surface.positions.chunks_exact(8) {
+                let min = cube
+                    .iter()
+                    .copied()
+                    .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+                let max = cube
+                    .iter()
+                    .copied()
+                    .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+                anyhow::ensure!(
+                    (max - min).abs_diff_eq(Vec3::splat(1. / 256.), 1e-6),
+                    "tree block rotated or stretched"
+                );
+                for p in cube {
+                    anyhow::ensure!(
+                        ((*p - min).abs().min((*p - max).abs()))
+                            .cmplt(Vec3::splat(1e-6))
+                            .all(),
+                        "tree corner left world axes"
+                    );
+                }
+            }
+        }
         anyhow::ensure!(
             surface.positions.iter().all(|p| p.is_finite()),
             "nonfinite posed tree position"
@@ -4765,10 +4789,19 @@ impl App {
             self.tracer.raster_trees.enabled = false;
             return Ok(());
         }
-        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision) {
+        let axis_aligned = self.debug_settings.adjustables.raster_tree_wind.value
+            && self
+                .debug_settings
+                .adjustables
+                .raster_tree_axis_aligned
+                .value;
+        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision)
+            || self.tracer.raster_trees.rest_mesh.axis_aligned != axis_aligned
+        {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
             self.vulkan_ctx.device().wait_idle();
             let started = Instant::now();
-            let mut mesh = crate::tracer::RasterTreeMesh::default();
+            let mut mesh = crate::tracer::RasterTreeMesh::with_axis_aligned(axis_aligned);
             let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
             for record in self.trees.records.values() {
                 let origin = record.bound.min().saturating_sub(UVec3::splat(2));
@@ -4816,8 +4849,8 @@ impl App {
                     )
                     .collect(),
             )?;
-            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} secondary_geometry=exact_static_voxels",
-                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0);
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} axis_aligned={} secondary_geometry=published_tree_surface",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,axis_aligned);
         }
         if !self.tracer.raster_trees.enabled {
             self.tracer.invalidate_local_direct_sun_shadow_histories();

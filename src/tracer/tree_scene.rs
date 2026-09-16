@@ -3,7 +3,8 @@ use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
-pub const MAX_TREE_TRIANGLES: usize = 1 << 16;
+// Complete axis-aligned cubes retain interior faces that smooth surfaces omit.
+pub const MAX_TREE_TRIANGLES: usize = 1 << 17;
 pub const MAX_TREE_VERTICES: usize = 1 << 17;
 pub const MAX_TREE_NODES: usize = MAX_TREE_TRIANGLES * 2;
 
@@ -27,7 +28,11 @@ impl TreeScene {
         ensure!(indices.len() % 3 == 0, "invalid tree triangle count");
         ensure!(
             positions.len() <= MAX_TREE_VERTICES && indices.len() / 3 <= MAX_TREE_TRIANGLES,
-            "dynamic tree scene capacity exceeded"
+            "dynamic tree scene capacity exceeded: vertices={} / {}, triangles={} / {}",
+            positions.len(),
+            MAX_TREE_VERTICES,
+            indices.len() / 3,
+            MAX_TREE_TRIANGLES
         );
         ensure!(
             indices.iter().all(|&i| (i as usize) < positions.len()),

@@ -36,6 +36,7 @@ pub struct RasterTreeVertex {
 
 #[derive(Clone, Default)]
 pub struct RasterTreeMesh {
+    pub axis_aligned: bool,
     pub vertices: Vec<RasterTreeVertex>,
     pub indices: Vec<u32>,
     cells: BTreeMap<[u32; 3], (Vec3, [bool; 6])>,
@@ -45,6 +46,12 @@ pub struct RasterTreeMesh {
 }
 
 impl RasterTreeMesh {
+    pub fn with_axis_aligned(axis_aligned: bool) -> Self {
+        Self {
+            axis_aligned,
+            ..Self::default()
+        }
+    }
     /// `bytes` includes a two-voxel halo for the same radius-two normal estimator as terrain.
     pub fn append_region(
         &mut self,
@@ -78,7 +85,7 @@ impl RasterTreeMesh {
                     }
                     self.solid_cells.insert(cell.to_array());
                     let faces = NEIGHBORS.map(|n| !solid(cell.as_ivec3() + n));
-                    if !faces.into_iter().any(|v| v) {
+                    if !self.axis_aligned && !faces.into_iter().any(|v| v) {
                         continue;
                     }
                     let mut moment = IVec3::ZERO;
@@ -97,7 +104,10 @@ impl RasterTreeMesh {
                     } else {
                         -moment.as_vec3().normalize()
                     };
-                    self.cells.insert(cell.to_array(), (normal, faces));
+                    self.cells.insert(
+                        cell.to_array(),
+                        (normal, if self.axis_aligned { [true; 6] } else { faces }),
+                    );
                 }
             }
         }
@@ -144,8 +154,8 @@ impl RasterTreeMesh {
         self.bindings = vec![None; self.vertices.len()];
         Ok(table)
     }
-    /// Coincident voxel corners bind from the same rest coordinate. Never choose
-    /// a joint independently from each voxel center, which would open cracks.
+    /// Smooth mode shares corner bindings; axis-aligned mode shares one center
+    /// binding per cube, intentionally allowing neighboring cubes to separate.
     pub fn bind_tree(&mut self, tree_id: u32, origin: Vec3, tree: &Tree) -> Result<()> {
         ensure!(
             self.bindings.len() == self.vertices.len(),
@@ -160,8 +170,13 @@ impl RasterTreeMesh {
             if !tree.trunks().iter().any(|c| c.signed_distance(center) < 0.) {
                 continue;
             }
-            let point = (Vec3::from_array(vertex.position) - origin) * 256.;
-            let key = vertex.position.map(f32::to_bits);
+            let rest = if self.axis_aligned {
+                vertex.center
+            } else {
+                vertex.position
+            };
+            let point = (Vec3::from_array(rest) - origin) * 256.;
+            let key = rest.map(f32::to_bits);
             let skin = if let Some(skin) = corners.get(&key) {
                 *skin
             } else {
@@ -189,8 +204,16 @@ impl RasterTreeMesh {
                 binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
             let transform = binding
                 .transform(poses(tree_id).ok_or_else(|| anyhow::anyhow!("tree pose missing"))?)?;
-            positions.push(transform.point(Vec3::from_array(vertex.position)));
-            normals.push(transform.normal(Vec3::from_array(vertex.normal)));
+            let rest = Vec3::from_array(vertex.position);
+            let normal = Vec3::from_array(vertex.normal);
+            if self.axis_aligned {
+                let center = Vec3::from_array(vertex.center);
+                positions.push(rest + (transform.point(center) - center));
+                normals.push(normal);
+            } else {
+                positions.push(transform.point(rest));
+                normals.push(transform.normal(normal));
+            }
         }
         Ok(PosedTreeSurface { positions, normals })
     }
@@ -519,6 +542,79 @@ mod tests {
                 < 1e-6
         );
         assert!(hit.world_position.distance(target) < 1e-6);
+    }
+
+    #[test]
+    fn axis_aligned_blocks_include_hidden_faces_and_translate_rigidly() {
+        use crate::{
+            tree_gen::{pose::TreePose, TreeDesc},
+            wind_field::WindFieldFrame,
+        };
+        let tree = Tree::new(TreeDesc::default());
+        let bytes = vec![5; 512];
+        let mut mesh = RasterTreeMesh::with_axis_aligned(true);
+        mesh.append_region(UVec3::ZERO, UVec3::splat(8), &bytes, tree.trunks())
+            .unwrap();
+        mesh.finish().unwrap();
+        assert!(mesh.cell_count() > 0);
+        assert_eq!(mesh.cell_count(), mesh.solid_cells.len());
+        assert_eq!(mesh.indices.len(), mesh.cell_count() * 36);
+        mesh.bind_tree(17, Vec3::ZERO, &tree).unwrap();
+        let mut pose = TreePose::new(tree.branches(), Vec3::ZERO).unwrap();
+        for _ in 0..120 {
+            pose.advance(&WindFieldFrame::uniform(glam::Vec2::X * 8.), 1. / 60.)
+                .unwrap();
+        }
+        let surface = mesh.posed_surface(|_| Some(pose.branches())).unwrap();
+        assert!(mesh.max_displacement(&surface) > 0.);
+        for (rest, posed) in mesh
+            .vertices
+            .chunks_exact(8)
+            .zip(surface.positions.chunks_exact(8))
+        {
+            let offset = posed[0] - Vec3::from(rest[0].position);
+            for (v, p) in rest.iter().zip(posed) {
+                assert!((*p - Vec3::from(v.position)).abs_diff_eq(offset, 1e-7));
+            }
+        }
+        for (v, normal) in mesh.vertices.iter().zip(&surface.normals) {
+            assert_eq!(Vec3::from(v.normal), *normal);
+        }
+        let top = surface
+            .positions
+            .iter()
+            .max_by(|a, b| a.y.total_cmp(&b.y))
+            .unwrap();
+        let origin = *top + Vec3::new(-0.001, 0.1, -0.001);
+        // Query a cube directly as well as all faces: barycentric mapping remains
+        // a translation back into the authoritative editable rest volume.
+        let ids = &mesh.indices[0..3];
+        let target = ids
+            .iter()
+            .map(|&i| surface.positions[i as usize])
+            .sum::<Vec3>()
+            / 3.;
+        let offset = surface.positions[ids[0] as usize]
+            - Vec3::from(mesh.vertices[ids[0] as usize].position);
+        let hit = intersect_surface_triangle(
+            target - Vec3::Y * 0.001,
+            Vec3::Y,
+            ids.iter()
+                .map(|&i| surface.positions[i as usize])
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+            ids.iter()
+                .map(|&i| Vec3::from(mesh.vertices[i as usize].position))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(hit
+            .rest_position
+            .abs_diff_eq(hit.world_position - offset, 1e-6));
+        assert!(mesh.raycast(&surface, origin, -Vec3::Y).is_ok());
     }
 
     #[test]
