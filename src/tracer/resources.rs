@@ -1408,6 +1408,14 @@ impl TracerMeshResources {
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
+    pub tree_scene_info: Resource<Buffer>,
+    pub tree_scene_rest_cells: Resource<Buffer>,
+    pub tree_attachment_keys: Resource<Buffer>,
+    pub tree_attachment_poses: Resource<Buffer>,
+    pub tree_scene_nodes: Resource<Buffer>,
+    pub tree_scene_triangles: Resource<Buffer>,
+    pub tree_scene_vertices: Resource<Buffer>,
+    pub tree_scene_cell_vertices: Resource<Buffer>,
     pub raster_tree_cells: Resource<Buffer>,
     pub raster_tree_local_light_cache: Resource<Buffer>,
     #[resource(nested)]
@@ -1454,6 +1462,17 @@ impl TracerResources {
         max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
+        let tree_buffer = |bytes: usize| {
+            Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::CpuToGpu,
+                bytes as u64,
+            ))
+        };
+        let tree_scene_info = tree_buffer(16);
+        tree_scene_info.fill(&[[0u32; 4]]).unwrap();
         let raster_tree_cells = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -1466,6 +1485,14 @@ impl TracerResources {
             .unwrap();
 
         Self {
+            tree_attachment_keys: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 16),
+            tree_attachment_poses: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 32),
+            tree_scene_rest_cells: tree_buffer(super::TREE_CELL_CAPACITY * 16),
+            tree_scene_info,
+            tree_scene_nodes: tree_buffer(super::tree_scene::MAX_TREE_NODES * 32),
+            tree_scene_triangles: tree_buffer(super::tree_scene::MAX_TREE_TRIANGLES * 16),
+            tree_scene_vertices: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 32),
+            tree_scene_cell_vertices: tree_buffer(super::TREE_CELL_CAPACITY * 4),
             raster_tree_cells: Resource::new(raster_tree_cells),
             raster_tree_local_light_cache: Resource::new(Buffer::new_sized(
                 device.clone(),

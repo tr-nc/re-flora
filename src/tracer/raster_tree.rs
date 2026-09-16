@@ -39,7 +39,9 @@ pub struct RasterTreeMesh {
     pub vertices: Vec<RasterTreeVertex>,
     pub indices: Vec<u32>,
     cells: BTreeMap<[u32; 3], (Vec3, [bool; 6])>,
+    pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
     bindings: Vec<Option<(u32, SkinBinding)>>,
+    pub cell_vertex_indices: Vec<u32>,
 }
 
 impl RasterTreeMesh {
@@ -74,6 +76,7 @@ impl RasterTreeMesh {
                     {
                         continue;
                     }
+                    self.solid_cells.insert(cell.to_array());
                     let faces = NEIGHBORS.map(|n| !solid(cell.as_ivec3() + n));
                     if !faces.into_iter().any(|v| v) {
                         continue;
@@ -108,6 +111,7 @@ impl RasterTreeMesh {
             TREE_CELL_CAPACITY / 2
         );
         let mut table = vec![[0u32; 4]; TREE_CELL_CAPACITY];
+        self.cell_vertex_indices = vec![0; TREE_CELL_CAPACITY];
         self.vertices.clear();
         self.indices.clear();
         for (&cell, &(normal, faces)) in &self.cells {
@@ -120,6 +124,7 @@ impl RasterTreeMesh {
             table[slot] = [cell[0], cell[1], cell[2], pack_normal_oct16(normal) + 1];
             let min = UVec3::from_array(cell).as_vec3();
             let base = u32::try_from(self.vertices.len())?;
+            self.cell_vertex_indices[slot] = base;
             self.vertices
                 .extend(VOXEL_VERTICES.map(|v| RasterTreeVertex {
                     position: ((min + v.as_vec3()) / 256.0).to_array(),
@@ -223,6 +228,14 @@ impl RasterTreeMesh {
         Ok(nearest)
     }
 
+    pub fn max_displacement(&self, surface: &PosedTreeSurface) -> f32 {
+        self.vertices
+            .iter()
+            .zip(&surface.positions)
+            .map(|(rest, posed)| Vec3::from(rest.position).distance(*posed))
+            .fold(0., f32::max)
+    }
+
     pub fn cell_count(&self) -> usize {
         self.cells.len()
     }
@@ -259,6 +272,12 @@ pub struct RasterTreeGeometry {
     pub enabled: bool,
     pub color_draws: u64,
     pub rest_mesh: RasterTreeMesh,
+    pub scene: super::tree_scene::TreeScene,
+    pub attachments: Vec<super::tree_scene::TreeAttachment>,
+    pub attachment_poses: Vec<BranchPose>,
+    pub previous_attachment_poses: Vec<BranchPose>,
+    pub attachment_dt: f32,
+    pub posed_surface: Option<PosedTreeSurface>,
 }
 
 impl RasterTreeGeometry {
@@ -287,6 +306,12 @@ impl RasterTreeGeometry {
             enabled: false,
             color_draws: 0,
             rest_mesh: RasterTreeMesh::default(),
+            scene: super::tree_scene::TreeScene::default(),
+            attachments: Vec::new(),
+            attachment_poses: Vec::new(),
+            previous_attachment_poses: Vec::new(),
+            attachment_dt: 0.,
+            posed_surface: None,
         }
     }
     fn buffer(
@@ -303,6 +328,55 @@ impl RasterTreeGeometry {
             bytes.max(4) as u64,
         )
     }
+    pub fn raycast(&self, origin: Vec3, direction: Vec3) -> Option<SurfaceHit> {
+        let posed = self.posed_surface.as_ref()?;
+        let mut nearest: Option<SurfaceHit> = None;
+        for index in self.scene.ray_candidates(origin, direction) {
+            let triangle = self.scene.triangles[index as usize];
+            let ids = [
+                triangle[0] as usize,
+                triangle[1] as usize,
+                triangle[2] as usize,
+            ];
+            if let Some(hit) = intersect_surface_triangle(
+                origin,
+                direction,
+                ids.map(|i| posed.positions[i]),
+                ids.map(|i| Vec3::from(self.rest_mesh.vertices[i].position)),
+            ) {
+                if nearest.is_none_or(|previous| hit.distance < previous.distance) {
+                    nearest = Some(hit);
+                }
+            }
+        }
+        nearest
+    }
+
+    pub fn write_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
+        let mut vertices = self.rest_mesh.vertices.clone();
+        if let Some(ref surface) = surface {
+            ensure!(
+                surface.positions.len() == vertices.len(),
+                "posed tree topology mismatch"
+            );
+            for ((v, position), normal) in vertices
+                .iter_mut()
+                .zip(&surface.positions)
+                .zip(&surface.normals)
+            {
+                v.position = position.to_array();
+                v.normal = normal.to_array();
+            }
+        }
+        if !vertices.is_empty() {
+            self.vertices.fill(&vertices)?;
+            self.shadow_vertices
+                .fill(&vertices.iter().map(|v| v.position).collect::<Vec<_>>())?;
+        }
+        self.posed_surface = surface;
+        Ok(())
+    }
+
     /// Caller has quiesced frames before atlas readback and replacement.
     pub fn upload(
         &mut self,
@@ -343,6 +417,15 @@ impl RasterTreeGeometry {
         self.vertices = Resource::new(vertices);
         self.shadow_vertices = Resource::new(shadow_vertices);
         self.indices = Resource::new(indices);
+        self.scene = super::tree_scene::TreeScene::new(
+            &mesh.indices,
+            &mesh
+                .vertices
+                .iter()
+                .map(|v| Vec3::from(v.position))
+                .collect::<Vec<_>>(),
+        )?;
+        self.posed_surface = None;
         self.rest_mesh = mesh.clone();
         self.index_count = count;
         self.revision = Some(revision);

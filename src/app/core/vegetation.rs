@@ -4589,6 +4589,146 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn drive_tree_pose_smoke(&mut self) -> Result<()> {
+        let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(5., 2.));
+        for _ in 0..120 {
+            for record in self.trees.records.values_mut() {
+                record.pose.advance(&wind, 1. / 60.)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_surface_queries(&mut self) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let displacement = self.tracer.raster_trees.rest_mesh.max_displacement(surface);
+        anyhow::ensure!(
+            displacement > 1. / 256.,
+            "dynamic query fixture did not move at least one voxel"
+        );
+        log::info!(
+            "[TREE][DYNAMIC_POSE] max_displacement_voxels={}",
+            displacement * 256.
+        );
+        let indices = &self.tracer.raster_trees.rest_mesh.indices;
+        let rays: Vec<_> = indices
+            .chunks_exact(3)
+            .step_by((indices.len() / 3 / 16).max(1))
+            .filter_map(|t| {
+                let [a, b, c] = [
+                    surface.positions[t[0] as usize],
+                    surface.positions[t[1] as usize],
+                    surface.positions[t[2] as usize],
+                ];
+                let normal = (b - a).cross(c - a).normalize_or_zero();
+                (normal != Vec3::ZERO).then_some(crate::tracer::TerrainRayQuery {
+                    origin: (a + b + c) / 3. + normal * 0.01,
+                    direction: -normal,
+                })
+            })
+            .collect();
+        let mut checked = 0;
+        for ray in rays {
+            let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
+            let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
+            if let Some(cpu) = cpu {
+                anyhow::ensure!(
+                    gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,
+                    "dynamic tree CPU/GPU query mismatch cpu={:?} gpu={:?} valid={}",
+                    cpu.position,
+                    gpu.position,
+                    gpu.is_valid
+                );
+                checked += 1;
+            }
+        }
+        anyhow::ensure!(checked >= 4, "insufficient dynamic surface query samples");
+        log::info!("[TREE][DYNAMIC_QUERY] matched_rays={checked}");
+        Ok(())
+    }
+
+    pub(super) fn exercise_posed_tree_edit(&mut self) -> Result<()> {
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let index = surface
+            .positions
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+            .map(|(i, _)| i)
+            .context("empty tree surface")?;
+        let target = surface.positions[index];
+        let origin = target + Vec3::new(0.003, 0.02, 0.003);
+        let hit = self
+            .tracer
+            .raster_trees
+            .raycast(origin, (target - origin).normalize())
+            .context("posed tree edit fixture missed")?;
+        let readback = self.apply_surface_terrain_removal(
+            TerrainRemovalEdit {
+                center: hit.rest_position,
+                radius: 2. / 256.,
+            },
+            Some(VOXEL_TYPE_CHERRY_WOOD),
+            None,
+            None,
+        )?;
+        anyhow::ensure!(
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize] > 0,
+            "posed edit removed no wood"
+        );
+        log::info!(
+            "[TREE][DYNAMIC_EDIT] world={:?} rest={:?} removed_wood={}",
+            hit.world_position,
+            hit.rest_position,
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize]
+        );
+        Ok(())
+    }
+
+    pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
+        let surface = if self.tracer.raster_trees.enabled
+            && self.debug_settings.adjustables.raster_tree_wind.value
+        {
+            Some(
+                self.tracer
+                    .raster_trees
+                    .rest_mesh
+                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
+            )
+        } else {
+            None
+        };
+        if surface.is_some() {
+            let mut attachments = Vec::new();
+            for attachment in &self.tracer.raster_trees.attachments {
+                let pose =
+                    self.trees.records[&attachment.tree_id].pose.branches()[attachment.branch];
+                attachments.push(pose.rotation.to_array());
+                attachments.push(pose.translation.extend(0.).to_array());
+            }
+            self.tracer
+                .publish_tree_attachments(&attachments, self.time_info.delta_time())?;
+        }
+        self.terrain_physics.publish_tree_surface(
+            surface.as_ref().and(self.tracer.raster_trees.revision),
+            &self.tracer.raster_trees.rest_mesh.solid_cells,
+            surface.as_ref(),
+            &self.tracer.raster_trees.rest_mesh.indices,
+        )?;
+        self.tracer.publish_tree_surface(surface)
+    }
+
     pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
         let mesh = &self.tracer.raster_trees.rest_mesh;
         let surface =
@@ -4638,11 +4778,44 @@ impl App {
                 mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
             }
             let cells = mesh.finish()?;
+            let mut attachment_map = std::collections::BTreeMap::new();
             for (&tree_id, record) in &self.trees.records {
                 mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+                for (leaf, &branch) in record
+                    .rest_tree
+                    .relative_leaf_placements()
+                    .iter()
+                    .zip(record.rest_tree.leaf_branch_indices())
+                {
+                    let anchor = (leaf.anchor + record.position * 256.).as_uvec3();
+                    attachment_map
+                        .entry(anchor.to_array())
+                        .or_insert((tree_id, branch));
+                }
+                for fruit in &record.fruit_specs {
+                    let binding = crate::tree_gen::skin::SkinBinding::at_rest_position(
+                        &record.rest_tree,
+                        fruit.position_voxels.as_vec3() - record.position * 256.,
+                    )?;
+                    attachment_map
+                        .entry(fruit.position_voxels.to_array())
+                        .or_insert((tree_id, binding.branch));
+                }
             }
             self.tracer
                 .upload_static_raster_trees(&mesh, &cells, self.visible_terrain_revision)?;
+            self.tracer.bind_tree_attachments(
+                attachment_map
+                    .into_iter()
+                    .map(
+                        |(anchor, (tree_id, branch))| crate::tracer::TreeAttachment {
+                            anchor: UVec3::from(anchor),
+                            tree_id,
+                            branch,
+                        },
+                    )
+                    .collect(),
+            )?;
             log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} secondary_geometry=exact_static_voxels",
                 self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0);
         }

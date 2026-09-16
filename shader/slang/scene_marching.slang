@@ -6,6 +6,8 @@ import contree_node;
 import definitions;
 import marching_result;
 import voxel_data;
+import tree_scene;
+import tree_cells;
 
 static const uint MAX_DDA_ITERATIONS = 256u;
 
@@ -40,7 +42,7 @@ bool traceChunk(
     return true;
 }
 
-public MarchingResult marchScene(
+public MarchingResult marchTerrain(
     StructuredBuffer<ContreeNode> nodeData,
     StructuredBuffer<uint> leafData,
     readonly RWTexture3D<uint2> sceneTexture, float3 origin, float3 direction,
@@ -105,4 +107,25 @@ public MarchingResult marchScene(
         mapPosition += select(minimumMask, int3(1), int3(0)) * rayStep;
     }
     return result;
+}
+
+// Every secondary surface query compares the current tree surface with terrain.
+// Primary raster/background paths explicitly use marchTerrain instead.
+public MarchingResult marchScene(
+    StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, float3 origin, float3 direction,
+    float3 inverseDirection, uint invocation)
+{
+    MarchingResult hit = marchTerrain(nodes,leaves,scene,origin,direction,inverseDirection,invocation);
+    if (!treeSceneActive()) return hit;
+    uint w,h,d; scene.GetDimensions(w,h,d);
+    for (uint step=0u;step<(w+h+d)*256u+1u && hit.is_hit;++step) {
+        if (hit.voxel_type != 5u || !isRasterTreeCell(hit.center_position)) break;
+        float3 face = hit.center_position + select(direction >= float3(0),float3(0.5/256.0),float3(-0.5/256.0));
+        float3 distances = select(abs(direction)>float3(1e-8),(face-hit.position)*inverseDirection,float3(1e20));
+        float advance = max(0.0,min(distances.x,min(distances.y,distances.z)))+1e-6;
+        hit = marchTerrain(nodes,leaves,scene,hit.position+direction*advance,direction,inverseDirection,invocation);
+    }
+    if (hit.is_hit) hit.distance = length(hit.position-origin);
+    return traceTreeScene(origin,direction,hit);
 }

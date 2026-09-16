@@ -26,9 +26,15 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "raster_tree_wind",
+        kind: "bool",
+        label: "Animate raster trees with wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "raster_tree_static",
         kind: "bool",
-        label: "Raster whole trees (B: static comparison)",
+        label: "Raster whole trees (B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1318,6 +1324,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_static: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
@@ -1546,6 +1553,7 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_static_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1765,6 +1773,11 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "raster_tree_wind" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            raster_tree_wind_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "raster_tree_static" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             raster_tree_static_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3212,6 +3225,7 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_static: raster_tree_static_field.expect("Missing parameter: raster_tree_static"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
@@ -3648,6 +3662,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
@@ -3908,6 +3923,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),

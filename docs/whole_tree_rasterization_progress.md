@@ -78,3 +78,36 @@
 - GPU 的颜色和投影仍保持用户已检查的静态版。动态遮挡查询、叶果消费姿态与移动后的编辑接线未完成，尚未进入下一轮用户视觉验收。
 
 验证：`cargo fmt --check`、`cargo check`、蒙皮/共角点定向测试、全量串行测试通过（1007 + 4 passed，2 ignored）。日志 `target/tree-skin-{check,tests,seam-tests,tests-full}.log`。`--raster-tree-smoke` 真实运行日志为 `re-flora-20260917-002345.816-28229.log`，A/B、年龄、删除和替换通过，90 次 B color draw，正常退出 `failures=0`；默认 `--hidden --mute --auto-exit 0.5` 也通过，输出 `target/tree-skin-default-run.log`。同工作树日志 helper 已检查。未修改 shader 或生成文件，未做动态视觉/性能验收。
+
+## 步骤 3c：可体验的整树风动候选（2026-09-17）
+
+入口：`R → Debug → Whole Tree Rasterization`。`Raster whole trees (B)` 切换原体素/光栅路径；新增可保存的 `Animate raster trees with wind` 开启 B 的层级风动。两项默认均关闭，取消动画会恢复静止网格和最新编辑过的地形碰撞。风来自现有统一风场，可用现有 Wind 工具制造阵风。
+
+### 接入范围
+
+- 每帧在唯一在途帧完成后发布同一份蒙皮表面；主颜色、太阳阴影、三角形射线查询、玩家/刚体碰撞读取一致的位置。显式声明 CPU 写入及 shader/vertex 消费依赖。
+- 三角形 BVH 在拓扑变化时构建，普通风动只 refit 包围盒；GPU stackless 遍历与 terrain 比较最近命中。相机背景继续跳过原树表面，由 raster 深度和颜色接管。CPU 拾取使用同一表面/BVH。
+- 主干、分枝均参与层级角响应，根部蒙皮权重归零；没有将树干永久固定到 terrain。木头法线随形变并在面内插值，叶片光学法线、叶方块和挂果一起跟随枝段。
+- 叶片按生成器保留的附着枝段绑定，阴影代理按同一 spray anchor 跟随。果实在静止形状修订时绑定一次；脱离时继承枝段姿态与速度，并检查实际释放位置的落地路径碰撞是否就绪。
+- DDGI 探针射线、太阳/局部灯射线和普通 voxel/Glass surface query 使用动态三角形；dense media 查询排除旧树木格子。DDGI receiver→probe 的 voxel 可见性检查也排除旧树，并额外查询动态表面，防止保留旧树轮廓的遮挡。探针布局/重定位仍由地形修订驱动，不声称复杂玻璃或所有动态 GI 场景已经视觉验收。
+- 碰撞层保留最近收到的 terrain source occupancy，表示切换时排除原树格子，并加入变形三角形表面；退出动画恢复最新 source occupancy，不改写/伪造地形修订。新增测试覆盖期间发生地形编辑、恢复源数据、移动表面后的胶囊阻挡、移除表面后的自由通行。
+- 铲子命中摆动后的树，使用三角形重心坐标映射到静止表面，并只移除木材；正常地形命中沿用原编辑。树上铲子刷子的半径在静止形状空间定义，不声称是形变空间中精确的球。其他笔刷未做动态树专项验收。原始体素保留为编辑/持久化的静止形状，不再作为 B 动画模式里的光线遮挡或树碰撞。
+- 在接通局部灯消费者时修正 leaf lighting compute 的调用索引：workgroup traversal 使用 `SV_GroupIndex`，不能使用跨工作组的叶实例序号。
+
+### 成本与验收边界
+
+本步优先完成一致性与真实效果：CPU 计算蒙皮、refit 并上传；物理三角形 shape 当前逐帧更新。尚未完成密林性能验收，也未迁移为 GPU 蒙皮。新增固定 GPU 查询/附着缓冲约 17 MiB，连同原 lookup/cache 共约 25 MiB；上限 65,536 三角形、131,072 顶点、32,767 个唯一附着 anchor。超限准备失败回到 A；不是无限树数实现。CPU 增加静止网格、绑定、BVH及碰撞源占据缓存。
+
+已检查真实隐藏截图 `target/tree-wind-evidence/{A,B}-{wood,canopy}.png`：当前机位枝干轮廓发生形变，方块风格和树根接地保留，未见接头裂缝，树冠/地面投影存在。截图/短运行不证明运动观感自然，也不作为性能数据；这一轮交由用户体验幅度、回弹和光影稳定性。没有自动启动可见窗口。
+
+### 自动验证
+
+- `cargo fmt --check`、`cargo check` 通过；物理库新增/修改的 Rust 文件单独通过 rustfmt 检查，未带入该库既有其他测试文件的格式差异。
+- 全量串行测试：1008 main + 4 library passed、2 ignored；物理库 46 tests passed（包含 2 个新动态表面/恢复测试）。日志 `target/tree-dynamic-tests-final.log`、`target/tree-dynamic-physics-final.log`。
+- `--hidden --mute --raster-tree-smoke --resize-lifecycle-test --auto-exit 60` 通过。真实日志 `target/re-flora-logs/re-flora-20260917-005006.383-41185.log`：强风 fixture 最大位移 9.84 体素；17 条 CPU/GPU 命中匹配；动态表面命中映射后真实移除 6 个木体素；A/B、生长、删除、重建、关闭风动恢复静止均通过。窗口/帧/tracer generation 一致推进到 5，正常退出 `failures=0`，无 ERROR/panic/VUID。未将此等同于启用了 Vulkan validation layer。
+- 默认隐藏静音 release 0.5 秒运行通过，输出 `target/tree-dynamic-default-verified.log`；截图脚本在 GPU lock 下运行并原样恢复 GUI/相机文件，输出 `target/tree-wind-captures.log`。
+- 改动的生成文件仅 GUI binding，由 `cargo check` 生成；没有手改生成输出。
+
+仍待后续专项：密林/多树重叠的预算和轮廓、极端强风形变、全部 Glass/局部灯组合、动态探针布局、非铲子笔刷，以及生态/声音/落叶发射布局的骨架跟随。当前生态和声音布局仍使用生成态数据。此轮是可交互的风动视觉候选，不是上述所有子系统的最终发布验收。
+
+最终复核：默认模式真实日志 `re-flora-20260917-005142.265-41878.log` 正常退出；最终源码重新生成的 A/B 裸枝与树冠截图均已完成，检查 B 裸枝与 B 树冠未见新的接头或接地问题。工作开始时已有的 `Cargo.lock` registry 元数据差异保持原样，不纳入本功能提交。

@@ -2,6 +2,7 @@ module scene_query;
 
 import contree_node;
 import scene_marching;
+import tree_scene;
 import voxel_data;
 import voxel_material;
 import marching_result;
@@ -139,7 +140,8 @@ uint sceneQueryVoxelType(readonly RWTexture3D<uint> denseAtlas,
                          uint3 dimensions)
 {
     if (!sceneQueryCellInside(cell, dimensions)) return 0u;
-    return voxelTypeFromAtlasData(denseAtlas[uint3(cell)]);
+    uint type = voxelTypeFromAtlasData(denseAtlas[uint3(cell)]);
+    return type==5u && treeRestVoxel(uint3(cell)) ? 0u : type;
 }
 
 public uint sceneQueryVoxelTypeAtWorld(

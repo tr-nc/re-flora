@@ -10,7 +10,8 @@ import packer;
 [[vk::binding(16,0)]] [[vk::image_format("r8ui")]] readonly RWTexture3D<uint> chunk_atlas;
 [[vk::binding(42,0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
 [[vk::binding(43,0)]] StructuredBuffer<U_LightGpu> local_lights;
-[[vk::binding(47,0)]] StructuredBuffer<uint4> raster_tree_cells;
+import tree_scene;
+import tree_cells;
 [[vk::binding(48,0)]] RWStructuredBuffer<float4> raster_tree_local_light_cache;
 [numthreads(64,1,1)]
 [shader("compute")]
@@ -22,6 +23,7 @@ void main(uint3 id : SV_DispatchThreadID, uint localIndex : SV_GroupIndex) {
     if (cell.w != 0u) {
         float3 normal = unpackNormalOct16(cell.w-1u);
         float3 center = (float3(cell.xyz)+0.5)/256.0;
+        treeCellReceiver(id.x,center,normal);
         float3 receiver = terrainVoxelSurfacePositionAlongNormal(center,normal);
         irradiance = evaluateVoxelGlassVisibleLocalLightIrradiance(local_light_info,local_lights,
             contree_node_data,contree_leaf_data,scene_tex,chunk_atlas,receiver,normal,

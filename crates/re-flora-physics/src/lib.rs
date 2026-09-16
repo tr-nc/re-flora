@@ -365,6 +365,9 @@ pub struct CollisionWorld {
     capsule_character_removed_colliders: HashSet<ColliderHandle>,
     static_bricks: HashMap<StaticVoxelBrickId, StaticVoxelBrick>,
     static_brick_revisions: HashMap<StaticVoxelBrickId, u64>,
+    source_occupancies: HashMap<StaticVoxelBrickId, BrickOccupancy>,
+    deforming_exclusions: HashMap<StaticVoxelBrickId, Vec<UVec3>>,
+    deforming_surface: Option<ColliderHandle>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
     next_dynamic_body_id: u64,
     fixed_step_seconds: f32,
@@ -392,6 +395,9 @@ impl CollisionWorld {
             capsule_character_removed_colliders: HashSet::new(),
             static_bricks: HashMap::new(),
             static_brick_revisions: HashMap::new(),
+            source_occupancies: HashMap::new(),
+            deforming_exclusions: HashMap::new(),
+            deforming_surface: None,
             dynamic_bodies: HashMap::new(),
             next_dynamic_body_id: 1,
             fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
@@ -709,6 +715,8 @@ impl CollisionWorld {
             }
         }
 
+        self.source_occupancies.insert(id, occupancy.clone());
+        let occupancy = self.with_deforming_exclusions(id, occupancy);
         let update = if let Some(existing) = self.static_bricks.get(&id) {
             let changes = occupancy.changes_from(&existing.occupancy);
             if changes.is_empty() {
@@ -735,6 +743,95 @@ impl CollisionWorld {
 
         self.static_brick_revisions.insert(id, revision);
         update
+    }
+
+    fn with_deforming_exclusions(
+        &self,
+        id: StaticVoxelBrickId,
+        mut occupancy: BrickOccupancy,
+    ) -> BrickOccupancy {
+        if let Some(cells) = self.deforming_exclusions.get(&id) {
+            for &cell in cells {
+                occupancy.set(cell, false);
+            }
+        }
+        occupancy
+    }
+
+    /// Excludes only cells owned by the replacement surface. Source revisions
+    /// remain terrain revisions; changing representation does not forge edits.
+    pub fn set_deforming_surface_exclusions(&mut self, cells: impl IntoIterator<Item = IVec3>) {
+        let mut next: HashMap<StaticVoxelBrickId, Vec<UVec3>> = HashMap::new();
+        for cell in cells {
+            let id =
+                StaticVoxelBrickId(cell.div_euclid(IVec3::splat(STATIC_VOXEL_BRICK_DIM as i32)));
+            let local = (cell - id.0 * STATIC_VOXEL_BRICK_DIM as i32).as_uvec3();
+            next.entry(id).or_default().push(local);
+        }
+        let affected: HashSet<_> = self
+            .deforming_exclusions
+            .keys()
+            .chain(next.keys())
+            .copied()
+            .collect();
+        self.deforming_exclusions = next;
+        for id in affected {
+            let Some(source) = self.source_occupancies.get(&id).cloned() else {
+                continue;
+            };
+            let occupancy = self.with_deforming_exclusions(id, source);
+            if let Some(existing) = self.static_bricks.get(&id) {
+                let changes = occupancy.changes_from(&existing.occupancy);
+                if !changes.is_empty() {
+                    self.update_existing_brick(id, occupancy, &changes);
+                }
+            } else if !occupancy.is_empty() {
+                self.insert_new_brick(id, occupancy);
+            }
+        }
+    }
+
+    /// The animated mesh participates in the same player and rigid-body queries
+    /// as terrain. Positions are in physics voxel units.
+    pub fn set_deforming_surface(
+        &mut self,
+        positions: &[Vec3],
+        indices: &[[u32; 3]],
+    ) -> Result<(), String> {
+        if indices.is_empty() {
+            if let Some(handle) = self.deforming_surface.take() {
+                self.physics.remove_collider(handle);
+                self.capsule_character_modified_colliders.remove(&handle);
+                self.capsule_character_removed_colliders.insert(handle);
+            }
+            return Ok(());
+        }
+        if !positions.iter().all(|p| p.is_finite())
+            || !indices
+                .iter()
+                .flatten()
+                .all(|&i| (i as usize) < positions.len())
+        {
+            return Err("invalid deforming collider geometry".into());
+        }
+        let shape = SharedShape::trimesh(
+            positions.iter().copied().map(to_rapier_vec).collect(),
+            indices.to_vec(),
+        )
+        .map_err(|e| e.to_string())?;
+        let handle = if let Some(handle) = self.deforming_surface {
+            self.physics.colliders[handle].set_shape(shape);
+            handle
+        } else {
+            let handle = self.physics.insert_collider(
+                ColliderBuilder::new(shape).collision_groups(static_terrain_collision_groups()),
+                None,
+            );
+            self.deforming_surface = Some(handle);
+            handle
+        };
+        self.capsule_character_modified_colliders.insert(handle);
+        Ok(())
     }
 
     pub fn remove_static_voxel_brick(

@@ -1,3 +1,4 @@
+import tree_scene;
 import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
@@ -74,7 +75,7 @@ VertexOutput main(VertexInput input)
     }
 
     float3 vertexPosition = prepared.anchor_position +
-                            float3(vertexOffset) * FLORA_SCALING_FACTOR;
+                            treeAttachmentVector(instancePosition,float3(vertexOffset) * FLORA_SCALING_FACTOR);
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

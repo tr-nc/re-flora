@@ -27,8 +27,10 @@ mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
 mod raster_tree;
+mod tree_scene;
 use raster_tree::RasterTreeGeometry;
-pub use raster_tree::{RasterTreeMesh, TREE_CELL_CAPACITY};
+pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
+pub use tree_scene::TreeAttachment;
 mod dynamic_fruit_resources;
 pub use dynamic_fruit_resources::*;
 
@@ -1668,6 +1670,18 @@ impl Tracer {
     /// consumer stage and access from the pipeline's active reflection.
     pub fn record_host_buffer_writes(&self, cmdbuf: &CommandBuffer) {
         let updated_buffers = [
+            &*self.resources.tree_scene_info,
+            &*self.resources.tree_scene_nodes,
+            &*self.resources.tree_scene_triangles,
+            &*self.resources.tree_scene_vertices,
+            &*self.resources.tree_scene_cell_vertices,
+            &*self.resources.tree_scene_rest_cells,
+            &*self.resources.tree_attachment_keys,
+            &*self.resources.tree_attachment_poses,
+            &*self.resources.raster_tree_cells,
+            &*self.raster_trees.vertices,
+            &*self.raster_trees.shadow_vertices,
+            &*self.raster_trees.indices,
             &*self.resources.uniforms.gui_input,
             &*self.resources.uniforms.sun_info,
             &*self.resources.uniforms.shading_info,
@@ -6056,12 +6070,58 @@ impl Tracer {
     pub(crate) fn attached_fruit_handoff(&self, roots: &[UVec3]) -> Result<Vec<(Vec3, Vec3)>> {
         let bytes = self.resources.uniforms.gui_input.read_back()?;
         let gui = bytemuck::pod_read_unaligned(&bytes);
-        self.vegetation_response.fruit_handoff(
+        let mut handoffs = self.vegetation_response.fruit_handoff(
             &self.vulkan_ctx,
             self.allocator.clone(),
             &gui,
             roots,
-        )
+        )?;
+        if self.raster_trees.posed_surface.is_some() {
+            for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {
+                if let Some(index) = self
+                    .raster_trees
+                    .attachments
+                    .iter()
+                    .position(|a| a.anchor == root)
+                {
+                    let pose = self.raster_trees.attachment_poses[index];
+                    let rest = (root.as_vec3() + *offset) / 256.;
+                    let world = pose.transform_point(rest);
+                    *offset = world * 256. - root.as_vec3();
+                    *velocity = pose.rotation * *velocity;
+                    if let Some(previous) = self.raster_trees.previous_attachment_poses.get(index) {
+                        let dt = self.raster_trees.attachment_dt;
+                        if dt > 1e-6 {
+                            *velocity += (world - previous.transform_point(rest)) * 256. / dt;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(handoffs)
+    }
+
+    pub(crate) fn attached_fruit_rotation(&self, root: UVec3) -> (glam::Quat, Vec3) {
+        if self.raster_trees.posed_surface.is_some() {
+            if let Some(index) = self
+                .raster_trees
+                .attachments
+                .iter()
+                .position(|a| a.anchor == root)
+            {
+                let pose = self.raster_trees.attachment_poses[index];
+                let angular = self
+                    .raster_trees
+                    .previous_attachment_poses
+                    .get(index)
+                    .map_or(Vec3::ZERO, |previous| {
+                        (pose.rotation * previous.rotation.conjugate()).to_scaled_axis()
+                            / self.raster_trees.attachment_dt.max(1e-6)
+                    });
+                return (pose.rotation, angular);
+            }
+        }
+        (glam::Quat::IDENTITY, Vec3::ZERO)
     }
 
     pub fn project_screen_point_to_world(
@@ -6166,13 +6226,108 @@ impl Tracer {
     ) -> Result<()> {
         // App has waited for all submitted frames before readback/replacement.
         self.resources.raster_tree_cells.fill(cells)?;
+        let mut rest_cells = vec![[0u32; 4]; TREE_CELL_CAPACITY];
+        anyhow::ensure!(
+            mesh.solid_cells.len() < TREE_CELL_CAPACITY / 2,
+            "tree solid cell capacity exceeded"
+        );
+        for &p in &mesh.solid_cells {
+            let hash = raster_tree::tree_cell_hash(p) as usize;
+            let slot = (0..64)
+                .map(|j| (hash + j) & (TREE_CELL_CAPACITY - 1))
+                .find(|&j| rest_cells[j][3] == 0)
+                .ok_or_else(|| anyhow::anyhow!("tree solid lookup probe budget exhausted"))?;
+            rest_cells[slot] = [p[0], p[1], p[2], 1];
+        }
+        self.resources.tree_scene_rest_cells.fill(&rest_cells)?;
+        self.resources
+            .tree_scene_cell_vertices
+            .fill(&mesh.cell_vertex_indices)?;
         self.raster_trees.upload(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             mesh,
             revision,
         )?;
+        if !self.raster_trees.scene.triangles.is_empty() {
+            self.resources
+                .tree_scene_triangles
+                .fill(&self.raster_trees.scene.triangles)?;
+        }
         self.invalidate_local_direct_sun_shadow_histories();
+        Ok(())
+    }
+
+    pub fn bind_tree_attachments(&mut self, attachments: Vec<TreeAttachment>) -> Result<()> {
+        use tree_scene::MAX_TREE_ATTACHMENTS;
+        anyhow::ensure!(
+            attachments.len() < MAX_TREE_ATTACHMENTS / 2,
+            "tree attachment capacity exceeded"
+        );
+        let mut table = vec![[0u32; 4]; MAX_TREE_ATTACHMENTS];
+        for (i, attachment) in attachments.iter().enumerate() {
+            let p = attachment.anchor.to_array();
+            let hash = raster_tree::tree_cell_hash(p) as usize;
+            let slot = (0..64)
+                .map(|j| (hash + j) & (MAX_TREE_ATTACHMENTS - 1))
+                .find(|&j| table[j][3] == 0)
+                .ok_or_else(|| anyhow::anyhow!("tree attachment hash probe budget exhausted"))?;
+            table[slot] = [p[0], p[1], p[2], i as u32 + 1];
+        }
+        self.resources.tree_attachment_keys.fill(&table)?;
+        self.raster_trees.attachments = attachments;
+        self.raster_trees.attachment_poses.clear();
+        self.raster_trees.previous_attachment_poses.clear();
+        Ok(())
+    }
+    pub fn publish_tree_attachments(&mut self, poses: &[[f32; 4]], dt: f32) -> Result<()> {
+        self.raster_trees.previous_attachment_poses =
+            std::mem::take(&mut self.raster_trees.attachment_poses);
+        self.raster_trees.attachment_poses = poses
+            .chunks_exact(2)
+            .map(|p| crate::tree_gen::pose::BranchPose {
+                rotation: glam::Quat::from_array(p[0]),
+                translation: Vec3::new(p[1][0], p[1][1], p[1][2]),
+            })
+            .collect();
+        self.raster_trees.attachment_dt = dt;
+        if !poses.is_empty() {
+            self.resources.tree_attachment_poses.fill(poses)?;
+        }
+        Ok(())
+    }
+
+    /// Called after acquiring the sole in-flight frame; previous readers have completed.
+    pub fn publish_tree_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
+        if let Some(ref posed) = surface {
+            self.raster_trees.scene.refit(&posed.positions)?;
+            if !posed.positions.is_empty() {
+                let data: Vec<[f32; 4]> = posed
+                    .positions
+                    .iter()
+                    .zip(&posed.normals)
+                    .flat_map(|(p, n)| [p.extend(1.).to_array(), n.extend(0.).to_array()])
+                    .collect();
+                self.resources.tree_scene_vertices.fill(&data)?;
+                self.resources
+                    .tree_scene_nodes
+                    .fill(&self.raster_trees.scene.nodes)?;
+            }
+        }
+        let active = surface.is_some();
+        if !active {
+            self.raster_trees.attachment_poses.clear();
+            self.raster_trees.previous_attachment_poses.clear();
+        }
+        if active || self.raster_trees.posed_surface.is_some() {
+            self.raster_trees.write_surface(surface)?;
+        }
+        self.resources.tree_scene_info.fill(&[[
+            u32::from(active),
+            self.raster_trees.scene.nodes.len() as u32,
+            0,
+            0,
+        ]])?;
         Ok(())
     }
 

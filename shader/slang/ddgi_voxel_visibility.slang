@@ -1,6 +1,7 @@
 module ddgi_voxel_visibility;
 
 import ddgi_types;
+import tree_scene;
 
 public static const uint DDGI_VOXEL_VISIBILITY_MAX_STEPS = 2048u;
 static const float DDGI_VOXEL_ENDPOINT_CLIP_GRACE = 0.5;
@@ -24,6 +25,7 @@ public bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
 {
     if (!ddgiVoxelCoordinateInside(coordinate, dimensions)) return true;
     uint3 voxel = uint3(coordinate);
+    if (treeRestVoxel(voxel)) return false;
     uint word = ddgi_voxel_visibility_bits[
         uint3(voxel.x >> 5u, voxel.y, voxel.z)];
     return (word & (1u << (voxel.x & 31u))) != 0u;
@@ -116,6 +118,7 @@ public float ddgiVoxelSegmentVisibility(float3 biasedWorldPosition,
                                         float3 probeWorldPosition,
                                         uint expectedGeometryRevision)
 {
+    if (treeSceneOccludes(biasedWorldPosition,probeWorldPosition)) return 0.0;
     U_DdgiVoxelVisibilityInfo info = ddgi_voxel_visibility_info;
     if (info.ready == 0u || info.geometry_revision != expectedGeometryRevision ||
         any(info.voxel_dimensions == uint3(0u)) ||

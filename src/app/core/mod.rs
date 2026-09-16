@@ -3371,6 +3371,8 @@ impl App {
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
+                self.publish_tree_surface_pose()
+                    .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
                 self.launch_owners.record_connectivity_gpu_submission(

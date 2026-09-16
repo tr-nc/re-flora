@@ -92,9 +92,18 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "raster_tree_wind"
+kind = "bool"
+label = "Animate raster trees with wind"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "raster_tree_static"
 kind = "bool"
-label = "Raster whole trees (B: static comparison)"
+label = "Raster whole trees (B)"
 type = "Bool"
 
 [section.param.data]
