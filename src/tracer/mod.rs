@@ -1672,7 +1672,7 @@ impl Tracer {
         let updated_buffers = [
             &*self.resources.tree_scene_info,
             &*self.resources.tree_scene_nodes,
-            &*self.resources.tree_scene_triangles,
+            &*self.resources.tree_scene_primitives,
             &*self.resources.tree_scene_vertices,
             &*self.resources.tree_scene_cell_vertices,
             &*self.resources.tree_scene_rest_cells,
@@ -6256,10 +6256,10 @@ impl Tracer {
             mesh,
             revision,
         )?;
-        if !self.raster_trees.scene.triangles.is_empty() {
+        if !self.raster_trees.scene.primitives.is_empty() {
             self.resources
-                .tree_scene_triangles
-                .fill(&self.raster_trees.scene.triangles)?;
+                .tree_scene_primitives
+                .fill(&self.raster_trees.scene.primitives)?;
         }
         self.invalidate_local_direct_sun_shadow_histories();
         Ok(())

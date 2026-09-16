@@ -1,10 +1,10 @@
 module tree_scene;
 import marching_result;
 import tree_cells;
-struct TreeSceneNode { float3 lower; uint escape; float3 upper; uint triangle; };
+struct TreeSceneNode { float3 lower; uint escape; float3 upper; uint primitive; };
 [[vk::binding(49,0)]] StructuredBuffer<uint4> tree_scene_info;
 [[vk::binding(50,0)]] StructuredBuffer<TreeSceneNode> tree_scene_nodes;
-[[vk::binding(51,0)]] StructuredBuffer<uint4> tree_scene_triangles;
+[[vk::binding(51,0)]] StructuredBuffer<uint4> tree_scene_primitives;
 [[vk::binding(52,0)]] StructuredBuffer<float4> tree_scene_vertices;
 [[vk::binding(53,0)]] StructuredBuffer<uint> tree_scene_cell_vertices;
 public bool treeSceneActive() { return tree_scene_info[0].x != 0u; }
@@ -30,6 +30,24 @@ bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, flo
     }
     return lo <= hi;
 }
+// Exact axis-aligned box boundary, including exit hits for inside origins.
+bool intersectTreeBox(float3 origin, float3 direction, float3 lower, float3 upper, out float distance) {
+    float nearDistance = -1e30, farDistance = 1e30;
+    distance = 0.0;
+    for (uint axis=0u; axis<3u; ++axis) {
+        if (abs(direction[axis]) < 1e-10) {
+            if (origin[axis] < lower[axis] || origin[axis] > upper[axis]) return false;
+        } else {
+            float a=(lower[axis]-origin[axis])/direction[axis];
+            float b=(upper[axis]-origin[axis])/direction[axis];
+            nearDistance=max(nearDistance,min(a,b));
+            farDistance=min(farDistance,max(a,b));
+        }
+    }
+    if (nearDistance > farDistance || farDistance < 1e-6) return false;
+    distance=nearDistance >= 1e-6 ? nearDistance : farDistance;
+    return true;
+}
 public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
     if (!treeSceneActive()) return hit;
     uint count = tree_scene_info[0].y;
@@ -38,8 +56,21 @@ public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingRe
     while (index < count) {
         TreeSceneNode node = tree_scene_nodes[index];
         if (!intersectsTreeNode(node,origin,direction,limit)) { index = node.escape; continue; }
-        if (node.triangle == 0xffffffffu) { ++index; continue; }
-        uint3 ids = tree_scene_triangles[node.triangle].xyz;
+        if (node.primitive == 0xffffffffu) { ++index; continue; }
+        uint4 primitive = tree_scene_primitives[node.primitive];
+        uint3 ids = primitive.xyz;
+        if (primitive.w == 1u) {
+            float distance;
+            if (intersectTreeBox(origin,direction,treeScenePosition(ids.x),treeScenePosition(ids.y),distance) && distance < limit) {
+                limit=distance;
+                hit.is_hit=true; hit.distance=distance;
+                hit.position=origin+direction*distance; hit.center_position=hit.position;
+                hit.normal=normalize(treeSceneNormal(ids.x));
+                hit.voxel_type=5u; hit.voxel_address=0u;
+            }
+            index=node.escape;
+            continue;
+        }
         float3 a = treeScenePosition(ids.x), b = treeScenePosition(ids.y), c = treeScenePosition(ids.z);
         float3 e1 = b-a, e2 = c-a;
         float3 p = cross(direction,e2);

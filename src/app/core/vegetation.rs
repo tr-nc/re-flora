@@ -4849,8 +4849,8 @@ impl App {
                     )
                     .collect(),
             )?;
-            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} axis_aligned={} secondary_geometry=published_tree_surface",
-                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,axis_aligned);
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} axis_aligned={} query_primitives={} secondary_geometry=published_tree_surface",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,axis_aligned,self.tracer.raster_trees.scene.primitives.len());
         }
         if !self.tracer.raster_trees.enabled {
             self.tracer.invalidate_local_direct_sun_shadow_histories();

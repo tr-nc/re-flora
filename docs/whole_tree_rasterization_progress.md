@@ -182,3 +182,15 @@
 验证：root 全量 1011 + 4 passed / 2 ignored；物理库 49 tests passed。新测试覆盖原位移动、表示切换、相同数量但不同拓扑、无效更新保留旧状态、删除/移走后旧碰撞消失，以及持续更新期间的刚体落地。生成文件未变化。
 
 最终应用验证：`cargo check`、格式检查通过；`--raster-tree-smoke` 通过（16 条 CPU/GPU 命中一致、实际移除 6 个木体素、模式往返/生长/删除/重建），默认 hidden/mute 0.5 秒正常退出。日志 `target/tree-update-step1-{smoke,default}.log`，无 ERROR/panic/VUID。
+
+### 优化步骤 2：查询几何直接使用方块
+
+查询层现在接收三角面或显式 min/max 顶点索引表示的盒子，CPU/GPU 共用 primitive metadata 和 refit-only 层级。视觉网格的顶点排列知识留在外观适配中；查询层无需读取 GUI，也不展开盒子的六个面。CPU 编辑命中按盒子的平移映射回静止空间；GPU 保留原木材着色法线。方块外部进入和内部退出均返回最近前向表面。
+
+默认树仍绘制 127,152 个三角形，查询数量从 127,152 降为 10,596。相同 release 脚本测得：平滑模式帧中位数/p95 为 17.22/18.02 ms，轴对齐为 20.50/21.52 ms（物理优化后原为 29.19/30.72 ms；最初为 64.245/66.75 ms）。日志 `target/tree-update-perf-query-verified`。既有几何容量上限保留。
+
+验证：root 1012 + 4 passed / 2 ignored；tracer 92 项通过，包括直接盒求交与完整三角面在 96 条内外射线上的对照、平移后的编辑坐标。114 个生成 SPIR-V 均通过 spirv-val。真实 `--raster-tree-smoke --resize-lifecycle-test` 通过，16 条 CPU/GPU 命中一致、真实移除 6 个木体素、模式往返/生长/删除/重建、窗口 generation 一致；日志 `target/tree-query-stable-smoke.log`，对应 `re-flora-20260917-023246.697-75330.log`。
+
+本步期间额外尝试按拓扑重分配 GPU 查询缓冲，GPU 回归出现 DEVICE_LOST，内核记录 Xid 109。该试验已完整撤回；只保留方块求交并恢复既有固定容量/稳定资源身份后，同一回归和后续基准均正常。尚未证明重分配失败的完整资源链路根因，不将其包装为已修复，也不声称显存按需缩放已完成。本步收益来自查询 primitive/节点数量与实际上传量减少，不来自缩小缓冲分配。
+
+默认 release hidden/mute 0.5 秒运行亦通过（`target/tree-query-default.log`），格式检查与 `cargo check` 通过；生成 Rust 文件未变化。

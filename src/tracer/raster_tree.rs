@@ -367,9 +367,31 @@ impl RasterTreeGeometry {
     }
     pub fn raycast(&self, origin: Vec3, direction: Vec3) -> Option<SurfaceHit> {
         let posed = self.posed_surface.as_ref()?;
+        let direction = direction.normalize_or_zero();
         let mut nearest: Option<SurfaceHit> = None;
         for index in self.scene.ray_candidates(origin, direction) {
-            let triangle = self.scene.triangles[index as usize];
+            let triangle = self.scene.primitives[index as usize];
+            if triangle[3] == 1 {
+                let base = triangle[0] as usize;
+                if let Some((distance, normal)) = super::tree_scene::intersect_box(
+                    origin,
+                    direction,
+                    posed.positions[base],
+                    posed.positions[triangle[1] as usize],
+                ) {
+                    if nearest.is_none_or(|hit: SurfaceHit| distance < hit.distance) {
+                        let world_position = origin + direction * distance;
+                        nearest = Some(SurfaceHit {
+                            distance,
+                            normal,
+                            world_position,
+                            rest_position: world_position - posed.positions[base]
+                                + Vec3::from(self.rest_mesh.vertices[base].position),
+                        });
+                    }
+                }
+                continue;
+            }
             let ids = [
                 triangle[0] as usize,
                 triangle[1] as usize,
@@ -454,14 +476,20 @@ impl RasterTreeGeometry {
         self.vertices = Resource::new(vertices);
         self.shadow_vertices = Resource::new(shadow_vertices);
         self.indices = Resource::new(indices);
-        self.scene = super::tree_scene::TreeScene::new(
-            &mesh.indices,
-            &mesh
-                .vertices
-                .iter()
-                .map(|v| Vec3::from(v.position))
-                .collect::<Vec<_>>(),
-        )?;
+        let positions: Vec<_> = mesh
+            .vertices
+            .iter()
+            .map(|v| Vec3::from(v.position))
+            .collect();
+        self.scene = if mesh.axis_aligned {
+            let bounds: Vec<_> = (0..positions.len())
+                .step_by(8)
+                .map(|base| [base as u32, base as u32 + 6])
+                .collect();
+            super::tree_scene::TreeScene::boxes(&bounds, &positions)?
+        } else {
+            super::tree_scene::TreeScene::new(&mesh.indices, &positions)?
+        };
         self.posed_surface = None;
         self.rest_mesh = mesh.clone();
         self.index_count = count;
