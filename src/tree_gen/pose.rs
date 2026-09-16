@@ -128,7 +128,8 @@ impl TreePose {
                     joint.frequency,
                     h,
                 );
-                let rotation = (parent.rotation * Quat::from_scaled_axis(joint.angle)).normalize();
+                let rotation =
+                    (parent.rotation * rotation_from_scaled_axis(joint.angle)).normalize();
                 // Child pivot is the parent's deformed endpoint, never its rest endpoint.
                 let pivot = parent.transform_point(joint.start);
                 self.branches[index] = BranchPose {
@@ -139,6 +140,20 @@ impl TreePose {
         }
         self.revision += 1;
         Ok(())
+    }
+}
+
+// The exponential map has a smooth limit at zero. Normalizing a tiny axis
+// first loses accuracy when its squared length becomes subnormal, even though
+// the original components and the resulting quaternion are representable.
+fn rotation_from_scaled_axis(angle: Vec3) -> Quat {
+    let theta_squared = angle.length_squared();
+    if theta_squared < 1e-6 {
+        // sin(theta / 2) / theta and cos(theta / 2), through theta squared.
+        let vector = angle * (0.5 - theta_squared / 48.);
+        Quat::from_xyzw(vector.x, vector.y, vector.z, 1. - theta_squared / 8.)
+    } else {
+        Quat::from_scaled_axis(angle)
     }
 }
 
@@ -242,6 +257,43 @@ mod tests {
             .joints
             .iter()
             .all(|j| j.angle.length() < 1e-6 && j.velocity.length() < 1e-6));
+    }
+    #[test]
+    fn small_rotation_preserves_motion_and_matches_exponential_map() {
+        for strength in [0., 1e-30, 1e-22, 1e-18, 1e-8, 1e-4, 0.001, 0.22] {
+            let axis = Vec3::new(1., -2., 3.).normalize();
+            let actual = rotation_from_scaled_axis(axis * strength);
+            let expected = Quat::from_axis_angle(axis, strength);
+            assert!(actual.is_normalized());
+            assert!(actual.abs_diff_eq(expected, 1e-7));
+            if strength > 0. {
+                assert!(actual.x > 0., "tiny rotations must not be snapped to rest");
+            }
+        }
+    }
+    #[test]
+    fn tiny_wind_and_long_settling_keep_valid_rotations() {
+        for strength in [1e-18, 1e-20, 1e-22, 1e-24, 1e-30] {
+            let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+            let wind = WindFieldFrame::uniform(Vec2::new(strength, strength * 0.5));
+            for _ in 0..120 {
+                pose.advance(&wind, 1. / 60.).unwrap();
+                assert!(pose
+                    .branches()
+                    .iter()
+                    .all(|p| p.rotation.is_normalized() && p.translation.is_finite()));
+            }
+        }
+        let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        pose.advance(&WindFieldFrame::uniform(Vec2::X * 3.), 0.25)
+            .unwrap();
+        for _ in 0..18000 {
+            pose.advance(&WindFieldFrame::default(), 1. / 60.).unwrap();
+            assert!(pose
+                .branches()
+                .iter()
+                .all(|p| p.rotation.is_normalized() && p.translation.is_finite()));
+        }
     }
     #[test]
     fn invalid_topology_and_inputs_do_not_publish() {
