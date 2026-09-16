@@ -202,24 +202,36 @@ impl RasterTreeMesh {
         let mut block_centers = self
             .axis_aligned
             .then(|| Vec::with_capacity(self.vertices.len() / 8));
-        for (index, (vertex, binding)) in self.vertices.iter().zip(&self.bindings).enumerate() {
+        // Axis-aligned blocks share a center binding across all eight corners.
+        // Smooth surfaces retain their per-corner bindings and normal transforms.
+        let group_size = if self.axis_aligned { 8 } else { 1 };
+        ensure!(
+            self.vertices.len() % group_size == 0,
+            "incomplete tree vertex group"
+        );
+        for (group, bindings) in self
+            .vertices
+            .chunks_exact(group_size)
+            .zip(self.bindings.chunks_exact(group_size))
+        {
+            let vertex = &group[0];
             let (tree_id, binding) =
-                binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
+                bindings[0].ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
             let transform = binding
                 .transform(poses(tree_id).ok_or_else(|| anyhow::anyhow!("tree pose missing"))?)?;
-            let rest = Vec3::from_array(vertex.position);
-            let normal = Vec3::from_array(vertex.normal);
-            if self.axis_aligned {
+            if let Some(centers) = block_centers.as_mut() {
+                debug_assert!(bindings.iter().all(|b| *b == bindings[0]));
                 let center = Vec3::from_array(vertex.center);
                 let posed_center = transform.point(center);
-                if index % 8 == 0 {
-                    block_centers.as_mut().unwrap().push(posed_center);
+                centers.push(posed_center);
+                let offset = posed_center - center;
+                for corner in group {
+                    positions.push(Vec3::from_array(corner.position) + offset);
+                    normals.push(Vec3::from_array(corner.normal));
                 }
-                positions.push(rest + (posed_center - center));
-                normals.push(normal);
             } else {
-                positions.push(transform.point(rest));
-                normals.push(transform.normal(normal));
+                positions.push(transform.point(Vec3::from_array(vertex.position)));
+                normals.push(transform.normal(Vec3::from_array(vertex.normal)));
             }
         }
         Ok(PosedTreeSurface {
@@ -609,6 +621,23 @@ mod tests {
         }
         let surface = mesh.posed_surface(|_| Some(pose.branches())).unwrap();
         assert!(mesh.max_displacement(&surface) > 0.);
+        // Equivalence to the old independent per-vertex path protects batching
+        // across neighboring cells with different skeleton attachments.
+        for ((vertex, binding), position) in mesh
+            .vertices
+            .iter()
+            .zip(&mesh.bindings)
+            .zip(&surface.positions)
+        {
+            let (_, binding) = binding.unwrap();
+            let transform = binding.transform(pose.branches()).unwrap();
+            let center = Vec3::from(vertex.center);
+            assert_eq!(
+                *position,
+                Vec3::from(vertex.position) + (transform.point(center) - center)
+            );
+        }
+
         for (rest, posed) in mesh
             .vertices
             .chunks_exact(8)
