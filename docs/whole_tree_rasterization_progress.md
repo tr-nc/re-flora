@@ -136,3 +136,20 @@
 - `python3 scripts/check_raster_tree_static.py --axis-aligned --delay 2.5 --output target/tree-axis-aligned-evidence` 完成四张真实截图并原样恢复 GUI/相机配置。该参数下 A 是原平滑风动，B 是轴对齐风动。检查 A/B 裸枝与 B 树冠，方块轮廓和地面阴影存在；当前截图风动差异较小，强风运动观感与细枝缝隙仍交由用户运行时比较。
 - 生成文件仅 `src/app/generated/gui_adjustables_gen.rs`，由构建生成。原先的 `Cargo.lock` 元数据差异保留，不纳入提交。
 - 默认 release `--hidden --mute --auto-exit 0.5` 通过，无 ERROR/panic/VUID；日志 `target/tree-block-default-run.log` / `re-flora-20260917-013930.025-56237.log`。
+
+## 用户复核后的诊断：轴对齐生效，但完整木块代价过高
+
+用户报告新开关看不出变化、似乎仍旋转且掉帧严重。实际可见运行日志 `target/tree-block-visible.log` 确认切换到 `axis_aligned=true`；不将用户看到的差异不明显等同于开关未接通。先前轻风远景截图不足以验收这一视觉差异。
+
+使用临时诊断补丁固定 TreePose 为 8/2 方向均匀风演化 240 步后的姿态（固定后不再演化），同一近景相机、同一光照、release 隐藏静音，分别捕获裸枝与树叶 A/B。截图 `target/tree-axis-review/{A,B}-{wood,leaves}.png` 明确显示：A 的木块随枝干倾斜；B 的木块和叶块仍保持世界轴方向，中心连续移动、相邻木块错开。未复现几何仍旋转。用户是否满意该 B 外观仍未确认，不能把技术轴对齐等同于视觉验收。另检查实际 SPIR-V 输入：木材三个 vec3（36-byte 顶点），叶片一个 uint（4-byte 顶点），叶片反射包含 tree_scene_info binding 49，未发现布局漂移。
+
+这次单场景诊断的 CPU 中位数（毫秒；排除未激活帧与初始样本）：
+
+| 场景 | 蒙皮 A / B | 碰撞更新 A / B | 查询结构和表面发布 A / B | 帧总耗时 A / B |
+| --- | --- | --- | --- | --- |
+| 裸枝近景 | 1.46 / 2.81 | 3.17 / 25.28 | 2.85 / 12.36 | 19.49 / 60.66 |
+| 有叶近景 | 1.47 / 2.79 | 3.18 / 25.16 | 2.86 / 12.33 | 19.95 / 61.80 |
+
+这些是固定强风姿态、逐帧诊断日志开启下的 release 测量，证明此候选存在重大成本，不是动态风/密林通用基准或优化后的承诺。每帧 `SharedShape::trimesh` 重建物理网格是已确认的大头；127,152 三角形的 refit/上传也很重。不能再只说有优化空间而不给实际成本。后续应研究适合轴对齐方块的查询/碰撞表示与更新方式，保留相同几何/编辑语义；这次没有擅自冻结碰撞或减少内部几何。
+
+临时诊断源代码已移除；补丁和测量脚本仅留在 `target/tree-axis-review/diagnostic.patch`、`target/tree_axis_review.py`，标记为诊断复现材料；结果 `metrics.json` 与四份运行日志在同目录。本轮只记录诊断，没有声称修好了用户的视觉观感或性能问题。
