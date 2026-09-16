@@ -11,6 +11,9 @@ use rapier3d::prelude::{
 use std::collections::{HashMap, HashSet};
 
 mod character_step;
+mod deforming_geometry;
+pub use deforming_geometry::DeformingGeometry;
+use deforming_geometry::DeformingShape;
 mod contact_prediction;
 
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
@@ -798,7 +801,17 @@ impl CollisionWorld {
         positions: &[Vec3],
         indices: &[[u32; 3]],
     ) -> Result<(), String> {
-        if indices.is_empty() {
+        self.set_deforming_geometry(DeformingGeometry::Triangles { positions, indices })
+    }
+
+    /// Updates exact geometry in place when its topology is unchanged. Both
+    /// adapters share collider lifecycle, broad-phase invalidation and queries.
+    pub fn set_deforming_geometry(
+        &mut self,
+        geometry: DeformingGeometry<'_>,
+    ) -> Result<(), String> {
+        geometry.validate()?;
+        if geometry.len() == 0 {
             if let Some(handle) = self.deforming_surface.take() {
                 self.physics.remove_collider(handle);
                 self.capsule_character_modified_colliders.remove(&handle);
@@ -806,19 +819,22 @@ impl CollisionWorld {
             }
             return Ok(());
         }
-        if !positions.iter().all(|p| p.is_finite())
-            || !indices
-                .iter()
-                .flatten()
-                .all(|&i| (i as usize) < positions.len())
-        {
-            return Err("invalid deforming collider geometry".into());
+        if let Some(handle) = self.deforming_surface {
+            if self.physics.colliders[handle]
+                .shape()
+                .as_shape::<DeformingShape>()
+                .is_some_and(|shape| shape.matches_topology(&geometry))
+            {
+                self.physics.colliders[handle]
+                    .shape_mut()
+                    .as_shape_mut::<DeformingShape>()
+                    .expect("shape checked")
+                    .update(&geometry);
+                self.capsule_character_modified_colliders.insert(handle);
+                return Ok(());
+            }
         }
-        let shape = SharedShape::trimesh(
-            positions.iter().copied().map(to_rapier_vec).collect(),
-            indices.to_vec(),
-        )
-        .map_err(|e| e.to_string())?;
+        let shape = SharedShape::new(DeformingShape::new(&geometry));
         let handle = if let Some(handle) = self.deforming_surface {
             self.physics.colliders[handle].set_shape(shape);
             handle

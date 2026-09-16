@@ -199,7 +199,10 @@ impl RasterTreeMesh {
         );
         let mut positions = Vec::with_capacity(self.vertices.len());
         let mut normals = Vec::with_capacity(self.vertices.len());
-        for (vertex, binding) in self.vertices.iter().zip(&self.bindings) {
+        let mut block_centers = self
+            .axis_aligned
+            .then(|| Vec::with_capacity(self.vertices.len() / 8));
+        for (index, (vertex, binding)) in self.vertices.iter().zip(&self.bindings).enumerate() {
             let (tree_id, binding) =
                 binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
             let transform = binding
@@ -208,14 +211,22 @@ impl RasterTreeMesh {
             let normal = Vec3::from_array(vertex.normal);
             if self.axis_aligned {
                 let center = Vec3::from_array(vertex.center);
-                positions.push(rest + (transform.point(center) - center));
+                let posed_center = transform.point(center);
+                if index % 8 == 0 {
+                    block_centers.as_mut().unwrap().push(posed_center);
+                }
+                positions.push(rest + (posed_center - center));
                 normals.push(normal);
             } else {
                 positions.push(transform.point(rest));
                 normals.push(transform.normal(normal));
             }
         }
-        Ok(PosedTreeSurface { positions, normals })
+        Ok(PosedTreeSurface {
+            positions,
+            normals,
+            block_centers,
+        })
     }
 
     /// Exact surface query used to validate rest-coordinate editing. The future
@@ -265,6 +276,9 @@ impl RasterTreeMesh {
 }
 
 pub struct PosedTreeSurface {
+    /// Exact translated unit cubes, when this representation provides them.
+    /// Consumers need not infer geometry from GUI state or triangle ordering.
+    pub block_centers: Option<Vec<Vec3>>,
     pub positions: Vec<Vec3>,
     pub normals: Vec<Vec3>,
 }

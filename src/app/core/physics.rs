@@ -232,14 +232,24 @@ impl TerrainPhysics {
             self.tree_surface_revision = revision;
         }
         if let Some(surface) = surface {
-            let positions: Vec<_> = surface.positions.iter().map(|p| *p * 256.).collect();
-            let triangles: Vec<_> = indices
-                .chunks_exact(3)
-                .map(|t| [t[0], t[1], t[2]])
-                .collect();
-            self.collision_world
-                .set_deforming_surface(&positions, &triangles)
-                .map_err(anyhow::Error::msg)?;
+            if let Some(centers) = &surface.block_centers {
+                let centers: Vec<_> = centers.iter().map(|p| *p * 256.).collect();
+                self.collision_world
+                    .set_deforming_geometry(re_flora_physics::DeformingGeometry::Boxes {
+                        centers: &centers,
+                        half_extents: Vec3::splat(0.5),
+                    })
+                    .map_err(anyhow::Error::msg)?;
+            } else {
+                let positions: Vec<_> = surface.positions.iter().map(|p| *p * 256.).collect();
+                let triangles: Vec<_> = indices
+                    .chunks_exact(3)
+                    .map(|t| [t[0], t[1], t[2]])
+                    .collect();
+                self.collision_world
+                    .set_deforming_surface(&positions, &triangles)
+                    .map_err(anyhow::Error::msg)?;
+            }
         } else {
             self.collision_world
                 .set_deforming_surface(&[], &[])
