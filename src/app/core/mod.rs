@@ -2398,6 +2398,8 @@ impl App {
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
                 self.wind_prototype.advance(visual_time_since_start);
+                self.advance_tree_poses(frame_delta_time)
+                    .expect("tree pose update must publish finite transforms");
                 let wind = match canopy_audio_frame.wind_policy() {
                     launch_owners::CanopyAudioWindPolicy::Configured => {
                         self.wind_prototype.field.frame()

@@ -998,6 +998,7 @@ struct TreeRecord {
     // One committed rest tree retains geometry, topology and attachments for all derived
     // consumers. Audio resampling must never regenerate or use quantized render positions.
     rest_tree: Arc<Tree>,
+    pose: crate::tree_gen::pose::TreePose,
     leaf_clusters: Vec<ClusterResult>,
 }
 
@@ -1042,6 +1043,11 @@ impl PreparedTreePublication {
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
                 canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
+                pose: crate::tree_gen::pose::TreePose::new(
+                    compiled.rest_tree.branches(),
+                    compiled.tree_pos,
+                )
+                .expect("generated tree must have valid connected topology"),
                 rest_tree: compiled.rest_tree,
                 leaf_clusters,
             },
@@ -4564,6 +4570,33 @@ mod tests {
 }
 
 impl App {
+    pub(super) fn validate_tree_poses(&self) -> Result<()> {
+        for record in self.trees.records.values() {
+            anyhow::ensure!(record.pose.revision() > 0, "tree pose was not advanced");
+            anyhow::ensure!(
+                record.pose.branches().len() == record.rest_tree.branches().len(),
+                "pose topology is stale"
+            );
+            anyhow::ensure!(
+                record
+                    .pose
+                    .branches()
+                    .iter()
+                    .all(|p| p.rotation.is_finite() && p.translation.is_finite()),
+                "nonfinite tree pose"
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
+        let wind = self.wind_prototype.field.frame();
+        for record in self.trees.records.values_mut() {
+            record.pose.advance(&wind, dt)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
         let enabled = self.debug_settings.adjustables.raster_tree_static.value;
         if !enabled {
