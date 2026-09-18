@@ -272,3 +272,30 @@ CPU 编辑射线改为从物理库获取当前精确碰撞 BVH 的候选 primiti
 release 单树动态风场（`target/tree-gpu-refit-perf`），CPU 中位数：平滑 skin 944 us、物理 329 us、查询发布 27 us、更新合计 1455 us；轴对齐 skin 344 us、物理 153 us、查询发布 9 us、更新合计 660 us。GPU 姿态约 74 us，蒙皮+BVH 全部更新约 68 us。整帧中位数 / p95 平滑 17.355 / 19.35 ms、轴对齐 17.46 / 19.13 ms；仍需重复静态对照，不从单次整帧测量声称最终达标。
 
 验证：root 全量 1015 + 4 passed / 2 ignored；物理库 50 项通过；`cargo check`、root 格式检查、diff 检查通过。真实 smoke/resize 在平滑 31,983 节点、轴对齐 21,191 节点和幼树 2,141 节点逐节点对照 CPU refit，通过精确位置/法线、16 条 CPU/GPU 射线、编辑和生命周期检查。默认 release hidden/mute 0.5 秒及运行日志无 ERROR/panic/VUID。日志 `target/tree-gpu-refit-{smoke,default,tail}.log`。生成文件未变化；物理 crate 中既有无关格式差异未混入，原 Cargo.lock 改动保留。
+
+## GPU 迁移验收候选：重复 release 基准与人工检查入口
+
+扩展 `scripts/benchmark_tree_update.py`，保留旧的默认 smooth/blocks 与 `--binary` 用法，增加 static 对照、重复次数、每轮轮换模式顺序和 wall-clock warmup。报告同时保存整帧、树 CPU 分段与 GPU timestamp 的中位数/p95/样本数。三项快速解析/CLI 测试覆盖午夜时间、按帧关联、旧日志兼容与错误恢复；定向 ruff 检查通过。配置修改全程持 GPU 锁并在 finally 原样恢复。
+
+最终命令：
+
+```sh
+python3 scripts/benchmark_tree_update.py --output target/tree-gpu-final-perf \
+  --modes static smooth blocks --repeats 3 --seconds 12
+```
+
+每模式三次、每次 12 秒，排除首个帧日志后的 3 秒。固定单树（轴对齐 10,596 木块）、同相机/光照、真实风场、hidden/mute、默认自动 present mode。没有冻结姿态或降低更新频率。
+
+| 模式 | 稳定样本 | 帧中位数 / p95 | 主帧 GPU 中位数 |
+| --- | --- | --- | --- |
+| 静态木材 | 1288 | 17.28 / 19.62 ms | 7.910 ms |
+| 平滑风动 | 1290 | 17.35 / 19.55 ms | 8.224 ms |
+| 轴对齐风动 | 1303 | 17.33 / 19.31 ms | 8.398 ms |
+
+轴对齐相对静态的整帧中位数差约 0.05 ms（约 0.3%），该场景基本不影响整帧吞吐。**这不代表工作量为零**：主帧 GPU 差约 0.49 ms，受更多面、变形后的遮挡与查询等影响；树 CPU 更新合计约 0.648 ms（平滑约 1.442 ms），CPU 精确物理仍计算紧凑中心/必要位置、更新碰撞 BVH。独立骨架 GPU job 约 0.074 ms，GPU 蒙皮+查询 BVH 约 0.067 ms，骨架收取等待中位数约 0.042 ms。CPU、GPU 与帧获取存在重叠，不能把各列简单相加当作整帧差值。
+
+对照边界：静态模式关闭的是木材动态表面；为保持既有开关语义，骨架状态仍持续演化，故静态对照同样含约 0.074 ms 的 GPU 骨架工作与约 0.140 ms 的 CPU 提交/收取。静态采用外露面、轴对齐采用完整木块，所以表中是整条路径对比，不是相同三角形数下的纯动画核对比。完整报告 `target/tree-gpu-final-perf/summary.json`。没有把单树结论扩展为密林、其他 GPU 或无 present 等待的通用预算。
+
+最终视觉留证：`target/tree-gpu-final-visual/{A,B}-{wood,canopy}.png`，已检查轴对齐裸枝与有叶截图，树干、树冠、地面阴影无明显缺失；材质/着色风格未更改。GPU/CPU 积分、逐顶点法线、逐 BVH 节点、精确射线、挖掘、生长/删除/重建、resize、物理角色/刚体测试以及默认隐藏运行均已完成。现在剩下的是人工验收运动观感、枝叶跟随、移动树干的碰撞/挖掘手感；不自动启动可见游戏。
+
+人工入口仍为 `R → Debug → Whole Tree Rasterization`：开启整树光栅化和 wind，使用已有 axis-aligned 开关对比平滑/轴对齐。性能判断用 release，不拿 debug FPS 判准出。用户确认后再讨论树梢/草花的材质风格统一；本轮没有新增材质 A/B 或偷偷改变交互语义。
