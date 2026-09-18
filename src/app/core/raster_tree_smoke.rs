@@ -43,6 +43,7 @@ impl RasterTreeSmoke {
                 ensure!(app.tracer.raster_trees.enabled, "B is not enabled");
                 app.validate_tree_poses()?;
                 app.validate_tree_surface_pose()?;
+                app.tracer.validate_gpu_tree_surface()?;
                 if self.frame >= 60 {
                     ensure!(
                         app.tracer.raster_trees.posed_surface.is_some(),
@@ -96,6 +97,7 @@ impl RasterTreeSmoke {
                     app.tracer.raster_trees.rest_mesh.axis_aligned,
                     "axis-aligned mode not active"
                 );
+                app.tracer.validate_gpu_tree_surface()?;
                 app.validate_tree_surface_queries()?;
             }
             66 => {
@@ -127,6 +129,7 @@ impl RasterTreeSmoke {
                     app.tracer.raster_trees.posed_surface.is_none(),
                     "wind did not restore static surface"
                 );
+                app.tracer.validate_gpu_tree_surface()?;
             }
             140 => {
                 log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);

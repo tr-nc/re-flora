@@ -4710,6 +4710,12 @@ impl App {
             None
         };
         if surface.is_some() {
+            self.tracer.publish_tree_skin_poses(|id| {
+                self.trees
+                    .records
+                    .get(&id)
+                    .map(|record| record.pose.branches())
+            })?;
             let mut attachments = Vec::new();
             for attachment in &self.tracer.raster_trees.attachments {
                 let pose =

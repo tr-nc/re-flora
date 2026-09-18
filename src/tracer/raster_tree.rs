@@ -189,6 +189,60 @@ impl RasterTreeMesh {
         Ok(())
     }
 
+    /// Compile resident GPU data only when topology/representation changes.
+    /// Aligned blocks have one binding and one rest record, not eight copies.
+    pub fn gpu_skin(&self) -> Result<GpuTreeSkin> {
+        let group_size = if self.axis_aligned { 8 } else { 1 };
+        ensure!(
+            self.bindings.len() == self.vertices.len(),
+            "missing GPU tree bindings"
+        );
+        ensure!(
+            self.vertices.len() % group_size == 0,
+            "incomplete GPU tree block"
+        );
+        let mut result = GpuTreeSkin::default();
+        let mut palette = BTreeMap::new();
+        for (vertices, bindings) in self
+            .vertices
+            .chunks_exact(group_size)
+            .zip(self.bindings.chunks_exact(group_size))
+        {
+            let (tree, binding) =
+                bindings[0].ok_or_else(|| anyhow::anyhow!("unbound GPU tree vertex"))?;
+            ensure!(
+                bindings.iter().all(|b| *b == bindings[0]),
+                "inconsistent GPU block binding"
+            );
+            ensure!(
+                binding.weight.is_finite() && (0. ..=1.).contains(&binding.weight),
+                "invalid GPU skin weight"
+            );
+            let mut index = |branch| {
+                *palette.entry((tree, branch)).or_insert_with(|| {
+                    result.branches.push((tree, branch));
+                    result.branches.len() as u32 // zero is the identity/root parent
+                })
+            };
+            let child = index(binding.branch);
+            let parent = binding.parent.map(&mut index).unwrap_or(0);
+            result
+                .bindings
+                .push([child, parent, binding.weight.to_bits(), 0]);
+            let vertex = vertices[0];
+            result.rest.extend([
+                Vec3::from(vertex.position).extend(1.).to_array(),
+                Vec3::from(vertex.center).extend(1.).to_array(),
+                Vec3::from(vertex.normal).extend(0.).to_array(),
+            ]);
+        }
+        ensure!(
+            result.branches.len() < super::tree_scene::MAX_TREE_VERTICES,
+            "GPU tree pose capacity exceeded"
+        );
+        Ok(result)
+    }
+
     pub fn posed_surface<'a>(
         &self,
         poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
@@ -312,9 +366,15 @@ pub fn tree_cell_hash(p: [u32; 3]) -> u32 {
     h ^ (h >> 16)
 }
 
+#[derive(Default)]
+pub struct GpuTreeSkin {
+    pub rest: Vec<[f32; 4]>,
+    pub bindings: Vec<[u32; 4]>,
+    pub branches: Vec<(u32, usize)>,
+}
+
 pub struct RasterTreeGeometry {
-    pub vertices: Resource<Buffer>,
-    pub shadow_vertices: Resource<Buffer>,
+    pub skin: GpuTreeSkin,
     pub indices: Resource<Buffer>,
     pub index_count: u32,
     pub revision: Option<u32>,
@@ -332,18 +392,7 @@ pub struct RasterTreeGeometry {
 impl RasterTreeGeometry {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         Self {
-            vertices: Resource::new(Self::buffer(
-                device.clone(),
-                allocator.clone(),
-                vk::BufferUsageFlags::VERTEX_BUFFER,
-                4,
-            )),
-            shadow_vertices: Resource::new(Self::buffer(
-                device.clone(),
-                allocator.clone(),
-                vk::BufferUsageFlags::VERTEX_BUFFER,
-                4,
-            )),
+            skin: GpuTreeSkin::default(),
             indices: Resource::new(Self::buffer(
                 device,
                 allocator,
@@ -423,29 +472,50 @@ impl RasterTreeGeometry {
         nearest
     }
 
-    pub fn write_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
-        let mut vertices = self.rest_mesh.vertices.clone();
-        if let Some(ref surface) = surface {
-            ensure!(
-                surface.positions.len() == vertices.len(),
-                "posed tree topology mismatch"
+    /// Hidden-app contract: compare every GPU result with the exact CPU surface
+    /// retained for physics, including normals and the disabled-wind rest pose.
+    pub fn validate_gpu_surface(&self, data: &[[f32; 4]]) -> Result<()> {
+        ensure!(
+            data.len() == self.rest_mesh.vertices.len() * 2,
+            "GPU tree surface size mismatch"
+        );
+        let mut max_position_error = 0.0_f32;
+        let mut max_normal_error = 0.0_f32;
+        for (i, vertex) in self.rest_mesh.vertices.iter().enumerate() {
+            let (position, normal) = self.posed_surface.as_ref().map_or(
+                (Vec3::from(vertex.position), Vec3::from(vertex.normal)),
+                |surface| (surface.positions[i], surface.normals[i]),
             );
-            for ((v, position), normal) in vertices
-                .iter_mut()
-                .zip(&surface.positions)
-                .zip(&surface.normals)
-            {
-                v.position = position.to_array();
-                v.normal = normal.to_array();
-            }
+            let gpu_position = Vec3::from_slice(&data[i * 2]);
+            let gpu_normal = Vec3::from_slice(&data[i * 2 + 1]);
+            ensure!(
+                gpu_position.is_finite() && gpu_normal.is_finite(),
+                "nonfinite GPU tree vertex {i}"
+            );
+            max_position_error = max_position_error.max(position.distance(gpu_position));
+            max_normal_error = max_normal_error.max(normal.distance(gpu_normal));
         }
-        if !vertices.is_empty() {
-            self.vertices.fill(&vertices)?;
-            self.shadow_vertices
-                .fill(&vertices.iter().map(|v| v.position).collect::<Vec<_>>())?;
-        }
-        self.posed_surface = surface;
+        ensure!(
+            max_position_error < 2e-6 && max_normal_error < 2e-4,
+            "GPU skin mismatch position={max_position_error} normal={max_normal_error}"
+        );
+        log::info!("[TREE][GPU_SKIN] vertices={} elements={} bones={} aligned={} active={} position_error={} normal_error={}",
+            self.rest_mesh.vertices.len(), self.skin.bindings.len(), self.skin.branches.len(),
+            self.rest_mesh.axis_aligned, self.posed_surface.is_some(), max_position_error, max_normal_error);
         Ok(())
+    }
+
+    /// Both color and shadow draws use the same resident surface. Aligned
+    /// blocks instance a single cube; smooth mode retains its exposed-face topology.
+    pub fn draw_counts(&self) -> (u32, u32) {
+        if self.rest_mesh.axis_aligned {
+            (
+                CUBE_INDICES.len() as u32,
+                self.rest_mesh.vertices.len() as u32 / 8,
+            )
+        } else {
+            (self.index_count, 1)
+        }
     }
 
     /// Caller has quiesced frames before atlas readback and replacement.
@@ -457,36 +527,21 @@ impl RasterTreeGeometry {
         revision: u32,
     ) -> Result<()> {
         let count = u32::try_from(mesh.indices.len())?;
-        let vertices = Self::buffer(
-            device.clone(),
-            allocator.clone(),
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            std::mem::size_of_val(mesh.vertices.as_slice()),
-        );
-        let shadow_positions = mesh
-            .vertices
-            .iter()
-            .map(|vertex| vertex.position)
-            .collect::<Vec<_>>();
-        let shadow_vertices = Self::buffer(
-            device.clone(),
-            allocator.clone(),
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            std::mem::size_of_val(shadow_positions.as_slice()),
-        );
+        let draw_indices = if mesh.axis_aligned {
+            CUBE_INDICES.as_slice()
+        } else {
+            &mesh.indices
+        };
         let indices = Self::buffer(
             device,
             allocator,
             vk::BufferUsageFlags::INDEX_BUFFER,
-            std::mem::size_of_val(mesh.indices.as_slice()),
+            std::mem::size_of_val(draw_indices),
         );
         if count > 0 {
-            vertices.fill(&mesh.vertices)?;
-            shadow_vertices.fill(&shadow_positions)?;
-            indices.fill(&mesh.indices)?;
+            indices.fill(draw_indices)?;
         }
-        self.vertices = Resource::new(vertices);
-        self.shadow_vertices = Resource::new(shadow_vertices);
+        self.skin = mesh.gpu_skin()?;
         self.indices = Resource::new(indices);
         let positions: Vec<_> = mesh
             .vertices
@@ -513,6 +568,50 @@ impl RasterTreeGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gpu_skin_compiles_one_record_per_block_and_deduplicates_tree_bones() {
+        let mut mesh = RasterTreeMesh::with_axis_aligned(true);
+        let binding = SkinBinding {
+            branch: 2,
+            parent: Some(1),
+            weight: 0.25,
+        };
+        for tree in [7, 7, 9] {
+            mesh.vertices
+                .extend(VOXEL_VERTICES.map(|v| RasterTreeVertex {
+                    position: (v.as_vec3() / 256.).to_array(),
+                    center: [0.5 / 256.; 3],
+                    normal: Vec3::Y.to_array(),
+                }));
+            mesh.bindings.extend([Some((tree, binding)); 8]);
+        }
+        let skin = mesh.gpu_skin().unwrap();
+        assert_eq!(skin.rest.len(), 9);
+        assert_eq!(skin.branches, [(7, 2), (7, 1), (9, 2), (9, 1)]);
+        assert_eq!(
+            skin.bindings,
+            [
+                [1, 2, 0.25_f32.to_bits(), 0],
+                [1, 2, 0.25_f32.to_bits(), 0],
+                [3, 4, 0.25_f32.to_bits(), 0]
+            ]
+        );
+        mesh.axis_aligned = false;
+        assert_eq!(mesh.gpu_skin().unwrap().bindings.len(), 24);
+        mesh.bindings[0] = Some((
+            7,
+            SkinBinding {
+                parent: None,
+                ..binding
+            },
+        ));
+        assert_eq!(mesh.gpu_skin().unwrap().bindings[0][1], 0);
+        mesh.axis_aligned = true;
+        assert!(mesh.gpu_skin().is_err()); // No silently mixed bindings within a block.
+        mesh.bindings[0] = None;
+        assert!(mesh.gpu_skin().is_err());
+    }
+
     #[test]
     fn adjacent_voxels_have_no_internal_faces_and_regions_deduplicate() {
         let dim = UVec3::splat(8);
