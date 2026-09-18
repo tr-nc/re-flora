@@ -322,6 +322,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/trees/tree_pose.comp",
+        source_path: "shader/slang/tree_pose.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/trees/tree_skin.comp",
         source_path: "shader/slang/tree_skin.comp.slang",
         module_path: "shader/slang",

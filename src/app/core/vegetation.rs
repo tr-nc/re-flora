@@ -4777,12 +4777,28 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
-        let wind = self.wind_prototype.field.frame();
-        for record in self.trees.records.values_mut() {
-            record.pose.advance(&wind, dt)?;
+    pub(super) fn finish_tree_poses(&mut self) -> Result<()> {
+        for update in self.tracer.tree_pose_solver.finish()? {
+            if let Some(record) = self.trees.records.get_mut(&update.tree) {
+                record.pose.accept_gpu(update.source, &update.state)?;
+            }
         }
         Ok(())
+    }
+
+    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
+        // An out-of-date swapchain can skip the previous publication. Consume
+        // that job before touching its resources, then submit this frame's step.
+        self.finish_tree_poses()?;
+        self.tracer.tree_pose_solver.submit(
+            self.trees
+                .records
+                .iter()
+                .map(|(&id, record)| (id, &record.pose)),
+            &self.wind_prototype.field.frame(),
+            dt,
+            self.launch_owners.raster_tree_smoke.is_some(),
+        )
     }
 
     pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {

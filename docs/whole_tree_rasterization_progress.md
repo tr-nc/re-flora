@@ -235,3 +235,13 @@ release 固定单树动态风场，8 秒、排除前约 3 秒，帧中位数 / p
 验证：`cargo fmt --check`、`cargo check`、`cargo test`（1013 + 4 passed，2 ignored）。增强 `--raster-tree-smoke --resize-lifecycle-test`：显式 smoke-only 下载 GPU 表面，逐顶点对照 CPU 精确位置和法线，覆盖静态、平滑、轴对齐、年龄重建、删除重建、关闭风；最大位置误差 3.77e-7 世界单位，法线误差 2.55e-7，16 条 CPU/GPU 射线一致。所有正常帧均不下载表面。默认 release hidden/mute 0.5 秒运行正常，最终日志无 ERROR/panic/VUID。早期试运行发现 Slang 的通用 SV_InstanceID 引入未启用的 DrawParameters capability；改为项目现有的 Vulkan 原生 ID 语义后重新验证通过，没有扩大设备特性需求。
 
 截图 `target/tree-gpu-skin-visual/{A,B}-{wood,canopy}.png`；已检查轴对齐裸枝与地面阴影，未发现明显缺面。动态截图不是逐像素等价证明，外观仍保留原模式。GUI/相机文件已恢复，生成文件没有变化，原有 Cargo.lock 差异不纳入提交。
+
+## GPU 迁移步骤 2：分层姿态求解与精确物理发布
+
+`tree_pose.comp.slang` 使用与草共享的 `wind_field.slang` 采样风场，在 GPU 中执行原弹簧积分、子步和父子姿态组合。一棵树由一个 invocation 顺序遍历其拓扑，不同树并行；没有深度截断或跨 workgroup 的隐式同步。静态关节与初始状态只在代次/诊断状态变化时上传，普通帧状态留在 GPU。CPU 实现仅保留为 smoke/单元测试参考与明确的强风诊断输入，不再是普通帧求解器。
+
+提前提交独立 managed GPU job，与 GUI/CPU 工作重叠，在表面/物理发布前完成。只读回每关节 64 字节的姿态和积分状态，不读回体素顶点；CPU 精确物理和 GPU 蒙皮使用相同发布。树的代次与 revision 验证拒绝删除、同数量重建和诊断覆盖后的陈旧结果。resize 跳过帧时先收取旧作业再提交，shutdown 显式消费作业；独立求解资源不与图形描述符共享可变身份。
+
+验证：`cargo fmt --check`、`cargo check`、全量测试 1014 + 4 passed / 2 ignored。真实 hidden/mute `--raster-tree-smoke --resize-lifecycle-test` 逐帧比较 GPU 积分与 CPU 参考（119 次，最大分量误差 4.06e-6），GPU 表面逐顶点/法线及 16 条射线对照通过，编辑/年龄/删除/重建/关闭风通过。默认 hidden/mute 0.5 秒通过，最终日志无 ERROR/panic/VUID。日志 `target/tree-gpu-pose-{check,tests,smoke,default,tail}.log`。生成文件未变化。
+
+本次单树 release 8 秒帧中位数 / p95：平滑 17.76 / 20.04 ms，轴对齐 17.41 / 20.02 ms（`target/tree-gpu-pose-perf`）。它没有证明比步骤 1 更快，也不作为最终性能验收；smoke 中收取骨架等待中位数 100 us / p95 1649 us，包含编辑重建与诊断，不可当作稳定帧的 GPU 求解耗时。下一步必须增加明确的分段测量，继续消除 CPU 精确物理/查询侧的重复展开与更新。

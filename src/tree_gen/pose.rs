@@ -1,9 +1,47 @@
 //! One tree-owned hierarchy pose, in world units, for render and interaction consumers.
 //! Rest topology uses generator voxels; the conversion happens only at construction.
 use anyhow::{ensure, Result};
+use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_POSE_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Shader ABI: immutable world-space joint and its local parent index.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct GpuPoseJoint {
+    pub start_frequency: [f32; 4],
+    pub end_compliance: [f32; 4],
+    pub parent: [u32; 4],
+}
+
+/// Compact skeleton publication, never an expanded voxel/vertex readback.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct GpuPoseState {
+    pub rotation: [f32; 4],
+    pub translation: [f32; 4],
+    pub angle: [f32; 4],
+    pub velocity: [f32; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PoseVersion {
+    generation: u64,
+    revision: u64,
+}
 
 use crate::{branch_skeleton::BranchSegment, wind_field::WindFieldFrame};
+
+impl PoseVersion {
+    pub(crate) fn advanced(self) -> Self {
+        Self {
+            revision: self.revision + 1,
+            ..self
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct BranchPose {
@@ -39,6 +77,7 @@ pub struct TreePose {
     joints: Vec<Joint>,
     branches: Vec<BranchPose>,
     revision: u64,
+    generation: u64,
 }
 
 impl TreePose {
@@ -79,6 +118,7 @@ impl TreePose {
             ],
             joints,
             revision: 0,
+            generation: NEXT_POSE_GENERATION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -89,9 +129,79 @@ impl TreePose {
         self.revision
     }
 
-    /// dt is elapsed simulation time, not an absolute wall clock. Invalid input
-    /// leaves the last published pose untouched. Consumers share this publication.
-    pub fn advance(&mut self, wind: &WindFieldFrame, dt: f32) -> Result<()> {
+    pub(crate) fn version(&self) -> PoseVersion {
+        PoseVersion {
+            generation: self.generation,
+            revision: self.revision,
+        }
+    }
+
+    pub(crate) fn gpu_joints(&self) -> Vec<GpuPoseJoint> {
+        self.joints
+            .iter()
+            .map(|joint| GpuPoseJoint {
+                start_frequency: joint.start.extend(joint.frequency).to_array(),
+                end_compliance: joint.end.extend(joint.compliance).to_array(),
+                parent: [joint.parent.map_or(u32::MAX, |p| p as u32), 0, 0, 0],
+            })
+            .collect()
+    }
+
+    pub(crate) fn gpu_state(&self) -> Vec<GpuPoseState> {
+        self.joints
+            .iter()
+            .zip(&self.branches)
+            .map(|(joint, pose)| GpuPoseState {
+                rotation: pose.rotation.to_array(),
+                translation: pose.translation.extend(0.).to_array(),
+                angle: joint.angle.extend(0.).to_array(),
+                velocity: joint.velocity.extend(0.).to_array(),
+            })
+            .collect()
+    }
+
+    /// A result may arrive after an edit/replacement or an explicit diagnostic
+    /// pose. Reject that result, including equal-count/equal-topology replacements.
+    pub(crate) fn accept_gpu(
+        &mut self,
+        source: PoseVersion,
+        state: &[GpuPoseState],
+    ) -> Result<bool> {
+        if self.version() != source {
+            return Ok(false);
+        }
+        ensure!(
+            state.len() == self.joints.len(),
+            "GPU pose topology mismatch"
+        );
+        for s in state {
+            ensure!(
+                s.rotation
+                    .iter()
+                    .chain(&s.translation)
+                    .chain(&s.angle)
+                    .chain(&s.velocity)
+                    .all(|v| v.is_finite()),
+                "nonfinite GPU pose publication"
+            );
+            ensure!(
+                (Quat::from_array(s.rotation).length_squared() - 1.).abs() < 1e-4,
+                "invalid GPU pose rotation"
+            );
+        }
+        for ((joint, pose), s) in self.joints.iter_mut().zip(&mut self.branches).zip(state) {
+            joint.angle = Vec3::from_slice(&s.angle);
+            joint.velocity = Vec3::from_slice(&s.velocity);
+            *pose = BranchPose {
+                rotation: Quat::from_array(s.rotation),
+                translation: Vec3::from_slice(&s.translation),
+            };
+        }
+        self.revision += 1;
+        Ok(true)
+    }
+
+    pub(crate) fn validate_step(wind: &WindFieldFrame, dt: f32) -> Result<()> {
         ensure!(dt.is_finite() && dt >= 0., "invalid tree pose timestep");
         ensure!(
             wind.domain
@@ -100,6 +210,17 @@ impl TreePose {
                 .all(|v| v.is_finite()),
             "nonfinite tree wind frame"
         );
+        ensure!(
+            wind.domain[3] == 0. || (wind.domain[0] > 0. && wind.domain[1] > 0.),
+            "invalid tree wind domain"
+        );
+        Ok(())
+    }
+
+    /// dt is elapsed simulation time, not an absolute wall clock. Invalid input
+    /// leaves the last published pose untouched. Consumers share this publication.
+    pub fn advance(&mut self, wind: &WindFieldFrame, dt: f32) -> Result<()> {
+        Self::validate_step(wind, dt)?;
         if dt == 0. {
             return Ok(());
         }
@@ -199,6 +320,36 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn gpu_publication_rejects_replacements_and_is_transactional() {
+        let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        let source = pose.version();
+        let mut reference = pose.clone();
+        reference
+            .advance(&WindFieldFrame::uniform(Vec2::X * 4.), 1. / 60.)
+            .unwrap();
+        let states = reference.gpu_state();
+        let mut replacement = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        assert!(!replacement.accept_gpu(source, &states).unwrap());
+        assert_eq!(replacement.revision(), 0);
+        let mut invalid = states.clone();
+        invalid[1].velocity[0] = f32::NAN;
+        assert!(pose.accept_gpu(source, &invalid).is_err());
+        assert_eq!(pose.version(), source);
+        assert_eq!(pose.branches()[0].rotation, Quat::IDENTITY);
+        assert!(pose.accept_gpu(source, &states).unwrap());
+        assert_eq!(pose.version(), source.advanced());
+        assert_eq!(
+            pose.branches()[1].translation,
+            reference.branches()[1].translation
+        );
+        assert!(!pose.accept_gpu(source, &states).unwrap());
+        // Even an explicit CPU diagnostic invalidates an outstanding GPU step.
+        let source = pose.version();
+        pose.advance(&WindFieldFrame::default(), 0.01).unwrap();
+        assert!(!pose.accept_gpu(source, &states).unwrap());
+    }
+
     #[test]
     fn wind_keeps_roots_joints_lengths_and_inverse_coordinates() {
         let origin = Vec3::new(1., 0.4, 0.7);

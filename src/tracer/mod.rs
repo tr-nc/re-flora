@@ -1590,6 +1590,7 @@ pub struct Tracer {
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
     pub(crate) raster_trees: RasterTreeGeometry,
+    pub(crate) tree_pose_solver: crate::tree_gen::gpu_pose::GpuTreePoseSolver,
     environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
 
     camera: Camera,
@@ -1896,6 +1897,10 @@ impl Tracer {
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
+        let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+        )?;
         Ok(Self {
             vulkan_ctx,
             desc,
@@ -1907,6 +1912,7 @@ impl Tracer {
             geometry_preview_resources,
             dynamic_fruit_resources,
             raster_trees,
+            tree_pose_solver,
             environment_probe_visualization_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,

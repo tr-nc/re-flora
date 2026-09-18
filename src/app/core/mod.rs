@@ -3371,6 +3371,8 @@ impl App {
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
+                self.finish_tree_poses()
+                    .expect("publish GPU tree hierarchy");
                 self.publish_tree_surface_pose()
                     .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
