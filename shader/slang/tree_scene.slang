@@ -1,7 +1,7 @@
 module tree_scene;
 import marching_result;
 import tree_cells;
-struct TreeSceneNode { float3 lower; uint escape; float3 upper; uint primitive; };
+import tree_scene_types;
 [[vk::binding(49,0)]] StructuredBuffer<uint4> tree_scene_info;
 [[vk::binding(50,0)]] StructuredBuffer<TreeSceneNode> tree_scene_nodes;
 [[vk::binding(51,0)]] StructuredBuffer<uint4> tree_scene_primitives;

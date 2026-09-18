@@ -4,7 +4,7 @@ use glam::Vec3;
 use rapier3d::parry::{
     bounding_volume::{Aabb, BoundingSphere},
     mass_properties::MassProperties,
-    partitioning::{Bvh, BvhBuildStrategy},
+    partitioning::{Bvh, BvhBuildStrategy, TraversalAction},
     query::{
         details::NormalConstraints, PointProjection, PointQuery, Ray, RayCast, RayIntersection,
     },
@@ -140,6 +140,21 @@ impl DeformingShape {
         }
         self.bvh.refit_without_opt();
     }
+    pub(crate) fn ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
+        let ray = Ray::new(to_rapier_vec(origin), to_rapier_vec(direction));
+        let mut candidates = Vec::new();
+        self.bvh.traverse(|node| {
+            if node.cast_ray(&ray, f32::MAX) == f32::MAX {
+                return TraversalAction::Prune;
+            }
+            if let Some(part) = node.leaf_data() {
+                candidates.push(part as u32);
+            }
+            TraversalAction::Continue
+        });
+        candidates
+    }
+
     fn part_aabb(&self, i: usize) -> Aabb {
         match &self.parts {
             Parts::Triangles { positions, indices } => {

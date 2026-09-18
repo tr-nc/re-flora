@@ -1677,7 +1677,7 @@ impl Tracer {
     ) {
         let updated_buffers = [
             &*self.resources.tree_scene_info,
-            &*self.resources.tree_scene_nodes,
+            &*self.resources.tree_refit_order,
             &*self.resources.tree_scene_primitives,
             &*self.resources.tree_skin_rest,
             &*self.resources.tree_skin_bindings,
@@ -1712,9 +1712,13 @@ impl Tracer {
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
-        Self::with_gpu_scope(gpu_profiler, frame_slot, cmdbuf, "tree_skin.pass", || {
-            self.record_tree_skin(cmdbuf)
-        });
+        Self::with_gpu_scope(
+            gpu_profiler,
+            frame_slot,
+            cmdbuf,
+            "tree_surface_update.pass",
+            || self.record_tree_skin(cmdbuf),
+        );
     }
 
     /// Idempotent producer shared by frame rendering and immediate ray queries.
@@ -1728,6 +1732,8 @@ impl Tracer {
             &self.resources.tree_skin_rest,
             &self.resources.tree_skin_bindings,
             &self.resources.tree_skin_poses,
+            &self.resources.tree_refit_order,
+            &self.resources.tree_scene_primitives,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
@@ -1736,6 +1742,15 @@ impl Tracer {
             Extent3D::new(self.raster_trees.skin.bindings.len() as u32, 1, 1),
             None,
         );
+        if self.raster_trees.posed_surface.is_some() {
+            for range in &self.raster_trees.refit.levels {
+                self.pipeline_topology.compute().tree_refit_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(range[1], 1, 1),
+                    Some(bytemuck::bytes_of(range)),
+                );
+            }
+        }
     }
 
     pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
@@ -6290,6 +6305,11 @@ impl Tracer {
                 .tree_skin_bindings
                 .fill(&self.raster_trees.skin.bindings)?;
         }
+        if !self.raster_trees.refit.records.is_empty() {
+            self.resources
+                .tree_refit_order
+                .fill(&self.raster_trees.refit.records)?;
+        }
         if !self.raster_trees.scene.primitives.is_empty() {
             self.resources
                 .tree_scene_primitives
@@ -6344,12 +6364,17 @@ impl Tracer {
         if bytes == 0 {
             return Ok(());
         }
+        let node_bytes = if self.raster_trees.posed_surface.is_some() {
+            self.raster_trees.scene.nodes.len() as u64 * 32
+        } else {
+            0
+        };
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
             re_flora_vkn::MemoryLocation::GpuToCpu,
-            bytes,
+            bytes + node_bytes,
         );
         execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
@@ -6360,15 +6385,44 @@ impl Tracer {
                 self.resources
                     .tree_scene_vertices
                     .record_copy_to_buffer(cmdbuf, &readback, bytes, 0, 0);
+                if node_bytes > 0 {
+                    self.resources
+                        .tree_scene_nodes
+                        .record_copy_to_buffer(cmdbuf, &readback, node_bytes, 0, bytes);
+                }
                 cmdbuf.use_buffer(&readback, BufferUse::HostRead);
             },
         );
         let data = readback.read_back()?;
-        let values: Vec<[f32; 4]> = data
+        let values: Vec<[f32; 4]> = data[..bytes as usize]
             .chunks_exact(16)
             .map(bytemuck::pod_read_unaligned)
             .collect();
-        self.raster_trees.validate_gpu_surface(&values)
+        self.raster_trees.validate_gpu_surface(&values)?;
+        if node_bytes > 0 {
+            let mut reference = self.raster_trees.scene.clone();
+            reference.refit_by(|i| Ok(Vec3::from_slice(&values[i as usize * 2])))?;
+            for (expected, data) in reference
+                .nodes
+                .iter()
+                .zip(data[bytes as usize..].chunks_exact(32))
+            {
+                let actual: tree_scene::TreeSceneNode = bytemuck::pod_read_unaligned(data);
+                anyhow::ensure!(
+                    actual.escape == expected.escape
+                        && actual.primitive == expected.primitive
+                        && Vec3::from(actual.min).abs_diff_eq(Vec3::from(expected.min), 1e-7)
+                        && Vec3::from(actual.max).abs_diff_eq(Vec3::from(expected.max), 1e-7),
+                    "GPU tree BVH refit mismatch"
+                );
+            }
+            log::info!(
+                "[TREE][GPU_REFIT] matched_nodes={} levels={}",
+                reference.nodes.len(),
+                self.raster_trees.refit.levels.len()
+            );
+        }
+        Ok(())
     }
 
     pub fn publish_tree_skin_poses<'a>(
@@ -6401,18 +6455,10 @@ impl Tracer {
     pub fn publish_tree_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
         if let Some(ref posed) = surface {
             anyhow::ensure!(posed.is_finite(), "nonfinite CPU tree surface");
-            self.raster_trees.scene.refit_by(|i| {
-                anyhow::ensure!(
-                    (i as usize) < posed.vertex_count(),
-                    "tree topology changed during refit"
-                );
-                Ok(posed.position(i as usize))
-            })?;
-            if posed.vertex_count() > 0 {
-                self.resources
-                    .tree_scene_nodes
-                    .fill(&self.raster_trees.scene.nodes)?;
-            }
+            anyhow::ensure!(
+                posed.vertex_count() == self.raster_trees.rest_mesh.vertices.len(),
+                "tree surface topology mismatch"
+            );
         }
         let active = surface.is_some();
         if !active {

@@ -4669,9 +4669,7 @@ impl App {
         let target = surface.position(index);
         let origin = target + Vec3::new(0.003, 0.02, 0.003);
         let hit = self
-            .tracer
-            .raster_trees
-            .raycast(origin, (target - origin).normalize())
+            .query_tree_surface_ray(origin, (target - origin).normalize())
             .context("posed tree edit fixture missed")?;
         let readback = self.apply_surface_terrain_removal(
             TerrainRemovalEdit {

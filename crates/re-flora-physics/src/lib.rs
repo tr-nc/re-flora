@@ -804,6 +804,19 @@ impl CollisionWorld {
         self.set_deforming_geometry(DeformingGeometry::Triangles { positions, indices })
     }
 
+    /// Candidate primitive IDs in the most recently published deforming geometry.
+    /// Editing can reuse the exact physics BVH instead of maintaining a second
+    /// per-frame CPU hierarchy. Inputs are in physics voxel units.
+    pub fn deforming_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
+        if !origin.is_finite() || !direction.is_finite() || direction == Vec3::ZERO {
+            return Vec::new();
+        }
+        self.deforming_surface
+            .and_then(|handle| self.physics.colliders.get(handle))
+            .and_then(|collider| collider.shape().as_shape::<DeformingShape>())
+            .map_or_else(Vec::new, |shape| shape.ray_candidates(origin, direction))
+    }
+
     /// Updates exact geometry in place when its topology is unchanged. Both
     /// adapters share collider lifecycle, broad-phase invalidation and queries.
     pub fn set_deforming_geometry(

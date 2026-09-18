@@ -773,7 +773,7 @@ impl App {
                 direction,
             );
         }
-        if let Some(hit) = self.tracer.raster_trees.raycast(origin, direction) {
+        if let Some(hit) = self.query_tree_surface_ray(origin, direction) {
             if terrain.is_none_or(|terrain| hit.distance < terrain.position.distance(origin)) {
                 return Some(crate::builder::ContreeCpuRayHit {
                     position: hit.world_position,
@@ -784,9 +784,24 @@ impl App {
         terrain
     }
 
+    pub(super) fn query_tree_surface_ray(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<crate::tree_gen::skin::SurfaceHit> {
+        if self.tracer.raster_trees.posed_surface.is_none() {
+            return None;
+        }
+        self.tracer.raster_trees.raycast(
+            origin,
+            direction,
+            self.terrain_physics.tree_ray_candidates(origin, direction),
+        )
+    }
+
     fn tree_edit_rest_center(&self, center: Vec3) -> Option<Vec3> {
         let (origin, direction) = self.terrain_edit_ray()?;
-        let hit = self.tracer.raster_trees.raycast(origin, direction)?;
+        let hit = self.query_tree_surface_ray(origin, direction)?;
         (hit.world_position.distance(center) < 1e-4).then_some(hit.rest_position)
     }
 

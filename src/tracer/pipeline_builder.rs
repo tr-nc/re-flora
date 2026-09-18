@@ -495,6 +495,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tree_refit_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/tree_refit.comp",
+            "main",
+        )
+        .unwrap();
         let raster_tree_lighting_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/trees/raster_tree_lighting.comp",
@@ -609,6 +615,7 @@ impl PipelineBuilder {
             raster_tree_shadow_vert_sm,
             raster_tree_lighting_sm,
             tree_skin_sm,
+            tree_refit_sm,
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
@@ -720,6 +727,8 @@ impl PipelineBuilder {
         );
         let tree_skin_ppl =
             ComputePipeline::new(device, &shader_modules.tree_skin_sm, pool, &[resources]);
+        let tree_refit_ppl =
+            ComputePipeline::new(device, &shader_modules.tree_refit_sm, pool, &[resources]);
         let raster_tree_lighting_ppl = ComputePipeline::new(
             device,
             &shader_modules.raster_tree_lighting_sm,
@@ -930,6 +939,7 @@ impl PipelineBuilder {
             ddgi_voxel_visibility_blocks_ppl,
             raster_tree_lighting_ppl,
             tree_skin_ppl,
+            tree_refit_ppl,
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -1777,6 +1787,7 @@ impl PipelineTopology {
         for pipeline in [
             &self.compute.raster_tree_lighting_ppl,
             &self.compute.tree_skin_ppl,
+            &self.compute.tree_refit_ppl,
             &self.compute.tracer_ppl,
             &self.compute.tracer_shadow_ppl,
             &self.compute.player_collider_ppl,
@@ -2351,6 +2362,7 @@ pub struct ShaderModules {
     pub environment_probe_visualization_vert_sm: ShaderModule,
     pub raster_tree_lighting_sm: ShaderModule,
     pub tree_skin_sm: ShaderModule,
+    pub tree_refit_sm: ShaderModule,
     pub raster_tree_vert_sm: ShaderModule,
     pub raster_tree_frag_sm: ShaderModule,
     pub raster_tree_shadow_vert_sm: ShaderModule,
@@ -2379,6 +2391,7 @@ pub struct ComputePipelines {
     pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
     pub raster_tree_lighting_ppl: ComputePipeline,
     pub tree_skin_ppl: ComputePipeline,
+    pub tree_refit_ppl: ComputePipeline,
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,

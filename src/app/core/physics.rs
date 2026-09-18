@@ -215,6 +215,11 @@ pub(super) struct TerrainPhysics {
 }
 
 impl TerrainPhysics {
+    pub(super) fn tree_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
+        self.collision_world
+            .deforming_ray_candidates(origin * 256., direction)
+    }
+
     pub(super) fn publish_tree_surface(
         &mut self,
         revision: Option<u32>,

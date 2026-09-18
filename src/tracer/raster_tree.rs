@@ -405,6 +405,7 @@ pub struct RasterTreeGeometry {
     pub color_draws: u64,
     pub rest_mesh: RasterTreeMesh,
     pub scene: super::tree_scene::TreeScene,
+    pub refit: super::tree_scene::TreeRefitSchedule,
     pub attachments: Vec<super::tree_scene::TreeAttachment>,
     pub attachment_poses: Vec<BranchPose>,
     pub previous_attachment_poses: Vec<BranchPose>,
@@ -428,6 +429,7 @@ impl RasterTreeGeometry {
             color_draws: 0,
             rest_mesh: RasterTreeMesh::default(),
             scene: super::tree_scene::TreeScene::default(),
+            refit: super::tree_scene::TreeRefitSchedule::default(),
             attachments: Vec::new(),
             attachment_poses: Vec::new(),
             previous_attachment_poses: Vec::new(),
@@ -449,11 +451,16 @@ impl RasterTreeGeometry {
             bytes.max(4) as u64,
         )
     }
-    pub fn raycast(&self, origin: Vec3, direction: Vec3) -> Option<SurfaceHit> {
+    pub fn raycast(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        candidates: impl IntoIterator<Item = u32>,
+    ) -> Option<SurfaceHit> {
         let posed = self.posed_surface.as_ref()?;
         let direction = direction.normalize_or_zero();
         let mut nearest: Option<SurfaceHit> = None;
-        for index in self.scene.ray_candidates(origin, direction) {
+        for index in candidates {
             let triangle = self.scene.primitives[index as usize];
             if triangle[3] == 1 {
                 let base = triangle[0] as usize;
@@ -592,6 +599,7 @@ impl RasterTreeGeometry {
         } else {
             super::tree_scene::TreeScene::new(&mesh.indices, &positions)?
         };
+        self.refit = self.scene.refit_schedule();
         self.posed_surface = None;
         self.rest_mesh = mesh.clone();
         self.index_count = count;

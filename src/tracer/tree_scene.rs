@@ -18,6 +18,13 @@ pub struct TreeSceneNode {
 }
 
 #[derive(Default)]
+pub struct TreeRefitSchedule {
+    /// [node index, escape index, primitive index, reserved], deepest level first.
+    pub records: Vec<[u32; 4]>,
+    pub levels: Vec<[u32; 2]>,
+}
+
+#[derive(Default, Clone)]
 pub struct TreeScene {
     pub nodes: Vec<TreeSceneNode>,
     pub primitives: Vec<[u32; 4]>,
@@ -135,6 +142,37 @@ impl TreeScene {
         }
         self.nodes[index].escape = self.nodes.len() as u32;
     }
+    /// Children must finish before a parent dispatch. This schedule is immutable
+    /// for a topology generation and has no per-frame CPU refit cost.
+    pub fn refit_schedule(&self) -> TreeRefitSchedule {
+        let mut levels: Vec<Vec<[u32; 4]>> = Vec::new();
+        let mut pending = if self.nodes.is_empty() {
+            Vec::new()
+        } else {
+            vec![(0usize, 0usize)]
+        };
+        while let Some((index, depth)) = pending.pop() {
+            if levels.len() <= depth {
+                levels.resize_with(depth + 1, Vec::new);
+            }
+            let node = self.nodes[index];
+            levels[depth].push([index as u32, node.escape, node.primitive, 0]);
+            if node.primitive == u32::MAX {
+                pending.push((index + 1, depth + 1));
+                pending.push((self.nodes[index + 1].escape as usize, depth + 1));
+            }
+        }
+        let mut schedule = TreeRefitSchedule::default();
+        for level in levels.into_iter().rev() {
+            schedule
+                .levels
+                .push([schedule.records.len() as u32, level.len() as u32]);
+            schedule.records.extend(level);
+        }
+        schedule
+    }
+
+    #[cfg(test)]
     pub fn ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
         let mut result = Vec::new();
         let mut index = 0usize;
@@ -212,6 +250,36 @@ fn primitive_bounds(t: [u32; 4], point: &impl Fn(u32) -> Result<Vec3>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gpu_refit_schedule_covers_nodes_once_and_publishes_children_first() {
+        let points: Vec<_> = (0..34)
+            .map(|i| Vec3::new(i as f32, (i % 5) as f32, 0.))
+            .collect();
+        let scene = TreeScene::boxes(
+            &(0..17).map(|i| [i * 2, i * 2 + 1]).collect::<Vec<_>>(),
+            &points,
+        )
+        .unwrap();
+        let schedule = scene.refit_schedule();
+        assert_eq!(schedule.records.len(), scene.nodes.len());
+        let mut completed = std::collections::BTreeSet::new();
+        for [start, count] in schedule.levels {
+            let records = &schedule.records[start as usize..(start + count) as usize];
+            for &[index, escape, primitive, _] in records {
+                assert!(!completed.contains(&index));
+                assert_eq!(escape, scene.nodes[index as usize].escape);
+                assert_eq!(primitive, scene.nodes[index as usize].primitive);
+                if primitive == u32::MAX {
+                    assert!(completed.contains(&(index + 1)));
+                    assert!(completed.contains(&scene.nodes[index as usize + 1].escape));
+                }
+            }
+            completed.extend(records.iter().map(|r| r[0]));
+        }
+        assert_eq!(completed.len(), scene.nodes.len());
+        assert!(TreeScene::default().refit_schedule().levels.is_empty());
+    }
+
     #[test]
     fn direct_boxes_match_complete_triangle_boundaries_after_motion() {
         use crate::tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};

@@ -262,3 +262,13 @@ CPU 交互表面现在显式区分 `Blocks { centers }` 与 `Triangles { positio
 姿态提交约 74–77 us、收取等待约 33–36 us，GPU skin 约 15–19 us。所有关节/物理依然每帧更新。整帧中位数 / p95 为平滑 17.08 / 19.49 ms、轴对齐 17.31 / 19.83 ms。日志 `target/tree-gpu-{update-profile,parallel-perf,compact-perf}`；分段数据说明下一处大头是重复 CPU 查询 BVH，不以整帧的小变化冒充最终验收。
 
 验证：全量 1014 + 4 passed / 2 ignored，`cargo check`、格式检查通过；`--raster-tree-smoke --resize-lifecycle-test` 的 GPU 积分/表面/法线/射线对照、编辑和生命周期全部通过；默认 release hidden/mute 0.5 秒及日志检查通过，无 ERROR/panic/VUID。日志 `target/tree-gpu-compact-{smoke,default,tail}.log`。生成文件未变化，既有 Cargo.lock 差异保留。
+
+## GPU 迁移步骤 4：GPU BVH 更新与共享 CPU 精确查询
+
+GPU 查询 BVH 使用拓扑编译时生成的按深度调度，compute 每层并行 refit，反射资源依赖保证子节点写入完成后父级才读取；节点缓冲现在是 GPU-only，不再每帧上传 CPU refit 结果。普通渲染与即时 GPU 射线共用同一幂等表面/BVH 生产者。静态关闭风时不运行动态 BVH 更新。
+
+CPU 编辑射线改为从物理库获取当前精确碰撞 BVH 的候选 primitive，再使用原来的表面求交和静止坐标映射；没有重复维护第二棵 CPU 动态树，也没有简化碰撞、降低刷新频率。物理接口隐藏 Parry 实现，仅返回当前 geometry 的 primitive ID。新增测试覆盖移动、内部起点、同数量拓扑替换、三角面/盒切换、无效发布不污染旧结果、删除和无效射线。
+
+release 单树动态风场（`target/tree-gpu-refit-perf`），CPU 中位数：平滑 skin 944 us、物理 329 us、查询发布 27 us、更新合计 1455 us；轴对齐 skin 344 us、物理 153 us、查询发布 9 us、更新合计 660 us。GPU 姿态约 74 us，蒙皮+BVH 全部更新约 68 us。整帧中位数 / p95 平滑 17.355 / 19.35 ms、轴对齐 17.46 / 19.13 ms；仍需重复静态对照，不从单次整帧测量声称最终达标。
+
+验证：root 全量 1015 + 4 passed / 2 ignored；物理库 50 项通过；`cargo check`、root 格式检查、diff 检查通过。真实 smoke/resize 在平滑 31,983 节点、轴对齐 21,191 节点和幼树 2,141 节点逐节点对照 CPU refit，通过精确位置/法线、16 条 CPU/GPU 射线、编辑和生命周期检查。默认 release hidden/mute 0.5 秒及运行日志无 ERROR/panic/VUID。日志 `target/tree-gpu-refit-{smoke,default,tail}.log`。生成文件未变化；物理 crate 中既有无关格式差异未混入，原 Cargo.lock 改动保留。

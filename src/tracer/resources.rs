@@ -1412,6 +1412,7 @@ pub struct TracerResources {
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
     pub tree_skin_poses: Resource<Buffer>,
+    pub tree_refit_order: Resource<Buffer>,
     pub tree_scene_rest_cells: Resource<Buffer>,
     pub tree_attachment_keys: Resource<Buffer>,
     pub tree_attachment_poses: Resource<Buffer>,
@@ -1495,7 +1496,16 @@ impl TracerResources {
             tree_skin_rest: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 48),
             tree_skin_bindings: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 16),
             tree_skin_poses: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 32),
-            tree_scene_nodes: tree_buffer(super::tree_scene::MAX_TREE_NODES * 32),
+            tree_refit_order: tree_buffer(super::tree_scene::MAX_TREE_NODES * 16),
+            tree_scene_nodes: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
+                MemoryLocation::GpuOnly,
+                (super::tree_scene::MAX_TREE_NODES * 32) as u64,
+            )),
             tree_scene_primitives: tree_buffer(super::tree_scene::MAX_TREE_PRIMITIVES * 16),
             tree_scene_vertices: Resource::new(Buffer::new_sized(
                 device.clone(),
