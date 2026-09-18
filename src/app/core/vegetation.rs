@@ -4589,11 +4589,20 @@ impl App {
         Ok(())
     }
 
+    fn tree_wind_stiffness(&self) -> Result<crate::tree_gen::pose::TreeStiffness> {
+        crate::tree_gen::pose::TreeStiffness::from_control(
+            self.debug_settings.adjustables.tree_stiffness.value,
+        )
+    }
+
     pub(super) fn drive_tree_pose_smoke(&mut self) -> Result<()> {
+        let stiffness = self.tree_wind_stiffness()?;
         let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(5., 2.));
         for _ in 0..120 {
             for record in self.trees.records.values_mut() {
-                record.pose.advance(&wind, 1. / 60.)?;
+                record
+                    .pose
+                    .advance_with_stiffness(&wind, 1. / 60., stiffness)?;
             }
         }
         Ok(())
@@ -4771,6 +4780,7 @@ impl App {
         // An out-of-date swapchain can skip the previous publication. Consume
         // that job before touching its resources, then submit this frame's step.
         self.finish_tree_poses()?;
+        let stiffness = self.tree_wind_stiffness()?;
         self.tracer.tree_pose_solver.submit(
             self.trees
                 .records
@@ -4778,6 +4788,7 @@ impl App {
                 .map(|(&id, record)| (id, &record.pose)),
             &self.wind_prototype.field.frame(),
             dt,
+            stiffness,
             self.launch_owners.raster_tree_smoke.is_some(),
             self.perf_logging,
         )

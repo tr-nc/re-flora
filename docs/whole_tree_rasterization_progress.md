@@ -23,6 +23,14 @@ python3 scripts/benchmark_tree_update.py --output target/tree-smooth-only-perf \
 
 基准默认现在为 static/smooth，退休的 `blocks` 与截图 `--axis-aligned` 不再接受，help 提供平滑模式替代用法。截图已检查裸枝和树冠，轮廓、接头和阴影未见明显回归。当前物理窗口 **4096×2560**（早先验收为 5120×2880），不将跨轮帧耗时变化解释为代码提速。本轮三次同场景 static/smooth 的 median/p95 分别为 **17.10/18.04 ms**（1513 样本）和 **17.05/18.21 ms**（1474 样本）；平滑树 CPU 更新中位数约 1.445 ms，整帧细小差异属于噪声范围，不声称负开销、零工作量或密林性能通过。
 
+### 整体软硬度滑杆
+
+`R → Debug → Whole Tree Rasterization → Tree stiffness (soft <-> stiff)`，范围 0–1，默认 **0.5**，恰好位于中间且保持加入滑杆前的响应。左侧更软、右侧更硬，作用于所有树的完整枝段层级；需开启 Raster 和 wind 才能看到木材运动。使用声明式 GUI 参数和现有 Save，不增加 App-only 控件或独立保存钩子；旧配置缺项时从同一编译期声明补上默认值，已有保存值不会被覆盖。
+
+控制值映射为相对刚度 `k = 2^((2v-1)*2)`。柔度乘 `1/k`、固有频率乘 `sqrt(k)`，保留原有层级比例和阻尼比，不是仅放大风速。软端/硬端的柔度分别为原值 4/0.25 倍，频率为 0.5/2 倍；既有最大目标角仍保留，因此强风饱和后位移不是简单的四倍关系。系数只在 CPU 边界计算一次，随每帧的 GPU step 参数发布；不更换骨架、重建网格或清空角度/速度。
+
+测试覆盖中点逐字节等价、软硬端稳态响应、运行中切换连续性、旧配置补齐与保存重载；所有已声明设置的通用保存测试也覆盖新字段。全量测试 1019 main + 4 library 通过（2 ignored）。真实 release smoke 在默认、最软、最硬三种值都注入非零风动状态，逐帧检查 GPU/CPU 积分及逐表面/BVH，并覆盖射线、编辑、重建、resize 和风动恢复；默认 hidden/mute 0.5 秒运行通过，无 ERROR/panic/VUID。日志 `target/tree-stiffness-{check,tests,smoke,default,tail}.log`。生成 GUI 字段由 `cargo check` 更新；骨架 step 缓冲复用原有 16 字节布局，无新增 GPU 分配。本轮没有另做性能收益宣称。
+
 **以下是按时间保留的历史实施记录。涉及 Axis Aligned 开关、`--axis-aligned` 或 `blocks` 的旧入口与结论已被上述用户决定取代，不是当前操作说明。**
 
 ## 研究基线

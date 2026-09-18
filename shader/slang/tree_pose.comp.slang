@@ -52,10 +52,10 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
             float3 localWind = treeRotate(float4(-parentRotation.xyz, parentRotation.w), float3(windXZ.x,0,windXZ.y));
             float3 axis = end-start;
             axis = dot(axis,axis) > 0.0 ? normalize(axis) : float3(0);
-            float3 target = cross(axis,localWind)*joint.end_compliance.w;
+            float3 target = cross(axis,localWind)*(joint.end_compliance.w*asfloat(step.z));
             float targetLength = length(target);
             if (targetLength > 0.22) target *= 0.22/targetLength;
-            float omega = 6.283185307179586 * joint.start_frequency.w;
+            float omega = 6.283185307179586 * (joint.start_frequency.w*asfloat(step.w));
             float decay = 0.38*omega;
             float oscillation = omega*sqrt(1.0-0.38*0.38);
             float3 displacement = state.angle.xyz-target;

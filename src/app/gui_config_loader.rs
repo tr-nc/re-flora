@@ -61,7 +61,8 @@ impl GuiConfigLoader {
             );
         }
         Self::migrate_flutter_amplitude(&mut config);
-        Self::add_missing_sky_strength(&mut config);
+        Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
+        Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         // Retired experimental geometry: accept old saves, but never retain the
         // switch in the live config or write it back on the next save.
         for section in &mut config.section {
@@ -207,19 +208,19 @@ impl GuiConfigLoader {
         }
     }
 
-    fn add_missing_sky_strength(config: &mut GuiConfigFile) {
+    fn add_missing_param(config: &mut GuiConfigFile, section_name: &str, param_id: &str) {
         if config
             .section
             .iter()
             .flat_map(|section| &section.param)
-            .any(|param| param.id == "sky_light_strength")
+            .any(|param| param.id == param_id)
         {
             return;
         }
-        let Some(sky) = config
+        let Some(section) = config
             .section
             .iter_mut()
-            .find(|section| section.name == "Sky")
+            .find(|section| section.name == section_name)
         else {
             return;
         };
@@ -227,13 +228,13 @@ impl GuiConfigLoader {
         // build-time source as the generated GUI; never overwrite an existing authored value.
         let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
             .expect("compiled GUI defaults must be valid");
-        let strength = defaults
+        let param = defaults
             .section
             .into_iter()
             .flat_map(|section| section.param)
-            .find(|param| param.id == "sky_light_strength")
-            .expect("compiled GUI defaults must define sky lighting strength");
-        sky.param.push(strength);
+            .find(|param| param.id == param_id)
+            .expect("compiled GUI defaults must define requested parameter");
+        section.param.push(param);
     }
 
     pub fn config_path() -> std::path::PathBuf {
@@ -611,6 +612,56 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_configs_receive_neutral_stiffness_and_authored_values_survive_saving() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let expected = toml::to_string(&config).unwrap();
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "tree_stiffness");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        // The migration may append the control, so compare parameters by id.
+        let defaults: GuiConfigFile = toml::from_str(&expected).unwrap();
+        for param in defaults.section.iter().flat_map(|s| &s.param) {
+            let actual = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == param.id)
+                .unwrap();
+            assert_eq!(
+                toml::to_string(actual).unwrap(),
+                toml::to_string(param).unwrap()
+            );
+        }
+        let control = loaded
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "tree_stiffness")
+            .unwrap();
+        assert_eq!(
+            control.value.get_float().unwrap(),
+            (0.5, Some(0.), Some(1.))
+        );
+        control.value = GuiParamValue::Float {
+            value: 0.8,
+            min: Some(0.),
+            max: Some(1.),
+        };
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(
+            toml::to_string(&reloaded).unwrap(),
+            toml::to_string(&loaded).unwrap()
+        );
+    }
+
     #[test]
     fn retired_tree_block_switch_is_removed_without_changing_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;

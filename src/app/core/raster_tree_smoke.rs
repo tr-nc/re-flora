@@ -30,8 +30,9 @@ impl RasterTreeSmoke {
         match self.frame {
             1 | 30 => {
                 app.debug_settings.adjustables.raster_tree_static.value = false;
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
             }
-            49 | 64 => {
+            49 | 64 | 81 => {
                 app.drive_tree_pose_smoke()?;
             }
             10 | 50 => {
@@ -72,6 +73,15 @@ impl RasterTreeSmoke {
                     !app.tracer.raster_trees.enabled,
                     "A did not restore voxel rendering"
                 );
+            }
+            61 => {
+                app.debug_settings.adjustables.tree_stiffness.value = 0.;
+            }
+            80 => {
+                app.debug_settings.adjustables.tree_stiffness.value = 1.;
+            }
+            126 => {
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
             }
             87 => {
                 app.debug_settings.adjustables.raster_tree_wind.value = false;
@@ -122,7 +132,7 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_surface()?;
             }
             140 => {
-                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
+                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

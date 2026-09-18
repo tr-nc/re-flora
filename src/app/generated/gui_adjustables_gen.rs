@@ -32,6 +32,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_stiffness",
+        kind: "float",
+        label: "Tree stiffness (soft <-> stiff)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "raster_tree_static",
         kind: "bool",
         label: "Raster whole trees (B)",
@@ -1325,6 +1331,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
+    pub tree_stiffness: crate::gui_adjustables::FloatParam,
     pub raster_tree_static: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
@@ -1554,6 +1561,7 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut raster_tree_static_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1776,6 +1784,13 @@ impl GuiAdjustables {
                     "raster_tree_wind" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             raster_tree_wind_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "tree_stiffness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "raster_tree_static" => {
@@ -3226,6 +3241,7 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
+            tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
             raster_tree_static: raster_tree_static_field.expect("Missing parameter: raster_tree_static"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
@@ -3448,6 +3464,7 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -3709,6 +3726,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),

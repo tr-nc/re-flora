@@ -10,7 +10,7 @@ use re_flora_vkn::{
 use resource_container_derive::ResourceContainer;
 use std::time::Instant;
 
-use super::pose::{GpuPoseJoint, GpuPoseState, PoseVersion, TreePose};
+use super::pose::{GpuPoseJoint, GpuPoseState, PoseVersion, TreePose, TreeStiffness};
 use crate::{resource::Resource, wind_field::WindFieldFrame};
 
 #[derive(ResourceContainer)]
@@ -172,6 +172,7 @@ impl GpuTreePoseSolver {
         trees: impl Iterator<Item = (u32, &'a TreePose)>,
         wind: &WindFieldFrame,
         dt: f32,
+        stiffness: TreeStiffness,
         validate: bool,
         profile: bool,
     ) -> Result<()> {
@@ -208,14 +209,17 @@ impl GpuTreePoseSolver {
         let resident = self.resident.as_ref().unwrap();
         let resources = &resident.resources;
         resources.wind_field_info.fill_uniform(wind)?;
-        resources
-            .tree_pose_step
-            .fill(&[[u32::try_from(trees.len())?, dt.to_bits(), 0, 0]])?;
+        resources.tree_pose_step.fill(&[[
+            u32::try_from(trees.len())?,
+            dt.to_bits(),
+            stiffness.compliance_scale.to_bits(),
+            stiffness.frequency_scale.to_bits(),
+        ]])?;
         let reference = if validate {
             let mut states = Vec::new();
             for &(_, pose) in &trees {
                 let mut reference = pose.clone();
-                reference.advance(wind, dt)?;
+                reference.advance_with_stiffness(wind, dt, stiffness)?;
                 states.extend(reference.gpu_state());
             }
             Some(states)

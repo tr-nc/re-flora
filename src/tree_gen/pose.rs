@@ -7,6 +7,37 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_POSE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// Global stiffness relative to the authored branch properties. The normalized
+/// control has its neutral point at 0.5 and spans two stiffness octaves each way.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeStiffness {
+    pub(super) compliance_scale: f32,
+    pub(super) frequency_scale: f32,
+}
+
+impl TreeStiffness {
+    #[cfg(test)]
+    const NEUTRAL: Self = Self {
+        compliance_scale: 1.,
+        frequency_scale: 1.,
+    };
+
+    pub fn from_control(value: f32) -> Result<Self> {
+        ensure!(
+            value.is_finite() && (0. ..=1.).contains(&value),
+            "tree stiffness must be in 0..=1"
+        );
+        const OCTAVES_EACH_SIDE: f32 = 2.;
+        let rigidity = ((value * 2. - 1.) * OCTAVES_EACH_SIDE).exp2();
+        // With mass unchanged, static deflection is proportional to 1/k and
+        // natural frequency to sqrt(k). Preserve branch ratios and damping.
+        Ok(Self {
+            compliance_scale: rigidity.recip(),
+            frequency_scale: rigidity.sqrt(),
+        })
+    }
+}
+
 /// Shader ABI: immutable world-space joint and its local parent index.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -219,9 +250,19 @@ impl TreePose {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub fn advance(&mut self, wind: &WindFieldFrame, dt: f32) -> Result<()> {
+        self.advance_with_stiffness(wind, dt, TreeStiffness::NEUTRAL)
+    }
+
     /// dt is elapsed simulation time, not an absolute wall clock. Invalid input
     /// leaves the last published pose untouched. Consumers share this publication.
-    pub fn advance(&mut self, wind: &WindFieldFrame, dt: f32) -> Result<()> {
+    pub fn advance_with_stiffness(
+        &mut self,
+        wind: &WindFieldFrame,
+        dt: f32,
+        stiffness: TreeStiffness,
+    ) -> Result<()> {
         Self::validate_step(wind, dt)?;
         if dt == 0. {
             return Ok(());
@@ -243,12 +284,14 @@ impl TreePose {
                 let sample = self.branches[index].transform_point((joint.start + joint.end) * 0.5);
                 let local_wind = parent.rotation.conjugate() * wind.sample_world(sample);
                 let axis = (joint.end - joint.start).normalize_or_zero();
-                let target = (axis.cross(local_wind) * joint.compliance).clamp_length_max(0.22);
+                let target = (axis.cross(local_wind)
+                    * (joint.compliance * stiffness.compliance_scale))
+                    .clamp_length_max(0.22);
                 advance_spring(
                     &mut joint.angle,
                     &mut joint.velocity,
                     target,
-                    joint.frequency,
+                    joint.frequency * stiffness.frequency_scale,
                     h,
                 );
                 let rotation =
@@ -322,6 +365,66 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn stiffness_midpoint_preserves_current_motion_and_endpoints_change_response() {
+        let neutral = TreeStiffness::from_control(0.5).unwrap();
+        assert_eq!(neutral.compliance_scale, 1.);
+        assert_eq!(neutral.frequency_scale, 1.);
+        for invalid in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            assert!(TreeStiffness::from_control(invalid).is_err());
+        }
+        let wind = WindFieldFrame::uniform(Vec2::X * 0.5);
+        let mut baseline = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        let mut poses = [baseline.clone(), baseline.clone(), baseline.clone()];
+        for _ in 0..1200 {
+            baseline.advance(&wind, 1. / 60.).unwrap();
+            for (pose, control) in poses.iter_mut().zip([0., 0.5, 1.]) {
+                pose.advance_with_stiffness(
+                    &wind,
+                    1. / 60.,
+                    TreeStiffness::from_control(control).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            bytemuck::cast_slice::<_, u8>(&baseline.gpu_state()),
+            bytemuck::cast_slice::<_, u8>(&poses[1].gpu_state())
+        );
+        let angles = poses.each_ref().map(|p| p.joints[0].angle.length());
+        assert!(angles[0] > angles[1] * 3.9);
+        assert!(angles[1] > angles[2] * 3.9);
+        assert_eq!(
+            TreeStiffness::from_control(0.).unwrap().frequency_scale,
+            0.5
+        );
+        assert_eq!(TreeStiffness::from_control(1.).unwrap().frequency_scale, 2.);
+    }
+
+    #[test]
+    fn live_stiffness_change_keeps_pose_state_and_topology() {
+        let wind = WindFieldFrame::uniform(Vec2::X);
+        let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        for _ in 0..240 {
+            pose.advance(&wind, 1. / 60.).unwrap();
+        }
+        let before = pose.gpu_state();
+        let version = pose.version();
+        let hard = TreeStiffness::from_control(1.).unwrap();
+        pose.advance_with_stiffness(&wind, 0., hard).unwrap();
+        assert_eq!(pose.version(), version);
+        assert_eq!(
+            bytemuck::cast_slice::<_, u8>(&before),
+            bytemuck::cast_slice::<_, u8>(&pose.gpu_state())
+        );
+        pose.advance_with_stiffness(&wind, 1e-5, hard).unwrap();
+        assert_eq!(pose.version(), version.advanced());
+        assert!(pose.joints[0]
+            .angle
+            .abs_diff_eq(Vec3::from_slice(&before[0].angle), 1e-5));
+        assert!(pose.joints[0].angle.length() > 0.001);
+    }
+
     #[test]
     fn gpu_publication_rejects_replacements_and_is_transactional() {
         let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
