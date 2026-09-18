@@ -32,3 +32,20 @@ Ranked hypotheses after establishing the red loop:
 Stage-one validation: cargo fmt --check, cargo check, cargo test (1019 passed, 2 ignored),
 hidden muted release smoke (0.5s), full smoke/repro logs checked. Smoke canonical log:
 `target/re-flora-logs/re-flora-20260919-041148.119-170202.log`. No generated files changed.
+
+## Missing-support fallback
+
+Debug → Shadow → **Terrain Missing Lighting (albedo strength)** is a saved declarative
+float (default 0.035, range 0–0.2; zero disables). Terrain final shading multiplies this
+neutral display irradiance by the original material albedo only when the query has no
+trustworthy geometric support. The query carries `lighting_available` explicitly. Global
+sky is available; supported zero/near-zero irradiance and visibility-occluded lighting
+remain unchanged. There is no luminance floor, no material replacement, and no feedback of
+the fallback into DDGI transport. Diagnostic irradiance captures remain physical/raw;
+only final terrain display receives the fallback. Raster/tree shading is unchanged.
+
+Fallback validation: cargo check, cargo fmt --check, cargo test (1019 passed, 2 ignored),
+all 16 Slang CPU tests (`python3 scripts/run_slang_tests.py`, including missing/valid-dark/
+valid-colored truth table), hidden muted release smoke; no ERROR/panic/VUID.
+Generated GPU structs and GUI adjustables changed from their shader/config sources.
+This stage alone intentionally does not resolve publication starvation.

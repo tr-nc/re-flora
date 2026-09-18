@@ -42,6 +42,7 @@ pub(super) fn freeze_render_frame_inputs(
         ray_origin_offset_world: gui.terrain_ray_origin_offset_world.value,
         ddgi_receiver_visibility_bias_world: gui.ddgi_receiver_visibility_bias_world.value,
         ddgi_history_retention: gui.ddgi_history_retention.value,
+        missing_lighting_strength: gui.terrain_missing_lighting_strength.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -317,6 +318,7 @@ mod tests {
         let terrain_ray_origin_offset_world = float!(terrain_ray_origin_offset_world);
         let ddgi_receiver_visibility_bias_world = float!(ddgi_receiver_visibility_bias_world);
         let ddgi_history_retention = float!(ddgi_history_retention);
+        let missing_lighting_strength = float!(terrain_missing_lighting_strength);
         let terrain_self_shadow_tolerance_voxels = float!(terrain_self_shadow_tolerance_voxels);
         let glass_tint = color!(glass_tint);
         let glass_reflection_strength = float!(glass_reflection_strength);
@@ -441,6 +443,7 @@ mod tests {
                 ray_origin_offset_world: terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 ddgi_history_retention,
+                missing_lighting_strength,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

@@ -789,6 +789,17 @@ min = 0
 max = 0.02
 
 [[section.param]]
+id = "terrain_missing_lighting_strength"
+kind = "float"
+label = "Terrain Missing Lighting (albedo strength)"
+type = "Float"
+
+[section.param.data]
+value = 0.035
+min = 0
+max = 0.2
+
+[[section.param]]
 id = "ddgi_history_retention"
 kind = "float"
 label = "DDGI History Retention"

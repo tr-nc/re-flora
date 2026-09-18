@@ -1349,6 +1349,7 @@ pub struct TerrainFrameInput {
     pub ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub ddgi_history_retention: f32,
+    pub missing_lighting_strength: f32,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
