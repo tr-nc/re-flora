@@ -1854,13 +1854,14 @@ impl DdgiVolumes {
         &mut self,
         permit: DdgiVolumePromotionPermit,
     ) -> DdgiVolumePromotion {
-        let mut staging = self.staging.take().expect("staging presence checked above");
+        let staging = self.staging.take().expect("staging presence checked above");
         assert_eq!(staging.build_token, Some(permit.token));
         assert_eq!(
             staging.published.map(|resident| resident.publication),
             Some(permit.publication)
         );
-        staging.finish_local_recovery();
+        // Recovery continues on the now-visible complete field. Publication is not
+        // convergence: never hide finite e0 behind a stability barrier.
         let retired_active = std::mem::replace(&mut self.active, staging);
         DdgiVolumePromotion {
             token: permit.token,
@@ -2338,30 +2339,17 @@ impl DdgiVolume {
     }
 
     fn promotion_is_ready(&self) -> bool {
-        let Some(published) = self.published else {
-            return false;
-        };
-        self.local_refresh_voxel_bound.is_none()
-            || (published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
-                && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS)
+        self.published.is_some()
     }
 
-    fn finish_local_recovery(&mut self) {
-        if self.local_refresh_voxel_bound.take().is_some() {
-            assert!(
-                self.promotion_is_ready_after_local_clear(),
-                "DDGI local recovery cannot finish before its private candidate is stable"
-            );
+    fn finish_local_recovery_if_stable(&mut self) {
+        if self.local_refresh_voxel_bound.is_some()
+            && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
+        {
+            self.local_refresh_voxel_bound = None;
             self.history_mode = DdgiHistoryMode::TopologyRecovery;
             self.local_recovery_stable_epochs = 0;
         }
-    }
-
-    fn promotion_is_ready_after_local_clear(&self) -> bool {
-        self.published.is_some_and(|published| {
-            published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
-                && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
-        })
     }
 
     pub(super) fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
@@ -2956,6 +2944,7 @@ impl DdgiVolume {
         } else if self.local_refresh_voxel_bound.is_some() {
             self.local_recovery_stable_epochs = 0;
         }
+        self.finish_local_recovery_if_stable();
         match permit.outcome {
             DdgiValidatedIterationOutcome::Published {
                 consecutive_below_threshold,
@@ -3411,6 +3400,34 @@ mod tests {
         scheduler.observe_radiance(radiance_revision);
         scheduler.request_geometry(geometry_revision, probe_spacing(spacing_voxels));
         scheduler.claim_next().unwrap().unwrap()
+    }
+
+    #[test]
+    fn complete_epoch_zero_is_publishable_before_local_recovery_stabilizes() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
+        let field = initial_work(11, 3, 32).destination();
+        let mut volume = DdgiVolume::for_test(grid, Some(token));
+        volume.local_refresh_voxel_bound = Some(UAabb3::new(UVec3::splat(100), UVec3::splat(120)));
+        assert!(!volume.promotion_is_ready());
+        volume.published = Some(
+            DdgiResidentPublication::new(
+                DdgiFieldPublication::begin(token, field).unwrap(),
+                DdgiResidentField {
+                    logical: field,
+                    atlas_slot: DdgiAtlasSlot::Atlas0,
+                    sky_slot: DdgiSkySlot::Sky0,
+                },
+                3,
+            )
+            .unwrap(),
+        );
+        assert!(volume.promotion_is_ready());
+        volume.finish_local_recovery_if_stable();
+        assert!(volume.local_refresh_voxel_bound.is_some());
+        volume.local_recovery_stable_epochs = DDGI_LOCAL_RECOVERY_STABLE_EPOCHS;
+        volume.finish_local_recovery_if_stable();
+        assert!(volume.local_refresh_voxel_bound.is_none());
     }
 
     #[test]

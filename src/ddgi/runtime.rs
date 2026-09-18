@@ -1181,7 +1181,7 @@ impl DdgiRuntime {
     }
 
     /// Observes one authoritative terrain publication. Repeating the same publication is
-    /// idempotent; a later observation supersedes all older terrain work.
+    /// idempotent; later observations coalesce without starving complete progressive fields.
     pub(crate) fn observe_visible_terrain(
         &mut self,
         geometry_revision: u32,
@@ -3018,7 +3018,7 @@ mod tests {
 
         assert!(runtime.observe_visible_terrain(9, edit_bound(200, 220)));
         assert_eq!(runtime.claim_volume_build(), None);
-        assert!(!runtime.token_can_promote(first));
+        assert!(runtime.token_can_promote(first));
         let first_published = first_work.scheduled().destination();
         runtime
             .complete_transport_work(first_work.scheduled(), first_published, first)
@@ -3026,26 +3026,26 @@ mod tests {
         assert_eq!(
             runtime
                 .completed_staging_publication
-                .expect("obsolete completion remains private until explicitly released")
+                .expect("progressive completion remains private until physically published")
                 .generation
                 .token(),
             first
         );
-        assert!(runtime.finish_obsolete_volume_build(first));
-        assert!(runtime.completed_staging_publication.is_none());
-        let latest = runtime.claim_volume_build().unwrap().token();
-        assert!(runtime.token_can_promote(latest));
-        assert_eq!(latest.terrain_revision(), 9);
-        assert_eq!(runtime.in_flight_authored_lighting(), None);
-        let latest_work = runtime.claim_transport_work().unwrap();
-        assert_eq!(
-            latest_work
-                .scheduled()
-                .destination()
-                .field()
-                .geometry_revision(),
-            9
-        );
+        let completed = runtime.completed_staging_publication.unwrap();
+        runtime
+            .preflight_staging_publication(first, completed.field)
+            .unwrap();
+        assert_eq!(runtime.claim_volume_build(), None);
+        assert!(matches!(
+            runtime.refresh_state(),
+            DdgiRefreshState::BuildingTerrain {
+                latest_terrain_revision: 9,
+                ..
+            }
+        ));
+        assert!(runtime.invalidation_voxel_bound().is_some());
+        // Physical publication is required to retire the candidate. Coordinator tests
+        // exercise the next claim; the release sustained-edit fixture exercises the swap.
     }
 
     #[test]
@@ -3063,7 +3063,7 @@ mod tests {
     }
 
     #[test]
-    fn superseded_geometry_keeps_resident_lighting_for_the_replacement_source() {
+    fn progressive_geometry_keeps_resident_lighting_until_physical_publication() {
         let (mut runtime, _, resident) = initialized_runtime();
         let r2 = lighting(2, 2.0);
         runtime.observe_authored_lighting(r2);
@@ -3084,21 +3084,23 @@ mod tests {
                 obsolete_token,
             )
             .unwrap();
-        assert!(runtime.finish_obsolete_volume_build(obsolete_token));
-
-        let replacement_token = runtime.claim_volume_build().unwrap().token();
-        assert_eq!(replacement_token.terrain_revision(), 9);
-        let replacement = runtime.claim_transport_work().unwrap();
+        let staged = runtime.completed_staging_publication.unwrap();
+        assert!(runtime.token_can_promote(obsolete_token));
+        let authorized = runtime
+            .preflight_staging_publication(obsolete_token, staged.field)
+            .unwrap();
+        assert_eq!(authorized.authored_lighting.snapshot(), r2.snapshot());
         assert_eq!(
-            replacement.scheduled().destination().source(),
-            Some(resident.field()),
-            "replacement geometry must inherit the physically resident field, not obsolete staging"
+            runtime
+                .active_publication
+                .published()
+                .unwrap()
+                .field
+                .field(),
+            resident
         );
-        assert_eq!(replacement.authored_lighting().snapshot(), r2.snapshot());
-        let history = replacement
-            .radiance_history_policy()
-            .expect("resident r1 to live r2 must retain an explicit radiance history policy");
-        assert_eq!(history.elapsed, std::time::Duration::from_millis(10));
+        assert_eq!(runtime.claim_volume_build(), None);
+        assert!(runtime.invalidation_voxel_bound().is_some());
     }
 
     #[test]

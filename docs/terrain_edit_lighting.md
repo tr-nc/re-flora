@@ -49,3 +49,40 @@ all 16 Slang CPU tests (`python3 scripts/run_slang_tests.py`, including missing/
 valid-colored truth table), hidden muted release smoke; no ERROR/panic/VUID.
 Generated GPU structs and GUI adjustables changed from their shader/config sources.
 This stage alone intentionally does not resolve publication starvation.
+
+## Progressive publication
+
+Root cause confirmed: both latest-only candidate rejection and private local-stability gating
+starved the edit stream. Complete finite epoch zero now promotes; local recovery continues
+without the former private e5 barrier. Newer requests and the conservative accumulated bounds
+survive older publication. The next build coalesces to the latest revision, using the newly
+resident complete field as history. Existing terrain/camera-priority batch ordering is retained.
+Density arbitration remains latest-only. Descriptor/atlas publication is still atomic and
+owner-validated; no partial batch, synchronous rebuild, sleep, or extra event-time work was added.
+
+Important precision: progressive fields retain their original build revision; they do **not**
+claim current-geometry readiness. Terrain changes can occur between asynchronous probe batches,
+so these are complete temporal approximations, not immutable snapshots of the voxel scene.
+Current exact occupancy remains authoritative for receiver visibility. Once input stops, the
+latest geometry gets its own field and continued recovery/convergence. This explicitly trades
+transient inaccuracies/flicker for responsiveness, as requested.
+
+`cargo test sustained_edits_publish_progress` was run RED before the change (the actual
+coordinator rejected its complete candidate). Full cargo tests now pass (1021, 2 ignored),
+including complete-e0 readiness, retained pending bounds, token retirement, density arbitration,
+and descriptor lineage guards. `cargo check`, `cargo fmt --check`, and hidden release smoke pass;
+smoke log `target/re-flora-logs/re-flora-20260919-042722.662-183770.log`.
+
+`python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/progressive`: **GREEN**,
+40 edits, **21 complete promotions during editing**, no ERROR/panic/VUID. Active-gesture GPU
+render mean 3523.33us, maximum 4371us vs baseline 3433.89us / 4540us: +2.6% mean in this
+single sparse-sample run, not a statistically qualified performance improvement. Same windowed
+scene, camera, spacing, flags and config; artifacts beside the baseline. No geometry/material,
+editing, physics, tree, or GPU budget changes. No generated files changed in this stage.
+
+Legacy DDGI acceptance scripts that require obsolete terrain rejection or private e4/e5 recovery
+encode the superseded policy. Their historical capture assertions are **not** evidence for this
+new publication contract; capture-enabled sustained testing is additionally blocked by the
+baseline evidence-owner panic above. The new production-path sustained runner is the current
+publication-liveness regression. Full legacy acceptance migration remains a limitation, not a
+claimed pass.

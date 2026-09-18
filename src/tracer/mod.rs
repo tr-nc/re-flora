@@ -2727,7 +2727,8 @@ impl Tracer {
             .active_published_irradiance_label()
             .expect("promoted staging volume must have a resident published field");
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
-        let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
+        let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain
+            && self.ddgi_runtime.invalidation_voxel_bound().is_none();
         log::info!(
             "[DDGI] staging promoted token_serial={} generation_token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} epoch_zero_field_serial={} published_field_serial={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
             build_token.serial(),

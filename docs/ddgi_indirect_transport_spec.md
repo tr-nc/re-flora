@@ -60,16 +60,27 @@ all indirect lighting. Exact voxel visibility follows the latest published terra
 irradiance, relocation, and moment visibility remain explicitly owned by the older field until the
 replacement Volume promotes.
 
-Density changes have no localized topology-recovery window, so their complete epoch zero promotes
-directly. Geometry edits retain the epoch-zero root privately while bounded local recovery advances
-the same owner-validated generation. The recovered descendant, not the raw geometry epoch zero,
-becomes consumer-visible. Its typed publication carries the physical build token and exact private
-epoch-zero root, so acceptance can prove the lineage without inferring it from serial arithmetic.
+Density and geometry changes publish a complete finite epoch zero without waiting for
+local recovery stability. Geometry recovery continues on complete consumer-visible epochs;
+publication is not a convergence claim. The same owner-validated generation, exact root,
+atlas/sky slots and descriptor transaction remain authoritative.
 
-Geometry publication is strict latest-revision-wins. One physical Staging update runs at a time;
-new edits coalesce, obsolete candidates cannot promote, and geometry preempts density and temporal
-convergence. Radiance changes finish one immutable in-flight epoch and coalesce queued changes to
-the latest snapshot.
+Geometry publication is progressive and monotonic in build-token order. One physical Staging
+update runs at a time; newer edits coalesce while the current complete candidate is allowed
+to publish. A progressive older candidate retains its original geometry revision and does
+not clear the newer request or accumulated edit/invalidation bounds. The next allocation
+claims the latest visible revision. Exact voxel visibility still follows current terrain.
+During motion, probe batches may observe terrain changes across frames; a complete field is
+an atomic temporal approximation, **not** a frozen same-revision geometry snapshot. After
+editing stops, the final requested revision is rebuilt and convergence proceeds normally.
+Density candidates remain discardable when superseded or preempted by terrain. Radiance
+changes finish one immutable in-flight epoch and coalesce queued changes to the latest snapshot.
+
+Terrain final display has an authored albedo-scaled missing-support fallback. Query availability
+comes from trustworthy geometric support, not irradiance magnitude; supported darkness and
+occlusion remain dark. The fallback does not enter transport or raw irradiance diagnostics.
+See [terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
+measurements, and legacy acceptance limitations.
 
 ## Sampling and temporal accumulation
 
