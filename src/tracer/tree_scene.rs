@@ -3,7 +3,7 @@ use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
-// One query primitive per triangle or complete axis-aligned cube.
+// One query primitive per exposed surface triangle.
 pub const MAX_TREE_PRIMITIVES: usize = 1 << 17;
 pub const MAX_TREE_VERTICES: usize = 1 << 17;
 pub const MAX_TREE_NODES: usize = MAX_TREE_PRIMITIVES * 2;
@@ -53,34 +53,7 @@ impl TreeScene {
             .chunks_exact(3)
             .map(|t| [t[0], t[1], t[2], 0])
             .collect();
-        Self::from_primitives(primitives, positions)
-    }
-    /// Explicit minimum/maximum vertex indices keep query topology independent
-    /// of the visual mesh's face count or vertex layout.
-    pub fn boxes(bounds: &[[u32; 2]], positions: &[Vec3]) -> Result<Self> {
-        ensure!(
-            positions.len() <= MAX_TREE_VERTICES,
-            "tree vertex capacity exceeded"
-        );
-        ensure!(
-            bounds
-                .iter()
-                .flatten()
-                .all(|&i| (i as usize) < positions.len()),
-            "tree box index out of range"
-        );
-        let primitives = bounds.iter().map(|&[min, max]| [min, max, 0, 1]).collect();
-        Self::from_primitives(primitives, positions)
-    }
-    fn from_primitives(primitives: Vec<[u32; 4]>, positions: &[Vec3]) -> Result<Self> {
-        ensure!(
-            primitives.len() <= MAX_TREE_PRIMITIVES,
-            "tree query capacity exceeded"
-        );
-        ensure!(
-            positions.iter().all(|p| p.is_finite()),
-            "nonfinite tree geometry"
-        );
+
         let mut scene = Self {
             nodes: Vec::new(),
             primitives,
@@ -238,13 +211,8 @@ impl TreeScene {
 }
 
 fn primitive_bounds(t: [u32; 4], point: &impl Fn(u32) -> Result<Vec3>) -> Result<(Vec3, Vec3)> {
-    let (a, b) = (point(t[0])?, point(t[1])?);
-    if t[3] == 1 {
-        Ok((a.min(b), a.max(b)))
-    } else {
-        let c = point(t[2])?;
-        Ok((a.min(b).min(c), a.max(b).max(c)))
-    }
+    let (a, b, c) = (point(t[0])?, point(t[1])?, point(t[2])?);
+    Ok((a.min(b).min(c), a.max(b).max(c)))
 }
 
 #[cfg(test)]
@@ -252,14 +220,10 @@ mod tests {
     use super::*;
     #[test]
     fn gpu_refit_schedule_covers_nodes_once_and_publishes_children_first() {
-        let points: Vec<_> = (0..34)
+        let points: Vec<_> = (0..51)
             .map(|i| Vec3::new(i as f32, (i % 5) as f32, 0.))
             .collect();
-        let scene = TreeScene::boxes(
-            &(0..17).map(|i| [i * 2, i * 2 + 1]).collect::<Vec<_>>(),
-            &points,
-        )
-        .unwrap();
+        let scene = TreeScene::new(&(0..51).collect::<Vec<_>>(), &points).unwrap();
         let schedule = scene.refit_schedule();
         assert_eq!(schedule.records.len(), scene.nodes.len());
         let mut completed = std::collections::BTreeSet::new();
@@ -281,16 +245,16 @@ mod tests {
     }
 
     #[test]
-    fn direct_boxes_match_complete_triangle_boundaries_after_motion() {
+    fn accelerated_triangles_match_brute_force_boundaries_after_motion() {
         use crate::tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
         use crate::tree_gen::skin::intersect_surface_triangle;
         let rest: Vec<_> = VOXEL_VERTICES.iter().map(|v| v.as_vec3() / 256.).collect();
         let offset = Vec3::new(1.037, 0.683, 0.954);
         let positions: Vec<_> = rest.iter().map(|v| *v + offset).collect();
-        let mut scene = TreeScene::boxes(&[[0, 6]], &rest).unwrap();
+        let mut scene = TreeScene::new(&CUBE_INDICES, &rest).unwrap();
         scene.refit(&positions).unwrap();
-        assert_eq!(scene.primitives.len(), 1);
-        assert_eq!(scene.nodes.len(), 1);
+        assert_eq!(scene.primitives.len(), 12);
+        assert_eq!(scene.nodes.len(), 23);
         let center = (positions[0] + positions[6]) * 0.5;
         for i in 0..96 {
             let v = Vec3::new(
@@ -301,7 +265,21 @@ mod tests {
             .normalize();
             let origin = if i % 3 == 0 { center } else { center + v * 0.1 };
             let direction = if i % 3 == 0 || i % 5 == 0 { v } else { -v };
-            let direct = intersect_box(origin, direction, positions[0], positions[6]);
+            let direct = scene
+                .ray_candidates(origin, direction)
+                .into_iter()
+                .filter_map(|i| {
+                    let t = scene.primitives[i as usize];
+                    let ids = [t[0] as usize, t[1] as usize, t[2] as usize];
+                    intersect_surface_triangle(
+                        origin,
+                        direction,
+                        ids.map(|i| positions[i]),
+                        ids.map(|i| rest[i]),
+                    )
+                })
+                .filter(|h| h.distance >= 1e-6)
+                .min_by(|a, b| a.distance.total_cmp(&b.distance));
             let reference = CUBE_INDICES
                 .chunks_exact(3)
                 .filter_map(|ids| {
@@ -316,15 +294,18 @@ mod tests {
                 .filter(|h| h.distance >= 1e-6)
                 .min_by(|a, b| a.distance.total_cmp(&b.distance));
             assert_eq!(direct.is_some(), reference.is_some(), "ray {i}");
-            if let (Some((distance, _)), Some(reference)) = (direct, reference) {
-                assert!((distance - reference.distance).abs() < 2e-6, "ray {i}");
-                assert!((origin + direction * distance - offset)
+            if let (Some(direct), Some(reference)) = (direct, reference) {
+                assert!(
+                    (direct.distance - reference.distance).abs() < 2e-6,
+                    "ray {i}"
+                );
+                assert!(direct
+                    .rest_position
                     .abs_diff_eq(reference.rest_position, 2e-6));
-                assert_eq!(scene.ray_candidates(origin, direction), vec![0]);
+                assert!((direct.world_position - offset).abs_diff_eq(reference.rest_position, 2e-6));
             }
         }
-        assert!(intersect_box(center + Vec3::X, Vec3::Y, positions[0], positions[6]).is_none());
-        assert!(intersect_box(center, Vec3::ZERO, positions[0], positions[6]).is_none());
+        assert!(scene.ray_candidates(center + Vec3::X, Vec3::Y).is_empty());
     }
 
     #[test]
@@ -364,43 +345,4 @@ pub struct TreeAttachment {
     pub anchor: glam::UVec3,
     pub tree_id: u32,
     pub branch: usize,
-}
-
-/// Returns the first forward boundary, including exit hits for inside origins.
-pub fn intersect_box(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3) -> Option<(f32, Vec3)> {
-    if !origin.is_finite() || !direction.is_finite() || direction.length_squared() == 0. {
-        return None;
-    }
-    let direction = direction.normalize();
-    let mut near = f32::NEG_INFINITY;
-    let mut far = f32::INFINITY;
-    let mut near_normal = Vec3::ZERO;
-    let mut far_normal = Vec3::ZERO;
-    for axis in 0..3 {
-        if direction[axis].abs() < 1e-10 {
-            if origin[axis] < min[axis] || origin[axis] > max[axis] {
-                return None;
-            }
-        } else {
-            let a = (min[axis] - origin[axis]) / direction[axis];
-            let b = (max[axis] - origin[axis]) / direction[axis];
-            let mut normal = Vec3::ZERO;
-            normal[axis] = -direction[axis].signum();
-            if a.min(b) > near {
-                near = a.min(b);
-                near_normal = normal;
-            }
-            if a.max(b) < far {
-                far = a.max(b);
-                far_normal = -normal;
-            }
-        }
-    }
-    if near > far || far < 1e-6 {
-        None
-    } else if near >= 1e-6 {
-        Some((near, near_normal))
-    } else {
-        Some((far, far_normal))
-    }
 }

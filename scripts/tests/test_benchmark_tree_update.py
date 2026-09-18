@@ -1,5 +1,6 @@
 import contextlib
 import io
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -9,6 +10,26 @@ import benchmark_tree_update as bench
 
 
 class TreeBenchmarkTests(unittest.TestCase):
+    def test_only_static_and_smooth_modes_remain(self):
+        parser = bench.build_parser()
+        args = parser.parse_args(['--output', 'target/unused-bench'])
+        self.assertEqual(args.modes, ['static', 'smooth'])
+        self.assertEqual(bench.MODES, {'static': False, 'smooth': True})
+        with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+            parser.parse_args(['--output', 'target/unused-bench', '--modes', 'blocks'])
+        self.assertTrue(errors.getvalue().startswith('error:'))
+        self.assertIn('use smooth', errors.getvalue())
+
+    def test_capture_rejects_removed_flag_and_advertises_wind(self):
+        script = Path(__file__).resolve().parents[1] / 'check_raster_tree_static.py'
+        help_result = subprocess.run([sys.executable, str(script), '--help'], capture_output=True, text=True, check=False)
+        self.assertEqual(help_result.returncode, 0)
+        self.assertIn('Use --wind', help_result.stdout)
+        removed = subprocess.run([sys.executable, str(script), '--axis-aligned'], capture_output=True, text=True, check=False)
+        self.assertEqual(removed.returncode, 2)
+        self.assertIn('unrecognized arguments: --axis-aligned', removed.stderr)
+        self.assertIn('--wind', removed.stderr)
+
     def test_wall_clock_warmup_midnight_and_frame_join(self):
         text = '''
 [23:59:58.000 INFO fixture] [PERF][FRAME] frame 1 total 900.00ms

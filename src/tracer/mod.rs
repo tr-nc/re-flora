@@ -6126,21 +6126,14 @@ impl Tracer {
                     .position(|a| a.anchor == root)
                 {
                     let pose = self.raster_trees.attachment_poses[index];
-                    let center_offset = if self.raster_trees.rest_mesh.axis_aligned {
-                        Vec3::splat(0.5 / 256.)
-                    } else {
-                        Vec3::ZERO
-                    };
-                    let rest = (root.as_vec3() + *offset) / 256. + center_offset;
-                    let world = pose.transform_point(rest) - center_offset;
+                    let rest = (root.as_vec3() + *offset) / 256.;
+                    let world = pose.transform_point(rest);
                     *offset = world * 256. - root.as_vec3();
                     *velocity = pose.rotation * *velocity;
                     if let Some(previous) = self.raster_trees.previous_attachment_poses.get(index) {
                         let dt = self.raster_trees.attachment_dt;
                         if dt > 1e-6 {
-                            *velocity += (world - (previous.transform_point(rest) - center_offset))
-                                * 256.
-                                / dt;
+                            *velocity += (world - previous.transform_point(rest)) * 256. / dt;
                         }
                     }
                 }
@@ -6150,7 +6143,7 @@ impl Tracer {
     }
 
     pub(crate) fn attached_fruit_rotation(&self, root: UVec3) -> (glam::Quat, Vec3) {
-        if self.raster_trees.posed_surface.is_some() && !self.raster_trees.rest_mesh.axis_aligned {
+        if self.raster_trees.posed_surface.is_some() {
             if let Some(index) = self
                 .raster_trees
                 .attachments
@@ -6469,7 +6462,7 @@ impl Tracer {
         self.resources.tree_scene_info.fill(&[[
             u32::from(active),
             self.raster_trees.scene.nodes.len() as u32,
-            u32::from(self.raster_trees.rest_mesh.axis_aligned),
+            0, // reserved
             self.raster_trees.skin.bindings.len() as u32,
         ]])?;
         Ok(())

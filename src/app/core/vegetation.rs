@@ -4752,31 +4752,6 @@ impl App {
         let mesh = &self.tracer.raster_trees.rest_mesh;
         let surface =
             mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
-        if mesh.axis_aligned {
-            let positions: Vec<_> = surface.positions().collect();
-            for cube in positions.chunks_exact(8) {
-                let min = cube
-                    .iter()
-                    .copied()
-                    .fold(Vec3::splat(f32::INFINITY), Vec3::min);
-                let max = cube
-                    .iter()
-                    .copied()
-                    .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-                anyhow::ensure!(
-                    (max - min).abs_diff_eq(Vec3::splat(1. / 256.), 1e-6),
-                    "tree block rotated or stretched"
-                );
-                for p in cube {
-                    anyhow::ensure!(
-                        ((*p - min).abs().min((*p - max).abs()))
-                            .cmplt(Vec3::splat(1e-6))
-                            .all(),
-                        "tree corner left world axes"
-                    );
-                }
-            }
-        }
         anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
         // Normals are validated against the GPU surface by the smoke readback;
         // normal frames no longer construct an unused CPU shading-normal array.
@@ -4818,19 +4793,11 @@ impl App {
             self.tracer.raster_trees.enabled = false;
             return Ok(());
         }
-        let axis_aligned = self.debug_settings.adjustables.raster_tree_wind.value
-            && self
-                .debug_settings
-                .adjustables
-                .raster_tree_axis_aligned
-                .value;
-        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision)
-            || self.tracer.raster_trees.rest_mesh.axis_aligned != axis_aligned
-        {
+        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision) {
             self.tracer.invalidate_local_direct_sun_shadow_histories();
             self.vulkan_ctx.device().wait_idle();
             let started = Instant::now();
-            let mut mesh = crate::tracer::RasterTreeMesh::with_axis_aligned(axis_aligned);
+            let mut mesh = crate::tracer::RasterTreeMesh::default();
             let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
             for record in self.trees.records.values() {
                 let origin = record.bound.min().saturating_sub(UVec3::splat(2));
@@ -4878,8 +4845,8 @@ impl App {
                     )
                     .collect(),
             )?;
-            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} axis_aligned={} query_primitives={} secondary_geometry=published_tree_surface",
-                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,axis_aligned,self.tracer.raster_trees.scene.primitives.len());
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
         }
         if !self.tracer.raster_trees.enabled {
             self.tracer.invalidate_local_direct_sun_shadow_histories();

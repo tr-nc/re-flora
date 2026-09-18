@@ -9,8 +9,7 @@ struct VertexOutput {
     [[vk::location(2)]] float3 normal : NORMAL0;
 };
 [shader("vertex")]
-VertexOutput main(uint vertex : SV_VulkanVertexID, uint instance : SV_VulkanInstanceID) {
-    uint index = treeSurfaceVertex(vertex, instance);
+VertexOutput main(uint index : SV_VulkanVertexID) {
     VertexOutput output;
     output.world_position = treeSurfacePosition(index);
     output.position = mul(camera_info.view_proj_mat, float4(output.world_position,1.0));

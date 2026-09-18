@@ -62,6 +62,13 @@ impl GuiConfigLoader {
         }
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_sky_strength(&mut config);
+        // Retired experimental geometry: accept old saves, but never retain the
+        // switch in the live config or write it back on the next save.
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|param| param.id != "raster_tree_axis_aligned");
+        }
 
         log::info!(
             "Loaded GUI config: {} (schema v{}, {} sections, {} params)",
@@ -604,6 +611,54 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_tree_block_switch_is_removed_without_changing_other_settings() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let debug = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap();
+            for param in &mut debug.param {
+                if ["raster_tree_static", "raster_tree_wind"].contains(&param.id.as_str()) {
+                    param.value = GuiParamValue::Bool { value: enabled };
+                }
+            }
+            let mut retired = debug
+                .param
+                .iter()
+                .find(|p| p.id == "raster_tree_wind")
+                .unwrap()
+                .clone();
+            retired.id = "raster_tree_axis_aligned".into();
+            retired.value = GuiParamValue::Bool { value: enabled };
+            let expected = toml::to_string(&config).unwrap();
+            config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap()
+                .param
+                .push(retired);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let migrated = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&migrated).unwrap(), expected);
+            GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("raster_tree_axis_aligned"));
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected
+            );
+        }
+    }
+
     #[test]
     fn amplitude_migration_preserves_strength_radius_and_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;

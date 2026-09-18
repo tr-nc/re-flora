@@ -21,8 +21,3 @@ public float3 treeSkinNormal(float4 parent, float4 child, float weight, float3 n
     float3 transformed = (cross(y,z)*n.x + cross(z,x)*n.y + cross(x,y)*n.z) / determinant;
     return dot(transformed, transformed) > 0.0 ? normalize(transformed) : float3(0);
 }
-public float3 treeCubeCorner(uint i) {
-    // Same order as voxel_geometry::VOXEL_VERTICES; covered by GPU tests.
-    return float3((i == 1u || i == 2u || i == 5u || i == 6u) ? 1.0 : 0.0,
-        i >= 4u ? 1.0 : 0.0, (i % 4u >= 2u) ? 1.0 : 0.0);
-}

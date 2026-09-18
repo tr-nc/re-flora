@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Compare real release tree modes; restore GUI/camera bytes even after failure.
+"""Compare static and smooth wind-driven release trees; restore GUI/camera bytes.
 
-Build first with cargo build --release. Static disables wind and uses the exposed
-surface; blocks uses complete translated cubes. Thus static-vs-blocks measures
-whole-path cost, not an isolated animation kernel or a forest performance budget.
+Build first with cargo build --release. Static disables wind on the wood surface;
+smooth animates the same exposed-face topology. This is a whole-path single-tree
+diagnostic, not an isolated animation kernel or a forest performance budget.
+The experimental blocks mode has been removed; use smooth for animated trees.
 """
 import argparse
 import fcntl
@@ -19,7 +20,7 @@ from pathlib import Path
 from check_raster_tree_static import setting
 
 ROOT = Path(__file__).resolve().parents[1]
-MODES = {'static': (False, False), 'smooth': (True, False), 'blocks': (True, True)}
+MODES = {'static': False, 'smooth': True}
 FRAME = re.compile(r'\[(\d+):(\d+):(\d+\.\d+) INFO .*?\[PERF\]\[FRAME\] frame (\d+) total ([\d.]+)ms')
 UPDATE = re.compile(r'\[PERF\]\[TREE_UPDATE\] frame=(\d+) (.*)')
 METRIC = re.compile(r'(\w+_us)=(?:Some\()?([\d.]+)')
@@ -40,15 +41,15 @@ class Parser(argparse.ArgumentParser):
 def build_parser():
     parser = Parser(description=__doc__, epilog=(
         'Example: python3 scripts/benchmark_tree_update.py --output target/tree-review '
-        '--modes static smooth blocks --repeats 3 --seconds 12'))
+        '--modes static smooth --repeats 3 --seconds 12'))
     parser.add_argument('--binary', type=Path, default=ROOT / 'target/release/re-flora',
                         help='release executable; can be a saved pre-change binary')
     parser.add_argument('--output', type=Path, required=True, help='directory for logs and summary.json')
     parser.add_argument('--seconds', type=float, default=8., help='run duration per mode (default: 8)')
     parser.add_argument('--warmup-seconds', type=float, default=3.,
                         help='exclude initial wall-clock seconds after the first frame log (default: 3)')
-    parser.add_argument('--modes', nargs='+', choices=MODES, default=['smooth', 'blocks'],
-                        help='modes to measure (default: smooth blocks)')
+    parser.add_argument('--modes', nargs='+', choices=MODES, default=['static', 'smooth'],
+                        help='modes to measure (default: static smooth)')
     parser.add_argument('--repeats', type=int, default=1,
                         help='runs per mode; rotates mode order each repeat (default: 1)')
     return parser
@@ -134,9 +135,7 @@ fly_mode = true
             for repeat in range(args.repeats):
                 offset = repeat % len(args.modes)
                 for name in args.modes[offset:] + args.modes[:offset]:
-                    wind, aligned = MODES[name]
-                    config = setting(source, 'raster_tree_wind', str(wind).lower())
-                    gui.write_text(setting(config, 'raster_tree_axis_aligned', str(aligned).lower()))
+                    gui.write_text(setting(source, 'raster_tree_wind', str(MODES[name]).lower()))
                     stem = name if args.repeats == 1 else f'{name}-{repeat+1}'
                     log_path = out / f'{stem}.log'
                     with log_path.open('w') as log:
@@ -147,7 +146,7 @@ fly_mode = true
                                        timeout=max(120., args.seconds+90.), check=True)
                     text = log_path.read_text()
                     assert 'Application exited successfully' in text, log_path
-                    assert f'axis_aligned={str(aligned).lower()}' in text, log_path
+                    assert '[TREE][RASTER_STATIC] mode=B' in text, log_path
                     assert not any(s in text for s in [' ERROR ', 'panicked at', 'VUID-']), log_path
                     values = samples_from_log(text, args.warmup_seconds)
                     assert len(values) >= 30, f'insufficient steady frames: {log_path}; increase --seconds'

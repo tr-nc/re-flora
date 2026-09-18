@@ -30,24 +30,6 @@ bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, flo
     }
     return lo <= hi;
 }
-// Exact axis-aligned box boundary, including exit hits for inside origins.
-bool intersectTreeBox(float3 origin, float3 direction, float3 lower, float3 upper, out float distance) {
-    float nearDistance = -1e30, farDistance = 1e30;
-    distance = 0.0;
-    for (uint axis=0u; axis<3u; ++axis) {
-        if (abs(direction[axis]) < 1e-10) {
-            if (origin[axis] < lower[axis] || origin[axis] > upper[axis]) return false;
-        } else {
-            float a=(lower[axis]-origin[axis])/direction[axis];
-            float b=(upper[axis]-origin[axis])/direction[axis];
-            nearDistance=max(nearDistance,min(a,b));
-            farDistance=min(farDistance,max(a,b));
-        }
-    }
-    if (nearDistance > farDistance || farDistance < 1e-6) return false;
-    distance=nearDistance >= 1e-6 ? nearDistance : farDistance;
-    return true;
-}
 public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
     if (!treeSceneActive()) return hit;
     uint count = tree_scene_info[0].y;
@@ -59,18 +41,6 @@ public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingRe
         if (node.primitive == 0xffffffffu) { ++index; continue; }
         uint4 primitive = tree_scene_primitives[node.primitive];
         uint3 ids = primitive.xyz;
-        if (primitive.w == 1u) {
-            float distance;
-            if (intersectTreeBox(origin,direction,treeScenePosition(ids.x),treeScenePosition(ids.y),distance) && distance < limit) {
-                limit=distance;
-                hit.is_hit=true; hit.distance=distance;
-                hit.position=origin+direction*distance; hit.center_position=hit.position;
-                hit.normal=normalize(treeSceneNormal(ids.x));
-                hit.voxel_type=5u; hit.voxel_address=0u;
-            }
-            index=node.escape;
-            continue;
-        }
         float3 a = treeScenePosition(ids.x), b = treeScenePosition(ids.y), c = treeScenePosition(ids.z);
         float3 e1 = b-a, e2 = c-a;
         float3 p = cross(direction,e2);
@@ -138,16 +108,4 @@ public bool treeSceneOccludes(float3 start, float3 end) {
     MarchingResult empty=(MarchingResult)0;
     MarchingResult hit=traceTreeScene(start,(end-start)/distance,empty);
     return hit.is_hit && hit.distance < distance-1e-5;
-}
-
-// Preserve the same posed cube center while leaving its world-axis corners fixed.
-public bool treeBlocksAxisAligned() { return treeSceneActive() && tree_scene_info[0].z != 0u; }
-public float3 treeBlockAnchor(uint3 anchor, float3 position) {
-    float3 halfSize = float3(0.5 / 256.0);
-    return treeBlocksAxisAligned()
-        ? treeAttachmentPoint(anchor, position + halfSize) - halfSize
-        : treeAttachmentPoint(anchor, position);
-}
-public float3 treeBlockVector(uint3 anchor, float3 vector) {
-    return treeBlocksAxisAligned() ? vector : treeAttachmentVector(anchor, vector);
 }

@@ -233,8 +233,8 @@ VertexOutput main(VertexInput input)
     float3 anchorPosition =
         (float3(leafVoxelLocalPosition) + windOffset) * SCALING_FACTOR +
         instancePosition;
-    anchorPosition = treeBlockAnchor(instancePositionVoxels,anchorPosition);
-    float3 voxelPosition = anchorPosition + treeBlockVector(instancePositionVoxels,float3(0.5 * SCALING_FACTOR));
+    anchorPosition = treeAttachmentPoint(instancePositionVoxels,anchorPosition);
+    float3 voxelPosition = anchorPosition + treeAttachmentVector(instancePositionVoxels,float3(0.5 * SCALING_FACTOR));
     float billboardSizeVoxels = isTreeLeaf
         ? max(leafInstance.billboard_size_voxels, 0.0)
         : 1.225;

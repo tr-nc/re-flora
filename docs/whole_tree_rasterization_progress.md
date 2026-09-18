@@ -2,6 +2,29 @@
 
 用户选择：保留现有体素方块轮廓。每个验证通过的步骤独立提交。
 
+## 当前状态：仅保留平滑风动，移除轴对齐实验
+
+用户近景体验后明确放弃每块刚性平移、保持世界轴对齐的方案：相邻木块错位产生的裂缝/重叠细节不符合期待。现在只有原体素/光栅路径开关 `Raster whole trees`，以及 `Animate raster trees with wind`。同时开启就是原先第三项关闭的平滑蒙皮模式；默认值与材质风格不变。
+
+- 删除 Axis Aligned GUI 声明、分组和生成字段；加载旧保存文件时丢弃退休参数，不改变其他设置，下一次统一保存不会写回它。测试覆盖旧值 true/false 和实际保存、加载、再次保存。
+- 删除树网格的全实体木块/隐藏面生成、中心绑定、每块实例绘制、CPU 紧凑盒子表面、专用盒子精确查询，以及着色器轴对齐与叶果锚点补偿分支。保留共享角点蒙皮、GPU 骨架/表面/BVH、精确三角形碰撞和重心坐标挖掘；通用物理库的盒子 API 不属于树专用开关，未改动。
+- 附着叶片、阴影与果实交接直接使用原平滑模式的点/向量变换。无降频、冻结姿态或碰撞降级。
+- smoke 不再切换退休表示，改为检查风动关闭/恢复；保留强风、逐 GPU 顶点/法线、完整查询 BVH、17 条精确射线、实际挖掘、生长/删除/重建和 resize。
+
+验证：`cargo fmt --check`、`cargo check`、`cargo test` 通过（1016 main + 4 library，2 ignored）；物理库 50 项通过；基准/CLI 五项 Python 测试通过，修改的基准与测试文件通过定向 ruff 检查。`cargo check` 自动更新的生成文件仅 `src/app/generated/gui_adjustables_gen.rs`。release 的 `--hidden --mute --raster-tree-smoke --resize-lifecycle-test` 及默认 0.5 秒运行通过，日志 `target/remove-tree-blocks-{check,tests,physics-tests,smoke,default,tail}.log`，无 ERROR/panic/VUID。所有运行恢复 GUI/相机文件；既有 `Cargo.lock` 改动未纳入。
+
+当前诊断命令：
+
+```sh
+python3 scripts/check_raster_tree_static.py --wind --output target/tree-smooth-only-visual
+python3 scripts/benchmark_tree_update.py --output target/tree-smooth-only-perf \
+  --modes static smooth --repeats 3 --seconds 12
+```
+
+基准默认现在为 static/smooth，退休的 `blocks` 与截图 `--axis-aligned` 不再接受，help 提供平滑模式替代用法。截图已检查裸枝和树冠，轮廓、接头和阴影未见明显回归。当前物理窗口 **4096×2560**（早先验收为 5120×2880），不将跨轮帧耗时变化解释为代码提速。本轮三次同场景 static/smooth 的 median/p95 分别为 **17.10/18.04 ms**（1513 样本）和 **17.05/18.21 ms**（1474 样本）；平滑树 CPU 更新中位数约 1.445 ms，整帧细小差异属于噪声范围，不声称负开销、零工作量或密林性能通过。
+
+**以下是按时间保留的历史实施记录。涉及 Axis Aligned 开关、`--axis-aligned` 或 `blocks` 的旧入口与结论已被上述用户决定取代，不是当前操作说明。**
+
 ## 研究基线
 
 - `25d17975`：提交 `docs/research/whole_tree_rasterization.md`。

@@ -18,11 +18,8 @@ void main(uint3 id : SV_DispatchThreadID) {
         uint4 primitive = tree_scene_primitives[record.z];
         float3 a = tree_scene_vertices[primitive.x*2u].xyz;
         float3 b = tree_scene_vertices[primitive.y*2u].xyz;
-        node.lower = min(a,b); node.upper = max(a,b);
-        if (primitive.w == 0u) {
-            float3 c = tree_scene_vertices[primitive.z*2u].xyz;
-            node.lower = min(node.lower,c); node.upper = max(node.upper,c);
-        }
+        float3 c = tree_scene_vertices[primitive.z*2u].xyz;
+        node.lower = min(min(a,b),c); node.upper = max(max(a,b),c);
     } else {
         TreeSceneNode left = tree_scene_nodes[record.x+1u];
         TreeSceneNode right = tree_scene_nodes[left.escape];

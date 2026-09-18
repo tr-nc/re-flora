@@ -32,17 +32,18 @@ def setting(source, name, value):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        'The experimental --axis-aligned mode was removed. '
+        'Use --wind to capture the retained smooth animation.'))
     parser.add_argument('--output', type=Path, default=ROOT / 'target/raster-tree-evidence')
     parser.add_argument('--wind', action='store_true', help='Capture B with tree wind and scripted gusts')
-    parser.add_argument('--axis-aligned', action='store_true', help='Compare smooth vs axis-aligned animated trees')
     parser.add_argument('--delay', type=float, default=4.0)
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.pop('WAYLAND_DISPLAY', None)
-    if args.wind or args.axis_aligned:
+    if args.wind:
         env['RE_FLORA_WIND_PROTOTYPE_SMOKE'] = '1'
     gui = ROOT / 'config/gui.toml'
     camera = ROOT / 'config/camera_snapshots.toml'
@@ -53,12 +54,11 @@ def main():
             source = setting(gui_original.decode(), 'auto_daynight_cycle', 'false')
             source = setting(source, 'time_of_day', '0.47')
             source = setting(source, 'path_tracing_reference', 'false')
-            source = setting(source, 'raster_tree_wind', str(args.wind or args.axis_aligned).lower())
+            source = setting(source, 'raster_tree_wind', str(args.wind).lower())
             camera.write_text(CAMERA)
             for foliage in [False, True]:
                 for mode in ['A', 'B']:
-                    candidate = setting(source, 'raster_tree_static', str(args.axis_aligned or mode == 'B').lower())
-                    candidate = setting(candidate, 'raster_tree_axis_aligned', str(args.axis_aligned and mode == 'B').lower())
+                    candidate = setting(source, 'raster_tree_static', str(mode == 'B').lower())
                     gui.write_text(candidate)
                     name = f'{mode}-' + ('canopy' if foliage else 'wood')
                     (out / f'{name}.png').unlink(missing_ok=True)
