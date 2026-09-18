@@ -1,5 +1,8 @@
 # Terrain edit lighting
 
+Current validation command: `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/recheck`
+(release, hidden/muted, GPU lock, fixed-camera pixel + during-edit publication assertions).
+
 Rollback: pushed annotated `checkpoint/terrain-edit-lighting-start-ad7e4bd6`
 (`ad7e4bd6d8e5aa20b112e23d177f7f8e9caf8869`).
 
@@ -144,3 +147,49 @@ Final refinement validation: fmt/check, 1023 Rust tests passed (2 ignored), all 
 tests, release hidden smoke (`target/re-flora-logs/re-flora-20260919-044905.373-195379.log`),
 and positive/negative real rendering loops. No ERROR/panic/VUID in production logs. GPU structs
 were regenerated; unrelated Cargo.lock metadata excluded.
+
+## Recursive feedback during changing topology (final stage)
+
+Further root-cause inspection found two independent reasons why repeated e0 publications could
+still fail to improve **indirect** light: local e0 tracing discarded its complete source field,
+and transport exact visibility compared the old root revision with current packed occupancy,
+rejecting every segment once another edit arrived. These are now separated correctly:
+
+- fresh local accumulation still has zero retention at geometry e0;
+- recursive hit shading can use the immutable previous complete radiance field;
+- exact visibility uses the revision belonging to the currently bound occupancy publication,
+  with all readiness/domain/occlusion checks retained;
+- field root and authored-lighting identity remain immutable. No display fallback enters feedback.
+
+Thus repeated geometry generations can propagate reflected light instead of repeatedly restarting
+from black indirect history. The shader wiring guard was observed RED before the fix. It is only
+a wiring test; the real release rendering runs below provide integration evidence, not a proof of
+numerical convergence under perpetual topology change. Temporary stale-energy/flicker remains
+possible and intentional.
+
+Final commands/artifacts:
+
+- `cargo fmt --check`, `cargo check`, `cargo test`: **1024 passed, 2 ignored**.
+- `python3 scripts/run_slang_tests.py`: **16 passed**.
+- `python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture`: **63 passed**.
+- `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/feedback32`: GREEN,
+  40 edits, 22 during-edit complete promotions, pending receiver 31/255.
+- Same command with `target/edit-lighting/feedback16 --spacing 16`: GREEN, 3 promotions,
+  receiver 31/255. Latest terrain publication after release: **263ms / 1616ms** respectively.
+- Both retain `editing.png`, `report.json`, full canonical `run.log`, `console.log`, and command
+  argv with the same 2560×1440 camera and GUI hash as matched baseline.
+- Final hidden muted 0.5s smoke passed; canonical path is recorded in
+  `/tmp/terrain-light-feedback-smoke.log`. Production logs contain no ERROR/panic/VUID.
+
+Final sparse active-gesture GPU render means/maxima: spacing32 **4097.33/5538us**; spacing16
+**4026.56/5848us**. Against matched spacing32 baseline 3673.56/5293us, the final single run costs
+about **+0.424ms (+11.5%) mean**. This reflects useful additional feedback work; it is not a
+performance acceptance or statistical regression assessment. Visual review/performance approval
+remains with the user; no visible game was launched.
+
+The v10 serialized golden capture was regenerated from the Rust serializer test output because
+the transport shader changes the authored-model source hash (only that eight-byte identity changed).
+No format change. Full RFIRR terrain-lifecycle acceptance remains unverified for the baseline
+capture-owner failure and superseded private-recovery/latest-only assertions described above.
+The saved user cavity was unavailable; this fixture covers the real terrain publication path,
+unavailable display pixel, supported-dark shader contract, and sustained publication liveness.

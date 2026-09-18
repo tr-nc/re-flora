@@ -839,6 +839,16 @@ mod tests {
     }
 
     #[test]
+    fn terrain_transport_retains_feedback_across_progressive_geometry_publications() {
+        // Wiring guard, not numerical/GPU evidence: fresh geometry samples replace
+        // local accumulation, but must still query the previous complete radiance.
+        let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        assert!(trace.contains("bool useHistory = pc.has_history != 0u;"));
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        assert!(query.contains("query.geometry_revision = ddgiPublishedVoxelGeometryRevision();"));
+    }
+
+    #[test]
     fn terrain_and_raster_consumers_share_the_ddgi_sampler_contract() {
         let shared = include_str!("../shader/slang/environment_lighting.slang");
         let terrain = include_str!("../shader/slang/tracer.slang");

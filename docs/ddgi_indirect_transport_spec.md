@@ -49,8 +49,11 @@ For geometry and density updates, epoch zero:
 
 - traces the current geometry and radiance snapshot;
 - records authored sky on misses;
-- records terrain albedo times exact direct-sun irradiance on front-face hits;
-- uses zero indirect history and zero history retention;
+- records terrain albedo times exact direct-sun plus available previous-field indirect irradiance
+  on front-face hits;
+- uses zero local accumulation retention, but geometry refreshes retain the previous complete
+  radiance estimate for recursive transport, gated by current exact voxel visibility;
+- initial/density allocations without a source use zero indirect history;
 - writes both irradiance and visibility to a private destination;
 - becomes the immutable generation root after the entire atlas validates.
 

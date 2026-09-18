@@ -31,6 +31,13 @@ public bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
     return (word & (1u << (voxel.x & 31u))) != 0u;
 }
 
+// The packed occupancy is a separately published live geometry fact. A temporal
+// radiance field's root revision must not be used as its visibility revision.
+public uint ddgiPublishedVoxelGeometryRevision()
+{
+    return ddgi_voxel_visibility_info.geometry_revision;
+}
+
 public bool ddgiPublishedVoxelIsOccupied(int3 coordinate,
                                          out uint geometryRevision,
                                          out uint glassMaterialRevision)

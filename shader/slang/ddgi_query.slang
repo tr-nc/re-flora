@@ -151,7 +151,9 @@ DdgiQueryInfo ddgiTransportQueryInfo(U_DdgiTransportQueryInfo transport)
     query.irradiance_tile_columns = transport.irradiance_tile_columns;
     query.visibility_tile_columns = transport.visibility_tile_columns;
     query.ready = transport.source_ready;
-    query.geometry_revision = transport.geometry_revision;
+    // Transport reads current terrain just like the visible consumer. The field
+    // retains its immutable root identity, but exact occupancy is live per batch.
+    query.geometry_revision = ddgiPublishedVoxelGeometryRevision();
     query.invalidation_enabled = 0u;
     query.invalidation_world_min = float3(0.0);
     query.invalidation_world_max = float3(0.0);
