@@ -137,14 +137,16 @@ impl TreePose {
     }
 
     pub(crate) fn gpu_joints(&self) -> Vec<GpuPoseJoint> {
-        self.joints
-            .iter()
-            .map(|joint| GpuPoseJoint {
+        let mut joints: Vec<GpuPoseJoint> = Vec::with_capacity(self.joints.len());
+        for joint in &self.joints {
+            let depth = joint.parent.map_or(0, |p| joints[p].parent[1] + 1);
+            joints.push(GpuPoseJoint {
                 start_frequency: joint.start.extend(joint.frequency).to_array(),
                 end_compliance: joint.end.extend(joint.compliance).to_array(),
-                parent: [joint.parent.map_or(u32::MAX, |p| p as u32), 0, 0, 0],
-            })
-            .collect()
+                parent: [joint.parent.map_or(u32::MAX, |p| p as u32), depth, 0, 0],
+            });
+        }
+        joints
     }
 
     pub(crate) fn gpu_state(&self) -> Vec<GpuPoseState> {

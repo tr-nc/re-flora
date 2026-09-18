@@ -4622,9 +4622,9 @@ impl App {
             .step_by((indices.len() / 3 / 16).max(1))
             .filter_map(|t| {
                 let [a, b, c] = [
-                    surface.positions[t[0] as usize],
-                    surface.positions[t[1] as usize],
-                    surface.positions[t[2] as usize],
+                    surface.position(t[0] as usize),
+                    surface.position(t[1] as usize),
+                    surface.position(t[2] as usize),
                 ];
                 let normal = (b - a).cross(c - a).normalize_or_zero();
                 (normal != Vec3::ZERO).then_some(crate::tracer::TerrainRayQuery {
@@ -4661,13 +4661,12 @@ impl App {
             .as_ref()
             .context("missing posed tree surface")?;
         let index = surface
-            .positions
-            .iter()
+            .positions()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
             .map(|(i, _)| i)
             .context("empty tree surface")?;
-        let target = surface.positions[index];
+        let target = surface.position(index);
         let origin = target + Vec3::new(0.003, 0.02, 0.003);
         let hit = self
             .tracer
@@ -4697,6 +4696,7 @@ impl App {
     }
 
     pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
+        let started = Instant::now();
         let surface = if self.tracer.raster_trees.enabled
             && self.debug_settings.adjustables.raster_tree_wind.value
         {
@@ -4709,6 +4709,8 @@ impl App {
         } else {
             None
         };
+        let skin_us = started.elapsed().as_secs_f64() * 1e6;
+        let palette_started = Instant::now();
         if surface.is_some() {
             self.tracer.publish_tree_skin_poses(|id| {
                 self.trees
@@ -4726,13 +4728,26 @@ impl App {
             self.tracer
                 .publish_tree_attachments(&attachments, self.time_info.delta_time())?;
         }
+        let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
+        let physics_started = Instant::now();
         self.terrain_physics.publish_tree_surface(
             surface.as_ref().and(self.tracer.raster_trees.revision),
             &self.tracer.raster_trees.rest_mesh.solid_cells,
             surface.as_ref(),
             &self.tracer.raster_trees.rest_mesh.indices,
         )?;
-        self.tracer.publish_tree_surface(surface)
+        let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
+        let query_started = Instant::now();
+        self.tracer.publish_tree_surface(surface)?;
+        let query_us = query_started.elapsed().as_secs_f64() * 1e6;
+        if self.perf_logging {
+            let pose = &self.tracer.tree_pose_solver.timings;
+            log::info!("[PERF][TREE_UPDATE] frame={} pose_submit_us={:.2} pose_wait_us={:.2} pose_readback_us={:.2} pose_gpu_us={:?} readback_bytes={} cpu_skin_us={:.2} palette_us={:.2} physics_us={:.2} query_us={:.2} total_cpu_us={:.2}",
+                self.time_info.total_frame_count(), pose.submit_us, pose.wait_us, pose.readback_us, pose.gpu_us,
+                pose.readback_bytes, skin_us, palette_us, physics_us, query_us,
+                started.elapsed().as_secs_f64()*1e6 + pose.submit_us + pose.wait_us + pose.readback_us);
+        }
+        Ok(())
     }
 
     pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
@@ -4740,7 +4755,8 @@ impl App {
         let surface =
             mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
         if mesh.axis_aligned {
-            for cube in surface.positions.chunks_exact(8) {
+            let positions: Vec<_> = surface.positions().collect();
+            for cube in positions.chunks_exact(8) {
                 let min = cube
                     .iter()
                     .copied()
@@ -4763,17 +4779,9 @@ impl App {
                 }
             }
         }
-        anyhow::ensure!(
-            surface.positions.iter().all(|p| p.is_finite()),
-            "nonfinite posed tree position"
-        );
-        anyhow::ensure!(
-            surface
-                .normals
-                .iter()
-                .all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-4),
-            "invalid posed normal"
-        );
+        anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
+        // Normals are validated against the GPU surface by the smoke readback;
+        // normal frames no longer construct an unused CPU shading-normal array.
         Ok(())
     }
 
@@ -4798,6 +4806,7 @@ impl App {
             &self.wind_prototype.field.frame(),
             dt,
             self.launch_owners.raster_tree_smoke.is_some(),
+            self.perf_logging,
         )
     }
 

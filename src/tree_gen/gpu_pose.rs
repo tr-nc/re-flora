@@ -5,7 +5,7 @@
 use anyhow::{ensure, Result};
 use re_flora_vkn::{
     vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, ComputePipeline, DescriptorPool,
-    Extent3D, GpuJobToken, MemoryLocation, ShaderModule, VulkanContext,
+    Extent3D, GpuJobToken, GpuProfiler, MemoryLocation, PipelineStage, ShaderModule, VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
 use std::time::Instant;
@@ -61,8 +61,14 @@ impl Resident {
         for &(_, pose) in trees {
             let start = u32::try_from(joints.len())?;
             let count = u32::try_from(pose.branches().len())?;
-            ranges.push([start, count, 0, 0]);
-            joints.extend(pose.gpu_joints());
+            let tree_joints = pose.gpu_joints();
+            let levels = tree_joints
+                .iter()
+                .map(|j| j.parent[1] + 1)
+                .max()
+                .unwrap_or(0);
+            ranges.push([start, count, levels, 0]);
+            joints.extend(tree_joints);
             states.extend(pose.gpu_state());
         }
         let _ = u32::try_from(joints.len())?;
@@ -126,12 +132,23 @@ pub(crate) struct PoseUpdate {
     pub state: Vec<GpuPoseState>,
 }
 
+#[derive(Default)]
+pub(crate) struct PoseTimings {
+    pub submit_us: f64,
+    pub wait_us: f64,
+    pub readback_us: f64,
+    pub gpu_us: Option<f64>,
+    pub readback_bytes: u64,
+}
+
 pub(crate) struct GpuTreePoseSolver {
     ctx: VulkanContext,
     allocator: Allocator,
     shader: ShaderModule,
     resident: Option<Resident>,
     pending: Option<Pending>,
+    profiler: Option<GpuProfiler>,
+    pub timings: PoseTimings,
 }
 
 impl GpuTreePoseSolver {
@@ -145,6 +162,8 @@ impl GpuTreePoseSolver {
             shader,
             resident: None,
             pending: None,
+            profiler: None,
+            timings: PoseTimings::default(),
         })
     }
 
@@ -154,12 +173,17 @@ impl GpuTreePoseSolver {
         wind: &WindFieldFrame,
         dt: f32,
         validate: bool,
+        profile: bool,
     ) -> Result<()> {
         ensure!(
             self.pending.is_none(),
             "tree pose job must be consumed before resubmission"
         );
         TreePose::validate_step(wind, dt)?;
+        self.timings = PoseTimings::default();
+        if profile && self.profiler.is_none() {
+            self.profiler = GpuProfiler::maybe_new(&self.ctx, 1, 1, "TREE_POSE");
+        }
         let trees: Vec<_> = trees.collect();
         if dt == 0. || trees.is_empty() {
             return Ok(());
@@ -200,6 +224,10 @@ impl GpuTreePoseSolver {
         };
         let command = CommandBuffer::new(self.ctx.device(), self.ctx.command_pool());
         command.begin(true);
+        let scope = self.profiler.as_mut().and_then(|profiler| {
+            profiler.begin_frame(0, &command);
+            profiler.begin_scope(0, &command, "tree_pose.job", PipelineStage::ALL_COMMANDS)
+        });
         for buffer in [&resources.wind_field_info, &resources.tree_pose_step] {
             command.use_buffer(buffer, BufferUse::HostWrite);
         }
@@ -218,9 +246,17 @@ impl GpuTreePoseSolver {
                 );
             }
         }
-        resident
-            .pipeline
-            .record(&command, Extent3D::new(trees.len() as u32, 1, 1), None);
+        resident.pipeline.record(
+            &command,
+            Extent3D::new(
+                u32::try_from(trees.len())?
+                    .checked_mul(64)
+                    .ok_or_else(|| anyhow::anyhow!("too many tree pose workgroups"))?,
+                1,
+                1,
+            ),
+            None,
+        );
         if resident.state_bytes != 0 {
             resources.tree_pose_state.record_copy_to_buffer(
                 &command,
@@ -230,6 +266,9 @@ impl GpuTreePoseSolver {
                 0,
             );
             command.use_buffer(&resident.readback, BufferUse::HostRead);
+        }
+        if let (Some(profiler), Some(scope)) = (self.profiler.as_mut(), scope) {
+            profiler.end_scope(0, &command, scope, PipelineStage::ALL_COMMANDS);
         }
         command.end();
         let job = command.submit_gpu_job(&self.ctx.get_general_queue(), "tree.pose")?;
@@ -241,10 +280,8 @@ impl GpuTreePoseSolver {
                 .map(|(id, pose)| (*id, pose.version(), pose.branches().len()))
                 .collect(),
         });
-        crate::util::BENCH
-            .lock()
-            .unwrap()
-            .record("tree_pose_submit", started.elapsed());
+        self.timings.submit_us = started.elapsed().as_secs_f64() * 1e6;
+        self.timings.readback_bytes = resident.state_bytes;
         Ok(())
     }
 
@@ -304,9 +341,15 @@ impl GpuTreePoseSolver {
             .iter()
             .map(|update| (update.tree, update.source.advanced()))
             .collect();
-        let mut bench = crate::util::BENCH.lock().unwrap();
-        bench.record("tree_pose_wait", waited);
-        bench.record("tree_pose_readback", started.elapsed() - waited);
+        self.timings.wait_us = waited.as_secs_f64() * 1e6;
+        self.timings.readback_us = (started.elapsed() - waited).as_secs_f64() * 1e6;
+        self.timings.gpu_us = self
+            .profiler
+            .as_ref()
+            .map(|profiler| profiler.try_collect_frame(0))
+            .transpose()?
+            .flatten()
+            .and_then(|results| results.scopes.first().map(|s| s.duration_ns / 1000.));
         Ok(output)
     }
 

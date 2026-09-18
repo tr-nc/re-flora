@@ -1669,7 +1669,12 @@ impl Tracer {
     /// The declaration is intentionally made outside render passes: a HostWrite-to-shader
     /// dependency must be recorded before a subpass begins. The descriptor runtime derives each
     /// consumer stage and access from the pipeline's active reflection.
-    pub fn record_host_buffer_writes(&self, cmdbuf: &CommandBuffer) {
+    pub fn record_host_buffer_writes(
+        &self,
+        cmdbuf: &CommandBuffer,
+        gpu_profiler: Option<&mut GpuProfiler>,
+        frame_slot: usize,
+    ) {
         let updated_buffers = [
             &*self.resources.tree_scene_info,
             &*self.resources.tree_scene_nodes,
@@ -1707,7 +1712,9 @@ impl Tracer {
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
-        self.record_tree_skin(cmdbuf);
+        Self::with_gpu_scope(gpu_profiler, frame_slot, cmdbuf, "tree_skin.pass", || {
+            self.record_tree_skin(cmdbuf)
+        });
     }
 
     /// Idempotent producer shared by frame rendering and immediate ray queries.
@@ -6380,14 +6387,28 @@ impl Tracer {
             ]);
         }
         self.resources.tree_skin_poses.fill(&palette)?;
+        self.raster_trees.skin.poses = palette
+            .chunks_exact(2)
+            .map(|p| crate::tree_gen::pose::BranchPose {
+                rotation: glam::Quat::from_array(p[0]),
+                translation: Vec3::from_slice(&p[1]),
+            })
+            .collect();
         Ok(())
     }
 
     /// Called after acquiring the sole in-flight frame; previous readers have completed.
     pub fn publish_tree_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
         if let Some(ref posed) = surface {
-            self.raster_trees.scene.refit(&posed.positions)?;
-            if !posed.positions.is_empty() {
+            anyhow::ensure!(posed.is_finite(), "nonfinite CPU tree surface");
+            self.raster_trees.scene.refit_by(|i| {
+                anyhow::ensure!(
+                    (i as usize) < posed.vertex_count(),
+                    "tree topology changed during refit"
+                );
+                Ok(posed.position(i as usize))
+            })?;
+            if posed.vertex_count() > 0 {
                 self.resources
                     .tree_scene_nodes
                     .fill(&self.raster_trees.scene.nodes)?;

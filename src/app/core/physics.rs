@@ -232,7 +232,7 @@ impl TerrainPhysics {
             self.tree_surface_revision = revision;
         }
         if let Some(surface) = surface {
-            if let Some(centers) = &surface.block_centers {
+            if let crate::tracer::PosedTreeSurface::Blocks { centers } = surface {
                 let centers: Vec<_> = centers.iter().map(|p| *p * 256.).collect();
                 self.collision_world
                     .set_deforming_geometry(re_flora_physics::DeformingGeometry::Boxes {
@@ -241,7 +241,7 @@ impl TerrainPhysics {
                     })
                     .map_err(anyhow::Error::msg)?;
             } else {
-                let positions: Vec<_> = surface.positions.iter().map(|p| *p * 256.).collect();
+                let positions: Vec<_> = surface.positions().map(|p| p * 256.).collect();
                 let triangles: Vec<_> = indices
                     .chunks_exact(3)
                     .map(|t| [t[0], t[1], t[2]])

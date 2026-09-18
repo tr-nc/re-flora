@@ -251,8 +251,12 @@ impl RasterTreeMesh {
             self.bindings.len() == self.vertices.len(),
             "missing tree bindings"
         );
-        let mut positions = Vec::with_capacity(self.vertices.len());
-        let mut normals = Vec::with_capacity(self.vertices.len());
+        let mut positions = Vec::with_capacity(if self.axis_aligned {
+            0
+        } else {
+            self.vertices.len()
+        });
+
         let mut block_centers = self
             .axis_aligned
             .then(|| Vec::with_capacity(self.vertices.len() / 8));
@@ -278,20 +282,13 @@ impl RasterTreeMesh {
                 let center = Vec3::from_array(vertex.center);
                 let posed_center = transform.point(center);
                 centers.push(posed_center);
-                let offset = posed_center - center;
-                for corner in group {
-                    positions.push(Vec3::from_array(corner.position) + offset);
-                    normals.push(Vec3::from_array(corner.normal));
-                }
             } else {
                 positions.push(transform.point(Vec3::from_array(vertex.position)));
-                normals.push(transform.normal(Vec3::from_array(vertex.normal)));
             }
         }
-        Ok(PosedTreeSurface {
-            positions,
-            normals,
-            block_centers,
+        Ok(match block_centers {
+            Some(centers) => PosedTreeSurface::Blocks { centers },
+            None => PosedTreeSurface::Triangles { positions },
         })
     }
 
@@ -304,7 +301,7 @@ impl RasterTreeMesh {
         direction: Vec3,
     ) -> Result<Option<SurfaceHit>> {
         ensure!(
-            posed.positions.len() == self.vertices.len(),
+            posed.vertex_count() == self.vertices.len(),
             "surface topology mismatch"
         );
         let mut nearest: Option<SurfaceHit> = None;
@@ -317,7 +314,7 @@ impl RasterTreeMesh {
             if let Some(hit) = intersect_surface_triangle(
                 origin,
                 direction,
-                ids.map(|i| posed.positions[i]),
+                ids.map(|i| posed.position(i)),
                 ids.map(|i| Vec3::from_array(self.vertices[i].position)),
             ) {
                 if nearest.is_none_or(|previous| hit.distance < previous.distance) {
@@ -331,8 +328,8 @@ impl RasterTreeMesh {
     pub fn max_displacement(&self, surface: &PosedTreeSurface) -> f32 {
         self.vertices
             .iter()
-            .zip(&surface.positions)
-            .map(|(rest, posed)| Vec3::from(rest.position).distance(*posed))
+            .zip(surface.positions())
+            .map(|(rest, posed)| Vec3::from(rest.position).distance(posed))
             .fold(0., f32::max)
     }
 
@@ -341,12 +338,37 @@ impl RasterTreeMesh {
     }
 }
 
-pub struct PosedTreeSurface {
-    /// Exact translated unit cubes, when this representation provides them.
-    /// Consumers need not infer geometry from GUI state or triangle ordering.
-    pub block_centers: Option<Vec<Vec3>>,
-    pub positions: Vec<Vec3>,
-    pub normals: Vec<Vec3>,
+/// CPU interaction geometry is compact and representation-specific. Normals
+/// belong to the GPU shading surface; physics needs no duplicate normal array.
+pub enum PosedTreeSurface {
+    Blocks { centers: Vec<Vec3> },
+    Triangles { positions: Vec<Vec3> },
+}
+
+impl PosedTreeSurface {
+    pub fn vertex_count(&self) -> usize {
+        match self {
+            Self::Blocks { centers } => centers.len() * 8,
+            Self::Triangles { positions } => positions.len(),
+        }
+    }
+    pub fn position(&self, index: usize) -> Vec3 {
+        match self {
+            Self::Blocks { centers } => {
+                centers[index / 8] + (VOXEL_VERTICES[index % 8].as_vec3() - Vec3::splat(0.5)) / 256.
+            }
+            Self::Triangles { positions } => positions[index],
+        }
+    }
+    pub fn positions(&self) -> impl Iterator<Item = Vec3> + '_ {
+        (0..self.vertex_count()).map(|i| self.position(i))
+    }
+    pub fn is_finite(&self) -> bool {
+        match self {
+            Self::Blocks { centers } => centers.iter().all(|p| p.is_finite()),
+            Self::Triangles { positions } => positions.iter().all(|p| p.is_finite()),
+        }
+    }
 }
 
 fn pack_normal_oct16(normal: Vec3) -> u32 {
@@ -371,6 +393,7 @@ pub struct GpuTreeSkin {
     pub rest: Vec<[f32; 4]>,
     pub bindings: Vec<[u32; 4]>,
     pub branches: Vec<(u32, usize)>,
+    pub poses: Vec<BranchPose>,
 }
 
 pub struct RasterTreeGeometry {
@@ -437,8 +460,8 @@ impl RasterTreeGeometry {
                 if let Some((distance, normal)) = super::tree_scene::intersect_box(
                     origin,
                     direction,
-                    posed.positions[base],
-                    posed.positions[triangle[1] as usize],
+                    posed.position(base),
+                    posed.position(triangle[1] as usize),
                 ) {
                     if nearest.is_none_or(|hit: SurfaceHit| distance < hit.distance) {
                         let world_position = origin + direction * distance;
@@ -446,7 +469,7 @@ impl RasterTreeGeometry {
                             distance,
                             normal,
                             world_position,
-                            rest_position: world_position - posed.positions[base]
+                            rest_position: world_position - posed.position(base)
                                 + Vec3::from(self.rest_mesh.vertices[base].position),
                         });
                     }
@@ -461,7 +484,7 @@ impl RasterTreeGeometry {
             if let Some(hit) = intersect_surface_triangle(
                 origin,
                 direction,
-                ids.map(|i| posed.positions[i]),
+                ids.map(|i| posed.position(i)),
                 ids.map(|i| Vec3::from(self.rest_mesh.vertices[i].position)),
             ) {
                 if nearest.is_none_or(|previous| hit.distance < previous.distance) {
@@ -482,10 +505,22 @@ impl RasterTreeGeometry {
         let mut max_position_error = 0.0_f32;
         let mut max_normal_error = 0.0_f32;
         for (i, vertex) in self.rest_mesh.vertices.iter().enumerate() {
-            let (position, normal) = self.posed_surface.as_ref().map_or(
-                (Vec3::from(vertex.position), Vec3::from(vertex.normal)),
-                |surface| (surface.positions[i], surface.normals[i]),
-            );
+            let position = self
+                .posed_surface
+                .as_ref()
+                .map_or(Vec3::from(vertex.position), |s| s.position(i));
+            let normal = if self.posed_surface.is_some() && !self.rest_mesh.axis_aligned {
+                let [branch, parent, weight, _] = self.skin.bindings[i];
+                SkinBinding {
+                    branch: branch as usize,
+                    parent: Some(parent as usize),
+                    weight: f32::from_bits(weight),
+                }
+                .transform(&self.skin.poses)?
+                .normal(Vec3::from(vertex.normal))
+            } else {
+                Vec3::from(vertex.normal)
+            };
             let gpu_position = Vec3::from_slice(&data[i * 2]);
             let gpu_normal = Vec3::from_slice(&data[i * 2 + 1]);
             ensure!(
@@ -668,7 +703,8 @@ mod tests {
             .unwrap();
         let mut corners = BTreeMap::new();
         let mut shared = 0;
-        for (vertex, position) in mesh.vertices.iter().zip(&surface.positions) {
+        let positions: Vec<_> = surface.positions().collect();
+        for (vertex, position) in mesh.vertices.iter().zip(&positions) {
             let key = vertex.position.map(f32::to_bits);
             if let Some(previous) = corners.insert(key, *position) {
                 assert_eq!(previous, *position);
@@ -681,7 +717,7 @@ mod tests {
             mesh.indices[1] as usize,
             mesh.indices[2] as usize,
         ];
-        let posed = ids.map(|i| surface.positions[i]);
+        let posed = ids.map(|i| surface.position(i));
         let target = (posed[0] + posed[1] + posed[2]) / 3.;
         let normal = (posed[1] - posed[0]).cross(posed[2] - posed[0]).normalize();
         let hit = mesh
@@ -720,57 +756,48 @@ mod tests {
         }
         let surface = mesh.posed_surface(|_| Some(pose.branches())).unwrap();
         assert!(mesh.max_displacement(&surface) > 0.);
+        let positions: Vec<_> = surface.positions().collect();
+        let PosedTreeSurface::Blocks { centers } = &surface else {
+            panic!("expected compact boxes")
+        };
+        assert_eq!(centers.len() * 8, positions.len());
         // Equivalence to the old independent per-vertex path protects batching
         // across neighboring cells with different skeleton attachments.
-        for ((vertex, binding), position) in mesh
-            .vertices
-            .iter()
-            .zip(&mesh.bindings)
-            .zip(&surface.positions)
+        for ((vertex, binding), position) in
+            mesh.vertices.iter().zip(&mesh.bindings).zip(&positions)
         {
             let (_, binding) = binding.unwrap();
             let transform = binding.transform(pose.branches()).unwrap();
             let center = Vec3::from(vertex.center);
-            assert_eq!(
-                *position,
-                Vec3::from(vertex.position) + (transform.point(center) - center)
-            );
+            assert!(position.abs_diff_eq(
+                Vec3::from(vertex.position) + (transform.point(center) - center),
+                1e-7
+            ));
         }
 
-        for (rest, posed) in mesh
-            .vertices
-            .chunks_exact(8)
-            .zip(surface.positions.chunks_exact(8))
-        {
+        for (rest, posed) in mesh.vertices.chunks_exact(8).zip(positions.chunks_exact(8)) {
             let offset = posed[0] - Vec3::from(rest[0].position);
             for (v, p) in rest.iter().zip(posed) {
                 assert!((*p - Vec3::from(v.position)).abs_diff_eq(offset, 1e-7));
             }
         }
-        for (v, normal) in mesh.vertices.iter().zip(&surface.normals) {
-            assert_eq!(Vec3::from(v.normal), *normal);
-        }
-        let top = surface
-            .positions
-            .iter()
-            .max_by(|a, b| a.y.total_cmp(&b.y))
-            .unwrap();
+        let top = positions.iter().max_by(|a, b| a.y.total_cmp(&b.y)).unwrap();
         let origin = *top + Vec3::new(-0.001, 0.1, -0.001);
         // Query a cube directly as well as all faces: barycentric mapping remains
         // a translation back into the authoritative editable rest volume.
         let ids = &mesh.indices[0..3];
         let target = ids
             .iter()
-            .map(|&i| surface.positions[i as usize])
+            .map(|&i| surface.position(i as usize))
             .sum::<Vec3>()
             / 3.;
-        let offset = surface.positions[ids[0] as usize]
-            - Vec3::from(mesh.vertices[ids[0] as usize].position);
+        let offset =
+            surface.position(ids[0] as usize) - Vec3::from(mesh.vertices[ids[0] as usize].position);
         let hit = intersect_surface_triangle(
             target - Vec3::Y * 0.001,
             Vec3::Y,
             ids.iter()
-                .map(|&i| surface.positions[i as usize])
+                .map(|&i| surface.position(i as usize))
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),

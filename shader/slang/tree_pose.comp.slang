@@ -18,23 +18,25 @@ float4 scaledAxisRotation(float3 angle) {
     return float4(angle * (sin(theta*0.5)/theta), cos(theta*0.5));
 }
 
-// One invocation owns a complete tree hierarchy. Parents precede children,
-// including within each integration substep; separate trees execute in parallel.
-// There is no fixed-depth approximation or cross-workgroup dependency.
+// One workgroup owns a tree. Joints at the same depth run in parallel;
+// a group/device-memory barrier publishes their results before the next depth.
+// No fixed joint/depth limit and no cross-workgroup parent dependencies.
 [shader("compute")]
 [numthreads(64,1,1)]
-void main(uint3 id : SV_DispatchThreadID) {
+void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
     uint4 step = tree_pose_step[0];
-    if (id.x >= step.x) return;
+    if (group.x >= step.x) return;
     float dt = min(asfloat(step.y), 0.25);
     if (dt <= 0.0) return;
     uint substeps = uint(max(ceil(dt*120.0), 1.0));
     float h = dt/float(substeps);
-    uint2 range = tree_pose_ranges[id.x].xy;
+    uint3 range = tree_pose_ranges[group.x].xyz;
     for (uint substep = 0; substep < substeps; ++substep) {
-        for (uint local = 0; local < range.y; ++local) {
+      for (uint depth = 0; depth < range.z; ++depth) {
+        for (uint local = lane; local < range.y; local += 64u) {
             uint index = range.x + local;
             PoseJoint joint = tree_pose_joints[index];
+            if (joint.parent.y != depth) continue;
             PoseState state = tree_pose_state[index];
             float4 parentRotation = float4(0,0,0,1);
             float3 parentTranslation = float3(0);
@@ -69,5 +71,7 @@ void main(uint3 id : SV_DispatchThreadID) {
             state.velocity = float4(velocity,0);
             tree_pose_state[index] = state;
         }
+        AllMemoryBarrierWithGroupSync();
+      }
     }
 }

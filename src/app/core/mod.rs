@@ -3533,7 +3533,11 @@ impl App {
                         frame_inputs,
                     )
                     .unwrap();
-                self.tracer.record_host_buffer_writes(cmdbuf);
+                self.tracer.record_host_buffer_writes(
+                    cmdbuf,
+                    self.gpu_profiler.as_mut(),
+                    frame_slot,
+                );
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
                     Vec3::new(

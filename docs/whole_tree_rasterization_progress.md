@@ -245,3 +245,20 @@ release 固定单树动态风场，8 秒、排除前约 3 秒，帧中位数 / p
 验证：`cargo fmt --check`、`cargo check`、全量测试 1014 + 4 passed / 2 ignored。真实 hidden/mute `--raster-tree-smoke --resize-lifecycle-test` 逐帧比较 GPU 积分与 CPU 参考（119 次，最大分量误差 4.06e-6），GPU 表面逐顶点/法线及 16 条射线对照通过，编辑/年龄/删除/重建/关闭风通过。默认 hidden/mute 0.5 秒通过，最终日志无 ERROR/panic/VUID。日志 `target/tree-gpu-pose-{check,tests,smoke,default,tail}.log`。生成文件未变化。
 
 本次单树 release 8 秒帧中位数 / p95：平滑 17.76 / 20.04 ms，轴对齐 17.41 / 20.02 ms（`target/tree-gpu-pose-perf`）。它没有证明比步骤 1 更快，也不作为最终性能验收；smoke 中收取骨架等待中位数 100 us / p95 1649 us，包含编辑重建与诊断，不可当作稳定帧的 GPU 求解耗时。下一步必须增加明确的分段测量，继续消除 CPU 精确物理/查询侧的重复展开与更新。
+
+## GPU 迁移步骤 3：分层并行与紧凑 CPU 交互几何
+
+增加 `--perf` 下的 `[PERF][TREE_UPDATE]` 分段耗时和独立 GPU job timestamp，主帧增加 `tree_skin.pass` GPU scope。先测量发现单 invocation 的姿态求解约 459 us；改为每树一个 workgroup，同深度关节并行，每层/子步通过显式 `AllMemoryBarrierWithGroupSync` 保证父级发布，无固定树深/关节数限制。相同 release 场景的 pose job GPU 中位数降至约 75 us。
+
+CPU 交互表面现在显式区分 `Blocks { centers }` 与 `Triangles { positions }`：轴对齐只存中心，不展开八角；平滑只算物理需要的位置，不再计算无人消费的逆转置法线。射线与 smoke 通过位置访问器按需取得角点；GPU 法线对照使用该表面实际上传的骨架 palette，仍逐顶点验证，不依赖当前树可能已被诊断改写的状态。
+
+同一 release 脚本，稳定帧 CPU 中位数（us）：
+
+| 模式 | CPU skin 前/后 | 物理发布 | CPU 查询层发布 | 全树更新 CPU 合计 |
+| --- | --- | --- | --- | --- |
+| 平滑 | 1492 / 942 | 321 | 888 | 2293 |
+| 轴对齐 | 579 / 340 | 153 | 620 | 1254 |
+
+姿态提交约 74–77 us、收取等待约 33–36 us，GPU skin 约 15–19 us。所有关节/物理依然每帧更新。整帧中位数 / p95 为平滑 17.08 / 19.49 ms、轴对齐 17.31 / 19.83 ms。日志 `target/tree-gpu-{update-profile,parallel-perf,compact-perf}`；分段数据说明下一处大头是重复 CPU 查询 BVH，不以整帧的小变化冒充最终验收。
+
+验证：全量 1014 + 4 passed / 2 ignored，`cargo check`、格式检查通过；`--raster-tree-smoke --resize-lifecycle-test` 的 GPU 积分/表面/法线/射线对照、编辑和生命周期全部通过；默认 release hidden/mute 0.5 秒及日志检查通过，无 ERROR/panic/VUID。日志 `target/tree-gpu-compact-{smoke,default,tail}.log`。生成文件未变化，既有 Cargo.lock 差异保留。

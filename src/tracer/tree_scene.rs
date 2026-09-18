@@ -86,20 +86,12 @@ impl TreeScene {
         Ok(scene)
     }
     fn bounds(&self, primitive: usize, positions: &[Vec3]) -> Result<(Vec3, Vec3)> {
-        let t = self.primitives[primitive];
-        let point = |i: u32| {
+        primitive_bounds(self.primitives[primitive], &|i: u32| {
             positions
                 .get(i as usize)
                 .copied()
                 .ok_or_else(|| anyhow::anyhow!("tree topology changed during refit"))
-        };
-        let (a, b) = (point(t[0])?, point(t[1])?);
-        if t[3] == 1 {
-            Ok((a.min(b), a.max(b)))
-        } else {
-            let c = point(t[2])?;
-            Ok((a.min(b).min(c), a.max(b).max(c)))
-        }
+        })
     }
     fn build(&mut self, order: &mut [u32], positions: &[Vec3]) {
         let index = self.nodes.len();
@@ -179,10 +171,19 @@ impl TreeScene {
             positions.iter().all(|p| p.is_finite()),
             "nonfinite posed tree geometry"
         );
+        self.refit_by(|i| {
+            positions
+                .get(i as usize)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("tree topology changed during refit"))
+        })
+    }
+
+    pub fn refit_by(&mut self, point: impl Fn(u32) -> Result<Vec3>) -> Result<()> {
         for index in (0..self.nodes.len()).rev() {
             let triangle = self.nodes[index].primitive;
             let (min, max) = if triangle != u32::MAX {
-                self.bounds(triangle as usize, positions)?
+                primitive_bounds(self.primitives[triangle as usize], &point)?
             } else {
                 let left = self.nodes[index + 1];
                 let right = self.nodes[left.escape as usize];
@@ -195,6 +196,16 @@ impl TreeScene {
             self.nodes[index].max = (max + Vec3::splat(1e-6)).to_array();
         }
         Ok(())
+    }
+}
+
+fn primitive_bounds(t: [u32; 4], point: &impl Fn(u32) -> Result<Vec3>) -> Result<(Vec3, Vec3)> {
+    let (a, b) = (point(t[0])?, point(t[1])?);
+    if t[3] == 1 {
+        Ok((a.min(b), a.max(b)))
+    } else {
+        let c = point(t[2])?;
+        Ok((a.min(b).min(c), a.max(b).max(c)))
     }
 }
 
