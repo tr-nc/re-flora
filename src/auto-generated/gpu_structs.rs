@@ -1038,13 +1038,18 @@ pub struct ShadingInfo {
     pub ddgi_terrain_hard_origin: u32,
     pub ddgi_terrain_moments: u32,
     pub ddgi_invalidation_enabled: u32,
+    pub terrain_lighting_pending: u32,
+    pub _pad2: [u8; 8],
+    pub terrain_lighting_pending_world_min: [f32; 3],
+    pub _pad3: [u8; 4],
+    pub terrain_lighting_pending_world_max: [f32; 3],
     pub glass_experiment_enabled: u32,
     pub glass_debug_view: u32,
-    pub _pad2: [u8; 4],
+    pub _pad4: [u8; 12],
     pub ddgi_invalidation_world_min: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad5: [u8; 4],
     pub ddgi_invalidation_world_max: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

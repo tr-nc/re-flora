@@ -62,6 +62,7 @@ impl BufferUpdater {
         glass_debug_view: u32,
         ddgi_receiver_visibility_bias_world: f32,
         ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
+        terrain_lighting_pending_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
         let probe_dimensions = environment_probe_grid.dimensions();
         let probe_world_to_grid_scale =
@@ -75,6 +76,20 @@ impl BufferUpdater {
                     (bound.max().as_vec3() / voxels_per_world_unit).to_array(),
                 )
             });
+        // One voxel of padding includes the faces newly exposed on the boundary of
+        // a removal. This is surface validity, not the much wider probe recovery domain.
+        let (
+            terrain_lighting_pending,
+            terrain_lighting_pending_world_min,
+            terrain_lighting_pending_world_max,
+        ) = terrain_lighting_pending_bound.map_or((0, [0.0; 3], [0.0; 3]), |bound| {
+            let scale = voxels_per_world_unit.as_vec3();
+            (
+                1,
+                (bound.min().saturating_sub(glam::UVec3::ONE).as_vec3() / scale).to_array(),
+                (bound.max().saturating_add(glam::UVec3::ONE).as_vec3() / scale).to_array(),
+            )
+        });
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
             environment_revision: environment.revision(),
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
@@ -91,6 +106,9 @@ impl BufferUpdater {
             ddgi_terrain_hard_origin,
             ddgi_terrain_moments: u32::from(ddgi_terrain_moments),
             ddgi_invalidation_enabled,
+            terrain_lighting_pending,
+            terrain_lighting_pending_world_min,
+            terrain_lighting_pending_world_max,
             glass_experiment_enabled: u32::from(glass_experiment_enabled),
             glass_debug_view,
             ddgi_invalidation_world_min,

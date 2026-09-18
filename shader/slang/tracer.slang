@@ -627,7 +627,8 @@ void getPixelColor(out float3 color, out float depth,
         color = environmentIrradiance;
         return;
     }
-    environmentIrradiance = ddgiDisplayIrradiance(consumerResult,
+    environmentIrradiance = ddgiTerrainDisplayIrradiance(consumerResult,
+        ddgiTerrainSurfaceLightingPending(shading_info, ddgiReceiverPosition),
         gui_input.terrain_missing_lighting_strength);
     color = environmentIrradiance * albedo;
     color += directLight;

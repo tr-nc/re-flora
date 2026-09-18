@@ -85,11 +85,30 @@ struct DdgiTerrainRefreshRequest {
     invalidation_voxel_bound: UAabb3,
 }
 
+impl DdgiTerrainRefreshRequest {
+    fn merge(
+        slot: &mut Option<Self>,
+        terrain_revision: u32,
+        edited_voxel_bound: UAabb3,
+        grid: DdgiVolumeGrid,
+    ) {
+        let edited_voxel_bound = slot.map_or(edited_voxel_bound, |previous| {
+            previous.edited_voxel_bound.union_with(&edited_voxel_bound)
+        });
+        *slot = Some(Self {
+            terrain_revision,
+            edited_voxel_bound,
+            invalidation_voxel_bound: terrain_invalidation_bound(edited_voxel_bound, grid),
+        });
+    }
+}
+
 /// Arbitrates runtime terrain refreshes and density rebuilds around one physical staging volume.
 /// Terrain always wins. Complete terrain fields publish progressively while newer edits coalesce.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiTerrainRefresh {
     request: Option<DdgiTerrainRefreshRequest>,
+    edits_after_candidate: Option<DdgiTerrainRefreshRequest>,
     published_terrain_revision: Option<u32>,
     candidate: Option<DdgiBuildToken>,
     queued_density_spacing: Option<DdgiProbeSpacing>,
@@ -119,25 +138,24 @@ impl DdgiTerrainRefresh {
         {
             self.queued_density_spacing.get_or_insert(candidate.spacing);
         }
-        let invalidation_voxel_bound = terrain_invalidation_bound(edit_voxel_bound, grid);
-        match self.request.as_mut() {
-            None => {
-                self.request = Some(DdgiTerrainRefreshRequest {
-                    terrain_revision,
-                    edited_voxel_bound: edit_voxel_bound,
-                    invalidation_voxel_bound,
-                });
-                true
-            }
-            Some(request) => {
-                request.terrain_revision = terrain_revision;
-                request.edited_voxel_bound =
-                    request.edited_voxel_bound.union_with(&edit_voxel_bound);
-                request.invalidation_voxel_bound =
-                    terrain_invalidation_bound(request.edited_voxel_bound, grid);
-                true
-            }
+        DdgiTerrainRefreshRequest::merge(
+            &mut self.request,
+            terrain_revision,
+            edit_voxel_bound,
+            grid,
+        );
+        if self
+            .candidate
+            .is_some_and(|candidate| candidate.kind == DdgiBuildKind::Terrain)
+        {
+            DdgiTerrainRefreshRequest::merge(
+                &mut self.edits_after_candidate,
+                terrain_revision,
+                edit_voxel_bound,
+                grid,
+            );
         }
+        true
     }
 
     /// Records the exact terrain revision now visible to GPU consumers.
@@ -175,6 +193,7 @@ impl DdgiTerrainRefresh {
                 DdgiBuildKind::Terrain,
             );
             self.candidate = Some(token);
+            self.edits_after_candidate = None;
             return Some(token);
         }
 
@@ -251,19 +270,15 @@ impl DdgiTerrainRefresh {
         self.candidate == Some(token) && !self.token_can_promote(token)
     }
 
-    /// Completes the authoritative candidate. Only exact latest-terrain promotion clears the
-    /// conservative invalidation domain.
+    /// Completes the authoritative candidate. Newer edits keep their own pending domain;
+    /// older covered surface edits no longer need unavailable-lighting treatment.
     pub fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
         if !self.token_can_promote(token) {
             return false;
         }
         self.candidate = None;
-        if token.kind == DdgiBuildKind::Terrain
-            && self
-                .request
-                .is_some_and(|request| request.terrain_revision == token.terrain_revision)
-        {
-            self.request = None;
+        if token.kind == DdgiBuildKind::Terrain {
+            self.request = self.edits_after_candidate.take();
         }
         true
     }
@@ -328,6 +343,24 @@ mod tests {
             DdgiProbeSpacing::try_from(spacing_voxels).unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn progressive_publication_retires_only_surface_edits_covered_by_its_root() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        let first_bound = UAabb3::new(UVec3::splat(100), UVec3::splat(120));
+        let newer_bound = UAabb3::new(UVec3::splat(200), UVec3::splat(220));
+        refresh.request(7, first_bound, grid(32));
+        refresh.mark_terrain_published(7);
+        let first = refresh.claim_next_build(spacing(32), 6).unwrap();
+        refresh.request(8, newer_bound, grid(32));
+        refresh.mark_terrain_published(8);
+        assert!(refresh.mark_promoted(first));
+        assert_eq!(refresh.edited_voxel_bound(), Some(newer_bound));
+        assert_eq!(
+            refresh.invalidation_voxel_bound(),
+            Some(terrain_invalidation_bound(newer_bound, grid(32)))
+        );
     }
 
     #[test]

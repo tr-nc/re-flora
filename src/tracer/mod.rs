@@ -3123,6 +3123,7 @@ impl Tracer {
                 self.desc.glass_debug_view,
                 ddgi_receiver_visibility_bias_world,
                 ddgi_consumer_invalidation_voxel_bound,
+                self.ddgi_runtime.edited_voxel_bound(),
             )
         })?;
         BufferUpdater::update_starlight_info(

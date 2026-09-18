@@ -106,3 +106,41 @@ in those directories. No ERROR/panic/VUID. These images show provisional lightin
 (including darker areas), not a blanket brightening. They do not establish pixel-level accuracy
 or reproduce the user's unavailable saved cavity. Run-to-run timing variability means these
 single runs are responsiveness evidence, not a performance acceptance claim.
+
+## Surface validity refinement (current fallback semantics)
+
+An old field can have valid probe support yet describe the solid voxel just removed. Support
+alone cannot classify the newly exposed surface. Terrain now also carries an explicit pending
+surface bound: outstanding edited voxels plus **one voxel**, not the broad probe-recovery domain.
+Within that bound, display uses the authored fallback until a covering complete field publishes.
+Outside it, supported physical darkness remains unchanged. This is conservative AABB validity,
+not per-face validity: unchanged surfaces within a multi-edit bounding box can temporarily use
+the fallback too. It never applies globally or to raster/tree materials. Zero strength deliberately
+renders unavailable lighting black; it does not disable tracking of surface validity.
+
+Progressive publication retires only edits covered by its root; edits arriving afterward retain
+their own bound. This prevents a long held gesture from marking its entire historical trail
+unavailable forever. `cargo test progressive_publication_retires_only` was RED before the change,
+GREEN afterward. New GPU-derived uniform fields carry that explicit domain.
+
+The runner now also asserts the newly revealed left skylight receiver is nonblack (ImageMagick,
+fixed 16:9 camera). This is independent of liveness and can fail while promotions succeed:
+
+```
+python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/confidence-final32
+python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/negative-control --fallback-strength 0
+python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/confidence-final16 --spacing 16
+```
+
+Results: default32 GREEN (22 during-edit promotions, receiver RGB mean 31/255); strength-zero
+negative control **RED** (receiver 0/255 despite ongoing promotions); default16 GREEN (3
+promotions, receiver 31/255). GUI/camera bytes restored including after the negative run.
+Raw images and full logs reside at those paths. `confidence-final32` render mean/max 3472.22/
+4289us versus matched baseline 3673.56/5293us, with the same caveat about sparse single runs.
+Latest terrain-42 publication after release: baseline **2001ms**, default32 **192ms**, dense16
+**1611ms**. During-edit root-to-publication latency at default32 was approximately 194–300ms.
+
+Final refinement validation: fmt/check, 1023 Rust tests passed (2 ignored), all 16 Slang CPU
+tests, release hidden smoke (`target/re-flora-logs/re-flora-20260919-044905.373-195379.log`),
+and positive/negative real rendering loops. No ERROR/panic/VUID in production logs. GPU structs
+were regenerated; unrelated Cargo.lock metadata excluded.

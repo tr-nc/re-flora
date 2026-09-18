@@ -68,7 +68,7 @@ atlas/sky slots and descriptor transaction remain authoritative.
 Geometry publication is progressive and monotonic in build-token order. One physical Staging
 update runs at a time; newer edits coalesce while the current complete candidate is allowed
 to publish. A progressive older candidate retains its original geometry revision and does
-not clear the newer request or accumulated edit/invalidation bounds. The next allocation
+not clear the newer request or its edit/invalidation bounds. Covered older bounds retire. The next allocation
 claims the latest visible revision. Exact voxel visibility still follows current terrain.
 During motion, probe batches may observe terrain changes across frames; a complete field is
 an atomic temporal approximation, **not** a frozen same-revision geometry snapshot. After
@@ -77,8 +77,9 @@ Density candidates remain discardable when superseded or preempted by terrain. R
 changes finish one immutable in-flight epoch and coalesce queued changes to the latest snapshot.
 
 Terrain final display has an authored albedo-scaled missing-support fallback. Query availability
-comes from trustworthy geometric support, not irradiance magnitude; supported darkness and
-occlusion remain dark. The fallback does not enter transport or raw irradiance diagnostics.
+comes from trustworthy geometric support and pending edited-surface validity, not irradiance
+magnitude; current supported darkness and occlusion remain dark. Outstanding edited voxels
+plus one voxel use the fallback until covered by a complete publication. The fallback does not enter transport or raw irradiance diagnostics.
 See [terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
 measurements, and legacy acceptance limitations.
 

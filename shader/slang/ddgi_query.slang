@@ -1329,3 +1329,18 @@ public float3 ddgiDisplayIrradiance(DdgiQueryResult sample, float missingStrengt
 {
     return sample.lighting_available ? sample.irradiance : float3(max(0.0, missingStrength));
 }
+
+public bool ddgiTerrainSurfaceLightingPending(U_ShadingInfo lighting, float3 worldPosition)
+{
+    return lighting.terrain_lighting_pending != 0u &&
+        all(worldPosition >= lighting.terrain_lighting_pending_world_min) &&
+        all(worldPosition <= lighting.terrain_lighting_pending_world_max);
+}
+
+public float3 ddgiTerrainDisplayIrradiance(DdgiQueryResult sample, bool surfacePending, float strength)
+{
+    // The old field can have support but describe the solid material just removed.
+    // Do not mistake that stale, supported zero for a valid dark new cavity surface.
+    sample.lighting_available = sample.lighting_available && !surfacePending;
+    return ddgiDisplayIrradiance(sample, strength);
+}

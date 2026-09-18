@@ -109,6 +109,9 @@ public struct U_ShadingInfo
     public uint ddgi_terrain_hard_origin;
     public uint ddgi_terrain_moments;
     public uint ddgi_invalidation_enabled;
+    public uint terrain_lighting_pending;
+    public float3 terrain_lighting_pending_world_min;
+    public float3 terrain_lighting_pending_world_max;
     public uint glass_experiment_enabled;
     public uint glass_debug_view;
     public float3 ddgi_invalidation_world_min;

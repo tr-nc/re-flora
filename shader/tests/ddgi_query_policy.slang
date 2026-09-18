@@ -24,8 +24,9 @@ export __extern_cpp int main()
     DdgiQueryResult sample = makeEmptyDdgiQueryResult();
     bool missing = all(ddgiDisplayIrradiance(sample, 0.035) == float3(0.035));
     sample.lighting_available = true;
+    bool staleSurface = all(ddgiTerrainDisplayIrradiance(sample, true, 0.035) == float3(0.035));
     bool validDark = all(ddgiDisplayIrradiance(sample, 0.035) == float3(0.0));
     sample.irradiance = float3(0.001, 0.2, 0.0);
     bool unchanged = all(ddgiDisplayIrradiance(sample, 0.035) == sample.irradiance);
-    return biasClamp && domainPrecedence && visibilityModes && missing && validDark && unchanged ? 0 : 1;
+    return biasClamp && domainPrecedence && visibilityModes && missing && staleSurface && validDark && unchanged ? 0 : 1;
 }
