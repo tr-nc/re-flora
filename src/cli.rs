@@ -163,6 +163,7 @@ pub enum EnvironmentLightingTestCase {
     TerrainEditsInflight,
     TerrainEditsInflightCapture,
     TerrainEditsClosed,
+    TerrainEditsSustained,
 }
 
 impl EnvironmentLightingTestCase {
@@ -184,6 +185,7 @@ impl EnvironmentLightingTestCase {
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
             "terrain-edits-inflight-capture" => Some(Self::TerrainEditsInflightCapture),
+            "terrain-edits-sustained" => Some(Self::TerrainEditsSustained),
             "terrain-edits-closed" => Some(Self::TerrainEditsClosed),
             _ => None,
         }
@@ -207,6 +209,7 @@ impl EnvironmentLightingTestCase {
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
             Self::TerrainEditsInflightCapture => "terrain-edits-inflight-capture",
+            Self::TerrainEditsSustained => "terrain-edits-sustained",
             Self::TerrainEditsClosed => "terrain-edits-closed",
         }
     }
@@ -1253,7 +1256,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-closed."
                 )
             }),
     }
@@ -1497,7 +1500,7 @@ Options:
                               radiance-changes, point-light-changes, voxel-emissive-changes,
                               raster-emitter-changes, multi-source-stress, local-light-scaling,
                               density-changes, terrain-edits,
-                              terrain-edits-inflight, terrain-edits-inflight-capture, or
+                              terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
@@ -1931,6 +1934,10 @@ mod tests {
             ),
             ("terrain-edits", EnvironmentLightingTestCase::TerrainEdits),
             (
+                "terrain-edits-sustained",
+                EnvironmentLightingTestCase::TerrainEditsSustained,
+            ),
+            (
                 "terrain-edits-inflight",
                 EnvironmentLightingTestCase::TerrainEditsInflight,
             ),
@@ -1958,7 +1965,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-closed"
         ));
     }
 

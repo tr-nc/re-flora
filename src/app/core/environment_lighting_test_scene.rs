@@ -555,6 +555,7 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
             EnvironmentLightingTestCase::PointLightChanges => Self::PointLight,
@@ -621,6 +622,7 @@ struct EnvironmentPhasePayload {
     point_light_expected_registry_revision: u64,
     scratch: EnvironmentFamilyScratch,
     recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic,
+    sustained_edits: Option<(std::time::Instant, u32)>,
 }
 
 impl EnvironmentPhasePayload {
@@ -1049,6 +1051,7 @@ impl EnvironmentLightingTestScene {
                 case,
                 phase: TestScenePhase::Pending,
                 initial_publication: None,
+                sustained_edits: None,
                 point_light_fixed_gpu_request_serial: 0,
                 point_light_fixed_gpu_visible_luma_q8: 0,
                 point_light_diagnostic_selected_decoy_id: None,
@@ -1576,6 +1579,7 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
@@ -1840,6 +1844,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
         | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+        | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
@@ -3049,6 +3054,52 @@ impl App {
     fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
         let case = environment.case;
         let phase = environment.phase;
+        // This fixture uses the real visible-terrain publication path, independent of DDGI
+        // completion: a held editing gesture must not wait for lighting to converge.
+        if case == EnvironmentLightingTestCase::TerrainEditsSustained {
+            if environment.sustained_edits.is_none()
+                && matches!(phase, TestScenePhase::WaitingForProbeField { terrain_revision }
+                    if self.tracer.ddgi_ready_for_terrain_revision(terrain_revision))
+            {
+                environment.sustained_edits = Some((std::time::Instant::now(), 0));
+                log::info!("[DDGI_SUSTAINED] begin");
+            }
+            if let Some((last_edit, count)) = environment.sustained_edits {
+                if count < 40 {
+                    if last_edit.elapsed().as_secs_f32() >= 0.1 {
+                        let edit = if count % 2 == 0 {
+                            TerrainEdit::CloseSkylight
+                        } else {
+                            TerrainEdit::ReopenSkylight
+                        };
+                        let revision = self
+                            .apply_environment_lighting_terrain_edit(
+                                edit,
+                                self.visible_terrain_revision,
+                            )
+                            .expect("sustained edit must publish terrain");
+                        environment.sustained_edits = Some((std::time::Instant::now(), count + 1));
+                        log::info!(
+                            "[DDGI_SUSTAINED] edit={} revision={} active_revision={:?}",
+                            count + 1,
+                            revision,
+                            self.tracer
+                                .ddgi_runtime_status()
+                                .active()
+                                .relocated_terrain_revision
+                        );
+                        if count + 1 == 40 {
+                            log::info!("[DDGI_SUSTAINED] end");
+                            environment.phase = TestScenePhase::WaitingForEditedProbeField {
+                                edit: TerrainEdit::ReopenSkylight,
+                                target_revision: revision,
+                            };
+                        }
+                    }
+                    return;
+                }
+            }
+        }
         let fixed_gpu_request_serial = environment.point_light_fixed_gpu_request_serial;
         let fixed_gpu_visible_luma_q8 = environment.point_light_fixed_gpu_visible_luma_q8;
 
@@ -6189,6 +6240,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
 }
