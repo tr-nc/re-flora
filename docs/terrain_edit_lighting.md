@@ -86,3 +86,23 @@ new publication contract; capture-enabled sustained testing is additionally bloc
 baseline evidence-owner panic above. The new production-path sustained runner is the current
 publication-liveness regression. Full legacy acceptance migration remains a limitation, not a
 claimed pass.
+
+## Matched image evidence
+
+The runner now captures `editing.png` at edit 20 (reopened skylight), not after release.
+It installs an isolated fixed camera under the GPU lock and restores camera/GUI bytes;
+the screenshot checkpoint does not make the lifecycle or raw capture report readiness.
+
+- `target/edit-lighting/matched-baseline32/`: baseline rendering/coordinator sources from
+  `2c8656d1`, with the screenshot harness retained. RED, 0 promotions, mean/max GPU render
+  3673.56/5293us. Sources were restored immediately and cargo check regenerated bindings.
+- `target/edit-lighting/final32/`: GREEN, 22 promotions, mean/max 3510.33/5047us.
+- `target/edit-lighting/final16/`: denser stress GREEN, 3 promotions, mean/max 3752/4540us.
+
+All three captured 2560×1440 at the identical camera and GUI SHA-256
+`775bd2a7995629e0afea87188bbea34d25a7bfd4f4a33bb3c7a62cd59e3f7008`.
+Their reports, command argv, complete console/canonical logs, and screenshots are retained
+in those directories. No ERROR/panic/VUID. These images show provisional lighting differences
+(including darker areas), not a blanket brightening. They do not establish pixel-level accuracy
+or reproduce the user's unavailable saved cavity. Run-to-run timing variability means these
+single runs are responsiveness evidence, not a performance acceptance claim.

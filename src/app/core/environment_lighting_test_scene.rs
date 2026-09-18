@@ -1158,6 +1158,15 @@ impl EnvironmentLightingTestScene {
         self.ready_phase().phase == TestScenePhase::Ready
     }
 
+    pub(super) fn is_screenshot_ready(&self) -> bool {
+        self.is_ready()
+            || (self.case() == EnvironmentLightingTestCase::TerrainEditsSustained
+                && self
+                    .ready_phase()
+                    .sustained_edits
+                    .is_some_and(|(_, count)| count == 20))
+    }
+
     pub(super) fn hides_terrain_edit_preview(&self) -> bool {
         self.ready_phase().case == EnvironmentLightingTestCase::PattSeam
     }
@@ -6583,6 +6592,19 @@ mod tests {
 
         assert_geometry_generation_epoch_zero(publication.generation(), baseline, 2);
         assert_eq!(publication.generation().epoch_zero_field(), epoch_zero);
+    }
+
+    #[test]
+    fn sustained_edit_screenshot_observes_mid_gesture_without_claiming_ready() {
+        let mut scene =
+            EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::TerrainEditsSustained);
+        let EnvironmentPhaseSlot::Ready(ref mut payload) = scene.state else {
+            unreachable!()
+        };
+        payload.sustained_edits = Some((std::time::Instant::now(), 20));
+        assert!(scene.is_screenshot_ready());
+        assert!(!scene.is_ready());
+        assert!(!scene.is_capture_ready());
     }
 
     #[test]

@@ -246,7 +246,7 @@ impl LaunchOwners {
             LaunchMode::General { scenario, .. } => scenario.test_scene_frame_plan(),
             LaunchMode::Environment { owner, .. } => TestSceneFramePlan {
                 kind: TestSceneKind::Environment(owner.case()),
-                capture_ready: owner.is_ready(),
+                capture_ready: owner.is_screenshot_ready(),
                 hides_terrain_edit_preview: owner.hides_terrain_edit_preview(),
             },
             LaunchMode::CanopyAudio { .. } | LaunchMode::FoliageShadow { .. } => {
