@@ -4,7 +4,9 @@
 
 已把仓库外的两版实验收进当前 worktree，作为后续迭代基线；没有修改游戏代码或正式素材。
 
-**最新候选：[v4 任意视角双预览](comparison-v4.html)**。按用户要求从源模型删除身体几何，上方真实三维、下方原生低分辨率渲染；拖动任一个，两边共用相机与动画，不再受五方向图集限制。可切12/16/24/32/48px与正交/透视，未接入游戏。见 [v4 记录](blender-v4/README.md)及[页面验证](blender-v4/browser-validation.md)。
+**最新候选：[v5 材质与像素边框](comparison-v5.html)**。纯翼面源，取消上表面前部异色色块；上下表面独立颜色、8–64px滑杆、边框内外模式/颜色/透明度、背景颜色和三维光照/阴影开关。保留共享相机与动画的高/低分辨率双预览，移除恢复视角按钮。参数是临时网页实验值，不保存、未接入游戏。见 [v5 记录](blender-v5/README.md)及[页面验证](blender-v5/browser-validation.md)。
+
+[v4 任意视角双预览](comparison-v4.html) 保留为此前无身体、上表面仍有分色的基线。
 
 配套调研：[任意镜头下的实时 3D 低像素管线](../../docs/research/butterfly_realtime_pixel_pipeline.md)，区分预渲、手工清理和实时局部像素层，记录与当前网页/游戏实现的边界。
 
@@ -36,7 +38,7 @@
 python3 -m http.server 8788 --bind 127.0.0.1 --directory experiments/butterfly-method-comparison
 ```
 
-访问 `http://127.0.0.1:8788/comparison-v4.html` 查看最新候选，或 `comparison-v3.html` / `comparison-v2.html` 查看历史对照；`index.html` 是上一轮 AI/Blender 对照。页面使用随附的 model-viewer，许可证在 `blender/MODEL-VIEWER-LICENSE.txt`。
+访问 `http://127.0.0.1:8788/comparison-v5.html` 查看最新候选，或 `comparison-v4.html` / `comparison-v3.html` / `comparison-v2.html` 查看历史对照；`index.html` 是上一轮 AI/Blender 对照。页面使用随附的 model-viewer，许可证在 `blender/MODEL-VIEWER-LICENSE.txt`。
 
 保留手动编辑的模型并重新导出：
 
@@ -58,5 +60,7 @@ BLENDER=/path/to/blender /usr/bin/python3 experiments/butterfly-method-compariso
 4. 已新增隔离诊断脚本，实际渲染 16/12/8px 并生成同显示尺寸的逐帧图和 GIF。8px 出现触边且轮廓损失明显；12px 值得进一步专门设计，不能仅靠降低分辨率解决 v2 姿态问题。
 5. 已按用户确认的方向制作 v3 12px 候选和 HTML，完成导出及网页验证。
 6. 用户随后要求移除身体、取消固定视角限制：已完成 v4 纯翼面源、任意角度共享相机的实时高/低分辨率双预览及验证。下一步游戏接入需另处理场景深度、遮挡、采样网格与多实例；若做游戏内 A/B，必须使用 Debug 面板运行时复选框保留原模式。
+
+7. 按最新交互要求完成 v5：统一上表面材质、独立下表面材质与外向法线；实时材质/阴影、8–64px及带 alpha 的内/外轮廓边框。已做完整导出、GPU边框逐像素验证及网页交互检查，未改游戏。
 
 讨论留待技术复验和案例调研汇总后，带实际候选一起进行；不以提问阻塞可自主完成的检查。
