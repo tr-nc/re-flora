@@ -1,5 +1,19 @@
 # DDGI history candidate experiments
 
+## Current try-out status
+
+Integrated into `agent/butterfly-block-flight` after merging `main` at `6fb81dfa`.
+Both saved controls remain **off by default**. At the default 32-voxel spacing, open
+**Debug → Lighting Diagnostics** and enable both **DDGI continuous accepted-batch sampling
+(experimental A/B)** and **DDGI geometry-qualified aggregate history (experimental A/B)**.
+Uncheck both for the original mode; changes latch at the next field. This is a measured
+visual candidate, not universal acceptance: 64-voxel spacing has a known wall-spike regression.
+The integration section below records personal follow-up verification, including 16-voxel tests.
+
+Implementation evidence below lives in the retained worker worktree; integration evidence lives
+in `/home/terence/code/re-flora-agent-butterfly-block-flight`. No further subagents were used for
+integration or those follow-up runs.
+
 Worktree `re-flora-agent-ddgi-history-candidate`, base `06d8257b`. Only the existing
 portal far-wall symptom is reproduced; near-surface/user-saved-cave flicker remains
 unverified. Display RGB is sampled, not HDR or a physical reference.
@@ -256,3 +270,55 @@ cargo check. The original portal fixture, source-ready/source-owned fixes, geome
 materials and tree behavior remain intact. Remaining gaps: saved-cave/near-surface reproduction,
 HDR/path-traced comparison, stronger seed coverage, 64-voxel regression, spacing 16, detailed
 response curves and post-visual-approval performance optimization.
+
+## Independent integration and follow-up verification
+
+Reviewed the source placement qualifier, source-owned filter descriptors, fresh visibility,
+accepted-batch counter, field-boundary toggle latch, and temporal-capture ownership. Integrated
+`0fcc00dd`, `dca0ce6e`, and `0b3d006f`, pushed, and verified remote commit equality. Original
+mode and both opt-in candidates remain available; there is no global default promotion.
+
+All paths here are relative to the current integration worktree. Fresh matched personal reruns:
+
+| spacing / mode | left maximum mean jump | left peak spatial p99 | right maximum mean jump | during-edit publications |
+|---|---:|---:|---:|---:|
+| 32 original | 1.287555 | 7.333333 | .234569 | 22 |
+| 32 both | .0033705 | 0 | .0225604 | 22 |
+| 16 original | 0 | 0 | 0 | 3 |
+| 16 both | .0025092 | 0 | .0079414 | 3 |
+
+All values are sampled display code values /255, not HDR. Every run completed 40 edits;
+32 candidate and both 16 temporal runs passed their declared gates without runtime errors.
+The 16 baseline was already stable: **no flicker improvement is claimed there**. Candidate
+right-wall spatial p99 at 16 was .333333, and neither 16 run had any >3-code spike area.
+These 16 temporal results do not establish dense-grid final-reference accuracy.
+
+Evidence: `target/history-integration/{baseline32,candidate32,baseline16-long,candidate16-complete}/`.
+The personal 32 candidate also repeated independent final-geometry comparison at 56s: left mean
+.024679, spatial p99 .666667; right mean .014859, spatial p99 .333333, within the declared <=1 budget.
+The 32 opening/closing rerun in `response32/` passed: open **24.1202**, closed **.341535**,
+reopened **23.8071**. These remain settled response checks, not 10%/90% latency measurements.
+
+The first 16 attempts used the 58s duration suitable for the 32 matrix. **Both original and
+candidate** timed out waiting for the initial field before any edit; they are failed runs,
+not flicker evidence (`baseline16/`, `candidate16/`). Increasing the test duration to 190s,
+without changing renderer or warm-start policy, allowed the temporal tests above to run.
+A combined shell command's 480s tool timeout killed the first long candidate run
+(`candidate16-long/`) before completion and bypassed cleanup. It is not accepted evidence.
+Verified that the only changed GUI bytes were the requested two controls and the camera was
+still the fixture, restored exact `.before` backups, checked no child remained, then repeated
+the candidate alone in `candidate16-complete/`. Final GUI/camera bytes match committed files.
+
+Personal integration checks: fmt/check; **1035 main + 4 library tests passed, 2 ignored**;
+**17 Slang** and **69 targeted Python** tests passed. Hidden/muted release runs passed for:
+- the actual pre-candidate GUI file (both missing controls migrated safely);
+- tree wind/stiffness/resize with both candidates enabled;
+- all five requested live modes, with all four distinct policies confirmed in field-latch logs;
+- default startup, followed by canonical run-log tail inspection.
+
+Logs: `target/ddgi-candidate-integration-*.log`, `target/history-integration-{old-config,trees,toggles,default,tail}.log`,
+and `target/history-{baseline32,candidate32,baseline16-long,candidate16-complete,response32}.log`.
+No new performance claim; no visible launch or release. Remaining acceptance limits are the
+known 64 regression, user's stronger near-surface symptom, HDR/path-traced accuracy, broader
+seed coverage, dense-grid final-reference accuracy, and response-latency curves. Those are not
+silently waived by the strong default-spacing result.
