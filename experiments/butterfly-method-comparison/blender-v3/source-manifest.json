@@ -1,0 +1,126 @@
+{
+  "prototype": true,
+  "version": 3,
+  "blender_version": "4.5.13 LTS",
+  "blend": "butterfly-prototype.blend",
+  "glb": "butterfly-prototype.glb",
+  "geometry": {
+    "mesh_objects": 6,
+    "faces": 114,
+    "wing_design": "Broad cupped two-lobe silhouette, colored rim, no antennae, thickened dark thorax; identical geometry in every view."
+  },
+  "camera_elevation_degrees": 60.0,
+  "orthographic_scale": 3.05,
+  "camera_target_world": [
+    0,
+    0,
+    0
+  ],
+  "fixed_world_reference": [
+    0,
+    0,
+    0
+  ],
+  "intentional_body_motion": true,
+  "per_frame_recentering": false,
+  "view_azimuth_degrees": [
+    0,
+    45,
+    90,
+    135,
+    180
+  ],
+  "sample_frames": [
+    1,
+    6,
+    11,
+    16,
+    21
+  ],
+  "sample_seconds": [
+    0,
+    0.2,
+    0.4,
+    0.6,
+    0.8
+  ],
+  "source_fps": 25,
+  "loop_seconds": 1,
+  "source_frame_range": [
+    1,
+    25
+  ],
+  "loop_endpoint_frame": 26,
+  "key_pose_table": {
+    "wing_degrees": [
+      5,
+      32,
+      60,
+      38,
+      -18
+    ],
+    "body_z": [
+      -0.04,
+      0.015,
+      0.07,
+      0.025,
+      -0.06
+    ],
+    "body_pitch_degrees": [
+      -4,
+      2,
+      8,
+      3,
+      -7
+    ],
+    "abdomen_degrees": [
+      5,
+      0,
+      -7,
+      -3,
+      7
+    ],
+    "abdomen_tip_degrees": [
+      8,
+      2,
+      -10,
+      -4,
+      10
+    ]
+  },
+  "curve": "Periodic Catmull-Rom authored poses sampled at 25fps, linear keys; identical t=1 endpoint.",
+  "required_animated_nodes": [
+    "Flight pose",
+    "Abdomen follow",
+    "Abdomen tip follow",
+    "Wing hinge R",
+    "Wing hinge L"
+  ],
+  "raw_frame_px": 128,
+  "primary_pixel_frame_px": 12,
+  "primary_pixel_method": "Native 12px render: 1 sample, BOX filter width .01, fixed seed. 16px comparison; no image resizing.",
+  "palette_srgb": [
+    [
+      24,
+      32,
+      48
+    ],
+    [
+      63,
+      93,
+      124
+    ],
+    [
+      80,
+      190,
+      220
+    ],
+    [
+      205,
+      246,
+      248
+    ]
+  ],
+  "postprocess": "Fixed global palette quantization, binary alpha threshold128, no dithering, no centering.",
+  "art_basis": "Hand-authored sprite observation + 3D-to-pixel workflow practice; motion is stylized design, not recovered anatomy or biomechanics."
+}
